@@ -54,6 +54,9 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleException;
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
@@ -359,6 +362,13 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
       operationTracer.traceEndBlock(blockHeader, blockBody);
       timings.register("blockAssembled");
+      if (savesTrieLogOfCreatedBlocks()
+          && !blockBody.getTransactions().isEmpty()
+          && disposableWorldState instanceof PathBasedWorldState pathBasedWorldState
+          && pathBasedWorldState.isStorageFrozen()) {
+        saveTrieLog(pathBasedWorldState, parentHeader, blockHeader);
+        timings.register("trieLogSaved");
+      }
       return new BlockCreationResult(
           block, transactionResults, timings, blockAccessList, maybeRequests);
     } catch (final SecurityModuleException ex) {
@@ -368,6 +378,31 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
     } catch (final Exception ex) {
       throw new IllegalStateException(
           "Block creation failed unexpectedly. Will restart on next block added to chain.", ex);
+    }
+  }
+
+  /**
+   * Save the trie log of created blocks, so the import can use it instead of executing the block
+   * again. Only for frozen path-based world state and blocks with transactions.
+   *
+   * @return true to save the trie log
+   */
+  protected boolean savesTrieLogOfCreatedBlocks() {
+    return false;
+  }
+
+  private void saveTrieLog(
+      final PathBasedWorldState worldState,
+      final BlockHeader parentHeader,
+      final BlockHeader blockHeader) {
+    try {
+      // rootHash() moved the frozen world state to the new root, its nodes are not stored.
+      // So restart from the parent root before persist.
+      worldState.resetWorldStateTo(parentHeader);
+      worldState.persist(blockHeader);
+    } catch (final RuntimeException e) {
+      // block is still valid, import will just execute it again
+      LOG.warn("Unable to save the trie log of created block {}", blockHeader.toLogString(), e);
     }
   }
 

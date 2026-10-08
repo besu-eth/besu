@@ -19,6 +19,7 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockValidator;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
@@ -29,30 +30,55 @@ public class QbftBlockValidatorAdaptor implements QbftBlockValidator {
 
   private final BlockValidator blockValidator;
   private final ProtocolContext protocolContext;
+  private final ValidatedBlockCache validatedBlockCache;
 
   /**
    * Constructs a new Qbft block validator
    *
    * @param blockValidator The Besu block validator
    * @param protocolContext The protocol context
+   * @param validatedBlockCache outputs of created and validated blocks
    */
   public QbftBlockValidatorAdaptor(
-      final BlockValidator blockValidator, final ProtocolContext protocolContext) {
+      final BlockValidator blockValidator,
+      final ProtocolContext protocolContext,
+      final ValidatedBlockCache validatedBlockCache) {
     this.blockValidator = blockValidator;
     this.protocolContext = protocolContext;
+    this.validatedBlockCache = validatedBlockCache;
   }
 
   @Override
   public ValidationResult validateBlock(
       final QbftBlock block, final Optional<BlockAccessList> blockAccessList) {
+    final Block besuBlock = AdaptorUtil.toBesuBlock(block);
+    // block already created or validated with same BAL, no need to execute it again
+    if (validatedBlockCache
+        .get(besuBlock.getHash())
+        .filter(validatedBlock -> validatedBlock.blockAccessList().equals(blockAccessList))
+        .isPresent()) {
+      return new ValidationResult(true, Optional.empty());
+    }
     final BlockProcessingResult blockProcessingResult =
         blockValidator.validateAndProcessBlock(
             protocolContext,
-            AdaptorUtil.toBesuBlock(block),
+            besuBlock,
             HeaderValidationMode.LIGHT,
             HeaderValidationMode.FULL,
             blockAccessList,
             false);
+    if (blockProcessingResult.isSuccessful()) {
+      blockProcessingResult
+          .getYield()
+          .ifPresent(
+              outputs ->
+                  validatedBlockCache.put(
+                      besuBlock.getHash(),
+                      new ValidatedBlockCache.ValidatedBlock(
+                          besuBlock.getHeader().getNumber(),
+                          outputs.getReceipts(),
+                          outputs.getBlockAccessList())));
+    }
     return new ValidationResult(
         blockProcessingResult.isSuccessful(), blockProcessingResult.errorMessage);
   }

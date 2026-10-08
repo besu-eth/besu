@@ -35,17 +35,22 @@ public class QbftBlockCreatorAdaptor implements QbftBlockCreator {
 
   private final BlockCreator besuBlockCreator;
   private final BftExtraDataCodec bftExtraDataCodec;
+  private final ValidatedBlockCache validatedBlockCache;
 
   /**
    * Constructs a new QbftBlockCreator
    *
    * @param besuBftBlockCreator the Besu BFT block creator
    * @param bftExtraDataCodec the bftExtraDataCodec used to encode extra data for the new header
+   * @param validatedBlockCache cache for outputs of created blocks
    */
   public QbftBlockCreatorAdaptor(
-      final BlockCreator besuBftBlockCreator, final BftExtraDataCodec bftExtraDataCodec) {
+      final BlockCreator besuBftBlockCreator,
+      final BftExtraDataCodec bftExtraDataCodec,
+      final ValidatedBlockCache validatedBlockCache) {
     this.besuBlockCreator = besuBftBlockCreator;
     this.bftExtraDataCodec = bftExtraDataCodec;
+    this.validatedBlockCache = validatedBlockCache;
   }
 
   @Override
@@ -54,9 +59,16 @@ public class QbftBlockCreatorAdaptor implements QbftBlockCreator {
     var blockResult =
         besuBlockCreator.createBlock(
             headerTimeStampSeconds, AdaptorUtil.toBesuBlockHeader(parentHeader));
+    final Block block = blockResult.getBlock();
+    // keep outputs, so proposal validation and import don't execute the block again
+    validatedBlockCache.put(
+        block.getHash(),
+        new ValidatedBlockCache.ValidatedBlock(
+            block.getHeader().getNumber(),
+            blockResult.getTransactionSelectionResults().getReceipts(),
+            blockResult.getBlockAccessList()));
     return new BlockCreationResult(
-        new QbftBlockAdaptor(
-            blockResult.getBlock(), Optional.of(blockResult.getBlockCreationTimings())),
+        new QbftBlockAdaptor(block, Optional.of(blockResult.getBlockCreationTimings())),
         blockResult.getBlockAccessList());
   }
 

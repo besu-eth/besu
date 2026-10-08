@@ -28,10 +28,13 @@ import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator;
+import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionSelectionResults;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
+import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -46,8 +49,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class QbftBlockCreatorAdaptorTest {
   @Mock private BlockCreator blockCreator;
-  @Mock private Block besuBlock;
+  @Mock private TransactionSelectionResults transactionSelectionResults;
+  private final BlockDataGenerator generator = new BlockDataGenerator();
+  private final Block besuBlock = generator.block();
   private final QbftExtraDataCodec qbftExtraDataCodec = new QbftExtraDataCodec();
+  private final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
 
   @Test
   void createsBlockUsingBesuBlockCreator() {
@@ -57,15 +63,38 @@ class QbftBlockCreatorAdaptorTest {
     BlockCreationTiming timing = new BlockCreationTiming();
     when(blockCreator.createBlock(10, besuParentHeader))
         .thenReturn(
-            new BlockCreator.BlockCreationResult(besuBlock, null, timing, Optional.empty()));
+            new BlockCreator.BlockCreationResult(
+                besuBlock, transactionSelectionResults, timing, Optional.empty()));
 
     QbftBlockCreatorAdaptor qbftBlockCreator =
-        new QbftBlockCreatorAdaptor(blockCreator, qbftExtraDataCodec);
+        new QbftBlockCreatorAdaptor(blockCreator, qbftExtraDataCodec, validatedBlockCache);
     QbftBlockCreator.BlockCreationResult qbftBlockCreationResult =
         qbftBlockCreator.createBlock(10, parentHeader);
     QbftBlock qbftBlock = qbftBlockCreationResult.block();
     assertThat(((QbftBlockAdaptor) qbftBlock).getBesuBlock()).isEqualTo(besuBlock);
     assertThat(((QbftBlockAdaptor) qbftBlock).getBlockCreationTiming()).contains(timing);
+  }
+
+  @Test
+  void recordsOutputsOfCreatedBlock() {
+    final BlockHeader besuParentHeader = new BlockHeaderTestFixture().buildHeader();
+    final List<TransactionReceipt> receipts = generator.receipts(besuBlock);
+    when(transactionSelectionResults.getReceipts()).thenReturn(receipts);
+    when(blockCreator.createBlock(10, besuParentHeader))
+        .thenReturn(
+            new BlockCreator.BlockCreationResult(
+                besuBlock,
+                transactionSelectionResults,
+                new BlockCreationTiming(),
+                Optional.empty()));
+
+    new QbftBlockCreatorAdaptor(blockCreator, qbftExtraDataCodec, validatedBlockCache)
+        .createBlock(10, new QbftBlockHeaderAdaptor(besuParentHeader));
+
+    assertThat(validatedBlockCache.get(besuBlock.getHash()))
+        .contains(
+            new ValidatedBlockCache.ValidatedBlock(
+                besuBlock.getHeader().getNumber(), receipts, Optional.empty()));
   }
 
   @Test
@@ -84,7 +113,7 @@ class QbftBlockCreatorAdaptorTest {
     SECPSignature seal = new SECPSignature(BigInteger.ONE, BigInteger.ONE, (byte) 1);
 
     QbftBlockCreatorAdaptor qbftBlockCreator =
-        new QbftBlockCreatorAdaptor(blockCreator, qbftExtraDataCodec);
+        new QbftBlockCreatorAdaptor(blockCreator, qbftExtraDataCodec, validatedBlockCache);
     QbftBlock sealedBlock = qbftBlockCreator.createSealedBlock(block, 1, List.of(seal));
     BftExtraData sealedExtraData =
         qbftExtraDataCodec.decode(AdaptorUtil.toBesuBlockHeader(sealedBlock.getHeader()));

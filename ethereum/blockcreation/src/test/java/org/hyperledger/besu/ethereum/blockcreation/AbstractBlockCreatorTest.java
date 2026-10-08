@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationRes
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
@@ -85,11 +87,13 @@ import org.hyperledger.besu.ethereum.mainnet.requests.DepositRequestProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
 import java.math.BigInteger;
@@ -291,6 +295,10 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
   }
 
   private CreateOn blockCreatorWithBlobGasSupport() {
+    return blockCreatorWithBlobGasSupport(false);
+  }
+
+  private CreateOn blockCreatorWithBlobGasSupport(final boolean saveTrieLog) {
     final var alwaysValidTransactionValidatorFactory = mock(TransactionValidatorFactory.class);
     when(alwaysValidTransactionValidatorFactory.get())
         .thenReturn(new AlwaysValidTransactionValidator());
@@ -304,7 +312,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
                   (evm, gasLimitCalculator, feeMarket) -> alwaysValidTransactionValidatorFactory);
               return specBuilder;
             });
-    return createBlockCreator(protocolSpecAdapters);
+    return createBlockCreator(protocolSpecAdapters, saveTrieLog);
   }
 
   private CreateOn blockCreatorWithBalSupport() {
@@ -394,6 +402,91 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     assertThat(maybeBlockAccessList).isEmpty();
   }
 
+  @Test
+  void savedTrieLogMovesHeadWorldStateToCreatedBlock() {
+    final CreateOn miningOn = blockCreatorWithBlobGasSupport(true);
+    final ProtocolContext protocolContext = miningOn.blockCreator.protocolContext;
+    final PathBasedWorldStateProvider worldStateArchive =
+        (PathBasedWorldStateProvider) protocolContext.getWorldStateArchive();
+    final Hash headStateRoot = worldStateArchive.getWorldState().rootHash();
+
+    final BlockCreationResult blockCreationResult =
+        miningOn.blockCreator.createBlock(
+            Optional.of(List.of(transferTransaction())),
+            Optional.empty(),
+            System.currentTimeMillis(),
+            miningOn.parentHeader);
+    final Block block = blockCreationResult.getBlock();
+
+    assertThat(block.getBody().getTransactions()).hasSize(1);
+    assertThat(block.getHeader().getStateRoot()).isNotEqualTo(headStateRoot);
+    assertThat(worldStateArchive.getTrieLogManager().getTrieLogLayer(block.getHash())).isPresent();
+    assertThat(worldStateArchive.getWorldState().rootHash()).isEqualTo(headStateRoot);
+
+    protocolContext
+        .getBlockchain()
+        .appendBlock(block, blockCreationResult.getTransactionSelectionResults().getReceipts());
+    assertThat(
+            worldStateArchive
+                .getWorldState(withBlockHeaderAndUpdateNodeHead(block.getHeader()))
+                .map(MutableWorldState::rootHash))
+        .contains(block.getHeader().getStateRoot());
+  }
+
+  @Test
+  void doesNotSaveTrieLogOfCreatedBlockByDefault() {
+    final CreateOn miningOn = blockCreatorWithBlobGasSupport();
+    final PathBasedWorldStateProvider worldStateArchive =
+        (PathBasedWorldStateProvider) miningOn.blockCreator.protocolContext.getWorldStateArchive();
+
+    final Block block =
+        miningOn
+            .blockCreator
+            .createBlock(
+                Optional.of(List.of(transferTransaction())),
+                Optional.empty(),
+                System.currentTimeMillis(),
+                miningOn.parentHeader)
+            .getBlock();
+
+    assertThat(block.getBody().getTransactions()).hasSize(1);
+    assertThat(worldStateArchive.getTrieLogManager().getTrieLogLayer(block.getHash())).isEmpty();
+  }
+
+  @Test
+  void doesNotSaveTrieLogOfCreatedBlockWithoutTransactions() {
+    final CreateOn miningOn =
+        createBlockCreator(ProtocolSpecAdapters.create(0, specBuilder -> specBuilder), true);
+    final PathBasedWorldStateProvider worldStateArchive =
+        (PathBasedWorldStateProvider) miningOn.blockCreator.protocolContext.getWorldStateArchive();
+
+    final Block block =
+        miningOn
+            .blockCreator
+            .createBlock(
+                Optional.of(List.of()),
+                Optional.empty(),
+                System.currentTimeMillis(),
+                miningOn.parentHeader)
+            .getBlock();
+
+    assertThat(block.getBody().getTransactions()).isEmpty();
+    assertThat(worldStateArchive.getTrieLogManager().getTrieLogLayer(block.getHash())).isEmpty();
+  }
+
+  private Transaction transferTransaction() {
+    final GenesisAccount sender = accounts.get(1);
+    final KeyPair keyPair =
+        SIGNATURE_ALGORITHM.createKeyPair(SECPPrivateKey.create(sender.privateKey(), "ECDSA"));
+    return new TransactionTestFixture()
+        .sender(sender.address())
+        .to(Optional.of(accounts.get(2).address()))
+        .value(Wei.fromEth(1))
+        .gasLimit(21_000L)
+        .nonce(sender.nonce())
+        .createTransaction(keyPair);
+  }
+
   private CreateOn blockCreatorWithWithdrawalsProcessor() {
     final ProtocolSpecAdapters protocolSpecAdapters =
         ProtocolSpecAdapters.create(
@@ -410,6 +503,11 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
   record CreateOn(AbstractBlockCreator blockCreator, BlockHeader parentHeader) {}
 
   private CreateOn createBlockCreator(final ProtocolSpecAdapters protocolSpecAdapters) {
+    return createBlockCreator(protocolSpecAdapters, false);
+  }
+
+  private CreateOn createBlockCreator(
+      final ProtocolSpecAdapters protocolSpecAdapters, final boolean saveTrieLog) {
 
     final ExecutionContextTestFixture executionContextTestFixture =
         ExecutionContextTestFixture.builder(genesisConfig)
@@ -473,11 +571,14 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             transactionPool,
             executionContextTestFixture.getProtocolContext(),
             executionContextTestFixture.getProtocolSchedule(),
-            ethScheduler),
+            ethScheduler,
+            saveTrieLog),
         parentHeader);
   }
 
   static class TestBlockCreator extends AbstractBlockCreator {
+
+    private final boolean saveTrieLog;
 
     protected TestBlockCreator(
         final MiningConfiguration miningConfiguration,
@@ -486,7 +587,8 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
         final TransactionPool transactionPool,
         final ProtocolContext protocolContext,
         final ProtocolSchedule protocolSchedule,
-        final EthScheduler ethScheduler) {
+        final EthScheduler ethScheduler,
+        final boolean saveTrieLog) {
       super(
           miningConfiguration,
           miningBeneficiaryCalculator,
@@ -495,6 +597,12 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
           protocolContext,
           protocolSchedule,
           ethScheduler);
+      this.saveTrieLog = saveTrieLog;
+    }
+
+    @Override
+    protected boolean savesTrieLogOfCreatedBlocks() {
+      return saveTrieLog;
     }
 
     @Override
