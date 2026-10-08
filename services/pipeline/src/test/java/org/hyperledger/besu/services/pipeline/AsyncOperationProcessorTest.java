@@ -197,6 +197,20 @@ public class AsyncOperationProcessorTest {
         .hasRootCause(exception);
   }
 
+  @Test
+  public void shouldRejectZeroMaxConcurrency() {
+    assertThatThrownBy(() -> new AsyncOperationProcessor<>(Function.identity(), 0, false))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Maximum concurrency must be greater than 0");
+  }
+
+  @Test
+  public void shouldRejectNegativeMaxConcurrency() {
+    assertThatThrownBy(() -> new AsyncOperationProcessor<>(Function.identity(), -1, false))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Maximum concurrency must be greater than 0");
+  }
+
   private AsyncOperationProcessor<CompletableFuture<String>, String> createProcessor(
       final boolean preserveOrder) {
     return new AsyncOperationProcessor<>(Function.identity(), 3, preserveOrder);
