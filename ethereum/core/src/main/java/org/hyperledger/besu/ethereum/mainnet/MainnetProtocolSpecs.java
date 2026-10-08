@@ -68,6 +68,7 @@ import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.BogotaPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.CancunPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
@@ -1405,6 +1406,8 @@ public abstract class MainnetProtocolSpecs {
                     .build())
         // EIP-8141: frame transaction receipts
         .transactionReceiptFactory(new BogotaTransactionReceiptFactory(enableRevertReason))
+        // EIP-8141: install the expiry verifier's code at the fork
+        .preExecutionProcessor(new BogotaPreExecutionProcessor())
         .hardforkId(BOGOTA);
   }
 
