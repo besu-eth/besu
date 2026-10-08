@@ -129,7 +129,9 @@ public abstract class CallParameter implements org.hyperledger.besu.datatypes.Ca
             .gas(tx.getGasLimit())
             .value(tx.getValue())
             .input(tx.getPayload())
-            .nonce(tx.getNonce());
+            .nonce(tx.getNonce())
+            // a transaction is validated as one, for example against its own blob fee cap
+            .strict(true);
 
     tx.getTo().ifPresent(builder::to);
     tx.getGasPrice().ifPresent(builder::gasPrice);
@@ -153,7 +155,9 @@ public abstract class CallParameter implements org.hyperledger.besu.datatypes.Ca
             .gas(tx.getGasLimit())
             .value(Wei.fromQuantity(tx.getValue()))
             .input(tx.getPayload())
-            .nonce(tx.getNonce());
+            .nonce(tx.getNonce())
+            // a transaction is validated as one, for example against its own blob fee cap
+            .strict(true);
 
     tx.getTo().ifPresent(builder::to);
     tx.getGasPrice().map(Wei::fromQuantity).ifPresent(builder::gasPrice);
