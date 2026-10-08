@@ -41,8 +41,7 @@ class NotOperationV2Test extends UnaryOperationV2Test {
 
   /**
    * Structural test data for NOT(a) = expected. Bitwise correctness is covered by
-   * UInt256PropertyBasedTest and BitwiseOperationsV2PropertyBasedTest; these cases verify stack
-   * arity and limb-level read/write wiring.
+   * UInt256PropertyBasedTest; these cases verify stack arity and limb-level read/write wiring.
    */
   static Iterable<Arguments> data() {
     return List.of(

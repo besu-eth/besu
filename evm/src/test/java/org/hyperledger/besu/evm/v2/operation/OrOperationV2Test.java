@@ -41,8 +41,7 @@ class OrOperationV2Test extends BinaryOperationV2Test {
 
   /**
    * Structural test data for OR(a, b) = expected. Bitwise correctness is covered by
-   * UInt256PropertyBasedTest and BitwiseOperationsV2PropertyBasedTest; these cases verify stack
-   * arity and limb-level read/write wiring.
+   * UInt256PropertyBasedTest; these cases verify stack arity and limb-level read/write wiring.
    *
    * <p>Push order when building the frame: b first (deepest), then a (top).
    */

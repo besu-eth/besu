@@ -26,7 +26,7 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
  */
 public class XorOperationV2 extends AbstractFixedCostOperationV2 {
 
-  private static final OperationResult XOR_SUCCESS = new OperationResult(3, null);
+  private static final OperationResult SUCCESS = new OperationResult(3, null);
 
   /**
    * Instantiates a new Xor operation.
@@ -70,6 +70,6 @@ public class XorOperationV2 extends AbstractFixedCostOperationV2 {
     stack[bOffset + 3] = r.u0();
 
     frame.setTopV2(top - 1);
-    return XOR_SUCCESS;
+    return SUCCESS;
   }
 }

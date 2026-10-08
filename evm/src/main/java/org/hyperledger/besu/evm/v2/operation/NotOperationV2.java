@@ -26,7 +26,7 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
  */
 public class NotOperationV2 extends AbstractFixedCostOperationV2 {
 
-  private static final OperationResult NOT_SUCCESS = new OperationResult(3, null);
+  private static final OperationResult SUCCESS = new OperationResult(3, null);
 
   /**
    * Instantiates a new Not operation.
@@ -65,6 +65,6 @@ public class NotOperationV2 extends AbstractFixedCostOperationV2 {
     stack[aOffset + 2] = r.u1();
     stack[aOffset + 3] = r.u0();
 
-    return NOT_SUCCESS;
+    return SUCCESS;
   }
 }
