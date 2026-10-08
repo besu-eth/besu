@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.consensus.common.bft.statemachine;
 
-import org.hyperledger.besu.util.number.ByteUnits;
+import static wtf.metio.storageunits.model.StorageUnits.mebibyte;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -46,7 +46,8 @@ public class FutureMessageBuffer<T> {
    * message-count limit alone does not bound memory, since an individual BFT message (e.g. a QBFT
    * PROPOSAL carrying a full block) can be several megabytes.
    */
-  @VisibleForTesting static final long DEFAULT_MAX_TOTAL_MESSAGE_BYTES = 64L * ByteUnits.MEGABYTE;
+  @VisibleForTesting
+  static final long DEFAULT_MAX_TOTAL_MESSAGE_BYTES = mebibyte(64).inByte().longValueExact();
 
   private final NavigableMap<Long, List<T>> buffer = new TreeMap<>();
   private final long futureMessagesMaxDistance;

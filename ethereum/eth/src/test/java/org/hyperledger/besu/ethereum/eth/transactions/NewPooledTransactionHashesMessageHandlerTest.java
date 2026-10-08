@@ -20,6 +20,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
@@ -48,7 +49,8 @@ class NewPooledTransactionHashesMessageHandlerTest {
     handler = new NewPooledTransactionHashesMessageHandler(scheduler, processor, 300);
     handler.setEnabled();
     when(peer.getConnection()).thenReturn(peerConnection);
-    when(peerConnection.capability(EthProtocol.NAME)).thenReturn(EthProtocol.ETH68);
+    when(peerConnection.capability(EthProtocol.NAME))
+        .thenReturn(EthProtocolVersion.V68.getCapability());
   }
 
   @Test

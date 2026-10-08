@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -86,7 +87,7 @@ public class WorldStateProofProviderTest {
     // Save to storage
     storageTrie.commit(
         (location, hash, value) ->
-            updater.putAccountStorageTrieNode(addressHash, location, hash, value));
+            updater.putTrieNode(TrieNodeKey.of(addressHash, location), hash, value));
 
     // Define account value
     final Hash codeHash = Hash.hash(Bytes.fromHexString("0x1122"));
@@ -195,7 +196,7 @@ public class WorldStateProofProviderTest {
     final Bytes[] rootNodeValue = new Bytes[1];
     worldStateTrie.commit(
         (location, hash, value) -> {
-          updater.putAccountStateTrieNode(location, hash, value);
+          updater.putTrieNode(location, hash, value);
           if (location.size() == 0) {
             rootNodeValue[0] = value;
           }
@@ -219,15 +220,13 @@ public class WorldStateProofProviderTest {
   private MerkleTrie<Bytes32, Bytes> emptyStorageTrie(final Hash accountHash) {
     return new StoredMerklePatriciaTrie<>(
         (location, hash) ->
-            worldStateKeyValueStorage.getAccountStorageTrieNode(accountHash, location, hash),
+            worldStateKeyValueStorage.getTrieNode(TrieNodeKey.of(accountHash, location), hash),
         b -> b,
         b -> b);
   }
 
   private MerkleTrie<Bytes32, Bytes> emptyWorldStateTrie() {
     return new StoredMerklePatriciaTrie<>(
-        (location, hash) -> worldStateKeyValueStorage.getAccountStateTrieNode(location, hash),
-        b -> b,
-        b -> b);
+        (location, hash) -> worldStateKeyValueStorage.getTrieNode(location, hash), b -> b, b -> b);
   }
 }

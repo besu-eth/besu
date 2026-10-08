@@ -42,7 +42,8 @@ public class EthProtocolVersionTest {
 
   @Test
   public void shouldReturn68WhenMaxProtocolIsETH68() {
-    Capability capability = EthProtocol.ETH68;
+    Capability capability =
+        org.hyperledger.besu.ethereum.eth.EthProtocolVersion.V68.getCapability();
     setupSupportedEthProtocols(capability);
     String expectedVersion = "0x" + Integer.toHexString(capability.getVersion());
     final JsonRpcRequestContext request = requestWithParams();
@@ -67,7 +68,8 @@ public class EthProtocolVersionTest {
 
   @Test
   public void shouldReturn68WhenMixedProtocolsSupported() {
-    Capability capability = EthProtocol.ETH68;
+    Capability capability =
+        org.hyperledger.besu.ethereum.eth.EthProtocolVersion.V68.getCapability();
     setupSupportedEthProtocols(capability);
     String expectedVersion = "0x" + Integer.toHexString(capability.getVersion());
     supportedCapabilities.add(Capability.create("istanbul", 64));

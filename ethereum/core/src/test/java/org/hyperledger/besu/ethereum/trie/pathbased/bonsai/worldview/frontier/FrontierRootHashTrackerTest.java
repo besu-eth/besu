@@ -154,7 +154,7 @@ class FrontierRootHashTrackerTest {
             inv ->
                 new StoredMerklePatriciaTrie<>(
                     (location, hash) ->
-                        worldState.getWorldStateStorage().getAccountStateTrieNode(location, hash),
+                        worldState.getWorldStateStorage().getTrieNode(location, hash),
                     inv.<Bytes32>getArgument(0),
                     Function.identity(),
                     Function.identity()));

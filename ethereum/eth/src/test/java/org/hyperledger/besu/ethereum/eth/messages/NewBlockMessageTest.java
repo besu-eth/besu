@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.messages;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static wtf.metio.storageunits.model.StorageUnits.mebibyte;
 
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -24,14 +25,13 @@ import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.util.number.ByteUnits;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class NewBlockMessageTest {
   private static final ProtocolSchedule protocolSchedule = ProtocolScheduleFixture.TESTING_NETWORK;
-  private static final int maxMessageSize = 10 * ByteUnits.MEGABYTE;
+  private static final int maxMessageSize = mebibyte(10).inByte().intValueExact();
 
   @Test
   public void roundTripNewBlockMessage() {

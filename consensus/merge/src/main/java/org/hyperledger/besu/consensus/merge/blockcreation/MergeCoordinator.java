@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
-import static java.util.stream.Collectors.joining;
 import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INTERNAL_ERROR;
 import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INVALID;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
@@ -40,7 +39,6 @@ import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BadChainListener;
@@ -55,9 +53,11 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.math.BigInteger;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
@@ -70,7 +70,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -248,7 +248,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       return payloadIdentifier;
     }
     // it's a new payloadId so...
-    cancelAnyExistingBlockCreationTasks(payloadIdentifier);
+    cancelAnyExistingBlockCreationTasks(payloadIdentifier, preparePayloadArgs);
 
     final MergeBlockCreator mergeBlockCreator =
         this.mergeBlockCreatorFactory.forParams(
@@ -293,32 +293,70 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     }
 
     // Create the async block building task and store it
-    tryToBuildBetterBlock(
-        preparePayloadArgs.timestamp(),
-        preparePayloadArgs.prevRandao(),
-        payloadIdentifier,
-        mergeBlockCreator,
-        preparePayloadArgs.withdrawals(),
-        preparePayloadArgs.parentBeaconBlockRoot(),
-        preparePayloadArgs.slotNumber(),
-        preparePayloadArgs.targetGasLimit(),
-        preparePayloadArgs.parentHeader());
+    tryToBuildBetterBlock(payloadIdentifier, mergeBlockCreator, preparePayloadArgs);
 
     return payloadIdentifier;
   }
 
-  private void cancelAnyExistingBlockCreationTasks(final PayloadIdentifier payloadIdentifier) {
-    if (blockCreationTasks.size() > 0) {
-      String existingPayloadIdsBeingBuilt =
-          blockCreationTasks.keySet().stream()
-              .map(PayloadIdentifier::toHexString)
-              .collect(joining(","));
-      LOG.warn(
-          "New payloadId {} received so cancelling block creation tasks for the following payloadIds: {}",
-          payloadIdentifier,
-          existingPayloadIdsBeingBuilt);
+  private void cancelAnyExistingBlockCreationTasks(
+      final PayloadIdentifier payloadIdentifier, final PreparePayloadArgs preparePayloadArgs) {
+    // A CL sends new payload attributes whenever its head or the proposal inputs change, and only
+    // requests the payload of the latest ones, so this is expected and not worth a warning
+    if (LOG.isDebugEnabled()) {
+      blockCreationTasks.forEach(
+          (existingPayloadIdentifier, existingTask) ->
+              LOG.debug(
+                  "Replacing block creation for payload id {} with {}, changed: {}",
+                  existingPayloadIdentifier,
+                  payloadIdentifier,
+                  describePayloadArgsChanges(existingTask.preparePayloadArgs, preparePayloadArgs)));
+    }
 
-      blockCreationTasks.keySet().forEach(this::cleanupBlockCreationTask);
+    blockCreationTasks.keySet().forEach(this::cleanupBlockCreationTask);
+  }
+
+  @VisibleForTesting
+  static String describePayloadArgsChanges(
+      final PreparePayloadArgs previous, final PreparePayloadArgs next) {
+    final List<String> changes = new ArrayList<>();
+    addChange(changes, "parent", previous.parentHeader().getHash(), next.parentHeader().getHash());
+    addChange(changes, "timestamp", previous.timestamp(), next.timestamp());
+    addChange(changes, "prevRandao", previous.prevRandao(), next.prevRandao());
+    addChange(changes, "feeRecipient", previous.feeRecipient(), next.feeRecipient());
+    addChange(
+        changes,
+        "parentBeaconBlockRoot",
+        previous.parentBeaconBlockRoot().orElse(null),
+        next.parentBeaconBlockRoot().orElse(null));
+    addChange(
+        changes, "slotNumber", previous.slotNumber().orElse(null), next.slotNumber().orElse(null));
+    addChange(
+        changes,
+        "targetGasLimit",
+        previous.targetGasLimit().orElse(null),
+        next.targetGasLimit().orElse(null));
+    if (!previous.withdrawals().equals(next.withdrawals())) {
+      changes.add(
+          "withdrawals changed ("
+              + countWithdrawals(previous)
+              + " -> "
+              + countWithdrawals(next)
+              + ")");
+    }
+    return changes.isEmpty() ? "none" : String.join(", ", changes);
+  }
+
+  private static String countWithdrawals(final PreparePayloadArgs preparePayloadArgs) {
+    return preparePayloadArgs.withdrawals().map(ws -> String.valueOf(ws.size())).orElse("none");
+  }
+
+  private static void addChange(
+      final List<String> changes,
+      final String name,
+      final @Nullable Object previous,
+      final @Nullable Object next) {
+    if (!Objects.equals(previous, next)) {
+      changes.add(name + " " + previous + " -> " + next);
     }
   }
 
@@ -398,26 +436,21 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   private void tryToBuildBetterBlock(
-      final Long timestamp,
-      final Bytes32 random,
       final PayloadIdentifier payloadIdentifier,
       final MergeBlockCreator mergeBlockCreator,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber,
-      final Optional<Long> targetGasLimit,
-      final BlockHeader parentHeader) {
+      final PreparePayloadArgs preparePayloadArgs) {
 
+    final BlockHeader parentHeader = preparePayloadArgs.parentHeader();
     final Supplier<BlockCreationResult> blockCreator =
         () ->
             mergeBlockCreator.createBlock(
                 Optional.empty(),
-                random,
-                timestamp,
-                withdrawals,
-                parentBeaconBlockRoot,
-                slotNumber,
-                targetGasLimit,
+                preparePayloadArgs.prevRandao(),
+                preparePayloadArgs.timestamp(),
+                preparePayloadArgs.withdrawals(),
+                preparePayloadArgs.parentBeaconBlockRoot(),
+                preparePayloadArgs.slotNumber(),
+                preparePayloadArgs.targetGasLimit(),
                 parentHeader);
 
     LOG.debug(
@@ -432,7 +465,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     // starts before task is registered, causing isBlockCreationCancelled to incorrectly
     // return true during the race window
     blockCreationTasks.put(
-        payloadIdentifier, new BlockCreationTask(mergeBlockCreator, blockCreationFuture));
+        payloadIdentifier,
+        new BlockCreationTask(mergeBlockCreator, preparePayloadArgs, blockCreationFuture));
 
     // Schedule the async work and chain it to complete our controlled future
     ethScheduler
@@ -1092,6 +1126,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     /** The Block creator. */
     final MergeBlockCreator blockCreator;
 
+    /** The arguments the block is built from. */
+    final PreparePayloadArgs preparePayloadArgs;
+
     /** The Cancelled. */
     final AtomicBoolean cancelled;
 
@@ -1105,11 +1142,15 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
      * Instantiates a new Block creation task.
      *
      * @param blockCreator the block creator
+     * @param preparePayloadArgs the arguments the block is built from
      * @param blockCreationFuture the completable future for the async task
      */
     public BlockCreationTask(
-        final MergeBlockCreator blockCreator, final CompletableFuture<Void> blockCreationFuture) {
+        final MergeBlockCreator blockCreator,
+        final PreparePayloadArgs preparePayloadArgs,
+        final CompletableFuture<Void> blockCreationFuture) {
       this.blockCreator = blockCreator;
+      this.preparePayloadArgs = preparePayloadArgs;
       this.cancelled = new AtomicBoolean(false);
       this.cancellation = new CountDownLatch(1);
       this.blockCreationFuture = blockCreationFuture;

@@ -146,7 +146,7 @@ public class RespondingEthPeer {
             .genesisHash(gen.hash())
             .bestHash(chainHeadHash)
             .forkId(new ForkId(Hash.ZERO.getBytes(), 0));
-    if (capability.getVersion() < EthProtocolVersion.V69) {
+    if (!EthProtocolVersion.hasBlockRange(capability.getVersion())) {
       statusMessageBuilder.totalDifficulty(totalDifficulty);
     } else if (EthProtocol.isEth69Compatible(capability)) {
       statusMessageBuilder.blockRange(new StatusMessage.BlockRange(0, estimatedHeight.orElse(0)));

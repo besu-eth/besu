@@ -21,7 +21,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 
 import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.apache.tuweni.bytes.Bytes32;
@@ -37,7 +36,7 @@ class EnginePayloadWithWitnessResultTest {
         new EnginePayloadWithWitnessResult(
             VALID,
             BLOCK_HASH,
-            Optional.empty(),
+            null,
             new EngineExecutionWitnessResult(List.of(), List.of(), List.of()));
 
     final JsonNode json =

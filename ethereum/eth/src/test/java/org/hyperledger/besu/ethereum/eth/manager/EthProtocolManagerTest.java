@@ -146,7 +146,8 @@ public final class EthProtocolManagerTest {
       final MessageData messageData =
           new RawMessage(EthProtocolMessages.GET_BLOCK_HEADERS, new byte[] {0x01, 0x02, 0x03});
       final MockPeerConnection peer = setupPeer(ethManager, (cap, msg, conn) -> {});
-      ethManager.processMessage(EthProtocol.ETH68, new DefaultMessage(peer, messageData));
+      ethManager.processMessage(
+          EthProtocolVersion.V68.getCapability(), new DefaultMessage(peer, messageData));
       assertThat(peer.isDisconnected()).isTrue();
       assertThat(peer.getDisconnectReason())
           .contains(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
@@ -168,7 +169,8 @@ public final class EthProtocolManagerTest {
       // disconnect the peer gracefully
       final MessageData messageData = GetBlockHeadersMessage.create(1, 1, 0, false);
       final MockPeerConnection peer = setupPeer(ethManager, (cap, msg, conn) -> {});
-      ethManager.processMessage(EthProtocol.ETH68, new DefaultMessage(peer, messageData));
+      ethManager.processMessage(
+          EthProtocolVersion.V68.getCapability(), new DefaultMessage(peer, messageData));
       assertThat(peer.isDisconnected()).isTrue();
     }
   }
@@ -268,7 +270,7 @@ public final class EthProtocolManagerTest {
 
       final StatusMessage workPeerStatus =
           StatusMessage.builder()
-              .protocolVersion(EthProtocol.ETH68.getVersion())
+              .protocolVersion(EthProtocolVersion.V68.getCapability().getVersion())
               .networkId(BigInteger.ONE)
               .totalDifficulty(blockchain.getChainHead().getTotalDifficulty().add(20))
               .bestHash(blockchain.getChainHeadHash())
@@ -320,15 +322,16 @@ public final class EthProtocolManagerTest {
             .setTransactionPool(transactionPool)
             .setEthereumWireProtocolConfiguration(
                 ImmutableEthProtocolConfiguration.builder()
-                    .maxEthCapability(EthProtocolVersion.V69)
+                    .maxEthCapability(EthProtocolVersion.V69.getVersion())
                     .build())
             .build()) {
 
       final MockPeerConnection peer =
-          setupPeerWithoutStatusExchange(ethManager, (cap, msg, conn) -> {}, EthProtocol.ETH69);
+          setupPeerWithoutStatusExchange(
+              ethManager, (cap, msg, conn) -> {}, EthProtocolVersion.V69.getCapability());
       StatusMessage statusMessage =
           StatusMessage.builder()
-              .protocolVersion(EthProtocolVersion.V68)
+              .protocolVersion(EthProtocolVersion.V68.getVersion())
               .totalDifficulty(blockchain.getChainHead().getTotalDifficulty())
               .networkId(BigInteger.ONE)
               .bestHash(blockchain.getChainHeadHash())
@@ -337,7 +340,8 @@ public final class EthProtocolManagerTest {
               .forkId(forkId)
               .build();
 
-      ethManager.processMessage(EthProtocol.ETH69, new DefaultMessage(peer, statusMessage));
+      ethManager.processMessage(
+          EthProtocolVersion.V69.getCapability(), new DefaultMessage(peer, statusMessage));
       assertThat(peer.getDisconnectReason()).isPresent();
       assertThat(peer.getDisconnectReason())
           .hasValue(DisconnectReason.SUBPROTOCOL_TRIGGERED_INVALID_STATUS_MESSAGE);
@@ -1058,7 +1062,8 @@ public final class EthProtocolManagerTest {
 
       // Run test
       final PeerConnection peer = setupPeer(ethManager, onSend);
-      ethManager.processMessage(EthProtocol.ETH69, new DefaultMessage(peer, messageData));
+      ethManager.processMessage(
+          EthProtocolVersion.V69.getCapability(), new DefaultMessage(peer, messageData));
       done.get();
     }
   }
@@ -1112,7 +1117,8 @@ public final class EthProtocolManagerTest {
 
       // Run test
       final PeerConnection peer = setupPeer(ethManager, onSend);
-      ethManager.processMessage(EthProtocol.ETH69, new DefaultMessage(peer, messageData));
+      ethManager.processMessage(
+          EthProtocolVersion.V69.getCapability(), new DefaultMessage(peer, messageData));
       done.get();
     }
   }
@@ -1158,7 +1164,8 @@ public final class EthProtocolManagerTest {
 
       // Run test
       final PeerConnection peer = setupPeer(ethManager, onSend);
-      ethManager.processMessage(EthProtocol.ETH69, new DefaultMessage(peer, messageData));
+      ethManager.processMessage(
+          EthProtocolVersion.V69.getCapability(), new DefaultMessage(peer, messageData));
       done.get();
     }
   }
@@ -1363,11 +1370,11 @@ public final class EthProtocolManagerTest {
     // Test with max capability = 65. should respect flag
     final EthProtocolConfiguration configuration =
         ImmutableEthProtocolConfiguration.builder()
-            .maxEthCapability(EthProtocolVersion.V68)
+            .maxEthCapability(EthProtocolVersion.V68.getVersion())
             .build();
 
-    assertHighestCapability(SyncMode.SNAP, EthProtocol.ETH68, configuration);
-    assertHighestCapability(SyncMode.FULL, EthProtocol.ETH68, configuration);
+    assertHighestCapability(SyncMode.SNAP, EthProtocolVersion.V68.getCapability(), configuration);
+    assertHighestCapability(SyncMode.FULL, EthProtocolVersion.V68.getCapability(), configuration);
   }
 
   @Test
@@ -1376,13 +1383,15 @@ public final class EthProtocolManagerTest {
     // If min cap = v67, should not contain v66
     final EthProtocolConfiguration configuration =
         ImmutableEthProtocolConfiguration.builder()
-            .minEthCapability(EthProtocolVersion.V69)
+            .minEthCapability(EthProtocolVersion.V69.getVersion())
             .build();
 
     final EthProtocolManager ethManager = createEthManager(SyncMode.SNAP, configuration);
 
-    assertThat(ethManager.getSupportedCapabilities()).contains(EthProtocol.ETH69);
-    assertThat(ethManager.getSupportedCapabilities()).doesNotContain(EthProtocol.ETH68);
+    assertThat(ethManager.getSupportedCapabilities())
+        .contains(EthProtocolVersion.V69.getCapability());
+    assertThat(ethManager.getSupportedCapabilities())
+        .doesNotContain(EthProtocolVersion.V68.getCapability());
   }
 
   @Test
@@ -1391,19 +1400,19 @@ public final class EthProtocolManagerTest {
     // Test with max capability = 68. should respect protocol
     final EthProtocolConfiguration configuration =
         ImmutableEthProtocolConfiguration.builder()
-            .maxEthCapability(EthProtocolVersion.V68)
+            .maxEthCapability(EthProtocolVersion.V68.getVersion())
             .build();
 
-    assertHighestCapability(SyncMode.SNAP, EthProtocol.ETH68, configuration);
-    assertHighestCapability(SyncMode.FULL, EthProtocol.ETH68, configuration);
+    assertHighestCapability(SyncMode.SNAP, EthProtocolVersion.V68.getCapability(), configuration);
+    assertHighestCapability(SyncMode.FULL, EthProtocolVersion.V68.getCapability(), configuration);
   }
 
   @Test
   public void shouldThrowExceptionWhenNoCapabilities() {
     final EthProtocolConfiguration configuration =
         ImmutableEthProtocolConfiguration.builder()
-            .minEthCapability(EthProtocolVersion.V69)
-            .maxEthCapability(EthProtocolVersion.V68)
+            .minEthCapability(EthProtocolVersion.V69.getVersion())
+            .maxEthCapability(EthProtocolVersion.V68.getVersion())
             .build();
 
     assertThatThrownBy(() -> createEthManager(SyncMode.SNAP, configuration))
@@ -1476,7 +1485,7 @@ public final class EthProtocolManagerTest {
                 StatusMessage.create(msg.getData()).blockRange().orElseThrow().earliestBlock();
             assertThat(earliestBlock).isEqualTo(expectedEarliestBlock);
           },
-          EthProtocol.ETH69);
+          EthProtocolVersion.V69.getCapability());
     }
   }
 
@@ -1503,7 +1512,7 @@ public final class EthProtocolManagerTest {
                 StatusMessage.create(msg.getData()).blockRange().orElseThrow().earliestBlock();
             assertThat(earliestBlock).isEqualTo(0L);
           },
-          EthProtocol.ETH69);
+          EthProtocolVersion.V69.getCapability());
     }
   }
 }
