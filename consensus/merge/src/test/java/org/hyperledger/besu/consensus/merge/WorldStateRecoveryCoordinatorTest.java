@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
+package org.hyperledger.besu.consensus.merge;
 
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
