@@ -217,7 +217,7 @@ public class BlockSimulator {
       BlockHeader resultBlockHeader = result.getBlock().getHeader();
       blockHashCache.put(resultBlockHeader.getNumber(), resultBlockHeader.getHash());
       currentBlockHeader = resultBlockHeader;
-      simulationCumulativeGasUsed += resultBlockHeader.getGasUsed();
+      simulationCumulativeGasUsed += result.getCumulativeGasUsed();
     }
     return results;
   }
@@ -307,7 +307,7 @@ public class BlockSimulator {
             protocolSpec,
             blockHashLookup,
             operationTracer,
-            Optional.empty());
+            blockAccessListBuilder);
 
     // if operationTracer is block-aware, traceStart and hold onto the option ref for traceEnd
     var maybeBlockAwareOperationTracer =
@@ -366,18 +366,14 @@ public class BlockSimulator {
         tracker ->
             blockAccessListBuilder.ifPresent(
                 builder -> builder.apply(tracker, ws.updater().updater())));
+    blockAccessListBuilder.ifPresent(b -> blockStateCallSimulationResult.set(b.build()));
 
     // Apply block reward for PoW blocks, matching geth's FinalizeAndAssemble behaviour.
-    // Post-merge specs have blockReward=ZERO and skipZeroBlockRewards=true, so no reward is
-    // applied for them.
-    Wei blockReward = protocolSpec.getBlockReward();
-    if (!(protocolSpec.isSkipZeroBlockRewards() && blockReward.isZero())) {
-      Address miner = overridenBaseBlockHeader.getCoinbase();
-      WorldUpdater rewardUpdater = ws.updater();
-      MutableAccount minerAccount = rewardUpdater.getOrCreate(miner);
-      minerAccount.incrementBalance(blockReward);
-      rewardUpdater.commit();
-    }
+    // Post-merge specs use BlockRewardProcessor.NO_REWARDS, so no reward is applied for them.
+    protocolSpec
+        .getBlockRewardProcessor()
+        .rewardBeneficiaries(
+            ws, overridenBaseBlockHeader, List.of(), overridenBaseBlockHeader.getCoinbase());
 
     var finalBlock =
         createFinalBlock(
@@ -409,7 +405,7 @@ public class BlockSimulator {
 
     BlockStateCallSimulationResult blockStateCallSimulationResult =
         new BlockStateCallSimulationResult(
-            protocolSpec, calculateSimulationGasCap(blockHeader, simulationCumulativeGasUsed));
+            protocolSpec, blockHeader.getGasLimit(), remainingRpcGas(simulationCumulativeGasUsed));
 
     MiningBeneficiaryCalculator miningBeneficiaryCalculator =
         blockStateCall
@@ -518,7 +514,6 @@ public class BlockSimulator {
       blockStateCallSimulationResult.add(transactionSimulationResult, ws, finalOperationTracer);
     }
 
-    blockAccessListBuilder.ifPresent(b -> blockStateCallSimulationResult.set(b.build()));
     return blockStateCallSimulationResult;
   }
 
@@ -584,7 +579,7 @@ public class BlockSimulator {
             .transactionsRoot(BodyValidation.transactionsRoot(transactions))
             .receiptsRoot(BodyValidation.receiptsRoot(receipts))
             .logsBloom(BodyValidation.logsBloom(receipts))
-            .gasUsed(simResult.getCumulativeGasUsed())
+            .gasUsed(simResult.getBlockGasUsed())
             .requestsHash(maybeRequests.map(BodyValidation::requestsHash).orElse(null))
             .balHash(simResult.getBlockAccessList().map(BodyValidation::balHash).orElse(null))
             .extraData(blockOverrides.getExtraData().orElse(Bytes.EMPTY))
@@ -697,7 +692,8 @@ public class BlockSimulator {
                                 ? getNextGasLimit(newProtocolSpec, header, blockNumber)
                                 : header.getGasLimit()))
             .extraData(blockOverrides.getExtraData().orElse(Bytes.EMPTY))
-            .prevRandao(blockOverrides.getMixHashOrPrevRandao().orElse(Bytes32.ZERO));
+            .prevRandao(blockOverrides.getMixHashOrPrevRandao().orElse(Bytes32.ZERO))
+            .slotNumber(header.getOptionalSlotNumber().map(slot -> slot + 1).orElse(null));
 
     // London+: baseFee
     if (newProtocolSpec.getFeeMarket().implementsBaseFee()) {
@@ -848,12 +844,13 @@ public class BlockSimulator {
     };
   }
 
-  public long calculateSimulationGasCap(
-      final BlockHeader blockHeader, final long simulationCumulativeGasUsed) {
-    if (rpcGasCap > 0) {
-      long remainingGas = Math.max(rpcGasCap - simulationCumulativeGasUsed, 0);
-      return Math.min(remainingGas, blockHeader.getGasLimit());
-    }
-    return blockHeader.getGasLimit();
+  /**
+   * Returns the gas that the calls of the simulation may still use under the RPC gas cap.
+   *
+   * @param simulationCumulativeGasUsed the receipt gas that earlier blocks of the simulation used
+   * @return the remaining gas, or {@link Long#MAX_VALUE} without an RPC gas cap
+   */
+  public long remainingRpcGas(final long simulationCumulativeGasUsed) {
+    return rpcGasCap > 0 ? Math.max(rpcGasCap - simulationCumulativeGasUsed, 0) : Long.MAX_VALUE;
   }
 }

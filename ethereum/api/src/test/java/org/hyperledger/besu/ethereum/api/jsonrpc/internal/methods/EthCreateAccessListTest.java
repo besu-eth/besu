@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -28,6 +29,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -165,17 +167,15 @@ public class EthCreateAccessListTest {
   }
 
   @Test
-  public void shouldNotErrorWhenGasPricePresentForEip1559Transaction() {
-    final Wei gasPrice = Wei.of(1000);
+  public void shouldRejectGasPriceWithEip1559Fees() {
     final JsonRpcRequestContext request =
-        ethCreateAccessListRequest(eip1559TransactionCallParameter(Optional.of(gasPrice)));
-    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, pendingBlockHeader);
+        ethCreateAccessListRequest(eip1559TransactionCallParameter(Optional.of(Wei.of(1000))));
 
-    final JsonRpcResponse expectedResponse =
-        new JsonRpcSuccessResponse(null, new CreateAccessListResult(List.of(), MIN_TX_GAS_COST));
-    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
-    verify(transactionSimulator, times(1))
-        .processOnPending(any(), eq(Optional.empty()), any(), any(), eq(pendingBlockHeader));
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
+    verifyNoInteractions(transactionSimulator);
   }
 
   @Test

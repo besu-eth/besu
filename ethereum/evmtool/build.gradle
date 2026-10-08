@@ -139,8 +139,12 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
     classpath = project.sourceSets.main.runtimeClasspath
     mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
 
-    def fixtures = project.project(':ethereum:referencetests').layout.buildDirectory
-      .dir("execution-spec-devnet-tests/fixtures/${fixtureDir}")
+    // Resolved lazily: :ethereum:referencetests decides where the fixtures are unpacked, and it is
+    // evaluated after this project.
+    def referenceTests = project.project(':ethereum:referencetests')
+    def fixtures = project.provider {
+      referenceTests.ext.devnetFixturesDir.get().dir("fixtures/${fixtureDir}")
+    }
     // Left unset when the property is absent, so the subcommand's own default applies rather than
     // this file keeping a second copy of it. All three runners default to the available cores.
     def parallelism = project.findProperty('simParallelism')?.toString()

@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -212,8 +213,8 @@ public class MergeProtocolScheduleTest {
     assertThat(spec.isPoS()).isTrue();
     assertThat(spec.getEvm().getOperationsUnsafe()[0x44]).isInstanceOf(PrevRanDaoOperation.class);
     assertThat(spec.getDifficultyCalculator().nextDifficulty(-1, null)).isEqualTo(BigInteger.ZERO);
-    assertThat(spec.getBlockReward()).isEqualTo(Wei.ZERO);
-    assertThat(spec.isSkipZeroBlockRewards()).isTrue();
+    assertThat(spec.getBlockRewardProcessor().getBlockReward()).isEqualTo(Wei.ZERO);
+    assertThat(spec.getBlockRewardProcessor()).isSameAs(BlockRewardProcessor.NO_REWARDS);
     assertThat(spec.getBlockProcessor()).isInstanceOf(MainnetBlockProcessor.class);
   }
 

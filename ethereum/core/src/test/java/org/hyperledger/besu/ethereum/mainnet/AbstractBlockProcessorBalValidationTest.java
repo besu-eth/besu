@@ -89,6 +89,9 @@ class AbstractBlockProcessorBalValidationTest {
   void wireProtocolSpec() {
     lenient().when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     lenient()
+        .when(protocolSpec.getBlockRewardProcessor())
+        .thenReturn(BlockRewardProcessor.NO_REWARDS);
+    lenient()
         .when(protocolSpec.getPreExecutionProcessor())
         .thenReturn(new FrontierPreExecutionProcessor());
     lenient()
@@ -133,9 +136,7 @@ class AbstractBlockProcessorBalValidationTest {
         new BalStubBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT,
             loc -> {
@@ -190,9 +191,7 @@ class AbstractBlockProcessorBalValidationTest {
         new BalStubBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT,
             loc -> {
@@ -233,9 +232,7 @@ class AbstractBlockProcessorBalValidationTest {
         new BalStubBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
-            true,
             protocolSchedule,
             BalConfiguration.DEFAULT,
             loc ->
@@ -295,30 +292,17 @@ class AbstractBlockProcessorBalValidationTest {
     BalStubBlockProcessor(
         final MainnetTransactionProcessor transactionProcessor,
         final TransactionReceiptFactory transactionReceiptFactory,
-        final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-        final boolean skipZeroBlockRewards,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration,
         final IntFunction<TransactionProcessingResult> resultByTxIndex) {
       super(
           transactionProcessor,
           transactionReceiptFactory,
-          blockReward,
           miningBeneficiaryCalculator,
-          skipZeroBlockRewards,
           protocolSchedule,
           balConfiguration);
       this.resultByTxIndex = resultByTxIndex;
-    }
-
-    @Override
-    protected boolean rewardCoinbase(
-        final MutableWorldState worldState,
-        final BlockHeader header,
-        final List<org.hyperledger.besu.ethereum.core.BlockHeader> ommers,
-        final boolean skipZeroBlockRewards) {
-      return true;
     }
 
     @Override

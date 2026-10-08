@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
@@ -331,7 +332,7 @@ class SnapV2BlockAccessListApplierReorgCorrectionTest {
 
   private Optional<Bytes> readCode(final Address address, final Hash codeHash) {
     return coordinator.applyForStrategy(
-        bonsai -> bonsai.getCode(codeHash, address.addressHash()),
+        bonsai -> bonsai.getCode(codeHash, address.addressHash()).map(Code::getBytes),
         forest -> Optional.<Bytes>empty());
   }
 

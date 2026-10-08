@@ -118,6 +118,8 @@ public class BackwardSyncStep {
   @VisibleForTesting
   protected Void saveHeader(final BlockHeader blockHeader) {
     backwardChain.prependAncestorsHeader(blockHeader);
+    // linked first, so the descendants this session already holds are marked along with it
+    context.failIfBadBlock(blockHeader);
     return null;
   }
 

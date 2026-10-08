@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INTERNAL_ERROR;
-
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -23,6 +21,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TraceTypeParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -30,18 +29,16 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.transaction.CallParameter;
+import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 
+import java.util.OptionalLong;
 import java.util.Set;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class TraceCall extends AbstractTraceCall {
-  private static final Logger LOG = LoggerFactory.getLogger(TraceCall.class);
-
   public TraceCall(
       final BlockchainQueries blockchainQueries,
       final ProtocolSchedule protocolSchedule,
@@ -60,6 +57,23 @@ public class TraceCall extends AbstractTraceCall {
   @Override
   public String getName() {
     return transactionSimulator != null ? RpcMethod.TRACE_CALL.getMethodName() : null;
+  }
+
+  @Override
+  protected CallParameter getCallParams(final JsonRpcRequestContext requestContext) {
+    return withoutNonce(super.getCallParams(requestContext));
+  }
+
+  /**
+   * Returns the call without its nonce. trace_call and trace_callMany accept a nonce but neither
+   * validate nor use it: the call runs at the sender's nonce in the state it executes on, and a
+   * CREATE address derives from that nonce.
+   *
+   * @param callParams the requested call
+   * @return the call to simulate
+   */
+  protected static CallParameter withoutNonce(final CallParameter callParams) {
+    return ImmutableCallParameter.copyOf(callParams).withNonce(OptionalLong.empty());
   }
 
   @Override
@@ -89,9 +103,9 @@ public class TraceCall extends AbstractTraceCall {
             maybeSimulatorResult.map(
                 result -> {
                   if (result.isInvalid()) {
-                    LOG.error("Invalid simulator result {}", result);
                     return new JsonRpcErrorResponse(
-                        requestContext.getRequest().getId(), INTERNAL_ERROR);
+                        requestContext.getRequest().getId(),
+                        JsonRpcError.from(result.getValidationResult()));
                   }
 
                   final TransactionTrace transactionTrace =

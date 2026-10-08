@@ -29,8 +29,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.api.query.TransactionReceiptWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.ethereum.debug.TracerType;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.Optional;
@@ -120,6 +122,14 @@ public class DebugTraceTransaction implements JsonRpcMethod {
     // callbacks at all.
     final TraceOptions clampedOptions = TraceStepLimit.clamp(traceOptions, serverStepLimit);
 
+    final int logIndexOffset =
+        clampedOptions.tracerType() == TracerType.CALL_TRACER
+                && clampedOptions.tracerConfigFlag("withLog")
+            ? blockchain
+                .transactionReceiptByTransactionHash(txHash, protocolSchedule)
+                .map(TransactionReceiptWithMetadata::getLogIndexOffset)
+                .orElse(0)
+            : 0;
     return blockchain
         .getBlockchain()
         .getBlockHeader(blockHash)
@@ -127,7 +137,7 @@ public class DebugTraceTransaction implements JsonRpcMethod {
         .flatMap(
             protocolSpec -> {
               final DebugTraceTransactionStep step =
-                  DebugTraceTransactionStep.of(clampedOptions, protocolSpec);
+                  DebugTraceTransactionStep.of(clampedOptions, protocolSpec, logIndexOffset);
               return Tracer.processTracing(
                   blockchain,
                   blockHash,

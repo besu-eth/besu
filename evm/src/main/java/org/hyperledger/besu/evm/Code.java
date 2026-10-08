@@ -31,6 +31,12 @@ public class Code {
   /** The constant EMPTY_CODE. */
   public static final Code EMPTY_CODE = new Code(Bytes.EMPTY);
 
+  /**
+   * The version of the jump destination analysis. Bitmasks are stored next to the code they were
+   * computed from, so this has to change whenever the bitmask of any code does.
+   */
+  public static final int JUMP_DEST_ANALYSIS_VERSION = 1;
+
   /** The bytes representing the code. */
   private final Bytes bytes;
 
@@ -39,8 +45,14 @@ public class Code {
 
   private final int size;
 
-  /** Bit mask for jump destinations, used to optimize JUMP/JUMPI operations */
-  private long[] jumpDestBitMask = null;
+  /**
+   * Bit mask for jump destinations, used to optimize JUMP/JUMPI operations.
+   *
+   * <p>Volatile because it is computed on the first JUMP while the same instance may already be in
+   * use by other threads, through the code caches and parallel transaction execution. Without it, a
+   * thread could see the array before its contents and reject a valid jump destination.
+   */
+  private volatile long[] jumpDestBitMask = null;
 
   /**
    * Public constructor.
@@ -131,14 +143,15 @@ public class Code {
       return true;
     }
 
-    if (jumpDestBitMask == null) {
-      jumpDestBitMask = calculateJumpDestBitMask();
+    long[] bitMask = jumpDestBitMask;
+    if (bitMask == null) {
+      bitMask = initJumpDestBitMask();
     }
 
     // This selects which long in the array holds the bit for the given offset:
     //	1)	>>> 6 is equivalent to jumpDestination / 64
     //	2)	Each long holds 64 bits, so this finds the correct chunk
-    final long targetLong = jumpDestBitMask[jumpDestination >>> 6];
+    final long targetLong = bitMask[jumpDestination >>> 6];
 
     // 1) & 0x3F is jumpDestination % 64
     // 2)	1L << ... gives a mask for the specific bit in that long
@@ -146,6 +159,17 @@ public class Code {
 
     // If the bit is not set, then it is an invalid jump destination
     return (targetLong & targetBit) == 0L;
+  }
+
+  // Separate method so that isJumpDestInvalid stays small enough to be inlined into JUMP and JUMPI.
+  // Synchronized so that threads reaching the first JUMP together analyse the code only once.
+  private synchronized long[] initJumpDestBitMask() {
+    long[] bitMask = jumpDestBitMask;
+    if (bitMask == null) {
+      bitMask = calculateJumpDestBitMask();
+      jumpDestBitMask = bitMask;
+    }
+    return bitMask;
   }
 
   /**
@@ -186,9 +210,23 @@ public class Code {
   }
 
   /**
+   * Computes the jump destination bitmask of the given code without keeping a {@link Code} for it,
+   * so that it can be stored next to the code and set with {@link #setJumpDestBitMask} later.
+   *
+   * @param byteCode The byte representation of the code.
+   * @return the bitmask, one bit per code byte
+   */
+  public static long[] jumpDestBitMaskOf(final Bytes byteCode) {
+    return new Code(byteCode).calculateJumpDestBitMask();
+  }
+
+  /**
    * Computes a bitmask where each bit set to 1 indicates a valid `JUMPDEST` opcode in the EVM
    * bytecode. The bitmap is organized in 64-byte chunks, each represented as a `long` (64 bits).
    * This is used for efficiently validating dynamic jumps (`JUMP`, `JUMPI`) at runtime.
+   *
+   * <p>A change to the bitmask this returns for any code needs a new {@link
+   * #JUMP_DEST_ANALYSIS_VERSION}.
    */
   long[] calculateJumpDestBitMask() {
     // Total number of bytes in the bytecode
