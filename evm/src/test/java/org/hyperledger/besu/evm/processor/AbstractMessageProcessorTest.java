@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.processor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.CONTEXT_ENTER;
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.CONTEXT_EXIT;
 import static org.hyperledger.besu.evm.processor.AbstractMessageProcessorTest.ContextTracer.TRACE_TYPE.CONTEXT_RE_ENTER;
@@ -25,6 +26,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -32,6 +34,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.fluent.EvmSpec;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.toy.ToyWorld;
@@ -41,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
@@ -82,6 +86,9 @@ abstract class AbstractMessageProcessorTest<T extends AbstractMessageProcessor> 
 
   @Test
   void haltBeforeStartFailsFrameWithoutExecutingIt() {
+    when(messageFrame.getState()).thenReturn(MessageFrame.State.NOT_STARTED);
+    when(messageFrame.getExceptionalHaltReason())
+        .thenReturn(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
     when(messageFrame.getWorldUpdater()).thenReturn(new ToyWorld());
     when(messageFrame.getMessageFrameStack()).thenReturn(messageFrameStack);
 
@@ -100,6 +107,27 @@ abstract class AbstractMessageProcessorTest<T extends AbstractMessageProcessor> 
     inOrder.verify(messageFrame).notifyCompletion();
     verify(operationTracer, never()).traceContextReEnter(any());
     verify(operationTracer, never()).tracePreExecution(any());
+  }
+
+  @Test
+  void haltBeforeStartRejectsStartedFrame() {
+    when(messageFrame.getState()).thenReturn(MessageFrame.State.CODE_SUSPENDED);
+
+    assertThatThrownBy(
+            () -> getAbstractMessageProcessor().haltBeforeStart(messageFrame, operationTracer))
+        .isInstanceOf(IllegalStateException.class);
+    verifyNoInteractions(operationTracer);
+  }
+
+  @Test
+  void haltBeforeStartRejectsFrameWithoutHaltReason() {
+    when(messageFrame.getState()).thenReturn(MessageFrame.State.NOT_STARTED);
+    when(messageFrame.getExceptionalHaltReason()).thenReturn(Optional.empty());
+
+    assertThatThrownBy(
+            () -> getAbstractMessageProcessor().haltBeforeStart(messageFrame, operationTracer))
+        .isInstanceOf(IllegalStateException.class);
+    verifyNoInteractions(operationTracer);
   }
 
   @Test
