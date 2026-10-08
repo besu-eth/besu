@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTransactions.Halt;
+import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTestFixture.Halt;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
@@ -34,15 +34,14 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 class TopFrameHaltTest {
 
-  private static final TopFrameHaltTransactions TRANSACTIONS = new TopFrameHaltTransactions();
+  private static final TopFrameHaltTestFixture FIXTURE = new TopFrameHaltTestFixture();
 
   @ParameterizedTest
   @EnumSource(Halt.class)
   void haltedTopFrameIsEnteredAndExitedWithoutExecuting(final Halt halt) {
     final FrameEventTracer tracer = new FrameEventTracer();
 
-    final TransactionProcessingResult result =
-        TRANSACTIONS.process(TRANSACTIONS.transaction(halt), tracer);
+    final TransactionProcessingResult result = FIXTURE.process(FIXTURE.transaction(halt), tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     assertThat(result.isSuccessful()).isFalse();
@@ -53,26 +52,26 @@ class TopFrameHaltTest {
 
   @Test
   void haltedValueTransferDoesNotCreateRecipient() {
-    final WorldUpdater worldUpdater = TRANSACTIONS.newWorldUpdater();
+    final WorldUpdater worldUpdater = FIXTURE.newWorldUpdater();
 
-    TRANSACTIONS.process(
+    FIXTURE.process(
         worldUpdater,
-        TRANSACTIONS.transaction(Halt.VALUE_TO_EMPTY_RECIPIENT),
+        FIXTURE.transaction(Halt.VALUE_TO_EMPTY_RECIPIENT),
         OperationTracer.NO_TRACING);
 
-    assertThat(worldUpdater.get(TopFrameHaltTransactions.EMPTY_ACCOUNT)).isNull();
+    assertThat(worldUpdater.get(TopFrameHaltTestFixture.EMPTY_ACCOUNT)).isNull();
   }
 
   @Test
   void haltedDelegationIsRolledBack() {
-    final WorldUpdater worldUpdater = TRANSACTIONS.newWorldUpdater();
-    final Transaction tx = TRANSACTIONS.transaction(Halt.DELEGATION_TO_NEW_AUTHORITY);
+    final WorldUpdater worldUpdater = FIXTURE.newWorldUpdater();
+    final Transaction tx = FIXTURE.transaction(Halt.DELEGATION_TO_NEW_AUTHORITY);
 
     final TransactionProcessingResult result =
-        TRANSACTIONS.process(worldUpdater, tx, OperationTracer.NO_TRACING);
+        FIXTURE.process(worldUpdater, tx, OperationTracer.NO_TRACING);
 
     assertThat(result.getExceptionalHaltReason()).contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
-    final Account authority = worldUpdater.get(TRANSACTIONS.authority());
+    final Account authority = worldUpdater.get(FIXTURE.authority());
     assertThat(authority == null || authority.getCode().isEmpty()).isTrue();
   }
 

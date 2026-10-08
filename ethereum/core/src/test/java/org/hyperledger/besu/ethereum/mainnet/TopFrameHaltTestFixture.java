@@ -49,7 +49,7 @@ import org.apache.tuweni.bytes.Bytes32;
  * before any code runs. Each one gets only its intrinsic gas, which excludes the state gas the
  * preparation charges.
  */
-public class TopFrameHaltTransactions {
+public class TopFrameHaltTestFixture {
 
   private static final String GENESIS_RESOURCE =
       "/org/hyperledger/besu/ethereum/mainnet/genesis-bp-it.json";
@@ -107,7 +107,7 @@ public class TopFrameHaltTransactions {
    * Builds the genesis state and signs one transaction per {@link Halt}. Each run gets its own
    * {@link #newWorldUpdater()}, so one instance can be shared by every test in a class.
    */
-  public TopFrameHaltTransactions() {
+  public TopFrameHaltTestFixture() {
     for (final Halt halt : Halt.values()) {
       transactions.put(halt, buildTransaction(halt));
     }
