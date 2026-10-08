@@ -167,10 +167,17 @@ public final class EngineForkchoiceUpdatedV5<
     return new ForkchoiceUpdatedResultV2(new PayloadStatusV2(SYNCING));
   }
 
+  /**
+   * Reports the inclusion list verdict that {@code engine_newPayloadV6} computed for the head. A
+   * head that was never checked against an inclusion list has none to violate.
+   */
   @Override
   protected ForkchoiceUpdatedResultV1 creteValidResult(
       final Hash lastValid, final PayloadIdentifier payloadId) {
+    final boolean inclusionListSatisfied =
+        lastValid == null
+            || mergeContext.get().retrieveInclusionListSatisfied(lastValid).orElse(true);
     return new ForkchoiceUpdatedResultV2(
-        new PayloadStatusV2(VALID, lastValid, Boolean.TRUE), payloadId);
+        new PayloadStatusV2(VALID, lastValid, inclusionListSatisfied), payloadId);
   }
 }

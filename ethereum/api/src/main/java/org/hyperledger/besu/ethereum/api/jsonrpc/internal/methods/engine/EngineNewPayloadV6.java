@@ -130,6 +130,19 @@ public final class EngineNewPayloadV6<
       final NPRP requestParameters,
       final Block block,
       final BlockProcessingResult executionResult) {
+    final PayloadPostExecutionValidationResultV1 result =
+        validateInclusionList(requestParameters, block, executionResult);
+    // engine_forkchoiceUpdatedV5 must report the same verdict for this payload
+    mergeContext
+        .get()
+        .putInclusionListSatisfied(block.getHash(), result.isInclusionListSatisfied());
+    return result;
+  }
+
+  private PayloadPostExecutionValidationResultV1 validateInclusionList(
+      final NPRP requestParameters,
+      final Block block,
+      final BlockProcessingResult executionResult) {
 
     final EP blockParam = requestParameters.payloadParameter();
     final List<String> inclusionListHexTransactions = requestParameters.inclusionListTransactions();

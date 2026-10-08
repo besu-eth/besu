@@ -28,6 +28,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.EvictingQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +40,9 @@ public class PostMergeContext implements MergeContext {
 
   /** The Max blocks in progress. */
   static final int MAX_BLOCKS_IN_PROGRESS = 12;
+
+  /** The max number of inclusion list verdicts kept for forkchoiceUpdated. */
+  static final int MAX_INCLUSION_LIST_VERDICTS = 64;
 
   private final AtomicReference<SyncState> syncState;
   private final AtomicReference<Difficulty> terminalTotalDifficulty;
@@ -53,6 +58,9 @@ public class PostMergeContext implements MergeContext {
 
   private final EvictingQueue<PayloadWrapper> blocksInProgress =
       EvictingQueue.create(MAX_BLOCKS_IN_PROGRESS);
+
+  private final Cache<Hash, Boolean> inclusionListSatisfiedByBlockHash =
+      CacheBuilder.newBuilder().maximumSize(MAX_INCLUSION_LIST_VERDICTS).build();
 
   // latest finalized block
   private final AtomicReference<BlockHeader> lastFinalized = new AtomicReference<>();
@@ -314,6 +322,17 @@ public class PostMergeContext implements MergeContext {
         + block.getBody().getTransactions().size()
         + " reward "
         + value.toHumanReadableString();
+  }
+
+  @Override
+  public void putInclusionListSatisfied(
+      final Hash blockHash, final boolean inclusionListSatisfied) {
+    inclusionListSatisfiedByBlockHash.put(blockHash, inclusionListSatisfied);
+  }
+
+  @Override
+  public Optional<Boolean> retrieveInclusionListSatisfied(final Hash blockHash) {
+    return Optional.ofNullable(inclusionListSatisfiedByBlockHash.getIfPresent(blockHash));
   }
 
   @Override

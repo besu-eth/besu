@@ -193,6 +193,23 @@ public interface MergeContext extends ConsensusContext {
   Optional<PayloadWrapper> retrievePayloadById(final PayloadIdentifier payloadId);
 
   /**
+   * Remember whether a validated payload satisfied the inclusion list it was checked against
+   * (EIP-7805), so forkchoiceUpdated can report it for the head.
+   *
+   * @param blockHash the hash of the validated payload
+   * @param inclusionListSatisfied whether the payload satisfied its inclusion list
+   */
+  void putInclusionListSatisfied(final Hash blockHash, final boolean inclusionListSatisfied);
+
+  /**
+   * Retrieve whether a validated payload satisfied its inclusion list (EIP-7805).
+   *
+   * @param blockHash the hash of the validated payload
+   * @return the verdict, or empty if the payload was not checked against an inclusion list
+   */
+  Optional<Boolean> retrieveInclusionListSatisfied(final Hash blockHash);
+
+  /**
    * Is configured for a post-merge from genesis.
    *
    * @return the boolean

@@ -21,6 +21,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
+import static org.mockito.Answers.RETURNS_DEEP_STUBS;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
@@ -37,9 +39,11 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
@@ -54,6 +58,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV2;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -71,6 +76,7 @@ import org.hyperledger.besu.ethereum.mainnet.CancunTargetingGasLimitCalculator;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidatorFactory;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
@@ -80,12 +86,15 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.N
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotRead;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.math.BigInteger;
 import java.util.Comparator;
@@ -104,6 +113,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -143,7 +153,7 @@ public class InclusionListWorkflowIntegrationTest {
   @Mock private ProtocolContext protocolContext;
   @Mock private DefaultProtocolSchedule protocolSchedule;
   @Mock private ProtocolSpec protocolSpec;
-  @Mock private MergeContext mergeContext;
+  @Spy private MergeContext mergeContext = new PostMergeContext();
   @Mock private MergeMiningCoordinator mergeCoordinator;
   @Mock private MutableBlockchain blockchain;
   @Mock private WorldStateArchive worldStateArchive;
@@ -284,6 +294,39 @@ public class InclusionListWorkflowIntegrationTest {
   }
 
   @Test
+  public void forkchoiceUpdated_reportsUnsatisfiedInclusionListOfHead() {
+    final BlockHeader payloadHeader = setupValidPayloadHeader();
+    setupInclusionListValidation();
+    // a blob transaction in the inclusion list can never be satisfied
+    final String blobTx =
+        TransactionEncoder.encodeOpaqueBytes(createBlobTransaction(), EncodingContext.BLOCK_BODY)
+            .toHexString();
+
+    final PayloadStatusV2 newPayloadStatus =
+        (PayloadStatusV2)
+            fromSuccessResp(callNewPayload(payloadHeader, emptyList(), List.of(blobTx)));
+    assertThat(newPayloadStatus.getStatus()).isEqualTo(VALID);
+    assertThat(newPayloadStatus.getInclusionListSatisfied()).isFalse();
+
+    final PayloadStatusV2 fcuStatus = callForkchoiceUpdatedWithoutAttributes(payloadHeader);
+    assertThat(fcuStatus.getStatus()).isEqualTo(VALID);
+    assertThat(fcuStatus.getInclusionListSatisfied()).isFalse();
+  }
+
+  @Test
+  public void forkchoiceUpdated_reportsSatisfiedInclusionListOfHead() {
+    final BlockHeader payloadHeader = setupValidPayloadHeader();
+
+    final PayloadStatusV2 newPayloadStatus =
+        (PayloadStatusV2) fromSuccessResp(callNewPayload(payloadHeader, emptyList(), emptyList()));
+    assertThat(newPayloadStatus.getInclusionListSatisfied()).isTrue();
+
+    final PayloadStatusV2 fcuStatus = callForkchoiceUpdatedWithoutAttributes(payloadHeader);
+    assertThat(fcuStatus.getStatus()).isEqualTo(VALID);
+    assertThat(fcuStatus.getInclusionListSatisfied()).isTrue();
+  }
+
+  @Test
   public void getInclusionList_emptyMempool_returnsEmptyList() {
     final BlockHeader parentHeader = createParentBlockHeader();
     when(blockchain.getBlockHeader(parentHeader.getHash())).thenReturn(Optional.of(parentHeader));
@@ -378,6 +421,23 @@ public class InclusionListWorkflowIntegrationTest {
     when(blockchain.getBlockHeader(parent.getHash())).thenReturn(Optional.of(parent));
   }
 
+  private void setupInclusionListValidation() {
+    when(worldStateArchive.getWorldState(any(WorldStateQueryParams.class)))
+        .thenReturn(Optional.of(mock(MutableWorldState.class)));
+    when(protocolSpec.getTransactionValidatorFactory())
+        .thenReturn(mock(TransactionValidatorFactory.class, RETURNS_DEEP_STUBS));
+    when(protocolSpec.getPreExecutionProcessor()).thenReturn(mock(PreExecutionProcessor.class));
+  }
+
+  private Transaction createBlobTransaction() {
+    return new TransactionTestFixture()
+        .to(Optional.of(Address.ZERO))
+        .type(TransactionType.BLOB)
+        .chainId(Optional.of(BigInteger.valueOf(42)))
+        .versionedHashes(Optional.of(List.of(VersionedHash.DEFAULT_VERSIONED_HASH)))
+        .createTransaction(KEYS);
+  }
+
   private Transaction createLegacyTransaction(final long nonce, final Wei gasPrice) {
     return new TransactionTestFixture()
         .to(Optional.of(Address.ZERO))
@@ -407,6 +467,23 @@ public class InclusionListWorkflowIntegrationTest {
                   new ForkchoiceStateV1(header.getHash(), parent.getHash(), parent.getHash()),
                   payloadAttrs
                 })));
+  }
+
+  private PayloadStatusV2 callForkchoiceUpdatedWithoutAttributes(final BlockHeader head) {
+    when(mergeCoordinator.getOrSyncHeadByHash(any(), any())).thenReturn(Optional.of(head));
+    when(mergeCoordinator.updateForkChoice(any(), any(), any()))
+        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
+    final JsonRpcResponse response =
+        forkchoiceUpdatedMethod.response(
+            new JsonRpcRequestContext(
+                new JsonRpcRequest(
+                    "2.0",
+                    RpcMethod.ENGINE_FORKCHOICE_UPDATED_V5.getMethodName(),
+                    new Object[] {new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO)})));
+    assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    return (PayloadStatusV2)
+        ((ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult())
+            .getPayloadStatus();
   }
 
   private JsonRpcResponse callNewPayload(

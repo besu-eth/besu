@@ -170,6 +170,17 @@ public class TransitionContext implements MergeContext {
   }
 
   @Override
+  public void putInclusionListSatisfied(
+      final Hash blockHash, final boolean inclusionListSatisfied) {
+    postMergeContext.putInclusionListSatisfied(blockHash, inclusionListSatisfied);
+  }
+
+  @Override
+  public Optional<Boolean> retrieveInclusionListSatisfied(final Hash blockHash) {
+    return postMergeContext.retrieveInclusionListSatisfied(blockHash);
+  }
+
+  @Override
   public boolean isPostMergeAtGenesis() {
     return postMergeContext.isPostMergeAtGenesis();
   }
