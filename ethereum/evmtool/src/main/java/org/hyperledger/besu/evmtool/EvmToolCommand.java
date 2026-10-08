@@ -36,6 +36,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
+import org.hyperledger.besu.evm.worldstate.SelfDestructSettlement;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.MetricsSystemModule;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -561,7 +562,8 @@ public class EvmToolCommand implements Runnable {
         lastTime = stopwatch.elapsed().toNanos();
         stopwatch.reset();
         if (lastLoop) {
-          initialMessageFrame.getSelfDestructs().forEach(updater::deleteAccount);
+          SelfDestructSettlement.settle(
+              updater, initialMessageFrame.getSelfDestructs(), protocolSpec.getGasCalculator());
           updater.clearAccountsThatAreEmpty();
           updater.commit();
           MutableWorldState worldState = component.getWorldState();

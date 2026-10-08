@@ -27,6 +27,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.worldstate.SelfDestructSettlement;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Deque;
@@ -171,7 +172,8 @@ public class EVMExecutor {
           })
           .process(messageFrame, tracer);
     }
-    initialMessageFrame.getSelfDestructs().forEach(worldUpdater::deleteAccount);
+    SelfDestructSettlement.settle(
+        worldUpdater, initialMessageFrame.getSelfDestructs(), evmSpec.getEvm().getGasCalculator());
     if (commitWorldState) {
       worldUpdater.commit();
     }

@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.FrontierGasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -44,6 +45,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
 class EVMExecutorTest {
+
+  private static final Address SELF_DESTRUCTING_CONTRACT = Address.fromHexString("0x500");
 
   @Test
   void customEVM() {
@@ -141,6 +144,44 @@ class EVMExecutorTest {
             .accessListWarmStorage(MultimapBuilder.linkedHashKeys().arrayListValues().build())
             .execute();
     assertThat(result).isNotNull();
+  }
+
+  @Test
+  void selfDestructDeletesAccountBeforeAmsterdam() {
+    final SimpleWorld simpleWorld = createSimpleWorld();
+
+    executeSelfDestructingCreation(EvmSpecVersion.PRAGUE, simpleWorld);
+
+    assertThat(simpleWorld.get(SELF_DESTRUCTING_CONTRACT)).isNull();
+  }
+
+  @Test
+  void selfDestructPreservesBalanceFromAmsterdam() {
+    final SimpleWorld simpleWorld = createSimpleWorld();
+
+    executeSelfDestructingCreation(EvmSpecVersion.AMSTERDAM, simpleWorld);
+
+    final Account account = simpleWorld.get(SELF_DESTRUCTING_CONTRACT);
+    assertThat(account).isNotNull();
+    assertThat(account.getBalance()).isEqualTo(Wei.fromEth(1));
+    assertThat(account.getNonce()).isZero();
+    assertThat(account.getCode()).isEqualTo(Bytes.EMPTY);
+  }
+
+  private static void executeSelfDestructingCreation(
+      final EvmSpecVersion specVersion, final SimpleWorld simpleWorld) {
+    // Init code ADDRESS SELFDESTRUCT: the new contract sends its balance to itself.
+    new EVMExecutor(EvmSpec.evmSpec(specVersion))
+        .worldUpdater(simpleWorld.updater())
+        .messageFrameType(MessageFrame.Type.CONTRACT_CREATION)
+        .sender(Address.fromHexString("0x200"))
+        .contract(SELF_DESTRUCTING_CONTRACT)
+        .receiver(SELF_DESTRUCTING_CONTRACT)
+        .ethValue(Wei.fromEth(1))
+        .gas(1_000_000L)
+        .code(Bytes.fromHexString("0x30ff"))
+        .commitWorldState()
+        .execute();
   }
 
   @NotNull
