@@ -297,7 +297,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             cumulativeExecutionGasUsed,
             cumulativeStateGasUsed,
             protocolSpec)) {
-          return BlockProcessingResult.INSUFFICIENT_BLOCK_GAS;
+          return rejectBlock(worldState, BlockProcessingResult.INSUFFICIENT_BLOCK_GAS);
         }
 
         final Optional<AccessLocationTracker> transactionLocationTracker =
@@ -322,10 +322,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   blockHeader.getHash().getBytes().toHexString(),
                   transaction.getHash().getBytes().toHexString());
           LOG.info(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
-          }
-          return new BlockProcessingResult(Optional.empty(), errorMessage);
+          return rejectBlock(worldState, new BlockProcessingResult(Optional.empty(), errorMessage));
         }
 
         applyPartialBlockAccessView(
@@ -355,7 +352,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 .getBlockGasAccountingStrategy()
                 .effectiveGasUsed(cumulativeExecutionGasUsed, cumulativeStateGasUsed);
         if (gasMeteredSoFar > blockHeader.getGasLimit()) {
-          return new BlockProcessingResult(Optional.empty(), "gas metered exceeds block gas limit");
+          return rejectBlock(
+              worldState,
+              new BlockProcessingResult(Optional.empty(), "gas metered exceeds block gas limit"));
         }
 
         final var optionalVersionedHashes = transaction.getVersionedHashes();
@@ -389,10 +388,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   "block did not consume expected blob gas: header %d, transactions %d",
                   headerBlobGasUsed, currentBlobGasUsed);
           LOG.error(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-          }
-          return new BlockProcessingResult(Optional.empty(), errorMessage);
+          return rejectBlock(worldState, new BlockProcessingResult(Optional.empty(), errorMessage));
         }
       }
 
@@ -415,10 +411,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   blockAccessListBuilder);
         } catch (final Exception e) {
           LOG.error("failed processing withdrawals", e);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-          }
-          return new BlockProcessingResult(Optional.empty(), e);
+          return rejectBlock(worldState, new BlockProcessingResult(Optional.empty(), e));
         }
       }
 
@@ -438,10 +431,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       } catch (final Exception e) {
         LOG.error("failed processing requests", e);
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
-        return new BlockProcessingResult(Optional.empty(), e);
+        return rejectBlock(worldState, new BlockProcessingResult(Optional.empty(), e));
       }
 
       applyAccessLocationTracker(
@@ -455,10 +445,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           final String errorMessage =
               "Block has execution requests but header is missing the requestsHash field";
           LOG.error(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-          }
-          return new BlockProcessingResult(Optional.empty(), errorMessage);
+          return rejectBlock(worldState, new BlockProcessingResult(Optional.empty(), errorMessage));
         }
         final List<Request> requests = maybeRequests.get();
         final Hash headerRequestsHash = optionalRequestsHash.get();
@@ -470,10 +457,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   calculatedRequestHash.getBytes().toHexString(),
                   headerRequestsHash.getBytes().toHexString());
           LOG.error(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-          }
-          return new BlockProcessingResult(Optional.empty(), errorMessage);
+          return rejectBlock(worldState, new BlockProcessingResult(Optional.empty(), errorMessage));
         }
       }
 
@@ -481,10 +465,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           .getBlockRewardProcessor()
           .rewardBeneficiaries(worldState, blockHeader, ommers, miningBeneficiary)) {
         // no need to log, rewardBeneficiaries logs the error.
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
-        return new BlockProcessingResult(Optional.empty(), "ommer too old");
+        return rejectBlock(
+            worldState, new BlockProcessingResult(Optional.empty(), "ommer too old"));
       }
 
       final Optional<BlockAccessList> maybeBlockAccessList;
@@ -500,14 +482,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                       blockAccessList,
                       balConfiguration.shouldLogBalsOnMismatch());
           if (constructedBalError.isPresent()) {
-            if (worldState instanceof BonsaiWorldState) {
-              ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-            }
-            return new BlockProcessingResult(
-                Optional.empty(),
-                constructedBalError.get().errorMessage(),
-                false,
-                Optional.of(bal));
+            return rejectBlock(
+                worldState,
+                new BlockProcessingResult(
+                    Optional.empty(),
+                    constructedBalError.get().errorMessage(),
+                    false,
+                    Optional.of(bal)));
           }
           maybeBlockAccessList = Optional.of(bal);
           blockProcessingMetrics.recordBlockAccessListMetrics(bal);
@@ -516,10 +497,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       } catch (Exception e) {
         LOG.error("Error validating block access list", e);
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
-        return new BlockProcessingResult(Optional.empty(), e);
+        return rejectBlock(worldState, new BlockProcessingResult(Optional.empty(), e));
       }
 
       LOG.trace("traceEndBlock for {}", blockHeader.getNumber());
@@ -572,6 +550,19 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             }
           });
     }
+  }
+
+  /**
+   * Rejects the block and discards the changes it made to the world state. On Bonsai this may be
+   * the head world state, which the next block on the same parent reuses as it is, so the changes
+   * of a rejected block must not stay in its accumulator.
+   */
+  private static BlockProcessingResult rejectBlock(
+      final MutableWorldState worldState, final BlockProcessingResult result) {
+    if (worldState instanceof BonsaiWorldState) {
+      ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+    }
+    return result;
   }
 
   @SuppressWarnings("unused") // preProcessingContext and location are used by subclasses

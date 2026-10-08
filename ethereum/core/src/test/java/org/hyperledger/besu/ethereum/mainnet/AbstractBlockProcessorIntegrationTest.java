@@ -40,15 +40,21 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelTransactionPreprocessing;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -115,6 +121,7 @@ class AbstractBlockProcessorIntegrationTest {
 
   private ProtocolContext protocolContext;
   private WorldStateArchive worldStateArchive;
+  private ProtocolSchedule protocolSchedule;
   private DefaultBlockchain blockchain;
   private Address coinbase;
 
@@ -135,6 +142,7 @@ class AbstractBlockProcessorIntegrationTest {
     final BlockHeader blockHeader = new BlockHeaderTestFixture().number(0L).buildHeader();
     coinbase = blockHeader.getCoinbase();
     worldStateArchive = contextTestFixture.getStateArchive();
+    protocolSchedule = contextTestFixture.getProtocolSchedule();
     protocolContext = contextTestFixture.getProtocolContext();
     blockchain = (DefaultBlockchain) contextTestFixture.getBlockchain();
   }
@@ -336,6 +344,146 @@ class AbstractBlockProcessorIntegrationTest {
   void testProcessAccountUpdateThenReadTeTxWithTwoAccounts(
       final String ignoredName, final BlockProcessor blockProcessor) {
     processAccountUpdateThenReadTxWithTwoAccounts(blockProcessor);
+  }
+
+  @Test
+  void blockRejectedForInsufficientBlockGasLeavesTheHeadWorldStateClean() {
+    // The second transfer's gas limit fits the block but not what the first one left of it.
+    final long blockGasLimit = 150_000L;
+    final Transaction first =
+        createTransferTransaction(
+            0, 1_000_000_000_000_000_000L, 100_000L, 0L, 0L, ACCOUNT_2, ACCOUNT_GENESIS_1_KEYPAIR);
+    final Transaction second =
+        createTransferTransaction(
+            0, 1_000_000_000_000_000_000L, 140_000L, 0L, 0L, ACCOUNT_3, ACCOUNT_GENESIS_2_KEYPAIR);
+    final MainnetBlockProcessor blockProcessor = sequentialBlockProcessor();
+
+    assertRejectedBlockLeavesTheHeadWorldStateClean(
+        blockProcessor, blockGasLimit, first, second, BlockProcessingResult.INSUFFICIENT_BLOCK_GAS);
+  }
+
+  @Test
+  void blockRejectedForGasMeteredOverTheLimitLeavesTheHeadWorldStateClean() {
+    // The second transaction reports more gas than the whole block allows.
+    final long blockGasLimit = 30_000_000L;
+    final Transaction first =
+        createTransferTransaction(
+            0, 1_000_000_000_000_000_000L, 100_000L, 0L, 0L, ACCOUNT_2, ACCOUNT_GENESIS_1_KEYPAIR);
+    final Transaction second =
+        createTransferTransaction(
+            0, 1_000_000_000_000_000_000L, 100_000L, 0L, 0L, ACCOUNT_3, ACCOUNT_GENESIS_2_KEYPAIR);
+    final MainnetBlockProcessor blockProcessor = overMeteringSecondTransaction(blockGasLimit + 1);
+
+    assertRejectedBlockLeavesTheHeadWorldStateClean(
+        blockProcessor, blockGasLimit, first, second, null);
+  }
+
+  /**
+   * Processes a block that is rejected after its first transaction ran, then a valid block on the
+   * same parent, holding only that transaction, on the same head world state. The valid block only
+   * succeeds if the rejected block's changes were discarded: otherwise the first transaction's
+   * nonce is already used.
+   */
+  private void assertRejectedBlockLeavesTheHeadWorldStateClean(
+      final MainnetBlockProcessor rejectingProcessor,
+      final long blockGasLimit,
+      final Transaction first,
+      final Transaction second,
+      final BlockProcessingResult expectedFailure) {
+    final MutableWorldState headWorldState = worldStateArchive.getWorldState();
+    final Block rejectedBlock =
+        createBlockWithTransactions(Hash.ZERO, blockGasLimit, Wei.ZERO, first, second);
+
+    final BlockProcessingResult rejected =
+        rejectingProcessor.processBlock(protocolContext, blockchain, headWorldState, rejectedBlock);
+
+    assertThat(rejected.isFailed()).isTrue();
+    if (expectedFailure != null) {
+      assertThat(rejected).isSameAs(expectedFailure);
+    }
+
+    final Block validBlock =
+        createBlockWithTransactions(
+            discoverStateRoot(blockGasLimit, first), blockGasLimit, Wei.ZERO, first);
+    final BlockProcessingResult valid =
+        sequentialBlockProcessor()
+            .processBlock(protocolContext, blockchain, headWorldState, validBlock);
+
+    assertThat(valid.isSuccessful()).as(valid.errorMessage.orElse("")).isTrue();
+  }
+
+  /** Discovers the post-state root of a block holding {@code transactions} on a fresh chain. */
+  private Hash discoverStateRoot(final long blockGasLimit, final Transaction... transactions) {
+    final ExecutionContextTestFixture fresh =
+        ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
+            .dataStorageFormat(DataStorageFormat.BONSAI)
+            .build();
+    final MutableWorldState worldState = fresh.getStateArchive().getWorldState();
+    final BlockProcessingResult result =
+        sequentialBlockProcessor()
+            .processBlock(
+                fresh.getProtocolContext(),
+                fresh.getBlockchain(),
+                worldState,
+                createBlockWithTransactions(Hash.ZERO, blockGasLimit, Wei.ZERO, transactions));
+    if (result.isSuccessful()) {
+      return worldState.rootHash();
+    }
+    final String message = result.errorMessage.orElseThrow();
+    final String marker = "calculated ";
+    return Hash.fromHexString(message.substring(message.indexOf(marker) + marker.length()));
+  }
+
+  private MainnetBlockProcessor sequentialBlockProcessor() {
+    final ProtocolSpec spec = genesisSpec();
+    return new MainnetBlockProcessor(
+        spec.getTransactionProcessor(),
+        spec.getTransactionReceiptFactory(),
+        BlockHeader::getCoinbase,
+        protocolSchedule,
+        BalConfiguration.DEFAULT);
+  }
+
+  /** Processes transactions normally, except that the second reports {@code gasUsed}. */
+  private MainnetBlockProcessor overMeteringSecondTransaction(final long gasUsed) {
+    final ProtocolSpec spec = genesisSpec();
+    return new MainnetBlockProcessor(
+        spec.getTransactionProcessor(),
+        spec.getTransactionReceiptFactory(),
+        BlockHeader::getCoinbase,
+        protocolSchedule,
+        BalConfiguration.DEFAULT) {
+      @Override
+      protected TransactionProcessingResult getTransactionProcessingResult(
+          final Optional<PreprocessingContext> preProcessingContext,
+          final BlockProcessingContext blockProcessingContext,
+          final WorldUpdater transactionUpdater,
+          final Wei blobGasPrice,
+          final Address miningBeneficiary,
+          final Transaction transaction,
+          final int location,
+          final BlockHashLookup blockHashLookup,
+          final Optional<AccessLocationTracker> accessLocationTracker) {
+        if (location == 1) {
+          return TransactionProcessingResult.successful(
+              List.of(), gasUsed, 0L, Bytes.EMPTY, Optional.empty(), ValidationResult.valid());
+        }
+        return super.getTransactionProcessingResult(
+            preProcessingContext,
+            blockProcessingContext,
+            transactionUpdater,
+            blobGasPrice,
+            miningBeneficiary,
+            transaction,
+            location,
+            blockHashLookup,
+            accessLocationTracker);
+      }
+    };
+  }
+
+  private ProtocolSpec genesisSpec() {
+    return protocolSchedule.getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
   }
 
   @Test
@@ -1235,13 +1383,22 @@ class AbstractBlockProcessorIntegrationTest {
 
   private Block createBlockWithTransactions(
       final String stateRoot, final Wei baseFeePerGas, final Transaction... transactions) {
+    return createBlockWithTransactions(
+        Hash.fromHexString(stateRoot), 30_000_000L, baseFeePerGas, transactions);
+  }
+
+  private Block createBlockWithTransactions(
+      final Hash stateRoot,
+      final long gasLimit,
+      final Wei baseFeePerGas,
+      final Transaction... transactions) {
     final BlockHeader parentHeader = blockchain.getChainHeadHeader();
     BlockHeader blockHeader =
         new BlockHeaderTestFixture()
             .number(parentHeader.getNumber() + 1L)
             .parentHash(parentHeader.getHash())
-            .stateRoot(Hash.fromHexString(stateRoot))
-            .gasLimit(30_000_000L)
+            .stateRoot(stateRoot)
+            .gasLimit(gasLimit)
             .baseFeePerGas(baseFeePerGas)
             // Prague is active at genesis here, so the mandatory requestsHash field must be
             // present. The system-contract predeploys deterministically yield this requests hash
