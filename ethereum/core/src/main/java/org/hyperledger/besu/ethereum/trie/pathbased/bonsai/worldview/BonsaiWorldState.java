@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
@@ -38,6 +39,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.frontier.Fr
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.frontier.FrontierStorageRootTracker;
 import org.hyperledger.besu.ethereum.trie.patricia.ParallelStoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -148,7 +150,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   @Override
-  public Optional<Bytes> getCode(@NotNull final Address address, final Hash codeHash) {
+  public Optional<Code> getCode(@NotNull final Address address, final Hash codeHash) {
     return getWorldStateStorage().getCode(codeHash, address.addressHash());
   }
 
@@ -163,15 +165,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
         .getAccount(address.addressHash())
         .map(bytes -> BonsaiAccount.fromRLP(accumulator, address, bytes, true, codeCache))
         .orElse(null);
-  }
-
-  protected Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
-    return getWorldStateStorage().getAccountStateTrieNode(location, nodeHash);
-  }
-
-  public Optional<Bytes> getStorageTrieNode(
-      final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
-    return getWorldStateStorage().getAccountStorageTrieNode(accountHash, location, nodeHash);
   }
 
   @Override
@@ -206,7 +199,9 @@ public class BonsaiWorldState extends PathBasedWorldState {
   public Map<Bytes32, Bytes> getAllAccountStorage(final Address address, final Hash rootHash) {
     final MerkleTrie<Bytes, Bytes> storageTrie =
         createTrie(
-            (location, key) -> getStorageTrieNode(address.addressHash(), location, key),
+            (location, key) ->
+                getWorldStateStorage()
+                    .getTrieNode(TrieNodeKey.of(address.addressHash(), location), key),
             Bytes32.wrap(rootHash.getBytes()));
     return storageTrie.entriesFrom(Bytes32.ZERO, Integer.MAX_VALUE);
   }
@@ -219,7 +214,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   public void disableCacheMerkleTrieLoader() {
-    this.bonsaiCachedMerkleTrieLoader = new NoOpBonsaiCachedMerkleTrieLoader();
+    this.bonsaiCachedMerkleTrieLoader = NoOpBonsaiCachedMerkleTrieLoader.INSTANCE;
   }
 
   /**

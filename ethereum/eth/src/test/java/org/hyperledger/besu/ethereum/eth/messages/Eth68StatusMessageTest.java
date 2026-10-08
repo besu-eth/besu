@@ -19,7 +19,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Difficulty;
-import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
@@ -35,7 +34,7 @@ import org.junit.jupiter.api.Test;
 
 public class Eth68StatusMessageTest {
 
-  private final int version = EthProtocol.ETH68.getVersion();
+  private final int version = EthProtocolVersion.V68.getCapability().getVersion();
   private final BigInteger networkId = BigInteger.ONE;
   private final Difficulty td = Difficulty.of(1000L);
   private final Hash bestHash = randHash(1L);
@@ -94,7 +93,7 @@ public class Eth68StatusMessageTest {
             IllegalArgumentException.class,
             () ->
                 builder
-                    .protocolVersion(EthProtocolVersion.V68)
+                    .protocolVersion(EthProtocolVersion.V68.getVersion())
                     .blockRange(new StatusMessage.BlockRange(0L, 10))
                     .build());
     assertThat(exception.getMessage())
@@ -106,7 +105,11 @@ public class Eth68StatusMessageTest {
     Exception exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> builder.protocolVersion(EthProtocolVersion.V69).blockRange(null).build());
+            () ->
+                builder
+                    .protocolVersion(EthProtocolVersion.V69.getVersion())
+                    .blockRange(null)
+                    .build());
     assertThat(exception.getMessage())
         .contains("blockRange must be present for protocol version >= 69");
   }
@@ -116,7 +119,11 @@ public class Eth68StatusMessageTest {
     Exception exception =
         assertThrows(
             IllegalArgumentException.class,
-            () -> builder.protocolVersion(EthProtocolVersion.V68).totalDifficulty(null).build());
+            () ->
+                builder
+                    .protocolVersion(EthProtocolVersion.V68.getVersion())
+                    .totalDifficulty(null)
+                    .build());
     assertThat(exception.getMessage())
         .contains("totalDifficulty must be present for protocol version <= 68");
   }
@@ -128,7 +135,7 @@ public class Eth68StatusMessageTest {
             IllegalArgumentException.class,
             () ->
                 builder
-                    .protocolVersion(EthProtocolVersion.V69)
+                    .protocolVersion(EthProtocolVersion.V69.getVersion())
                     .blockRange(new StatusMessage.BlockRange(0L, 10L))
                     .totalDifficulty(Difficulty.ZERO)
                     .build());

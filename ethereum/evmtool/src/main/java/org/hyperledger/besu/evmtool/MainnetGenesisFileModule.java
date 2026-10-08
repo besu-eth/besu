@@ -184,6 +184,10 @@ class MainnetGenesisFileModule extends GenesisFileModule {
                     .baseFeePerGas(0x0a)
                     .chainId(chainId))),
         Map.entry(
+            "bogota",
+            createSchedule(
+                new StubGenesisConfigOptions().bogotaTime(0).baseFeePerGas(0x0a).chainId(chainId))),
+        Map.entry(
             "futureeips",
             createSchedule(
                 new StubGenesisConfigOptions()

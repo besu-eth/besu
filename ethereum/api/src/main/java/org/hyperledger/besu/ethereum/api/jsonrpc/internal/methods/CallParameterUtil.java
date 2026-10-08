@@ -23,14 +23,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 
-import java.util.Arrays;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class CallParameterUtil {
-  private static final Logger LOG = LoggerFactory.getLogger(CallParameterUtil.class);
-
   private CallParameterUtil() {}
 
   public static CallParameter validateAndGetCallParams(final JsonRpcRequestContext request) {
@@ -42,20 +35,24 @@ public class CallParameterUtil {
           "Invalid call parameters (index 0)", RpcErrorType.INVALID_CALL_PARAMS);
     }
 
-    if (LOG.isDebugEnabled()
-        && callParams.getGasPrice().isPresent()
+    rejectMixedFeeFields(callParams);
+    return callParams;
+  }
+
+  /**
+   * Rejects a call that sets gasPrice together with maxFeePerGas or maxPriorityFeePerGas. No
+   * transaction carries both, so neither can be chosen over the other without rewriting the call.
+   *
+   * @param callParams the call parameters
+   */
+  public static void rejectMixedFeeFields(final CallParameter callParams) {
+    if (callParams.getGasPrice().isPresent()
         && (callParams.getMaxFeePerGas().isPresent()
             || callParams.getMaxPriorityFeePerGas().isPresent())) {
-      try {
-        LOG.debug(
-            "gasPrice will be ignored since 1559 values are defined (maxFeePerGas or maxPriorityFeePerGas). {}",
-            Arrays.toString(request.getRequest().getParams()));
-      } catch (Exception e) {
-        LOG.debug(
-            "gasPrice will be ignored since 1559 values are defined (maxFeePerGas or maxPriorityFeePerGas)");
-      }
+      throw new InvalidJsonRpcParameters(
+          "both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified",
+          RpcErrorType.INVALID_PARAMS);
     }
-    return callParams;
   }
 
   public static boolean isAllowExceedingBalance(
@@ -66,12 +63,8 @@ public class CallParameterUtil {
 
     final boolean isZeroGasPrice = callParams.getGasPrice().map(Wei.ZERO::equals).orElse(true);
 
+    // the blob fee is priced independently, by the simulator
     if (header.getBaseFee().isPresent()) {
-      if (callParams.getBlobVersionedHashes().isPresent()
-          && (callParams.getMaxFeePerBlobGas().isEmpty()
-              || callParams.getMaxFeePerBlobGas().get().equals(Wei.ZERO))) {
-        return true;
-      }
       final boolean isZeroMaxFeePerGas =
           callParams.getMaxFeePerGas().orElse(Wei.ZERO).equals(Wei.ZERO);
       final boolean isZeroMaxPriorityFeePerGas =

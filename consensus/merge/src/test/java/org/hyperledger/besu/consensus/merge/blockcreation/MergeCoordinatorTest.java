@@ -898,6 +898,61 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
+  public void describePayloadArgsChangesListsParentAndWithdrawalChanges() {
+    final BlockHeader previousParent = genesisState.getBlock().getHeader();
+    final BlockHeader nextParent = headerGenerator.number(1).buildHeader();
+    final PreparePayloadArgsBuilder args =
+        new PreparePayloadArgsBuilder()
+            .timestamp(1L)
+            .prevRandao(Bytes32.ZERO)
+            .feeRecipient(suggestedFeeRecipient);
+
+    final String changes =
+        MergeCoordinator.describePayloadArgsChanges(
+            args.parentHeader(previousParent).withdrawals(Optional.empty()).build(),
+            args.parentHeader(nextParent).withdrawals(Optional.of(List.of())).build());
+
+    assertThat(changes)
+        .isEqualTo(
+            "parent "
+                + previousParent.getHash()
+                + " -> "
+                + nextParent.getHash()
+                + ", withdrawals changed (none -> 0)");
+  }
+
+  @Test
+  public void describePayloadArgsChangesListsOnlyTheChangedAttributes() {
+    final PreparePayloadArgsBuilder args =
+        new PreparePayloadArgsBuilder()
+            .parentHeader(genesisState.getBlock().getHeader())
+            .timestamp(1L)
+            .prevRandao(Bytes32.ZERO)
+            .feeRecipient(suggestedFeeRecipient)
+            .slotNumber(Optional.of(7L));
+
+    final String changes =
+        MergeCoordinator.describePayloadArgsChanges(
+            args.targetGasLimit(Optional.of(60_000_000L)).build(),
+            args.targetGasLimit(Optional.of(45_000_000L)).build());
+
+    assertThat(changes).isEqualTo("targetGasLimit 60000000 -> 45000000");
+  }
+
+  @Test
+  public void describePayloadArgsChangesReportsNoneForTheSameArguments() {
+    final MergeMiningCoordinator.PreparePayloadArgs args =
+        new PreparePayloadArgsBuilder()
+            .parentHeader(genesisState.getBlock().getHeader())
+            .timestamp(1L)
+            .prevRandao(Bytes32.ZERO)
+            .feeRecipient(suggestedFeeRecipient)
+            .build();
+
+    assertThat(MergeCoordinator.describePayloadArgsChanges(args, args)).isEqualTo("none");
+  }
+
+  @Test
   public void shouldUseExtraDataFromMiningParameters() {
     final Bytes extraData = Bytes.fromHexString("0x1234");
 

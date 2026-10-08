@@ -54,8 +54,6 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
-import org.hyperledger.besu.evm.account.MutableAccount;
-import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleException;
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
@@ -311,14 +309,10 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
                   builder -> builder.apply(tracker, disposableWorldState.updater().updater())));
 
       if (rewardCoinbase
-          && !rewardBeneficiary(
-              disposableWorldState,
-              processableBlockHeader,
-              ommers,
-              miningBeneficiary,
-              newProtocolSpec.getBlockReward(),
-              newProtocolSpec.isSkipZeroBlockRewards(),
-              newProtocolSpec)) {
+          && !newProtocolSpec
+              .getBlockRewardProcessor()
+              .rewardBeneficiaries(
+                  disposableWorldState, processableBlockHeader, ommers, miningBeneficiary)) {
         LOG.trace("Failed to apply mining reward, exiting.");
         throw new RuntimeException("Failed to apply mining reward.");
       }
@@ -479,53 +473,6 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
   @Override
   public boolean isCancelled() {
     return isCancelled.get();
-  }
-
-  /* Copied from BlockProcessor (with modifications). */
-  boolean rewardBeneficiary(
-      final MutableWorldState worldState,
-      final ProcessableBlockHeader header,
-      final List<BlockHeader> ommers,
-      final Address miningBeneficiary,
-      final Wei blockReward,
-      final boolean skipZeroBlockRewards,
-      final ProtocolSpec protocolSpec) {
-
-    // TODO(tmm): Added to make this work, should come from blockProcessor.
-    final int MAX_GENERATION = 6;
-    if (skipZeroBlockRewards && blockReward.isZero()) {
-      return true;
-    }
-
-    final Wei coinbaseReward =
-        protocolSpec
-            .getBlockProcessor()
-            .getCoinbaseReward(blockReward, header.getNumber(), ommers.size());
-    final WorldUpdater updater = worldState.updater();
-    final MutableAccount beneficiary = updater.getOrCreate(miningBeneficiary);
-
-    beneficiary.incrementBalance(coinbaseReward);
-    for (final BlockHeader ommerHeader : ommers) {
-      if (ommerHeader.getNumber() - header.getNumber() > MAX_GENERATION) {
-        LOG.trace(
-            "Block processing error: ommer block number {} more than {} generations current block number {}",
-            ommerHeader.getNumber(),
-            MAX_GENERATION,
-            header.getNumber());
-        return false;
-      }
-
-      final MutableAccount ommerCoinbase = updater.getOrCreate(ommerHeader.getCoinbase());
-      final Wei ommerReward =
-          protocolSpec
-              .getBlockProcessor()
-              .getOmmerReward(blockReward, header.getNumber(), ommerHeader.getNumber());
-      ommerCoinbase.incrementBalance(ommerReward);
-    }
-
-    updater.commit();
-
-    return true;
   }
 
   protected abstract BlockHeader createFinalBlockHeader(

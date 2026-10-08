@@ -19,9 +19,8 @@ import static org.apache.tuweni.rlp.RLP.decodeValue;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.AccountHashCodeStorageStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -69,13 +68,8 @@ public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage
   private BonsaiFlatDbStrategy buildWitnessFlatDbStrategy(
       final MetricsSystem metricsSystem, final BonsaiWorldStateKeyValueStorage parent) {
 
-    final boolean isCodeByCodeHash = parent.getFlatDbStrategy().isCodeByCodeHash();
-
     return new BonsaiFlatDbStrategy(
-        metricsSystem,
-        isCodeByCodeHash
-            ? new CodeHashCodeStorageStrategy()
-            : new AccountHashCodeStorageStrategy()) {
+        metricsSystem, parent.getFlatDbStrategy().getCodeStorageStrategy()) {
 
       @Override
       public Optional<Bytes> getFlatAccount(
@@ -121,41 +115,29 @@ public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage
   }
 
   @Override
-  public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
-    final Optional<Bytes> accountStateTrieNode = super.getAccountStateTrieNode(location, nodeHash);
-    accountStateTrieNode.ifPresent(trieNodes::add);
-    return accountStateTrieNode;
-  }
-
-  @Override
-  public Optional<Bytes> getAccountStorageTrieNode(
-      final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
-    final Optional<Bytes> accountStorageTrieNode =
-        super.getAccountStorageTrieNode(accountHash, location, nodeHash);
-    accountStorageTrieNode.ifPresent(trieNodes::add);
-    return accountStorageTrieNode;
+  public Optional<Bytes> getTrieNode(final Bytes key, final Bytes32 nodeHash) {
+    final Optional<Bytes> trieNode = super.getTrieNode(key, nodeHash);
+    trieNode.ifPresent(trieNodes::add);
+    return trieNode;
   }
 
   /**
    * Bypass the parent's flat-DB cache so the witness flat-DB strategy always traverses the trie and
-   * intercepts every node via {@link #getAccountStateTrieNode}. Without this override, a warm entry
-   * in the inherited {@code VersionedCacheManager} returns the cached flat-DB value directly,
-   * skipping the trie traversal and leaving those nodes out of the witness.
+   * intercepts every node via {@link #getTrieNode}. Without this override, a warm entry in the
+   * inherited {@code VersionedCacheManager} returns the cached flat-DB value directly, skipping the
+   * trie traversal and leaving those nodes out of the witness.
    */
   @Override
   public Optional<Bytes> getAccount(final Hash accountHash) {
     return witnessFlatDbStrategy.getFlatAccount(
-        this::getWorldStateRootHash,
-        this::getAccountStateTrieNode,
-        accountHash,
-        composedWorldStateStorage);
+        this::getWorldStateRootHash, this::getTrieNode, accountHash, composedWorldStateStorage);
   }
 
   /**
    * Bypass the parent's flat-DB cache so the witness flat-DB strategy always traverses the storage
-   * trie and intercepts every node via {@link #getAccountStorageTrieNode}. Without this override, a
-   * warm entry in the inherited {@code VersionedCacheManager} returns the cached flat-DB value
-   * directly, skipping the trie traversal and leaving those nodes out of the witness.
+   * trie and intercepts every node via {@link #getTrieNode}. Without this override, a warm entry in
+   * the inherited {@code VersionedCacheManager} returns the cached flat-DB value directly, skipping
+   * the trie traversal and leaving those nodes out of the witness.
    */
   @Override
   public Optional<Bytes> getStorageValueByStorageSlotKey(
@@ -165,7 +147,7 @@ public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage
     return witnessFlatDbStrategy.getFlatStorageValueByStorageSlotKey(
         this::getWorldStateRootHash,
         storageRootSupplier,
-        (location, hash) -> getAccountStorageTrieNode(accountHash, location, hash),
+        (location, hash) -> getTrieNode(TrieNodeKey.of(accountHash, location), hash),
         accountHash,
         storageSlotKey,
         composedWorldStateStorage);

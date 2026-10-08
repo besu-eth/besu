@@ -44,15 +44,20 @@ import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.FlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -68,6 +73,7 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 public class BonsaiWorldStateKeyValueStorageTest {
@@ -113,24 +119,24 @@ public class BonsaiWorldStateKeyValueStorageTest {
   @MethodSource("flatDbMode")
   void getCode_returnsEmpty(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
-    assertThat(storage.getCode(Hash.EMPTY, Hash.EMPTY)).contains(Bytes.EMPTY);
+    assertThat(storage.getCode(Hash.EMPTY, Hash.EMPTY).map(Code::getBytes)).contains(Bytes.EMPTY);
   }
 
   @ParameterizedTest
   @MethodSource("flatDbMode")
-  void getAccountStateTrieNode_returnsEmptyNode(final FlatDbMode flatDbMode) {
+  void getTrieNode_returnsEmptyNode(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
-    assertThat(storage.getAccountStateTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
+    assertThat(storage.getTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
   }
 
   @ParameterizedTest
   @MethodSource("flatDbMode")
-  void getAccountStorageTrieNode_returnsEmptyNode(final FlatDbMode flatDbMode) {
+  void getTrieNode_storageTrie_returnsEmptyNode(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
     assertThat(
-            storage.getAccountStorageTrieNode(
-                Hash.EMPTY, Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
+            storage.getTrieNode(
+                TrieNodeKey.of(Hash.EMPTY, Bytes.EMPTY), MerkleTrie.EMPTY_TRIE_NODE_HASH))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
   }
 
@@ -145,7 +151,8 @@ public class BonsaiWorldStateKeyValueStorageTest {
         .putCode(Hash.EMPTY, Bytes.EMPTY)
         .commit();
 
-    assertThat(storage.getCode(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE), Hash.EMPTY))
+    assertThat(
+            storage.getCode(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE), Hash.EMPTY).map(Code::getBytes))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
   }
 
@@ -157,76 +164,76 @@ public class BonsaiWorldStateKeyValueStorageTest {
     final Bytes bytes = Bytes.fromHexString("0x123456");
     storage.updater().putCode(Hash.EMPTY, bytes).commit();
 
-    assertThat(storage.getCode(Hash.hash(bytes), Hash.EMPTY)).contains(bytes);
+    assertThat(storage.getCode(Hash.hash(bytes), Hash.EMPTY).map(Code::getBytes)).contains(bytes);
   }
 
   @ParameterizedTest
   @MethodSource("flatDbMode")
-  void getAccountStateTrieNode_saveAndGetSpecialValues(final FlatDbMode flatDbMode) {
+  void getTrieNode_saveAndGetSpecialValues(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
     storage
         .updater()
-        .putAccountStateTrieNode(
+        .putTrieNode(
             Bytes.EMPTY,
             Bytes32.wrap(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE).getBytes()),
             MerkleTrie.EMPTY_TRIE_NODE)
-        .putAccountStateTrieNode(
-            Bytes.EMPTY, Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()), Bytes.EMPTY)
+        .putTrieNode(Bytes.EMPTY, Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()), Bytes.EMPTY)
         .commit();
 
-    assertThat(storage.getAccountStateTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
+    assertThat(storage.getTrieNode(Bytes.EMPTY, MerkleTrie.EMPTY_TRIE_NODE_HASH))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
-    assertThat(storage.getAccountStateTrieNode(Bytes.EMPTY, Bytes32.wrap(Hash.EMPTY.getBytes())))
+    assertThat(storage.getTrieNode(Bytes.EMPTY, Bytes32.wrap(Hash.EMPTY.getBytes())))
         .contains(Bytes.EMPTY);
   }
 
   @ParameterizedTest
   @MethodSource("flatDbMode")
-  void getAccountStateTrieNode_saveAndGetRegularValue(final FlatDbMode flatDbMode) {
+  void getTrieNode_saveAndGetRegularValue(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
     final Bytes location = Bytes.fromHexString("0x01");
     final Bytes bytes = Bytes.fromHexString("0x123456");
 
     storage
         .updater()
-        .putAccountStateTrieNode(location, Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
+        .putTrieNode(location, Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
         .commit();
 
-    assertThat(storage.getAccountStateTrieNode(location, Bytes32.wrap(Hash.hash(bytes).getBytes())))
+    assertThat(storage.getTrieNode(location, Bytes32.wrap(Hash.hash(bytes).getBytes())))
         .contains(bytes);
   }
 
   @ParameterizedTest
   @MethodSource("flatDbMode")
-  void getAccountStorageTrieNode_saveAndGetSpecialValues(final FlatDbMode flatDbMode) {
+  void getTrieNode_storageTrie_saveAndGetSpecialValues(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
 
     storage
         .updater()
-        .putAccountStorageTrieNode(
-            Hash.EMPTY,
-            Bytes.EMPTY,
+        .putTrieNode(
+            TrieNodeKey.of(Hash.EMPTY, Bytes.EMPTY),
             Bytes32.wrap(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE).getBytes()),
             MerkleTrie.EMPTY_TRIE_NODE)
-        .putAccountStorageTrieNode(
-            Hash.EMPTY, Bytes.EMPTY, Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()), Bytes.EMPTY)
+        .putTrieNode(
+            TrieNodeKey.of(Hash.EMPTY, Bytes.EMPTY),
+            Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes()),
+            Bytes.EMPTY)
         .commit();
 
     assertThat(
-            storage.getAccountStorageTrieNode(
-                Hash.EMPTY,
-                Bytes.EMPTY,
+            storage.getTrieNode(
+                TrieNodeKey.of(Hash.EMPTY, Bytes.EMPTY),
                 Bytes32.wrap(Hash.hash(MerkleTrie.EMPTY_TRIE_NODE).getBytes())))
         .contains(MerkleTrie.EMPTY_TRIE_NODE);
     assertThat(
-            storage.getAccountStorageTrieNode(
-                Hash.EMPTY, Bytes.EMPTY, Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes())))
+            storage.getTrieNode(
+                TrieNodeKey.of(Hash.EMPTY, Bytes.EMPTY),
+                Bytes32.wrap(Hash.hash(Bytes.EMPTY).getBytes())))
         .contains(Bytes.EMPTY);
   }
 
   @ParameterizedTest
   @MethodSource("flatDbMode")
-  void getAccountStorageTrieNode_saveAndGetRegularValue(final FlatDbMode flatDbMode) {
+  void getTrieNode_storageTrie_saveAndGetRegularValue(final FlatDbMode flatDbMode) {
     setUp(flatDbMode);
     final Hash accountHash = Address.fromHexString("0x1").addressHash();
     final Bytes location = Bytes.fromHexString("0x01");
@@ -234,13 +241,13 @@ public class BonsaiWorldStateKeyValueStorageTest {
 
     storage
         .updater()
-        .putAccountStorageTrieNode(
-            accountHash, location, Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
+        .putTrieNode(
+            TrieNodeKey.of(accountHash, location), Bytes32.wrap(Hash.hash(bytes).getBytes()), bytes)
         .commit();
 
     assertThat(
-            storage.getAccountStorageTrieNode(
-                accountHash, location, Bytes32.wrap(Hash.hash(bytes).getBytes())))
+            storage.getTrieNode(
+                TrieNodeKey.of(accountHash, location), Bytes32.wrap(Hash.hash(bytes).getBytes())))
         .contains(bytes);
   }
 
@@ -275,7 +282,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
 
     assertThat(storage.getAccount(Hash.wrap(accounts.firstKey()))).isEmpty();
 
-    verify(storage, times(0)).getAccountStateTrieNode(any(), eq(trie.getRootHash()));
+    verify(storage, times(0)).getTrieNode(any(), eq(trie.getRootHash()));
   }
 
   @ParameterizedTest
@@ -307,7 +314,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
     assertThat(storage.getAccount(Hash.wrap(accounts.firstKey())))
         .contains(accounts.firstEntry().getValue());
 
-    verify(storage, times(1)).getAccountStateTrieNode(any(), eq(trie.getRootHash()));
+    verify(storage, times(1)).getTrieNode(any(), eq(trie.getRootHash()));
   }
 
   @ParameterizedTest
@@ -331,7 +338,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (Bytes location, Bytes32 hash) ->
-                storage.getAccountStorageTrieNode(Hash.wrap(accounts.firstKey()), location, hash),
+                storage.getTrieNode(TrieNodeKey.of(Hash.wrap(accounts.firstKey()), location), hash),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()),
             b -> b,
             b -> b);
@@ -361,8 +368,9 @@ public class BonsaiWorldStateKeyValueStorageTest {
         .contains(slots.firstEntry().getValue().toShortHexString());
 
     verify(storage, times(2))
-        .getAccountStorageTrieNode(
-            eq(Hash.wrap(accounts.firstKey())), any(), eq(storageTrie.getRootHash()));
+        .getTrieNode(
+            eq(TrieNodeKey.of(Hash.wrap(accounts.firstKey()), Bytes.EMPTY)),
+            eq(storageTrie.getRootHash()));
   }
 
   @ParameterizedTest
@@ -853,8 +861,39 @@ public class BonsaiWorldStateKeyValueStorageTest {
     updaterA.commit();
     updaterB.commit();
 
-    assertThat(storage.getCode(Hash.hash(bytesB), accountHashB)).contains(bytesB);
-    assertThat(storage.getCode(Hash.hash(bytesC), accountHashD)).contains(bytesC);
+    assertThat(storage.getCode(Hash.hash(bytesB), accountHashB).map(Code::getBytes))
+        .contains(bytesB);
+    assertThat(storage.getCode(Hash.hash(bytesC), accountHashD).map(Code::getBytes))
+        .contains(bytesC);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void putCode_writesSharedCodeOncePerUpdater(final boolean codeByCodeHash) {
+    final FlatDbStrategy flatDbStrategy = mock(FlatDbStrategy.class);
+    when(flatDbStrategy.isCodeByCodeHash()).thenReturn(codeByCodeHash);
+    final SegmentedKeyValueStorage worldStorage = mock(SegmentedKeyValueStorage.class);
+    final Bytes code = Bytes.fromHexString("0x605b5b");
+    final Hash codeHash = Hash.hash(code);
+    final Hash accountHashA = Address.fromHexString("0x1").addressHash();
+    final Hash accountHashB = Address.fromHexString("0x2").addressHash();
+
+    for (int i = 0; i < 2; i++) {
+      new BonsaiWorldStateKeyValueStorage.Updater(
+              mock(SegmentedKeyValueStorageTransaction.class),
+              mock(KeyValueStorageTransaction.class),
+              flatDbStrategy,
+              worldStorage,
+              mock(TrieNodeStrategy.class))
+          .putCode(accountHashA, codeHash, code)
+          .putCode(accountHashB, codeHash, code);
+    }
+
+    // keyed by code hash, each updater writes the code once; keyed by account, once per account
+    verify(flatDbStrategy, times(2))
+        .putFlatCode(any(), any(), eq(accountHashA), eq(codeHash), eq(code));
+    verify(flatDbStrategy, times(codeByCodeHash ? 0 : 2))
+        .putFlatCode(any(), any(), eq(accountHashB), eq(codeHash), eq(code));
   }
 
   @ParameterizedTest

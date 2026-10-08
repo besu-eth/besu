@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -119,31 +118,4 @@ public interface BlockProcessor {
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
       final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction);
-
-  /**
-   * Get ommer reward in ${@link Wei}
-   *
-   * @param blockReward reward of the block
-   * @param blockNumber number of the block
-   * @param ommerBlockNumber number of the block ommer
-   * @return ommer reward
-   */
-  default Wei getOmmerReward(
-      final Wei blockReward, final long blockNumber, final long ommerBlockNumber) {
-    final long distance = blockNumber - ommerBlockNumber;
-    return blockReward.subtract(blockReward.multiply(distance).divide(8));
-  }
-
-  /**
-   * Get coinbase reward in ${@link Wei}
-   *
-   * @param blockReward reward of the block
-   * @param blockNumber number of the block
-   * @param numberOfOmmers number of ommers for this block
-   * @return coinbase reward
-   */
-  default Wei getCoinbaseReward(
-      final Wei blockReward, final long blockNumber, final int numberOfOmmers) {
-    return blockReward.add(blockReward.multiply(numberOfOmmers).divide(32));
-  }
 }

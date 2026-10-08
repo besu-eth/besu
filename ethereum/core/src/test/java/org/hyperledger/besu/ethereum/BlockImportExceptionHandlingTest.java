@@ -24,7 +24,6 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -38,6 +37,7 @@ import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
@@ -78,9 +78,7 @@ class BlockImportExceptionHandlingTest {
       new MainnetBlockProcessor(
           transactionProcessor,
           transactionReceiptFactory,
-          Wei.ZERO,
           BlockHeader::getCoinbase,
-          true,
           protocolSchedule,
           BalConfiguration.DEFAULT);
   private final BlockHeaderValidator blockHeaderValidator = mock(BlockHeaderValidator.class);
@@ -127,6 +125,7 @@ class BlockImportExceptionHandlingTest {
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     when(protocolSpec.getPreExecutionProcessor()).thenReturn(new FrontierPreExecutionProcessor());
+    when(protocolSpec.getBlockRewardProcessor()).thenReturn(BlockRewardProcessor.NO_REWARDS);
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
     when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
     when(protocolSpec.getFeeMarket()).thenReturn(feeMarket);

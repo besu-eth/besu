@@ -18,18 +18,14 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
-import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** Processes the beacon block storage if it is present in the block header. */
 public class CancunPreExecutionProcessor extends FrontierPreExecutionProcessor {
-  private static final Logger LOG = LoggerFactory.getLogger(CancunPreExecutionProcessor.class);
   Address BEACON_ROOTS_ADDRESS =
       Address.fromHexString("0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02");
 
@@ -50,12 +46,9 @@ public class CancunPreExecutionProcessor extends FrontierPreExecutionProcessor {
       final Optional<AccessLocationTracker> accessLocationTracker) {
     SystemCallProcessor processor =
         new SystemCallProcessor(context.getProtocolSpec().getTransactionProcessor());
-    try {
-      processor.process(BEACON_ROOTS_ADDRESS, context, beaconRootsAddress, accessLocationTracker);
-    } catch (SystemCallNoCodeAtAddressException e) {
-      // According to EIP-4788, fail silently if no code exists
-      LOG.warn("Invalid system call address: {}", BEACON_ROOTS_ADDRESS);
-    }
+    // EIP-4788: a missing or failing beacon roots contract does not invalidate the block
+    processor.processUnchecked(
+        BEACON_ROOTS_ADDRESS, context, beaconRootsAddress, accessLocationTracker);
   }
 
   @Override

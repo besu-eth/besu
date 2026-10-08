@@ -26,7 +26,7 @@ javaPlatform {
 }
 
 dependencies {
-  api platform('com.fasterxml.jackson:jackson-bom:2.21.6')
+  api platform('com.fasterxml.jackson:jackson-bom:2.21.7')
   api platform('io.grpc:grpc-bom:1.79.0')
   api platform('io.netty:netty-bom:4.2.17.Final')
   api platform('io.opentelemetry:opentelemetry-bom:1.62.0')
@@ -121,6 +121,20 @@ dependencies {
     api 'info.picocli:picocli:4.7.7'
     api 'info.picocli:picocli-codegen:4.7.7'
 
+    api 'io.consensys.protocols:discovery:26.8.0'
+
+    api 'io.consensys.protocols:jc-kzg-4844:2.1.8'
+
+    api 'io.consensys.tuweni:tuweni-bytes:2.8.0'
+    api 'io.consensys.tuweni:tuweni-config:2.8.0'
+    api 'io.consensys.tuweni:tuweni-concurrent:2.8.0'
+    api 'io.consensys.tuweni:tuweni-crypto:2.8.0'
+    api 'io.consensys.tuweni:tuweni-io:2.8.0'
+    api 'io.consensys.tuweni:tuweni-net:2.8.0'
+    api 'io.consensys.tuweni:tuweni-rlp:2.8.0'
+    api 'io.consensys.tuweni:tuweni-toml:2.8.0'
+    api 'io.consensys.tuweni:tuweni-units:2.8.0'
+
     api 'io.opentelemetry.instrumentation:opentelemetry-okhttp-3.0:2.25.0-alpha'
     api 'io.opentelemetry.proto:opentelemetry-proto:1.9.0-alpha'
     api 'io.opentelemetry.semconv:opentelemetry-semconv:1.40.0'
@@ -133,16 +147,6 @@ dependencies {
     api 'io.pkts:pkts-core:3.0.18'
 
     api 'io.projectreactor:reactor-core:3.8.6'
-
-    api 'io.consensys.tuweni:tuweni-bytes:2.8.0'
-    api 'io.consensys.tuweni:tuweni-config:2.8.0'
-    api 'io.consensys.tuweni:tuweni-concurrent:2.8.0'
-    api 'io.consensys.tuweni:tuweni-crypto:2.8.0'
-    api 'io.consensys.tuweni:tuweni-io:2.8.0'
-    api 'io.consensys.tuweni:tuweni-net:2.8.0'
-    api 'io.consensys.tuweni:tuweni-rlp:2.8.0'
-    api 'io.consensys.tuweni:tuweni-toml:2.8.0'
-    api 'io.consensys.tuweni:tuweni-units:2.8.0'
 
     api 'jakarta.validation:jakarta.validation-api:3.1.1'
 
@@ -204,9 +208,7 @@ dependencies {
 
     api 'org.xerial.snappy:snappy-java:1.1.10.7'
 
-    api 'io.consensys.protocols:jc-kzg-4844:2.1.8'
-
-    api 'io.consensys.protocols:discovery:26.8.0'
+    api 'wtf.metio.storage-units:storage-units-model:2026.9.9'
   }
 }
 

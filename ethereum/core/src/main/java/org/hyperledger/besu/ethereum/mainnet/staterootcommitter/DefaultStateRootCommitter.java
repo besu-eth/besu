@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
@@ -158,8 +159,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
       }
 
       sink.commitTrie(
-          accountTrie,
-          (location, hash, value) -> u -> u.putAccountStateTrieNode(location, hash, value));
+          accountTrie, (location, hash, value) -> u -> u.putTrieNode(location, hash, value));
       writeSink.addAll(writes);
       return Hash.wrap(accountTrie.getRootHash());
     }
@@ -225,7 +225,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
         sink.commitTrie(
             storageTrie,
             (location, nodeHash, value) ->
-                u -> u.putAccountStorageTrieNode(updatedAddressHash, location, nodeHash, value));
+                u -> u.putTrieNode(TrieNodeKey.of(updatedAddressHash, location), nodeHash, value));
       }
       return accountDeleted ? Hash.EMPTY_TRIE_HASH : Hash.wrap(storageTrie.getRootHash());
     }

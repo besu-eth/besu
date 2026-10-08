@@ -80,6 +80,8 @@ public class DebugTraceBlockStreamer {
   private static final byte[] SL_REFUND = ",\"refund\":".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] SL_STACK = ",\"stack\":[".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] SL_MEMORY = ",\"memory\":[".getBytes(StandardCharsets.US_ASCII);
+  private static final byte[] SL_RETURN_DATA =
+      ",\"returnData\":\"".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] SL_STORAGE = ",\"storage\":{".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] SL_REASON = ",\"reason\":\"".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] SL_ERROR = ",\"error\":\"".getBytes(StandardCharsets.US_ASCII);
@@ -440,6 +442,15 @@ public class DebugTraceBlockStreamer {
           writeByte(QUOTE);
         }
         writeByte(ARR_CLOSE);
+      }
+
+      if (traceOptions.opCodeTracerConfig().traceReturnData()) {
+        final Bytes returnData = frame.getReturnData();
+        if (returnData != null && !returnData.isEmpty()) {
+          writeBytes(SL_RETURN_DATA);
+          writeHex(returnData.toArrayUnsafe(), false);
+          writeByte(QUOTE);
+        }
       }
 
       if (traceOptions.opCodeTracerConfig().traceStorage()) {

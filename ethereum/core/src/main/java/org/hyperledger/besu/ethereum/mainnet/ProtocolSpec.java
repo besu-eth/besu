@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.datatypes.HardforkId;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
@@ -67,13 +66,11 @@ public class ProtocolSpec {
 
   private final DifficultyCalculator difficultyCalculator;
 
-  private final Wei blockReward;
-
   private final MiningBeneficiaryCalculator miningBeneficiaryCalculator;
 
   private final PrecompileContractRegistry precompileContractRegistry;
 
-  private final boolean skipZeroBlockRewards;
+  private final BlockRewardProcessor blockRewardProcessor;
 
   private final FeeMarket feeMarket;
 
@@ -110,10 +107,9 @@ public class ProtocolSpec {
    * @param blockHeaderFunctions the block hash function to use
    * @param transactionReceiptFactory the transactionReceiptFactory to use
    * @param difficultyCalculator the difficultyCalculator to use
-   * @param blockReward the blockReward to use.
+   * @param blockRewardProcessor pays the block rewards
    * @param miningBeneficiaryCalculator determines to whom mining proceeds are paid
    * @param precompileContractRegistry all the pre-compiled contracts added
-   * @param skipZeroBlockRewards should rewards be skipped if it is zero
    * @param gasCalculator the gas calculator to use.
    * @param gasLimitCalculator the gas limit calculator to use.
    * @param feeMarket an {@link Optional} wrapping {@link FeeMarket} class if appropriate.
@@ -145,10 +141,9 @@ public class ProtocolSpec {
       final BlockHeaderFunctions blockHeaderFunctions,
       final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory,
       final DifficultyCalculator difficultyCalculator,
-      final Wei blockReward,
+      final BlockRewardProcessor blockRewardProcessor,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
       final PrecompileContractRegistry precompileContractRegistry,
-      final boolean skipZeroBlockRewards,
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator,
       final FeeMarket feeMarket,
@@ -180,10 +175,9 @@ public class ProtocolSpec {
     this.blockHeaderFunctions = blockHeaderFunctions;
     this.transactionReceiptFactory = transactionReceiptFactory;
     this.difficultyCalculator = difficultyCalculator;
-    this.blockReward = blockReward;
     this.miningBeneficiaryCalculator = miningBeneficiaryCalculator;
     this.precompileContractRegistry = precompileContractRegistry;
-    this.skipZeroBlockRewards = skipZeroBlockRewards;
+    this.blockRewardProcessor = blockRewardProcessor;
     this.gasCalculator = gasCalculator;
     this.gasLimitCalculator = gasLimitCalculator;
     this.feeMarket = feeMarket;
@@ -326,23 +320,12 @@ public class ProtocolSpec {
   }
 
   /**
-   * Returns the blockReward used in this specification.
+   * Returns the processor that pays the block rewards under this specification.
    *
-   * @return the amount to be rewarded for block mining.
+   * @return the block reward processor
    */
-  public Wei getBlockReward() {
-    return blockReward;
-  }
-
-  /**
-   * Sometimes we apply zero block rewards to the Trie (pre EIP158) sometimes we don't (post EIP158
-   * and all clique nets). The initial behavior was to never apply zero rewards. If a zero reward is
-   * applied it could affect the state tree with a "empty" account.
-   *
-   * @return If we skip block rewards when the reward is zero.
-   */
-  public boolean isSkipZeroBlockRewards() {
-    return skipZeroBlockRewards;
+  public BlockRewardProcessor getBlockRewardProcessor() {
+    return blockRewardProcessor;
   }
 
   public MiningBeneficiaryCalculator getMiningBeneficiaryCalculator() {

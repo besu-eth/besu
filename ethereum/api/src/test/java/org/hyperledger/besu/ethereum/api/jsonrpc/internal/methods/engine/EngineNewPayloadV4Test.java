@@ -242,7 +242,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
 
     var result = fromSuccessResp(resp);
     assertThat(result.getStatus()).isEqualTo(INVALID);
-    assertThat(result.getLatestValidHash().get()).isEqualTo(mockHash);
+    assertThat(result.getLatestValidHash()).isEqualTo(mockHash);
     // The validationError is the only diagnostic the consensus client receives.
     assertThat(result.getError())
         .isEqualTo("Invalid execution requests: Unsupported request type: 0xFF");

@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPa
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadPostExecutionValidationResultV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -104,7 +105,11 @@ class EngineNewPayloadWithWitnessV5Test {
   void shouldReturnInternalErrorWhenImportProducedNoBlockAccessList() {
     final JsonRpcResponse resp =
         method.respondWithValid(
-            REQUEST_ID, param, newBlockHeader, new BlockProcessingResult(Optional.empty()));
+            REQUEST_ID,
+            param,
+            newBlockHeader,
+            new BlockProcessingResult(Optional.empty()),
+            PayloadPostExecutionValidationResultV1.SUCCESS);
 
     assertInternalError(resp);
   }
@@ -120,7 +125,11 @@ class EngineNewPayloadWithWitnessV5Test {
 
     final JsonRpcResponse resp =
         method.respondWithValid(
-            REQUEST_ID, param, newBlockHeader, new BlockProcessingResult(Optional.of(outputs)));
+            REQUEST_ID,
+            param,
+            newBlockHeader,
+            new BlockProcessingResult(Optional.of(outputs)),
+            PayloadPostExecutionValidationResultV1.SUCCESS);
 
     assertInternalError(resp);
   }

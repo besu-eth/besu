@@ -33,6 +33,9 @@ public interface CodeCache {
   /**
    * Puts the code into the cache.
    *
+   * <p>An implementation may refuse an entry that cannot be valid, such as empty code under a
+   * non-empty hash, so the code is not guaranteed to be present afterwards.
+   *
    * @param codeHash the hash of the code to store
    * @param code the code to store
    */

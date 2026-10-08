@@ -895,8 +895,9 @@ public class MessageFrame {
   }
 
   /**
-   * Decrements stateGasUsed for in-frame refunds (SSTORE 0→X→0, CREATE silent failure, same-tx
-   * SELFDESTRUCT). UndoScalar-scoped: refunds propagate to parents only on full success.
+   * Decrements stateGasUsed for in-frame refunds (SSTORE 0→X→0, CREATE silent failure).
+   * UndoScalar-scoped: refunds propagate to parents only on full success. A same-tx SELFDESTRUCT
+   * does not refund state gas (EIP-8037, "Gas refills for SELFDESTRUCT").
    *
    * @param amount the amount to subtract
    */
