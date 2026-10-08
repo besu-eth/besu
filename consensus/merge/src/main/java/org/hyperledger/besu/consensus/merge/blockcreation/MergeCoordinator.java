@@ -70,6 +70,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -350,7 +351,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   private static void addChange(
-      final List<String> changes, final String name, final Object previous, final Object next) {
+      final List<String> changes,
+      final String name,
+      final @Nullable Object previous,
+      final @Nullable Object next) {
     if (!Objects.equals(previous, next)) {
       changes.add(name + " " + previous + " -> " + next);
     }
