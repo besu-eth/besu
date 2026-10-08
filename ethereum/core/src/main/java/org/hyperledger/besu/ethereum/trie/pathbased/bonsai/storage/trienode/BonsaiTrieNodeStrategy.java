@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
@@ -27,9 +26,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * The Bonsai strategy for storing and retrieving trie nodes in a flat key-value storage. This
- * implementation uses a single segment for all trie nodes, with account trie nodes keyed by their
- * location and storage trie nodes keyed by a combination of the account hash and their location.
+ * The Bonsai strategy for storing and retrieving trie nodes: every node is stored in a single
+ * segment, keyed by its {@link TrieNodeKey}.
  */
 public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
 
@@ -44,51 +42,26 @@ public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
   }
 
   @Override
-  public Optional<Bytes> getFlatAccountTrieNode(
-      final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
-    return storage.get(trieSegment, location.toArrayUnsafe()).map(Bytes::wrap);
+  public Optional<Bytes> getTrieNode(
+      final SegmentedKeyValueStorage storage, final Bytes key, final Bytes32 nodeHash) {
+    return storage.get(trieSegment, key.toArrayUnsafe()).map(Bytes::wrap);
   }
 
   @Override
-  public Optional<Bytes> getFlatStorageTrieNode(
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final SegmentedKeyValueStorage storage) {
-    return storage
-        .get(trieSegment, Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
-        .map(Bytes::wrap);
-  }
-
-  @Override
-  public void putFlatAccountTrieNode(
+  public void putTrieNode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location,
+      final Bytes key,
       final Bytes32 nodeHash,
       final Bytes node) {
-    transaction.put(trieSegment, location.toArrayUnsafe(), node.toArrayUnsafe());
+    transaction.put(trieSegment, key.toArrayUnsafe(), node.toArrayUnsafe());
   }
 
   @Override
-  public void putFlatStorageTrieNode(
+  public void removeTrieNode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final Bytes node) {
-    transaction.put(
-        trieSegment,
-        Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe(),
-        node.toArrayUnsafe());
-  }
-
-  @Override
-  public void removeFlatAccountStateTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location) {
-    transaction.remove(trieSegment, location.toArrayUnsafe());
+      final Bytes key) {
+    transaction.remove(trieSegment, key.toArrayUnsafe());
   }
 }
