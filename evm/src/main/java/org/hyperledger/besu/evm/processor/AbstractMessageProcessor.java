@@ -222,6 +222,13 @@ public abstract class AbstractMessageProcessor {
     frame.releaseStackV2();
   }
 
+  private void exitFailed(final MessageFrame frame, final OperationTracer operationTracer) {
+    if (operationTracer != null) {
+      operationTracer.traceContextExit(frame);
+    }
+    completedFailed(frame);
+  }
+
   /**
    * Executes the message frame code until it halts.
    *
@@ -283,10 +290,7 @@ public abstract class AbstractMessageProcessor {
       completedSuccess(frame);
     }
     if (frame.getState() == MessageFrame.State.COMPLETED_FAILED) {
-      if (operationTracer != null) {
-        operationTracer.traceContextExit(frame);
-      }
-      completedFailed(frame);
+      exitFailed(frame, operationTracer);
     }
   }
 
@@ -313,10 +317,7 @@ public abstract class AbstractMessageProcessor {
       operationTracer.traceContextEnter(frame);
     }
     exceptionalHalt(frame);
-    if (operationTracer != null) {
-      operationTracer.traceContextExit(frame);
-    }
-    completedFailed(frame);
+    exitFailed(frame, operationTracer);
   }
 
   private static void traceFrameEnter(final MessageFrame frame) {
