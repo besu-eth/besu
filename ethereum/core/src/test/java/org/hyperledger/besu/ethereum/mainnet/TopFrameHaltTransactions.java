@@ -19,6 +19,7 @@ import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -34,7 +35,9 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.math.BigInteger;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -93,7 +96,19 @@ public class TopFrameHaltTransactions {
   private final ProtocolSpec spec = fixture.getProtocolSchedule().getByBlockHeader(header);
   private final KeyPair sender = keyPair(SENDER_PRIVATE_KEY);
   private final KeyPair authority = SIGNATURE_ALGORITHM.generateKeyPair();
+  private final Map<Halt, Transaction> transactions = new EnumMap<>(Halt.class);
 
+  /**
+   * Builds the genesis state and signs one transaction per {@link Halt}. Each run gets its own
+   * {@link #newWorldUpdater()}, so one instance can be shared by every test in a class.
+   */
+  public TopFrameHaltTransactions() {
+    for (final Halt halt : Halt.values()) {
+      transactions.put(halt, buildTransaction(halt));
+    }
+  }
+
+  /** The protocol spec the transactions are processed with. */
   public ProtocolSpec spec() {
     return spec;
   }
@@ -103,8 +118,17 @@ public class TopFrameHaltTransactions {
     return Address.extract(authority.getPublicKey());
   }
 
+  /** The mining beneficiary the transactions are processed with. */
+  public Address coinbase() {
+    return header.getCoinbase();
+  }
+
   /** A transaction that halts its top frame on the given preparation charge. */
   public Transaction transaction(final Halt halt) {
+    return transactions.get(halt);
+  }
+
+  private Transaction buildTransaction(final Halt halt) {
     final Function<Long, Transaction> withGasLimit =
         switch (halt) {
           case CONTRACT_CREATION ->
@@ -115,27 +139,33 @@ public class TopFrameHaltTransactions {
                       .to(Optional.of(EMPTY_ACCOUNT))
                       .value(Wei.ONE)
                       .createTransaction(sender);
-          case DELEGATION_TO_NEW_AUTHORITY ->
-              gasLimit ->
-                  template(gasLimit)
-                      .type(TransactionType.DELEGATE_CODE)
-                      .to(Optional.of(EXISTING_CONTRACT))
-                      .codeDelegations(
-                          List.of(
-                              TransactionTestFixture.createSignedCodeDelegation(
-                                  CHAIN_ID, EXISTING_CONTRACT, 0, authority)))
-                      .createTransaction(sender);
+          case DELEGATION_TO_NEW_AUTHORITY -> {
+            final List<CodeDelegation> delegations =
+                List.of(
+                    TransactionTestFixture.createSignedCodeDelegation(
+                        CHAIN_ID, EXISTING_CONTRACT, 0, authority));
+            yield gasLimit ->
+                template(gasLimit)
+                    .type(TransactionType.DELEGATE_CODE)
+                    .to(Optional.of(EXISTING_CONTRACT))
+                    .codeDelegations(delegations)
+                    .createTransaction(sender);
+          }
         };
+    // The gas limit is signed, so the intrinsic gas is measured on a draft first.
     final GasCalculator gasCalculator = spec.getGasCalculator();
-    final Transaction sizing = withGasLimit.apply(1_000_000L);
+    final Transaction draft = withGasLimit.apply(1_000_000L);
     return withGasLimit.apply(
         Math.max(
-            gasCalculator.transactionIntrinsicExecutionGas(sizing),
-            gasCalculator.transactionFloorCost(sizing)));
+            gasCalculator.transactionIntrinsicExecutionGas(draft),
+            gasCalculator.transactionFloorCost(draft)));
   }
 
+  /** A world state to process one transaction on, isolated from the shared genesis state. */
   public WorldUpdater newWorldUpdater() {
-    return fixture.getStateArchive().getWorldState().updater();
+    // The transaction processor commits the updater it is given, so it gets a child of a
+    // throwaway updater rather than one on the genesis state itself.
+    return fixture.getStateArchive().getWorldState().updater().updater();
   }
 
   public TransactionProcessingResult process(
