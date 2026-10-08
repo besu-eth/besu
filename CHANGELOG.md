@@ -40,6 +40,7 @@
 - Add `trace_replayTransaction` to the `TRACE` API. It replays one mined transaction on top of the transactions before it in its block and returns the same result as `trace_replayBlockTransactions` for that transaction. [#11406](https://github.com/besu-eth/besu/pull/11406)
 - Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
 - EVM v2 runs untraced execution, such as block import, in a faster loop of its own. [#11687](https://github.com/besu-eth/besu/pull/11687)
+- Block import computes logs blooms on the transaction workers, and the receipts and transactions roots off the importing thread. [#11529](https://github.com/besu-eth/besu/pull/11529)
 
 ## 26.11.0
 
