@@ -18,8 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
-import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTransactions;
-import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTransactions.Halt;
+import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTestFixture;
+import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTestFixture.Halt;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 
@@ -30,7 +30,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 class PrestateTracerTopFrameHaltTest {
 
-  private static final TopFrameHaltTransactions TRANSACTIONS = new TopFrameHaltTransactions();
+  private static final TopFrameHaltTestFixture FIXTURE = new TopFrameHaltTestFixture();
 
   @ParameterizedTest
   @EnumSource(Halt.class)
@@ -39,15 +39,14 @@ class PrestateTracerTopFrameHaltTest {
     final PrestateTracer tracer =
         new PrestateTracer(
             new TraceOptions(TracerType.PRESTATE_TRACER, null, Map.of("includeEmpty", true)),
-            TRANSACTIONS.spec());
+            FIXTURE.spec());
 
-    final TransactionProcessingResult result =
-        TRANSACTIONS.process(TRANSACTIONS.transaction(halt), tracer);
+    final TransactionProcessingResult result = FIXTURE.process(FIXTURE.transaction(halt), tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     assertThat(result.getExceptionalHaltReason()).contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
     final PrestateTracerResult.Prestate prestate =
         (PrestateTracerResult.Prestate) tracer.buildResult();
-    assertThat(prestate.accounts()).containsKey(TRANSACTIONS.coinbase().toHexString());
+    assertThat(prestate.accounts()).containsKey(FIXTURE.coinbase().toHexString());
   }
 }

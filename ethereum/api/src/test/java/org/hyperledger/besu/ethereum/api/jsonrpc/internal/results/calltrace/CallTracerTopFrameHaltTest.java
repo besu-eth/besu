@@ -21,8 +21,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResu
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
-import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTransactions;
-import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTransactions.Halt;
+import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTestFixture;
+import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTestFixture.Halt;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -35,16 +35,16 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 class CallTracerTopFrameHaltTest {
 
-  private static final TopFrameHaltTransactions TRANSACTIONS = new TopFrameHaltTransactions();
+  private static final TopFrameHaltTestFixture FIXTURE = new TopFrameHaltTestFixture();
 
   @ParameterizedTest
   @EnumSource(Halt.class)
   void tracesTopFrameThatRunsOutOfGasBeforeExecutionStarts(final Halt halt) {
     final CallTracer tracer =
         new CallTracer(new TraceOptions(TracerType.CALL_TRACER, null, Map.of()));
-    final Transaction tx = TRANSACTIONS.transaction(halt);
+    final Transaction tx = FIXTURE.transaction(halt);
 
-    final TransactionProcessingResult result = TRANSACTIONS.process(tx, tracer);
+    final TransactionProcessingResult result = FIXTURE.process(tx, tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     assertThat(result.isSuccessful()).isFalse();
@@ -62,10 +62,10 @@ class CallTracerTopFrameHaltTest {
   void flatTracesTopFrameThatRunsOutOfGasBeforeExecutionStarts(final Halt halt) {
     final FlatCallTracer tracer =
         new FlatCallTracer(
-            new TraceOptions(TracerType.FLAT_CALL_TRACER, null, Map.of()), TRANSACTIONS.spec());
-    final Transaction tx = TRANSACTIONS.transaction(halt);
+            new TraceOptions(TracerType.FLAT_CALL_TRACER, null, Map.of()), FIXTURE.spec());
+    final Transaction tx = FIXTURE.transaction(halt);
 
-    final TransactionProcessingResult result = TRANSACTIONS.process(tx, tracer);
+    final TransactionProcessingResult result = FIXTURE.process(tx, tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     final List<FlatCallTracerResult> trace =

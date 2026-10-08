@@ -16,8 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTransactions;
-import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTransactions.Halt;
+import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTestFixture;
+import org.hyperledger.besu.ethereum.mainnet.TopFrameHaltTestFixture.Halt;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -29,16 +29,15 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 class FourByteTracerTopFrameHaltTest {
 
-  private static final TopFrameHaltTransactions TRANSACTIONS = new TopFrameHaltTransactions();
+  private static final TopFrameHaltTestFixture FIXTURE = new TopFrameHaltTestFixture();
 
   @ParameterizedTest
   @EnumSource(Halt.class)
   void countsSelectorOfMessageCallThatRunsOutOfGasBeforeExecutionStarts(final Halt halt) {
     final FourByteTracer tracer =
-        new FourByteTracer(TRANSACTIONS.spec().getPrecompileContractRegistry());
+        new FourByteTracer(FIXTURE.spec().getPrecompileContractRegistry());
 
-    final TransactionProcessingResult result =
-        TRANSACTIONS.process(TRANSACTIONS.transaction(halt), tracer);
+    final TransactionProcessingResult result = FIXTURE.process(FIXTURE.transaction(halt), tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     assertThat(result.getExceptionalHaltReason()).contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
