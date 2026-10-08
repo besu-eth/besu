@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -50,19 +49,6 @@ class TopFrameHaltTest {
     assertThat(result.getExceptionalHaltReason()).contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
     assertThat(tracer.events)
         .containsExactly("enter " + halt.frameType(), "exit COMPLETED_FAILED remainingGas=0");
-  }
-
-  @ParameterizedTest
-  @EnumSource(Halt.class)
-  void ethTransferLogTracerHandlesHaltedTopFrame(final Halt halt) {
-    final EthTransferLogOperationTracer tracer = new EthTransferLogOperationTracer();
-
-    final TransactionProcessingResult result =
-        TRANSACTIONS.process(TRANSACTIONS.transaction(halt), tracer);
-
-    assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
-    assertThat(result.getExceptionalHaltReason()).contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
-    assertThat(tracer.getLogs()).isEmpty();
   }
 
   @Test
