@@ -99,7 +99,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     return new MainnetBlockProcessor(
         spec.getTransactionProcessor(),
         spec.getTransactionReceiptFactory(),
-        Wei.ZERO,
         BlockHeader::getCoinbase,
         ctx.getProtocolSchedule(),
         SEQUENTIAL_CONFIG);
@@ -112,7 +111,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     return new NoBlockFallbackParallelBlockProcessor(
         spec.getTransactionProcessor(),
         spec.getTransactionReceiptFactory(),
-        Wei.ZERO,
         BlockHeader::getCoinbase,
         ctx.getProtocolSchedule(),
         getBalConfiguration(),
@@ -128,7 +126,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     public NoBlockFallbackParallelBlockProcessor(
         final MainnetTransactionProcessor transactionProcessor,
         final TransactionReceiptFactory transactionReceiptFactory,
-        final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration,
@@ -136,7 +133,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
       super(
           transactionProcessor,
           transactionReceiptFactory,
-          blockReward,
           miningBeneficiaryCalculator,
           protocolSchedule,
           balConfiguration,

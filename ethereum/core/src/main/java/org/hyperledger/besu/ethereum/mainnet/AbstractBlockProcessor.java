@@ -79,13 +79,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractBlockProcessor.class);
 
-  static final int MAX_GENERATION = 6;
-
   protected final MainnetTransactionProcessor transactionProcessor;
 
   protected final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory;
-
-  final Wei blockReward;
 
   private final ProtocolSchedule protocolSchedule;
   protected final BalConfiguration balConfiguration;
@@ -97,14 +93,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   protected AbstractBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionReceiptFactory transactionReceiptFactory,
-      final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration) {
     this(
         transactionProcessor,
         transactionReceiptFactory,
-        blockReward,
         miningBeneficiaryCalculator,
         protocolSchedule,
         balConfiguration,
@@ -114,14 +108,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   protected AbstractBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionReceiptFactory transactionReceiptFactory,
-      final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
     this.transactionProcessor = transactionProcessor;
     this.transactionReceiptFactory = transactionReceiptFactory;
-    this.blockReward = blockReward;
     this.miningBeneficiaryCalculator = miningBeneficiaryCalculator;
     this.protocolSchedule = protocolSchedule;
     this.balConfiguration = balConfiguration;
@@ -485,8 +477,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       }
 
-      if (!rewardCoinbase(worldState, blockHeader, ommers)) {
-        // no need to log, rewardCoinbase logs the error.
+      if (!protocolSpec
+          .getBlockRewardProcessor()
+          .rewardBeneficiaries(worldState, blockHeader, ommers, miningBeneficiary)) {
+        // no need to log, rewardBeneficiaries logs the error.
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -657,13 +651,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     partialBlockAccessView.ifPresent(
         view -> blockAccessListBuilder.ifPresent(builder -> builder.apply(view)));
   }
-
-  protected MiningBeneficiaryCalculator getMiningBeneficiaryCalculator() {
-    return miningBeneficiaryCalculator;
-  }
-
-  abstract boolean rewardCoinbase(
-      final MutableWorldState worldState, final BlockHeader header, final List<BlockHeader> ommers);
 
   public interface PreprocessingFunction {
     Optional<PreprocessingContext> run(

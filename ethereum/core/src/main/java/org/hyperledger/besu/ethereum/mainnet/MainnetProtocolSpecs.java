@@ -144,12 +144,6 @@ public abstract class MainnetProtocolSpecs {
   // failed, but the transaction itself succeeded.
   private static final HashSet<Address> SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES;
 
-  private static final Wei FRONTIER_BLOCK_REWARD = Wei.fromEth(5);
-
-  private static final Wei BYZANTIUM_BLOCK_REWARD = Wei.fromEth(3);
-
-  private static final Wei CONSTANTINOPLE_BLOCK_REWARD = Wei.fromEth(2);
-
   private static final Logger LOG = LoggerFactory.getLogger(MainnetProtocolSpecs.class);
   private static final int POW_SLOT_TIME_ESTIMATION = 13;
 
@@ -207,7 +201,7 @@ public abstract class MainnetProtocolSpecs {
         .blockBodyValidatorBuilder(MainnetBlockBodyValidator::new)
         .blockAccessListValidatorBuilder(__ -> BlockAccessListValidator.ALWAYS_REJECT_BAL)
         .transactionReceiptFactory(new FrontierTransactionReceiptFactory())
-        .blockReward(FRONTIER_BLOCK_REWARD)
+        .blockRewardProcessor(BlockRewardProcessor.FRONTIER)
         .balConfiguration(balConfiguration)
         .blockProcessorBuilder(
             isParallelTxProcessingEnabled
@@ -288,7 +282,6 @@ public abstract class MainnetProtocolSpecs {
         .blockProcessorBuilder(
             (transactionProcessor,
                 transactionReceiptFactory,
-                blockReward,
                 miningBeneficiaryCalculator,
                 protocolSchedule,
                 balConfig) ->
@@ -297,7 +290,6 @@ public abstract class MainnetProtocolSpecs {
                         ? new MainnetParallelBlockProcessor(
                             transactionProcessor,
                             transactionReceiptFactory,
-                            blockReward,
                             miningBeneficiaryCalculator,
                             protocolSchedule,
                             balConfig,
@@ -305,7 +297,6 @@ public abstract class MainnetProtocolSpecs {
                         : new MainnetBlockProcessor(
                             transactionProcessor,
                             transactionReceiptFactory,
-                            blockReward,
                             miningBeneficiaryCalculator,
                             protocolSchedule,
                             balConfig,
@@ -421,7 +412,7 @@ public abstract class MainnetProtocolSpecs {
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::byzantium)
         .difficultyCalculator(MainnetDifficultyCalculators.BYZANTIUM)
         .transactionReceiptFactory(new ByzantiumTransactionReceiptFactory(enableRevertReason))
-        .blockReward(BYZANTIUM_BLOCK_REWARD)
+        .blockRewardProcessor(BlockRewardProcessor.BYZANTIUM)
         .hardforkId(BYZANTIUM);
   }
 
@@ -444,7 +435,7 @@ public abstract class MainnetProtocolSpecs {
         .difficultyCalculator(MainnetDifficultyCalculators.CONSTANTINOPLE)
         .gasCalculator(ConstantinopleGasCalculator::new)
         .evmBuilder(MainnetEVMs::constantinople)
-        .blockReward(CONSTANTINOPLE_BLOCK_REWARD)
+        .blockRewardProcessor(BlockRewardProcessor.CONSTANTINOPLE)
         .hardforkId(CONSTANTINOPLE);
   }
 
@@ -706,7 +697,7 @@ public abstract class MainnetProtocolSpecs {
                 MainnetEVMs.paris(gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
         .difficultyCalculator(MainnetDifficultyCalculators.PROOF_OF_STAKE_DIFFICULTY)
         .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::mergeBlockHeaderValidator)
-        .blockReward(Wei.ZERO)
+        .blockRewardProcessor(BlockRewardProcessor.NO_REWARDS)
         .isPoS(true)
         .slotDuration(Duration.ofSeconds(miningConfiguration.getUnstable().getPosSlotDuration()))
         .hardforkId(PARIS);

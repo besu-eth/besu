@@ -19,10 +19,10 @@ import static org.hyperledger.besu.consensus.ibftlegacy.IbftBlockHeaderValidatio
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.IbftLegacyConfigOptions;
 import org.hyperledger.besu.consensus.common.bft.BftBlockHeaderFunctions;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.MainnetBlockValidatorBuilder;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockImporter;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -89,7 +89,7 @@ public class IbftProtocolSchedule {
         .blockValidatorBuilder(MainnetBlockValidatorBuilder::frontier)
         .blockImporterBuilder(MainnetBlockImporter::new)
         .difficultyCalculator((time, parent) -> BigInteger.ONE)
-        .blockReward(Wei.ZERO)
+        .blockRewardProcessor(BlockRewardProcessor.NO_REWARDS)
         .blockHeaderFunctions(
             new BftBlockHeaderFunctions(
                 IbftBlockHashing::calculateHashOfIbftBlockOnchain, ibftExtraDataCodec));

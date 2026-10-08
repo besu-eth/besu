@@ -16,6 +16,10 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -55,7 +59,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -133,13 +139,15 @@ class AbstractBlockProcessorIntegrationTest {
     blockchain = (DefaultBlockchain) contextTestFixture.getBlockchain();
   }
 
-  private static Stream<Arguments> blockProcessors(final Wei coinbaseReward) {
+  private static Stream<Arguments> blockProcessors(
+      final BlockRewardProcessor blockRewardProcessor) {
     final ExecutionContextTestFixture contextTestFixture =
         ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
             .dataStorageFormat(DataStorageFormat.BONSAI)
             .build();
 
-    final ProtocolSchedule protocolSchedule = contextTestFixture.getProtocolSchedule();
+    final ProtocolSchedule protocolSchedule =
+        withBlockRewards(contextTestFixture.getProtocolSchedule(), blockRewardProcessor);
     final var protocolSpec =
         protocolSchedule.getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
 
@@ -150,7 +158,6 @@ class AbstractBlockProcessorIntegrationTest {
         new MainnetBlockProcessor(
             transactionProcessor,
             receiptFactory,
-            coinbaseReward,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT);
@@ -159,7 +166,6 @@ class AbstractBlockProcessorIntegrationTest {
         new MainnetParallelBlockProcessor(
             transactionProcessor,
             receiptFactory,
-            coinbaseReward,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT,
@@ -170,12 +176,34 @@ class AbstractBlockProcessorIntegrationTest {
         Arguments.of("parallel", parallelBlockProcessor));
   }
 
+  /**
+   * Returns {@code protocolSchedule} with every spec paying rewards through {@code
+   * blockRewardProcessor}. The test genesis is proof of stake, whose specs pay no rewards.
+   */
+  private static ProtocolSchedule withBlockRewards(
+      final ProtocolSchedule protocolSchedule, final BlockRewardProcessor blockRewardProcessor) {
+    final Map<ProtocolSpec, ProtocolSpec> specs = new ConcurrentHashMap<>();
+    final ProtocolSchedule schedule = spy(protocolSchedule);
+    doAnswer(
+            invocation ->
+                specs.computeIfAbsent(
+                    (ProtocolSpec) invocation.callRealMethod(),
+                    spec -> {
+                      final ProtocolSpec rewarding = spy(spec);
+                      doReturn(blockRewardProcessor).when(rewarding).getBlockRewardProcessor();
+                      return rewarding;
+                    }))
+        .when(schedule)
+        .getByBlockHeader(any());
+    return schedule;
+  }
+
   private static Stream<Arguments> blockProcessorProvider() {
-    return blockProcessors(COINBASE_REWARD);
+    return blockProcessors(new MainnetBlockRewardProcessor(COINBASE_REWARD));
   }
 
   private static Stream<Arguments> blockProcessorProviderWithoutRewards() {
-    return blockProcessors(Wei.ZERO);
+    return blockProcessors(BlockRewardProcessor.NO_REWARDS);
   }
 
   @ParameterizedTest(name = "{index}: {0}")
@@ -346,7 +374,6 @@ class AbstractBlockProcessorIntegrationTest {
         new MainnetBlockProcessor(
             transactionProcessor,
             receiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT);

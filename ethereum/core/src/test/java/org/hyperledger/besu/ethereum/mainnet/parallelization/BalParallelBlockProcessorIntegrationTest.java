@@ -111,7 +111,6 @@ class BalParallelBlockProcessorIntegrationTest {
           new MainnetBlockProcessor(
               txProcessor,
               spec.getTransactionReceiptFactory(),
-              Wei.ZERO,
               BlockHeader::getCoinbase,
               seqCtx.getProtocolSchedule(),
               SEQUENTIAL_CONFIG);
@@ -200,7 +199,6 @@ class BalParallelBlockProcessorIntegrationTest {
           new MainnetBlockProcessor(
               txProcessor,
               spec.getTransactionReceiptFactory(),
-              Wei.ZERO,
               BlockHeader::getCoinbase,
               seqCtx.getProtocolSchedule(),
               SEQUENTIAL_CONFIG);

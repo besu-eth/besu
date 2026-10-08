@@ -520,7 +520,7 @@ public class T8nExecutor {
         && (rewardString == null || Long.decode(rewardString) > 0)) {
       Wei reward =
           (rewardString == null)
-              ? protocolSpec.getBlockReward()
+              ? protocolSpec.getBlockRewardProcessor().getBlockReward()
               : Wei.of(Long.decode(rewardString));
       rootWorldStateUpdater
           .getOrCreateSenderAccount(blockHeader.getCoinbase())
