@@ -35,7 +35,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 class TopFrameHaltTest {
 
-  private final TopFrameHaltTransactions transactions = new TopFrameHaltTransactions();
+  private static final TopFrameHaltTransactions TRANSACTIONS = new TopFrameHaltTransactions();
 
   @ParameterizedTest
   @EnumSource(Halt.class)
@@ -43,7 +43,7 @@ class TopFrameHaltTest {
     final FrameEventTracer tracer = new FrameEventTracer();
 
     final TransactionProcessingResult result =
-        transactions.process(transactions.transaction(halt), tracer);
+        TRANSACTIONS.process(TRANSACTIONS.transaction(halt), tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     assertThat(result.isSuccessful()).isFalse();
@@ -58,7 +58,7 @@ class TopFrameHaltTest {
     final EthTransferLogOperationTracer tracer = new EthTransferLogOperationTracer();
 
     final TransactionProcessingResult result =
-        transactions.process(transactions.transaction(halt), tracer);
+        TRANSACTIONS.process(TRANSACTIONS.transaction(halt), tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     assertThat(result.getExceptionalHaltReason()).contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
@@ -67,11 +67,11 @@ class TopFrameHaltTest {
 
   @Test
   void haltedValueTransferDoesNotCreateRecipient() {
-    final WorldUpdater worldUpdater = transactions.newWorldUpdater();
+    final WorldUpdater worldUpdater = TRANSACTIONS.newWorldUpdater();
 
-    transactions.process(
+    TRANSACTIONS.process(
         worldUpdater,
-        transactions.transaction(Halt.VALUE_TO_EMPTY_RECIPIENT),
+        TRANSACTIONS.transaction(Halt.VALUE_TO_EMPTY_RECIPIENT),
         OperationTracer.NO_TRACING);
 
     assertThat(worldUpdater.get(TopFrameHaltTransactions.EMPTY_ACCOUNT)).isNull();
@@ -79,14 +79,14 @@ class TopFrameHaltTest {
 
   @Test
   void haltedDelegationIsRolledBack() {
-    final WorldUpdater worldUpdater = transactions.newWorldUpdater();
-    final Transaction tx = transactions.transaction(Halt.DELEGATION_TO_NEW_AUTHORITY);
+    final WorldUpdater worldUpdater = TRANSACTIONS.newWorldUpdater();
+    final Transaction tx = TRANSACTIONS.transaction(Halt.DELEGATION_TO_NEW_AUTHORITY);
 
     final TransactionProcessingResult result =
-        transactions.process(worldUpdater, tx, OperationTracer.NO_TRACING);
+        TRANSACTIONS.process(worldUpdater, tx, OperationTracer.NO_TRACING);
 
     assertThat(result.getExceptionalHaltReason()).contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
-    final Account authority = worldUpdater.get(transactions.authority());
+    final Account authority = worldUpdater.get(TRANSACTIONS.authority());
     assertThat(authority == null || authority.getCode().isEmpty()).isTrue();
   }
 

@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
@@ -26,6 +27,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.params.ParameterizedTest;
@@ -33,16 +35,16 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 class CallTracerTopFrameHaltTest {
 
-  private final TopFrameHaltTransactions transactions = new TopFrameHaltTransactions();
+  private static final TopFrameHaltTransactions TRANSACTIONS = new TopFrameHaltTransactions();
 
   @ParameterizedTest
   @EnumSource(Halt.class)
   void tracesTopFrameThatRunsOutOfGasBeforeExecutionStarts(final Halt halt) {
     final CallTracer tracer =
         new CallTracer(new TraceOptions(TracerType.CALL_TRACER, null, Map.of()));
-    final Transaction tx = transactions.transaction(halt);
+    final Transaction tx = TRANSACTIONS.transaction(halt);
 
-    final TransactionProcessingResult result = transactions.process(tx, tracer);
+    final TransactionProcessingResult result = TRANSACTIONS.process(tx, tracer);
 
     assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
     assertThat(result.isSuccessful()).isFalse();
@@ -53,5 +55,27 @@ class CallTracerTopFrameHaltTest {
         .isEqualTo(halt.frameType() == MessageFrame.Type.CONTRACT_CREATION ? "CREATE" : "CALL");
     assertThat(trace.getError()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS.getDescription());
     assertThat(trace.getCalls()).isNullOrEmpty();
+  }
+
+  @ParameterizedTest
+  @EnumSource(Halt.class)
+  void flatTracesTopFrameThatRunsOutOfGasBeforeExecutionStarts(final Halt halt) {
+    final FlatCallTracer tracer =
+        new FlatCallTracer(
+            new TraceOptions(TracerType.FLAT_CALL_TRACER, null, Map.of()), TRANSACTIONS.spec());
+    final Transaction tx = TRANSACTIONS.transaction(halt);
+
+    final TransactionProcessingResult result = TRANSACTIONS.process(tx, tracer);
+
+    assertThat(result.isInvalid()).as(result.getValidationResult().toString()).isFalse();
+    final List<FlatCallTracerResult> trace =
+        tracer.buildResult(new TransactionTrace(tx, result, List.of()));
+    assertThat(trace).hasSize(1);
+    final FlatCallTracerResult root = trace.getFirst();
+    assertThat(root.type())
+        .isEqualTo(halt.frameType() == MessageFrame.Type.CONTRACT_CREATION ? "create" : "call");
+    assertThat(root.error()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS.getDescription());
+    assertThat(root.subtraces()).isZero();
+    assertThat(root.traceAddress()).isEmpty();
   }
 }
