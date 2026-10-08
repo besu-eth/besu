@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
@@ -79,9 +80,13 @@ public class NewPooledTransactionHashesMessageSenderTest {
     transactionTracker.onPeerConnected(peer2);
 
     when(peer1.getConnection())
-        .thenReturn(new MockPeerConnection(Set.of(EthProtocol.ETH68), (cap, msg, conn) -> {}));
+        .thenReturn(
+            new MockPeerConnection(
+                Set.of(EthProtocolVersion.V68.getCapability()), (cap, msg, conn) -> {}));
     when(peer2.getConnection())
-        .thenReturn(new MockPeerConnection(Set.of(EthProtocol.ETH68), (cap, msg, conn) -> {}));
+        .thenReturn(
+            new MockPeerConnection(
+                Set.of(EthProtocolVersion.V68.getCapability()), (cap, msg, conn) -> {}));
   }
 
   @Test

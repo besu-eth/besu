@@ -20,6 +20,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static wtf.metio.storageunits.model.StorageUnits.mebibyte;
 
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -31,7 +32,6 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.messages.NewBlockMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
-import org.hyperledger.besu.util.number.ByteUnits;
 
 import java.util.Collections;
 import java.util.stream.Stream;
@@ -40,7 +40,7 @@ import org.junit.jupiter.api.Test;
 
 public class BlockBroadcasterTest {
 
-  final int maxMessageSize = 10 * ByteUnits.MEGABYTE;
+  final int maxMessageSize = mebibyte(10).inByte().intValueExact();
 
   @Test
   public void blockPropagationUnitTest() throws PeerConnection.PeerNotConnected {

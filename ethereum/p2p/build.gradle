@@ -65,6 +65,8 @@ dependencies {
   implementation 'io.projectreactor:reactor-core'
   implementation 'io.consensys.protocols:discovery'
 
+  implementation 'wtf.metio.storage-units:storage-units-model'
+
   // test dependencies.
   testImplementation project(path: ':ethereum:core', configuration: 'testArtifacts')
   testImplementation project(path: ':ethereum:core', configuration: 'testSupportArtifacts')

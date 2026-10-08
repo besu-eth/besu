@@ -262,7 +262,8 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
     List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
     assertThat(result).hasSize(1);
     assertThat(result.getFirst()).isNotNull();
-    assertThat(result.getFirst().getBlob().getData()).isEqualTo(expected.getBlob().getData());
+    assertThat(result.getFirst().getBlob().getData())
+        .isEqualTo(expected.getBlob().orElseThrow().getData());
     assertThat(result.getFirst().getProofs()).hasSize(expected.getKzgProof().size());
   }
 }

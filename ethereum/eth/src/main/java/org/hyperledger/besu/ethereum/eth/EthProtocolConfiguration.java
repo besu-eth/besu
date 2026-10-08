@@ -14,14 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.eth;
 
-import org.hyperledger.besu.util.number.ByteUnits;
+import static wtf.metio.storageunits.model.StorageUnits.mebibyte;
 
 import org.immutables.value.Value;
 
 @Value.Immutable
 public interface EthProtocolConfiguration {
-  int DEFAULT_MAX_MESSAGE_SIZE = 10 * ByteUnits.MEGABYTE;
-  int DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE = ByteUnits.MEGABYTE;
+  int DEFAULT_MAX_MESSAGE_SIZE = mebibyte(10).inByte().intValueExact();
+  int DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE = mebibyte(1).inByte().intValueExact();
   int DEFAULT_MAX_GET_BLOCK_HEADERS = 512;
   int DEFAULT_MAX_GET_BLOCK_BODIES = 128;
   int DEFAULT_MAX_GET_BLOCK_ACCESS_LISTS = 128;

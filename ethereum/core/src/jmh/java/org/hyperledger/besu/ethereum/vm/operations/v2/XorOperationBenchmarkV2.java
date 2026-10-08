@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,12 +12,16 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.util.number;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
-/** The Byte units. */
-public class ByteUnits {
-  /** The constant MEGABYTE. */
-  public static final int MEGABYTE = 1 << 20;
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.v2.operation.XorOperationV2;
 
-  private ByteUnits() {}
+public class XorOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
+
+  @Override
+  protected Operation.OperationResult invoke(final MessageFrame frame) {
+    return XorOperationV2.staticOperation(frame);
+  }
 }

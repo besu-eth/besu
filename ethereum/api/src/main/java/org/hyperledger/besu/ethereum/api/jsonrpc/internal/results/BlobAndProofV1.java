@@ -43,7 +43,8 @@ public sealed class BlobAndProofV1 permits BlobAndProofV2 {
     checkArgument(
         blobProofBundle.getBlobType() == BlobType.KZG_PROOF,
         "Blob type must be KZG_PROOF for BlobAndProofV1");
-    this(blobProofBundle.getBlob(), blobProofBundle.getKzgProof().getFirst());
+    checkArgument(blobProofBundle.getBlob().isPresent(), "Blob must be present for BlobAndProofV1");
+    this(blobProofBundle.getBlob().get(), blobProofBundle.getKzgProof().getFirst());
   }
 
   public BlobAndProofV1(final Blob blob, final KZGProof proof) {

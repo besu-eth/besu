@@ -72,6 +72,7 @@
 - `callTracer` now honours the `withLog` tracer option. Each call frame that emitted logs carries a `logs` array of `{address, topics, data, position, index}`, where `index` equals the receipt `logIndex` of the same log and `position` is the number of subcalls the frame had made when the log was emitted. Logs of reverted frames are omitted, as specified in [execution-apis#855](https://github.com/ethereum/execution-apis/pull/855). [#11342](https://github.com/besu-eth/besu/pull/11342)
 - Warn at startup when a PoA chain on Amsterdam leaves the EIP-8282 builder deposit or exit request contract address out of the genesis, since blocks are invalid from the fork unless a contract is deployed at the default address. [#NNNN](https://github.com/besu-eth/besu/pull/NNNN)
 - The jump destination analysis of contract code is computed once, when the code is stored, instead of on every code cache miss. [#11327](https://github.com/besu-eth/besu/pull/11327)
+- EVM v2: add AND, OR, XOR and NOT. [#11477](https://github.com/besu-eth/besu/pull/11477)
 
 ## 26.9.0
 

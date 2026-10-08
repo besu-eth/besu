@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Difficulty;
-import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test;
 
 public class Eth69StatusMessageTest {
 
-  private final int version = EthProtocol.ETH69.getVersion();
+  private final int version = EthProtocolVersion.V69.getCapability().getVersion();
   private final BigInteger networkId = BigInteger.ONE;
   private final Hash bestHash = randHash(1L);
   private final Hash genesisHash = randHash(2L);

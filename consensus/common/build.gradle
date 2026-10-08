@@ -49,6 +49,8 @@ dependencies {
   implementation 'com.google.guava:guava'
   implementation 'io.consensys.tuweni:tuweni-bytes'
 
+  implementation 'wtf.metio.storage-units:storage-units-model'
+
   testImplementation project(':config')
   testImplementation project(':crypto:algorithms')
   testImplementation project(':testutil')
