@@ -26,6 +26,8 @@ class GetBlobsMetrics {
   private final LabelledMetric<Counter> unsupportedCounter;
   private final LabelledMetric<Counter> fullCounter;
   private final LabelledMetric<Counter> partialCounter;
+  private final LabelledMetric<Counter> cellsFullyReturnedCounter;
+  private final LabelledMetric<Counter> cellsPartiallyReturnedCounter;
   private final String version;
 
   public GetBlobsMetrics(final MetricsSystem metricsSystem, final int version) {
@@ -66,6 +68,18 @@ class GetBlobsMetrics {
             "execution_engine_getblobs_partial_total",
             "Number of calls to engine_getBlobsV* that returned partial responses",
             "version");
+    this.cellsFullyReturnedCounter =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.RPC,
+            "execution_engine_getblobs_cells_fully_returned_total",
+            "Number of blobs returned by engine_getBlobsV* that contains all the requested cells",
+            "version");
+    this.cellsPartiallyReturnedCounter =
+        metricsSystem.createLabelledCounter(
+            BesuMetricCategory.RPC,
+            "execution_engine_getblobs_cells_partially_returned_total",
+            "Number of blobs returned by engine_getBlobsV* that contains only a subset of the requested cells",
+            "version");
   }
 
   public void increaseRequested(final int count) {
@@ -90,5 +104,13 @@ class GetBlobsMetrics {
 
   public void increasePartial() {
     partialCounter.labels(version).inc();
+  }
+
+  public void increaseCellsFullyReturned() {
+    cellsFullyReturnedCounter.labels(version).inc();
+  }
+
+  public void increaseCellsPartiallyReturned() {
+    cellsPartiallyReturnedCounter.labels(version).inc();
   }
 }

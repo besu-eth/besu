@@ -18,13 +18,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.VersionedHash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
+import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
+import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
+import org.hyperledger.besu.ethereum.core.kzg.CellMask;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.BaseTransactionPoolTest;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.Random;
 
 import org.junit.jupiter.api.Test;
 
@@ -71,6 +81,84 @@ class BlobCacheTest extends BaseTransactionPoolTest {
   @Test
   void answersEmptyForATransactionThatCarriesNoBlobs() {
     assertThat(blobCache.restoreBlob(createTransaction(0, KEYS))).isEmpty();
+  }
+
+  @Test
+  void doesNotCacheATransactionHoldingOnlySampledCells() {
+    final Transaction withBlobs = createEIP4844CellProofsTransaction(0, 2);
+    final Transaction sampled = holdingOnlyCellsOf(withBlobs, withBlobs.getVersionedHashes().get());
+
+    blobCache.cacheBlobs(sampled);
+
+    withBlobs
+        .getVersionedHashes()
+        .get()
+        .forEach(versionedHash -> assertThat(blobCache.get(versionedHash)).isNull());
+    assertThat(blobCache.restoreBlob(withoutSidecar(withBlobs))).isEmpty();
+  }
+
+  @Test
+  void keepsTheFullBlobWhenAnotherTransactionHoldingOnlyCellsOfItIsCachedLater() {
+    // The cache keeps one bundle per versioned hash, so a transaction sampling one blob of another
+    // used to overwrite that blob alone, and restoring the other then failed on bundles of mixed
+    // shapes instead of answering.
+    final Transaction withBlobs = createEIP4844CellProofsTransaction(0, 2);
+    final VersionedHash sharedBlob = withBlobs.getVersionedHashes().get().getFirst();
+    final Transaction samplingOneOfThem = holdingOnlyCellsOf(withBlobs, List.of(sharedBlob));
+
+    blobCache.cacheBlobs(withBlobs);
+    blobCache.cacheBlobs(samplingOneOfThem);
+
+    final Optional<Transaction> restored = blobCache.restoreBlob(withoutSidecar(withBlobs));
+
+    assertThat(restored).isPresent();
+    assertThat(restored.get().getBlobsWithCommitments())
+        .isEqualTo(withBlobs.getBlobsWithCommitments());
+  }
+
+  private Transaction createEIP4844CellProofsTransaction(final long nonce, final int blobCount) {
+    return createTransaction(
+        TransactionType.BLOB,
+        nonce,
+        Wei.of(5000L),
+        Wei.of(500L),
+        0,
+        blobCount,
+        BlobType.KZG_CELL_PROOFS,
+        null,
+        KEYS);
+  }
+
+  /**
+   * A transaction carrying the given blobs of {@code withBlobs} as an eth/72 peer would send them:
+   * no blob, and only a sample of each blob's cells.
+   */
+  private static Transaction holdingOnlyCellsOf(
+      final Transaction withBlobs, final List<VersionedHash> versionedHashes) {
+    final List<BlobProofBundle> bundles =
+        withBlobs.getBlobsWithCommitments().orElseThrow().getBlobProofBundles().stream()
+            .filter(bundle -> versionedHashes.contains(bundle.getVersionedHash()))
+            .toList();
+    final CellMask sample = CellMask.FULL.randomSubset(64, new Random(1));
+    final BlobsWithCommitments sampled =
+        BlobsWithCommitments.createFromBlobCells(
+            bundles.stream().map(BlobProofBundle::getKzgCommitment).toList(),
+            bundles.stream()
+                .map(
+                    bundle -> {
+                      final CellsWithMask allCells = bundle.getCellsWithMask().orElseThrow();
+                      return new CellsWithMask(
+                          sample.streamIndexes().mapToObj(allCells::getCell).toList(), sample);
+                    })
+                .toList(),
+            bundles.stream().flatMap(bundle -> bundle.getKzgProof().stream()).toList(),
+            versionedHashes);
+    assertThat(sampled.hasBlobData()).isFalse();
+    return Transaction.builder()
+        .copiedFrom(withBlobs)
+        .versionedHashes(versionedHashes)
+        .blobsWithCommitments(sampled)
+        .build();
   }
 
   /**
