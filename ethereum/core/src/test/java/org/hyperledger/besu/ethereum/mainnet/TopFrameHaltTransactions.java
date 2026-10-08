@@ -64,6 +64,11 @@ public class TopFrameHaltTransactions {
   public static final Address EXISTING_CONTRACT =
       Address.fromHexString("0x0000000000000000000000000000000000007700");
 
+  /** Calldata of the message-call transactions: a function selector and one argument word. */
+  public static final Bytes CALL_DATA =
+      Bytes.fromHexString(
+          "0xabcdef120000000000000000000000000000000000000000000000000000000000000001");
+
   /** An address that does not exist in GENESIS_RESOURCE. */
   public static final Address EMPTY_ACCOUNT =
       Address.fromHexString("0x00000000000000000000000000000000000dead0");
@@ -138,6 +143,7 @@ public class TopFrameHaltTransactions {
                   template(gasLimit)
                       .to(Optional.of(EMPTY_ACCOUNT))
                       .value(Wei.ONE)
+                      .payload(CALL_DATA)
                       .createTransaction(sender);
           case DELEGATION_TO_NEW_AUTHORITY -> {
             final List<CodeDelegation> delegations =
@@ -148,6 +154,7 @@ public class TopFrameHaltTransactions {
                 template(gasLimit)
                     .type(TransactionType.DELEGATE_CODE)
                     .to(Optional.of(EXISTING_CONTRACT))
+                    .payload(CALL_DATA)
                     .codeDelegations(delegations)
                     .createTransaction(sender);
           }
@@ -163,8 +170,8 @@ public class TopFrameHaltTransactions {
 
   /** A world state to process one transaction on, isolated from the shared genesis state. */
   public WorldUpdater newWorldUpdater() {
-    // The transaction processor commits the updater it is given, so it gets a child of a
-    // throwaway updater rather than one on the genesis state itself.
+    // The world state's updater is one shared accumulator, and the transaction processor writes
+    // into the updater it is given. A child that nobody commits keeps those writes out of it.
     return fixture.getStateArchive().getWorldState().updater().updater();
   }
 
