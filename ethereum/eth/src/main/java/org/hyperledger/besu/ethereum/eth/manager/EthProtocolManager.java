@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationException;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
@@ -170,10 +171,9 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
       final EthProtocolConfiguration ethProtocolConfiguration) {
     final List<Capability> capabilities = new ArrayList<>();
 
-    capabilities.add(EthProtocol.ETH68);
-    capabilities.add(EthProtocol.ETH69);
-    capabilities.add(EthProtocol.ETH70);
-    capabilities.add(EthProtocol.ETH71);
+    for (final EthProtocolVersion version : EthProtocolVersion.values()) {
+      capabilities.add(version.getCapability());
+    }
     capabilities.removeIf(cap -> cap.getVersion() > ethProtocolConfiguration.getMaxEthCapability());
     capabilities.removeIf(cap -> cap.getVersion() < ethProtocolConfiguration.getMinEthCapability());
 

@@ -144,7 +144,7 @@ public class SnapDownloaderFactory {
               protocolSchedule,
               snapTaskCollection,
               syncConfig.getSnapSyncConfiguration(),
-              syncConfig.getWorldStateRequestParallelism(),
+              syncConfig.getSnapSyncConfiguration().getSnap2RequestParallelism(),
               syncConfig.getWorldStateMaxRequestsWithoutProgress(),
               syncConfig.getWorldStateMinMillisBeforeStalling(),
               clock,

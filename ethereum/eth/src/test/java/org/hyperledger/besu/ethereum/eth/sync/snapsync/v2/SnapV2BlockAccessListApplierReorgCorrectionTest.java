@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.StoredNode;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -233,8 +234,8 @@ class SnapV2BlockAccessListApplierReorgCorrectionTest {
     applyForStrategy(
         updater,
         bonsai -> {
-          bonsai.putAccountStorageTrieNode(accountHash, Bytes.EMPTY, rootHash, rootRlp);
-          bonsai.putAccountStorageTrieNode(accountHash, Bytes.of((byte) 0), leafHash, leafRlp);
+          bonsai.putTrieNode(TrieNodeKey.of(accountHash, Bytes.EMPTY), rootHash, rootRlp);
+          bonsai.putTrieNode(TrieNodeKey.of(accountHash, Bytes.of((byte) 0)), leafHash, leafRlp);
           // child at nibble 1 deliberately NOT persisted
         },
         forest -> {});

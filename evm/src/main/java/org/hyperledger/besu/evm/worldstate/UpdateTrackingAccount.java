@@ -242,20 +242,24 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
 
   @Override
   public Code getOrCreateCachedCode() {
+    final Hash codeHash = getCodeHash();
+    if (Hash.EMPTY.getBytes().equals(codeHash.getBytes())) {
+      return Code.EMPTY_CODE;
+    }
     // if it is not a BonsaiAccount, we don't have access to the code cache
     // so we just return the code as is.
     if (codeCache == null) {
-      return new Code(getCode(), getCodeHash());
+      return new Code(getCode(), codeHash);
     }
 
     // if the code already exists in the cache, return it
-    final Code cachedCode = codeCache.getIfPresent(getCodeHash());
+    final Code cachedCode = codeCache.getIfPresent(codeHash);
     if (cachedCode != null) {
       return cachedCode;
     }
 
     // if the code is not in the cache, create a new Code instance and put it in the cache
-    final Code newCode = new Code(getCode(), getCodeHash());
+    final Code newCode = new Code(getCode(), codeHash);
     codeCache.put(getCodeHash(), newCode);
 
     return newCode;

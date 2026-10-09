@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -64,10 +65,15 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
    */
   public static GetPooledTransactionsFromPeerTask fromAnnouncements(
       final List<TransactionAnnouncement> announcements) {
-    return new GetPooledTransactionsFromPeerTask(
+    final Map<Hash, TransactionAnnouncement> announcementsByHash =
         announcements.stream()
             .collect(
-                Collectors.toMap(TransactionAnnouncement::hash, Function.identity(), (a, b) -> a)));
+                Collectors.toMap(
+                    TransactionAnnouncement::hash,
+                    Function.identity(),
+                    (a, b) -> a,
+                    LinkedHashMap::new));
+    return new GetPooledTransactionsFromPeerTask(announcementsByHash);
   }
 
   @Override

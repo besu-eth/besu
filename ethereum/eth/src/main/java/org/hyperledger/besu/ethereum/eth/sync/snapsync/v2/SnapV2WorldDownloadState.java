@@ -352,9 +352,10 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             ? "running for " + ((System.currentTimeMillis() - pivotCatchupStartMillis) / 1000) + "s"
             : "idle";
     LOG.info(
-        "snap/2 world state download in progress: pivot={}, ranges completed={}, pending={}, "
+        "snap/2 world state download in progress: {}%, pivot={}, ranges completed={}, pending={}, "
             + "queued=[acc={}, stor={}, bigStor={}, code={}], in-flight={}, pivot-catchup={}, "
             + "peers={}",
+        metricsManager.getPercentageProgress(),
         snapSyncState.getPivotBlockHeader().map(BlockHeader::getNumber).orElse(-1L),
         accountRangeTracker.completedRangeCount(),
         accountRangeTracker.pendingRangeCount(),

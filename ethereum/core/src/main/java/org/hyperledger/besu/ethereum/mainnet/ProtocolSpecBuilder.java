@@ -18,7 +18,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.hyperledger.besu.config.BlobSchedule;
 import org.hyperledger.besu.datatypes.HardforkId;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -54,7 +53,7 @@ public class ProtocolSpecBuilder {
 
   private Supplier<GasCalculator> gasCalculatorBuilder;
   private GasLimitCalculatorBuilder gasLimitCalculatorBuilder;
-  private Wei blockReward;
+  private BlockRewardProcessor blockRewardProcessor;
 
   private BlockHeaderFunctions blockHeaderFunctions;
   private AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory;
@@ -122,8 +121,8 @@ public class ProtocolSpecBuilder {
     return gasLimitCalculatorBuilder;
   }
 
-  public ProtocolSpecBuilder blockReward(final Wei blockReward) {
-    this.blockReward = blockReward;
+  public ProtocolSpecBuilder blockRewardProcessor(final BlockRewardProcessor blockRewardProcessor) {
+    this.blockRewardProcessor = blockRewardProcessor;
     return this;
   }
 
@@ -359,7 +358,7 @@ public class ProtocolSpecBuilder {
     checkNotNull(blockImporterBuilder, "Missing block importer");
     checkNotNull(blockValidatorBuilder, "Missing block validator");
     checkNotNull(blockHeaderFunctions, "Missing block hash function");
-    checkNotNull(blockReward, "Missing block reward");
+    checkNotNull(blockRewardProcessor, "Missing block reward processor");
     checkNotNull(difficultyCalculator, "Missing difficulty calculator");
     checkNotNull(transactionReceiptFactory, "Missing transaction receipt factory");
     checkNotNull(hardforkId, "Missing hardfork id");
@@ -443,7 +442,7 @@ public class ProtocolSpecBuilder {
         blockHeaderFunctions,
         transactionReceiptFactory,
         difficultyCalculator,
-        blockReward,
+        blockRewardProcessor,
         miningBeneficiaryCalculator,
         precompileContractRegistry,
         gasCalculator,
@@ -472,7 +471,6 @@ public class ProtocolSpecBuilder {
     return blockProcessorBuilder.apply(
         transactionProcessor,
         transactionReceiptFactory,
-        blockReward,
         miningBeneficiaryCalculator,
         protocolSchedule,
         balConfiguration);
@@ -504,7 +502,6 @@ public class ProtocolSpecBuilder {
     BlockProcessor apply(
         MainnetTransactionProcessor transactionProcessor,
         AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory,
-        Wei blockReward,
         MiningBeneficiaryCalculator miningBeneficiaryCalculator,
         ProtocolSchedule protocolSchedule,
         BalConfiguration balConfiguration);

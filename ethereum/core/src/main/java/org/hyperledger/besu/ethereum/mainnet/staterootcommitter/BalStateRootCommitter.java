@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
@@ -285,8 +286,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
 
       // Step 3: commit the account trie.
       sink.commitTrie(
-          accountTrie,
-          (location, hash, value) -> u -> u.putAccountStateTrieNode(location, hash, value));
+          accountTrie, (location, hash, value) -> u -> u.putTrieNode(location, hash, value));
       return new BackgroundResult(
           Hash.wrap(accountTrie.getRootHash()), new ArrayList<>(writes), storageRoots);
     }
@@ -388,7 +388,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       sink.commitTrie(
           storageTrie,
           (location, nodeHash, value) ->
-              u -> u.putAccountStorageTrieNode(accountHash, location, nodeHash, value));
+              u -> u.putTrieNode(TrieNodeKey.of(accountHash, location), nodeHash, value));
       return Hash.wrap(storageTrie.getRootHash());
     }
 

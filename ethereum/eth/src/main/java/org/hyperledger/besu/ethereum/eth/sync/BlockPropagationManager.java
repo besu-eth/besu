@@ -522,7 +522,13 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
     return exceptionallyCompose(
             scheduleGetBlockFromPeers(preferredPeer, blockNumber, maybeBlockHash),
             handleGetBlockErrors(blockNumber, maybeBlockHash))
-        .thenCompose(r -> maybeRepeatGetBlock(blockNumber, maybeBlockHash));
+        .thenCompose(
+            block ->
+                // a retrieved block is either imported or saved as pending, in both cases there is
+                // nothing left to fetch, only a failed attempt (null) is worth repeating
+                block != null
+                    ? CompletableFuture.completedFuture(block)
+                    : maybeRepeatGetBlock(blockNumber, maybeBlockHash));
   }
 
   private Function<Throwable, CompletionStage<Block>> handleGetBlockErrors(

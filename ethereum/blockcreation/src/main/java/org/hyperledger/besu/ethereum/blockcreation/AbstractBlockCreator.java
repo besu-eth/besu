@@ -54,8 +54,6 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
-import org.hyperledger.besu.evm.account.MutableAccount;
-import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleException;
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
@@ -66,8 +64,11 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -202,7 +203,10 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
     final var timings = new BlockCreationTiming();
 
-    try (final MutableWorldState disposableWorldState = duplicateWorldStateAtParent(parentHeader)) {
+    try (final DisposableWorldState disposable =
+        new DisposableWorldState(
+            duplicateWorldStateAtParent(parentHeader), parentHeader.getNumber() + 1)) {
+      final MutableWorldState disposableWorldState = disposable.worldState;
       timings.register("duplicateWorldState");
       final ProtocolSpec newProtocolSpec =
           protocolSchedule.getForNextBlockHeader(parentHeader, timestamp);
@@ -311,13 +315,10 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
                   builder -> builder.apply(tracker, disposableWorldState.updater().updater())));
 
       if (rewardCoinbase
-          && !rewardBeneficiary(
-              disposableWorldState,
-              processableBlockHeader,
-              ommers,
-              miningBeneficiary,
-              newProtocolSpec.getBlockReward(),
-              newProtocolSpec)) {
+          && !newProtocolSpec
+              .getBlockRewardProcessor()
+              .rewardBeneficiaries(
+                  disposableWorldState, processableBlockHeader, ommers, miningBeneficiary)) {
         LOG.trace("Failed to apply mining reward, exiting.");
         throw new RuntimeException("Failed to apply mining reward.");
       }
@@ -461,6 +462,51 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
             });
   }
 
+  /**
+   * The world state of the block being created. Closing it waits for the transaction selection
+   * tasks to stop, since one that timed out can still be executing a transaction when the block is
+   * assembled, and reads on a closed world state find nothing.
+   */
+  private final class DisposableWorldState implements AutoCloseable {
+    private final MutableWorldState worldState;
+    private final long blockNumber;
+
+    private DisposableWorldState(final MutableWorldState worldState, final long blockNumber) {
+      this.worldState = worldState;
+      this.blockNumber = blockNumber;
+    }
+
+    @Override
+    public void close() throws Exception {
+      final var currSelector = selector;
+      final var selectionDone =
+          currSelector != null
+              ? currSelector.selectionTasksDone()
+              : CompletableFuture.<Void>completedFuture(null);
+      if (selectionDone.isDone()) {
+        worldState.close();
+        return;
+      }
+      LOG.debug(
+          "Transaction selection for block {} still running, the world state will be closed after it",
+          blockNumber);
+      final var waitTime = Stopwatch.createStarted();
+      selectionDone.whenComplete((unused, error) -> closeWorldState(waitTime));
+    }
+
+    private void closeWorldState(final Stopwatch waitTime) {
+      try {
+        worldState.close();
+        LOG.debug(
+            "World state of block {} closed {}ms after the block was created",
+            blockNumber,
+            waitTime.elapsed(TimeUnit.MILLISECONDS));
+      } catch (final Exception e) {
+        LOG.warn("Failed to close the world state of block {}", blockNumber, e);
+      }
+    }
+  }
+
   private List<BlockHeader> selectOmmers() {
     return Lists.newArrayList();
   }
@@ -478,52 +524,6 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
   @Override
   public boolean isCancelled() {
     return isCancelled.get();
-  }
-
-  /* Copied from BlockProcessor (with modifications). */
-  boolean rewardBeneficiary(
-      final MutableWorldState worldState,
-      final ProcessableBlockHeader header,
-      final List<BlockHeader> ommers,
-      final Address miningBeneficiary,
-      final Wei blockReward,
-      final ProtocolSpec protocolSpec) {
-
-    // TODO(tmm): Added to make this work, should come from blockProcessor.
-    final int MAX_GENERATION = 6;
-    if (blockReward.isZero()) {
-      return true;
-    }
-
-    final Wei coinbaseReward =
-        protocolSpec
-            .getBlockProcessor()
-            .getCoinbaseReward(blockReward, header.getNumber(), ommers.size());
-    final WorldUpdater updater = worldState.updater();
-    final MutableAccount beneficiary = updater.getOrCreate(miningBeneficiary);
-
-    beneficiary.incrementBalance(coinbaseReward);
-    for (final BlockHeader ommerHeader : ommers) {
-      if (ommerHeader.getNumber() - header.getNumber() > MAX_GENERATION) {
-        LOG.trace(
-            "Block processing error: ommer block number {} more than {} generations current block number {}",
-            ommerHeader.getNumber(),
-            MAX_GENERATION,
-            header.getNumber());
-        return false;
-      }
-
-      final MutableAccount ommerCoinbase = updater.getOrCreate(ommerHeader.getCoinbase());
-      final Wei ommerReward =
-          protocolSpec
-              .getBlockProcessor()
-              .getOmmerReward(blockReward, header.getNumber(), ommerHeader.getNumber());
-      ommerCoinbase.incrementBalance(ommerReward);
-    }
-
-    updater.commit();
-
-    return true;
   }
 
   protected abstract BlockHeader createFinalBlockHeader(

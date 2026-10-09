@@ -22,6 +22,19 @@ apply plugin: 'java-library'
 apply plugin: 'application'
 apply plugin: 'idea'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.evmtool')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -36,6 +49,9 @@ jar {
 }
 
 dependencies {
+
+  errorprone 'com.uber.nullaway:nullaway'
+  compileOnly 'org.jspecify:jspecify'
 
   implementation project(':app')
   implementation project(':config')
@@ -129,7 +145,7 @@ static void failOnRenamedProperties(project) {
 
 def registerHiveEquivalentTask(project, String taskName, String subcommand, String fixtureDir, String desc, List<String> extraArgs, String defaultSimLimit = null, boolean stableFixtures = false) {
   def extractTask = stableFixtures ? 'extractStableFixtures' : 'extractDevnetFixtures'
-  def extractDir = stableFixtures ? 'execution-spec-tests' : 'execution-spec-devnet-tests'
+  def fixturesDirProperty = stableFixtures ? 'stableFixturesDir' : 'devnetFixturesDir'
   def versionDecl = stableFixtures ? 'referenceTestImplementation execution-specs' : 'devnetTarConfig'
   return project.tasks.register(taskName, JavaExec) {
     description = desc
@@ -145,8 +161,12 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
     classpath = project.sourceSets.main.runtimeClasspath
     mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
 
-    def fixtures = project.project(':ethereum:referencetests').layout.buildDirectory
-      .dir("${extractDir}/fixtures/${fixtureDir}")
+    // Resolved lazily: :ethereum:referencetests decides where the fixtures are unpacked, and it is
+    // evaluated after this project.
+    def referenceTests = project.project(':ethereum:referencetests')
+    def fixtures = project.provider {
+      referenceTests.ext.get(fixturesDirProperty).get().dir("fixtures/${fixtureDir}")
+    }
     // Left unset when the property is absent, so the subcommand's own default applies rather than
     // this file keeping a second copy of it. All three runners default to the available cores.
     def parallelism = project.findProperty('simParallelism')?.toString()

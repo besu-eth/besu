@@ -100,8 +100,7 @@ public class PersistDataStepTest {
 
     persistDataStep.persist(List.of(new StubTask(accountTrieNodeDataRequest)));
 
-    verify(updater, times(1))
-        .putAccountStateTrieNode(location, Bytes32.wrap(hash.getBytes()), stateTrieNode);
+    verify(updater, times(1)).putTrieNode(location, Bytes32.wrap(hash.getBytes()), stateTrieNode);
     assertDataPersisted(result);
   }
 

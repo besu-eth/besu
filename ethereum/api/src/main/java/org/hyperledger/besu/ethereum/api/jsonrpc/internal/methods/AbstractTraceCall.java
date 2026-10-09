@@ -74,7 +74,7 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
 
   protected Object resultByBlockHeader(
       final JsonRpcRequestContext requestContext, final BlockHeader blockHeader) {
-    final CallParameter callParams = CallParameterUtil.validateAndGetCallParams(requestContext);
+    final CallParameter callParams = getCallParams(requestContext);
     final TraceOptions traceOptions = getTraceOptions(requestContext);
     LOG.atTrace()
         .setMessage("Received RPC rpcName={} callParams={} block={} traceTypes={}")
@@ -99,6 +99,10 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
             blockHeader)
         .orElseGet(
             () -> new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
+  }
+
+  protected CallParameter getCallParams(final JsonRpcRequestContext requestContext) {
+    return CallParameterUtil.validateAndGetCallParams(requestContext);
   }
 
   /**

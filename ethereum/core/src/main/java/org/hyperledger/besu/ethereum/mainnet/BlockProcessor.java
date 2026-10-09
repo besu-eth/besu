@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -69,7 +68,8 @@ public interface BlockProcessor {
       final Block block);
 
   /**
-   * Processes the block with an optional block access list.
+   * Processes the block with an optional block access list. The canonical overload: all other
+   * {@code processBlock} variants delegate here.
    *
    * @param protocolContext the current context of the protocol
    * @param blockchain the blockchain to append the block to
@@ -84,66 +84,4 @@ public interface BlockProcessor {
       final MutableWorldState worldState,
       final Block block,
       final Optional<BlockAccessList> blockAccessList);
-
-  /**
-   * Processes the block.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @return the block processing result
-   */
-  BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction);
-
-  /**
-   * Processes the block with an optional block access list.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @param blockAccessList the optional block access list
-   * @param preprocessingBlockFunction a preprocessing function for block execution
-   * @return the block processing result
-   */
-  BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList,
-      final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction);
-
-  /**
-   * Get ommer reward in ${@link Wei}
-   *
-   * @param blockReward reward of the block
-   * @param blockNumber number of the block
-   * @param ommerBlockNumber number of the block ommer
-   * @return ommer reward
-   */
-  default Wei getOmmerReward(
-      final Wei blockReward, final long blockNumber, final long ommerBlockNumber) {
-    final long distance = blockNumber - ommerBlockNumber;
-    return blockReward.subtract(blockReward.multiply(distance).divide(8));
-  }
-
-  /**
-   * Get coinbase reward in ${@link Wei}
-   *
-   * @param blockReward reward of the block
-   * @param blockNumber number of the block
-   * @param numberOfOmmers number of ommers for this block
-   * @return coinbase reward
-   */
-  default Wei getCoinbaseReward(
-      final Wei blockReward, final long blockNumber, final int numberOfOmmers) {
-    return blockReward.add(blockReward.multiply(numberOfOmmers).divide(32));
-  }
 }

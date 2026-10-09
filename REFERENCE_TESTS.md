@@ -15,6 +15,21 @@ This will execute the available test suites (such as GeneralStateTests and execu
 > **Note:**
 > - Out-of-memory (OOM) errors are common due to the size and number of tests. You may need to increase the heap size using `-Xmx` (e.g., `./gradlew referenceTests -Dorg.gradle.jvmargs="-Xmx8g"`)
 
+### Sharing fixtures between checkouts
+
+The execution-spec fixtures are unpacked into `ethereum/referencetests/build/`, which takes more
+than 20 GB per checkout. If you work in several checkouts or git worktrees, set a Gradle property
+to unpack each fixture version once into a directory they all share:
+
+```properties
+# ~/.gradle/gradle.properties
+besu.referenceTests.fixturesDir=/path/to/besu-reference-test-fixtures
+```
+
+Each fixture version gets its own subdirectory, so checkouts pinned to different versions do not
+interfere. A version that no build has used for 30 days is deleted the next time fixtures are
+needed.
+
 ## Filtering Execution Spec Tests by Hardfork or EIP
 
 Execution-spec-tests are generated with class names that reflect their hardfork and EIP directory structure. This allows targeted test execution using standard Gradle `--tests` filters.
@@ -316,7 +331,9 @@ $EVM engine-test stdin < <path-to>/one_fixture.json
 > The Gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-tests/fixtures/`
 > (stable) and `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/` (devnet), so you
 > can point the binary at either after running `extractStableFixtures` or `extractDevnetFixtures`
-> once.
+> once. With `besu.referenceTests.fixturesDir` set
+> (see [Sharing fixtures between checkouts](#sharing-fixtures-between-checkouts)), they are in the
+> fixture version's subdirectory of that directory instead.
 
 > **Tip:** if a verbose run makes the terminal flicker (Gradle's animated console repainting as
 > output streams), add `--console=plain`.

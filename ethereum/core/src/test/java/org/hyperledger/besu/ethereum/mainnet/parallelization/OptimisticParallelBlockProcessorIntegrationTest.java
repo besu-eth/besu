@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -37,12 +36,6 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     return "Optimistic (Collision Detection)";
   }
 
-  private static ParallelTransactionPreprocessing createPreprocessing(
-      final MainnetTransactionProcessor transactionProcessor) {
-    return new ParallelTransactionPreprocessing(
-        transactionProcessor, Runnable::run, OPTIMISTIC_CONFIG);
-  }
-
   @Nested
   @DisplayName("Simple Transfers")
   class SimpleTransfers extends AbstractSimpleTransferTest {
@@ -54,12 +47,6 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     @Override
     protected BalConfiguration getBalConfiguration() {
       return OPTIMISTIC_CONFIG;
-    }
-
-    @Override
-    protected ParallelTransactionPreprocessing createParallelPreprocessing(
-        final MainnetTransactionProcessor transactionProcessor) {
-      return createPreprocessing(transactionProcessor);
     }
   }
 
@@ -75,12 +62,6 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     protected BalConfiguration getBalConfiguration() {
       return OPTIMISTIC_CONFIG;
     }
-
-    @Override
-    protected ParallelTransactionPreprocessing createParallelPreprocessing(
-        final MainnetTransactionProcessor transactionProcessor) {
-      return createPreprocessing(transactionProcessor);
-    }
   }
 
   @Nested
@@ -95,12 +76,6 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     protected BalConfiguration getBalConfiguration() {
       return OPTIMISTIC_CONFIG;
     }
-
-    @Override
-    protected ParallelTransactionPreprocessing createParallelPreprocessing(
-        final MainnetTransactionProcessor transactionProcessor) {
-      return createPreprocessing(transactionProcessor);
-    }
   }
 
   @Nested
@@ -114,12 +89,6 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     @Override
     protected BalConfiguration getBalConfiguration() {
       return OPTIMISTIC_CONFIG;
-    }
-
-    @Override
-    protected ParallelTransactionPreprocessing createParallelPreprocessing(
-        final MainnetTransactionProcessor transactionProcessor) {
-      return createPreprocessing(transactionProcessor);
     }
   }
 }

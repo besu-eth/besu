@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,6 +12,16 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.mainnet.parallelization;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
-public record PreprocessingContext(ParallelBlockTransactionProcessor processor) {}
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.v2.operation.NotOperationV2;
+
+public class NotOperationBenchmarkV2 extends UnaryOperationBenchmarkV2 {
+
+  @Override
+  protected Operation.OperationResult invoke(final MessageFrame frame) {
+    return NotOperationV2.staticOperation(frame);
+  }
+}

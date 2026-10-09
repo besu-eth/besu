@@ -41,7 +41,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
-import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -89,6 +89,9 @@ class AbstractBlockProcessorBalValidationTest {
   void wireProtocolSpec() {
     lenient().when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     lenient()
+        .when(protocolSpec.getBlockRewardProcessor())
+        .thenReturn(BlockRewardProcessor.NO_REWARDS);
+    lenient()
         .when(protocolSpec.getPreExecutionProcessor())
         .thenReturn(new FrontierPreExecutionProcessor());
     lenient()
@@ -133,7 +136,6 @@ class AbstractBlockProcessorBalValidationTest {
         new BalStubBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT,
@@ -189,7 +191,6 @@ class AbstractBlockProcessorBalValidationTest {
         new BalStubBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT,
@@ -231,7 +232,6 @@ class AbstractBlockProcessorBalValidationTest {
         new BalStubBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT,
@@ -292,7 +292,6 @@ class AbstractBlockProcessorBalValidationTest {
     BalStubBlockProcessor(
         final MainnetTransactionProcessor transactionProcessor,
         final TransactionReceiptFactory transactionReceiptFactory,
-        final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration,
@@ -300,7 +299,6 @@ class AbstractBlockProcessorBalValidationTest {
       super(
           transactionProcessor,
           transactionReceiptFactory,
-          blockReward,
           miningBeneficiaryCalculator,
           protocolSchedule,
           balConfiguration);
@@ -308,16 +306,8 @@ class AbstractBlockProcessorBalValidationTest {
     }
 
     @Override
-    protected boolean rewardCoinbase(
-        final MutableWorldState worldState,
-        final BlockHeader header,
-        final List<org.hyperledger.besu.ethereum.core.BlockHeader> ommers) {
-      return true;
-    }
-
-    @Override
-    protected TransactionProcessingResult getTransactionProcessingResult(
-        final Optional<PreprocessingContext> preProcessingContext,
+    protected TransactionProcessingResult processTransaction(
+        final Optional<ParallelBlockTransactionProcessor> parallelProcessor,
         final BlockProcessingContext blockProcessingContext,
         final WorldUpdater transactionUpdater,
         final Wei blobGasPrice,

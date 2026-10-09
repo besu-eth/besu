@@ -369,15 +369,11 @@ public class BlockSimulator {
     blockAccessListBuilder.ifPresent(b -> blockStateCallSimulationResult.set(b.build()));
 
     // Apply block reward for PoW blocks, matching geth's FinalizeAndAssemble behaviour.
-    // Post-merge specs have a zero block reward, so no reward is applied for them.
-    Wei blockReward = protocolSpec.getBlockReward();
-    if (!blockReward.isZero()) {
-      Address miner = overridenBaseBlockHeader.getCoinbase();
-      WorldUpdater rewardUpdater = ws.updater();
-      MutableAccount minerAccount = rewardUpdater.getOrCreate(miner);
-      minerAccount.incrementBalance(blockReward);
-      rewardUpdater.commit();
-    }
+    // Post-merge specs use BlockRewardProcessor.NO_REWARDS, so no reward is applied for them.
+    protocolSpec
+        .getBlockRewardProcessor()
+        .rewardBeneficiaries(
+            ws, overridenBaseBlockHeader, List.of(), overridenBaseBlockHeader.getCoinbase());
 
     var finalBlock =
         createFinalBlock(

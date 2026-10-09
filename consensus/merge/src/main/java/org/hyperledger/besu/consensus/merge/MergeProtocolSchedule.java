@@ -17,12 +17,12 @@ package org.hyperledger.besu.consensus.merge;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
@@ -109,7 +109,7 @@ public class MergeProtocolSchedule {
             (gasCalculator, jdCacheConfig) ->
                 MainnetEVMs.paris(gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
         .blockHeaderValidatorBuilder(MergeProtocolSchedule::getBlockHeaderValidator)
-        .blockReward(Wei.ZERO)
+        .blockRewardProcessor(BlockRewardProcessor.NO_REWARDS)
         .difficultyCalculator((a, b) -> BigInteger.ZERO)
         .isPoS(true)
         .slotDuration(Duration.ofSeconds(miningConfiguration.getUnstable().getPosSlotDuration()))

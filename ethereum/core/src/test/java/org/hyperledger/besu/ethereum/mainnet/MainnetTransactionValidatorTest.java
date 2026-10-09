@@ -70,6 +70,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.FieldSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -396,8 +397,10 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         .isEqualTo(validationResult);
   }
 
-  @Test
-  public void shouldRejectTransactionWithMaxPriorityFeeGreaterThanMaxFee() {
+  @ParameterizedTest
+  // a base fee of 5 is also above the fee cap: the tip above the cap is reported first
+  @ValueSource(longs = {1, 5})
+  public void shouldRejectTransactionWithMaxPriorityFeeGreaterThanMaxFee(final long baseFee) {
     final TransactionValidator validator =
         createTransactionValidator(
             gasCalculator,
@@ -426,7 +429,10 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
 
     final ValidationResult<TransactionInvalidReason> validationResult =
         validator.validate(
-            transaction, Optional.of(Wei.ONE), Optional.empty(), transactionProcessingParams);
+            transaction,
+            Optional.of(Wei.of(baseFee)),
+            Optional.empty(),
+            transactionProcessingParams);
     assertThat(validationResult)
         .isEqualTo(ValidationResult.invalid(MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS));
     assertThat(validationResult.getErrorMessage())
