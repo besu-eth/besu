@@ -486,7 +486,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     recordResult(test, spec, blockchain, testPassed, failureReason, results);
   }
 
-  private static String getBlockImportFailureReason(
+  private static @Nullable String getBlockImportFailureReason(
       final BlockImportResult importResult,
       final BlockchainReferenceTestCaseSpec.CandidateBlock candidateBlock,
       final Block block) {
@@ -503,7 +503,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       final Stopwatch timer,
       final BlockImportResult importResult,
       final Block block,
-      final String failureReason) {
+      final @Nullable String failureReason) {
     if (failureReason != null) {
       parentCommand.out.println(failureReason);
       return;
@@ -522,7 +522,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         block.getHeader().getNumber(), block.getHash(), timeMs, mGps);
   }
 
-  private static String getBlockchainImportFailureReason(
+  private static @Nullable String getBlockchainImportFailureReason(
       final MutableBlockchain blockchain, final BlockchainReferenceTestCaseSpec spec) {
     return blockchain.getChainHeadHash().getBytes().equals(spec.getLastBlockHash().getBytes())
         ? null
@@ -536,12 +536,12 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       final BlockchainReferenceTestCaseSpec spec,
       final MutableBlockchain blockchain,
       final boolean testPassed,
-      final String failureReason,
+      final @Nullable String failureReason,
       final FixtureRunner.TestResults results) {
     if (testPassed) {
       results.recordPass();
     } else {
-      results.recordFailure(test, failureReason);
+      results.recordFailure(test, requireNonNull(failureReason));
     }
 
     if (jsonArray) {
@@ -555,7 +555,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     }
   }
 
-  private void printBlockchainImportResult(final String failureReason) {
+  private void printBlockchainImportResult(final @Nullable String failureReason) {
     if (failureReason != null) {
       parentCommand.out.println(failureReason);
     } else if (verbose) {
