@@ -68,35 +68,33 @@ public abstract class AbstractTraceByHash implements JsonRpcMethod {
     return Tracer.processTracing(
             blockchainQueries,
             Optional.of(block.getHeader()),
-            mutableWorldState -> {
-              final TransactionTrace transactionTrace = getTransactionTrace(block, transactionHash);
+            traceableState -> {
+              final TransactionTrace transactionTrace =
+                  getTransactionTrace(traceableState, block, transactionHash);
               return Optional.ofNullable(getTraceStream(transactionTrace, block));
             })
         .orElse(Stream.empty());
   }
 
-  private TransactionTrace getTransactionTrace(final Block block, final Hash transactionHash) {
-    return Tracer.processTracing(
-            blockchainQueries,
-            Optional.of(block.getHeader()),
-            mutableWorldState ->
-                blockTracerSupplier
-                    .get()
-                    .trace(
-                        mutableWorldState,
-                        block,
-                        new DebugOperationTracer(
-                            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                                .traceStorage(false)
-                                .traceMemory(false)
-                                .traceStack(true)
-                                .build(),
-                            false))
-                    .map(BlockTrace::getTransactionTraces)
-                    .orElse(Collections.emptyList())
-                    .stream()
-                    .filter(trxTrace -> trxTrace.getTransaction().getHash().equals(transactionHash))
-                    .findFirst())
+  private TransactionTrace getTransactionTrace(
+      final Tracer.TraceableState traceableState, final Block block, final Hash transactionHash) {
+    return blockTracerSupplier
+        .get()
+        .trace(
+            traceableState,
+            block,
+            new DebugOperationTracer(
+                OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                    .traceStorage(false)
+                    .traceMemory(false)
+                    .traceStack(true)
+                    .build(),
+                false))
+        .map(BlockTrace::getTransactionTraces)
+        .orElse(Collections.emptyList())
+        .stream()
+        .filter(trxTrace -> trxTrace.getTransaction().getHash().equals(transactionHash))
+        .findFirst()
         .orElseThrow();
   }
 

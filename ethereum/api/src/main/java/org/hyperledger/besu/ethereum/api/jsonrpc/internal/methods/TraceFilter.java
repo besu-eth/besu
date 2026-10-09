@@ -170,10 +170,9 @@ public class TraceFilter extends TraceBlock {
       // Nothing to trace for the genesis block, as for a numeric range
       return new JsonRpcSuccessResponse(requestId, resultArrayNode.getArrayNode());
     }
-    return traceBlocks(filterParameter, List.of(block), resultArrayNode)
-        .<JsonRpcResponse>map(
-            result -> new JsonRpcSuccessResponse(requestId, result.getArrayNode()))
-        .orElseGet(() -> new JsonRpcErrorResponse(requestId, RpcErrorType.WORLD_STATE_UNAVAILABLE));
+    return traceBlockWithPipeline(filterParameter, block, resultArrayNode)
+        ? new JsonRpcSuccessResponse(requestId, resultArrayNode.getArrayNode())
+        : new JsonRpcErrorResponse(requestId, RpcErrorType.WORLD_STATE_UNAVAILABLE);
   }
 
   private JsonRpcResponse traceFilterWithPipeline(
@@ -194,80 +193,82 @@ public class TraceFilter extends TraceBlock {
       return new JsonRpcSuccessResponse(
           requestContext.getRequest().getId(), resultArrayNode.getArrayNode());
     }
-    List<Block> blockList = getBlockList(currentBlockNumber, toBlock, block);
+    final List<Block> blockList = getBlockList(currentBlockNumber, toBlock, block);
+    for (final Block blockToTrace : blockList) {
+      if (resultArrayNode.isFull()
+          || !traceBlockWithPipeline(filterParameter, blockToTrace, resultArrayNode)) {
+        break;
+      }
+    }
 
-    ArrayNodeWrapper result =
-        traceBlocks(filterParameter, blockList, resultArrayNode).orElse(emptyResult());
-
-    return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result.getArrayNode());
+    return new JsonRpcSuccessResponse(
+        requestContext.getRequest().getId(), resultArrayNode.getArrayNode());
   }
 
-  /**
-   * Traces the given consecutive blocks on the state before the first one.
-   *
-   * @return the filtered traces, or empty if that state is unavailable
-   */
-  private Optional<ArrayNodeWrapper> traceBlocks(
+  private boolean traceBlockWithPipeline(
       final FilterParameter filterParameter,
-      final List<Block> blockList,
+      final Block block,
       final ArrayNodeWrapper resultArrayNode) {
-    final BlockHeader header = blockList.getFirst().getHeader();
+    final BlockHeader header = block.getHeader();
     return Tracer.processTracing(
-        getBlockchainQueries(),
-        Optional.of(header),
-        traceableState -> {
-          TraceFilterSource traceFilterSource = new TraceFilterSource(blockList, resultArrayNode);
-          final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
-          final MainnetTransactionProcessor transactionProcessor =
-              protocolSpec.getTransactionProcessor();
-          final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
-          DebugOperationTracer debugOperationTracer =
-              new DebugOperationTracer(
-                  OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                      .traceStorage(false)
-                      .traceMemory(false)
-                      .traceStack(true)
-                      .build(),
-                  false);
-          ExecuteTransactionStep executeTransactionStep =
-              new ExecuteTransactionStep(
-                  chainUpdater,
-                  transactionProcessor,
-                  getBlockchainQueries().getBlockchain(),
-                  debugOperationTracer,
-                  protocolSpec);
+            getBlockchainQueries(),
+            Optional.of(header),
+            traceableState -> {
+              final TraceFilterSource traceFilterSource =
+                  new TraceFilterSource(List.of(block), resultArrayNode);
+              final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
+              final MainnetTransactionProcessor transactionProcessor =
+                  protocolSpec.getTransactionProcessor();
+              final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
+              final DebugOperationTracer debugOperationTracer =
+                  new DebugOperationTracer(
+                      OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                          .traceStorage(false)
+                          .traceMemory(false)
+                          .traceStack(true)
+                          .build(),
+                      false);
+              final ExecuteTransactionStep executeTransactionStep =
+                  new ExecuteTransactionStep(
+                      chainUpdater,
+                      transactionProcessor,
+                      getBlockchainQueries().getBlockchain(),
+                      debugOperationTracer,
+                      protocolSpec,
+                      block);
 
-          Function<TransactionTrace, CompletableFuture<Stream<FlatTrace>>>
-              traceFlatTransactionStep =
-                  new TraceFlatTransactionStep(
-                      protocolSchedule, null, Optional.of(filterParameter));
+              final Function<TransactionTrace, CompletableFuture<Stream<FlatTrace>>>
+                  traceFlatTransactionStep =
+                      new TraceFlatTransactionStep(
+                          protocolSchedule, block, Optional.of(filterParameter));
 
-          BuildArrayNodeCompleterStep buildArrayNodeStep =
-              new BuildArrayNodeCompleterStep(resultArrayNode);
-          Pipeline<TransactionTrace> traceBlockPipeline =
-              createPipelineFrom(
-                      "getTransactions",
-                      traceFilterSource,
-                      4,
-                      outputCounter,
-                      false,
-                      "trace_block_transactions")
-                  .thenProcess("executeTransaction", executeTransactionStep)
-                  .thenProcessAsyncOrdered("traceFlatTransaction", traceFlatTransactionStep, 4)
-                  .andFinishWith(
-                      "buildArrayNode",
-                      traceStream -> traceStream.forEachOrdered(buildArrayNodeStep));
+              final BuildArrayNodeCompleterStep buildArrayNodeStep =
+                  new BuildArrayNodeCompleterStep(resultArrayNode);
+              final Pipeline<TransactionTrace> traceBlockPipeline =
+                  createPipelineFrom(
+                          "getTransactions",
+                          traceFilterSource,
+                          4,
+                          outputCounter,
+                          false,
+                          "trace_block_transactions")
+                      .thenProcess("executeTransaction", executeTransactionStep)
+                      .thenProcessAsyncOrdered("traceFlatTransaction", traceFlatTransactionStep, 4)
+                      .andFinishWith(
+                          "buildArrayNode",
+                          traceStream -> traceStream.forEachOrdered(buildArrayNodeStep));
 
-          try {
-            ethScheduler.startPipeline(traceBlockPipeline).get();
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
-          } catch (ExecutionException e) {
-            throw new RuntimeException(e);
-          }
-          return Optional.of(resultArrayNode);
-        });
+              try {
+                ethScheduler.startPipeline(traceBlockPipeline).get();
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+              } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+              }
+              return Optional.of(resultArrayNode);
+            })
+        .isPresent();
   }
 
   private static ArrayNodeWrapper newResultArrayNode(final FilterParameter filterParameter) {
