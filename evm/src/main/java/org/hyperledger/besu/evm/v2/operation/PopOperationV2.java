@@ -14,30 +14,40 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import static org.hyperledger.besu.evm.v2.operation.StackUtil.setWei;
-
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 
-/** The Blob Base fee operation. */
-public class BlobBaseFeeOperationV2 extends AbstractFixedCostOperationV2 {
+/** The Pop operation. */
+public class PopOperationV2 extends AbstractFixedCostOperationV2 {
+  /** The Pop operation success result. */
+  static final OperationResult popSuccess = new OperationResult(2, null);
 
   /**
-   * Instantiates a new Blob Base fee operation.
+   * Instantiates a new Pop operation.
    *
    * @param gasCalculator the gas calculator
    */
-  public BlobBaseFeeOperationV2(final GasCalculator gasCalculator) {
-    super(0x4a, "BLOBBASEFEE", 0, 1, gasCalculator, gasCalculator.getBaseTierGasCost());
+  public PopOperationV2(final GasCalculator gasCalculator) {
+    super(0x50, "POP", 1, 0, gasCalculator, gasCalculator.getBaseTierGasCost());
   }
 
   @Override
   public OperationResult executeFixedCostOperation(final MessageFrame frame) {
-    if (!frame.stackHasSpaceV2(1)) return OVERFLOW_RESPONSE;
-    final long[] stack = frame.stackDataV2();
-    final int top = frame.stackTopV2();
-    setWei(frame.getBlobGasPrice(), stack, top);
-    frame.setTopV2(top + 1);
-    return successResponse;
+    return staticOperation(frame);
+  }
+
+  /**
+   * Performs Pop operation.
+   *
+   * @param frame the frame
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(final MessageFrame frame) {
+    if (!frame.stackHasItemsV2(1)) {
+      return UNDERFLOW_RESPONSE;
+    }
+    frame.setTopV2(frame.stackTopV2() - 1);
+    return popSuccess;
   }
 }

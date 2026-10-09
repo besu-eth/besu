@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushLong;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.setLong;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -37,7 +37,7 @@ public class GasLimitOperationV2 extends AbstractFixedCostOperationV2 {
     if (!frame.stackHasSpaceV2(1)) return OVERFLOW_RESPONSE;
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();
-    pushLong(frame.getBlockValues().getGasLimit(), stack, top);
+    setLong(frame.getBlockValues().getGasLimit(), stack, top);
     frame.setTopV2(top + 1);
     return successResponse;
   }
