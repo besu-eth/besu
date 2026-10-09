@@ -46,6 +46,7 @@ import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
+import org.hyperledger.besu.evm.worldstate.SelfDestructSettlement;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Deque;
@@ -633,7 +634,7 @@ public class MainnetTransactionProcessor {
           effectiveSelfDestructs,
           0L);
 
-      settleSelfDestructs(worldState, effectiveSelfDestructs);
+      SelfDestructSettlement.settle(worldState, effectiveSelfDestructs, gasCalculator);
 
       if (clearEmptyAccounts) {
         worldState.clearAccountsThatAreEmpty();
@@ -958,32 +959,6 @@ public class MainnetTransactionProcessor {
       initialFrame.getEip7928AccessList().ifPresent(bal -> bal.addTouchedAccount(target));
     }
     return true;
-  }
-
-  /**
-   * Settles accounts marked for self-destruction at transaction finalization. Under EIP-8246 each
-   * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161
-   * state clearing (via {@code clearAccountsThatAreEmpty}) then removes any account left with a
-   * zero balance. Pre-EIP-8246 the accounts are deleted outright.
-   *
-   * @param worldState the world state updater
-   * @param selfDestructs the addresses marked for self-destruction
-   */
-  private void settleSelfDestructs(
-      final WorldUpdater worldState, final Set<Address> selfDestructs) {
-    if (gasCalculator.isSelfDestructBalancePreserved()) {
-      selfDestructs.forEach(
-          address -> {
-            final MutableAccount account = worldState.getAccount(address);
-            if (account != null) {
-              account.setNonce(0L);
-              account.setCode(Bytes.EMPTY);
-              account.clearStorage();
-            }
-          });
-    } else {
-      selfDestructs.forEach(worldState::deleteAccount);
-    }
   }
 
   private String printableStackTraceFromThrowable(final RuntimeException re) {
