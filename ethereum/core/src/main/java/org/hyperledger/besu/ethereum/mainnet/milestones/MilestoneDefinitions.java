@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.milestones;
 
 import static org.hyperledger.besu.ethereum.mainnet.milestones.MilestoneDefinition.createBlockNumberMilestone;
+import static org.hyperledger.besu.ethereum.mainnet.milestones.MilestoneDefinition.createOptionalBlockNumberMilestone;
 import static org.hyperledger.besu.ethereum.mainnet.milestones.MilestoneDefinition.createTimestampMilestone;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
@@ -66,6 +67,10 @@ public class MilestoneDefinitions {
             MainnetHardforkId.HOMESTEAD,
             config.getHomesteadBlockNumber(),
             specFactory::homesteadDefinition),
+        createOptionalBlockNumberMilestone(
+            MainnetHardforkId.DAO_RECOVERY,
+            config.getDaoForkBlock(),
+            specFactory::daoRecoveryDefinition),
         createBlockNumberMilestone(
             MainnetHardforkId.TANGERINE_WHISTLE,
             config.getTangerineWhistleBlockNumber(),

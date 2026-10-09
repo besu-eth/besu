@@ -18,8 +18,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.ARROW_
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BERLIN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BYZANTIUM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CONSTANTINOPLE;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY_INIT;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY_TRANSITION;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.FRONTIER;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.GRAY_GLACIER;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.HOMESTEAD;
@@ -29,20 +28,25 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.MUIR_G
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PETERSBURG;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SPURIOUS_DRAGON;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.TANGERINE_WHISTLE;
+import static org.hyperledger.besu.ethereum.mainnet.headervalidationrules.DaoExtraDataValidationRule.DAO_EXTRA_DATA;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
+import org.hyperledger.besu.ethereum.mainnet.forkstatechange.ForkStateChangeProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -56,11 +60,7 @@ public class MainnetProtocolScheduleTest {
     Assertions.assertThat(sched.getByBlockHeader(blockHeader(1_150_000L)).getHardforkId())
         .isEqualTo(HOMESTEAD);
     Assertions.assertThat(sched.getByBlockHeader(blockHeader(1_920_000L)).getHardforkId())
-        .isEqualTo(DAO_RECOVERY_INIT);
-    Assertions.assertThat(sched.getByBlockHeader(blockHeader(1_920_001L)).getHardforkId())
-        .isEqualTo(DAO_RECOVERY_TRANSITION);
-    Assertions.assertThat(sched.getByBlockHeader(blockHeader(1_920_010L)).getHardforkId())
-        .isEqualTo(HOMESTEAD);
+        .isEqualTo(DAO_RECOVERY);
     Assertions.assertThat(sched.getByBlockHeader(blockHeader(2_463_000L)).getHardforkId())
         .isEqualTo(TANGERINE_WHISTLE);
     Assertions.assertThat(sched.getByBlockHeader(blockHeader(2_675_000L)).getHardforkId())
@@ -123,11 +123,7 @@ public class MainnetProtocolScheduleTest {
     Assertions.assertThat(sched.getByBlockHeader(blockHeader(2)).getHardforkId())
         .isEqualTo(HOMESTEAD);
     Assertions.assertThat(sched.getByBlockHeader(blockHeader(3)).getHardforkId())
-        .isEqualTo(DAO_RECOVERY_INIT);
-    Assertions.assertThat(sched.getByBlockHeader(blockHeader(4)).getHardforkId())
-        .isEqualTo(DAO_RECOVERY_TRANSITION);
-    Assertions.assertThat(sched.getByBlockHeader(blockHeader(13)).getHardforkId())
-        .isEqualTo(HOMESTEAD);
+        .isEqualTo(DAO_RECOVERY);
     Assertions.assertThat(sched.getByBlockHeader(blockHeader(14)).getHardforkId())
         .isEqualTo(TANGERINE_WHISTLE);
     Assertions.assertThat(sched.getByBlockHeader(blockHeader(15)).getHardforkId())
@@ -249,6 +245,139 @@ public class MainnetProtocolScheduleTest {
               RequestContractAddresses.DEFAULT_CONSOLIDATION_REQUEST_CONTRACT_ADDRESS
                   .toHexString());
     }
+  }
+
+  @Test
+  public void daoExtraDataIsRequiredOnTheDaoForkBlocks() {
+    final ProtocolSchedule sched = scheduleFromConfig("\"homesteadBlock\": 2, \"daoForkBlock\": 3");
+
+    for (final long number : new long[] {3, 12}) {
+      Assertions.assertThat(requiresDaoExtraData(sched, number)).as("block %d", number).isTrue();
+    }
+    for (final long number : new long[] {2, 13}) {
+      Assertions.assertThat(requiresDaoExtraData(sched, number)).as("block %d", number).isFalse();
+    }
+  }
+
+  @Test
+  public void daoExtraDataIsRequiredWhenALaterForkActivatesWithinTheDaoForkBlocks() {
+    final ProtocolSchedule sched =
+        scheduleFromConfig("\"homesteadBlock\": 2, \"daoForkBlock\": 3, \"eip150Block\": 5");
+
+    Assertions.assertThat(sched.getByBlockHeader(blockHeader(5)).getHardforkId())
+        .isEqualTo(TANGERINE_WHISTLE);
+    Assertions.assertThat(requiresDaoExtraData(sched, 5)).isTrue();
+    Assertions.assertThat(requiresDaoExtraData(sched, 12)).isTrue();
+    Assertions.assertThat(requiresDaoExtraData(sched, 13)).isFalse();
+  }
+
+  @Test
+  public void londonDropsTheDaoExtraDataRule() {
+    // London sets its own header validator, so the rule ends there, even within the DAO fork
+    // blocks.
+    final ProtocolSchedule sched =
+        scheduleFromConfig("\"homesteadBlock\": 2, \"daoForkBlock\": 3, \"londonBlock\": 5");
+
+    Assertions.assertThat(sched.getByBlockHeader(blockHeader(4)).getHardforkId())
+        .isEqualTo(DAO_RECOVERY);
+    Assertions.assertThat(requiresDaoExtraData(sched, 4)).isTrue();
+    Assertions.assertThat(sched.getByBlockHeader(blockHeader(6)).getHardforkId()).isEqualTo(LONDON);
+    Assertions.assertThat(requiresDaoExtraData(sched, 6)).isFalse();
+  }
+
+  @Test
+  public void forkOnTheDaoForkBlockKeepsTheDaoRefund() {
+    final ProtocolSchedule sched =
+        scheduleFromConfig("\"homesteadBlock\": 2, \"daoForkBlock\": 5, \"eip150Block\": 5");
+
+    Assertions.assertThat(sched.getByBlockHeader(blockHeader(5)).getHardforkId())
+        .isEqualTo(TANGERINE_WHISTLE);
+    Assertions.assertThat(sched.getByBlockHeader(blockHeader(5)).getForkStateChangeProcessor())
+        .isNotSameAs(ForkStateChangeProcessor.NONE);
+  }
+
+  @Test
+  public void daoForkAfterTangerineWhistleIsRejected() {
+    // Like geth, the DAO fork is ordered between Homestead and Tangerine Whistle.
+    Assertions.assertThatThrownBy(
+            () ->
+                scheduleFromConfig(
+                    "\"homesteadBlock\": 2, \"eip150Block\": 5, \"daoForkBlock\": 7"))
+        .hasMessageContaining("milestone 5 but it must be on or after milestone 7");
+  }
+
+  @Test
+  public void daoForkIsAMilestoneOnlyWhereConfigured() {
+    Assertions.assertThat(
+            scheduleFromConfig("\"homesteadBlock\": 2, \"daoForkBlock\": 3, \"eip150Block\": 5")
+                .milestoneFor(DAO_RECOVERY))
+        .contains(3L);
+    // Unlike other forks, the DAO fork does not activate with the next configured fork.
+    Assertions.assertThat(
+            scheduleFromConfig("\"homesteadBlock\": 2, \"eip150Block\": 5")
+                .milestoneFor(DAO_RECOVERY))
+        .isEmpty();
+  }
+
+  @Test
+  public void chainWithoutADaoForkHasNoDaoRules() {
+    final ProtocolSchedule sched = scheduleFromConfig("\"homesteadBlock\": 2");
+
+    Assertions.assertThat(requiresDaoExtraData(sched, 3)).isFalse();
+    Assertions.assertThat(sched.getByBlockHeader(blockHeader(3)).getForkStateChangeProcessor())
+        .isSameAs(ForkStateChangeProcessor.NONE);
+  }
+
+  private static ProtocolSchedule scheduleFromConfig(final String forks) {
+    return MainnetProtocolSchedule.fromConfig(
+        GenesisConfig.fromConfig("{\"config\": {" + forks + ", \"chainId\":1234}}")
+            .getConfigOptions(),
+        EvmConfiguration.DEFAULT,
+        MiningConfiguration.MINING_DISABLED,
+        new BadBlockManager(),
+        false,
+        BalConfiguration.DEFAULT,
+        new NoOpMetricsSystem());
+  }
+
+  /**
+   * Whether block {@code number}'s header validator rejects a header that lacks the DAO extra data
+   * but is otherwise valid.
+   */
+  private boolean requiresDaoExtraData(final ProtocolSchedule sched, final long number) {
+    final ProtocolSpec spec = sched.getByBlockHeader(blockHeader(number));
+    // A header valid under the fork: from London, a base fee, kept the same by a parent at its gas
+    // target; from Paris, no difficulty or nonce.
+    final long gasLimit = 5_000_000;
+    final BlockHeaderTestFixture parentFixture =
+        new BlockHeaderTestFixture()
+            .number(number - 1)
+            .gasLimit(gasLimit)
+            .gasUsed(gasLimit / 2)
+            .timestamp(100);
+    final BlockHeaderTestFixture header =
+        new BlockHeaderTestFixture().number(number).gasLimit(gasLimit).gasUsed(0).timestamp(110);
+    if (spec.getFeeMarket().implementsBaseFee()) {
+      final Wei baseFee = Wei.of(1_000_000_000L);
+      parentFixture.baseFeePerGas(baseFee);
+      header.baseFeePerGas(baseFee);
+    }
+    if (spec.isPoS()) {
+      parentFixture.difficulty(Difficulty.ZERO).nonce(0);
+      header.difficulty(Difficulty.ZERO).nonce(0);
+    }
+    final BlockHeader parent = parentFixture.buildHeader();
+    header.parentHash(parent.getHash());
+    final BlockHeaderValidator validator = spec.getBlockHeaderValidator();
+    Assertions.assertThat(
+            validator.validateHeader(
+                header.extraData(DAO_EXTRA_DATA).buildHeader(),
+                parent,
+                null,
+                HeaderValidationMode.FULL))
+        .isTrue();
+    return !validator.validateHeader(
+        header.extraData(Bytes.EMPTY).buildHeader(), parent, null, HeaderValidationMode.FULL);
   }
 
   private BlockHeader blockHeader(final long number) {

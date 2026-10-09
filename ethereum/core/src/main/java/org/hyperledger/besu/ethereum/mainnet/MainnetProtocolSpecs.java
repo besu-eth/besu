@@ -26,8 +26,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO5;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BYZANTIUM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CONSTANTINOPLE;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY_INIT;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY_TRANSITION;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.EXPERIMENTAL_EIPS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.FRONTIER;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.FUTURE_EIPS;
@@ -56,17 +55,12 @@ import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.MainnetBlockValidatorBuilder;
-import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.CancunPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
@@ -74,6 +68,8 @@ import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcess
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.forkstatechange.DaoRefundStateChange;
+import org.hyperledger.besu.ethereum.mainnet.forkstatechange.ForkStateChangeProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
@@ -82,7 +78,6 @@ import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitt
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.MainnetEVMs;
-import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.contractvalidation.MaxCodeSizeRule;
 import org.hyperledger.besu.evm.contractvalidation.PrefixCodeRule;
 import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
@@ -106,27 +101,19 @@ import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldState;
-import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
-import java.io.IOException;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.stream.IntStream;
 
-import com.google.common.io.Resources;
-import io.vertx.core.json.JsonArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -194,10 +181,11 @@ public abstract class MainnetProtocolSpecs {
                     .build())
         .difficultyCalculator(MainnetDifficultyCalculators.FRONTIER)
         .blockHeaderValidatorBuilder(
-            (feeMarket, gasCalculator, gasLimitCalculator) -> MainnetBlockHeaderValidator.create())
+            (feeMarket, gasCalculator, gasLimitCalculator) ->
+                MainnetBlockHeaderValidator.frontier())
         .ommerHeaderValidatorBuilder(
             (feeMarket, gasCalculator, gasLimitCalculator) ->
-                MainnetBlockHeaderValidator.createLegacyFeeMarketOmmerValidator())
+                MainnetBlockHeaderValidator.frontierOmmer())
         .blockBodyValidatorBuilder(MainnetBlockBodyValidator::new)
         .blockAccessListValidatorBuilder(__ -> BlockAccessListValidator.ALWAYS_REJECT_BAL)
         .transactionReceiptFactory(new FrontierTransactionReceiptFactory())
@@ -264,63 +252,39 @@ public abstract class MainnetProtocolSpecs {
         .hardforkId(HOMESTEAD);
   }
 
-  public static ProtocolSpecBuilder daoRecoveryInitDefinition(
+  /**
+   * The DAO fork (EIP-779): Homestead's rules, plus, on a chain that configures the DAO fork, the
+   * refund on the DAO fork block and the {@code "dao-hard-fork"} extra data on that block and the
+   * nine after it. Both check the block number, and Tangerine Whistle builds on this fork, so they
+   * still apply when a later fork activates within those blocks. The extra data rule is part of
+   * this fork's header validator, so it lasts until London sets its own.
+   */
+  public static ProtocolSpecBuilder daoRecoveryDefinition(
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return homesteadDefinition(
-            genesisConfigOptions,
-            evmConfiguration,
-            isParallelTxProcessingEnabled,
-            balConfiguration,
-            metricsSystem)
-        .blockHeaderValidatorBuilder(
-            (feeMarket, gasCalculator, gasLimitCalculator) ->
-                MainnetBlockHeaderValidator.createDaoValidator())
-        .blockProcessorBuilder(
-            (transactionProcessor,
-                transactionReceiptFactory,
-                miningBeneficiaryCalculator,
-                protocolSchedule,
-                balConfig) ->
-                new DaoBlockProcessor(
-                    isParallelTxProcessingEnabled
-                        ? new MainnetParallelBlockProcessor(
-                            transactionProcessor,
-                            transactionReceiptFactory,
-                            miningBeneficiaryCalculator,
-                            protocolSchedule,
-                            balConfig,
-                            metricsSystem)
-                        : new MainnetBlockProcessor(
-                            transactionProcessor,
-                            transactionReceiptFactory,
-                            miningBeneficiaryCalculator,
-                            protocolSchedule,
-                            balConfig,
-                            metricsSystem)))
-        .hardforkId(DAO_RECOVERY_INIT);
-  }
-
-  public static ProtocolSpecBuilder daoRecoveryTransitionDefinition(
-      final GenesisConfigOptions genesisConfigOptions,
-      final EvmConfiguration evmConfiguration,
-      final boolean isParallelTxProcessingEnabled,
-      final BalConfiguration balConfiguration,
-      final MetricsSystem metricsSystem) {
-    return daoRecoveryInitDefinition(
-            genesisConfigOptions,
-            evmConfiguration,
-            isParallelTxProcessingEnabled,
-            balConfiguration,
-            metricsSystem)
-        .blockProcessorBuilder(
-            isParallelTxProcessingEnabled
-                ? new MainnetParallelBlockProcessor.ParallelBlockProcessorBuilder(metricsSystem)
-                : new MainnetBlockProcessor.MainnetBlockProcessorBuilder(metricsSystem))
-        .hardforkId(DAO_RECOVERY_TRANSITION);
+    final ProtocolSpecBuilder builder =
+        homesteadDefinition(
+                genesisConfigOptions,
+                evmConfiguration,
+                isParallelTxProcessingEnabled,
+                balConfiguration,
+                metricsSystem)
+            .hardforkId(DAO_RECOVERY);
+    genesisConfigOptions
+        .getDaoForkBlock()
+        .ifPresent(
+            daoForkBlock ->
+                builder
+                    .blockHeaderValidatorBuilder(
+                        (feeMarket, gasCalculator, gasLimitCalculator) ->
+                            MainnetBlockHeaderValidator.daoRecovery(daoForkBlock))
+                    .forkStateChangeProcessor(
+                        ForkStateChangeProcessor.atBlock(
+                            daoForkBlock, new DaoRefundStateChange())));
+    return builder;
   }
 
   public static ProtocolSpecBuilder tangerineWhistleDefinition(
@@ -329,7 +293,7 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return homesteadDefinition(
+    return daoRecoveryDefinition(
             genesisConfigOptions,
             evmConfiguration,
             isParallelTxProcessingEnabled,
@@ -620,11 +584,10 @@ public abstract class MainnetProtocolSpecs {
         .difficultyCalculator(MainnetDifficultyCalculators.LONDON)
         .blockHeaderValidatorBuilder(
             (feeMarket, gasCalculator, gasLimitCalculator) ->
-                MainnetBlockHeaderValidator.createBaseFeeMarketValidator((BaseFeeMarket) feeMarket))
+                MainnetBlockHeaderValidator.london((BaseFeeMarket) feeMarket))
         .ommerHeaderValidatorBuilder(
             (feeMarket, gasCalculator, gasLimitCalculator) ->
-                MainnetBlockHeaderValidator.createBaseFeeMarketOmmerValidator(
-                    (BaseFeeMarket) feeMarket))
+                MainnetBlockHeaderValidator.londonOmmer((BaseFeeMarket) feeMarket))
         .blockBodyValidatorBuilder(BaseFeeBlockBodyValidator::new)
         .hardforkId(LONDON);
   }
@@ -696,7 +659,7 @@ public abstract class MainnetProtocolSpecs {
             (gasCalculator, jdCacheConfig) ->
                 MainnetEVMs.paris(gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
         .difficultyCalculator(MainnetDifficultyCalculators.PROOF_OF_STAKE_DIFFICULTY)
-        .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::mergeBlockHeaderValidator)
+        .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::paris)
         .blockRewardProcessor(BlockRewardProcessor.NO_REWARDS)
         .isPoS(true)
         .slotDuration(Duration.ofSeconds(miningConfiguration.getUnstable().getPosSlotDuration()))
@@ -762,7 +725,7 @@ public abstract class MainnetProtocolSpecs {
                     evm.getMaxInitcodeSize()))
         .withdrawalsProcessor(new WithdrawalsProcessor())
         .withdrawalsValidator(new WithdrawalsValidator.AllowedWithdrawals())
-        .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::noBlobBlockHeaderValidator)
+        .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::shanghai)
         .hardforkId(SHANGHAI);
   }
 
@@ -854,7 +817,7 @@ public abstract class MainnetProtocolSpecs {
                     Set.of(BlobType.KZG_PROOF),
                     evm.getMaxInitcodeSize()))
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::cancun)
-        .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::blobAwareBlockHeaderValidator)
+        .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::cancun)
         .preExecutionProcessor(getPreExecutionProcessor(genesisConfigOptions))
         .hardforkId(CANCUN);
   }
@@ -956,8 +919,7 @@ public abstract class MainnetProtocolSpecs {
             // EIP-2935 Blockhash processor
             .preExecutionProcessor(getPraguePreExecutionProcessor(genesisConfigOptions))
             // EIP-7685: requestsHash header field is mandatory from Prague onwards
-            .blockHeaderValidatorBuilder(
-                MainnetBlockHeaderValidator::requestsAwareBlockHeaderValidator)
+            .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::prague)
             .hardforkId(PRAGUE);
     if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
       LOG.warn(
@@ -1282,8 +1244,7 @@ public abstract class MainnetProtocolSpecs {
             .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
             // EIP-7843: slotNumber is the last header field, so a header omitting it still
             // decodes cleanly - only this rule rejects it.
-            .blockHeaderValidatorBuilder(
-                MainnetBlockHeaderValidator::slotNumberAwareBlockHeaderValidator)
+            .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::amsterdam)
             .slotNumberRequired(true)
             .hardforkId(AMSTERDAM);
 
@@ -1492,99 +1453,6 @@ public abstract class MainnetProtocolSpecs {
           gasUsed,
           result.getLogs(),
           revertReasonEnabled ? result.getRevertReason() : Optional.empty());
-    }
-  }
-
-  private record DaoBlockProcessor(BlockProcessor wrapped) implements BlockProcessor {
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block) {
-      updateWorldStateForDao(worldState);
-      return wrapped.processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          new AbstractBlockProcessor.PreprocessingFunction.NoPreprocessing());
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final Optional<BlockAccessList> blockAccessList) {
-      updateWorldStateForDao(worldState);
-      return wrapped.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction) {
-      return processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          Optional.empty(),
-          preprocessingBlockFunction);
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final Optional<BlockAccessList> blockAccessList,
-        final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction) {
-      updateWorldStateForDao(worldState);
-      return wrapped.processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          blockAccessList,
-          preprocessingBlockFunction);
-    }
-
-    private static final Address DAO_REFUND_CONTRACT_ADDRESS =
-        Address.fromHexString("0xbf4ed7b27f1d666546e30d74d50d173d20bca754");
-
-    private void updateWorldStateForDao(final MutableWorldState worldState) {
-      try {
-        final JsonArray json =
-            new JsonArray(
-                Resources.toString(
-                    Objects.requireNonNull(this.getClass().getResource("/daoAddresses.json")),
-                    StandardCharsets.UTF_8));
-        final List<Address> addresses =
-            IntStream.range(0, json.size())
-                .mapToObj(json::getString)
-                .map(Address::fromHexString)
-                .toList();
-        final WorldUpdater worldUpdater = worldState.updater();
-        final MutableAccount daoRefundContract =
-            worldUpdater.getOrCreate(DAO_REFUND_CONTRACT_ADDRESS);
-        for (final Address address : addresses) {
-          final MutableAccount account = worldUpdater.getOrCreate(address);
-          final Wei balance = account.getBalance();
-          account.decrementBalance(balance);
-          daoRefundContract.incrementBalance(balance);
-        }
-        worldUpdater.commit();
-      } catch (final IOException e) {
-        throw new IllegalStateException(e);
-      }
     }
   }
 

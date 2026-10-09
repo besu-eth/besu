@@ -53,7 +53,7 @@ public class MergeValidationRulesetFactory {
    */
   public static BlockHeaderValidator.Builder mergeBlockHeaderValidator(final FeeMarket feeMarket) {
     if (!feeMarket.implementsBaseFee()) {
-      return MainnetBlockHeaderValidator.create();
+      return MainnetBlockHeaderValidator.frontier();
     }
 
     var baseFeeMarket = (BaseFeeMarket) feeMarket;

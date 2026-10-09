@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.forkstatechange.ForkStateChangeProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
@@ -56,6 +57,7 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
   @BeforeEach
   public void setup() {
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getForkStateChangeProcessor()).thenReturn(ForkStateChangeProcessor.NONE);
     when(protocolSpec.getPreExecutionProcessor()).thenReturn(new FrontierPreExecutionProcessor());
     when(protocolSpec.getStateRootCommitterFactory())
         .thenReturn(new StateRootCommitterFactory(BalConfiguration.DISABLED));

@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.forkstatechange.ForkStateChangeProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
@@ -91,6 +92,9 @@ class AbstractBlockProcessorBalValidationTest {
     lenient()
         .when(protocolSpec.getBlockRewardProcessor())
         .thenReturn(BlockRewardProcessor.NO_REWARDS);
+    lenient()
+        .when(protocolSpec.getForkStateChangeProcessor())
+        .thenReturn(ForkStateChangeProcessor.NONE);
     lenient()
         .when(protocolSpec.getPreExecutionProcessor())
         .thenReturn(new FrontierPreExecutionProcessor());

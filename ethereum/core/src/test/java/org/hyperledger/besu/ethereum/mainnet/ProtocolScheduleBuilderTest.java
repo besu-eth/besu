@@ -26,8 +26,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO4;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO5;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BYZANTIUM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY_INIT;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY_TRANSITION;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.DAO_RECOVERY;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.FRONTIER;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.HOMESTEAD;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.LONDON;
@@ -134,11 +133,7 @@ class ProtocolScheduleBuilderTest {
     assertThat(protocolSchedule.getByBlockHeader(blockHeader(1)).getHardforkId())
         .isEqualTo(HOMESTEAD);
     assertThat(protocolSchedule.getByBlockHeader(blockHeader(2)).getHardforkId())
-        .isEqualTo(DAO_RECOVERY_INIT);
-    assertThat(protocolSchedule.getByBlockHeader(blockHeader(3)).getHardforkId())
-        .isEqualTo(DAO_RECOVERY_TRANSITION);
-    assertThat(protocolSchedule.getByBlockHeader(blockHeader(12)).getHardforkId())
-        .isEqualTo(HOMESTEAD);
+        .isEqualTo(DAO_RECOVERY);
     assertThat(protocolSchedule.getByBlockHeader(blockHeader(13)).getHardforkId())
         .isEqualTo(BYZANTIUM);
     assertThat(protocolSchedule.getByBlockHeader(blockHeader(14)).getHardforkId())

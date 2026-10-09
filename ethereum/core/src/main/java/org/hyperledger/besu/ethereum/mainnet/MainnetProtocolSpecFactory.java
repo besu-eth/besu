@@ -70,17 +70,8 @@ public class MainnetProtocolSpecFactory {
         metricsSystem);
   }
 
-  public ProtocolSpecBuilder daoRecoveryInitDefinition() {
-    return MainnetProtocolSpecs.daoRecoveryInitDefinition(
-        genesisConfigOptions,
-        evmConfiguration,
-        isParallelTxProcessingEnabled,
-        balConfiguration,
-        metricsSystem);
-  }
-
-  public ProtocolSpecBuilder daoRecoveryTransitionDefinition() {
-    return MainnetProtocolSpecs.daoRecoveryTransitionDefinition(
+  public ProtocolSpecBuilder daoRecoveryDefinition() {
+    return MainnetProtocolSpecs.daoRecoveryDefinition(
         genesisConfigOptions,
         evmConfiguration,
         isParallelTxProcessingEnabled,

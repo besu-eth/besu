@@ -90,8 +90,6 @@ public class ForkIdsNetworkConfigTest {
               new ForkId(Bytes.ofUnsignedInt(0xfc64ec04L), 1150000L),
               new ForkId(Bytes.ofUnsignedInt(0x97c2c34cL), 1920000L),
               new ForkId(Bytes.ofUnsignedInt(0x91d1f948L), 2463000L),
-              new ForkId(Bytes.ofUnsignedInt(0x91d1f948L), 2463000L),
-              new ForkId(Bytes.ofUnsignedInt(0x91d1f948L), 2463000L),
               new ForkId(Bytes.ofUnsignedInt(0x7a64da13L), 2675000L),
               new ForkId(Bytes.ofUnsignedInt(0x3edd5b10L), 4370000L),
               new ForkId(Bytes.ofUnsignedInt(0xa00bc324L), 7280000L),

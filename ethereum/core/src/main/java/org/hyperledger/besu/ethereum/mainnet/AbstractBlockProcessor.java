@@ -250,6 +250,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               blockHashLookup,
               !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer,
               blockAccessListBuilder);
+      protocolSpec.getForkStateChangeProcessor().process(blockProcessingContext);
       protocolSpec
           .getPreExecutionProcessor()
           .process(blockProcessingContext, preExecutionAccessLocationTracker);

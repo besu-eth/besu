@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.forkstatechange.ForkStateChangeProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.ProhibitedRequestValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestsValidator;
@@ -84,6 +85,7 @@ public class ProtocolSpecBuilder {
   private WithdrawalsProcessor withdrawalsProcessor;
   private RequestsValidator requestsValidator = new ProhibitedRequestValidator();
   private RequestProcessorCoordinator requestProcessorCoordinator;
+  private ForkStateChangeProcessor forkStateChangeProcessor = ForkStateChangeProcessor.NONE;
   protected PreExecutionProcessor preExecutionProcessor;
   private FeeMarketBuilder feeMarketBuilder = (__) -> FeeMarket.legacy();
   private BlobSchedule blobSchedule = new BlobSchedule.NoBlobSchedule();
@@ -279,6 +281,12 @@ public class ProtocolSpecBuilder {
     return this;
   }
 
+  public ProtocolSpecBuilder forkStateChangeProcessor(
+      final ForkStateChangeProcessor forkStateChangeProcessor) {
+    this.forkStateChangeProcessor = forkStateChangeProcessor;
+    return this;
+  }
+
   public ProtocolSpecBuilder preExecutionProcessor(
       final PreExecutionProcessor preExecutionProcessor) {
     this.preExecutionProcessor = preExecutionProcessor;
@@ -452,6 +460,7 @@ public class ProtocolSpecBuilder {
         Optional.ofNullable(withdrawalsProcessor),
         requestsValidator,
         Optional.ofNullable(requestProcessorCoordinator),
+        forkStateChangeProcessor,
         preExecutionProcessor,
         isPoS,
         slotNumberRequired,

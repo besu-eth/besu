@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.forkstatechange.ForkStateChangeProcessor;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
@@ -78,6 +79,9 @@ abstract class AbstractBlockProcessorTest {
         .when(blockRewardProcessor.rewardBeneficiaries(any(), any(), any(), any()))
         .thenReturn(false);
     lenient().when(protocolSpec.getBlockRewardProcessor()).thenReturn(blockRewardProcessor);
+    lenient()
+        .when(protocolSpec.getForkStateChangeProcessor())
+        .thenReturn(ForkStateChangeProcessor.NONE);
     lenient()
         .when(protocolSpec.getPreExecutionProcessor())
         .thenReturn(new FrontierPreExecutionProcessor());

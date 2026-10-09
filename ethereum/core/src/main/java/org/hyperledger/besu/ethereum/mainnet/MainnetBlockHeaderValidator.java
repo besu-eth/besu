@@ -21,8 +21,8 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.AncestryValidationRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.BaseFeeMarketBlockHeaderGasPriceValidationRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.BlobGasValidationRule;
-import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.ConstantFieldValidationRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.ConstantOmmersHashRule;
+import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.DaoExtraDataValidationRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.ExtraDataMaxLengthValidationRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.GasLimitRangeAndDeltaValidationRule;
 import org.hyperledger.besu.ethereum.mainnet.headervalidationrules.GasUsageValidationRule;
@@ -38,11 +38,8 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes;
-
 public final class MainnetBlockHeaderValidator {
 
-  public static final Bytes DAO_EXTRA_DATA = Bytes.fromHexString("0x64616f2d686172642d666f726b");
   public static final int MIN_GAS_LIMIT = 5000;
   public static final long MAX_GAS_LIMIT = 0x7fffffffffffffffL;
   public static final int TIMESTAMP_TOLERANCE_S = 15;
@@ -52,7 +49,7 @@ public final class MainnetBlockHeaderValidator {
     // utility class
   }
 
-  public static BlockHeaderValidator.Builder create() {
+  public static BlockHeaderValidator.Builder frontier() {
     return new BlockHeaderValidator.Builder()
         .addRule(new AncestryValidationRule())
         .addRule(new GasLimitRangeAndDeltaValidationRule(MIN_GAS_LIMIT, MAX_GAS_LIMIT))
@@ -62,14 +59,11 @@ public final class MainnetBlockHeaderValidator {
         .addRule(new ExtraDataMaxLengthValidationRule(BlockHeader.MAX_EXTRA_DATA_BYTES));
   }
 
-  public static BlockHeaderValidator.Builder createDaoValidator() {
-    return create()
-        .addRule(
-            new ConstantFieldValidationRule<>(
-                "extraData", BlockHeader::getExtraData, DAO_EXTRA_DATA));
+  public static BlockHeaderValidator.Builder daoRecovery(final long daoForkBlock) {
+    return frontier().addRule(new DaoExtraDataValidationRule(daoForkBlock));
   }
 
-  static BlockHeaderValidator.Builder createLegacyFeeMarketOmmerValidator() {
+  static BlockHeaderValidator.Builder frontierOmmer() {
     return new BlockHeaderValidator.Builder()
         .addRule(new AncestryValidationRule())
         .addRule(new GasLimitRangeAndDeltaValidationRule(MIN_GAS_LIMIT, MAX_GAS_LIMIT))
@@ -78,8 +72,7 @@ public final class MainnetBlockHeaderValidator {
         .addRule(new ExtraDataMaxLengthValidationRule(BlockHeader.MAX_EXTRA_DATA_BYTES));
   }
 
-  public static BlockHeaderValidator.Builder createBaseFeeMarketValidator(
-      final BaseFeeMarket baseFeeMarket) {
+  public static BlockHeaderValidator.Builder london(final BaseFeeMarket baseFeeMarket) {
     return new BlockHeaderValidator.Builder()
         .addRule(new AncestryValidationRule())
         .addRule(new GasUsageValidationRule())
@@ -92,8 +85,7 @@ public final class MainnetBlockHeaderValidator {
         .addRule((new BaseFeeMarketBlockHeaderGasPriceValidationRule(baseFeeMarket)));
   }
 
-  static BlockHeaderValidator.Builder createBaseFeeMarketOmmerValidator(
-      final BaseFeeMarket baseFeeMarket) {
+  static BlockHeaderValidator.Builder londonOmmer(final BaseFeeMarket baseFeeMarket) {
     return new BlockHeaderValidator.Builder()
         .addRule(new AncestryValidationRule())
         .addRule(new GasUsageValidationRule())
@@ -105,7 +97,7 @@ public final class MainnetBlockHeaderValidator {
         .addRule((new BaseFeeMarketBlockHeaderGasPriceValidationRule(baseFeeMarket)));
   }
 
-  public static BlockHeaderValidator.Builder mergeBlockHeaderValidator(
+  public static BlockHeaderValidator.Builder paris(
       final FeeMarket feeMarket,
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator) {
@@ -126,35 +118,34 @@ public final class MainnetBlockHeaderValidator {
         .addRule(new IncrementalTimestampRule());
   }
 
-  public static BlockHeaderValidator.Builder noBlobBlockHeaderValidator(
+  public static BlockHeaderValidator.Builder shanghai(
       final FeeMarket feeMarket,
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator) {
-    return mergeBlockHeaderValidator(feeMarket, gasCalculator, gasLimitCalculator)
-        .addRule(new NoBlobRule());
+    return paris(feeMarket, gasCalculator, gasLimitCalculator).addRule(new NoBlobRule());
   }
 
-  public static BlockHeaderValidator.Builder blobAwareBlockHeaderValidator(
+  public static BlockHeaderValidator.Builder cancun(
       final FeeMarket feeMarket,
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator) {
-    return mergeBlockHeaderValidator(feeMarket, gasCalculator, gasLimitCalculator)
+    return paris(feeMarket, gasCalculator, gasLimitCalculator)
         .addRule(new BlobGasValidationRule(gasCalculator, gasLimitCalculator));
   }
 
-  public static BlockHeaderValidator.Builder requestsAwareBlockHeaderValidator(
+  public static BlockHeaderValidator.Builder prague(
       final FeeMarket feeMarket,
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator) {
-    return blobAwareBlockHeaderValidator(feeMarket, gasCalculator, gasLimitCalculator)
+    return cancun(feeMarket, gasCalculator, gasLimitCalculator)
         .addRule(new RequestsHashPresentValidationRule());
   }
 
-  public static BlockHeaderValidator.Builder slotNumberAwareBlockHeaderValidator(
+  public static BlockHeaderValidator.Builder amsterdam(
       final FeeMarket feeMarket,
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator) {
-    return requestsAwareBlockHeaderValidator(feeMarket, gasCalculator, gasLimitCalculator)
+    return prague(feeMarket, gasCalculator, gasLimitCalculator)
         .addRule(new SlotNumberPresentValidationRule());
   }
 }

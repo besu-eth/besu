@@ -47,10 +47,8 @@ public interface HardforkId {
     FRONTIER(true, "Frontier"),
     /** Homestead fork. */
     HOMESTEAD(true, "Homestead"),
-    /** DAO Recovery Init fork. */
-    DAO_RECOVERY_INIT(true, "DAO Recovery Init"),
-    /** DAO Recovery Transition fork. */
-    DAO_RECOVERY_TRANSITION(true, "DAO Recovery Transition"),
+    /** DAO Recovery fork. */
+    DAO_RECOVERY(true, "DAO Recovery"),
     /** Tangerine Whistle fork. */
     TANGERINE_WHISTLE(true, "Tangerine Whistle"),
     /** Spurious Dragon fork. */

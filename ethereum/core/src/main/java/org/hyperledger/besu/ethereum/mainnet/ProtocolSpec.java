@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.forkstatechange.ForkStateChangeProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
@@ -78,6 +79,7 @@ public class ProtocolSpec {
   private final Optional<WithdrawalsProcessor> withdrawalsProcessor;
   private final RequestsValidator requestsValidator;
   private final Optional<RequestProcessorCoordinator> requestProcessorCoordinator;
+  private final ForkStateChangeProcessor forkStateChangeProcessor;
   private final PreExecutionProcessor preExecutionProcessor;
   private final boolean isPoS;
   private final boolean slotNumberRequired;
@@ -116,6 +118,7 @@ public class ProtocolSpec {
    * @param withdrawalsProcessor the Withdrawals processor to use
    * @param requestsValidator the request validator to use
    * @param requestProcessorCoordinator the request processor to use
+   * @param forkStateChangeProcessor applies the fork's fork state change, if any
    * @param preExecutionProcessor the blockHash processor to use
    * @param isPoS indicates whether the current spec is PoS
    * @param slotNumberRequired whether block headers of this fork must carry the EIP-7843 slot
@@ -151,6 +154,7 @@ public class ProtocolSpec {
       final Optional<WithdrawalsProcessor> withdrawalsProcessor,
       final RequestsValidator requestsValidator,
       final Optional<RequestProcessorCoordinator> requestProcessorCoordinator,
+      final ForkStateChangeProcessor forkStateChangeProcessor,
       final PreExecutionProcessor preExecutionProcessor,
       final boolean isPoS,
       final boolean slotNumberRequired,
@@ -185,6 +189,7 @@ public class ProtocolSpec {
     this.withdrawalsProcessor = withdrawalsProcessor;
     this.requestsValidator = requestsValidator;
     this.requestProcessorCoordinator = requestProcessorCoordinator;
+    this.forkStateChangeProcessor = forkStateChangeProcessor;
     this.preExecutionProcessor = preExecutionProcessor;
     this.isPoS = isPoS;
     this.slotNumberRequired = slotNumberRequired;
@@ -377,6 +382,16 @@ public class ProtocolSpec {
 
   public Optional<RequestProcessorCoordinator> getRequestProcessorCoordinator() {
     return requestProcessorCoordinator;
+  }
+
+  /**
+   * Returns the processor of the fork's fork state change, which runs before the pre-execution
+   * system calls.
+   *
+   * @return the fork state change processor
+   */
+  public ForkStateChangeProcessor getForkStateChangeProcessor() {
+    return forkStateChangeProcessor;
   }
 
   public PreExecutionProcessor getPreExecutionProcessor() {
