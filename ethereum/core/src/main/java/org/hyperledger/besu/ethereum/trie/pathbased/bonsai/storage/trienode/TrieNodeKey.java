@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.BytesConcatenation;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -42,7 +43,7 @@ public final class TrieNodeKey {
    * @return the trie node key
    */
   public static Bytes of(final Hash accountHash, final Bytes location) {
-    return Bytes.concatenate(accountHash.getBytes(), location);
+    return BytesConcatenation.concatenate(accountHash.getBytes(), location);
   }
 
   /**

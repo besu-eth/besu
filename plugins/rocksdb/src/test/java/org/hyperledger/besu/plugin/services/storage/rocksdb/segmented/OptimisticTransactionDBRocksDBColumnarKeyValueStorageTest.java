@@ -107,4 +107,38 @@ public class OptimisticTransactionDBRocksDBColumnarKeyValueStorageTest
       store.close();
     }
   }
+
+  @Test
+  public void overlappingTransactionsOnTheSameKeyBothCommit() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    try {
+      final SegmentedKeyValueStorageTransaction first = store.startTransaction();
+      final SegmentedKeyValueStorageTransaction second = store.startTransaction();
+      first.put(TestSegment.FOO, bytesOf(1), bytesOf(10));
+      first.put(TestSegment.FOO, bytesOf(2), bytesOf(20));
+      second.put(TestSegment.FOO, bytesOf(1), bytesOf(11));
+      second.commit();
+      first.commit();
+
+      assertThat(store.get(TestSegment.FOO, bytesOf(1))).contains(bytesOf(10));
+      assertThat(store.get(TestSegment.FOO, bytesOf(2))).contains(bytesOf(20));
+    } finally {
+      store.close();
+    }
+  }
+
+  @Test
+  public void rolledBackTransactionWritesNothing() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    try {
+      final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+      tx.put(TestSegment.FOO, bytesOf(1), bytesOf(10));
+      tx.remove(TestSegment.BAR, bytesOf(2));
+      tx.rollback();
+
+      assertThat(store.get(TestSegment.FOO, bytesOf(1))).isEmpty();
+    } finally {
+      store.close();
+    }
+  }
 }

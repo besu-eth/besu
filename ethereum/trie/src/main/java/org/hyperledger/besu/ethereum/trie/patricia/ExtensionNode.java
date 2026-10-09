@@ -18,6 +18,7 @@ import static org.hyperledger.besu.crypto.Hash.keccak256;
 
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.BytesConcatenation;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.trie.Node;
@@ -151,7 +152,7 @@ public class ExtensionNode<V> implements Node<V> {
 
   public Node<V> replaceChild(final Node<V> updatedChild) {
     // collapse this extension - if the child is a branch, it will create a new extension
-    return updatedChild.replacePath(Bytes.concatenate(path, updatedChild.getPath()));
+    return updatedChild.replacePath(BytesConcatenation.concatenate(path, updatedChild.getPath()));
   }
 
   @Override

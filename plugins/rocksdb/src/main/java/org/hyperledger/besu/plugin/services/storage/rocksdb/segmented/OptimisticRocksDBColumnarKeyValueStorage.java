@@ -20,7 +20,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SnappableKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
-import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBTransaction;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBWriteBatchTransaction;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfiguration;
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageTransactionValidatorDecorator;
 
@@ -84,8 +84,7 @@ public class OptimisticRocksDBColumnarKeyValueStorage extends RocksDBColumnarKey
     final WriteOptions writeOptions = new WriteOptions();
     writeOptions.setIgnoreMissingColumnFamilies(true);
     return new SegmentedKeyValueStorageTransactionValidatorDecorator(
-        new RocksDBTransaction(
-            this::safeColumnHandle, db.beginTransaction(writeOptions), writeOptions, getMetrics()),
+        new RocksDBWriteBatchTransaction(this::safeColumnHandle, db, writeOptions, getMetrics()),
         this.closed::get);
   }
 
@@ -96,8 +95,7 @@ public class OptimisticRocksDBColumnarKeyValueStorage extends RocksDBColumnarKey
     writeOptions.setIgnoreMissingColumnFamilies(true);
     writeOptions.setLowPri(true);
     return new SegmentedKeyValueStorageTransactionValidatorDecorator(
-        new RocksDBTransaction(
-            this::safeColumnHandle, db.beginTransaction(writeOptions), writeOptions, getMetrics()),
+        new RocksDBWriteBatchTransaction(this::safeColumnHandle, db, writeOptions, getMetrics()),
         this.closed::get);
   }
 

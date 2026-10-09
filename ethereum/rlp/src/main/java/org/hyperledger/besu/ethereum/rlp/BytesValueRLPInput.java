@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.function.Function;
+import java.util.function.LongUnaryOperator;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -40,6 +41,9 @@ public class BytesValueRLPInput implements RLPInput {
 
   // The RLP encoded data.
   private final Bytes value;
+
+  // made once, as a method reference made per element was an allocation per element
+  private final LongUnaryOperator inputByteReader = this::inputByte;
 
   private long size; // The number of bytes in this rlp-encoded byte string
 
@@ -165,7 +169,7 @@ public class BytesValueRLPInput implements RLPInput {
     // payload.
     try {
       final RLPDecodingHelpers.RLPElementMetadata elementMetadata =
-          RLPDecodingHelpers.rlpElementMetadata(this::inputByte, size, currentItem);
+          RLPDecodingHelpers.rlpElementMetadata(inputByteReader, size, currentItem);
       currentKind = elementMetadata.kind;
       currentPayloadOffset = elementMetadata.payloadStart;
       currentPayloadSize = elementMetadata.payloadSize;

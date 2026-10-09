@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -22,39 +22,41 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import java.util.function.Function;
 
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
-import org.rocksdb.Status;
-import org.rocksdb.Transaction;
+import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/** The RocksDb transaction. */
-public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
-  private static final Logger logger = LoggerFactory.getLogger(RocksDBTransaction.class);
-  private static final int DISK_FULL_EXIT_CODE = 1;
-  private static final String NO_SPACE_LEFT_ON_DEVICE = "No space left on device";
+/**
+ * A transaction that collects its writes in a batch and applies them atomically on commit.
+ *
+ * <p>Nothing reads through a transaction, so the conflict check of an optimistic transaction does
+ * not protect a read-modify-write, and its per-key tracking and indexed batch only add work: on a
+ * head world state commit, about half of it.
+ */
+public class RocksDBWriteBatchTransaction implements SegmentedKeyValueStorageTransaction {
 
   private final RocksDBMetrics metrics;
-  private final Transaction innerTx;
+  private final RocksDB db;
+  private final WriteBatch batch = new WriteBatch();
   private final WriteOptions options;
   private final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper;
 
   /**
-   * Instantiates a new RocksDb transaction.
+   * Instantiates a new RocksDb write batch transaction.
    *
    * @param columnFamilyMapper mapper from segment identifier to column family handle
-   * @param innerTx the inner tx
-   * @param options the options
+   * @param db the database the batch is written to
+   * @param options the write options, closed with the transaction
    * @param metrics the metrics
    */
-  public RocksDBTransaction(
+  public RocksDBWriteBatchTransaction(
       final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper,
-      final Transaction innerTx,
+      final RocksDB db,
       final WriteOptions options,
       final RocksDBMetrics metrics) {
     this.columnFamilyMapper = columnFamilyMapper;
-    this.innerTx = innerTx;
+    this.db = db;
     this.options = options;
     this.metrics = metrics;
   }
@@ -62,27 +64,27 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
   @Override
   public void put(final SegmentIdentifier segmentId, final byte[] key, final byte[] value) {
     try (final OperationTimer.TimingContext ignored = metrics.getWriteLatency().startTimer()) {
-      innerTx.put(columnFamilyMapper.apply(segmentId), key, value);
+      batch.put(columnFamilyMapper.apply(segmentId), key, value);
     } catch (final RocksDBException e) {
-      throw storageException(e);
+      throw RocksDBTransaction.storageException(e);
     }
   }
 
   @Override
   public void remove(final SegmentIdentifier segmentId, final byte[] key) {
     try (final OperationTimer.TimingContext ignored = metrics.getRemoveLatency().startTimer()) {
-      innerTx.delete(columnFamilyMapper.apply(segmentId), key);
+      batch.delete(columnFamilyMapper.apply(segmentId), key);
     } catch (final RocksDBException e) {
-      throw storageException(e);
+      throw RocksDBTransaction.storageException(e);
     }
   }
 
   @Override
   public void commit() throws StorageException {
     try (final OperationTimer.TimingContext ignored = metrics.getCommitLatency().startTimer()) {
-      innerTx.commit();
+      db.write(options, batch);
     } catch (final RocksDBException e) {
-      throw storageException(e);
+      throw RocksDBTransaction.storageException(e);
     } finally {
       close();
     }
@@ -90,42 +92,13 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
 
   @Override
   public void rollback() {
-    try {
-      innerTx.rollback();
-      metrics.getRollbackCount().inc();
-    } catch (final RocksDBException e) {
-      throw storageException(e);
-    } finally {
-      close();
-    }
-  }
-
-  /**
-   * Wraps a RocksDB error, exiting instead when the disk is full.
-   *
-   * @param e the error
-   * @return the exception to throw
-   */
-  static StorageException storageException(final RocksDBException e) {
-    if (isDiskFull(e)) {
-      logger.error("Disk full detected: {}", e.getMessage(), e);
-      System.exit(DISK_FULL_EXIT_CODE);
-    }
-    return new StorageException(e);
-  }
-
-  static boolean isDiskFull(final RocksDBException e) {
-    final Status status = e.getStatus();
-    if (status != null) {
-      return status.getCode() == Status.Code.IOError
-          && status.getSubCode() == Status.SubCode.NoSpace;
-    }
-    return e.getMessage() != null && e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE);
+    metrics.getRollbackCount().inc();
+    close();
   }
 
   @Override
   public void close() {
-    innerTx.close();
+    batch.close();
     options.close();
   }
 }

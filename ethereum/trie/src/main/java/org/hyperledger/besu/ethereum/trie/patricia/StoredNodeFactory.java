@@ -19,6 +19,7 @@ import static java.lang.String.format;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
+import org.hyperledger.besu.ethereum.trie.BytesConcatenation;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.Node;
@@ -177,13 +178,18 @@ public class StoredNodeFactory<V> implements NodeFactory<V> {
     final RLPInput childRlp = valueRlp.readAsRlp();
     if (childRlp.nextIsList()) {
       final Node<V> childNode =
-          decode(location == null ? null : Bytes.concatenate(location, path), childRlp, errMessage);
+          decode(
+              location == null ? null : BytesConcatenation.concatenate(location, path),
+              childRlp,
+              errMessage);
       return new ExtensionNode<>(location, path, childNode, this);
     } else {
       final Bytes32 childHash = childRlp.readBytes32();
       final StoredNode<V> childNode =
           new StoredNode<>(
-              this, location == null ? null : Bytes.concatenate(location, path), childHash);
+              this,
+              location == null ? null : BytesConcatenation.concatenate(location, path),
+              childHash);
       return new ExtensionNode<>(location, path, childNode, this);
     }
   }
@@ -199,17 +205,16 @@ public class StoredNodeFactory<V> implements NodeFactory<V> {
       } else if (nodeRLPs.nextIsList()) {
         final Node<V> child =
             decode(
-                location == null ? null : Bytes.concatenate(location, Bytes.of((byte) i)),
+                location == null ? null : BytesConcatenation.append(location, (byte) i),
                 nodeRLPs,
                 errMessage);
         children.add(child);
       } else {
         final Bytes32 childHash = nodeRLPs.readBytes32();
         children.add(
-            new StoredNode<>(
-                this,
-                location == null ? null : Bytes.concatenate(location, Bytes.of((byte) i)),
-                childHash));
+            location == null
+                ? new StoredNode<>(this, null, childHash)
+                : new StoredNode<>(this, location, (byte) i, childHash));
       }
     }
 

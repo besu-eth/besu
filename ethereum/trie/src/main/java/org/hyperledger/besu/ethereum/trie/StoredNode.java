@@ -25,14 +25,48 @@ import org.apache.tuweni.bytes.Bytes32;
 public class StoredNode<V> implements Node<V> {
 
   private final NodeFactory<V> nodeFactory;
-  private final Bytes location;
+  private Bytes location;
+  // set for a branch child, whose location is only built if the child is loaded or asked for it
+  private final Bytes parentLocation;
+  private final byte nibble;
   private final Bytes32 hash;
   private Node<V> loaded;
 
   public StoredNode(final NodeFactory<V> nodeFactory, final Bytes location, final Bytes32 hash) {
     this.nodeFactory = nodeFactory;
     this.location = location;
+    this.parentLocation = null;
+    this.nibble = 0;
     this.hash = hash;
+  }
+
+  /**
+   * A child of a branch node. A decoded branch has up to sixteen of them and a lookup descends into
+   * one, so the child's location is joined from its parent's only when it is needed.
+   *
+   * @param nodeFactory the factory that loads the node
+   * @param parentLocation the location of the branch node
+   * @param nibble the child's index in the branch
+   * @param hash the hash of the child
+   */
+  public StoredNode(
+      final NodeFactory<V> nodeFactory,
+      final Bytes parentLocation,
+      final byte nibble,
+      final Bytes32 hash) {
+    this.nodeFactory = nodeFactory;
+    this.parentLocation = parentLocation;
+    this.nibble = nibble;
+    this.hash = hash;
+  }
+
+  private Bytes location() {
+    Bytes result = location;
+    if (result == null && parentLocation != null) {
+      result = BytesConcatenation.append(parentLocation, nibble);
+      location = result;
+    }
+    return result;
   }
 
   /**
@@ -86,7 +120,7 @@ public class StoredNode<V> implements Node<V> {
 
   @Override
   public Optional<Bytes> getLocation() {
-    return Optional.ofNullable(location);
+    return Optional.ofNullable(location());
   }
 
   @Override
@@ -128,18 +162,19 @@ public class StoredNode<V> implements Node<V> {
 
   private Node<V> load() {
     if (loaded == null) {
+      final Bytes nodeLocation = location();
       loaded =
           nodeFactory
-              .retrieve(location, hash)
+              .retrieve(nodeLocation, hash)
               .orElseThrow(
                   () ->
                       new MerkleTrieException(
                           "Unable to load trie node value for hash "
                               + hash
                               + " location "
-                              + location,
+                              + nodeLocation,
                           hash,
-                          location));
+                          nodeLocation));
     }
 
     return loaded;
