@@ -256,8 +256,12 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
       return Code.EMPTY_CODE;
     }
     // The wrapped account keeps its code with the jump destination analysis done on it, which a
-    // new instance would repeat each time the shared cache has evicted the code.
-    if (updatedCode == null && account != null && account.getCodeHash().equals(oldCodeHash)) {
+    // new instance would repeat each time the shared cache has evicted the code. Without a cache
+    // the wrapped account may read its code from storage again, so build it from oldCode instead.
+    if (codeCache != null
+        && updatedCode == null
+        && account != null
+        && account.getCodeHash().equals(oldCodeHash)) {
       return account.getOrCreateCachedCode();
     }
 

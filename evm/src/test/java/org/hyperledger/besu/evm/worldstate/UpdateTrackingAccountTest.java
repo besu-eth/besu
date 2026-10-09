@@ -57,12 +57,56 @@ class UpdateTrackingAccountTest {
   }
 
   @Test
-  void keepsTheAnalysedCodeOfTheWrappedAccountWithoutACodeCache() {
-    final Code analysed = new Code(CODE, Hash.hash(CODE));
-    final UpdateTrackingAccount<Account> tracker =
-        new UpdateTrackingAccount<>(new StubAccount(analysed, null));
+  void doesNotReadTheCodeOfTheWrappedAccountAgainWithoutACodeCache() {
+    final StubAccount wrapped = new StubAccount(new Code(CODE, Hash.hash(CODE)), null);
+    final UpdateTrackingAccount<Account> tracker = new UpdateTrackingAccount<>(wrapped);
+    final int codeReads = wrapped.codeReads;
 
-    assertThat(tracker.getOrCreateCachedCode()).isSameAs(analysed);
+    final Code code = tracker.getOrCreateCachedCode();
+
+    assertThat(code.getBytes()).isEqualTo(CODE);
+    assertThat(code.getCodeHash()).isEqualTo(Hash.hash(CODE));
+    assertThat(wrapped.codeReads).isEqualTo(codeReads);
+    assertThat(wrapped.cachedCodeReads).isZero();
+  }
+
+  @Test
+  void keepsTheUpdatedCodeAfterTheCacheEvictedIt() {
+    final MapCodeCache cache = new MapCodeCache();
+    final UpdateTrackingAccount<Account> tracker =
+        new UpdateTrackingAccount<>(new StubAccount(new Code(CODE, Hash.hash(CODE)), cache));
+    tracker.setCode(OTHER_CODE);
+    final Code updated = tracker.getOrCreateCachedCode();
+
+    cache.entries.clear();
+
+    assertThat(tracker.getOrCreateCachedCode()).isSameAs(updated);
+  }
+
+  @Test
+  void returnsTheUpdatedCodeWithoutACodeCache() {
+    final UpdateTrackingAccount<Account> tracker =
+        new UpdateTrackingAccount<>(new StubAccount(new Code(CODE, Hash.hash(CODE)), null));
+
+    tracker.setCode(OTHER_CODE);
+    final Code updated = tracker.getOrCreateCachedCode();
+
+    assertThat(updated.getBytes()).isEqualTo(OTHER_CODE);
+    assertThat(updated.getCodeHash()).isEqualTo(Hash.hash(OTHER_CODE));
+    assertThat(updated.isJumpDestInvalid(5)).isFalse();
+  }
+
+  @Test
+  void returnsTheCachedInstanceOfTheUpdatedCode() {
+    final MapCodeCache cache = new MapCodeCache();
+    final Code cached = new Code(OTHER_CODE, Hash.hash(OTHER_CODE));
+    cache.put(Hash.hash(OTHER_CODE), cached);
+    final UpdateTrackingAccount<Account> tracker =
+        new UpdateTrackingAccount<>(new StubAccount(new Code(CODE, Hash.hash(CODE)), cache));
+
+    tracker.setCode(OTHER_CODE);
+
+    assertThat(tracker.getOrCreateCachedCode()).isSameAs(cached);
   }
 
   @Test
@@ -116,6 +160,8 @@ class UpdateTrackingAccountTest {
   private static final class StubAccount implements Account {
     private final Code code;
     private final CodeCache codeCache;
+    private int codeReads;
+    private int cachedCodeReads;
 
     private StubAccount(final Code code, final CodeCache codeCache) {
       this.code = code;
@@ -144,6 +190,7 @@ class UpdateTrackingAccountTest {
 
     @Override
     public Bytes getCode() {
+      codeReads++;
       return code.getBytes();
     }
 
@@ -154,6 +201,7 @@ class UpdateTrackingAccountTest {
 
     @Override
     public Code getOrCreateCachedCode() {
+      cachedCodeReads++;
       return code;
     }
 
