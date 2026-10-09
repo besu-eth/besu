@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState.StoredRootAndBlockHash;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -129,11 +130,13 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
     if (cachedWorldStatesByHash.containsKey(blockHash)) {
       // return a new worldstate using worldstate storage and an isolated copy of the updater
       return Optional.ofNullable(cachedWorldStatesByHash.get(blockHash))
+          .map(BonsaiCachedWorldStateView::getCachedStorage)
           .map(
               cached ->
                   createWorldState(
                       archive,
-                      createLayeredKeyValueStorage(cached.getWorldStateStorage()),
+                      createLayeredKeyValueStorage(cached.worldStateStorage()),
+                      cached.rootAndBlockHash(),
                       evmConfiguration));
     }
     LOG.atDebug()
@@ -276,6 +279,15 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
       final PathBasedWorldStateProvider archive,
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final EvmConfiguration evmConfiguration);
+
+  /** Creates a world state over a cached block, from the root and block hash the cache read. */
+  protected PathBasedWorldState createWorldState(
+      final PathBasedWorldStateProvider archive,
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final StoredRootAndBlockHash storedRootAndBlockHash,
+      final EvmConfiguration evmConfiguration) {
+    return createWorldState(archive, worldStateKeyValueStorage, evmConfiguration);
+  }
 
   public abstract BonsaiWorldStateKeyValueStorage createLayeredKeyValueStorage(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage);

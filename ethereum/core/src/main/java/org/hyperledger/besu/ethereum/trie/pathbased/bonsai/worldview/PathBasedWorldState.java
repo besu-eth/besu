@@ -96,19 +96,39 @@ public abstract class PathBasedWorldState
    */
   protected boolean isStorageFrozen;
 
+  /** Root and block hash stored in a world state storage, as read from it. */
+  public record StoredRootAndBlockHash(Optional<Bytes> rootHash, Optional<Hash> blockHash) {
+    public static StoredRootAndBlockHash readFrom(final BonsaiWorldStateKeyValueStorage storage) {
+      return new StoredRootAndBlockHash(
+          storage.getWorldStateRootHash(), storage.getWorldStateBlockHash());
+    }
+  }
+
   protected PathBasedWorldState(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final PathBasedWorldStateCacheManager worldStateCacheManager,
       final TrieLogManager trieLogManager,
       final WorldStateConfig worldStateConfig) {
+    this(
+        worldStateKeyValueStorage,
+        worldStateCacheManager,
+        trieLogManager,
+        worldStateConfig,
+        StoredRootAndBlockHash.readFrom(worldStateKeyValueStorage));
+  }
+
+  /** Creates a world state from the root and block hash already read from its storage. */
+  protected PathBasedWorldState(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final PathBasedWorldStateCacheManager worldStateCacheManager,
+      final TrieLogManager trieLogManager,
+      final WorldStateConfig worldStateConfig,
+      final StoredRootAndBlockHash storedRootAndBlockHash) {
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
     this.worldStateRootHash =
         Hash.wrap(
-            Bytes32.wrap(
-                worldStateKeyValueStorage
-                    .getWorldStateRootHash()
-                    .orElse(getEmptyTrieHash().getBytes())));
-    this.worldStateBlockHash = worldStateKeyValueStorage.getWorldStateBlockHash().orElse(Hash.ZERO);
+            Bytes32.wrap(storedRootAndBlockHash.rootHash().orElse(getEmptyTrieHash().getBytes())));
+    this.worldStateBlockHash = storedRootAndBlockHash.blockHash().orElse(Hash.ZERO);
     this.worldStateCacheManager = worldStateCacheManager;
     this.trieLogManager = trieLogManager;
     this.worldStateConfig = worldStateConfig;

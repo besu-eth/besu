@@ -89,7 +89,32 @@ public class BonsaiWorldState extends PathBasedWorldState {
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
       final BonsaiCodeCache codeCache) {
-    super(worldStateKeyValueStorage, worldStateCacheManager, trieLogManager, worldStateConfig);
+    this(
+        worldStateKeyValueStorage,
+        bonsaiCachedMerkleTrieLoader,
+        worldStateCacheManager,
+        trieLogManager,
+        evmConfiguration,
+        worldStateConfig,
+        codeCache,
+        StoredRootAndBlockHash.readFrom(worldStateKeyValueStorage));
+  }
+
+  public BonsaiWorldState(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
+      final PathBasedWorldStateCacheManager worldStateCacheManager,
+      final TrieLogManager trieLogManager,
+      final EvmConfiguration evmConfiguration,
+      final WorldStateConfig worldStateConfig,
+      final BonsaiCodeCache codeCache,
+      final StoredRootAndBlockHash storedRootAndBlockHash) {
+    super(
+        worldStateKeyValueStorage,
+        worldStateCacheManager,
+        trieLogManager,
+        worldStateConfig,
+        storedRootAndBlockHash);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
     this.evmConfiguration = evmConfiguration;

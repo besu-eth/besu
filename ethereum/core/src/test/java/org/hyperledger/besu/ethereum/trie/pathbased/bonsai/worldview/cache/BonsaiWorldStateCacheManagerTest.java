@@ -22,10 +22,14 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState.StoredRootAndBlockHash;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.LongStream;
 
@@ -118,11 +122,64 @@ class BonsaiWorldStateCacheManagerTest {
                     .isPresent());
   }
 
+  @Test
+  void worldStatesOfACachedBlockReuseTheRootAndBlockHashReadWhenCaching() {
+    final BonsaiWorldStateKeyValueStorage storage =
+        Mockito.mock(BonsaiWorldStateKeyValueStorage.class);
+    final BlockHeader header = headers[1];
+    Mockito.when(storage.getWorldStateRootHash())
+        .thenReturn(Optional.of(header.getStateRoot().getBytes()));
+    Mockito.when(storage.getWorldStateBlockHash()).thenReturn(Optional.of(header.getBlockHash()));
+    final TestCacheManager manager = new TestCacheManager(storage, new ConcurrentHashMap<>());
+    final PathBasedWorldState ws = worldStates[1];
+    Mockito.when(ws.getWorldStateStorage()).thenReturn(storage);
+    manager.addCachedLayer(header, header.getStateRoot(), ws);
+
+    // One world state per transaction during parallel block execution.
+    for (int i = 0; i < 3; i++) {
+      assertThat(manager.getWorldState(header.getBlockHash())).isPresent();
+    }
+
+    assertThat(manager.createdWith)
+        .hasSize(3)
+        .allSatisfy(
+            stored -> {
+              assertThat(stored.rootHash()).contains(header.getStateRoot().getBytes());
+              assertThat(stored.blockHash()).contains(header.getBlockHash());
+            });
+    Mockito.verify(storage, Mockito.times(1)).getWorldStateRootHash();
+    Mockito.verify(storage, Mockito.times(1)).getWorldStateBlockHash();
+  }
+
+  @Test
+  void aReplacedStorageIsCachedWithItsOwnRootAndBlockHash() {
+    final BonsaiWorldStateKeyValueStorage after = storageAt(headers[2]);
+    final BonsaiCachedWorldStateView view =
+        new BonsaiCachedWorldStateView(headers[1], storageAt(headers[1]));
+
+    view.updateWorldStateStorage(after);
+
+    final BonsaiCachedWorldStateView.CachedStorage cached = view.getCachedStorage();
+    assertThat(cached.worldStateStorage()).isSameAs(after);
+    assertThat(cached.rootAndBlockHash().rootHash()).contains(headers[2].getStateRoot().getBytes());
+    assertThat(cached.rootAndBlockHash().blockHash()).contains(headers[2].getBlockHash());
+  }
+
+  private static BonsaiWorldStateKeyValueStorage storageAt(final BlockHeader header) {
+    final BonsaiWorldStateKeyValueStorage storage =
+        Mockito.mock(BonsaiWorldStateKeyValueStorage.class);
+    Mockito.when(storage.getWorldStateRootHash())
+        .thenReturn(Optional.of(header.getStateRoot().getBytes()));
+    Mockito.when(storage.getWorldStateBlockHash()).thenReturn(Optional.of(header.getBlockHash()));
+    return storage;
+  }
+
   private static Hash uniqueStateRoot(final long blockNumber) {
     return Hash.wrap(Bytes32.leftPad(Bytes.ofUnsignedLong(blockNumber)));
   }
 
   private static class TestCacheManager extends PathBasedWorldStateCacheManager {
+    final List<StoredRootAndBlockHash> createdWith = new ArrayList<>();
 
     TestCacheManager(
         final BonsaiWorldStateKeyValueStorage storage,
@@ -144,9 +201,19 @@ class BonsaiWorldStateCacheManagerTest {
     }
 
     @Override
+    protected PathBasedWorldState createWorldState(
+        final PathBasedWorldStateProvider archive,
+        final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+        final StoredRootAndBlockHash storedRootAndBlockHash,
+        final EvmConfiguration evmConfiguration) {
+      createdWith.add(storedRootAndBlockHash);
+      return Mockito.mock(PathBasedWorldState.class);
+    }
+
+    @Override
     public BonsaiWorldStateKeyValueStorage createLayeredKeyValueStorage(
         final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage) {
-      throw new UnsupportedOperationException();
+      return worldStateKeyValueStorage;
     }
 
     @Override

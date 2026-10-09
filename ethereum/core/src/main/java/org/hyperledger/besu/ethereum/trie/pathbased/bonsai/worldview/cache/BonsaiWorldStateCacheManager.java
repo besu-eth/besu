@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState.StoredRootAndBlockHash;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
@@ -57,6 +58,24 @@ public class BonsaiWorldStateCacheManager extends PathBasedWorldStateCacheManage
         evmConfiguration,
         WorldStateConfig.newBuilder(worldStateConfig).build(),
         codeCache);
+  }
+
+  @Override
+  protected PathBasedWorldState createWorldState(
+      final PathBasedWorldStateProvider archive,
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final StoredRootAndBlockHash storedRootAndBlockHash,
+      final EvmConfiguration evmConfiguration) {
+    final BonsaiWorldStateProvider bonsaiArchive = (BonsaiWorldStateProvider) archive;
+    return new BonsaiWorldState(
+        worldStateKeyValueStorage,
+        bonsaiArchive.getCachedMerkleTrieLoader(),
+        bonsaiArchive.getWorldStateCacheManager(),
+        bonsaiArchive.getTrieLogManager(),
+        evmConfiguration,
+        WorldStateConfig.newBuilder(worldStateConfig).build(),
+        codeCache,
+        storedRootAndBlockHash);
   }
 
   @Override
