@@ -81,8 +81,9 @@ public class ForkIdsNetworkConfigTest {
               new ForkId(Bytes.ofUnsignedInt(0x0929e24eL), 1761677592L),
               new ForkId(Bytes.ofUnsignedInt(0xe7e0e7ffL), 1762365720L),
               new ForkId(Bytes.ofUnsignedInt(0x3893353eL), 1762955544L),
-              new ForkId(Bytes.ofUnsignedInt(0x23aa1351L), 0L),
-              new ForkId(Bytes.ofUnsignedInt(0x23aa1351L), 0L))
+              new ForkId(Bytes.ofUnsignedInt(0x23aa1351L), 1793036568L),
+              new ForkId(Bytes.ofUnsignedInt(0x3d068b59L), 0L),
+              new ForkId(Bytes.ofUnsignedInt(0x3d068b59L), 0L))
         },
         new Object[] {
           NetworkDefinition.MAINNET,
