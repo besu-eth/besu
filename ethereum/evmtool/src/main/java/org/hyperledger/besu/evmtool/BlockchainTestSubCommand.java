@@ -424,10 +424,6 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
         final Stopwatch timer = Stopwatch.createStarted();
 
-        // Pass the fixture's block access list through. The overload that omits it supplies
-        // Optional.empty(), which sends every block down the accumulator-based state root path
-        // and leaves BalStateRootCommitter -- what a node actually runs post-EIP-7928 -- entirely
-        // unexercised by this runner.
         final BlockImportResult importResult =
             blockImporter.importBlock(
                 context,
