@@ -390,7 +390,9 @@ public class DefaultP2PNetwork implements P2PNetwork {
     return (seq, records) -> {
       for (final EthereumNodeRecord record : records) {
         try {
-          peerDiscoveryAgent.addPeer(DiscoveryPeerFactory.fromEthereumNodeRecord(record));
+          peerDiscoveryAgent.addPeer(
+              DiscoveryPeerFactory.fromEthereumNodeRecord(
+                  record, config.discoveryConfiguration().isPreferIpv6Outbound()));
         } catch (final RuntimeException e) {
           LOG.trace(
               "Ignoring unusable ENR from DNS discovery for {}: {}",

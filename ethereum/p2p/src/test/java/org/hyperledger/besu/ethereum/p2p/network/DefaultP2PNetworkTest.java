@@ -558,6 +558,36 @@ public final class DefaultP2PNetworkTest {
     verify(discoveryAgent, times(1)).addPeer(any());
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void dnsDaemonListenerRespectsOutboundIpv6Preference(final boolean preferIpv6)
+      throws Exception {
+    final DiscoveryConfiguration discoveryConfig =
+        DiscoveryConfiguration.create().setPreferIpv6Outbound(preferIpv6);
+    final NetworkingConfiguration dnsConfig = spy(config);
+    doReturn(discoveryConfig).when(dnsConfig).discoveryConfiguration();
+    final DefaultP2PNetwork network = (DefaultP2PNetwork) builder().config(dnsConfig).build();
+    final InetAddress ipv4 = InetAddress.getByName("192.0.2.2");
+    final InetAddress ipv6 = InetAddress.getByName("2001:db8::2");
+    final EthereumNodeRecord record =
+        new EthereumNodeRecord(
+            Bytes.random(64),
+            Optional.of(ipv4),
+            Optional.of(30303),
+            Optional.of(30303),
+            Optional.of(ipv6),
+            Optional.of(30304),
+            Optional.of(30304),
+            mock(NodeRecord.class));
+
+    network.createDaemonListener().newRecords(1L, List.of(record));
+
+    verify(discoveryAgent).addPeer(peerCaptor.capture());
+    assertThat(peerCaptor.getValue().getEnodeURL().getIp()).isEqualTo(preferIpv6 ? ipv6 : ipv4);
+    assertThat(peerCaptor.getValue().getEnodeURL().getListeningPort())
+        .contains(preferIpv6 ? 30304 : 30303);
+  }
+
   private DefaultP2PNetwork network() {
     return (DefaultP2PNetwork) builder().build();
   }
