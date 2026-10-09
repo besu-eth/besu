@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -68,6 +69,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -80,6 +82,9 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 
 import jakarta.validation.constraints.NotNull;
 import org.apache.logging.log4j.Level;
@@ -148,6 +153,7 @@ public class BackwardSyncContextTest {
   private BackwardChain backwardChain;
   private Block uncle;
   private Block genesisBlock;
+  private final ReentrantLock headWorldStateLock = new ReentrantLock();
 
   @BeforeEach
   public void setup() {
@@ -178,6 +184,18 @@ public class BackwardSyncContextTest {
     }
     when(protocolContext.getBlockchain()).thenReturn(localBlockchain);
     when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
+    final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
+    when(worldStateArchive.withHeadWorldStateLock(any()))
+        .thenAnswer(
+            invocation -> {
+              headWorldStateLock.lock();
+              try {
+                return invocation.<Supplier<?>>getArgument(0).get();
+              } finally {
+                headWorldStateLock.unlock();
+              }
+            });
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     EthProtocolManager ethProtocolManager =
         EthProtocolManagerTestBuilder.builder()
             .setProtocolSchedule(protocolSchedule)
@@ -453,6 +471,27 @@ public class BackwardSyncContextTest {
   @NotNull
   private Block getRemoteBlockByNumber(final int number) {
     return remoteBlockchain.getBlockByNumber(number).orElseThrow();
+  }
+
+  @Test
+  public void shouldMoveTheChainHeadWhileHoldingTheHeadWorldStateLock() {
+    final Block block = remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).orElseThrow();
+    final AtomicBoolean heldWhileMovingHead = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              heldWhileMovingHead.set(headWorldStateLock.isHeldByCurrentThread());
+              return invocation.callRealMethod();
+            })
+        .when(context)
+        .possiblyMoveHead(block);
+    // progress logging reads the session status
+    doReturn(context.new Status(new CompletableFuture<>())).when(context).getStatus();
+
+    context.saveBlock(block, Optional.empty());
+
+    assertThat(localBlockchain.getChainHeadHash()).isEqualTo(block.getHash());
+    assertThat(heldWhileMovingHead.get()).isTrue();
+    assertThat(headWorldStateLock.isLocked()).isFalse();
   }
 
   @Test

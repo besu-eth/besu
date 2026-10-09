@@ -83,6 +83,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
@@ -98,8 +99,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -1464,6 +1468,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     when(failingArchive.getWorldState(
             any(org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.class)))
         .thenReturn(Optional.empty());
+    when(failingArchive.withHeadWorldStateLock(any())).thenCallRealMethod();
 
     ProtocolContext failingProtocolContext =
         new ProtocolContext.Builder()
@@ -1498,6 +1503,60 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     verify(blockchain, never()).setFinalized(block1Header.getHash());
     verify(blockchain, never()).setSafeBlock(block1Header.getHash());
+  }
+
+  @Test
+  public void updateForkChoiceMovesTheChainHeadWhileHoldingTheHeadWorldStateLock() {
+    final BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+    final BlockHeader block1Header = nextBlockHeader(terminalHeader);
+    final Block block1 = new Block(block1Header, BlockBody.empty());
+    coordinator.rememberBlock(block1);
+
+    final ReentrantLock headWorldStateLock = new ReentrantLock();
+    final WorldStateArchive lockingArchive = mock(WorldStateArchive.class);
+    when(lockingArchive.getWorldState(
+            any(org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.class)))
+        .thenReturn(Optional.of(mock(MutableWorldState.class)));
+    when(lockingArchive.withHeadWorldStateLock(any()))
+        .thenAnswer(
+            invocation -> {
+              headWorldStateLock.lock();
+              try {
+                return invocation.<Supplier<?>>getArgument(0).get();
+              } finally {
+                headWorldStateLock.unlock();
+              }
+            });
+    final MergeCoordinator lockingCoordinator =
+        new MergeCoordinator(
+            new ProtocolContext.Builder()
+                .withBlockchain(blockchain)
+                .withWorldStateArchive(lockingArchive)
+                .withConsensusContext(mergeContext)
+                .withBadBlockManager(badBlockManager)
+                .build(),
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext);
+    final AtomicBoolean heldWhileForwarding = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              heldWhileForwarding.set(headWorldStateLock.isHeldByCurrentThread());
+              return invocation.callRealMethod();
+            })
+        .when(blockchain)
+        .forwardToBlock(block1Header);
+
+    lockingCoordinator.updateForkChoice(
+        block1Header, terminalHeader.getHash(), terminalHeader.getHash());
+
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block1Header.getHash());
+    assertThat(heldWhileForwarding.get()).isTrue();
+    assertThat(headWorldStateLock.isLocked()).isFalse();
   }
 
   private static BlockHeader mockBlockHeader() {

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withStateRootAndBlockHashAndUpdateNodeHead;
@@ -46,8 +47,12 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -275,6 +280,46 @@ class BonsaiWorldStateProviderTest {
     // Verify that both rollback and roll forward were performed
     verify(trieLogManager).getTrieLogLayer(blockHeader1.getHash());
     verify(trieLogManager).getTrieLogLayer(blockHeader1Reorg.getHash());
+  }
+
+  @Test
+  void shouldNotRollTheHeadWhileItsLockIsHeld() throws Exception {
+    bonsaiWorldStateArchive = createBonsaiWorldStateProvider();
+
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    final BlockHeader blockHeader1 =
+        blockBuilder.number(1).parentHash(genesis.getHash()).buildHeader();
+
+    when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis));
+    when(blockchain.getBlockHeader(blockHeader1.getHash())).thenReturn(Optional.of(blockHeader1));
+
+    bonsaiWorldStateArchive.getWorldState().persist(genesis);
+    bonsaiWorldStateArchive.getWorldState().persist(blockHeader1);
+
+    final TrieLogLayer trieLogLayer1 = mockTrieLogLayer(blockHeader1.getHash());
+    when(trieLogManager.getTrieLogLayer(blockHeader1.getHash()))
+        .thenReturn(Optional.of(trieLogLayer1));
+
+    // stands in for a block executing on the head world state
+    final CompletableFuture<Optional<MutableWorldState>> roll =
+        bonsaiWorldStateArchive.withHeadWorldStateLock(
+            () -> {
+              final CompletableFuture<Optional<MutableWorldState>> pendingRoll =
+                  CompletableFuture.supplyAsync(
+                      () ->
+                          bonsaiWorldStateArchive.getWorldState(
+                              withBlockHeaderAndUpdateNodeHead(genesis)));
+              assertThatThrownBy(() -> pendingRoll.get(200, TimeUnit.MILLISECONDS))
+                  .isInstanceOf(TimeoutException.class);
+              verify(trieLogManager, never()).getTrieLogLayer(any());
+              return pendingRoll;
+            });
+
+    assertThat(roll.get(10, TimeUnit.SECONDS))
+        .hasValueSatisfying(
+            ws ->
+                assertThat(((BonsaiWorldState) ws).getWorldStateBlockHash())
+                    .isEqualTo(genesis.getBlockHash()));
   }
 
   // Helper methods

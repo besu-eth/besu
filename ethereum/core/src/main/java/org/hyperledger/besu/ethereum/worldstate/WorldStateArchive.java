@@ -25,6 +25,7 @@ import java.io.Closeable;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.units.bigints.UInt256;
 
@@ -63,6 +64,19 @@ public interface WorldStateArchive extends Closeable {
    * @return the head world state
    */
   MutableWorldState getWorldState();
+
+  /**
+   * Runs an action that executes on the head world state and persists it. No other thread moves the
+   * head world state until the action returns, since it is modified in place.
+   *
+   * @param action the action, which gets the head world state through {@link
+   *     #getWorldState(WorldStateQueryParams)} with a query that updates the head
+   * @param <T> the type of the action's result
+   * @return the action's result
+   */
+  default <T> T withHeadWorldStateLock(final Supplier<T> action) {
+    return action.get();
+  }
 
   /**
    * Resetting the archive cache and adding the new pivot as the only entry

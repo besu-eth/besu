@@ -181,18 +181,48 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
 
     LOG.atDebug().setMessage("getting head worldstate").log();
 
-    return rootWorldStateStorage
-        .getWorldStateBlockHash()
-        .flatMap(hashBlockHeaderFunction)
-        .flatMap(
-            blockHeader -> {
-              // add the head to the cache
-              addCachedLayer(
-                  blockHeader,
-                  blockHeader.getStateRoot(),
-                  createWorldState(archive, rootWorldStateStorage, evmConfiguration));
-              return getWorldState(blockHeader.getBlockHash());
-            });
+    // the block hash is read from the snapshot, so a head persist in between cannot pair the
+    // snapshot with another block
+    final BonsaiWorldStateKeyValueStorage headSnapshot =
+        createSnapshotKeyValueStorage(rootWorldStateStorage);
+    final Optional<BlockHeader> maybeHeadHeader;
+    try {
+      maybeHeadHeader = headSnapshot.getWorldStateBlockHash().flatMap(hashBlockHeaderFunction);
+    } catch (final RuntimeException e) {
+      closeSnapshot(headSnapshot);
+      throw e;
+    }
+    if (maybeHeadHeader.isEmpty()) {
+      closeSnapshot(headSnapshot);
+      return Optional.empty();
+    }
+    final BlockHeader blockHeader = maybeHeadHeader.get();
+    addCachedHeadSnapshot(blockHeader, headSnapshot);
+    return getWorldState(blockHeader.getBlockHash());
+  }
+
+  private synchronized void addCachedHeadSnapshot(
+      final BlockHeader blockHeader, final BonsaiWorldStateKeyValueStorage headSnapshot) {
+    final BonsaiCachedWorldStateView cachedView =
+        cachedWorldStatesByHash.get(blockHeader.getBlockHash());
+    if (cachedView == null) {
+      cachedWorldStatesByHash.put(
+          blockHeader.getBlockHash(), new BonsaiCachedWorldStateView(blockHeader, headSnapshot));
+      stateRootToBlockHeaderCache.put(blockHeader.getStateRoot(), blockHeader);
+    } else if (cachedView.getWorldStateStorage() instanceof BonsaiWorldStateLayerStorage) {
+      cachedView.updateWorldStateStorage(headSnapshot);
+    } else {
+      closeSnapshot(headSnapshot);
+    }
+    scrubCachedLayers(blockHeader.getNumber());
+  }
+
+  private static void closeSnapshot(final BonsaiWorldStateKeyValueStorage snapshot) {
+    try {
+      snapshot.close();
+    } catch (final Exception e) {
+      LOG.warn("Failed to close head world state snapshot", e);
+    }
   }
 
   public boolean contains(final Hash blockHash) {

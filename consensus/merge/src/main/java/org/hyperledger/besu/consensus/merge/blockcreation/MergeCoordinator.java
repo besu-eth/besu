@@ -784,7 +784,15 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   private boolean setNewHead(final MutableBlockchain blockchain, final BlockHeader newHead) {
+    // the chain head and the head world state move together, so backward sync cannot leave them
+    // at different blocks
+    return protocolContext
+        .getWorldStateArchive()
+        .withHeadWorldStateLock(() -> moveChainAndWorldStateHeadTo(blockchain, newHead));
+  }
 
+  private boolean moveChainAndWorldStateHeadTo(
+      final MutableBlockchain blockchain, final BlockHeader newHead) {
     if (newHead.getHash().equals(blockchain.getChainHeadHash())) {
       LOG.atDebug()
           .setMessage("Nothing to do new head {} is already chain head")

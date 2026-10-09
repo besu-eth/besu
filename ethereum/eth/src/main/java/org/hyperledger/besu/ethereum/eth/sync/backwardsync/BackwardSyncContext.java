@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -328,27 +329,13 @@ public class BackwardSyncContext {
   protected Void saveBlock(final Block block, final Optional<BlockAccessList> blockAccessList) {
     failIfBadBlock(block.getHeader());
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
-    var optResult =
-        this.getBlockValidatorForBlock(block)
-            .validateAndProcessBlock(
-                this.getProtocolContext(),
-                block,
-                HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE,
-                blockAccessList,
-                true);
+    // the chain head and the head world state move together, so a fork choice cannot leave them
+    // at different blocks
+    final BlockProcessingResult optResult =
+        getProtocolContext()
+            .getWorldStateArchive()
+            .withHeadWorldStateLock(() -> importBlock(block, blockAccessList));
     if (optResult.isSuccessful()) {
-      LOG.atTrace()
-          .setMessage("Block {} was validated, going to move the head")
-          .addArgument(block::toLogString)
-          .log();
-      this.getProtocolContext()
-          .getBlockchain()
-          .appendBlock(
-              block,
-              optResult.getYield().get().getReceipts(),
-              optResult.getYield().get().getBlockAccessList());
-      possiblyMoveHead(block);
       logImportedBlockParallelization(
           block, optResult.getNbParallelizedTransactions(), blockAccessList.isPresent());
       logBlockImportProgress(block.getHeader().getNumber());
@@ -382,6 +369,33 @@ public class BackwardSyncContext {
     }
 
     return null;
+  }
+
+  private BlockProcessingResult importBlock(
+      final Block block, final Optional<BlockAccessList> blockAccessList) {
+    final BlockProcessingResult result =
+        this.getBlockValidatorForBlock(block)
+            .validateAndProcessBlock(
+                this.getProtocolContext(),
+                block,
+                HeaderValidationMode.FULL,
+                HeaderValidationMode.NONE,
+                blockAccessList,
+                true);
+    if (result.isSuccessful()) {
+      LOG.atTrace()
+          .setMessage("Block {} was validated, going to move the head")
+          .addArgument(block::toLogString)
+          .log();
+      this.getProtocolContext()
+          .getBlockchain()
+          .appendBlock(
+              block,
+              result.getYield().get().getReceipts(),
+              result.getYield().get().getBlockAccessList());
+      possiblyMoveHead(block);
+    }
+    return result;
   }
 
   /**
