@@ -23,7 +23,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -75,7 +75,7 @@ public class TransactionAnnouncementEncoderDecoderTest {
             "0xf86d83000102c3010203f863a00000000000000000000000000000000000000000000000000000000000000001a00000000000000000000000000000000000000000000000000000000000000002a00000000000000000000000000000000000000000000000000000000000000003");
 
     final List<TransactionAnnouncement> announcementList =
-        getDecoder(EthProtocol.ETH68).decode(RLP.input(bytes));
+        getDecoder(EthProtocolVersion.V68.getCapability()).decode(RLP.input(bytes));
 
     final TransactionAnnouncement frontier = announcementList.getFirst();
     assertThat(frontier.hash())
@@ -109,10 +109,10 @@ public class TransactionAnnouncementEncoderDecoderTest {
     final Transaction t3 = generator.transaction(TransactionType.EIP1559);
 
     final List<Transaction> list = List.of(t1, t2, t3);
-    final Bytes bytes = getEncoder(EthProtocol.ETH68).encode(list);
+    final Bytes bytes = getEncoder(EthProtocolVersion.V68.getCapability()).encode(list);
 
     final List<TransactionAnnouncement> announcementList =
-        getDecoder(EthProtocol.ETH68).decode(RLP.input(bytes));
+        getDecoder(EthProtocolVersion.V68.getCapability()).decode(RLP.input(bytes));
 
     assertThat(announcementList).hasSameSizeAs(list);
 
@@ -153,7 +153,7 @@ public class TransactionAnnouncementEncoderDecoderTest {
 
     assertThatThrownBy(
             () ->
-                TransactionAnnouncementDecoder.getDecoder(EthProtocol.ETH68)
+                TransactionAnnouncementDecoder.getDecoder(EthProtocolVersion.V68.getCapability())
                     .decode(RLP.input(invalidMessageBytes)))
         .isInstanceOf(RLPException.class)
         .hasMessage("Hashes, sizes and types must have the same number of elements");
@@ -168,7 +168,7 @@ public class TransactionAnnouncementEncoderDecoderTest {
 
     assertThatThrownBy(
             () ->
-                TransactionAnnouncementDecoder.getDecoder(EthProtocol.ETH68)
+                TransactionAnnouncementDecoder.getDecoder(EthProtocolVersion.V68.getCapability())
                     .decode(RLP.input(invalidMessageBytes)))
         .isInstanceOf(RLPException.class)
         .hasMessageContaining("Invalid transaction type 0x07");
@@ -183,7 +183,7 @@ public class TransactionAnnouncementEncoderDecoderTest {
 
     assertThatThrownBy(
             () ->
-                TransactionAnnouncementDecoder.getDecoder(EthProtocol.ETH68)
+                TransactionAnnouncementDecoder.getDecoder(EthProtocolVersion.V68.getCapability())
                     .decode(RLP.input(invalidMessageBytes)))
         .isInstanceOf(RLPException.class)
         .hasMessageContaining(

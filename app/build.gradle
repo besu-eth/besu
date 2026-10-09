@@ -115,6 +115,7 @@ dependencies {
   testImplementation 'org.mockito:mockito-core'
   testImplementation 'io.consensys.protocols:discovery'
   testImplementation 'com.google.dagger:dagger'
+  testImplementation 'wtf.metio.storage-units:storage-units-model'
 
   annotationProcessor 'com.google.dagger:dagger-compiler'
   testAnnotationProcessor 'com.google.dagger:dagger-compiler'

@@ -70,6 +70,8 @@ dependencies {
   annotationProcessor "org.immutables:value"
   implementation "org.immutables:value-annotations"
 
+  implementation 'wtf.metio.storage-units:storage-units-model'
+
   testImplementation project(':config')
   testImplementation project(path: ':config', configuration: 'testSupportArtifacts')
   testImplementation project(':crypto:services')

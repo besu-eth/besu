@@ -15,11 +15,16 @@
 package org.hyperledger.besu.ethereum.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,6 +45,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
@@ -86,18 +92,34 @@ import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.data.TransactionProcessingResult;
+import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
+import org.hyperledger.besu.plugin.services.TransactionSelectionService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
+import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelectorFactory;
+import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
+import org.hyperledger.besu.plugin.services.txselection.TransactionEvaluationContext;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
+import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.math.BigInteger;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.UnaryOperator;
 
 import com.google.common.base.Suppliers;
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt64;
@@ -394,6 +416,109 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     assertThat(maybeBlockAccessList).isEmpty();
   }
 
+  @Test
+  public void worldStateIsClosedOnlyOnceTimedOutSelectionStops() throws Exception {
+    final CountDownLatch txEvaluationStarted = new CountDownLatch(1);
+    final CountDownLatch releaseTxEvaluation = new CountDownLatch(1);
+    final TransactionSelectionService transactionSelectionService =
+        new TransactionSelectionServiceImpl();
+    transactionSelectionService.registerPluginTransactionSelectorFactory(
+        new PluginTransactionSelectorFactory() {
+          @Override
+          public PluginTransactionSelector create(
+              final org.hyperledger.besu.plugin.data.ProcessableBlockHeader pendingBlockHeader,
+              final SelectorsStateManager selectorsStateManager) {
+            return new PluginTransactionSelector() {
+              @Override
+              public TransactionSelectionResult evaluateTransactionPreProcessing(
+                  final TransactionEvaluationContext evaluationContext) {
+                txEvaluationStarted.countDown();
+                // keeps running past the selection timeout and ignores the interrupt
+                Uninterruptibles.awaitUninterruptibly(releaseTxEvaluation);
+                return SELECTED;
+              }
+
+              @Override
+              public TransactionSelectionResult evaluateTransactionPostProcessing(
+                  final TransactionEvaluationContext evaluationContext,
+                  final TransactionProcessingResult processingResult) {
+                return SELECTED;
+              }
+            };
+          }
+        });
+    final MiningConfiguration miningConfiguration =
+        ImmutableMiningConfiguration.builder()
+            .mutableInitValues(
+                MutableInitValues.builder()
+                    .minTransactionGasPrice(Wei.ONE)
+                    .coinbase(Address.ZERO)
+                    .build())
+            .transactionSelectionService(transactionSelectionService)
+            .posBlockTxsSelectionMaxTime(PositiveNumber.fromInt(100))
+            .build();
+
+    final AtomicReference<MutableWorldState> blockWorldState = new AtomicReference<>();
+    final EthScheduler asyncEthScheduler = new EthScheduler(1, 1, 1, new NoOpMetricsSystem());
+    try {
+      final CreateOn miningOn =
+          createBlockCreator(
+              ProtocolSpecAdapters.create(0, specBuilder -> specBuilder),
+              miningConfiguration,
+              asyncEthScheduler,
+              protocolContext -> spyBlockWorldState(protocolContext, blockWorldState));
+
+      final GenesisAccount sender = accounts.get(1);
+      final Transaction tx =
+          new TransactionTestFixture()
+              .sender(sender.address())
+              .to(Optional.of(accounts.get(2).address()))
+              .gasLimit(21_000L)
+              .gasPrice(Wei.of(100))
+              .chainId(Optional.of(BigInteger.valueOf(42)))
+              .nonce(sender.nonce())
+              .createTransaction(
+                  SIGNATURE_ALGORITHM.createKeyPair(
+                      SECPPrivateKey.create(sender.privateKey(), "ECDSA")));
+      assertThat(miningOn.transactionPool.addTransactionViaApi(tx).isValid()).isTrue();
+
+      final BlockCreationResult result =
+          miningOn.blockCreator.createBlock(
+              Optional.empty(), Optional.empty(), 1L, miningOn.parentHeader);
+
+      assertThat(txEvaluationStarted.await(5, TimeUnit.SECONDS)).isTrue();
+      assertThat(result.getBlock().getBody().getTransactions()).isEmpty();
+      verify(blockWorldState.get(), never()).close();
+
+      releaseTxEvaluation.countDown();
+      verify(blockWorldState.get(), timeout(5_000)).close();
+    } finally {
+      releaseTxEvaluation.countDown();
+      asyncEthScheduler.stop();
+      asyncEthScheduler.awaitStop();
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static ProtocolContext spyBlockWorldState(
+      final ProtocolContext protocolContext,
+      final AtomicReference<MutableWorldState> blockWorldState) {
+    final ProtocolContext spiedContext = spy(protocolContext);
+    final WorldStateArchive spiedArchive = spy(protocolContext.getWorldStateArchive());
+    doReturn(spiedArchive).when(spiedContext).getWorldStateArchive();
+    doAnswer(
+            invocation ->
+                ((Optional<MutableWorldState>) invocation.callRealMethod())
+                    .map(
+                        worldState -> {
+                          blockWorldState.set(spy(worldState));
+                          return blockWorldState.get();
+                        }))
+        .when(spiedArchive)
+        .getWorldState(any(WorldStateQueryParams.class));
+    return spiedContext;
+  }
+
   private CreateOn blockCreatorWithWithdrawalsProcessor() {
     final ProtocolSpecAdapters protocolSpecAdapters =
         ProtocolSpecAdapters.create(
@@ -407,9 +532,30 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     return createBlockCreator(protocolSpecAdapters);
   }
 
-  record CreateOn(AbstractBlockCreator blockCreator, BlockHeader parentHeader) {}
+  record CreateOn(
+      AbstractBlockCreator blockCreator,
+      BlockHeader parentHeader,
+      TransactionPool transactionPool) {}
 
   private CreateOn createBlockCreator(final ProtocolSpecAdapters protocolSpecAdapters) {
+    final MiningConfiguration miningConfiguration =
+        ImmutableMiningConfiguration.builder()
+            .mutableInitValues(
+                MutableInitValues.builder()
+                    .extraData(Bytes.fromHexString("deadbeef"))
+                    .minTransactionGasPrice(Wei.ONE)
+                    .coinbase(Address.ZERO)
+                    .build())
+            .build();
+    return createBlockCreator(
+        protocolSpecAdapters, miningConfiguration, ethScheduler, UnaryOperator.identity());
+  }
+
+  private CreateOn createBlockCreator(
+      final ProtocolSpecAdapters protocolSpecAdapters,
+      final MiningConfiguration miningConfiguration,
+      final EthScheduler ethScheduler,
+      final UnaryOperator<ProtocolContext> protocolContextDecorator) {
 
     final ExecutionContextTestFixture executionContextTestFixture =
         ExecutionContextTestFixture.builder(genesisConfig)
@@ -455,26 +601,17 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             new BlobCache());
     transactionPool.setEnabled();
 
-    final MiningConfiguration miningConfiguration =
-        ImmutableMiningConfiguration.builder()
-            .mutableInitValues(
-                MutableInitValues.builder()
-                    .extraData(Bytes.fromHexString("deadbeef"))
-                    .minTransactionGasPrice(Wei.ONE)
-                    .coinbase(Address.ZERO)
-                    .build())
-            .build();
-
     return new CreateOn(
         new TestBlockCreator(
             miningConfiguration,
             (__, ___) -> Address.ZERO,
             __ -> Bytes.fromHexString("deadbeef"),
             transactionPool,
-            executionContextTestFixture.getProtocolContext(),
+            protocolContextDecorator.apply(executionContextTestFixture.getProtocolContext()),
             executionContextTestFixture.getProtocolSchedule(),
             ethScheduler),
-        parentHeader);
+        parentHeader,
+        transactionPool);
   }
 
   static class TestBlockCreator extends AbstractBlockCreator {
