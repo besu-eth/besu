@@ -151,7 +151,8 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
     // this file keeping a second copy of it. All three runners default to the available cores.
     def parallelism = project.findProperty('simParallelism')?.toString()
     def subPath = project.findProperty('simPath')?.toString()
-    def simLimit = project.findProperty('simLimit')?.toString() ?: defaultSimLimit
+    // Not ?:, which would treat an empty -PsimLimit= as unset and apply the default filter
+    def simLimit = project.hasProperty('simLimit') ? project.property('simLimit').toString() : defaultSimLimit
 
     doFirst {
       failOnRenamedProperties(project)
