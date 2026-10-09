@@ -107,8 +107,11 @@ public class TraceGet extends AbstractTraceByHash implements JsonRpcMethod {
     return new JsonRpcSuccessResponse(
         requestContext.getRequest().getId(),
         resultByTransactionHash(transactionHash)
-            .filter(trace -> trace.getTraceAddress().equals(traceAddress))
-            .findFirst()
+            .flatMap(
+                traces ->
+                    traces
+                        .filter(trace -> trace.getTraceAddress().equals(traceAddress))
+                        .findFirst())
             .orElse(null));
   }
 }
