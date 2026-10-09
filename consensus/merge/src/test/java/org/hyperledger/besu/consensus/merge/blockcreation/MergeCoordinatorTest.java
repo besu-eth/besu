@@ -88,12 +88,14 @@ import org.hyperledger.besu.util.number.Fraction;
 
 import java.math.BigInteger;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -950,6 +952,57 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             .build();
 
     assertThat(MergeCoordinator.describePayloadArgsChanges(args, args)).isEqualTo("none");
+  }
+
+  @Test
+  public void eachEmptyBlockHasItsOwnTimingStartedWhenItIsCreated() {
+    final List<PayloadWrapper> payloads = new CopyOnWriteArrayList<>();
+    doAnswer(
+            invocation -> {
+              payloads.add(invocation.getArgument(0, PayloadWrapper.class));
+              return null;
+            })
+        .when(mergeContext)
+        .putPayloadById(any());
+    final long timestamp = System.currentTimeMillis() / 1000;
+
+    final PayloadIdentifier firstPayloadId =
+        coordinator.preparePayload(
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(timestamp)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
+    final var firstEmptyBlockTiming =
+        firstPayloadStoredFor(payloads, firstPayloadId).getBlockCreationTimings();
+
+    final Instant secondPayloadPreparedAt = Instant.now();
+    final PayloadIdentifier secondPayloadId =
+        coordinator.preparePayload(
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(timestamp + 1)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
+    final var secondEmptyBlockTiming =
+        firstPayloadStoredFor(payloads, secondPayloadId).getBlockCreationTimings();
+    coordinator.finalizeProposalById(secondPayloadId);
+
+    assertThat(secondEmptyBlockTiming).isNotSameAs(firstEmptyBlockTiming);
+    assertThat(secondEmptyBlockTiming.startedAt()).isAfterOrEqualTo(secondPayloadPreparedAt);
+  }
+
+  private PayloadWrapper firstPayloadStoredFor(
+      final List<PayloadWrapper> payloads, final PayloadIdentifier payloadId) {
+    final PayloadWrapper payload =
+        payloads.stream()
+            .filter(p -> p.payloadIdentifier().equals(payloadId))
+            .findFirst()
+            .orElseThrow();
+    assertThat(payload.transactionCount()).isZero();
+    return payload;
   }
 
   @Test

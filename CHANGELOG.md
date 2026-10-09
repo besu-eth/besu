@@ -60,6 +60,7 @@
 - When fetching announced transactions from a peer, Besu again requests them in the order they were announced and, after a partial response, asks only for the ones not yet returned. Since 26.6.0 the request order did not follow the announcements and every retry asked for the whole batch again, so a peer that returned the whole batch was asked for it a second time unless the last transaction it sent was also the last one announced. [#11465](https://github.com/besu-eth/besu/pull/11465)
 - Replacing a payload build because the consensus client sent new payload attributes is now logged at debug level, with the inputs that changed, instead of as a warning. [#11504](https://github.com/besu-eth/besu/pull/11504)
 - A block build whose transaction selection timed out no longer closes its world state while a transaction is still executing on it. [#11473](https://github.com/besu-eth/besu/pull/11473)
+- The block creation timing logged for an empty payload now shows when that block was built, instead of the process start time. [#11461](https://github.com/besu-eth/besu/pull/11461)
 - Amsterdam now rejects transactions with a gas limit above the EIP-8037 cap of `2^32-1`. [#11414](https://github.com/besu-eth/besu/pull/11414)
 - Receipt sync no longer rejects a partial receipt list from a peer when one of its transactions used more than 45M gas. [#11414](https://github.com/besu-eth/besu/pull/11414)
 

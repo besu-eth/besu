@@ -27,7 +27,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidationResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -277,7 +276,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
               new BlockWithReceipts(emptyBlock, result.getReceipts()),
               emptyBlockResult.getBlockAccessList(),
               result.getRequests(),
-              BlockCreationTiming.EMPTY));
+              emptyBlockResult.getBlockCreationTimings()));
       LOG.info(
           "Start building proposals for block {} identified by {}",
           emptyBlock.getHeader().getNumber(),
