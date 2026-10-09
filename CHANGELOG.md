@@ -28,6 +28,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- The layered transaction pool no longer logs an `IndexOutOfBoundsException` when a sender's pending transactions are reconciled against an account nonce that leaves them `--tx-pool-max-future-by-sender` or more nonces ahead, as on a node that has fallen behind the chain head. Those transactions are now rejected as too far in the future for the sender. [#11501](https://github.com/besu-eth/besu/issues/11501)
 - Block propagation no longer repeatedly re-requests an announced block that is already saved as pending while waiting for its parent. The repeated header and body requests could use up the announcing peer's request capacity and starve the parent request, leaving a node that connects well behind the chain head stuck at its starting block. [#11517](https://github.com/besu-eth/besu/issues/11517)
 - `admin_logsRemoveCache` now returns an error when any log bloom cache segment could not be deleted, instead of reporting `Cache Removed` after a partial deletion. [#11067](https://github.com/besu-eth/besu/issues/11067)
 - `txparse --corpus-file` now closes the corpus file stream after processing instead of leaking the underlying file descriptor (it previously suppressed the `StreamResourceLeak` warning rather than releasing the resource). [#11423](https://github.com/besu-eth/besu/pull/11423)
