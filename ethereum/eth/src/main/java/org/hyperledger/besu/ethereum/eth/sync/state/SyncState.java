@@ -70,6 +70,16 @@ public class SyncState implements NewPayloadListener {
   private volatile long lastPayloadBlockNumber = 0L;
   private volatile boolean payloadReceived = false;
 
+  // Progress reported by snap sync, which has no sync target. Cleared once the initial sync phase
+  // is done.
+  private volatile TargetlessSyncProgress targetlessSyncProgress;
+
+  // Only set by markInitialSyncPhaseAsDone() (unlike isInitialSyncPhaseDone); drops late reports.
+  private boolean initialSyncPhaseCompleted;
+
+  // Guards the two fields above.
+  private final Object targetlessSyncProgressLock = new Object();
+
   public SyncState(final Blockchain blockchain, final EthPeers ethPeers) {
     this(blockchain, ethPeers, false, Optional.empty());
   }
@@ -162,8 +172,28 @@ public class SyncState implements NewPayloadListener {
     return completionListenerSubscribers.unsubscribe(listenerId);
   }
 
+  /**
+   * The current sync status. Falls back to progress reported via {@link #setSyncProgress(long,
+   * long)}, as snap sync does not set a sync target.
+   *
+   * @return the current sync status, or empty when not syncing
+   */
   public Optional<SyncStatus> syncStatus() {
-    return syncStatus(syncTarget);
+    return syncStatus(syncTarget).or(this::targetlessSyncStatus);
+  }
+
+  // The highest block is resolved per read, as snap sync does not report progress between
+  // pipeline cycles and a stored value would go stale.
+  private Optional<SyncStatus> targetlessSyncStatus() {
+    return Optional.ofNullable(targetlessSyncProgress)
+        .map(
+            progress ->
+                new DefaultSyncStatus(
+                    progress.startingBlock(),
+                    progress.currentBlock(),
+                    bestChainHeight(),
+                    Optional.empty(),
+                    Optional.empty()));
   }
 
   public Optional<SyncTarget> syncTarget() {
@@ -175,12 +205,22 @@ public class SyncState implements NewPayloadListener {
     replaceSyncTarget(Optional.of(syncTarget));
   }
 
-  public void setSyncProgress(
-      final long startingBlock, final long currentBlock, final long highestBlock) {
-    final SyncStatus status =
-        new DefaultSyncStatus(
-            startingBlock, currentBlock, highestBlock, Optional.empty(), Optional.empty());
-    syncStatusListeners.forEach(c -> c.onSyncStatusChanged(Optional.of(status)));
+  /**
+   * Reports the progress of a sync without a sync target, i.e. snap sync. Ignored once the initial
+   * sync phase is done, as nothing would clear it afterwards.
+   *
+   * @param startingBlock the block the sync started from
+   * @param currentBlock the block the sync has reached
+   */
+  public void setSyncProgress(final long startingBlock, final long currentBlock) {
+    synchronized (targetlessSyncProgressLock) {
+      if (initialSyncPhaseCompleted) {
+        return;
+      }
+      targetlessSyncProgress = new TargetlessSyncProgress(startingBlock, currentBlock);
+    }
+    final Optional<SyncStatus> status = targetlessSyncStatus();
+    syncStatusListeners.forEach(c -> c.onSyncStatusChanged(status));
   }
 
   public void setWorldStateDownloadStatus(final WorldStateDownloadStatus worldStateDownloadStatus) {
@@ -388,6 +428,10 @@ public class SyncState implements NewPayloadListener {
   public void markInitialSyncPhaseAsDone() {
     isInitialSyncPhaseDone = true;
     isResyncNeeded = false;
+    synchronized (targetlessSyncProgressLock) {
+      initialSyncPhaseCompleted = true;
+      targetlessSyncProgress = null;
+    }
     completionListenerSubscribers.forEach(InitialSyncCompletionListener::onInitialSyncCompleted);
   }
 
@@ -401,6 +445,11 @@ public class SyncState implements NewPayloadListener {
 
   public void markInitialSyncRestart() {
     isInitialSyncPhaseDone = false;
+    synchronized (targetlessSyncProgressLock) {
+      initialSyncPhaseCompleted = false;
+    }
     completionListenerSubscribers.forEach(InitialSyncCompletionListener::onInitialSyncRestart);
   }
+
+  private record TargetlessSyncProgress(long startingBlock, long currentBlock) {}
 }

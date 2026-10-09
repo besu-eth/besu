@@ -20,13 +20,19 @@ import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
+import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /** The readiness check plugin. */
 public class ReadinessCheckPlugin implements BesuPlugin {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ReadinessCheckPlugin.class);
 
   private static final String READINESS_ENDPOINT = "/readiness";
   private static final int DEFAULT_MIN_PEERS = 1;
@@ -82,6 +88,9 @@ public class ReadinessCheckPlugin implements BesuPlugin {
   // (node treated as sync-healthy) to avoid a false-negative at startup.
   private volatile Optional<SyncStatus> cachedSyncStatus = Optional.empty();
   private long syncListenerId = -1;
+  // Polled per check rather than event-driven, as the initial sync completion event is never fired
+  // if the synchronizer does not start (P2P disabled). Empty if unavailable; the check is skipped.
+  private volatile Optional<SynchronizationService> synchronizationService = Optional.empty();
 
   @Override
   public void register(final ServiceManager context) {
@@ -108,6 +117,12 @@ public class ReadinessCheckPlugin implements BesuPlugin {
             .orElseThrow(() -> new IllegalStateException("Required service missing: BesuEvents"));
 
     syncListenerId = besuEvents.addSyncStatusListener(status -> cachedSyncStatus = status);
+    synchronizationService = context.getService(SynchronizationService.class);
+    if (synchronizationService.isEmpty()) {
+      LOG.warn(
+          "SynchronizationService is not available; {} will not wait for the initial sync phase to complete before reporting ready",
+          READINESS_ENDPOINT);
+    }
   }
 
   private HealthCheckService.HealthCheckResult checkReadiness(
@@ -142,6 +157,16 @@ public class ReadinessCheckPlugin implements BesuPlugin {
         healthy = false;
       }
     }
+    // Checked separately, as snap sync reports no sync status in stage 1, which skips the
+    // block-distance check below.
+    if (synchronizationService.filter(service -> !service.isInitialSyncPhaseDone()).isPresent()) {
+      final Map<String, Object> initialSyncDetail = new LinkedHashMap<>();
+      initialSyncDetail.put("status", false);
+      initialSyncDetail.put("complete", false);
+      checks.put("initialSync", initialSyncDetail);
+      healthy = false;
+    }
+
     final String maxBlocksStr = params.getParam("maxBlocksBehind");
     final Optional<Long> maxBlocksBehind =
         parseNonNegativeLong(maxBlocksStr, DEFAULT_MAX_BLOCKS_BEHIND);

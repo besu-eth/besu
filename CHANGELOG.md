@@ -59,6 +59,7 @@
 - The Bonsai code cache and the EVM jump destination cache refuse to store empty code under a non-empty code hash. [#11420](https://github.com/besu-eth/besu/pull/11420)
 - Replacing a payload build because the consensus client sent new payload attributes is now logged at debug level, with the inputs that changed, instead of as a warning. [#11504](https://github.com/besu-eth/besu/pull/11504)
 - A block build whose transaction selection timed out no longer closes its world state while a transaction is still executing on it. [#11473](https://github.com/besu-eth/besu/pull/11473)
+- Fix incorrect sync status reporting. `eth_syncing` now reports progress during snap sync (previously it reported "not syncing" for the whole snap sync), with `highestBlock` taken from the best-chain height (the latest `engine_newPayload` head under PoS). The ethstats `syncing` field and `BackwardSyncContext.isSyncing()` no longer report the inverse of the actual state. `/readiness` no longer reports ready while the world state download, trie heal or flat database heal is still in progress. A backward sync session that completed synchronously is no longer reused by later calls. [#11260](https://github.com/besu-eth/besu/issues/11260)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)

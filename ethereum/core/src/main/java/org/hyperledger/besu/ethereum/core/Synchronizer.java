@@ -49,6 +49,13 @@ public interface Synchronizer {
   boolean isInSync();
 
   /**
+   * Whether the initial sync phase (e.g. snap sync including the world state heal) has finished.
+   *
+   * @return true once the initial sync phase is done, or if there is none
+   */
+  boolean isInitialSyncPhaseDone();
+
+  /**
    * Returns the best known block height of the network.
    *
    * @return the best known block height of the network, or empty if not known
