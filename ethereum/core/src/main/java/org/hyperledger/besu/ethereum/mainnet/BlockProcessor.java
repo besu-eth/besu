@@ -68,7 +68,8 @@ public interface BlockProcessor {
       final Block block);
 
   /**
-   * Processes the block with an optional block access list.
+   * Processes the block with an optional block access list. The canonical overload: all other
+   * {@code processBlock} variants delegate here.
    *
    * @param protocolContext the current context of the protocol
    * @param blockchain the blockchain to append the block to
@@ -83,39 +84,4 @@ public interface BlockProcessor {
       final MutableWorldState worldState,
       final Block block,
       final Optional<BlockAccessList> blockAccessList);
-
-  /**
-   * Processes the block.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @return the block processing result
-   */
-  BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction);
-
-  /**
-   * Processes the block with an optional block access list.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @param blockAccessList the optional block access list
-   * @param preprocessingBlockFunction a preprocessing function for block execution
-   * @return the block processing result
-   */
-  BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList,
-      final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction);
 }
