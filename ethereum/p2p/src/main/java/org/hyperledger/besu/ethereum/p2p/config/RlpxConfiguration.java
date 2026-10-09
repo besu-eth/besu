@@ -14,9 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.p2p.config;
 
+import static wtf.metio.storageunits.model.StorageUnits.mebibyte;
+
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.util.NetworkUtility;
-import org.hyperledger.besu.util.number.ByteUnits;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -25,7 +26,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 public class RlpxConfiguration {
-  public static final int DEFAULT_MAX_MESSAGE_SIZE = 10 * ByteUnits.MEGABYTE;
+  public static final int DEFAULT_MAX_MESSAGE_SIZE = mebibyte(10).inByte().intValueExact();
   public static final float DEFAULT_FRACTION_REMOTE_CONNECTIONS_ALLOWED = 0.6f;
   private String clientId = "TestClient/1.0.0";
   private String bindHost = NetworkUtility.INADDR_ANY;

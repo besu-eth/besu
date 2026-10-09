@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -141,7 +142,7 @@ public class JsonTestParameters<S, T> {
   private final Class<T> testCaseSpec;
 
   private final Set<String> fileExcludes = new HashSet<>();
-  private Generator<S, T> generator;
+  private @Nullable Generator<S, T> generator;
 
   private final List<Predicate<String>> testIncludes = new ArrayList<>();
   private final List<Predicate<String>> testIgnores = new ArrayList<>();
@@ -250,7 +251,8 @@ public class JsonTestParameters<S, T> {
    * @return the collection
    */
   public Collection<Object[]> generate(final Collection<File> filteredFiles) {
-    checkState(generator != null, "Missing generator function");
+    final Generator<S, T> activeGenerator =
+        Objects.requireNonNull(generator, "Missing generator function");
 
     final Collector<T> collector =
         new Collector<>(
@@ -262,7 +264,7 @@ public class JsonTestParameters<S, T> {
       for (final Map.Entry<String, S> entry : testCase.testCaseSpecs.entrySet()) {
         final String testName = entry.getKey();
         final S mappedType = entry.getValue();
-        generator.generate(testName, file.getPath(), mappedType, collector);
+        activeGenerator.generate(testName, file.getPath(), mappedType, collector);
       }
     }
     return collector.getParameters();

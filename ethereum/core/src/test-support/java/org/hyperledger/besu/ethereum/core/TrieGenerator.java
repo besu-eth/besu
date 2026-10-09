@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -65,8 +66,8 @@ public class TrieGenerator {
             applyForStrategy(
                 updater,
                 onBonsai -> {
-                  onBonsai.putAccountStorageTrieNode(
-                      accounts.get(accountIndex), location, hash, value);
+                  onBonsai.putTrieNode(
+                      TrieNodeKey.of(accounts.get(accountIndex), location), hash, value);
                 },
                 onForest -> {
                   onForest.putAccountStorageTrieNode(hash, value);
@@ -83,7 +84,7 @@ public class TrieGenerator {
           onBonsai -> {
             onBonsai.putAccountInfoState(
                 accounts.get(accountIndex), RLP.encode(accountValue::writeTo));
-            accountStateTrie.commit(onBonsai::putAccountStateTrieNode);
+            accountStateTrie.commit(onBonsai::putTrieNode);
             onBonsai.putCode(accounts.get(accountIndex), codeHash, code);
           },
           onForest -> {

@@ -15,92 +15,148 @@
 package org.hyperledger.besu.ethereum.eth;
 
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Eth protocol messages as defined in <a
+ * Eth protocol versions as defined in <a
  * href="https://github.com/ethereum/devp2p/blob/master/caps/eth.md">Ethereum Wire Protocol
- * (ETH)</a>}
+ * (ETH)</a>, with the messages each of them supports. The constants are declared in ascending
+ * order, so the last one is the latest version.
  */
-public class EthProtocolVersion {
-  public static final int V68 = 68;
-  public static final int V69 = 69;
-  public static final int V70 = 70;
-  public static final int V71 = 71;
-
+public enum EthProtocolVersion {
   /** eth/68 */
-  private static final List<Integer> eth68Messages =
-      List.of(
-          EthProtocolMessages.STATUS,
-          EthProtocolMessages.NEW_BLOCK_HASHES,
-          EthProtocolMessages.TRANSACTIONS,
-          EthProtocolMessages.GET_BLOCK_HEADERS,
-          EthProtocolMessages.BLOCK_HEADERS,
-          EthProtocolMessages.GET_BLOCK_BODIES,
-          EthProtocolMessages.BLOCK_BODIES,
-          EthProtocolMessages.NEW_BLOCK,
-          EthProtocolMessages.GET_RECEIPTS,
-          EthProtocolMessages.RECEIPTS,
-          EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES,
-          EthProtocolMessages.GET_POOLED_TRANSACTIONS,
-          EthProtocolMessages.POOLED_TRANSACTIONS);
-
+  V68(68, Messages.ETH68),
   /**
    * eth/69 EIP-7642
    *
    * <p>Version 69 added the BlockRangeUpdate message.
    */
-  private static final List<Integer> eth69Messages =
-      List.of(
-          EthProtocolMessages.STATUS,
-          EthProtocolMessages.NEW_BLOCK_HASHES,
-          EthProtocolMessages.TRANSACTIONS,
-          EthProtocolMessages.GET_BLOCK_HEADERS,
-          EthProtocolMessages.BLOCK_HEADERS,
-          EthProtocolMessages.GET_BLOCK_BODIES,
-          EthProtocolMessages.BLOCK_BODIES,
-          EthProtocolMessages.NEW_BLOCK,
-          EthProtocolMessages.GET_RECEIPTS,
-          EthProtocolMessages.RECEIPTS,
-          EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES,
-          EthProtocolMessages.GET_POOLED_TRANSACTIONS,
-          EthProtocolMessages.POOLED_TRANSACTIONS,
-          EthProtocolMessages.BLOCK_RANGE_UPDATE);
-
+  V69(69, Messages.ETH69),
+  /** eth/70 uses the same messages as eth/69 */
+  V70(70, Messages.ETH69),
   /** eth/71 */
-  private static final List<Integer> eth71Messages =
-      List.of(
-          EthProtocolMessages.STATUS,
-          EthProtocolMessages.NEW_BLOCK_HASHES,
-          EthProtocolMessages.TRANSACTIONS,
-          EthProtocolMessages.GET_BLOCK_HEADERS,
-          EthProtocolMessages.BLOCK_HEADERS,
-          EthProtocolMessages.GET_BLOCK_BODIES,
-          EthProtocolMessages.BLOCK_BODIES,
-          EthProtocolMessages.NEW_BLOCK,
-          EthProtocolMessages.GET_RECEIPTS,
-          EthProtocolMessages.RECEIPTS,
-          EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES,
-          EthProtocolMessages.GET_POOLED_TRANSACTIONS,
-          EthProtocolMessages.POOLED_TRANSACTIONS,
-          EthProtocolMessages.BLOCK_RANGE_UPDATE,
-          EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
-          EthProtocolMessages.BLOCK_ACCESS_LISTS);
+  V71(71, Messages.ETH71);
+
+  private static final EthProtocolVersion[] VERSIONS = values();
+
+  private final int version;
+  private final Capability capability;
+  private final int messageSpace;
+  private final List<Integer> supportedMessages;
+
+  EthProtocolVersion(final int version, final List<Integer> supportedMessages) {
+    this.version = version;
+    this.capability = Capability.create(EthProtocol.NAME, version);
+    this.supportedMessages = supportedMessages;
+    // message codes start at 0, so the space is the highest supported code plus one
+    this.messageSpace = supportedMessages.stream().mapToInt(Integer::intValue).max().orElse(-1) + 1;
+  }
 
   /**
-   * Returns a list of integers containing the supported messages given the protocol version
+   * The version number as exchanged on the wire.
    *
-   * @param protocolVersion the protocol version
+   * @return the version number
+   */
+  public int getVersion() {
+    return version;
+  }
+
+  /**
+   * The eth capability advertised for this version.
+   *
+   * @return the capability
+   */
+  public Capability getCapability() {
+    return capability;
+  }
+
+  /**
+   * The number of message codes reserved by this version, which is the highest supported message
+   * code plus one.
+   *
+   * @return the message space size
+   */
+  public int getMessageSpace() {
+    return messageSpace;
+  }
+
+  /**
+   * The codes of the messages supported by this version.
+   *
    * @return a list containing the codes of supported messages
    */
-  public static List<Integer> getSupportedMessages(final int protocolVersion) {
-    return switch (protocolVersion) {
-      case EthProtocolVersion.V68 -> eth68Messages;
-      case EthProtocolVersion.V69, EthProtocolVersion.V70 -> eth69Messages;
-      case EthProtocolVersion.V71 -> eth71Messages;
-      default -> Collections.emptyList();
-    };
+  public List<Integer> getSupportedMessages() {
+    return supportedMessages;
+  }
+
+  /**
+   * The latest known version.
+   *
+   * @return the latest version
+   */
+  public static EthProtocolVersion latest() {
+    return VERSIONS[VERSIONS.length - 1];
+  }
+
+  /**
+   * Whether a raw version number, possibly not a known one, uses the eth/69+ status layout.
+   *
+   * @param protocolVersion the raw protocol version number
+   * @return true if the version is 69 or later
+   */
+  public static boolean hasBlockRange(final int protocolVersion) {
+    return protocolVersion >= V69.version;
+  }
+
+  /**
+   * Finds the protocol version matching a raw version number. This is called for every message
+   * sent, so it does not allocate.
+   *
+   * @param protocolVersion the raw protocol version number
+   * @return the matching version, or null if it is not a known one
+   */
+  public static EthProtocolVersion fromVersion(final int protocolVersion) {
+    for (final EthProtocolVersion v : VERSIONS) {
+      if (v.version == protocolVersion) {
+        return v;
+      }
+    }
+    return null;
+  }
+
+  // Held in a nested class since an enum constant can't reference the enum's own static fields
+  private static final class Messages {
+    private static final List<Integer> ETH68 =
+        List.of(
+            EthProtocolMessages.STATUS,
+            EthProtocolMessages.NEW_BLOCK_HASHES,
+            EthProtocolMessages.TRANSACTIONS,
+            EthProtocolMessages.GET_BLOCK_HEADERS,
+            EthProtocolMessages.BLOCK_HEADERS,
+            EthProtocolMessages.GET_BLOCK_BODIES,
+            EthProtocolMessages.BLOCK_BODIES,
+            EthProtocolMessages.NEW_BLOCK,
+            EthProtocolMessages.GET_RECEIPTS,
+            EthProtocolMessages.RECEIPTS,
+            EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES,
+            EthProtocolMessages.GET_POOLED_TRANSACTIONS,
+            EthProtocolMessages.POOLED_TRANSACTIONS);
+
+    private static final List<Integer> ETH69 = with(ETH68, EthProtocolMessages.BLOCK_RANGE_UPDATE);
+
+    private static final List<Integer> ETH71 =
+        with(
+            ETH69,
+            EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
+            EthProtocolMessages.BLOCK_ACCESS_LISTS);
+
+    private static List<Integer> with(final List<Integer> previous, final Integer... added) {
+      final List<Integer> messages = new ArrayList<>(previous);
+      messages.addAll(List.of(added));
+      return List.copyOf(messages);
+    }
   }
 }

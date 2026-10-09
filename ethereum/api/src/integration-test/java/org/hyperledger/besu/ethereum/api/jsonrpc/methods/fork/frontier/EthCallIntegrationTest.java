@@ -301,7 +301,7 @@ public class EthCallIntegrationTest {
   }
 
   @Test
-  public void shouldReturnSuccessWithInvalidGasPricingAndEmptyBalance() {
+  public void shouldRejectDynamicFeesBeforeLondon() {
     final CallParameter callParameter =
         ImmutableCallParameter.builder()
             .sender(Address.fromHexString("0xdeadbeef00000000000000000000000000000000"))
@@ -310,10 +310,16 @@ public class EthCallIntegrationTest {
             .input(Bytes.fromHexString("0x12a7b914"))
             .build();
 
+    // dynamic fees make an EIP-1559 call, which no block before London can include. It carries a
+    // chain ID, so on this chain, which predates EIP-155, the chain ID check rejects it first.
     final JsonRpcRequestContext request = requestWithParams(callParameter, "latest");
     final JsonRpcResponse expectedResponse =
-        new JsonRpcSuccessResponse(
-            null, "0x0000000000000000000000000000000000000000000000000000000000000001");
+        new JsonRpcErrorResponse(
+            null,
+            JsonRpcError.from(
+                ValidationResult.invalid(
+                    TransactionInvalidReason.REPLAY_PROTECTED_SIGNATURES_NOT_SUPPORTED,
+                    "replay protected signatures is not supported")));
 
     final JsonRpcResponse response = method.response(request);
 

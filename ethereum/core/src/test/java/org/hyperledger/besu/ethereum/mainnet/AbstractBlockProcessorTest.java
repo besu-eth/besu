@@ -28,7 +28,6 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -64,6 +63,7 @@ abstract class AbstractBlockProcessorTest {
   @Mock private ProtocolSchedule protocolSchedule;
   @Mock private ProtocolSpec protocolSpec;
   @Mock private WithdrawalsProcessor withdrawalsProcessor;
+  @Mock private BlockRewardProcessor blockRewardProcessor;
 
   final Blockchain blockchain = new ReferenceTestBlockchain();
   final MutableWorldState worldState = ReferenceTestWorldState.create(emptyMap());
@@ -72,6 +72,12 @@ abstract class AbstractBlockProcessorTest {
   @BeforeEach
   void baseSetup() {
     lenient().when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    // Reject at the reward step so processBlock stops right after withdrawals; these tests only
+    // care about withdrawal handling, not the BAL / state-root steps that follow.
+    lenient()
+        .when(blockRewardProcessor.rewardBeneficiaries(any(), any(), any(), any()))
+        .thenReturn(false);
+    lenient().when(protocolSpec.getBlockRewardProcessor()).thenReturn(blockRewardProcessor);
     lenient()
         .when(protocolSpec.getPreExecutionProcessor())
         .thenReturn(new FrontierPreExecutionProcessor());
@@ -82,7 +88,6 @@ abstract class AbstractBlockProcessorTest {
         new TestBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT);
@@ -166,25 +171,15 @@ abstract class AbstractBlockProcessorTest {
     protected TestBlockProcessor(
         final MainnetTransactionProcessor transactionProcessor,
         final TransactionReceiptFactory transactionReceiptFactory,
-        final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration) {
       super(
           transactionProcessor,
           transactionReceiptFactory,
-          blockReward,
           miningBeneficiaryCalculator,
           protocolSchedule,
           balConfiguration);
-    }
-
-    @Override
-    boolean rewardCoinbase(
-        final MutableWorldState worldState,
-        final BlockHeader header,
-        final List<BlockHeader> ommers) {
-      return false;
     }
   }
 

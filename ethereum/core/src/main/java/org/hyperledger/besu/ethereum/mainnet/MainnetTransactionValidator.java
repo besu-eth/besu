@@ -123,7 +123,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     if (transactionType.supportsBlob()) {
       final ValidationResult<TransactionInvalidReason> blobTransactionResult =
-          blobsValidator.validate(transaction);
+          blobsValidator.validate(transaction, transactionValidationParams);
       if (!blobTransactionResult.isValid()) {
         if (LOG.isDebugEnabled()) {
           LOG.debug(
@@ -203,16 +203,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
       final TransactionValidationParams transactionValidationParams) {
 
     if (maybeBaseFee.isPresent()) {
-      final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
-      if (!transactionValidationParams.allowUnderpricedGas()
-          && !transactionValidationParams.isAllowExceedingBalance()
-          && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
-        return ValidationResult.invalid(
-            TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE,
-            "gasPrice is less than the current BaseFee");
-      }
-
       // assert transaction.max_fee_per_gas >= transaction.max_priority_fee_per_gas
+      // checked first: a tip above the fee cap is invalid at any base fee
       if (transaction.getType().supports1559FeeMarket()
           && transaction
                   .getMaxPriorityFeePerGas()
@@ -223,6 +215,15 @@ public class MainnetTransactionValidator implements TransactionValidator {
         return ValidationResult.invalid(
             TransactionInvalidReason.MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS,
             "max priority fee per gas cannot be greater than max fee per gas");
+      }
+
+      final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
+      if (!transactionValidationParams.allowUnderpricedGas()
+          && !transactionValidationParams.isAllowExceedingBalance()
+          && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE,
+            "gasPrice is less than the current BaseFee");
       }
     }
 

@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.StorageSubscriber;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 
@@ -106,7 +107,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     final long storageSubscriberId = worldStateKeyValueStorage.subscribe(this);
     try {
       worldStateKeyValueStorage
-          .getStateTrieNode(Bytes.concatenate(accountHash.getBytes(), Bytes.EMPTY))
+          .getTrieNodeUnsafe(TrieNodeKey.of(accountHash, Bytes.EMPTY))
           .ifPresent(
               storageRoot -> {
                 try {
@@ -141,7 +142,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
       return Optional.ofNullable(accountNodes.getIfPresent(nodeHash))
-          .or(() -> worldStateKeyValueStorage.getAccountStateTrieNode(location, nodeHash));
+          .or(() -> worldStateKeyValueStorage.getTrieNode(location, nodeHash));
     }
   }
 
@@ -156,8 +157,8 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       return Optional.ofNullable(storageNodes.getIfPresent(nodeHash))
           .or(
               () ->
-                  worldStateKeyValueStorage.getAccountStorageTrieNode(
-                      accountHash, location, nodeHash));
+                  worldStateKeyValueStorage.getTrieNode(
+                      TrieNodeKey.of(accountHash, location), nodeHash));
     }
   }
 }

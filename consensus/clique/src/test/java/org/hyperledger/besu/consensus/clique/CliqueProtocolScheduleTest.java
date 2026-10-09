@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -105,7 +106,8 @@ public class CliqueProtocolScheduleTest {
             .getByBlockHeader(blockHeader(0));
 
     assertThat(homestead.getHardforkId()).isEqualTo(FRONTIER);
-    assertThat(homestead.getBlockReward()).isEqualTo(Wei.ZERO);
+    assertThat(homestead.getBlockRewardProcessor().getBlockReward()).isEqualTo(Wei.ZERO);
+    assertThat(homestead.getBlockRewardProcessor()).isSameAs(BlockRewardProcessor.NO_REWARDS);
     assertThat(homestead.getDifficultyCalculator()).isInstanceOf(CliqueDifficultyCalculator.class);
   }
 

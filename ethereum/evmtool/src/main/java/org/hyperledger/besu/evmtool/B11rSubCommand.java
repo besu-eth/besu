@@ -143,7 +143,7 @@ public class B11rSubCommand implements Runnable {
   }
 
   /** Default constructor for the B11rSubCommand class. This is required by PicoCLI. */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public B11rSubCommand() {
     // PicoCLI requires this
     parentCommand = null;

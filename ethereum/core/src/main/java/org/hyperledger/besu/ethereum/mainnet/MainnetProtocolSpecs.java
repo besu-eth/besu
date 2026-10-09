@@ -125,6 +125,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.io.Resources;
 import io.vertx.core.json.JsonArray;
 import org.slf4j.Logger;
@@ -143,12 +144,6 @@ public abstract class MainnetProtocolSpecs {
   // deleted an empty account even when the message execution scope
   // failed, but the transaction itself succeeded.
   private static final HashSet<Address> SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES;
-
-  private static final Wei FRONTIER_BLOCK_REWARD = Wei.fromEth(5);
-
-  private static final Wei BYZANTIUM_BLOCK_REWARD = Wei.fromEth(3);
-
-  private static final Wei CONSTANTINOPLE_BLOCK_REWARD = Wei.fromEth(2);
 
   private static final Logger LOG = LoggerFactory.getLogger(MainnetProtocolSpecs.class);
   private static final int POW_SLOT_TIME_ESTIMATION = 13;
@@ -207,7 +202,7 @@ public abstract class MainnetProtocolSpecs {
         .blockBodyValidatorBuilder(MainnetBlockBodyValidator::new)
         .blockAccessListValidatorBuilder(__ -> BlockAccessListValidator.ALWAYS_REJECT_BAL)
         .transactionReceiptFactory(new FrontierTransactionReceiptFactory())
-        .blockReward(FRONTIER_BLOCK_REWARD)
+        .blockRewardProcessor(BlockRewardProcessor.FRONTIER)
         .balConfiguration(balConfiguration)
         .blockProcessorBuilder(
             isParallelTxProcessingEnabled
@@ -288,28 +283,17 @@ public abstract class MainnetProtocolSpecs {
         .blockProcessorBuilder(
             (transactionProcessor,
                 transactionReceiptFactory,
-                blockReward,
                 miningBeneficiaryCalculator,
                 protocolSchedule,
                 balConfig) ->
                 new DaoBlockProcessor(
-                    isParallelTxProcessingEnabled
-                        ? new MainnetParallelBlockProcessor(
-                            transactionProcessor,
-                            transactionReceiptFactory,
-                            blockReward,
-                            miningBeneficiaryCalculator,
-                            protocolSchedule,
-                            balConfig,
-                            metricsSystem)
-                        : new MainnetBlockProcessor(
-                            transactionProcessor,
-                            transactionReceiptFactory,
-                            blockReward,
-                            miningBeneficiaryCalculator,
-                            protocolSchedule,
-                            balConfig,
-                            metricsSystem)))
+                    new MainnetBlockProcessor(
+                        transactionProcessor,
+                        transactionReceiptFactory,
+                        miningBeneficiaryCalculator,
+                        protocolSchedule,
+                        balConfig,
+                        metricsSystem)))
         .hardforkId(DAO_RECOVERY_INIT);
   }
 
@@ -421,7 +405,7 @@ public abstract class MainnetProtocolSpecs {
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::byzantium)
         .difficultyCalculator(MainnetDifficultyCalculators.BYZANTIUM)
         .transactionReceiptFactory(new ByzantiumTransactionReceiptFactory(enableRevertReason))
-        .blockReward(BYZANTIUM_BLOCK_REWARD)
+        .blockRewardProcessor(BlockRewardProcessor.BYZANTIUM)
         .hardforkId(BYZANTIUM);
   }
 
@@ -444,7 +428,7 @@ public abstract class MainnetProtocolSpecs {
         .difficultyCalculator(MainnetDifficultyCalculators.CONSTANTINOPLE)
         .gasCalculator(ConstantinopleGasCalculator::new)
         .evmBuilder(MainnetEVMs::constantinople)
-        .blockReward(CONSTANTINOPLE_BLOCK_REWARD)
+        .blockRewardProcessor(BlockRewardProcessor.CONSTANTINOPLE)
         .hardforkId(CONSTANTINOPLE);
   }
 
@@ -706,7 +690,7 @@ public abstract class MainnetProtocolSpecs {
                 MainnetEVMs.paris(gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
         .difficultyCalculator(MainnetDifficultyCalculators.PROOF_OF_STAKE_DIFFICULTY)
         .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::mergeBlockHeaderValidator)
-        .blockReward(Wei.ZERO)
+        .blockRewardProcessor(BlockRewardProcessor.NO_REWARDS)
         .isPoS(true)
         .slotDuration(Duration.ofSeconds(miningConfiguration.getUnstable().getPosSlotDuration()))
         .hardforkId(PARIS);
@@ -1267,8 +1251,8 @@ public abstract class MainnetProtocolSpecs {
             .blockAccessListFactory(new BlockAccessListFactory())
             .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
             .stateRootCommitterFactory(new StateRootCommitterFactory(balConfiguration))
-            // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on
-            // execution gas)
+            // EIP-8037: tx.gas is capped at TX_MAX_TOTAL_GAS_LIMIT, while TX_MAX_GAS_LIMIT bounds
+            // only execution gas
             .gasLimitCalculatorBuilder(
                 (feeMarket, gasCalculator, blobSchedule) -> {
                   final long londonForkBlock =
@@ -1304,6 +1288,20 @@ public abstract class MainnetProtocolSpecs {
       LOG.warn(
           "Skipping system contract request processors for PoA consensus (clique/ibft/qbft) without system contract addresses.");
     } else {
+      if (isPoAConsensus(genesisConfigOptions)
+          && RequestContractAddresses.usesDefaultBuilderAddresses(genesisConfigOptions)) {
+        // A PoA chain that opted in to system calls must have the contracts deployed, but the
+        // genesis never has to name the builder ones, so a missing deployment would otherwise only
+        // surface as invalid blocks once Amsterdam activates.
+        LOG.warn(
+            "Amsterdam on a PoA chain without builderDepositRequestContractAddress and/or "
+                + "builderExitRequestContractAddress in the genesis: using the EIP-8282 defaults "
+                + "{} (builder deposit) and {} (builder exit). Every Amsterdam block is invalid "
+                + "unless contracts are deployed at these addresses before the fork, for example "
+                + "in the genesis alloc.",
+            RequestContractAddresses.DEFAULT_BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS,
+            RequestContractAddresses.DEFAULT_BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS);
+      }
       try {
         amsterdamSpecBuilder.requestProcessorCoordinator(
             amsterdamRequestsProcessors(
@@ -1490,7 +1488,8 @@ public abstract class MainnetProtocolSpecs {
     }
   }
 
-  private record DaoBlockProcessor(BlockProcessor wrapped) implements BlockProcessor {
+  @VisibleForTesting
+  record DaoBlockProcessor(BlockProcessor wrapped) implements BlockProcessor {
 
     @Override
     public BlockProcessingResult processBlock(
@@ -1498,13 +1497,7 @@ public abstract class MainnetProtocolSpecs {
         final Blockchain blockchain,
         final MutableWorldState worldState,
         final Block block) {
-      updateWorldStateForDao(worldState);
-      return wrapped.processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          new AbstractBlockProcessor.PreprocessingFunction.NoPreprocessing());
+      return processBlock(protocolContext, blockchain, worldState, block, Optional.empty());
     }
 
     @Override
@@ -1516,40 +1509,6 @@ public abstract class MainnetProtocolSpecs {
         final Optional<BlockAccessList> blockAccessList) {
       updateWorldStateForDao(worldState);
       return wrapped.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction) {
-      return processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          Optional.empty(),
-          preprocessingBlockFunction);
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final Optional<BlockAccessList> blockAccessList,
-        final AbstractBlockProcessor.PreprocessingFunction preprocessingBlockFunction) {
-      updateWorldStateForDao(worldState);
-      return wrapped.processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          blockAccessList,
-          preprocessingBlockFunction);
     }
 
     private static final Address DAO_REFUND_CONTRACT_ADDRESS =

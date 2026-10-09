@@ -232,6 +232,11 @@ public class SnapSyncMetricsManager {
     return metricsSystem;
   }
 
+  /** Share of the account hash space downloaded, in percent. */
+  public BigDecimal getPercentageProgress() {
+    return percentageProgress.get().setScale(2, RoundingMode.HALF_UP);
+  }
+
   public enum Step {
     DOWNLOAD("download"),
     HEAL_TRIE("trie node healing"),

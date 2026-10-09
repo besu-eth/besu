@@ -22,50 +22,60 @@ public interface TransactionValidationParams {
 
   TransactionValidationParams processingBlockParams =
       ImmutableTransactionValidationParams.of(
-          false, false, false, true, false, false, false, false);
+          false, false, false, true, false, false, false, false, false);
 
   TransactionValidationParams transactionPoolParams =
-      ImmutableTransactionValidationParams.of(true, false, true, true, true, false, false, false);
+      ImmutableTransactionValidationParams.of(
+          true, false, true, true, true, false, false, false, true);
 
   TransactionValidationParams miningParams =
-      ImmutableTransactionValidationParams.of(false, false, false, true, true, false, false, false);
+      ImmutableTransactionValidationParams.of(
+          false, false, false, true, true, false, false, false, false);
 
   TransactionValidationParams blockReplayParams =
       ImmutableTransactionValidationParams.of(
-          false, false, false, false, false, false, false, false);
+          false, false, false, false, false, false, false, false, false);
 
   TransactionValidationParams transactionSimulatorParams =
-      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, true, false);
+      ImmutableTransactionValidationParams.of(
+          false, false, false, false, false, true, true, false, false);
 
   TransactionValidationParams transactionSimulatorParamsAllowFutureNonce =
-      ImmutableTransactionValidationParams.of(true, false, false, false, false, true, true, false);
+      ImmutableTransactionValidationParams.of(
+          true, false, false, false, false, true, true, false, false);
 
   TransactionValidationParams transactionSimulatorAllowUnderpricedAndFutureNonceParams =
-      ImmutableTransactionValidationParams.of(true, false, true, false, false, true, true, false);
+      ImmutableTransactionValidationParams.of(
+          true, false, true, false, false, true, true, false, false);
 
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceParams =
-      ImmutableTransactionValidationParams.of(false, true, false, false, false, true, true, false);
+      ImmutableTransactionValidationParams.of(
+          false, true, false, false, false, true, true, false, false);
 
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceAndFutureNonceParams =
-      ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true, false);
+      ImmutableTransactionValidationParams.of(
+          true, true, false, false, false, true, true, false, false);
 
   // eth_simulateV1 non-strict: allows exceeding balance and future nonces, and preserves
   // caller-provided gas pricing so that gas fees are actually charged during simulation.
   TransactionValidationParams blockSimulatorNonStrictParams =
-      ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true, true);
+      ImmutableTransactionValidationParams.of(
+          true, true, false, false, false, true, true, true, false);
 
   // eth_simulateV1 strict: enforces economic rules (balance, nonce, base fee) against the
   // caller's literal values, but does NOT enforce consensus-level transaction caps
   // (EIP-7825, EIP-8037). Those caps govern mempool/block-building for real transactions
   // and are not applicable to simulation.
   TransactionValidationParams blockSimulatorStrictParams =
-      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, true, true);
+      ImmutableTransactionValidationParams.of(
+          false, false, false, false, false, true, true, true, false);
 
   // Block-building simulation strict: same economic rules as blockSimulatorStrictParams, but
   // also enforces consensus-level transaction caps (EIP-7825, EIP-8037) because this path
   // is used to simulate real block production where those caps must apply.
   TransactionValidationParams blockSimulatorConsensusStrictParams =
-      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, false, true);
+      ImmutableTransactionValidationParams.of(
+          false, false, false, false, false, true, false, true, false);
 
   @Value.Default
   default boolean isAllowFutureNonce() {
@@ -121,6 +131,11 @@ public interface TransactionValidationParams {
    */
   @Value.Default
   default boolean isPreserveCallerGasPricing() {
+    return false;
+  }
+
+  @Value.Default
+  default boolean allowIncompleteBlob() {
     return false;
   }
 

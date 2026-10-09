@@ -21,7 +21,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -60,6 +59,7 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
     when(protocolSpec.getPreExecutionProcessor()).thenReturn(new FrontierPreExecutionProcessor());
     when(protocolSpec.getStateRootCommitterFactory())
         .thenReturn(new StateRootCommitterFactory(BalConfiguration.DISABLED));
+    when(protocolSpec.getBlockRewardProcessor()).thenReturn(BlockRewardProcessor.NO_REWARDS);
   }
 
   @Test
@@ -69,7 +69,6 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
         new MainnetBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT);
@@ -101,7 +100,6 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
         new MainnetBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT);
@@ -135,7 +133,6 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
         new MainnetBlockProcessor(
             transactionProcessor,
             transactionReceiptFactory,
-            Wei.ZERO,
             BlockHeader::getCoinbase,
             protocolSchedule,
             BalConfiguration.DEFAULT);

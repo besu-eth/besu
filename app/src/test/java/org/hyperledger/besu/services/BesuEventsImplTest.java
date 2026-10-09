@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static wtf.metio.storageunits.model.StorageUnits.mebibyte;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
@@ -71,7 +72,6 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
-import org.hyperledger.besu.util.number.ByteUnits;
 
 import java.math.BigInteger;
 import java.time.ZoneId;
@@ -165,7 +165,7 @@ public class BesuEventsImplTest {
     lenient().when(mockWorldState.get(any())).thenReturn(mockSenderAccount);
     lenient().when(mockSenderAccount.getBalance()).thenReturn(Wei.of(10_000_000_000_000_000L));
 
-    blockBroadcaster = new BlockBroadcaster(mockEthContext, 10 * ByteUnits.MEGABYTE);
+    blockBroadcaster = new BlockBroadcaster(mockEthContext, mebibyte(10).inByte().intValueExact());
     syncState = new SyncState(blockchain, mockEthPeers);
     TransactionPoolConfiguration txPoolConfig =
         ImmutableTransactionPoolConfiguration.builder()

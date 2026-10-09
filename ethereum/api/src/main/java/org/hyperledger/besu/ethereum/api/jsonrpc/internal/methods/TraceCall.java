@@ -29,10 +29,13 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.transaction.CallParameter;
+import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 
+import java.util.OptionalLong;
 import java.util.Set;
 
 public class TraceCall extends AbstractTraceCall {
@@ -54,6 +57,23 @@ public class TraceCall extends AbstractTraceCall {
   @Override
   public String getName() {
     return transactionSimulator != null ? RpcMethod.TRACE_CALL.getMethodName() : null;
+  }
+
+  @Override
+  protected CallParameter getCallParams(final JsonRpcRequestContext requestContext) {
+    return withoutNonce(super.getCallParams(requestContext));
+  }
+
+  /**
+   * Returns the call without its nonce. trace_call and trace_callMany accept a nonce but neither
+   * validate nor use it: the call runs at the sender's nonce in the state it executes on, and a
+   * CREATE address derives from that nonce.
+   *
+   * @param callParams the requested call
+   * @return the call to simulate
+   */
+  protected static CallParameter withoutNonce(final CallParameter callParams) {
+    return ImmutableCallParameter.copyOf(callParams).withNonce(OptionalLong.empty());
   }
 
   @Override
