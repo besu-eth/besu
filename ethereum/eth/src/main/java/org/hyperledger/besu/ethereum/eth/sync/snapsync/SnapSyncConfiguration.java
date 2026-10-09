@@ -45,6 +45,8 @@ public class SnapSyncConfiguration {
 
   public static final Boolean DEFAULT_SNAP_SERVER_ENABLED = Boolean.FALSE;
   public static final Boolean DEFAULT_SNAP2_ENABLED = Boolean.FALSE;
+  // per snap/2 world state pipeline; the download is bound by request latency, not by CPU
+  public static final int DEFAULT_SNAP2_REQUEST_PARALLELISM = 64;
 
   /**
    * Default cap on the number of snap/1-2 GET_* requests from a single peer that may have a service
@@ -120,6 +122,11 @@ public class SnapSyncConfiguration {
   @Value.Default
   public Boolean isSnap2Enabled() {
     return DEFAULT_SNAP2_ENABLED;
+  }
+
+  @Value.Default
+  public int getSnap2RequestParallelism() {
+    return DEFAULT_SNAP2_REQUEST_PARALLELISM;
   }
 
   @Value.Default
