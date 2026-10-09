@@ -202,8 +202,12 @@ public class LimitedInMemoryKeyValueStorage implements KeyValueStorage {
 
     @Override
     public void close() {
-      Objects.requireNonNull(updatedValues).clear();
-      Objects.requireNonNull(removedKeys).clear();
+      if (updatedValues != null) {
+        updatedValues.clear();
+      }
+      if (removedKeys != null) {
+        removedKeys.clear();
+      }
     }
   }
 }
