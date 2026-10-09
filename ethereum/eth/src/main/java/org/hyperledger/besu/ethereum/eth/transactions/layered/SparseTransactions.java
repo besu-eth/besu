@@ -107,6 +107,11 @@ public class SparseTransactions extends AbstractTransactionsLayer {
   @Override
   protected TransactionAddedResult canAdd(
       final PendingTransaction pendingTransaction, final int gap) {
+    if (gap >= orderByGap.size()) {
+      // a reconciliation could re-add a transaction without the nonce checks done for new ones
+      return TransactionAddedResult.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER;
+    }
+
     gapBySender.compute(
         pendingTransaction.getSender(),
         (sender, currGap) -> {
