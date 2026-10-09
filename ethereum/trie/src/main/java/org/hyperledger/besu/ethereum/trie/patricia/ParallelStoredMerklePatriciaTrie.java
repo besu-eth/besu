@@ -218,6 +218,13 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   @Override
   public void commit(final NodeUpdater nodeUpdater) {
+    if (pendingUpdates.isEmpty()) {
+      // the nodes a root hash was computed for are still dirty
+      if (root.isDirty()) {
+        super.commit(nodeUpdater);
+      }
+      return;
+    }
     processPendingUpdates(Optional.of(nodeUpdater));
   }
 

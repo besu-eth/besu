@@ -32,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
@@ -132,6 +133,59 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     } finally {
       worldStateKeyValueStorage.unSubscribe(storageSubscriberId);
     }
+  }
+
+  /**
+   * A loader for a world state whose own trie walk visits the nodes a later root computation of the
+   * same block needs: it requests no preloads and instead keeps this loader's caches warm with the
+   * nodes it reads from storage.
+   *
+   * @return the caching view of this loader
+   */
+  public BonsaiCachedMerkleTrieLoader cachingReads() {
+    final BonsaiCachedMerkleTrieLoader shared = this;
+    return new NoOpBonsaiCachedMerkleTrieLoader() {
+      @Override
+      public Optional<Bytes> getAccountStateTrieNode(
+          final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+          final Bytes location,
+          final Bytes32 nodeHash) {
+        return shared.readThrough(
+            shared.accountNodes,
+            nodeHash,
+            () -> worldStateKeyValueStorage.getTrieNode(location, nodeHash));
+      }
+
+      @Override
+      public Optional<Bytes> getAccountStorageTrieNode(
+          final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+          final Hash accountHash,
+          final Bytes location,
+          final Bytes32 nodeHash) {
+        return shared.readThrough(
+            shared.storageNodes,
+            nodeHash,
+            () ->
+                worldStateKeyValueStorage.getTrieNode(
+                    TrieNodeKey.of(accountHash, location), nodeHash));
+      }
+    };
+  }
+
+  private Optional<Bytes> readThrough(
+      final Cache<Bytes, Bytes> nodes,
+      final Bytes32 nodeHash,
+      final Supplier<Optional<Bytes>> storage) {
+    if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
+    }
+    final Bytes cached = nodes.getIfPresent(nodeHash);
+    if (cached != null) {
+      return Optional.of(cached);
+    }
+    final Optional<Bytes> node = storage.get();
+    node.ifPresent(bytes -> nodes.put(nodeHash, bytes));
+    return node;
   }
 
   public Optional<Bytes> getAccountStateTrieNode(

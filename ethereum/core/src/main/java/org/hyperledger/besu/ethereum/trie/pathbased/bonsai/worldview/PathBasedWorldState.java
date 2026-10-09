@@ -24,6 +24,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootComputations;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.TrieDisabledStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapshotWorldStateKeyValueStorage;
@@ -220,6 +221,9 @@ public abstract class PathBasedWorldState
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
+        if (isStorageFrozen && StateRootComputations.holdsAllWrites(computation)) {
+          worldStateCacheManager.cacheStateWrites(blockHeader.getBlockHash(), computation);
+        }
         // Trie log first, ahead of composed state, in case of an abnormal shutdown.
         trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
       }

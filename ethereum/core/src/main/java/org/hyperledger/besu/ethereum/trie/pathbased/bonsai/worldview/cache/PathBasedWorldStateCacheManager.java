@@ -27,9 +27,11 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -49,6 +51,9 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
 
   private final BonsaiWorldStateKeyValueStorage rootWorldStateStorage;
   private final Map<Hash, BonsaiCachedWorldStateView> cachedWorldStatesByHash;
+
+  private static final int RETAINED_STATE_WRITES = 4;
+  private final Map<Hash, StateRootComputation> stateWritesByBlockHash = new LinkedHashMap<>();
 
   protected PathBasedWorldStateCacheManager(
       final PathBasedWorldStateProvider archive,
@@ -199,9 +204,39 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
     return cachedWorldStatesByHash.containsKey(blockHash);
   }
 
+  /**
+   * Keeps the writes of a block's state, computed over the state of its parent, so that the head
+   * can be moved from the parent to the block by applying them.
+   *
+   * @param blockHash the block
+   * @param stateWrites every write of the block's state
+   */
+  public synchronized void cacheStateWrites(
+      final Hash blockHash, final StateRootComputation stateWrites) {
+    stateWritesByBlockHash.put(blockHash, stateWrites);
+    if (stateWritesByBlockHash.size() > RETAINED_STATE_WRITES) {
+      stateWritesByBlockHash.remove(stateWritesByBlockHash.keySet().iterator().next());
+    }
+  }
+
+  /**
+   * Takes the writes kept for a block's state.
+   *
+   * @param blockHash the block
+   * @return the writes, computed over the state of the block's parent
+   */
+  public synchronized Optional<StateRootComputation> takeStateWrites(final Hash blockHash) {
+    return Optional.ofNullable(stateWritesByBlockHash.remove(blockHash));
+  }
+
   public void reset() {
     this.cachedWorldStatesByHash.clear();
     this.stateRootToBlockHeaderCache.clear();
+    clearStateWrites();
+  }
+
+  private synchronized void clearStateWrites() {
+    stateWritesByBlockHash.clear();
   }
 
   public void primeRootToBlockHashCache(final Blockchain blockchain, final int numEntries) {
@@ -246,30 +281,35 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
   public void onClearStorage() {
     this.cachedWorldStatesByHash.clear();
     this.stateRootToBlockHeaderCache.clear();
+    clearStateWrites();
   }
 
   @Override
   public void onClearFlatDatabaseStorage() {
     this.cachedWorldStatesByHash.clear();
     this.stateRootToBlockHeaderCache.clear();
+    clearStateWrites();
   }
 
   @Override
   public void onClearTrieLog() {
     this.cachedWorldStatesByHash.clear();
     this.stateRootToBlockHeaderCache.clear();
+    clearStateWrites();
   }
 
   @Override
   public void onClearTrie() {
     this.cachedWorldStatesByHash.clear();
     this.stateRootToBlockHeaderCache.clear();
+    clearStateWrites();
   }
 
   @Override
   public void onCloseStorage() {
     this.cachedWorldStatesByHash.clear();
     this.stateRootToBlockHeaderCache.clear();
+    clearStateWrites();
   }
 
   public abstract PathBasedWorldState createWorldState(

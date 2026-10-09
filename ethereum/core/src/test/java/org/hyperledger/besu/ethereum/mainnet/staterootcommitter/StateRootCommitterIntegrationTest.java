@@ -66,6 +66,7 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.math.BigInteger;
@@ -444,6 +445,46 @@ class StateRootCommitterIntegrationTest {
       assertThat(headAfterFcu.get().rootHash()).isEqualTo(blockHeader.getStateRoot());
       assertThat(headAfterFcu.get().get(CONTRACT).getStorageValue(SLOT.getSlotKey().orElseThrow()))
           .isEqualTo(SLOT_VALUE);
+    }
+
+    @Test
+    void balWritesMoveTheHeadToTheStateItsTrieLogMovesItTo() {
+      final BlockChange blockChange = BlockChange.complex();
+
+      final BonsaiKvHarness trieLogHarness = BonsaiKvHarness.create();
+      final BlockHeader trieLogBlock =
+          trieLogHarness.persistChildFrozen(trieLogHarness.persistParent(), blockChange, false);
+      assertThat(trieLogHarness.takeStateWrites(trieLogBlock)).isEmpty();
+      assertThat(trieLogHarness.moveHeadTo(trieLogBlock).rootHash())
+          .isEqualTo(trieLogBlock.getStateRoot());
+
+      final BonsaiKvHarness balHarness = BonsaiKvHarness.create();
+      final BlockHeader balBlock =
+          balHarness.persistChildFrozen(balHarness.persistParent(), blockChange, true);
+      // replaying this trie log would leave the head at the parent's state
+      balHarness.replaceTrieLog(
+          new TrieLogLayer().setBlockHash(balBlock.getHash()).setBlockNumber(balBlock.getNumber()));
+      assertThat(balHarness.moveHeadTo(balBlock).rootHash()).isEqualTo(balBlock.getStateRoot());
+      assertThat(balHarness.takeStateWrites(balBlock)).isEmpty();
+
+      assertThat(balHarness.captureStateSnapshot())
+          .isEqualTo(trieLogHarness.captureStateSnapshot());
+    }
+
+    @Test
+    void balWritesAreNotAppliedOverTheStateOfAnotherBlock() {
+      final BonsaiKvHarness harness = BonsaiKvHarness.create();
+      final BlockHeader parent = harness.persistParent();
+      final BlockHeader block =
+          harness.persistChildFrozen(
+              parent, BlockChange.balanceAndNonce(EOA, Wei.of(1_000), 1L), true);
+      final BlockHeader sibling =
+          harness.persistChildFrozen(
+              parent, BlockChange.balanceAndNonce(EOA, Wei.of(2_000), 2L), true);
+
+      assertThat(harness.moveHeadTo(block).rootHash()).isEqualTo(block.getStateRoot());
+      assertThat(harness.moveHeadTo(sibling).rootHash()).isEqualTo(sibling.getStateRoot());
+      assertThat(harness.takeStateWrites(sibling)).isPresent();
     }
 
     @Test
@@ -870,6 +911,7 @@ class StateRootCommitterIntegrationTest {
     private final KeyValueStorage codeStorage;
     private final KeyValueStorage storageStorage;
     private final KeyValueStorage trieLogStorage;
+    private final KeyValueStorage trieBranchStorage;
 
     private BonsaiKvHarness(
         final MutableBlockchain blockchain,
@@ -878,7 +920,8 @@ class StateRootCommitterIntegrationTest {
         final KeyValueStorage accountStorage,
         final KeyValueStorage codeStorage,
         final KeyValueStorage storageStorage,
-        final KeyValueStorage trieLogStorage) {
+        final KeyValueStorage trieLogStorage,
+        final KeyValueStorage trieBranchStorage) {
       this.blockchain = blockchain;
       this.archive = archive;
       this.protocolContext = protocolContext;
@@ -886,6 +929,7 @@ class StateRootCommitterIntegrationTest {
       this.codeStorage = codeStorage;
       this.storageStorage = storageStorage;
       this.trieLogStorage = trieLogStorage;
+      this.trieBranchStorage = trieBranchStorage;
     }
 
     static BonsaiKvHarness create() {
@@ -932,7 +976,8 @@ class StateRootCommitterIntegrationTest {
           provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE),
           provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.CODE_STORAGE),
           provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE),
-          provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE));
+          provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE),
+          provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE));
     }
 
     ProtocolContext protocolContext() {
@@ -962,6 +1007,58 @@ class StateRootCommitterIntegrationTest {
             .stateRoot(root)
             .buildHeader();
       }
+    }
+
+    /** Persists a child of the parent on a frozen copy of its state, as newPayload does. */
+    BlockHeader persistChildFrozen(
+        final BlockHeader parent, final BlockChange blockChange, final boolean withBal) {
+      final BlockHeader blockHeader = childHeader(parent, blockChange);
+      try (BonsaiWorldState worldState =
+          (BonsaiWorldState)
+              archive
+                  .getWorldState(
+                      WorldStateQueryParams.newBuilder()
+                          .withBlockHeader(parent)
+                          .withShouldWorldStateUpdateHead(false)
+                          .build())
+                  .orElseThrow()) {
+        blockChange.apply(worldState.updater());
+        worldState.updater().commit();
+        worldState.persist(
+            blockHeader,
+            withBal
+                ? new StateRootCommitterFactory(balConfiguration())
+                    .forBlock(protocolContext, blockHeader, Optional.of(blockChange.toBal()), true)
+                : new DefaultStateRootCommitter());
+      }
+      blockchain.storeBlock(new Block(blockHeader, BlockBody.empty()), List.of());
+      return blockHeader;
+    }
+
+    MutableWorldState moveHeadTo(final BlockHeader blockHeader) {
+      return archive
+          .getWorldState(WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead(blockHeader))
+          .orElseThrow();
+    }
+
+    void replaceTrieLog(final TrieLogLayer trieLog) {
+      final var transaction = trieLogStorage.startTransaction();
+      transaction.put(
+          trieLog.getBlockHash().getBytes().toArrayUnsafe(),
+          new BonsaiTrieLogFactory().serialize(trieLog));
+      transaction.commit();
+    }
+
+    Optional<StateRootComputation> takeStateWrites(final BlockHeader blockHeader) {
+      return archive.getWorldStateCacheManager().takeStateWrites(blockHeader.getHash());
+    }
+
+    StateSnapshot captureStateSnapshot() {
+      return new StateSnapshot(
+          snapshotStorage(accountStorage),
+          snapshotStorage(codeStorage),
+          snapshotStorage(storageStorage),
+          snapshotStorage(trieBranchStorage));
     }
 
     boolean trieLogExists(final BlockHeader blockHeader) {
@@ -1024,4 +1121,10 @@ class StateRootCommitterIntegrationTest {
 
   private record KvSnapshot(
       Map<Bytes, Bytes> account, Map<Bytes, Bytes> code, Map<Bytes, Bytes> storage) {}
+
+  private record StateSnapshot(
+      Map<Bytes, Bytes> account,
+      Map<Bytes, Bytes> code,
+      Map<Bytes, Bytes> storage,
+      Map<Bytes, Bytes> trieBranch) {}
 }

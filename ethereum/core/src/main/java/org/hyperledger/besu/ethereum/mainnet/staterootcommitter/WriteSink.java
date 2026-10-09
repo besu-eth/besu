@@ -62,9 +62,18 @@ interface TrieWriteOf {
   StateRootComputations.UpdaterWrite apply(Bytes location, Bytes32 hash, Bytes value);
 }
 
-/** Persisting strategy: routes writes to a lock-free queue. */
-record PersistingSink(ConcurrentLinkedQueue<StateRootComputations.UpdaterWrite> writes)
+/**
+ * Persisting strategy: routes writes to a lock-free queue. A trie's nodes are either collected when
+ * it is committed, or, when its commit is deferred, stored only once the writes are applied: then
+ * the root computation does not pay for collecting writes that may never be applied.
+ */
+record PersistingSink(
+    ConcurrentLinkedQueue<StateRootComputations.UpdaterWrite> writes, boolean deferTrieCommits)
     implements WriteSink {
+
+  PersistingSink(final ConcurrentLinkedQueue<StateRootComputations.UpdaterWrite> writes) {
+    this(writes, false);
+  }
 
   @Override
   public void removeAccountInfoState(final Hash addressHash) {
@@ -99,7 +108,15 @@ record PersistingSink(ConcurrentLinkedQueue<StateRootComputations.UpdaterWrite> 
 
   @Override
   public void commitTrie(final MerkleTrie<Bytes, Bytes> trie, final TrieWriteOf writeOf) {
-    trie.commit((location, hash, value) -> writes.add(writeOf.apply(location, hash, value)));
+    if (deferTrieCommits) {
+      // the root hash is computed before the writes are applied, so the trie needs no storage then
+      writes.add(
+          u ->
+              trie.commit(
+                  (location, hash, value) -> writeOf.apply(location, hash, value).applyTo(u)));
+    } else {
+      trie.commit((location, hash, value) -> writes.add(writeOf.apply(location, hash, value)));
+    }
   }
 
   @Override

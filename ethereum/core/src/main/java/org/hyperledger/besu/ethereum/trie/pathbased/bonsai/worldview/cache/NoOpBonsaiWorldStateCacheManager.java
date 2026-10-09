@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 
 import java.util.Optional;
 import java.util.function.Function;
@@ -50,6 +51,12 @@ public class NoOpBonsaiWorldStateCacheManager extends BonsaiWorldStateCacheManag
   @Override
   public boolean contains(final Hash blockHash) {
     return false;
+  }
+
+  @Override
+  public synchronized void cacheStateWrites(
+      final Hash blockHash, final StateRootComputation stateWrites) {
+    // no cache
   }
 
   @Override

@@ -39,6 +39,7 @@ import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -282,6 +283,9 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       return Optional.of(mutableState);
     } else {
       try {
+        if (mutableState == headWorldState && moveHeadWithStateWrites(blockHash)) {
+          return Optional.of(mutableState);
+        }
 
         final Optional<BlockHeader> maybePersistedHeader =
             blockchain.getBlockHeader(mutableState.blockHash()).map(BlockHeader.class::cast);
@@ -371,6 +375,35 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         throw new MerkleTrieException(
             "invalid", Optional.of(Address.ZERO), Bytes32.wrap(Hash.EMPTY.getBytes()), Bytes.EMPTY);
       }
+    }
+  }
+
+  /**
+   * Moves the head from a block's parent to the block with the writes its state root computation
+   * kept, which spares replaying the block's trie log and computing its root again.
+   *
+   * @param blockHash the block to move the head to
+   * @return whether the head was moved
+   */
+  private boolean moveHeadWithStateWrites(final Hash blockHash) {
+    final Optional<BlockHeader> header =
+        blockchain.getBlockHeader(blockHash).map(BlockHeader.class::cast);
+    // the writes are over the parent's state
+    if (header.isEmpty() || !header.get().getParentHash().equals(headWorldState.blockHash())) {
+      return false;
+    }
+    final Optional<StateRootComputation> stateWrites =
+        worldStateCacheManager.takeStateWrites(blockHash);
+    // persisting the writes saves no trie log of its own
+    if (stateWrites.isEmpty() || worldStateKeyValueStorage.getTrieLog(blockHash).isEmpty()) {
+      return false;
+    }
+    try {
+      headWorldState.persist(header.get(), (worldState, blockHeader, updater) -> stateWrites.get());
+      return true;
+    } catch (final RuntimeException e) {
+      LOG.warn("Failed to move the head to block {} with the writes of its state", blockHash, e);
+      return false;
     }
   }
 

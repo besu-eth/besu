@@ -33,14 +33,39 @@ public final class StateRootComputations {
   }
 
   public static StateRootComputation pathBased(final Hash root, final List<UpdaterWrite> writes) {
-    return new PathBased(root, writes);
+    return new PathBased(root, writes, false);
+  }
+
+  /**
+   * A computation that holds every write of the state it computed, even where the world state it
+   * was computed on discards them, so that the state can be stored from the computation alone, over
+   * the state it was computed from.
+   *
+   * @param root the computed state root
+   * @param writes every write of the computed state
+   * @return the computation
+   */
+  public static StateRootComputation withAllWrites(
+      final Hash root, final List<UpdaterWrite> writes) {
+    return new PathBased(root, writes, true);
+  }
+
+  /**
+   * Whether a computation holds every write of the state it computed.
+   *
+   * @param computation the computation
+   * @return true if the state can be stored from the computation alone
+   */
+  public static boolean holdsAllWrites(final StateRootComputation computation) {
+    return computation instanceof PathBased pathBased && pathBased.allWrites();
   }
 
   public static StateRootComputation forest(final Hash root) {
     return new Forest(root);
   }
 
-  private record PathBased(Hash root, List<UpdaterWrite> writes) implements StateRootComputation {
+  private record PathBased(Hash root, List<UpdaterWrite> writes, boolean allWrites)
+      implements StateRootComputation {
 
     @Override
     public void applyTo(final WorldStateKeyValueStorage.Updater updater) {

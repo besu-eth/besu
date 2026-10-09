@@ -20,10 +20,13 @@ import org.hyperledger.besu.ethereum.trie.KeyValueMerkleStorage;
 import org.hyperledger.besu.ethereum.trie.MerkleStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -432,6 +435,65 @@ class ParallelStoredMerklePatriciaTrieTest {
 
     assertThat(parallelTrie.get(key)).isEmpty();
     assertThat(parallelTrie.getRootHash()).isEqualTo(sequentialTrie.getRootHash());
+  }
+
+  @Test
+  void shouldStoreTheNodesOfAComputedRootHashOnCommit() {
+    final Map<Bytes, Bytes> committedDirectly = new HashMap<>();
+    final Map<Bytes, Bytes> committedAfterRootHash = new HashMap<>();
+    final ParallelStoredMerklePatriciaTrie<Bytes, Bytes> otherTrie =
+        new ParallelStoredMerklePatriciaTrie<>(
+            sequentialStorage::get, Function.identity(), Function.identity());
+    for (int i = 0; i < 100; i++) {
+      parallelTrie.put(createKey(i), createValue(i));
+      otherTrie.put(createKey(i), createValue(i));
+    }
+
+    parallelTrie.commit(
+        (location, hash, value) -> committedDirectly.put(location.copy(), value.copy()));
+    final Bytes32 rootHash = otherTrie.getRootHash();
+    otherTrie.commit(
+        (location, hash, value) -> committedAfterRootHash.put(location.copy(), value.copy()));
+
+    // a direct commit also stores nodes it replaced while it applied the updates
+    assertThat(committedDirectly).containsAllEntriesOf(committedAfterRootHash);
+    assertThat(otherTrie.getRootHash()).isEqualTo(rootHash);
+    final ParallelStoredMerklePatriciaTrie<Bytes, Bytes> reloadedTrie =
+        new ParallelStoredMerklePatriciaTrie<>(
+            (location, hash) -> Optional.ofNullable(committedAfterRootHash.get(location)),
+            rootHash,
+            Function.identity(),
+            Function.identity());
+    for (int i = 0; i < 100; i++) {
+      assertThat(reloadedTrie.get(createKey(i))).contains(createValue(i));
+    }
+  }
+
+  @Test
+  void shouldStoreTheUpdatedNodesOfALoadedTrieAfterItsRootHash() {
+    for (int i = 0; i < 100; i++) {
+      parallelTrie.put(createKey(i), createValue(i));
+    }
+    parallelTrie.commit(parallelStorage::put);
+
+    final ParallelStoredMerklePatriciaTrie<Bytes, Bytes> loadedTrie =
+        new ParallelStoredMerklePatriciaTrie<>(
+            parallelStorage::get,
+            parallelTrie.getRootHash(),
+            Function.identity(),
+            Function.identity());
+    for (int i = 0; i < 100; i += 3) {
+      loadedTrie.put(createKey(i), createValue(1000 + i));
+    }
+    final Bytes32 rootHash = loadedTrie.getRootHash();
+    loadedTrie.commit(parallelStorage::put);
+
+    final ParallelStoredMerklePatriciaTrie<Bytes, Bytes> reloadedTrie =
+        new ParallelStoredMerklePatriciaTrie<>(
+            parallelStorage::get, rootHash, Function.identity(), Function.identity());
+    for (int i = 0; i < 100; i++) {
+      assertThat(reloadedTrie.get(createKey(i))).contains(createValue(i % 3 == 0 ? 1000 + i : i));
+    }
   }
 
   @Test

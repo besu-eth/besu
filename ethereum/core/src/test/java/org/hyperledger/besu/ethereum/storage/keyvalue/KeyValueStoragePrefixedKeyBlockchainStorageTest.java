@@ -271,4 +271,25 @@ public class KeyValueStoragePrefixedKeyBlockchainStorageTest {
     Assertions.assertEquals(
         bal, loaded, "BAL round-trip through storage must preserve accountChanges");
   }
+
+  @Test
+  public void storesTheBytesAnAccessListCarries() {
+    final var blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            kvBlockchain, variablesStorage, blockHeaderFunctions, false);
+    final BlockDataGenerator generator = new BlockDataGenerator();
+    final Hash blockHash = generator.hash();
+    // bytes that differ from the list's own encoding show which of the two was written
+    final Bytes emptyList = Bytes.fromHexString("0xc0");
+    final BlockAccessList bal =
+        new BlockAccessList(generator.blockAccessList().accountChanges(), emptyList);
+
+    final Updater updater = blockchainStorage.updater();
+    updater.putBlockAccessList(blockHash, bal);
+    updater.commit();
+
+    final BlockAccessList loaded = blockchainStorage.getBlockAccessList(blockHash).get();
+    Assertions.assertEquals(emptyList, loaded.rawRlp().get());
+    Assertions.assertTrue(loaded.isEmpty());
+  }
 }

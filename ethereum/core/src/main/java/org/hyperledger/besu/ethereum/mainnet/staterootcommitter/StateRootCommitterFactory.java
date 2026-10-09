@@ -69,6 +69,19 @@ public final class StateRootCommitterFactory {
     };
   }
 
+  /**
+   * Whether blocks get their root from the access list in the background, which reads none of the
+   * trie nodes the block's own world state would otherwise preload.
+   *
+   * @param protocolContext the protocol context
+   * @param maybeBal the block access list, if the block has one
+   * @return true when {@link #forBlock} returns the access list committer
+   */
+  public boolean usesBlockAccessList(
+      final ProtocolContext protocolContext, final Optional<BlockAccessList> maybeBal) {
+    return resolveMode(protocolContext, maybeBal) == Mode.BAL;
+  }
+
   private Mode resolveMode(
       final ProtocolContext protocolContext, final Optional<BlockAccessList> maybeBal) {
     if (protocolContext.getWorldStateArchive() instanceof ForestWorldStateArchive) {

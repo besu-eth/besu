@@ -218,6 +218,14 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   /**
+   * Stops preloading, and has the trie nodes this world state reads go into the shared node cache,
+   * for a world state whose trie walk already covers what a later root computation reads.
+   */
+  public void cacheTrieNodeReads() {
+    this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader.cachingReads();
+  }
+
+  /**
    * Frontier receipt computation is inherently sequential (each receipt depends on the prior
    * transaction's state root), so its tries skip the parallel implementation and its ForkJoinPool
    * scheduling overhead.

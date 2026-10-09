@@ -353,7 +353,10 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
 
     @Override
     public void putBlockAccessList(final Hash blockHash, final BlockAccessList blockAccessList) {
-      set(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes(), rlpEncode(blockAccessList));
+      set(
+          BLOCK_ACCESS_LIST_PREFIX,
+          blockHash.getBytes(),
+          blockAccessList.rawRlp().orElseGet(() -> rlpEncode(blockAccessList)));
     }
 
     @Override

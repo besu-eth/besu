@@ -224,6 +224,14 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             .forBlock(protocolContext, blockHeader, blockAccessList, worldState.isStorageFrozen())
             .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
+    // Preloading this block's trie nodes would only compete with its transactions for the CPU.
+    if (worldState instanceof BonsaiWorldState bonsaiWorldState
+        && protocolSpec
+            .getStateRootCommitterFactory()
+            .usesBlockAccessList(protocolContext, blockAccessList)) {
+      bonsaiWorldState.disableCacheMerkleTrieLoader();
+    }
+
     final Optional<BlockAccessListBuilder> blockAccessListBuilder =
         protocolSpec
             .getBlockAccessListFactory()
