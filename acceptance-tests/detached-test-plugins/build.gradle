@@ -1,5 +1,5 @@
 plugins {
-  id 'net.consensys.besu-plugin-distribution' version '0.2.0'
+  id 'net.consensys.besu-plugin-distribution' version '0.3.0'
   id 'com.diffplug.spotless' version '7.0.3'
 }
 
@@ -65,6 +65,9 @@ def preparePlugins = tasks.register('preparePlugins', GradleBuild) {
 def isInvokedByEncloserProject = project.hasProperty('invokeByEncloserProject') && project.property('invokeByEncloserProject').toBoolean()
 
 allprojects {
+  repositories {
+    mavenLocal()
+  }
   tasks.withType(JavaCompile).configureEach {
     if (!isInvokedByEncloserProject) {
       dependsOn preparePlugins

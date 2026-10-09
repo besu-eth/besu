@@ -14,6 +14,11 @@
  */
 package org.hyperledger.besu.cli.options;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
@@ -22,6 +27,7 @@ import java.net.URI;
 import java.util.List;
 
 import com.google.common.collect.Range;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -77,6 +83,8 @@ public class SynchronizerOptionsTest
                     SnapSyncConfiguration.DEFAULT_BYTECODE_COUNT_PER_REQUEST + 2)
                 .isSnapServerEnabled(Boolean.TRUE)
                 .isSnap2Enabled(Boolean.TRUE)
+                .snap2RequestParallelism(
+                    SnapSyncConfiguration.DEFAULT_SNAP2_REQUEST_PARALLELISM + 2)
                 .isSnapSyncTransactionIndexingEnabled(Boolean.TRUE)
                 .build())
         .snapSyncSavePreCheckpointHeadersOnlyEnabled(
@@ -85,6 +93,28 @@ public class SynchronizerOptionsTest
             !SynchronizerConfiguration.DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY)
         .era1ImportPrepipelineEnabled(true)
         .era1DataUri(URI.create("sepolia.era1.nimbus.team/"));
+  }
+
+  @Test
+  public void parsesSnap2RequestParallelism() {
+    parseCommand("--Xsnap2-request-parallelism", "32");
+    verify(mockControllerBuilder).synchronizerConfiguration(syncConfigurationCaptor.capture());
+    assertThat(
+            syncConfigurationCaptor
+                .getValue()
+                .getSnapSyncConfiguration()
+                .getSnap2RequestParallelism())
+        .isEqualTo(32);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rejectsSnap2RequestParallelismBelowOne() {
+    parseCommand("--Xsnap2-request-parallelism", "0");
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "Invalid value for option '--Xsnap2-request-parallelism': cannot convert '0' to PositiveNumber");
   }
 
   @Override

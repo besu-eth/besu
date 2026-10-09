@@ -33,7 +33,16 @@ public class BonsaiCodeCache implements org.hyperledger.besu.evm.internal.CodeCa
   /** Instantiates a new Code cache. */
   public BonsaiCodeCache() {
     // Initialize the cache with a maximum size of 256 MB and a custom memory footprint estimator
-    this.cache = new MemoryBoundCache<>(256 * 1024 * 1024, CodeMemoryFootprint::estimate);
+    this(256 * 1024 * 1024);
+  }
+
+  /**
+   * Instantiates a new Code cache of the given size.
+   *
+   * @param maxBytes the maximum estimated memory footprint of the cached code, in bytes
+   */
+  public BonsaiCodeCache(final long maxBytes) {
+    this.cache = new MemoryBoundCache<>(maxBytes, CodeMemoryFootprint::estimate);
   }
 
   /**
