@@ -18,11 +18,11 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessingMetrics;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
@@ -168,25 +168,19 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
   }
 
   @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList) {
-    final BlockProcessingResult blockProcessingResult =
-        super.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
+  public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    final BlockProcessingResult blockProcessingResult = super.processBlock(context);
     if (blockProcessingResult.isFailed() && sequentialBlockProcessor.isPresent()) {
+      final Block block = context.getBlock();
       LOG.info(
           "Parallel transaction processing failure. Falling back to non-parallel processing for block #{} ({})",
           block.getHeader().getNumber(),
           block.getHash());
+      final MutableWorldState worldState = context.getWorldState();
       if (worldState instanceof BonsaiWorldState) {
         ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
       }
-      return sequentialBlockProcessor
-          .get()
-          .processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
+      return sequentialBlockProcessor.get().processBlock(context);
     }
     return blockProcessingResult;
   }

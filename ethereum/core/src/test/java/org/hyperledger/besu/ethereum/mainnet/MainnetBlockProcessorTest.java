@@ -23,7 +23,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
-import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -52,9 +51,11 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
   private final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
   private final ProtocolContext protocolContext = mock(ProtocolContext.class);
+  private final MutableBlockchain blockchain = mock(MutableBlockchain.class);
 
   @BeforeEach
   public void setup() {
+    when(protocolContext.getBlockchain()).thenReturn(blockchain);
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     when(protocolSpec.getPreExecutionProcessor()).thenReturn(new FrontierPreExecutionProcessor());
     when(protocolSpec.getStateRootCommitterFactory())
@@ -64,7 +65,6 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
 
   @Test
   public void noAccountCreatedWhenBlockRewardIsZero() {
-    final Blockchain blockchain = new ReferenceTestBlockchain();
     final MainnetBlockProcessor blockProcessor =
         new MainnetBlockProcessor(
             transactionProcessor,
@@ -83,7 +83,13 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
                 .ommersHash(Hash.EMPTY_LIST_HASH)
                 .buildHeader(),
             BlockBody.empty());
-    blockProcessor.processBlock(protocolContext, blockchain, worldState, emptyBlock);
+    blockProcessor.processBlock(
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(emptyBlock)
+            .blockAccessList(Optional.empty())
+            .build());
 
     // An empty block with 0 reward should not change the world state
     assertThat(worldState.rootHash()).isEqualTo(initialHash);
@@ -93,7 +99,6 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
   public void rejectsBlockWhenRequestsHashMissingButRequestsProcessed() {
     // EIP-7685: when a requests processor is configured (Prague+) the header must carry
     // requestsHash. An absent field must fail rather than silently skip the hash comparison.
-    final Blockchain blockchain = new ReferenceTestBlockchain();
     when(protocolSpec.getRequestProcessorCoordinator())
         .thenReturn(Optional.of(RequestProcessorCoordinator.noOp()));
     final MainnetBlockProcessor blockProcessor =
@@ -115,7 +120,13 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
             BlockBody.empty());
 
     final BlockProcessingResult result =
-        blockProcessor.processBlock(protocolContext, blockchain, worldState, block);
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
 
     assertThat(result.isSuccessful()).isFalse();
     assertThat(result.errorMessage)
@@ -126,7 +137,6 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
   public void rejectsBlockWhenRequestsHashPresentButDoesNotMatch() {
     // The hash-mismatch path (field present but wrong) must keep its existing error message,
     // distinct from the missing-field message above.
-    final Blockchain blockchain = new ReferenceTestBlockchain();
     when(protocolSpec.getRequestProcessorCoordinator())
         .thenReturn(Optional.of(RequestProcessorCoordinator.noOp()));
     final MainnetBlockProcessor blockProcessor =
@@ -148,7 +158,13 @@ public class MainnetBlockProcessorTest extends AbstractBlockProcessorTest {
             BlockBody.empty());
 
     final BlockProcessingResult result =
-        blockProcessor.processBlock(protocolContext, blockchain, worldState, block);
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
 
     assertThat(result.isSuccessful()).isFalse();
     assertThat(result.errorMessage)

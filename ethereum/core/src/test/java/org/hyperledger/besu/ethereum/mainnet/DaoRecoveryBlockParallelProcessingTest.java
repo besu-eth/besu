@@ -28,7 +28,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -217,7 +216,12 @@ class DaoRecoveryBlockParallelProcessingTest {
     final Block block =
         new Block(header, new BlockBody(List.of(transfer), List.of(), Optional.empty()));
     return blockProcessor.processBlock(
-        ctx.getProtocolContext(), ctx.getBlockchain(), worldState, block);
+        BlockExecutionContext.builder()
+            .protocolContext(ctx.getProtocolContext())
+            .worldState(worldState)
+            .block(block)
+            .blockAccessList(Optional.empty())
+            .build());
   }
 
   private static ExecutionContextTestFixture fixture(
@@ -287,24 +291,10 @@ class DaoRecoveryBlockParallelProcessingTest {
     }
 
     @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block) {
-      return processBlock(protocolContext, blockchain, worldState, block, Optional.empty());
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final Optional<BlockAccessList> blockAccessList) {
-      refundBalanceAtRerun = balance(worldState, DAO_REFUND_CONTRACT);
-      daoAccountBalanceAtRerun = balance(worldState, DAO_ACCOUNT_1);
-      return delegate.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
+    public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+      refundBalanceAtRerun = balance(context.getWorldState(), DAO_REFUND_CONTRACT);
+      daoAccountBalanceAtRerun = balance(context.getWorldState(), DAO_ACCOUNT_1);
+      return delegate.processBlock(context);
     }
   }
 
@@ -329,14 +319,9 @@ class DaoRecoveryBlockParallelProcessingTest {
     private Wei refundBalanceAtParallelAttempt;
 
     @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final Optional<BlockAccessList> blockAccessList) {
-      refundBalanceAtParallelAttempt = balance(worldState, DAO_REFUND_CONTRACT);
-      return super.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
+    public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+      refundBalanceAtParallelAttempt = balance(context.getWorldState(), DAO_REFUND_CONTRACT);
+      return super.processBlock(context);
     }
 
     @Override
