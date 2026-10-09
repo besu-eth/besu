@@ -21,7 +21,9 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockOptions;
@@ -35,6 +37,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
@@ -1091,6 +1094,63 @@ public class DefaultBlockchainTest {
     assertThat(blockchain.getTotalDifficultyCache().get().size()).isEqualTo(1);
     assertThat(blockchain.getTotalDifficultyCache().get().getIfPresent(newBlock.getHash()))
         .isEqualTo(newBlock.getHeader().getDifficulty());
+  }
+
+  @Test
+  public void blockAccessListIsCachedWithItsRlpWhenBlocksAreCached() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Block genesisBlock = gen.genesisBlock();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock, "/data/test", 512, 0);
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+    final BlockAccessList builtBlockAccessList = blockAccessList();
+
+    blockchain.appendBlock(newBlock, gen.receipts(newBlock), Optional.of(builtBlockAccessList));
+
+    final BlockchainStorage storage = createStorage(kvStore, kvStoreVariables);
+    assertThat(storage.getBlockAccessList(newBlock.getHash())).contains(builtBlockAccessList);
+
+    final BlockchainStorage.Updater updater = storage.updater();
+    updater.removeBlockAccessList(newBlock.getHash());
+    updater.commit();
+
+    final Optional<BlockAccessList> cached = blockchain.getBlockAccessList(newBlock.getHash());
+    assertThat(cached).contains(builtBlockAccessList);
+    // peers are served the RLP, so it has to come with the list
+    assertThat(cached.get().rawRlp()).contains(builtBlockAccessList.encode());
+  }
+
+  @Test
+  public void blockAccessListIsReadFromStorageWhenBlocksAreNotCached() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(
+            new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage(), genesisBlock);
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+    final BlockAccessList builtBlockAccessList = blockAccessList();
+
+    blockchain.appendBlock(newBlock, gen.receipts(newBlock), Optional.of(builtBlockAccessList));
+
+    final Optional<BlockAccessList> stored = blockchain.getBlockAccessList(newBlock.getHash());
+    assertThat(stored).contains(builtBlockAccessList);
+    assertThat(stored.get().rawRlp()).contains(builtBlockAccessList.encode());
+  }
+
+  private static BlockAccessList blockAccessList() {
+    return new BlockAccessList(
+        List.of(
+            new BlockAccessList.AccountChanges(
+                Address.fromHexString("0x1000000000000000000000000000000000000001"),
+                List.of(),
+                List.of(),
+                List.of(new BlockAccessList.BalanceChange(1, Wei.ONE)),
+                List.of(),
+                List.of())));
   }
 
   @Test

@@ -60,6 +60,7 @@
 - When fetching announced transactions from a peer, Besu again requests them in the order they were announced and, after a partial response, asks only for the ones not yet returned. Since 26.6.0 the request order did not follow the announcements and every retry asked for the whole batch again, so a peer that returned the whole batch was asked for it a second time unless the last transaction it sent was also the last one announced. [#11465](https://github.com/besu-eth/besu/pull/11465)
 - Replacing a payload build because the consensus client sent new payload attributes is now logged at debug level, with the inputs that changed, instead of as a warning. [#11504](https://github.com/besu-eth/besu/pull/11504)
 - A block build whose transaction selection timed out no longer closes its world state while a transaction is still executing on it. [#11473](https://github.com/besu-eth/besu/pull/11473)
+- With `--cache-last-blocks`, block access lists are now cached as RLP in a cache bounded to 256 MB, instead of decoded lists that could hold gigabytes of heap and made `GetBlockAccessLists` requests for cached blocks fail. [#11455](https://github.com/besu-eth/besu/pull/11455)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
