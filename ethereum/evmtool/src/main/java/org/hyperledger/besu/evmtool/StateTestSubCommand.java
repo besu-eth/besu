@@ -173,6 +173,13 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   private final AtomicInteger passCount = new AtomicInteger(0);
   private final AtomicInteger failCount = new AtomicInteger(0);
 
+  // Reconciled at the end of the run. Counted per declared case rather than per pass/fail, because
+  // one state test case expands into a run for each (data, gas, value) index, so the pass and fail
+  // tallies are not comparable with the number of cases the fixtures declare.
+  private final AtomicInteger declaredCases = new AtomicInteger(0);
+  private final AtomicInteger executedCases = new AtomicInteger(0);
+  private final AtomicInteger filteredCases = new AtomicInteger(0);
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // Collected results for --json-array mode
@@ -297,12 +304,27 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
             unreadableFiles.size());
         unreadableFiles.forEach(f -> parentCommand.out.println("  - " + f));
       }
+      final int unaccounted = unaccountedCases();
+      if (unaccounted > 0) {
+        parentCommand.out.printf(
+            "%nNOT RUN: %d of %d declared case(s) never executed%n",
+            unaccounted, declaredCases.get());
+      }
     }
+  }
+
+  /**
+   * The cases the fixtures declared but which were neither executed nor deliberately filtered out.
+   *
+   * @return the shortfall, or 0 when every declared case is accounted for
+   */
+  private int unaccountedCases() {
+    return Math.max(0, declaredCases.get() - executedCases.get() - filteredCases.get());
   }
 
   @Override
   public int getExitCode() {
-    return anyFailure.get() ? 1 : 0;
+    return anyFailure.get() || unaccountedCases() > 0 ? 1 : 0;
   }
 
   /**
@@ -317,9 +339,13 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
               ? mapper.readValue(parentCommand.in, javaType)
               : mapper.readValue(file.toFile(), javaType);
     } catch (final Exception e) {
+      // Count what the file declared even though it could not be deserialized, so the cases it
+      // contributes show up as unaccounted rather than vanishing from the totals.
+      declaredCases.addAndGet(FixtureRunner.countTestCases(file));
       unreadableFiles.add(file + ": " + e);
       return;
     }
+    declaredCases.addAndGet(generalStateTests.size());
     executeStateTest(generalStateTests);
   }
 
@@ -329,7 +355,14 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
       boolean isLastIteration = (i == repeatCount - 1);
       for (final Map.Entry<String, GeneralStateTestCaseSpec> generalStateTestEntry :
           generalStateTests.entrySet()) {
-        if (selects(generalStateTestEntry.getKey())) {
+        if (!selects(generalStateTestEntry.getKey())) {
+          if (isLastIteration) {
+            filteredCases.incrementAndGet();
+          }
+        } else {
+          if (isLastIteration) {
+            executedCases.incrementAndGet();
+          }
           generalStateTestEntry
               .getValue()
               .finalStateSpecs()
