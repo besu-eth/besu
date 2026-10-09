@@ -65,6 +65,7 @@
 - Receipt sync no longer rejects a partial receipt list from a peer when one of its transactions used more than 45M gas. [#11414](https://github.com/besu-eth/besu/pull/11414)
 
 ### Additions and Improvements
+- `trace_filter` accepts `mode`: `intersection`, the default, matches a trace in every populated `fromAddress` and `toAddress` list, and `union` matches a trace in either. A null `mode` is the default and an unknown value is rejected as invalid filter params (`-32602`). Previously any `mode`, including `intersection`, was rejected. A block reward is now matched by its author against `toAddress`, so a reward to a listed author is returned when `fromAddress` is empty, or in union mode. [#11436](https://github.com/besu-eth/besu/pull/11436)
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
 - Update Jackson to 2.21.6 to address CVE `CVE-2026-68497` [#11396](https://github.com/besu-eth/besu/pull/11396)
 - Update Jackson to 2.21.7 to address CVE `CVE-2026-91777` [#11503](https://github.com/besu-eth/besu/pull/11503)
