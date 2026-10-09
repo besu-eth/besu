@@ -255,10 +255,16 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             "No blockchain test was executed%s.%n",
             TestNameFilter.describe(testName, testNameRegex));
       }
-      exitCode = results.failed() > 0 || setupFailed || !results.hasTests() ? 1 : 0;
+      exitCode =
+          results.failed() > 0
+                  || setupFailed
+                  || !results.hasTests()
+                  || results.unaccountedCases() > 0
+              ? 1
+              : 0;
       if (jsonArray) {
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-      } else if (results.hasTests()) {
+      } else if (results.hasTests() || results.unaccountedCases() > 0) {
         results.printSummary(parentCommand.out);
       }
     }
@@ -275,6 +281,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   // Gate on the compiled filter, not on --test-name: --test-name-regex compiles one
                   // too, and testing the wrong field silently runs the whole tree unfiltered.
                   if (nameFilter != null && !matchesTestName(test)) {
+                    results.recordFiltered();
                     if (verbose) {
                       parentCommand.out.println("Skipping test: " + test);
                     }
@@ -316,9 +323,13 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               ? mapper.readValue(parentCommand.in, javaType)
               : mapper.readValue(file.toFile(), javaType);
     } catch (final Exception e) {
+      // Count what the file declared even though it could not be deserialized, so the cases it
+      // contributes show up as unaccounted rather than vanishing from the totals.
+      results.recordDeclaredCases(FixtureRunner.countTestCases(file));
       results.recordUnreadable(file.toString(), "not readable as a blockchain test fixture: " + e);
       return;
     }
+    results.recordDeclaredCases(blockchainTests.size());
     executeBlockchainTest(blockchainTests, results);
   }
 
@@ -414,7 +425,12 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         final Stopwatch timer = Stopwatch.createStarted();
 
         final BlockImportResult importResult =
-            blockImporter.importBlock(context, block, validationMode, validationMode);
+            blockImporter.importBlock(
+                context,
+                block,
+                validationMode,
+                validationMode,
+                candidateBlock.getBlockAccessList());
 
         timer.stop();
 

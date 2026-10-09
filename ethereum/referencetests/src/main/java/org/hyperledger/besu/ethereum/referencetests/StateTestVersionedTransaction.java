@@ -60,6 +60,15 @@ import org.jspecify.annotations.Nullable;
 public class StateTestVersionedTransaction {
 
   private final long nonce;
+
+  /**
+   * Set when a scalar field was too wide to parse. Fixtures deliberately carry values such as a
+   * 33-byte {@code maxFeePerGas} to check that they are rejected, so this is recorded and reported
+   * by {@link #get} as an unbuildable transaction rather than thrown during deserialization, which
+   * would take the whole fixture file down with it.
+   */
+  private final boolean outOfBoundsScalar;
+
   @Nullable private final BigInteger chainId;
   @Nullable private final Wei maxFeePerGas;
   @Nullable private final Wei maxPriorityFeePerGas;
@@ -116,16 +125,18 @@ public class StateTestVersionedTransaction {
       @JsonProperty("authorizationList")
           final List<org.hyperledger.besu.datatypes.CodeDelegation> authorizationList) {
 
-    this.nonce = Bytes.fromHexStringLenient(nonce).toLong();
+    final BoundsViolation violation = new BoundsViolation();
+
+    final Long parsedNonce =
+        parseScalar(nonce, s -> Bytes.fromHexStringLenient(s).toLong(), violation);
+    this.nonce = parsedNonce == null ? 0L : parsedNonce;
     this.chainId =
-        Optional.ofNullable(chainId)
-            .map(id -> Bytes.fromHexStringLenient(id).toBigInteger())
-            .orElse(null);
-    this.gasPrice = Optional.ofNullable(gasPrice).map(Wei::fromHexString).orElse(null);
-    this.maxFeePerGas = Optional.ofNullable(maxFeePerGas).map(Wei::fromHexString).orElse(null);
-    this.maxPriorityFeePerGas =
-        Optional.ofNullable(maxPriorityFeePerGas).map(Wei::fromHexString).orElse(null);
-    this.to = (to == null || to.isEmpty()) ? null : Address.fromHexString(to);
+        parseScalar(chainId, id -> Bytes.fromHexStringLenient(id).toBigInteger(), violation);
+    this.gasPrice = parseScalar(gasPrice, Wei::fromHexString, violation);
+    this.maxFeePerGas = parseScalar(maxFeePerGas, Wei::fromHexString, violation);
+    this.maxPriorityFeePerGas = parseScalar(maxPriorityFeePerGas, Wei::fromHexString, violation);
+    this.to =
+        (to == null || to.isEmpty()) ? null : parseScalar(to, Address::fromHexString, violation);
 
     SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
     this.keys =
@@ -138,10 +149,35 @@ public class StateTestVersionedTransaction {
     this.values = parseArray(value, Wei::fromHexString);
     this.payloads = parseArray(data, Bytes::fromHexString);
     this.maybeAccessLists = Optional.ofNullable(maybeAccessLists);
-    this.maxFeePerBlobGas =
-        Optional.ofNullable(maxFeePerBlobGas).map(Wei::fromHexString).orElse(null);
+    this.maxFeePerBlobGas = parseScalar(maxFeePerBlobGas, Wei::fromHexString, violation);
     this.blobVersionedHashes = blobVersionedHashes;
     this.authorizationList = authorizationList;
+    this.outOfBoundsScalar = violation.occurred;
+  }
+
+  /** Mutable flag, so the parse helper can report back from inside the constructor. */
+  private static final class BoundsViolation {
+    private boolean occurred;
+  }
+
+  /**
+   * Parses a scalar field, treating a value the type cannot represent as a bounds violation rather
+   * than an error. This is the single-value counterpart of {@link #parseArray}.
+   */
+  @Nullable
+  private static <T> T parseScalar(
+      @Nullable final String value,
+      final Function<String, T> parseFct,
+      final BoundsViolation violation) {
+    if (value == null) {
+      return null;
+    }
+    try {
+      return parseFct.apply(value);
+    } catch (RuntimeException re) {
+      violation.occurred = true;
+      return null;
+    }
   }
 
   private static <T> List<T> parseArray(final String[] array, final Function<String, T> parseFct) {
@@ -173,7 +209,7 @@ public class StateTestVersionedTransaction {
   }
 
   public Transaction get(final GeneralStateTestCaseSpec.Indexes indexes) {
-    if (keys == null) {
+    if (keys == null || outOfBoundsScalar) {
       return null;
     }
     Long gasLimit = gasLimits.get(indexes.gas);

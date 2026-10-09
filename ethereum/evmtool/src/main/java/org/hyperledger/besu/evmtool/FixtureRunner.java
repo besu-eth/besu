@@ -33,6 +33,7 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -151,17 +152,41 @@ final class FixtureRunner {
   }
 
   /**
+   * Counts the test cases a fixture file declares, by reading its top-level object fields.
+   *
+   * <p>Deliberately generic: this has to work on a file whose typed deserialization failed, which
+   * is the case the run reconciliation exists to catch.
+   *
+   * @param file the fixture file
+   * @return the number of declared cases, or 0 if the file cannot be read as JSON at all
+   */
+  static int countTestCases(final Path file) {
+    try {
+      final JsonNode root = JSON_ARRAY_MAPPER.readTree(file.toFile());
+      return root != null && root.isObject() ? root.size() : 0;
+    } catch (final IOException e) {
+      return 0;
+    }
+  }
+
+  /**
    * Pass/fail tallies and the end-of-run summary block.
    *
    * <p>Unreadable fixtures are counted separately from failures. A file we cannot build a test from
    * is a fixture problem rather than a Besu one, and counting it as a failure would make a fixture
    * format change look like a regression.
+   *
+   * <p>They are still reconciled against the case count the fixtures declare, though. An unreadable
+   * file used to be a footnote under a "0 failed" summary, so a fixture Besu could not even
+   * deserialize silently removed its cases from the run while the suite still reported success.
    */
   static final class TestResults {
     private static final String SEPARATOR = "=".repeat(80);
 
     private final AtomicInteger passedTests = new AtomicInteger(0);
     private final AtomicInteger failedTests = new AtomicInteger(0);
+    private final AtomicInteger declaredCases = new AtomicInteger(0);
+    private final AtomicInteger filteredCases = new AtomicInteger(0);
     private final Map<String, String> failures = Collections.synchronizedMap(new LinkedHashMap<>());
     private final Map<String, String> unreadable =
         Collections.synchronizedMap(new LinkedHashMap<>());
@@ -175,6 +200,16 @@ final class FixtureRunner {
       failures.put(testName, reason);
     }
 
+    /** Records how many cases a fixture file declares, whether or not it could be deserialized. */
+    void recordDeclaredCases(final int count) {
+      declaredCases.addAndGet(count);
+    }
+
+    /** Records a case deliberately skipped by {@code --test-name} / {@code --test-name-regex}. */
+    void recordFiltered() {
+      filteredCases.incrementAndGet();
+    }
+
     void recordUnreadable(final String file, final String reason) {
       unreadable.put(file, reason);
     }
@@ -183,12 +218,23 @@ final class FixtureRunner {
       return passedTests.get() + failedTests.get() > 0;
     }
 
+    /**
+     * The cases that were declared by the fixtures but neither run nor deliberately filtered out.
+     *
+     * @return the shortfall, or 0 when every declared case is accounted for
+     */
+    int unaccountedCases() {
+      final int accounted = passedTests.get() + failedTests.get() + filteredCases.get();
+      return Math.max(0, declaredCases.get() - accounted);
+    }
+
     int failed() {
       return failedTests.get();
     }
 
     void printSummary(final PrintWriter out) {
       final int totalTests = passedTests.get() + failedTests.get();
+      final int unaccounted = unaccountedCases();
       out.println();
       out.println(SEPARATOR);
       out.println("TEST SUMMARY");
@@ -196,8 +242,16 @@ final class FixtureRunner {
       out.printf("Total tests:  %d%n", totalTests);
       out.printf("Passed:       %d%n", passedTests.get());
       out.printf("Failed:       %d%n", failedTests.get());
+      if (filteredCases.get() > 0) {
+        out.printf("Filtered out: %d%n", filteredCases.get());
+      }
       if (!unreadable.isEmpty()) {
         out.printf("Unreadable:   %d file(s)%n", unreadable.size());
+      }
+      if (unaccounted > 0) {
+        out.printf(
+            "NOT RUN:      %d of %d declared case(s) never executed%n",
+            unaccounted, declaredCases.get());
       }
       if (!failures.isEmpty()) {
         out.println("\nFailed tests:");

@@ -247,10 +247,13 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       }
       if (jsonArray) {
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-      } else if (results.hasTests()) {
+      } else if (results.hasTests() || results.unaccountedCases() > 0) {
         results.printSummary(parentCommand.out);
       }
-      exitCode = results.failed() > 0 || setupFailed || ranNothing ? 1 : 0;
+      exitCode =
+          results.failed() > 0 || setupFailed || ranNothing || results.unaccountedCases() > 0
+              ? 1
+              : 0;
       // The Vertx event loop and the scheduler pools are not daemon threads, so leaving them
       // running keeps a JVM that does not exit alive for good. EvmTool.main does exit, but an
       // in-process caller — a future unit test, as EvmToolSpecTests already is for state-test —
@@ -280,9 +283,13 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
               ? mapper.readValue(parentCommand.in, javaType)
               : mapper.readValue(file.toFile(), javaType);
     } catch (final Exception e) {
+      // Count what the file declared even though it could not be deserialized, so the cases it
+      // contributes show up as unaccounted rather than vanishing from the totals.
+      results.recordDeclaredCases(FixtureRunner.countTestCases(file));
       results.recordUnreadable(file.toString(), "not readable as an engine test fixture: " + e);
       return;
     }
+    results.recordDeclaredCases(tests.size());
     executeEngineTests(tests, results);
   }
 
@@ -378,7 +385,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private void executeEngineTests(
       final Map<String, EngineTestCaseSpec> tests, final FixtureRunner.TestResults results) {
     for (final Map.Entry<String, EngineTestCaseSpec> entry : tests.entrySet()) {
-      if (nameFilter != null && !requireNonNull(nameFilter).matches(entry.getKey())) continue;
+      if (nameFilter != null && !requireNonNull(nameFilter).matches(entry.getKey())) {
+        results.recordFiltered();
+        continue;
+      }
       try {
         runSingleEngineTest(entry.getKey(), entry.getValue(), results);
       } catch (final RuntimeException e) {
