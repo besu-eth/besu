@@ -93,7 +93,9 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext requestContext, final long blockNumber) {
 
-    if (requestContext.getRequest().getParamLength() != 2) {
+    // the block is optional and defaults to latest, as in trace_call
+    final int paramLength = requestContext.getRequest().getParamLength();
+    if (paramLength < 1 || paramLength > 2) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INVALID_PARAM_COUNT);
     }
