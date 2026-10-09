@@ -313,6 +313,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                   eq(Optional.empty()),
                   eq(Optional.empty()),
                   eq(Optional.empty()),
+                  any(),
                   any());
           return beingSpiedOn;
         };
@@ -405,7 +406,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                       parentHeader,
                       ethScheduler));
 
-          // First call (empty block, synchronous in preparePayload): run normally so that
+          // First call (minimal block, synchronous in preparePayload): run normally so that
           // preparePayload completes and the retry loop is started.
           // Second call (inside the retry loop): cancel block creation first so that
           // isBlockCreationCancelled is true when the RuntimeException reaches the catch block.
@@ -428,6 +429,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                   eq(Optional.empty()),
                   eq(Optional.empty()),
                   eq(Optional.empty()),
+                  any(),
                   any());
           return beingSpiedOn;
         };

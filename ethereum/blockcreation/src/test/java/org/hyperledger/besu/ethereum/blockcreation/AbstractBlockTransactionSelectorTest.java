@@ -250,7 +250,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final TransactionSelectionResults results = selector.buildTransactionListForBlock();
 
@@ -271,7 +272,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final Transaction transaction = createTransaction(1, Wei.of(7L), 100_000);
     transactionPool.addRemoteTransactions(List.of(transaction));
@@ -297,7 +299,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final Transaction transaction = createTransaction(1, Wei.of(7L), 100_000);
     transactionPool.addRemoteTransactions(List.of(transaction));
@@ -326,7 +329,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final List<Transaction> transactionsToInject = new ArrayList<>(5);
     for (int i = 0; i < 5; i++) {
@@ -366,7 +370,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final List<Transaction> transactionsToInject = Lists.newArrayList();
     for (int i = 0; i < 5; i++) {
@@ -404,7 +409,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     // Add 3 transactions to the Pending Transactions, 79% of block, 100% of block and 10% of block
     // should end up selecting the first and third only.
@@ -439,7 +445,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     // Add 3 transactions from the same sender to the Pending Transactions
     // first is selected
@@ -479,7 +486,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final long minTxGasCost = getGasCalculator().getMinimumTransactionCost();
 
@@ -536,7 +544,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final long minTxGasCost = getGasCalculator().getMinimumTransactionCost();
 
@@ -589,7 +598,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final Transaction validTransaction = createTransaction(0, Wei.of(10), 21_000);
 
@@ -687,7 +697,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     transactionPool.addRemoteTransactions(
         List.of(selected, notSelectedTransient, notSelectedInvalid));
@@ -780,7 +791,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     transactionPool.addRemoteTransactions(List.of(selected, notSelected));
 
@@ -843,7 +855,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             createBlock(300_000),
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     transactionPool.addRemoteTransactions(List.of(transaction, invalidTransaction));
 
@@ -890,7 +903,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final Transaction futureTransaction = createTransaction(4, Wei.of(10), 100_000);
 
@@ -926,7 +940,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     transactionPool.addRemoteTransactions(List.of(transaction));
 
@@ -962,7 +977,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
     transactionPool.addRemoteTransactions(List.of(transaction));
 
     ensureTransactionIsValid(transaction, 0, 5);
@@ -990,7 +1006,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final TransactionSelectionResults results2 = selector2.buildTransactionListForBlock();
 
@@ -1018,7 +1035,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     transactionPool.addRemoteTransactions(List.of(txSelected, txNotSelected));
 
@@ -1092,7 +1110,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             createBlock(301_000),
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
     final var tx = createTransaction(0, Wei.of(7), 100_000);
     ensureTransactionIsValid(tx);
     transactionPool.addRemoteTransactions(List.of(tx));
@@ -1101,6 +1120,102 @@ public abstract class AbstractBlockTransactionSelectorTest {
     selectionResults.set(results);
     assertThat(results.getSelectedTransactions()).isEmpty();
     assertThat(results.getSelectedTxsEvaluationTimeNanos()).isZero();
+  }
+
+  @Test
+  public void inclusionListTransactionsAreSelectedAfterPoolSelectionTimeout() {
+    final int txsSelectionMaxTime = 200;
+
+    final Transaction slowPoolTx = createTransaction(0, Wei.of(7), 100_000, SENDER1);
+    ensureTransactionIsValid(slowPoolTx, 0, 0, txsSelectionMaxTime * 3);
+
+    final Transaction ilTx = createTransaction(0, Wei.of(7), 100_000, SENDER2);
+    ensureTransactionIsValid(ilTx);
+
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            createMiningParameters(
+                transactionSelectionService, Wei.ZERO, PositiveNumber.fromInt(txsSelectionMaxTime)),
+            transactionProcessor,
+            createBlock(301_000),
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService,
+            List.of(ilTx));
+
+    transactionPool.addRemoteTransactions(List.of(slowPoolTx));
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(results.getSelectedTransactions()).containsExactly(ilTx);
+    assertThat(results.getNotSelectedTransactions()).containsKey(slowPoolTx);
+  }
+
+  @Test
+  public void inclusionListTransactionAlreadySelectedFromThePoolIsNotEvaluatedAgain() {
+    final Transaction tx = createTransaction(0, Wei.of(7), 100_000, SENDER1);
+    ensureTransactionIsValid(tx);
+
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            createBlock(301_000),
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService,
+            List.of(tx));
+
+    transactionPool.addRemoteTransactions(List.of(tx));
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(results.getSelectedTransactions()).containsExactly(tx);
+    assertThat(results.getNotSelectedTransactions()).isEmpty();
+  }
+
+  @Test
+  public void inclusionListTransactionsAreSelectedWhenEvaluatingGivenTransactions() {
+    final Transaction givenTx = createTransaction(0, Wei.of(7), 100_000, SENDER1);
+    ensureTransactionIsValid(givenTx);
+    final Transaction ilTx = createTransaction(0, Wei.of(7), 100_000, SENDER2);
+    ensureTransactionIsValid(ilTx);
+
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            createBlock(301_000),
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService,
+            List.of(ilTx));
+
+    final TransactionSelectionResults results = selector.evaluateTransactions(List.of(givenTx));
+
+    assertThat(results.getSelectedTransactions()).containsExactly(givenTx, ilTx);
+  }
+
+  @Test
+  public void inclusionListTransactionsOfTheSameSenderAreSelectedInNonceOrder() {
+    final Transaction ilTx0 = createTransaction(0, Wei.of(7), 100_000, SENDER1);
+    ensureTransactionIsValid(ilTx0);
+    final Transaction ilTx1 = createTransaction(1, Wei.of(7), 100_000, SENDER1);
+    ensureTransactionIsValid(ilTx1);
+
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            createBlock(301_000),
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService,
+            List.of(ilTx1, ilTx0));
+
+    final TransactionSelectionResults results = selector.evaluateTransactions(List.of());
+
+    assertThat(results.getSelectedTransactions()).containsExactly(ilTx0, ilTx1);
   }
 
   @Test
@@ -1148,7 +1263,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             createBlock(301_000),
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     final var tx = createTransaction(0, Wei.of(7), 100_000);
     ensureTransactionIsValid(tx);
@@ -1201,7 +1317,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             createBlock(301_000),
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService));
+            transactionSelectionService,
+            List.of()));
 
     final var tx = createTransaction(0, Wei.of(7), 100_000);
     ensureTransactionIsValid(tx);
@@ -1260,7 +1377,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             createBlock(301_000),
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService));
+            transactionSelectionService,
+            List.of()));
 
     final var tx = createTransaction(0, Wei.of(7), 100_000);
     ensureTransactionIsValid(tx);
@@ -1323,7 +1441,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             createBlock(500_000),
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
     selectorRef.set(selector);
 
     final var tx = createTransaction(0, Wei.of(7), 100_000);
@@ -1459,7 +1578,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     transactionPool.addRemoteTransactions(transactionsToInject);
 
@@ -1621,7 +1741,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             blockHeader,
             miningBeneficiary,
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
 
     transactionPool.addRemoteTransactions(transactionsToInject);
 
@@ -1664,7 +1785,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
       final ProcessableBlockHeader blockHeader,
       final Address miningBeneficiary,
       final Wei blobGasPrice,
-      final TransactionSelectionService transactionSelectionService) {
+      final TransactionSelectionService transactionSelectionService,
+      final List<Transaction> inclusionListTransactions) {
 
     transactionPool = createTransactionPool();
 
@@ -1674,7 +1796,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
         blockHeader,
         miningBeneficiary,
         blobGasPrice,
-        transactionSelectionService);
+        transactionSelectionService,
+        inclusionListTransactions);
   }
 
   protected BlockTransactionSelector createBlockSelector(
@@ -1683,7 +1806,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
       final ProcessableBlockHeader blockHeader,
       final Address miningBeneficiary,
       final Wei blobGasPrice,
-      final TransactionSelectionService transactionSelectionService) {
+      final TransactionSelectionService transactionSelectionService,
+      final List<Transaction> inclusionListTransactions) {
     return createBlockSelector(
         miningConfiguration,
         transactionProcessor,
@@ -1692,7 +1816,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
         blobGasPrice,
         transactionSelectionService,
         protocolSchedule,
-        Optional.empty());
+        Optional.empty(),
+        inclusionListTransactions);
   }
 
   protected BlockTransactionSelector createBlockSelector(
@@ -1703,7 +1828,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
       final Wei blobGasPrice,
       final TransactionSelectionService transactionSelectionService,
       final ProtocolSchedule schedule,
-      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBalBuilder) {
+      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBalBuilder,
+      final List<Transaction> inclusionListTransactions) {
     ProtocolSpec protocolSpec = schedule.getByBlockHeader(blockchain.getChainHeadHeader());
     final var selectorsStateManager = new SelectorsStateManager();
     final BlockTransactionSelector selector =
@@ -1722,7 +1848,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
                 blockHeader, selectorsStateManager),
             ethScheduler,
             selectorsStateManager,
-            maybeBalBuilder);
+            maybeBalBuilder,
+            inclusionListTransactions);
 
     return selector;
   }
