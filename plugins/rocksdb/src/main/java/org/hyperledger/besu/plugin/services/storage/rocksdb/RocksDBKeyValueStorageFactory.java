@@ -374,6 +374,8 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
       final DatabaseMetadata metadata = new DatabaseMetadata(runtimeVersion);
       try {
         metadata.writeToDirectory(dataDir);
+        codeFormatDowngradeWarning(dataDir, existingVersionedStorageFormat, runtimeVersion)
+            .ifPresent(LOG::warn);
         return Optional.of(metadata);
       } catch (IOException e) {
         throw new StorageException("Database upgrade failed", e);
@@ -391,6 +393,29 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
             runtimeVersion.getVersion());
 
     throw new StorageException(error);
+  }
+
+  /**
+   * Tells the operator how to undo an upgrade to code stored with its analysis, which older Besu
+   * versions cannot. The arguments of this process are not repeated: they can hold secrets and miss
+   * the configuration given by environment variables.
+   */
+  static Optional<String> codeFormatDowngradeWarning(
+      final Path dataDir, final VersionedStorageFormat from, final BaseVersionedStorageFormat to) {
+    return to.withoutJumpDestAnalysis()
+        .map(
+            reverted ->
+                String.format(
+                    "The database in %1$s was upgraded from %2$s to %3$s, which Besu versions that"
+                        + " support %4$s at most cannot open. To downgrade to one of them, stop"
+                        + " Besu and first run `besu --data-path=%1$s <node options> storage"
+                        + " revert-code-format` as the user Besu runs as, with the node's config"
+                        + " file and BESU_* environment variables",
+                    dataDir.toAbsolutePath(), describe(from), describe(to), describe(reverted)));
+  }
+
+  private static String describe(final VersionedStorageFormat format) {
+    return format.getFormat() + " version " + format.getVersion();
   }
 
   private boolean isSupportedVersionedFormat(final VersionedStorageFormat versionedStorageFormat) {

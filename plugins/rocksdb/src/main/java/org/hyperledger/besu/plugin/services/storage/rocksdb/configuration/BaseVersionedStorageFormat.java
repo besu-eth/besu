@@ -17,6 +17,8 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.util.Optional;
+
 /** Base versioned data storage format */
 public enum BaseVersionedStorageFormat implements VersionedStorageFormat {
   /** Original Forest version, not used since replace by FOREST_WITH_VARIABLES */
@@ -79,6 +81,22 @@ public enum BaseVersionedStorageFormat implements VersionedStorageFormat {
       case FOREST -> FOREST_WITH_RECEIPT_COMPACTION;
       case BONSAI -> BONSAI_WITH_JUMPDEST_ANALYSIS;
       case X_BONSAI_ARCHIVE -> BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS;
+    };
+  }
+
+  /**
+   * The format a database in this format is reverted to by the storage revert-code-format
+   * subcommand, so that Besu versions that do not store the jump destination analysis can open it.
+   *
+   * @return the format without the jump destination analysis, empty when this format does not store
+   *     it
+   */
+  public Optional<BaseVersionedStorageFormat> withoutJumpDestAnalysis() {
+    return switch (this) {
+      case BONSAI_WITH_JUMPDEST_ANALYSIS -> Optional.of(BONSAI_WITH_RECEIPT_COMPACTION);
+      case BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS ->
+          Optional.of(BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION);
+      default -> Optional.empty();
     };
   }
 
