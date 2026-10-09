@@ -41,11 +41,9 @@ class JsonResponseStreamer extends OutputStream {
 
   public JsonResponseStreamer(final ServerWebSocket response) {
     this.response = response;
-    this.response.exceptionHandler(
-        event -> {
-          LOG.debug("Write to remote address {} failed", response.remoteAddress(), event);
-          failure.set(event);
-        });
+    // Do not replace the ServerWebSocket exceptionHandler — WebSocketService /
+    // EngineJsonRpcService register it for active-connection bookkeeping (Layer B). Write
+    // failures are captured via writeFrame().onFailure and response.isClosed().
   }
 
   @Override

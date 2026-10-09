@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.permissioning.AccountLocalConfigPermissioni
 import org.hyperledger.besu.ethereum.permissioning.NodeLocalConfigPermissioningController;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.nat.NatService;
@@ -99,6 +100,7 @@ public class JsonRpcHttpServiceTestBase {
       Arrays.asList(
           RpcApis.ETH.name(), RpcApis.NET.name(), RpcApis.WEB3.name(), RpcApis.ADMIN.name());
   protected static final NatService natService = new NatService(Optional.empty());
+  protected static final StubMetricsSystem metricsSystem = new StubMetricsSystem();
   protected static int maxConnections = 80;
   protected static int maxBatchSize = 10;
 
@@ -175,7 +177,7 @@ public class JsonRpcHttpServiceTestBase {
         vertx,
         folder,
         config,
-        new NoOpMetricsSystem(),
+        metricsSystem,
         natService,
         rpcMethods,
         HealthService.ALWAYS_HEALTHY,
@@ -187,7 +189,7 @@ public class JsonRpcHttpServiceTestBase {
         vertx,
         folder,
         createLimitedJsonRpcConfig(),
-        new NoOpMetricsSystem(),
+        metricsSystem,
         natService,
         rpcMethods,
         HealthService.ALWAYS_HEALTHY,

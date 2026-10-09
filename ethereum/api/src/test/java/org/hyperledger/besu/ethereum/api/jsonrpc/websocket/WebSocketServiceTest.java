@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods.WebSocketMeth
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.util.TestJsonRpcMethodsUtil;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Arrays;
@@ -68,6 +69,7 @@ public class WebSocketServiceTest {
   private WebSocketMessageHandler webSocketMessageHandlerSpy;
   private Map<String, JsonRpcMethod> websocketMethods;
   private WebSocketService websocketService;
+  private StubMetricsSystem metricsSystem;
   private HttpClient httpClient;
   private WebSocketClient webSocketClient;
   private final int maxConnections = 5;
@@ -77,6 +79,7 @@ public class WebSocketServiceTest {
   public void before() {
     vertx = Vertx.vertx();
     testContext = new VertxTestContext();
+    metricsSystem = new StubMetricsSystem();
 
     websocketConfiguration = WebSocketConfiguration.createDefault();
     websocketConfiguration.setPort(0);
@@ -120,7 +123,7 @@ public class WebSocketServiceTest {
 
     websocketService =
         new WebSocketService(
-            vertx, websocketConfiguration, webSocketMessageHandlerSpy, new NoOpMetricsSystem());
+            vertx, websocketConfiguration, webSocketMessageHandlerSpy, metricsSystem);
     websocketService.start().join();
   }
 
@@ -170,6 +173,33 @@ public class WebSocketServiceTest {
     rejectionLatch.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
     assertThat(successLatch.getCount()).isEqualTo(0);
     assertThat(rejectionLatch.getCount()).isEqualTo(0);
+
+    assertThat(metricsSystem.getGaugeValue("active_ws_connection_count"))
+        .as("rejected connections should not increase the active connection count")
+        .isEqualTo(maxConnections);
+  }
+
+  @Test
+  public void abruptWebSocketResetReleasesActiveConnectionCount() throws Exception {
+    final String request =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_subscribe\",\"params\":[\"syncing\"]}";
+    final int resets = 5;
+    for (int i = 0; i < resets; i++) {
+      AbortiveWebSocketClient.handshakeSendAndReset(
+          websocketConfiguration.getHost(), websocketConfiguration.getPort(), request);
+    }
+
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (metricsSystem.getGaugeValue("active_ws_connection_count") != 0) {
+      if (System.nanoTime() > deadline) {
+        break;
+      }
+      Thread.sleep(50);
+    }
+
+    assertThat(metricsSystem.getGaugeValue("active_ws_connection_count"))
+        .as("abrupt WS reset must not leak active_ws_connection_count")
+        .isEqualTo(0);
   }
 
   @Test
