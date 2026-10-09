@@ -92,12 +92,6 @@ def extractStableFixtures = tasks.register("extractStableFixtures", Sync) {
   finalizedBy("cleanReferenceTestCache")
 }
 
-// Fork groups that have engine fixtures (Paris onwards) run in CI through consumeEngineTestsStable
-// in :ethereum:evmtool, which checks the same block hashes and expected exceptions through the
-// Engine API. They are left out here so CI does not run them twice. -PexecutionSpecAllForks
-// generates them anyway, for debugging with this harness's tracing.
-final executionSpecAllForks = project.hasProperty('executionSpecAllForks')
-
 def executionSpecTests = tasks.register("executionSpecTests") {
   dependsOn extractStableFixtures
   final referenceTestsDir = layout.buildDirectory.dir("execution-spec-tests")
@@ -105,23 +99,14 @@ def executionSpecTests = tasks.register("executionSpecTests") {
 
   inputs.dir referenceTestsDir
   inputs.files fileTree("src/reference-test/templates")
-  inputs.property 'executionSpecAllForks', executionSpecAllForks
   outputs.dir generatedTestsDir
   doFirst {
     delete generatedTestsDir
   }
   doLast {
-    final fixturesDir = referenceTestsDir.get().dir("fixtures")
-    final engineDir = fixturesDir.dir("blockchain_tests_engine").asFile
-    final engineDirs = executionSpecAllForks ? [] : (engineDir.listFiles() ?: [])
-    final engineForkGroups = engineDirs.findAll { it.directory }.collect { "${it.name}/**".toString() }
-    final withoutEngineForkGroups = { String subDir ->
-      fileTree(fixturesDir.dir(subDir)) { exclude engineForkGroups }
-    }
-
     // generate blockchain_tests grouped by hardfork/EIP:
     generateTestFilesGroupedByDirectory(
-      withoutEngineForkGroups("blockchain_tests"),
+      fileTree(referenceTestsDir.get().dir("fixtures/blockchain_tests")),
       file("src/reference-test/templates/BlockchainReferenceTest.java.template"),
       "fixtures",
       "blockchain_tests",
@@ -132,7 +117,7 @@ def executionSpecTests = tasks.register("executionSpecTests") {
 
     // generate state_tests grouped by hardfork/EIP:
     generateTestFilesGroupedByDirectory(
-      withoutEngineForkGroups("state_tests"),
+      fileTree(referenceTestsDir.get().dir("fixtures/state_tests")),
       file("src/reference-test/templates/GeneralStateReferenceTest.java.template"),
       "fixtures",
       "state_tests",

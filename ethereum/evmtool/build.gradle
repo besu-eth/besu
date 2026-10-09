@@ -181,16 +181,14 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
   }
 }
 
-// Without -PsimLimit, consumeRlpTestsStable is scoped by the fork filter of the `glamsterdam` hive
-// run at hive.ethpandaops.io, which is what CI runs.
+// Without -PsimLimit, both are scoped by the fork filter of the `glamsterdam` hive run at
+// hive.ethpandaops.io, which is what CI runs.
 def GLAMSTERDAM_SIM_LIMIT = '.*fork_(Amsterdam|BPO2ToAmsterdamAtTime15k|Osaka).*'
 
-// hive ethereum/eels/consume-engine. Runs every fork group by default: referenceTests leaves out the
-// execution-spec fork groups that have engine fixtures, so this task is the only CI coverage for
-// them.
+// hive ethereum/eels/consume-engine
 registerHiveEquivalentTask(project, 'consumeEngineTestsStable', 'engine-test', 'blockchain_tests_engine',
   'Hive consume-engine equivalent: replays the stable blockchain_tests_engine fixtures through the real Engine API.',
-  [], null, true)
+  [], GLAMSTERDAM_SIM_LIMIT, true)
 
 // hive ethereum/eels/consume-rlp. Not redundant with consume-engine: blockchain_tests_engine has no
 // pre-merge fork groups, so for_frontier, for_homestead, for_tangerinewhistle, for_spuriousdragon,
