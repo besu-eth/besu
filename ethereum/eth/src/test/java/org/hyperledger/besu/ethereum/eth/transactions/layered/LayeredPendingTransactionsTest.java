@@ -358,6 +358,32 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  public void dropIfReconciledTransactionTooFarInFutureForTheSender() {
+    final Account sender = mock(Account.class);
+    when(sender.getNonce()).thenReturn(8L);
+
+    final var sparseTransaction = createTransaction(10);
+    assertThat(
+            senderLimitedTransactions.addTransaction(
+                createRemotePendingTransaction(sparseTransaction), Optional.of(sender)))
+        .isEqualTo(ADDED);
+    assertTransactionPending(senderLimitedTransactions, sparseTransaction);
+
+    // the sender nonce goes back, so the reconciliation re-adds the pending transaction with a
+    // gap that is no more allowed for the sender
+    when(sender.getNonce()).thenReturn(2L);
+
+    final var futureTransaction = createTransaction(11);
+    assertThat(
+            senderLimitedTransactions.addTransaction(
+                createRemotePendingTransaction(futureTransaction), Optional.of(sender)))
+        .isEqualTo(NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER);
+    assertTransactionNotPending(senderLimitedTransactions, sparseTransaction);
+    assertTransactionNotPending(senderLimitedTransactions, futureTransaction);
+    assertThat(senderLimitedTransactions.size()).isEqualTo(0);
+  }
+
+  @Test
   public void dropAlreadyConfirmedTransaction() {
     final Account sender = mock(Account.class);
     when(sender.getNonce()).thenReturn(5L);
