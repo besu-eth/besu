@@ -284,8 +284,9 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                     SnapServer::calculateBlockAccessListEncodedSize));
         for (final Hash blockHash : blockHashes) {
           requestedCount++;
+          // BALs from the block cache have no RLP bytes
           final Optional<BlockAccessList> maybeBlockAccessList =
-              blockchain.getBlockAccessList(blockHash);
+              blockchain.getBlockAccessList(blockHash).map(BlockAccessList::withRawRlp);
 
           if (blockAccessListsResponseSizePredicate.test(maybeBlockAccessList)) {
             blockAccessLists.add(maybeBlockAccessList);
@@ -841,11 +842,6 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     if (maybeBlockAccessList.isEmpty()) {
       return 1;
     }
-    final BlockAccessList blockAccessList = maybeBlockAccessList.get();
-    if (blockAccessList.rawRlp().isPresent()) {
-      return blockAccessList.rawRlp().get().size();
-    } else {
-      throw new IllegalStateException("Expected BAL read from storage to contain RLP bytes");
-    }
+    return maybeBlockAccessList.get().rawRlp().orElseThrow().size();
   }
 }

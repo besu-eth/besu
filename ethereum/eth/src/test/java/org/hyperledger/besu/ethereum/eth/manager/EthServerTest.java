@@ -520,6 +520,33 @@ public class EthServerTest {
   }
 
   @Test
+  public void shouldServeCachedBlockAccessListWithoutRawRlp() {
+    setupEthServer();
+
+    final Hash cachedHash = dataGenerator.hash();
+    final Hash unavailableHash = dataGenerator.hash();
+    final Hash storedHash = dataGenerator.hash();
+    // BALs built during block execution, as held by the block cache, have no RLP bytes
+    final BlockAccessList cached =
+        new BlockAccessList(dataGenerator.blockAccessList().accountChanges());
+    final BlockAccessList stored = dataGenerator.blockAccessList();
+
+    when(blockchain.getBlockAccessList(cachedHash)).thenReturn(Optional.of(cached));
+    when(blockchain.getBlockAccessList(unavailableHash)).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessList(storedHash)).thenReturn(Optional.of(stored));
+
+    final GetBlockAccessListsMessage request =
+        GetBlockAccessListsMessage.create(List.of(cachedHash, unavailableHash, storedHash));
+
+    final BlockAccessListsMessage expected =
+        BlockAccessListsMessage.create(
+            List.of(Optional.of(cached), Optional.empty(), Optional.of(stored)));
+
+    assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
+        .contains(expected);
+  }
+
+  @Test
   public void shouldLimitBlockAccessListsByCount() {
     final int count = 10;
     final int limit = 6;

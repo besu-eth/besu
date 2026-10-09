@@ -262,6 +262,40 @@ public class MainnetBlockValidatorTest {
   }
 
   @Test
+  public void validateAndProcessBlock_returnsSuppliedBalWithItsRlpInsteadOfExecutedBal() {
+    final BlockAccessList executed =
+        new BlockAccessList(
+            List.of(
+                new BlockAccessList.AccountChanges(
+                    Address.fromHexString("0x1000000000000000000000000000000000000001"),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of())));
+    final Optional<BlockAccessList> supplied = Optional.of(executed.withRawRlp());
+    when(blockProcessor.processBlock(eq(protocolContext), any(), any(), any(), eq(supplied)))
+        .thenReturn(
+            new BlockProcessingResult(
+                Optional.of(
+                    new BlockProcessingOutputs(
+                        worldState, List.of(), Optional.empty(), Optional.of(executed)))));
+
+    BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY,
+            supplied,
+            true);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(result.getYield().flatMap(BlockProcessingOutputs::getBlockAccessList))
+        .containsSame(supplied.get());
+  }
+
+  @Test
   public void validateAndProcessBlock_whenTransactionExceedsBlockGasLimit() {
     final Transaction oversizedTransaction = mock(Transaction.class);
     when(oversizedTransaction.getGasLimit()).thenReturn(block.getHeader().getGasLimit() + 1);

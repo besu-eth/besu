@@ -108,6 +108,32 @@ class SnapServerBlockAccessListsTest {
   }
 
   @Test
+  void shouldServeCachedBlockAccessListWithoutRawRlp() {
+    final Hash cachedHash = dataGenerator.hash();
+    final Hash unavailableHash = dataGenerator.hash();
+    final Hash storedHash = dataGenerator.hash();
+    // BALs built during block execution, as held by the block cache, have no RLP bytes
+    final BlockAccessList cached =
+        new BlockAccessList(dataGenerator.blockAccessListWithCodeSize(32).accountChanges());
+    final BlockAccessList stored = dataGenerator.blockAccessListWithCodeSize(32);
+
+    when(blockchain.getBlockAccessList(cachedHash)).thenReturn(Optional.of(cached));
+    when(blockchain.getBlockAccessList(unavailableHash)).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessList(storedHash)).thenReturn(Optional.of(stored));
+
+    final GetBlockAccessListsMessage request =
+        GetBlockAccessListsMessage.create(List.of(cachedHash, unavailableHash, storedHash));
+
+    final BlockAccessListsMessage response =
+        (BlockAccessListsMessage)
+            snapServer.constructGetBlockAccessListsResponse(
+                request.wrapMessageData(BigInteger.ONE));
+
+    assertThat(response.blockAccessLists(false))
+        .containsExactly(Optional.of(cached), Optional.empty(), Optional.of(stored));
+  }
+
+  @Test
   void shouldSoftLimitBlockAccessListsByMessageSize() {
     final Hash firstHash = dataGenerator.hash();
     final Hash secondHash = dataGenerator.hash();

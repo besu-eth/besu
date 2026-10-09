@@ -384,16 +384,12 @@ class EthServer {
       }
       count++;
 
+      // BALs from the block cache have no RLP bytes
       final Optional<BlockAccessList> maybeBlockAccessList =
-          blockchain.getBlockAccessList(blockHash);
+          blockchain.getBlockAccessList(blockHash).map(BlockAccessList::withRawRlp);
       final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
       if (maybeBlockAccessList.isPresent()) {
-        final BlockAccessList blockAccessList = maybeBlockAccessList.get();
-        if (blockAccessList.rawRlp().isPresent()) {
-          balOutput.writeBytes(blockAccessList.rawRlp().get());
-        } else {
-          throw new IllegalStateException("Expected BAL read from storage to contain RLP bytes");
-        }
+        balOutput.writeBytes(maybeBlockAccessList.get().rawRlp().orElseThrow());
       } else {
         balOutput.writeBytes(Bytes.EMPTY);
       }

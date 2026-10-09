@@ -228,8 +228,14 @@ public class MainnetBlockValidator implements BlockValidator {
             result.getYield().map(BlockProcessingOutputs::getReceipts).orElse(new ArrayList<>());
         Optional<List<Request>> maybeRequests =
             result.getYield().flatMap(BlockProcessingOutputs::getRequests);
+        // A supplied BAL matched the header like the executed one, and already has its RLP bytes
         Optional<BlockAccessList> processedBlockAccessList =
-            result.getYield().flatMap(BlockProcessingOutputs::getBlockAccessList);
+            result
+                .getYield()
+                .flatMap(BlockProcessingOutputs::getBlockAccessList)
+                .map(
+                    executed ->
+                        blockAccessList.filter(bal -> bal.rawRlp().isPresent()).orElse(executed));
         Map<Long, Hash> accessedAncestors =
             result.getYield().map(BlockProcessingOutputs::getAccessedAncestors).orElse(Map.of());
         long cumulativeBlockGasUsed =

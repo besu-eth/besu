@@ -95,6 +95,11 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     return output.encoded();
   }
 
+  /** Returns this BAL with its RLP bytes, encoding it if they are missing. */
+  public BlockAccessList withRawRlp() {
+    return rawRlp.isPresent() ? this : new BlockAccessList(accountChanges, encode());
+  }
+
   public static BlockAccessListBuilder builder() {
     return new BlockAccessListBuilder();
   }
