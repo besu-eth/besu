@@ -58,11 +58,8 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
   private long nonce;
   private Wei balance;
 
-  @Nullable private Bytes updatedCode; // Null if the underlying code has not been updated.
-  private final Bytes oldCode;
-  @Nullable private Hash updatedCodeHash;
-  private final Hash oldCodeHash;
-  @Nullable private Code code; // Null until requested and after the code is updated.
+  private final Code oldCode;
+  @Nullable private Code updatedCode; // Null if the underlying code has not been updated.
 
   // Only contains updated storage entries, but may contain entry with a value of 0 to signify
   // deletion.
@@ -84,9 +81,8 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     this.nonce = 0;
     this.balance = Wei.ZERO;
 
-    this.updatedCode = Bytes.EMPTY;
-    this.oldCode = Bytes.EMPTY;
-    this.oldCodeHash = Hash.EMPTY;
+    this.updatedCode = Code.EMPTY_CODE;
+    this.oldCode = Code.EMPTY_CODE;
     this.updatedStorage = new TreeMap<>();
   }
 
@@ -108,15 +104,18 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     this.nonce = account.getNonce();
     this.balance = account.getBalance();
 
-    this.oldCode = account.getCode();
-    this.oldCodeHash = account.getCodeHash();
-
     this.updatedStorage = new TreeMap<>();
 
     // if the original account to be tracked is a BonsaiAccount, we can use its code cache.
     final CodeCache codeCache = account.getCodeCache();
     if (codeCache != null) {
       this.codeCache = codeCache;
+      // The wrapped account keeps its code with the jump destination analysis done on it, which a
+      // new instance would repeat each time the shared cache has evicted the code.
+      this.oldCode = account.getOrCreateCachedCode();
+    } else {
+      // Without a cache the wrapped account may read its code from storage again on each request.
+      this.oldCode = new Code(account.getCode(), account.getCodeHash());
     }
   }
 
@@ -207,81 +206,55 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
 
   @Override
   public Bytes getCode() {
-    // Note that we set code for new account, so it's only null if account isn't.
-    return updatedCode == null ? oldCode : updatedCode;
+    return currentCode().getBytes();
   }
 
   @Override
   public Hash getCodeHash() {
-    if (updatedCode == null) {
-      // Note that we set code for new account, so it's only null if account isn't.
-      return oldCodeHash;
-    } else {
-      // Cache the hash of updated code to avoid DOS attacks which repeatedly request hash
-      // of updated code and cause us to regenerate it.
-      if (updatedCodeHash == null) {
-        updatedCodeHash = Hash.hash(updatedCode);
-      }
-      return updatedCodeHash;
-    }
+    // Code computes the hash of updated code only once, so requesting it repeatedly is cheap.
+    return currentCode().getCodeHash();
   }
 
   @Override
   public boolean hasCode() {
-    // Note that we set code for new account, so it's only null if account isn't.
-    return updatedCode == null ? !oldCode.isEmpty() : !updatedCode.isEmpty();
+    return currentCode().getSize() > 0;
   }
 
   @Override
-  public void setCode(final Bytes code) {
+  public void setCode(@Nullable final Bytes code) {
     if (immutable) {
       throw new ModificationNotAllowedException();
     }
-    this.updatedCode = code;
-    this.updatedCodeHash = null;
-    this.code = null;
+    if (code == null) {
+      // the genesis allocation passes null for accounts without code
+      this.updatedCode = null;
+    } else {
+      this.updatedCode = code.isEmpty() ? Code.EMPTY_CODE : new Code(code);
+    }
   }
 
   @Override
   public Code getOrCreateCachedCode() {
-    if (code == null) {
-      code = loadCode();
+    if (updatedCode == null) {
+      return oldCode;
     }
-    return code;
-  }
-
-  private Code loadCode() {
-    final Hash codeHash = getCodeHash();
-    if (Hash.EMPTY.getBytes().equals(codeHash.getBytes())) {
-      return Code.EMPTY_CODE;
-    }
-    // The wrapped account keeps its code with the jump destination analysis done on it, which a
-    // new instance would repeat each time the shared cache has evicted the code. Without a cache
-    // the wrapped account may read its code from storage again, so build it from oldCode instead.
-    if (codeCache != null
-        && updatedCode == null
-        && account != null
-        && account.getCodeHash().equals(oldCodeHash)) {
-      return account.getOrCreateCachedCode();
+    if (codeCache == null || updatedCode.getSize() == 0) {
+      return updatedCode;
     }
 
-    // if it is not a BonsaiAccount, we don't have access to the code cache
-    // so we just return the code as is.
-    if (codeCache == null) {
-      return new Code(getCode(), codeHash);
-    }
-
-    // if the code already exists in the cache, return it
+    // share one instance of the updated code, so its jump destinations are only analysed once
+    final Hash codeHash = updatedCode.getCodeHash();
     final Code cachedCode = codeCache.getIfPresent(codeHash);
     if (cachedCode != null) {
-      return cachedCode;
+      updatedCode = cachedCode;
+    } else {
+      codeCache.put(codeHash, updatedCode);
     }
+    return updatedCode;
+  }
 
-    // if the code is not in the cache, create a new Code instance and put it in the cache
-    final Code newCode = new Code(getCode(), codeHash);
-    codeCache.put(getCodeHash(), newCode);
-
-    return newCode;
+  private Code currentCode() {
+    return updatedCode == null ? oldCode : updatedCode;
   }
 
   /** Mark transaction boundary. */
@@ -383,6 +356,10 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     }
     return String.format(
         "%s -> {nonce: %s, balance:%s, code:%s, storage:%s }",
-        address, nonce, balance, updatedCode == null ? "[not updated]" : updatedCode, storage);
+        address,
+        nonce,
+        balance,
+        updatedCode == null ? "[not updated]" : updatedCode.getBytes(),
+        storage);
   }
 }
