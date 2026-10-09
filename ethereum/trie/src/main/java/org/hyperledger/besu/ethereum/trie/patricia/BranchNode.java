@@ -14,16 +14,15 @@
  */
 package org.hyperledger.besu.ethereum.trie.patricia;
 
-import static org.hyperledger.besu.crypto.Hash.keccak256;
-
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.Keccak256;
 import org.hyperledger.besu.ethereum.trie.LocationNodeVisitor;
+import org.hyperledger.besu.ethereum.trie.Nibbles;
 import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.NodeFactory;
 import org.hyperledger.besu.ethereum.trie.NodeVisitor;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
+import org.hyperledger.besu.ethereum.trie.TrieRlp;
 
 import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
@@ -35,32 +34,30 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.bytes.MutableBytes;
 
 public class BranchNode<V> implements Node<V> {
 
   @SuppressWarnings("rawtypes")
   protected static final Node NULL_NODE = NullNode.instance();
 
-  private final Optional<Bytes> location;
+  private final byte[] location;
   private final List<Node<V>> children;
   private final Optional<V> value;
   protected final NodeFactory<V> nodeFactory;
   private final Function<V, Bytes> valueSerializer;
-  protected WeakReference<Bytes> encodedBytes;
-  private SoftReference<Bytes32> hash;
+  protected WeakReference<byte[]> encodedBytes;
+  private SoftReference<byte[]> hash;
   private boolean dirty = false;
   private boolean needHeal = false;
 
   public BranchNode(
-      final Bytes location,
+      final byte[] location,
       final List<Node<V>> children,
       final Optional<V> value,
       final NodeFactory<V> nodeFactory,
       final Function<V, Bytes> valueSerializer) {
     assert (children.size() == maxChild());
-    this.location = Optional.ofNullable(location);
+    this.location = location;
     this.children = children;
     this.value = value;
     this.nodeFactory = nodeFactory;
@@ -72,17 +69,12 @@ public class BranchNode<V> implements Node<V> {
       final Optional<V> value,
       final NodeFactory<V> nodeFactory,
       final Function<V, Bytes> valueSerializer) {
-    assert (children.size() == maxChild());
-    this.location = Optional.empty();
-    this.children = children;
-    this.value = value;
-    this.nodeFactory = nodeFactory;
-    this.valueSerializer = valueSerializer;
+    this(null, children, value, nodeFactory, valueSerializer);
   }
 
   @Override
-  public Node<V> accept(final PathNodeVisitor<V> visitor, final Bytes path) {
-    return visitor.visit(this, path);
+  public Node<V> accept(final PathNodeVisitor<V> visitor, final byte[] path, final int offset) {
+    return visitor.visit(this, path, offset);
   }
 
   @Override
@@ -91,18 +83,18 @@ public class BranchNode<V> implements Node<V> {
   }
 
   @Override
-  public void accept(final Bytes location, final LocationNodeVisitor<V> visitor) {
+  public void accept(final byte[] location, final LocationNodeVisitor<V> visitor) {
     visitor.visit(location, this);
   }
 
   @Override
-  public Optional<Bytes> getLocation() {
+  public byte[] location() {
     return location;
   }
 
   @Override
-  public Bytes getPath() {
-    return Bytes.EMPTY;
+  public byte[] path() {
+    return Nibbles.EMPTY;
   }
 
   @Override
@@ -120,53 +112,49 @@ public class BranchNode<V> implements Node<V> {
   }
 
   @Override
-  public Bytes getEncodedBytes() {
+  public byte[] encoded() {
     if (encodedBytes != null) {
-      final Bytes encoded = encodedBytes.get();
+      final byte[] encoded = encodedBytes.get();
       if (encoded != null) {
         return encoded;
       }
     }
-    final BytesValueRLPOutput out = new BytesValueRLPOutput();
-    out.startList();
-    for (int i = 0; i < maxChild(); ++i) {
-      out.writeRaw(children.get(i).getEncodedBytesRef());
+    final int maxChild = maxChild();
+    final byte[] serializedValue =
+        value.isPresent() ? valueSerializer.apply(value.get()).toArrayUnsafe() : null;
+    int payloadSize = serializedValue == null ? 1 : TrieRlp.bytesSize(serializedValue);
+    for (int i = 0; i < maxChild; ++i) {
+      payloadSize += children.get(i).encodedRefSize();
     }
-    if (value.isPresent()) {
-      out.writeBytes(valueSerializer.apply(value.get()));
+    final byte[] encoded = new byte[TrieRlp.listSize(payloadSize)];
+    int pos = TrieRlp.writeListHeader(encoded, 0, payloadSize);
+    for (int i = 0; i < maxChild; ++i) {
+      pos = children.get(i).writeEncodedRef(encoded, pos);
+    }
+    if (serializedValue == null) {
+      encoded[pos] = TrieRlp.NULL;
     } else {
-      out.writeNull();
+      TrieRlp.writeBytes(encoded, pos, serializedValue);
     }
-    out.endList();
-    final Bytes encoded = out.encoded();
     encodedBytes = new WeakReference<>(encoded);
     return encoded;
   }
 
   @Override
-  public Bytes getEncodedBytesRef() {
-    if (isReferencedByHash()) {
-      return RLP.encodeOne(getHash());
-    } else {
-      return getEncodedBytes();
-    }
-  }
-
-  @Override
-  public Bytes32 getHash() {
+  public byte[] hash() {
     if (hash != null) {
-      final Bytes32 hashed = hash.get();
+      final byte[] hashed = hash.get();
       if (hashed != null) {
         return hashed;
       }
     }
-    final Bytes32 hashed = keccak256(getEncodedBytes());
+    final byte[] hashed = Keccak256.hash(encoded());
     hash = new SoftReference<>(hashed);
     return hashed;
   }
 
   @Override
-  public Node<V> replacePath(final Bytes newPath) {
+  public Node<V> replacePath(final byte[] newPath) {
     return nodeFactory.createExtension(newPath, this);
   }
 
@@ -181,7 +169,7 @@ public class BranchNode<V> implements Node<V> {
 
     if (updatedChild == NULL_NODE) {
       if (value.isPresent() && !hasChildren()) {
-        return nodeFactory.createLeaf(Bytes.of(index), value.get());
+        return nodeFactory.createLeaf(new byte[] {index}, value.get());
       } else if (value.isEmpty() && allowFlatten) {
         final Optional<Node<V>> flattened = maybeFlatten(newChildren);
         if (flattened.isPresent()) {
@@ -198,7 +186,7 @@ public class BranchNode<V> implements Node<V> {
       final List<Node<V>> updatedChildren, final boolean allowFlatten) {
     final ArrayList<Node<V>> newChildren = new ArrayList<>(updatedChildren);
     if (value.isPresent() && !hasChildren()) {
-      return nodeFactory.createLeaf(getPath(), value.get());
+      return nodeFactory.createLeaf(path(), value.get());
     } else if (value.isEmpty() && allowFlatten) {
       final Optional<Node<V>> flattened = maybeFlatten(newChildren);
       if (flattened.isPresent()) {
@@ -237,11 +225,7 @@ public class BranchNode<V> implements Node<V> {
     if (onlyChildIndex >= 0) {
       // replace the path of the only child and return it
       final Node<V> onlyChild = children.get(onlyChildIndex);
-      final Bytes onlyChildPath = onlyChild.getPath();
-      final MutableBytes completePath = MutableBytes.create(1 + onlyChildPath.size());
-      completePath.set(0, (byte) onlyChildIndex);
-      onlyChildPath.copyTo(completePath, 1);
-      return Optional.of(onlyChild.replacePath(completePath));
+      return Optional.of(onlyChild.replacePath(Nibbles.prepend(onlyChildIndex, onlyChild.path())));
     }
     return Optional.empty();
   }
@@ -264,7 +248,7 @@ public class BranchNode<V> implements Node<V> {
   public String print() {
     final StringBuilder builder = new StringBuilder();
     builder.append("Branch:");
-    builder.append("\n\tRef: ").append(getEncodedBytesRef());
+    builder.append("\n\tRef: ").append(Nibbles.toHexString(encodedRef()));
     for (int i = 0; i < maxChild(); i++) {
       final Node<V> child = child((byte) i);
       if (!Objects.equals(child, NullNode.instance())) {

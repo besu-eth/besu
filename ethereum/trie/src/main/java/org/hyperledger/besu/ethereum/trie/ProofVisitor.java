@@ -22,8 +22,6 @@ import org.hyperledger.besu.ethereum.trie.patricia.LeafNode;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.tuweni.bytes.Bytes;
-
 public class ProofVisitor<V> extends GetVisitor<V> implements PathNodeVisitor<V> {
 
   private final Node<V> rootNode;
@@ -34,26 +32,26 @@ public class ProofVisitor<V> extends GetVisitor<V> implements PathNodeVisitor<V>
   }
 
   @Override
-  public Node<V> visit(final ExtensionNode<V> extensionNode, final Bytes path) {
+  public Node<V> visit(final ExtensionNode<V> extensionNode, final byte[] path, final int offset) {
     maybeTrackNode(extensionNode);
-    return super.visit(extensionNode, path);
+    return super.visit(extensionNode, path, offset);
   }
 
   @Override
-  public Node<V> visit(final BranchNode<V> branchNode, final Bytes path) {
+  public Node<V> visit(final BranchNode<V> branchNode, final byte[] path, final int offset) {
     maybeTrackNode(branchNode);
-    return super.visit(branchNode, path);
+    return super.visit(branchNode, path, offset);
   }
 
   @Override
-  public Node<V> visit(final LeafNode<V> leafNode, final Bytes path) {
+  public Node<V> visit(final LeafNode<V> leafNode, final byte[] path, final int offset) {
     maybeTrackNode(leafNode);
-    return super.visit(leafNode, path);
+    return super.visit(leafNode, path, offset);
   }
 
   @Override
-  public Node<V> visit(final NullNode<V> nullNode, final Bytes path) {
-    return super.visit(nullNode, path);
+  public Node<V> visit(final NullNode<V> nullNode, final byte[] path, final int offset) {
+    return super.visit(nullNode, path, offset);
   }
 
   public List<Node<V>> getProof() {

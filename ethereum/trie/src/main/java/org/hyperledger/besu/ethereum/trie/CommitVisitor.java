@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.trie.patricia.ExtensionNode;
 import org.hyperledger.besu.ethereum.trie.patricia.LeafNode;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 public class CommitVisitor<V> implements LocationNodeVisitor<V> {
 
@@ -29,52 +30,51 @@ public class CommitVisitor<V> implements LocationNodeVisitor<V> {
   }
 
   @Override
-  public void visit(final Bytes location, final ExtensionNode<V> extensionNode) {
+  public void visit(final byte[] location, final ExtensionNode<V> extensionNode) {
     if (!extensionNode.isDirty()) {
       return;
     }
 
     final Node<V> child = extensionNode.getChild();
     if (child.isDirty()) {
-      child.accept(Bytes.concatenate(location, extensionNode.getPath()), this);
+      child.accept(Nibbles.concat(location, extensionNode.path()), this);
     }
 
-    maybeStoreNode(location, extensionNode);
+    maybeStoreNode(Bytes.wrap(location), extensionNode);
   }
 
   @Override
-  public void visit(final Bytes location, final BranchNode<V> branchNode) {
+  public void visit(final byte[] location, final BranchNode<V> branchNode) {
     if (!branchNode.isDirty()) {
       return;
     }
 
     for (int i = 0; i < branchNode.maxChild(); ++i) {
-      Bytes index = Bytes.of(i);
       final Node<V> child = branchNode.child((byte) i);
       if (child.isDirty()) {
-        child.accept(Bytes.concatenate(location, index), this);
+        child.accept(Nibbles.append(location, i), this);
       }
     }
 
-    maybeStoreNode(location, branchNode);
+    maybeStoreNode(Bytes.wrap(location), branchNode);
   }
 
   @Override
-  public void visit(final Bytes location, final LeafNode<V> leafNode) {
+  public void visit(final byte[] location, final LeafNode<V> leafNode) {
     if (!leafNode.isDirty()) {
       return;
     }
 
-    maybeStoreNode(location, leafNode);
+    maybeStoreNode(Bytes.wrap(location), leafNode);
   }
 
   @Override
-  public void visit(final Bytes location, final NullNode<V> nullNode) {}
+  public void visit(final byte[] location, final NullNode<V> nullNode) {}
 
   public void maybeStoreNode(final Bytes location, final Node<V> node) {
-    final Bytes nodeRLP = node.getEncodedBytes();
-    if (nodeRLP.size() >= 32) {
-      this.nodeUpdater.store(location, node.getHash(), nodeRLP);
+    final byte[] nodeRLP = node.encoded();
+    if (nodeRLP.length >= 32) {
+      this.nodeUpdater.store(location, Bytes32.wrap(node.hash()), Bytes.wrap(nodeRLP));
     }
   }
 }

@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie;
 
-import org.hyperledger.besu.ethereum.rlp.RLP;
-
 import java.util.List;
 import java.util.Optional;
 
@@ -25,14 +23,18 @@ import org.apache.tuweni.bytes.Bytes32;
 public class StoredNode<V> implements Node<V> {
 
   private final NodeFactory<V> nodeFactory;
-  private final Bytes location;
-  private final Bytes32 hash;
+  private final byte[] location;
+  private final byte[] hash;
   private Node<V> loaded;
 
-  public StoredNode(final NodeFactory<V> nodeFactory, final Bytes location, final Bytes32 hash) {
+  public StoredNode(final NodeFactory<V> nodeFactory, final byte[] location, final byte[] hash) {
     this.nodeFactory = nodeFactory;
     this.location = location;
     this.hash = hash;
+  }
+
+  public StoredNode(final NodeFactory<V> nodeFactory, final Bytes location, final Bytes32 hash) {
+    this(nodeFactory, location == null ? null : location.toArray(), hash.toArray());
   }
 
   /**
@@ -62,9 +64,9 @@ public class StoredNode<V> implements Node<V> {
   }
 
   @Override
-  public Node<V> accept(final PathNodeVisitor<V> visitor, final Bytes path) {
+  public Node<V> accept(final PathNodeVisitor<V> visitor, final byte[] path, final int offset) {
     final Node<V> node = load();
-    return node.accept(visitor, path);
+    return node.accept(visitor, path, offset);
   }
 
   @Override
@@ -74,19 +76,19 @@ public class StoredNode<V> implements Node<V> {
   }
 
   @Override
-  public void accept(final Bytes location, final LocationNodeVisitor<V> visitor) {
+  public void accept(final byte[] location, final LocationNodeVisitor<V> visitor) {
     final Node<V> node = load();
     node.accept(location, visitor);
   }
 
   @Override
-  public Bytes getPath() {
-    return load().getPath();
+  public byte[] path() {
+    return load().path();
   }
 
   @Override
-  public Optional<Bytes> getLocation() {
-    return Optional.ofNullable(location);
+  public byte[] location() {
+    return location;
   }
 
   @Override
@@ -100,14 +102,8 @@ public class StoredNode<V> implements Node<V> {
   }
 
   @Override
-  public Bytes getEncodedBytes() {
-    return load().getEncodedBytes();
-  }
-
-  @Override
-  public Bytes getEncodedBytesRef() {
-    // If this node was stored, then it must have a rlp larger than a hash
-    return RLP.encodeOne(hash);
+  public byte[] encoded() {
+    return load().encoded();
   }
 
   @Override
@@ -117,12 +113,23 @@ public class StoredNode<V> implements Node<V> {
   }
 
   @Override
-  public Bytes32 getHash() {
+  public int encodedRefSize() {
+    // If this node was stored, then it must have a rlp larger than a hash
+    return TrieRlp.HASH_REF_SIZE;
+  }
+
+  @Override
+  public int writeEncodedRef(final byte[] out, final int pos) {
+    return TrieRlp.writeHash(out, pos, hash);
+  }
+
+  @Override
+  public byte[] hash() {
     return hash;
   }
 
   @Override
-  public Node<V> replacePath(final Bytes path) {
+  public Node<V> replacePath(final byte[] path) {
     return load().replacePath(path);
   }
 
@@ -135,11 +142,11 @@ public class StoredNode<V> implements Node<V> {
                   () ->
                       new MerkleTrieException(
                           "Unable to load trie node value for hash "
-                              + hash
+                              + Nibbles.toHexString(hash)
                               + " location "
-                              + location,
-                          hash,
-                          location));
+                              + Nibbles.toHexString(location),
+                          Bytes32.wrap(hash),
+                          location == null ? null : Bytes.wrap(location)));
     }
 
     return loaded;
@@ -153,7 +160,7 @@ public class StoredNode<V> implements Node<V> {
   @Override
   public String print() {
     if (loaded == null) {
-      return "StoredNode:" + "\n\tRef: " + getEncodedBytesRef();
+      return "StoredNode:" + "\n\tRef: " + Nibbles.toHexString(encodedRef());
     } else {
       return load().print();
     }

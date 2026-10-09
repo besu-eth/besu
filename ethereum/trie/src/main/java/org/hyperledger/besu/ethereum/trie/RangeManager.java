@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.InnerNodeDiscoveryManager.InnerNode;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 
@@ -30,8 +29,6 @@ import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.bytes.MutableBytes;
-import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * This class helps to generate ranges according to several parameters (the start and the end of the
@@ -175,7 +172,7 @@ public class RangeManager {
     final Bytes32 probeStart = receivedKeys.isEmpty() ? startKeyHash : receivedKeys.lastKey();
     final Map<Bytes32, Bytes> proofsEntries = new HashMap<>();
     for (Bytes proof : proofs) {
-      proofsEntries.put(Bytes32.wrap(Hash.hash(proof).getBytes()), proof);
+      proofsEntries.put(Bytes32.wrap(Keccak256.hash(proof.toArrayUnsafe())), proof);
     }
     final InnerNodeDiscoveryManager<Bytes> manager =
         new InnerNodeDiscoveryManager<>(
@@ -200,12 +197,15 @@ public class RangeManager {
     // any in-range leaf the responder omitted.
     Bytes32 firstOmitted = null;
     for (InnerNode innerNode : manager.getInnerNodes()) {
-      final Bytes concatenated = Bytes.concatenate(innerNode.location(), innerNode.path());
-      if (concatenated.size() != Bytes32.SIZE * 2 + 1) {
+      final byte[] concatenated =
+          Nibbles.concat(innerNode.location().toArrayUnsafe(), innerNode.path().toArrayUnsafe());
+      if (concatenated.length != Bytes32.SIZE * 2 + 1) {
         continue;
       }
       final Bytes32 leafKey =
-          InnerNodeDiscoveryManager.decodePath(concatenated.slice(0, concatenated.size() - 1));
+          Bytes32.wrap(
+              InnerNodeDiscoveryManager.decodePath(
+                  Nibbles.slice(concatenated, 0, concatenated.length - 1)));
       if (leafKey.compareTo(probeStart) <= 0 || leafKey.compareTo(endKeyHash) > 0) {
         continue;
       }
@@ -220,26 +220,28 @@ public class RangeManager {
   }
 
   private static Bytes32 format(final BigInteger data) {
-    return Bytes32.leftPad(Bytes.of(data.toByteArray()).trimLeadingZeros());
+    final byte[] bytes = data.toByteArray();
+    final int length = Math.min(bytes.length, Bytes32.SIZE);
+    final byte[] result = new byte[Bytes32.SIZE];
+    System.arraycopy(bytes, bytes.length - length, result, Bytes32.SIZE - length, length);
+    return Bytes32.wrap(result);
   }
 
   /**
    * Checks if a given location is within a specified range. This method determines whether a given
-   * location (represented as {@link Bytes}) falls within the range defined by a start key path and
-   * an end key path.
+   * location falls within the range defined by a start key path and an end key path.
    *
-   * @param location The location to check, represented as {@link Bytes}.
-   * @param startKeyPath The start of the range as path, represented as {@link Bytes}.
-   * @param endKeyPath The end of the range as path, represented as {@link Bytes}.
+   * @param location The location to check, as nibbles.
+   * @param startKeyPath The start of the range as path.
+   * @param endKeyPath The end of the range as path.
    * @return {@code true} if the location is within the range (inclusive); {@code false} otherwise.
    */
   public static boolean isInRange(
-      final Bytes location, final Bytes startKeyPath, final Bytes endKeyPath) {
-    final MutableBytes path = MutableBytes.create(Bytes32.SIZE * 2);
-    path.set(0, location);
-    return !location.isEmpty()
-        && Arrays.compare(path.toArrayUnsafe(), startKeyPath.toArrayUnsafe()) >= 0
-        && Arrays.compare(path.toArrayUnsafe(), endKeyPath.toArrayUnsafe()) <= 0;
+      final byte[] location, final byte[] startKeyPath, final byte[] endKeyPath) {
+    final byte[] path = Arrays.copyOf(location, Bytes32.SIZE * 2);
+    return location.length > 0
+        && Arrays.compare(path, startKeyPath) >= 0
+        && Arrays.compare(path, endKeyPath) <= 0;
   }
 
   /**
@@ -248,29 +250,32 @@ public class RangeManager {
    * length of the input byte sequence.
    *
    * @param bytes The byte sequence to be transformed into a path.
-   * @return A {@link Bytes} object representing the newly formed path.
+   * @return the newly formed path.
    */
-  public static Bytes createPath(final Bytes bytes) {
-    final MutableBytes path = MutableBytes.create(bytes.size() * 2);
+  public static byte[] createPath(final byte[] bytes) {
+    final byte[] path = new byte[bytes.length * 2];
     int j = 0;
-    for (int i = 0; i < bytes.size(); i += 1, j += 2) {
-      final byte b = bytes.get(i);
-      path.set(j, (byte) ((b >>> 4) & 0x0f));
-      path.set(j + 1, (byte) (b & 0x0f));
+    for (int i = 0; i < bytes.length; i += 1, j += 2) {
+      final byte b = bytes[i];
+      path[j] = (byte) ((b >>> 4) & 0x0f);
+      path[j + 1] = (byte) (b & 0x0f);
     }
     return path;
   }
 
   public static Bytes32 prevKey(final Bytes32 key) {
-    return UInt256.fromBytes(key).subtract(UInt256.ONE);
+    final byte[] prev = key.toArray();
+    for (int i = prev.length - 1; i >= 0; i--) {
+      if (prev[i]-- != 0) {
+        break;
+      }
+    }
+    return Bytes32.wrap(prev);
   }
 
   public static Bytes32 nextKey(final Bytes32 key) {
-    final UInt256 next = UInt256.fromBytes(key).add(UInt256.ONE);
-    if (next.isZero()) {
-      throw new IllegalArgumentException("Hash overflow: " + key);
-    }
-    return next;
+    return incrementBytes32(key)
+        .orElseThrow(() -> new IllegalArgumentException("Hash overflow: " + key));
   }
 
   /**
@@ -279,7 +284,12 @@ public class RangeManager {
    * paginating trie entries use the empty result to terminate the loop.
    */
   public static Optional<Bytes32> incrementBytes32(final Bytes32 value) {
-    final UInt256 incremented = UInt256.fromBytes(value).add(UInt256.ONE);
-    return incremented.isZero() ? Optional.empty() : Optional.of(incremented);
+    final byte[] next = value.toArray();
+    for (int i = next.length - 1; i >= 0; i--) {
+      if (++next[i] != 0) {
+        return Optional.of(Bytes32.wrap(next));
+      }
+    }
+    return Optional.empty();
   }
 }

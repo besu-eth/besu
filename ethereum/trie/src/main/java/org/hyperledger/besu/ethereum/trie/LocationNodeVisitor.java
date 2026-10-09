@@ -18,15 +18,13 @@ import org.hyperledger.besu.ethereum.trie.patricia.BranchNode;
 import org.hyperledger.besu.ethereum.trie.patricia.ExtensionNode;
 import org.hyperledger.besu.ethereum.trie.patricia.LeafNode;
 
-import org.apache.tuweni.bytes.Bytes;
-
 public interface LocationNodeVisitor<V> {
 
-  void visit(Bytes location, ExtensionNode<V> extensionNode);
+  void visit(byte[] location, ExtensionNode<V> extensionNode);
 
-  void visit(Bytes location, BranchNode<V> branchNode);
+  void visit(byte[] location, BranchNode<V> branchNode);
 
-  void visit(Bytes location, LeafNode<V> leafNode);
+  void visit(byte[] location, LeafNode<V> leafNode);
 
-  void visit(Bytes location, NullNode<V> nullNode);
+  void visit(byte[] location, NullNode<V> nullNode);
 }

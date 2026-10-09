@@ -19,16 +19,23 @@ import org.hyperledger.besu.ethereum.trie.patricia.ExtensionNode;
 import org.hyperledger.besu.ethereum.trie.patricia.LeafNode;
 
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.Iterator;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.bytes.MutableBytes;
 
 public class TrieIterator<V> implements PathNodeVisitor<V> {
 
-  private final Deque<Bytes> paths = new ArrayDeque<>();
+  private static final byte[][] SINGLE_NIBBLES = new byte[16][];
+
+  static {
+    for (int i = 0; i < SINGLE_NIBBLES.length; i++) {
+      SINGLE_NIBBLES[i] = new byte[] {(byte) i};
+    }
+  }
+
+  private final Deque<byte[]> paths = new ArrayDeque<>();
   private final LeafHandler<V> leafHandler;
   private State state = State.SEARCHING;
   private final boolean unload;
@@ -39,21 +46,23 @@ public class TrieIterator<V> implements PathNodeVisitor<V> {
   }
 
   @Override
-  public Node<V> visit(final ExtensionNode<V> node, final Bytes searchPath) {
-    Bytes remainingPath = searchPath;
-    final Bytes extensionPath;
-    final Bytes commonPrefixPath;
+  public Node<V> visit(final ExtensionNode<V> node, final byte[] searchPath, final int offset) {
+    byte[] remainingPath = searchPath;
+    int remainingOffset = offset;
     if (state == State.SEARCHING) {
-      extensionPath = node.getPath();
-      commonPrefixPath = searchPath.slice(0, Math.min(searchPath.size(), extensionPath.size()));
-      remainingPath = searchPath.slice(commonPrefixPath.size());
-      if (node.getPath().compareTo(commonPrefixPath) > 0) {
-        remainingPath = MutableBytes.create(remainingPath.size());
+      final byte[] extensionPath = node.path();
+      final int commonPrefixEnd =
+          offset + Math.min(searchPath.length - offset, extensionPath.length);
+      remainingOffset = commonPrefixEnd;
+      if (Arrays.compareUnsigned(
+              extensionPath, 0, extensionPath.length, searchPath, offset, commonPrefixEnd)
+          > 0) {
+        remainingPath = new byte[searchPath.length - commonPrefixEnd];
+        remainingOffset = 0;
       }
     }
-
-    paths.push(node.getPath());
-    node.getChild().accept(this, remainingPath);
+    paths.push(node.path());
+    node.getChild().accept(this, remainingPath, remainingOffset);
     if (unload) {
       node.getChild().unload();
     }
@@ -62,26 +71,25 @@ public class TrieIterator<V> implements PathNodeVisitor<V> {
   }
 
   @Override
-  public Node<V> visit(final BranchNode<V> node, final Bytes searchPath) {
+  public Node<V> visit(final BranchNode<V> node, final byte[] searchPath, final int offset) {
     byte iterateFrom = 0;
-    Bytes remainingPath = searchPath;
+    int remainingOffset = offset;
     if (state == State.SEARCHING) {
-      iterateFrom = searchPath.get(0);
+      iterateFrom = searchPath[offset];
       if (iterateFrom == CompactEncoding.LEAF_TERMINATOR) {
         return node;
       }
-      remainingPath = searchPath.slice(1);
+      remainingOffset = offset + 1;
     }
-    paths.push(node.getPath());
+    paths.push(node.path());
     for (int i = iterateFrom; i < node.maxChild() && state.continueIterating(); i++) {
-      paths.push(Bytes.of(i));
+      paths.push(SINGLE_NIBBLES[i]);
       final Node<V> child = node.child((byte) i);
       if (i == iterateFrom) {
-        child.accept(this, remainingPath);
+        child.accept(this, searchPath, remainingOffset);
       } else {
-        child.accept(this, MutableBytes.create(remainingPath.size()));
+        child.accept(this, new byte[searchPath.length - remainingOffset], 0);
       }
-
       if (unload) {
         child.unload();
       }
@@ -92,8 +100,8 @@ public class TrieIterator<V> implements PathNodeVisitor<V> {
   }
 
   @Override
-  public Node<V> visit(final LeafNode<V> node, final Bytes path) {
-    paths.push(node.getPath());
+  public Node<V> visit(final LeafNode<V> node, final byte[] path, final int offset) {
+    paths.push(node.path());
     state = State.CONTINUE;
     state = leafHandler.onLeaf(keyHash(), node);
     paths.pop();
@@ -101,20 +109,34 @@ public class TrieIterator<V> implements PathNodeVisitor<V> {
   }
 
   @Override
-  public Node<V> visit(final NullNode<V> node, final Bytes path) {
+  public Node<V> visit(final NullNode<V> node, final byte[] path, final int offset) {
     state = State.CONTINUE;
     return node;
   }
 
   private Bytes32 keyHash() {
-    final Iterator<Bytes> iterator = paths.descendingIterator();
-    Bytes fullPath = iterator.next();
-    while (iterator.hasNext()) {
-      fullPath = Bytes.wrap(fullPath, iterator.next());
+    int length = 0;
+    for (final byte[] path : paths) {
+      length += path.length;
     }
-    return fullPath.isZero()
-        ? Bytes32.ZERO
-        : Bytes32.wrap(CompactEncoding.pathToBytes(fullPath), 0);
+    final byte[] fullPath = new byte[length];
+    int pos = 0;
+    final Iterator<byte[]> iterator = paths.descendingIterator();
+    while (iterator.hasNext()) {
+      final byte[] path = iterator.next();
+      System.arraycopy(path, 0, fullPath, pos, path.length);
+      pos += path.length;
+    }
+    return isZero(fullPath) ? Bytes32.ZERO : Bytes32.wrap(CompactEncoding.pathToBytes(fullPath), 0);
+  }
+
+  private static boolean isZero(final byte[] path) {
+    for (final byte nibble : path) {
+      if (nibble != 0) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public interface LeafHandler<V> {
