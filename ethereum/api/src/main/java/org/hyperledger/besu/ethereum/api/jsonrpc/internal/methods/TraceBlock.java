@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParam
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat.RewardTraceGenerator;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -89,6 +90,13 @@ public class TraceBlock extends AbstractBlockParameterMethod {
       throw new InvalidJsonRpcParameters(
           "Invalid block parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
+  }
+
+  @Override
+  protected Object pendingResult(final JsonRpcRequestContext request) {
+    // there is no pending block to trace, so pending is rejected rather than traced as latest
+    return new JsonRpcErrorResponse(
+        request.getRequest().getId(), RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
   }
 
   @Override

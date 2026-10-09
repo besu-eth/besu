@@ -1,0 +1,25 @@
+{
+  "comment": "There is no pending block to replay, so pending is rejected rather than replayed as latest",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_replayBlockTransactions",
+    "params": [
+      "pending",
+      [
+        "trace",
+        "vmTrace",
+        "stateDiff"
+      ]
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid block number params"
+    }
+  },
+  "statusCode": 200
+}

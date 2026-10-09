@@ -123,4 +123,12 @@ public class TraceCall extends AbstractTraceCall {
                 });
     return new TraceExecution(tracer, handler);
   }
+
+  @Override
+  protected Object pendingResult(final JsonRpcRequestContext requestContext) {
+    // calls are not simulated in a pending block environment, so pending is rejected rather than
+    // evaluated as latest; trace_callMany inherits this
+    return new JsonRpcErrorResponse(
+        requestContext.getRequest().getId(), RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
+  }
 }
