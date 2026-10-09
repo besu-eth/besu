@@ -1,0 +1,427 @@
+/*
+ * Copyright contributors to Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.evm.v2.operation;
+
+import static org.hyperledger.besu.evm.frame.SoftFailureReason.LEGACY_INSUFFICIENT_BALANCE;
+import static org.hyperledger.besu.evm.frame.SoftFailureReason.LEGACY_MAX_CALL_DEPTH;
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.clampedToLong;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushLong;
+import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.getTarget;
+import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.getTargetAddress;
+import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDelegation;
+
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.EVM;
+import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.frame.MessageFrame.State;
+import org.hyperledger.besu.evm.frame.SoftFailureReason;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
+
+import org.apache.tuweni.bytes.Bytes;
+
+/**
+ * A skeleton class for implementing call operations on the v2 long[] stack.
+ *
+ * <p>A call operation creates a child message call from the current message context, allows it to
+ * execute, and then updates the current message context based on its execution.
+ */
+public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
+
+  /**
+   * Instantiates a new Abstract call operation.
+   *
+   * @param opcode the opcode
+   * @param name the name
+   * @param stackItemsConsumed the stack items consumed
+   * @param stackItemsProduced the stack items produced
+   * @param gasCalculator the gas calculator
+   */
+  AbstractCallOperationV2(
+      final int opcode,
+      final String name,
+      final int stackItemsConsumed,
+      final int stackItemsProduced,
+      final GasCalculator gasCalculator) {
+    super(opcode, name, stackItemsConsumed, stackItemsProduced, gasCalculator);
+  }
+
+  /**
+   * Returns the additional gas to provide the call operation.
+   *
+   * @param frame The current message frame
+   * @return the additional gas to provide the call operation
+   */
+  protected long gas(final MessageFrame frame) {
+    return clampedToLong(frame.stackDataV2(), frame.stackTopV2(), 0);
+  }
+
+  /**
+   * Returns the account the call is being made to.
+   *
+   * @param frame The current message frame
+   * @return the account the call is being made to
+   */
+  protected abstract Address to(MessageFrame frame);
+
+  /**
+   * Returns the value being transferred in the call
+   *
+   * @param frame The current message frame
+   * @return the value being transferred in the call
+   */
+  protected abstract Wei value(MessageFrame frame);
+
+  /**
+   * Returns the apparent value being transferred in the call
+   *
+   * @param frame The current message frame
+   * @return the apparent value being transferred in the call
+   */
+  protected abstract Wei apparentValue(MessageFrame frame);
+
+  /**
+   * Returns the memory offset the input data starts at.
+   *
+   * @param frame The current message frame
+   * @return the memory offset the input data starts at
+   */
+  protected abstract long inputDataOffset(MessageFrame frame);
+
+  /**
+   * Returns the length of the input data to read from memory.
+   *
+   * @param frame The current message frame
+   * @return the length of the input data to read from memory.
+   */
+  protected abstract long inputDataLength(MessageFrame frame);
+
+  /**
+   * Returns the memory offset the offset data starts at.
+   *
+   * @param frame The current message frame
+   * @return the memory offset the offset data starts at
+   */
+  protected abstract long outputDataOffset(MessageFrame frame);
+
+  /**
+   * Returns the length of the output data to read from memory.
+   *
+   * @param frame The current message frame
+   * @return the length of the output data to read from memory.
+   */
+  protected abstract long outputDataLength(MessageFrame frame);
+
+  /**
+   * Returns the account address the call operation is being performed on
+   *
+   * @param frame The current message frame
+   * @return the account address the call operation is being performed on
+   */
+  protected abstract Address address(MessageFrame frame);
+
+  /**
+   * Returns the account address the call operation is being sent from
+   *
+   * @param frame The current message frame
+   * @return the account address the call operation is being sent from
+   */
+  protected abstract Address sender(MessageFrame frame);
+
+  /**
+   * Returns the gas available to execute the child message call.
+   *
+   * @param frame The current message frame
+   * @return the gas available to execute the child message call
+   */
+  public abstract long gasAvailableForChildCall(MessageFrame frame);
+
+  /**
+   * Returns whether the child message call should be static.
+   *
+   * @param frame The current message frame
+   * @return {@code true} if the child message call should be static; otherwise {@code false}
+   */
+  protected boolean isStatic(final MessageFrame frame) {
+    return frame.isStatic();
+  }
+
+  @Override
+  public OperationResult execute(final MessageFrame frame, final EVM evm) {
+    // all items are checked up front, as some are only read in the complete step
+    if (!frame.stackHasItemsV2(getStackItemsConsumed())) {
+      return UNDERFLOW_RESPONSE;
+    }
+
+    final Address to = to(frame);
+    final boolean accountIsWarm = frame.warmUpAddress(to) || gasCalculator().isPrecompile(to);
+    final long stipend = gas(frame);
+    final long inputDataOffset = inputDataOffset(frame);
+    final long inputDataLength = inputDataLength(frame);
+    final long outputDataOffset = outputDataOffset(frame);
+    final long outputDataLength = outputDataLength(frame);
+    final Wei transferValue = value(frame);
+    final Address recipientAddress = address(frame);
+
+    final long staticCost =
+        gasCalculator()
+            .callOperationStaticGasCost(
+                frame,
+                stipend,
+                inputDataOffset,
+                inputDataLength,
+                outputDataOffset,
+                outputDataLength,
+                transferValue,
+                recipientAddress,
+                accountIsWarm);
+
+    if (frame.getRemainingGas() < staticCost) {
+      return new OperationResult(staticCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    long cost =
+        gasCalculator()
+            .callOperationGasCost(
+                frame,
+                staticCost,
+                stipend,
+                inputDataOffset,
+                inputDataLength,
+                outputDataOffset,
+                outputDataLength,
+                transferValue,
+                recipientAddress,
+                accountIsWarm);
+    if (frame.getRemainingGas() < cost) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    final Account contract = getAccount(to, frame);
+    cost = clampedAdd(cost, gasCalculator().calculateCodeDelegationResolutionGas(frame, contract));
+
+    if (frame.getRemainingGas() < cost) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+    frame.decrementRemainingGas(cost);
+
+    // EIP-8037: Charge state gas for new account creation in CALL. Charge all the gas upfront,
+    // before any further work (and before touching the BAL below).
+    if (callCreatesNewAccount(frame, recipientAddress, transferValue)
+        && !frame.consumeStateGas(gasCalculator().stateGasCostCalculator().newAccountStateGas())) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    // Record the 7702 delegation target in the BAL once the gas checks have passed. getCode() does
+    // this on the success path, but it doesn't run on soft failures (insufficient balance, max
+    // depth) — record it here so the BAL stays accurate either way. Touching only after the gas
+    // checks ensures OOG calls don't add the delegation target to the BAL.
+    if (contract != null) {
+      final Bytes contractCode = contract.getCode();
+      if (hasCodeDelegation(contractCode)) {
+        frame
+            .getEip7928AccessList()
+            .ifPresent(t -> t.addTouchedAccount(getTargetAddress(contractCode)));
+      }
+    }
+
+    frame.clearReturnData();
+
+    final Account account = getAccount(frame.getRecipientAddress(), frame);
+
+    final Wei balance = account == null ? Wei.ZERO : account.getBalance();
+
+    // If the call is sending more value than the account has or the message frame is too deep
+    // return a failed call
+    final boolean insufficientBalance = transferValue.compareTo(balance) > 0;
+    final boolean isFrameDepthTooDeep = frame.getDepth() >= 1024;
+    if (insufficientBalance || isFrameDepthTooDeep) {
+      // EIP-8037: no child frame runs, so no account is created — undo the charge above.
+      refundCallNewAccountStateGas(frame, recipientAddress, transferValue);
+      frame.expandMemory(inputDataOffset, inputDataLength);
+      frame.expandMemory(outputDataOffset, outputDataLength);
+      // For the following, we either increment the gas or return zero, so we don't get double
+      // charged. If we return zero then the traces don't have the right per-opcode cost.
+      final long gasAvailableForChildCall = gasAvailableForChildCall(frame);
+      frame.incrementRemainingGas(gasAvailableForChildCall + cost);
+      popArgumentsAndPushResult(frame, false);
+      final SoftFailureReason softFailureReason =
+          insufficientBalance ? LEGACY_INSUFFICIENT_BALANCE : LEGACY_MAX_CALL_DEPTH;
+      return new OperationResult(cost, 1, softFailureReason, gasAvailableForChildCall);
+    }
+
+    final Bytes inputData = frame.readMutableMemory(inputDataOffset, inputDataLength);
+
+    final Code code = getCode(evm, frame, contract);
+
+    MessageFrame.Builder builder =
+        MessageFrame.builder()
+            .parentMessageFrame(frame)
+            .type(MessageFrame.Type.MESSAGE_CALL)
+            .initialGas(gasAvailableForChildCall(frame))
+            .address(recipientAddress)
+            .contract(to)
+            .inputData(inputData)
+            .sender(sender(frame))
+            .value(transferValue)
+            .apparentValue(apparentValue(frame))
+            .code(code)
+            .isStatic(isStatic(frame))
+            .completer(child -> complete(frame, child));
+
+    if (frame.getEip7928AccessList().isPresent()) {
+      builder.eip7928AccessList(frame.getEip7928AccessList().get());
+    }
+
+    builder.build();
+    // see note in stack depth check about incrementing cost
+    frame.incrementRemainingGas(cost);
+
+    frame.setState(MessageFrame.State.CODE_SUSPENDED);
+    return new OperationResult(cost, null, 0);
+  }
+
+  /**
+   * Complete.
+   *
+   * @param frame the frame
+   * @param childFrame the child frame
+   */
+  public void complete(final MessageFrame frame, final MessageFrame childFrame) {
+    frame.setState(MessageFrame.State.CODE_EXECUTING);
+
+    final long outputOffset = outputDataOffset(frame);
+    final long outputSize = outputDataLength(frame);
+    final Bytes outputData = childFrame.getOutputData();
+
+    if (outputSize > outputData.size()) {
+      frame.expandMemory(outputOffset, outputSize);
+      frame.writeMemory(outputOffset, outputData.size(), outputData, true);
+    } else if (outputSize > 0) {
+      frame.writeMemory(outputOffset, outputSize, outputData, true);
+    }
+
+    frame.setReturnData(outputData);
+    if (!childFrame.getLogs().isEmpty()) {
+      frame.addLogs(childFrame.getLogs());
+    }
+    if (!childFrame.getSelfDestructs().isEmpty()) {
+      frame.addSelfDestructs(childFrame.getSelfDestructs());
+    }
+    if (!childFrame.getCreates().isEmpty()) {
+      frame.addCreates(childFrame.getCreates());
+    }
+
+    final long gasRemaining = childFrame.getRemainingGas();
+    frame.incrementRemainingGas(gasRemaining);
+
+    // On success the parent takes over the child's spill so later refunds can unwind it. On
+    // failure the child already returned it, and no account was created, so undo that charge.
+    if (childFrame.getState() == State.COMPLETED_SUCCESS) {
+      frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+      frame.settleStateGasOnChildSuccess();
+    } else {
+      refundCallNewAccountStateGas(frame, childFrame.getRecipientAddress(), childFrame.getValue());
+    }
+
+    popArgumentsAndPushResult(frame, childFrame.getState() == State.COMPLETED_SUCCESS);
+
+    final int currentPC = frame.getPC();
+    frame.setPC(currentPC + 1);
+  }
+
+  private void popArgumentsAndPushResult(final MessageFrame frame, final boolean success) {
+    final int resultSlot = frame.stackTopV2() - getStackItemsConsumed();
+    pushLong(success ? 1L : 0L, frame.stackDataV2(), resultSlot);
+    frame.setTopV2(resultSlot + 1);
+  }
+
+  /** Whether the CALL transfers value to a non-existent or empty recipient, creating a leaf. */
+  private boolean callCreatesNewAccount(
+      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
+    // Only state-gas metering charges for this, so nothing needs the lookup otherwise.
+    if (transferValue.isZero() || !gasCalculator().stateGasCostCalculator().isActive()) {
+      return false;
+    }
+    final Account recipient = frame.getWorldUpdater().get(recipientAddress);
+    return recipient == null || recipient.isEmpty();
+  }
+
+  /** Re-tests the charge condition, so this is a no-op when nothing was charged. */
+  private void refundCallNewAccountStateGas(
+      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
+    if (callCreatesNewAccount(frame, recipientAddress, transferValue)) {
+      frame.refillStateGasReservoir(gasCalculator().stateGasCostCalculator().newAccountStateGas());
+    }
+  }
+
+  /**
+   * Gets the code from the contract or EOA with delegated code.
+   *
+   * @param evm the evm
+   * @param frame the message frame
+   * @param account the account which codes needs to be retrieved
+   * @return the code
+   */
+  protected Code getCode(final EVM evm, final MessageFrame frame, final Account account) {
+    if (account == null) {
+      return Code.EMPTY_CODE;
+    }
+
+    final Hash codeHash = account.getCodeHash();
+    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(account.getAddress()));
+    if (codeHash == null || Hash.EMPTY.getBytes().equals(codeHash.getBytes())) {
+      return Code.EMPTY_CODE;
+    }
+
+    final boolean accountHasCodeCache = account.getCodeCache() != null;
+
+    final Code code;
+    // Bonsai accounts may have a fully cached code, so we use that one
+    if (accountHasCodeCache) {
+      code = account.getOrCreateCachedCode();
+    }
+    // Any other account can only use the cached jump dest analysis if available
+    else {
+      code = evm.getOrCreateCachedJumpDest(codeHash, account.getCode());
+    }
+
+    if (!hasCodeDelegation(code.getBytes())) {
+      return code;
+    }
+
+    final CodeDelegationHelper.Target target =
+        getTarget(
+            frame.getWorldUpdater(),
+            evm.getGasCalculator()::isPrecompile,
+            account,
+            frame.getEip7928AccessList());
+
+    if (accountHasCodeCache) {
+      // If the account has a code cache, we can return the cached code of the target
+      return target.code();
+    }
+
+    // otherwise we can only use the cached jump destination analysis
+    final Code targetCode = target.code();
+    return evm.getOrCreateCachedJumpDest(targetCode.getCodeHash(), targetCode.getBytes());
+  }
+}

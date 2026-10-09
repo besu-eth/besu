@@ -511,6 +511,14 @@ tasks.withType(Test).configureEach {
   maxHeapSize = '2g'
 }
 
+// -Dtest.evm.v2=true runs the reference tests on EVM v2 (--Xevm-v2).
+tasks.withType(Test).configureEach {
+  def evmV2 = System.getProperty('test.evm.v2')
+  if (evmV2 != null) {
+    systemProperty 'test.evm.v2', evmV2
+  }
+}
+
 tasks.register('referenceTests', Test) {
   useJUnitPlatform()
   doFirst {

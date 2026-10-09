@@ -120,6 +120,9 @@ application {
 //
 // Because the properties are shared, one command covers both simulators:
 //   ./gradlew consumeEngineTests consumeRlpTests -PsimLimit='.*(7928|8282).*'
+//
+// -Dtest.evm.v2=true runs the fixtures on EVM v2 (evmtool --Xevm-v2), as it does for the reference
+// test tasks.
 
 // stateTestsDevnet used to take -PstateTestFilter / -PstateTestPath / -PstateTestWorkers. Gradle
 // ignores unknown -P properties, so without this an old invocation would run the whole state_tests
@@ -169,6 +172,7 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
     // it: -PsimLimit is not consulted, so there is no way to half-override the preset and end up
     // reporting a number against a scope nobody can reconstruct. Use the plain task to filter.
     def simLimit = presetSimLimit ?: project.findProperty('simLimit')?.toString()
+    def evmV2 = Boolean.getBoolean('test.evm.v2')
 
     doFirst {
       failOnRenamedProperties(project)
@@ -183,7 +187,8 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
       if (!runDir.exists()) {
         throw new GradleException("Fixtures path not found: ${runDir} (from -PsimPath=${subPath})")
       }
-      def cmd = [subcommand] + extraArgs
+      // --Xevm-v2 belongs to evmtool itself, so it goes ahead of the subcommand
+      def cmd = (evmV2 ? ['--Xevm-v2=true'] : []) + [subcommand] + extraArgs
       if (parallelism != null) {
         cmd += ['--workers', parallelism]
       }
@@ -194,7 +199,8 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
       args = cmd
       logger.lifecycle("${taskName}: ${subcommand} over ${runDir}" +
         (simLimit != null ? " matching --sim.limit '${simLimit}'" : " (all tests)") +
-        (presetSimLimit != null ? " [preset — -PsimLimit ignored]" : ""))
+        (presetSimLimit != null ? " [preset — -PsimLimit ignored]" : "") +
+        (evmV2 ? " on EVM v2" : ""))
     }
   }
 }

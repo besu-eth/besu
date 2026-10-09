@@ -18,6 +18,7 @@ import static org.hyperledger.besu.evm.frame.MessageFrame.DEFAULT_MAX_STACK_SIZE
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.UInt256;
@@ -58,6 +59,7 @@ public class TestMessageFrameBuilderV2 {
   private Bytes memory = Bytes.EMPTY;
   private boolean isStatic = false;
   private Address miningBeneficiary = Address.ZERO;
+  private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
 
   public TestMessageFrameBuilderV2 worldUpdater(final WorldUpdater worldUpdater) {
     this.worldUpdater = Optional.of(worldUpdater);
@@ -79,7 +81,7 @@ public class TestMessageFrameBuilderV2 {
     return this;
   }
 
-  TestMessageFrameBuilderV2 originator(final Address originator) {
+  public TestMessageFrameBuilderV2 originator(final Address originator) {
     this.originator = originator;
     return this;
   }
@@ -149,6 +151,12 @@ public class TestMessageFrameBuilderV2 {
     return this;
   }
 
+  public TestMessageFrameBuilderV2 versionedHashes(
+      final Optional<List<VersionedHash>> versionedHashes) {
+    this.versionedHashes = versionedHashes;
+    return this;
+  }
+
   public MessageFrame build() {
     final MessageFrame frame =
         MessageFrame.builder()
@@ -170,6 +178,7 @@ public class TestMessageFrameBuilderV2 {
             .miningBeneficiary(miningBeneficiary)
             .blockHashLookup(
                 blockHashLookup.orElse((__, number) -> Hash.hash(Words.longBytes(number))))
+            .versionedHashes(versionedHashes)
             .maxStackSize(maxStackSize)
             .isStatic(isStatic)
             .enableEvmV2(true)
@@ -178,6 +187,9 @@ public class TestMessageFrameBuilderV2 {
     stackItems.forEach(
         item -> {
           final UInt256 val = UInt256.fromBytesBE(item.toArrayUnsafe());
+          if (!frame.stackHasSpaceV2(1)) {
+            throw new IllegalStateException("More stack items than the stack can hold");
+          }
           final long[] s = frame.stackDataV2();
           final int dst = frame.stackTopV2() << 2;
           s[dst] = val.u3();

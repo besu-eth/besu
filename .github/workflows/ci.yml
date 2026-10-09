@@ -31,7 +31,8 @@ permissions:
 #                    → dockerPublish   (docker-publish.yml: push `develop` image + sign)
 #
 #   pull_request:    [gradleWrapper, spotless, checkLicense]
-#                  → [build, verifySourceMetadata, unitTests, integrationTests, referenceTests, devnetTests, acceptanceTests]
+#                  → [build, verifySourceMetadata, unitTests, integrationTests, referenceTests, referenceTestsEvmV2,
+#                     devnetTests, devnetTestsEvmV2, acceptanceTests]
 #                  → dockerBuildTest (docker-build-test.yml: build + goss-test; dockerPublish skipped - not on main)
 #                  → allTestsPassed (PR merge gate).
 
@@ -224,6 +225,18 @@ jobs:
       packages: read
     uses: ./.github/workflows/reference-tests.yml
 
+  # EVM v2 is behind the experimental --Xevm-v2 flag; these keep it in consensus with EVM v1.
+  referenceTestsEvmV2:
+    if: github.event_name == 'pull_request'
+    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    uses: ./.github/workflows/reference-tests.yml
+    with:
+      evm_v2: true
+
   devnetTests:
     if: github.event_name == 'pull_request'
     needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
@@ -232,6 +245,17 @@ jobs:
       contents: read
       packages: read
     uses: ./.github/workflows/devnet-tests.yml
+
+  devnetTestsEvmV2:
+    if: github.event_name == 'pull_request'
+    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    uses: ./.github/workflows/devnet-tests.yml
+    with:
+      evm_v2: true
 
   acceptanceTests:
     if: github.event_name == 'pull_request'
@@ -267,7 +291,7 @@ jobs:
   allTestsPassed:
     name: allTestsPassed
     runs-on: ubuntu-latest
-    needs: [verifySourceMetadata, unitTests, integrationTests, referenceTests, devnetTests, acceptanceTests, dockerBuildTest]
+    needs: [verifySourceMetadata, unitTests, integrationTests, referenceTests, referenceTestsEvmV2, devnetTests, devnetTestsEvmV2, acceptanceTests, dockerBuildTest]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail on workflow error

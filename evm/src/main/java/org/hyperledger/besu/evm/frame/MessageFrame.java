@@ -34,6 +34,7 @@ import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -198,6 +199,9 @@ public class MessageFrame {
   /** The constant DEFAULT_MAX_STACK_SIZE. */
   public static final int DEFAULT_MAX_STACK_SIZE = 1024;
 
+  // Most frames stay far below the maximum, and a frame allocates its stack on every call.
+  private static final int INITIAL_STACK_CAPACITY_V2 = 32;
+
   // Global data fields.
   private final WorldUpdater worldUpdater;
 
@@ -212,7 +216,7 @@ public class MessageFrame {
   private final OperandStack stack;
   // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
   // significant)
-  private final long[] stackDataV2;
+  private long[] stackDataV2;
   private int stackTopV2;
   private final int stackMaxSizeV2;
   private Bytes output = Bytes.EMPTY;
@@ -287,7 +291,10 @@ public class MessageFrame {
     this.worldUpdater = worldUpdater;
     this.gasRemaining = initialGas;
     this.stack = new OperandStack(txValues.maxStackSize());
-    this.stackDataV2 = enableEvmV2 ? new long[txValues.maxStackSize() * 4] : null;
+    this.stackDataV2 =
+        enableEvmV2
+            ? new long[Math.min(INITIAL_STACK_CAPACITY_V2, txValues.maxStackSize()) << 2]
+            : null;
     this.stackTopV2 = 0;
     this.stackMaxSizeV2 = txValues.maxStackSize();
     this.pc = 0;
@@ -432,13 +439,17 @@ public class MessageFrame {
   }
 
   /**
-   * Returns the item at the specified offset in the stack.
+   * Returns the item at the specified offset in the stack, from the v2 stack when EVM v2 runs the
+   * frame, so that tracers see the same stack on both interpreters.
    *
    * @param offset The item's position relative to the top of the stack
    * @return The item at the specified offset in the stack
    * @throws UnderflowException if the offset is out of range
    */
   public Bytes getStackItem(final int offset) {
+    if (stackDataV2 != null) {
+      return stackItemV2(offset);
+    }
     return stack.get(offset);
   }
 
@@ -482,16 +493,44 @@ public class MessageFrame {
   }
 
   /**
-   * Return the current stack size.
+   * Return the current stack size, of the v2 stack when EVM v2 runs the frame.
    *
    * @return The current stack size
    */
   public int stackSize() {
+    if (stackDataV2 != null) {
+      return stackTopV2;
+    }
     return stack.size();
   }
 
   // region --- EVM v2 long[] stack operations ---
   // ---------------------------------------------------------------------------
+
+  /**
+   * Allocates the v2 operand stack if the frame was built without one. Frames are built in places
+   * that do not know which interpreter will run them, so the v2 interpreter calls this first.
+   */
+  public void ensureStackV2() {
+    if (stackDataV2 == null) {
+      stackDataV2 = new long[Math.min(INITIAL_STACK_CAPACITY_V2, stackMaxSizeV2) << 2];
+    }
+  }
+
+  private Bytes stackItemV2(final int offset) {
+    if (offset < 0 || offset >= stackTopV2) {
+      throw new UnderflowException();
+    }
+    final int index = (stackTopV2 - 1 - offset) << 2;
+    final byte[] bytes = new byte[32];
+    for (int limb = 0; limb < 4; limb++) {
+      final long value = stackDataV2[index + limb];
+      for (int b = 0; b < 8; b++) {
+        bytes[(limb << 3) + b] = (byte) (value >>> (56 - (b << 3)));
+      }
+    }
+    return Bytes32.wrap(bytes);
+  }
 
   /**
    * Returns the backing long[] array of the operand stack.
@@ -531,13 +570,25 @@ public class MessageFrame {
   }
 
   /**
-   * Returns true if the stack has space for {@code n} more items.
+   * Returns true if the stack has space for {@code n} more items, growing the backing array when
+   * the items fit the maximum stack size but not the array. A caller that pushes reads {@link
+   * #stackDataV2()} after this check.
    *
    * @param n the number of additional items
    * @return true if the stack can accommodate n more items
    */
   public boolean stackHasSpaceV2(final int n) {
-    return stackTopV2 + n <= stackMaxSizeV2;
+    final int needed = stackTopV2 + n;
+    return needed <= stackDataV2.length >> 2 || growStackV2(needed);
+  }
+
+  private boolean growStackV2(final int needed) {
+    if (needed > stackMaxSizeV2) {
+      return false;
+    }
+    final int capacity = Math.min(stackMaxSizeV2, Math.max(needed, (stackDataV2.length >> 2) * 2));
+    stackDataV2 = Arrays.copyOf(stackDataV2, capacity << 2);
+    return true;
   }
 
   // ---------------------------------------------------------------------------
