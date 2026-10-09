@@ -342,7 +342,7 @@ public class EngineJsonRpcService {
         final Runnable releaseOnce =
             () -> {
               if (released.compareAndSet(false, true)) {
-                connectionReleases.remove(remoteAddress);
+                connectionReleases.remove(remoteAddress, releaseOnce);
                 final int remainingConnections = activeConnectionsCount.decrementAndGet();
                 LOG.debug(
                     "Connection closed from {}. Total of active connections: {}/{}",
