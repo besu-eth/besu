@@ -48,6 +48,22 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
         metricsSystem);
   }
 
+  public MainnetBlockProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory,
+      final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
+      final ProtocolSchedule protocolSchedule,
+      final BalConfiguration balConfiguration,
+      final BlockProcessingMetrics blockProcessingMetrics) {
+    super(
+        transactionProcessor,
+        transactionReceiptFactory,
+        miningBeneficiaryCalculator,
+        protocolSchedule,
+        balConfiguration,
+        blockProcessingMetrics);
+  }
+
   public static final class MainnetBlockProcessorBuilder
       implements ProtocolSpecBuilder.BlockProcessorBuilder {
 
