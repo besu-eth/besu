@@ -193,6 +193,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
               txTracker);
 
       ctxBuilder.transactionProcessingResult(result);
+      // the receipt's bloom depends on this transaction alone, so it is hashed here, in parallel
+      result.getLogsBloom();
 
       return ctxBuilder.build();
     } finally {

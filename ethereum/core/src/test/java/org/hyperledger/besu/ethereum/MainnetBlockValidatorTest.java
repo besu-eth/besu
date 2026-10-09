@@ -132,7 +132,7 @@ public class MainnetBlockValidatorTest {
     when(worldStateArchive.getWorldState()).thenReturn(worldState);
     when(blockHeaderValidator.validateHeader(any(), any(), any())).thenReturn(true);
     when(blockHeaderValidator.validateHeader(any(), any(), any(), any())).thenReturn(true);
-    when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any()))
+    when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(true);
     when(blockBodyValidator.validateBodyLight(any(), any(), any(), any(), any())).thenReturn(true);
     when(blockAccessListValidator.validate(any(), any(), anyInt())).thenReturn(true);
@@ -327,7 +327,8 @@ public class MainnetBlockValidatorTest {
 
   @Test
   public void validateAndProcessBlock_whenBlockBodyInvalid() {
-    when(blockBodyValidator.validateBody(any(), eq(block), any(), any(), any(), any(), any()))
+    when(blockBodyValidator.validateBody(
+            any(), eq(block), any(), any(), any(), any(), any(), any()))
         .thenReturn(false);
 
     BlockProcessingResult result =
@@ -693,7 +694,7 @@ public class MainnetBlockValidatorTest {
     when(blockProcessor.processBlock(
             eq(protocolContext), any(), any(), any(), eq(Optional.empty())))
         .thenReturn(successfulProcessingResult);
-    when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any()))
+    when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(true);
 
     final Block block = blockchainSetupUtil.getBlock(2);

@@ -146,6 +146,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       contextBuilder
           .transactionAccumulator(ws.getAccumulator())
           .transactionProcessingResult(result);
+      // the receipt's bloom depends on this transaction alone, so it is hashed here, in parallel
+      result.getLogsBloom();
 
       final ParallelizedTransactionContext parallelizedTransactionContext = contextBuilder.build();
       if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()) {

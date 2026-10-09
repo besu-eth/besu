@@ -74,6 +74,7 @@
 - Warn at startup when a PoA chain on Amsterdam leaves the EIP-8282 builder deposit or exit request contract address out of the genesis, since blocks are invalid from the fork unless a contract is deployed at the default address. [#NNNN](https://github.com/besu-eth/besu/pull/NNNN)
 - The jump destination analysis of contract code is computed once, when the code is stored, instead of on every code cache miss. [#11327](https://github.com/besu-eth/besu/pull/11327)
 - EVM v2: add AND, OR, XOR and NOT. [#11477](https://github.com/besu-eth/besu/pull/11477)
+- Block import computes logs blooms on the transaction workers, and the receipts and transactions roots off the importing thread. [#11529](https://github.com/besu-eth/besu/pull/11529)
 
 ## 26.9.0
 

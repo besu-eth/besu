@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.processing;
 
 import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
@@ -56,6 +57,8 @@ public class TransactionProcessingResult
   private long executionGasUsedForBlock = Long.MIN_VALUE;
 
   private final List<Log> logs;
+
+  private LogsBloomFilter logsBloom;
 
   private final Bytes output;
 
@@ -292,6 +295,21 @@ public class TransactionProcessingResult
   @Override
   public List<Log> getLogs() {
     return logs;
+  }
+
+  /**
+   * The bloom filter of the logs, computed on first use. Parallel block processing calls this on
+   * the thread that executed the transaction, so building the receipt does not hash the logs.
+   *
+   * @return the logs bloom filter
+   */
+  public LogsBloomFilter getLogsBloom() {
+    LogsBloomFilter bloom = logsBloom;
+    if (bloom == null) {
+      bloom = LogsBloomFilter.builder().insertLogs(logs).build();
+      logsBloom = bloom;
+    }
+    return bloom;
   }
 
   /**
