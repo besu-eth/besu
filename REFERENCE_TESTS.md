@@ -12,6 +12,17 @@ To run the Ethereum reference tests included in the Besu codebase, use the follo
 
 This will execute the available test suites (such as GeneralStateTests and execution-spec-tests) and validate Besu's EVM behavior.
 
+Of the execution-spec-tests, `referenceTests` runs only the fork groups that have no Engine API
+fixtures, `for_frontier` through `for_london`. The groups from `for_paris` onwards, including the
+transition forks, run through `consumeEngineTestsStable` (see [Hive-Equivalent Fixture
+Runners](#hive-equivalent-fixture-runners-evmtool)), which checks the same block hashes and expected
+exceptions through the Engine API. Add `-PexecutionSpecAllForks` to generate those groups here as
+well, for example to debug one of them with [JSON tracing](#enabling-json-tracing):
+
+```bash
+./gradlew referenceTests -PexecutionSpecAllForks --tests "*ExecutionSpecBlockchainTest_amsterdam_*"
+```
+
 > **Note:**
 > - Out-of-memory (OOM) errors are common due to the size and number of tests. You may need to increase the heap size using `-Xmx` (e.g., `./gradlew referenceTests -Dorg.gradle.jvmargs="-Xmx8g"`)
 
@@ -19,34 +30,37 @@ This will execute the available test suites (such as GeneralStateTests and execu
 
 Execution-spec-tests are generated with class names that reflect their hardfork and EIP directory structure. This allows targeted test execution using standard Gradle `--tests` filters.
 
+Tests from Paris onwards are only generated with `-PexecutionSpecAllForks` (see above), so the
+examples below that select them pass it.
+
 ### By hardfork
 
 ```bash
 # Run all Prague execution spec tests (blockchain + state)
-./gradlew referenceTests --tests "*ExecutionSpec*_prague_*"
+./gradlew referenceTests -PexecutionSpecAllForks --tests "*ExecutionSpec*_prague_*"
 
 # Run only Amsterdam state tests
-./gradlew referenceTests --tests "*ExecutionSpecStateTest_amsterdam_*"
+./gradlew referenceTests -PexecutionSpecAllForks --tests "*ExecutionSpecStateTest_amsterdam_*"
 
 # Run all Cancun blockchain tests
-./gradlew referenceTests --tests "*ExecutionSpecBlockchainTest_cancun_*"
+./gradlew referenceTests -PexecutionSpecAllForks --tests "*ExecutionSpecBlockchainTest_cancun_*"
 ```
 
 ### By EIP
 
 ```bash
 # Run only EIP-7702 tests
-./gradlew referenceTests --tests "*eip7702*"
+./gradlew referenceTests -PexecutionSpecAllForks --tests "*eip7702*"
 
 # Run only EIP-4844 blob tests
-./gradlew referenceTests --tests "*eip4844*"
+./gradlew referenceTests -PexecutionSpecAllForks --tests "*eip4844*"
 ```
 
 ### By hardfork + EIP
 
 ```bash
 # Run Prague EIP-2537 BLS precompile tests specifically
-./gradlew referenceTests --tests "*_prague_eip2537_*"
+./gradlew referenceTests -PexecutionSpecAllForks --tests "*_prague_eip2537_*"
 ```
 
 ### Static (legacy) tests
@@ -103,7 +117,9 @@ Tracing](#enabling-json-tracing)) — the evmtool runners below do not go throug
 
 The `referenceTests` task above drives **block import** and **state transition** directly. It never
 touches the Engine API, so payload schema, JSON-RPC error codes, fork support and the blob schedule
-have no coverage there at all. Upstream, that gap is filled by hive's `consume-engine` simulator —
+have no coverage there at all. By default it also leaves out the execution-spec fork groups that
+have engine fixtures (Paris onwards), so in CI `consumeEngineTestsStable` is the only runner for
+them. Upstream, that gap is filled by hive's `consume-engine` simulator —
 which spins up a Besu container per fixture group and takes hours.
 
 `evmtool` replays the same fixture trees through the same Besu code, in process, in minutes:
@@ -119,7 +135,7 @@ stable fixtures follow the current specs, which can be ahead of the last devnet 
 made for the specs can fail the devnet fixtures and still be correct.
 
 ```bash
-# consume-engine equivalent, scoped by the default filter
+# consume-engine equivalent, every fork group
 ./gradlew consumeEngineTestsStable
 
 # consume-rlp equivalent, scoped by the default filter
@@ -206,11 +222,15 @@ it — `-PsimLimit` is always a regex.
 
 ### Default filter
 
-Without `-PsimLimit`, both tasks are scoped by `GLAMSTERDAM_SIM_LIMIT` at the top of
-`ethereum/evmtool/build.gradle`, the fork filter of the `glamsterdam` hive run at
-[hive.ethpandaops.io](https://hive.ethpandaops.io). This is what CI runs. It selects by fork and
-spans more than one, so it is not an Amsterdam-only run. `-PsimLimit` replaces it rather than
-narrowing it.
+Without `-PsimLimit`, `consumeEngineTestsStable` runs every fork group: `referenceTests` leaves the
+groups with engine fixtures to it, so it must not drop any of them.
+
+`consumeRlpTestsStable` is scoped by `GLAMSTERDAM_SIM_LIMIT` in `ethereum/evmtool/build.gradle`, the
+fork filter of the `glamsterdam` hive run at [hive.ethpandaops.io](https://hive.ethpandaops.io).
+This is what CI runs. It selects by fork and spans more than one, so it is not an Amsterdam-only
+run.
+
+On either task, `-PsimLimit` replaces the default rather than narrowing it.
 
 #### Keeping the filter current
 
