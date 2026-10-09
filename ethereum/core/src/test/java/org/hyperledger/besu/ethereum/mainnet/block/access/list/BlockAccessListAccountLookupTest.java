@@ -75,4 +75,18 @@ class BlockAccessListAccountLookupTest {
     assertThat(index.getAddressHash(ABSENT_ADDRESS)).isEmpty();
     assertThat(index.getSlotChanges(ABSENT_ADDRESS, SLOT)).isEmpty();
   }
+
+  @Test
+  void exposesTheBlockAccessListItIndexes() {
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                new AccountChanges(
+                    ADDRESS, List.of(), List.of(), List.of(), List.of(), List.of())));
+
+    final BlockAccessListAccountLookup index = BlockAccessListAccountLookup.of(bal);
+
+    assertThat(index.blockAccessList()).isSameAs(bal);
+    assertThat(index.accountChanges()).isEqualTo(bal.accountChanges());
+  }
 }

@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.OptimisticConcurrentTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
@@ -348,7 +349,7 @@ class DaoRecoveryBlockParallelProcessingTest {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> blockAccessList,
+        final Optional<BlockAccessListAccountLookup> blockAccessListLookup,
         final Optional<BlockHeader> maybeParentHeader) {
       return Optional.of(
           new OverBudgetResults(transactionProcessor, blockHeader.getGasLimit() + 1));

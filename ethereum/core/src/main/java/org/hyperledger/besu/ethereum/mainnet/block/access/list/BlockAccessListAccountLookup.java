@@ -25,52 +25,82 @@ import java.util.Optional;
 
 /**
  * Account and storage-slot lookup over a {@link BlockAccessList}, built once per block and shared
- * across all transactions. Does not resolve transaction boundaries; use {@link
- * BlockAccessListOverlay} to read state as of a specific transaction index.
+ * by the state root computation and all transactions. Does not resolve transaction boundaries; use
+ * {@link BlockAccessListOverlay} to read state as of a specific transaction index.
  */
 public final class BlockAccessListAccountLookup {
 
-  private final Map<Address, AccountEntry> accountEntries;
-  private final List<BlockAccessList.AccountChanges> accountChanges;
+  private final BlockAccessList blockAccessList;
 
-  private BlockAccessListAccountLookup(
-      final Map<Address, AccountEntry> accountEntries,
-      final List<BlockAccessList.AccountChanges> accountChanges) {
-    this.accountEntries = accountEntries;
-    this.accountChanges = accountChanges;
+  /**
+   * Indexed on first use, by the state root computation or a transaction, so that a block that uses
+   * neither does not pay for it.
+   */
+  private volatile Map<Address, AccountEntry> accountEntries;
+
+  private BlockAccessListAccountLookup(final BlockAccessList blockAccessList) {
+    this.blockAccessList = blockAccessList;
   }
 
   public static BlockAccessListAccountLookup of(final BlockAccessList blockAccessList) {
-    final List<BlockAccessList.AccountChanges> accountChanges = blockAccessList.accountChanges();
-    final Map<Address, AccountEntry> entries = HashMap.newHashMap(accountChanges.size());
-    for (final BlockAccessList.AccountChanges changes : accountChanges) {
-      entries.put(changes.address(), new AccountEntry(changes));
-    }
-    return new BlockAccessListAccountLookup(entries, accountChanges);
+    return new BlockAccessListAccountLookup(blockAccessList);
+  }
+
+  public BlockAccessList blockAccessList() {
+    return blockAccessList;
   }
 
   public List<BlockAccessList.AccountChanges> accountChanges() {
-    return accountChanges;
+    return blockAccessList.accountChanges();
   }
 
   public boolean isEmpty() {
-    return accountChanges.isEmpty();
+    return blockAccessList.accountChanges().isEmpty();
   }
 
   public Optional<BlockAccessList.AccountChanges> getAccountChanges(final Address address) {
-    final AccountEntry entry = accountEntries.get(address);
+    final AccountEntry entry = accountEntries().get(address);
     return entry == null ? Optional.empty() : Optional.of(entry.accountChanges);
   }
 
   public Optional<Hash> getAddressHash(final Address address) {
-    final AccountEntry entry = accountEntries.get(address);
+    final AccountEntry entry = accountEntries().get(address);
     return entry == null ? Optional.empty() : Optional.of(entry.addressHash);
   }
 
   Optional<BlockAccessList.SlotChanges> getSlotChanges(
       final Address address, final StorageSlotKey storageSlotKey) {
-    final AccountEntry entry = accountEntries.get(address);
+    final AccountEntry entry = accountEntries().get(address);
     return entry == null ? Optional.empty() : entry.slotChanges(storageSlotKey);
+  }
+
+  /**
+   * The index, built by its first caller. The state root computation and the transaction workers
+   * all need it as soon as the block starts: the lock makes one of them build it while the others
+   * wait for it, rather than each building its own copy at the same time. Once it is built, an
+   * access only reads the volatile field, without taking the lock.
+   */
+  private Map<Address, AccountEntry> accountEntries() {
+    Map<Address, AccountEntry> entries = accountEntries;
+    if (entries == null) {
+      synchronized (this) {
+        entries = accountEntries;
+        if (entries == null) {
+          entries = index(blockAccessList.accountChanges());
+          accountEntries = entries;
+        }
+      }
+    }
+    return entries;
+  }
+
+  private static Map<Address, AccountEntry> index(
+      final List<BlockAccessList.AccountChanges> accountChanges) {
+    final Map<Address, AccountEntry> entries = HashMap.newHashMap(accountChanges.size());
+    for (final BlockAccessList.AccountChanges changes : accountChanges) {
+      entries.put(changes.address(), new AccountEntry(changes));
+    }
+    return entries;
   }
 
   private static final class AccountEntry {

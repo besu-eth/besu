@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
@@ -218,10 +219,16 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     LOG.trace("traceStartBlock for {}", blockHeader.getNumber());
     blockTracer.traceStartBlock(worldState, blockHeader, miningBeneficiary);
 
+    // Shared by the state root computation and the parallel execution: the block access list is
+    // indexed once per block.
+    final Optional<BlockAccessListAccountLookup> blockAccessListLookup =
+        blockAccessList.map(BlockAccessListAccountLookup::of);
+
     final StateRootCommitter stateRootCommitter =
         protocolSpec
             .getStateRootCommitterFactory()
-            .forBlock(protocolContext, blockHeader, blockAccessList, worldState.isStorageFrozen())
+            .forBlock(
+                protocolContext, blockHeader, blockAccessListLookup, worldState.isStorageFrozen())
             .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
     final Optional<BlockAccessListBuilder> blockAccessListBuilder =
@@ -268,7 +275,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               blockHashLookup,
               blobGasPrice,
               blockAccessListBuilder,
-              blockAccessList,
+              blockAccessListLookup,
               maybeParentHeader);
 
       boolean parallelizedTxFound = false;
@@ -580,7 +587,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockAccessListAccountLookup> blockAccessListLookup,
       final Optional<BlockHeader> maybeParentHeader) {
     return Optional.empty();
   }

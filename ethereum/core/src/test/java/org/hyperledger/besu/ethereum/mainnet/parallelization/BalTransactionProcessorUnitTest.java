@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -168,10 +169,13 @@ class BalTransactionProcessorUnitTest {
     return transaction;
   }
 
-  private BlockAccessList mockEmptyBlockAccessList() {
-    final BlockAccessList blockAccessList = mock(BlockAccessList.class);
-    when(blockAccessList.accountChanges()).thenReturn(Collections.emptyList());
-    return blockAccessList;
+  /**
+   * A real empty block access list rather than a stubbed mock: whether its account changes are read
+   * depends on the lookup being indexed and on the asynchronous prefetch running before the test
+   * ends, which made a strict stub of them flaky.
+   */
+  private BlockAccessList emptyBlockAccessList() {
+    return new BlockAccessList(Collections.emptyList());
   }
 
   private PartialBlockAccessView emptyPartialBlockAccessView(final long txIndex) {
@@ -199,13 +203,15 @@ class BalTransactionProcessorUnitTest {
     @DisplayName("Transaction processor is called with correct parameters")
     void transactionProcessorCalledWithCorrectParams() {
       final TestEnvironment env = createTestEnvironment();
-      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final BlockAccessList blockAccessList = emptyBlockAccessList();
       final Transaction transaction = mockTransaction();
       stubSuccessfulTransaction();
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -235,7 +241,7 @@ class BalTransactionProcessorUnitTest {
     @DisplayName("All transactions are processed")
     void allTransactionsProcessed() {
       final TestEnvironment env = createTestEnvironment();
-      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final BlockAccessList blockAccessList = emptyBlockAccessList();
       final Transaction tx1 = mockTransaction();
       final Transaction tx2 = mockTransaction();
       final Transaction tx3 = mockTransaction();
@@ -243,7 +249,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -264,13 +272,15 @@ class BalTransactionProcessorUnitTest {
     @DisplayName("Processing result is returned for successful transaction")
     void processingResultReturnedForSuccessfulTransaction() {
       final TestEnvironment env = createTestEnvironment();
-      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final BlockAccessList blockAccessList = emptyBlockAccessList();
       final Transaction transaction = mockTransaction();
       stubSuccessfulTransaction();
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -301,7 +311,7 @@ class BalTransactionProcessorUnitTest {
     @DisplayName("Partial BAL writes are applied without retaining transaction accumulator")
     void partialBalWritesAreAppliedWithoutRetainingAccumulator() {
       final TestEnvironment env = createTestEnvironment();
-      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final BlockAccessList blockAccessList = emptyBlockAccessList();
       final Transaction transaction = mockTransaction();
 
       final Address writeAddress =
@@ -342,7 +352,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -401,7 +413,7 @@ class BalTransactionProcessorUnitTest {
     @DisplayName("Clears accounts made empty by partial BAL view writes")
     void clearsAccountsMadeEmptyByPartialBalWrites() {
       final TestEnvironment env = createTestEnvironment();
-      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final BlockAccessList blockAccessList = emptyBlockAccessList();
       final Transaction transaction = mockTransaction();
       final Address accountAddress =
           Address.fromHexString("0x1000000000000000000000000000000000000003");
@@ -429,7 +441,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -472,7 +486,9 @@ class BalTransactionProcessorUnitTest {
       final BonsaiWorldState worldStateForResult = createEmptyWorldState();
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           protocolContext,
@@ -509,7 +525,9 @@ class BalTransactionProcessorUnitTest {
       final Transaction transaction = mock(Transaction.class);
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -542,12 +560,14 @@ class BalTransactionProcessorUnitTest {
     void loadWorldStateUsesParentBlockHeader() {
       final TestEnvironment env = createTestEnvironment();
       stubSuccessfulTransaction();
-      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final BlockAccessList blockAccessList = emptyBlockAccessList();
       final Transaction transaction = mockTransaction();
       final BlockHeader parent = env.maybeParentHeader().orElseThrow();
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -690,7 +710,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       final Transaction tx0 = mockTransaction();
       final Transaction tx1 = mockTransaction();
@@ -736,7 +758,7 @@ class BalTransactionProcessorUnitTest {
     @DisplayName("Returns empty when parallel context is null")
     void returnsEmptyWhenParallelContextIsNull() {
       final TestEnvironment env = createTestEnvironment();
-      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final BlockAccessList blockAccessList = emptyBlockAccessList();
       final Transaction transaction = mockTransaction();
 
       when(transactionProcessor.processTransaction(
@@ -745,7 +767,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),

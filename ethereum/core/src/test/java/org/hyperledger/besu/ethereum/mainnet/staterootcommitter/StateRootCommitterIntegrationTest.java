@@ -311,7 +311,10 @@ class StateRootCommitterIntegrationTest {
           .isInstanceOf(DefaultStateRootCommitter.class);
       assertThat(
               factory.forBlock(
-                  harness.protocolContext(), blockHeader, Optional.of(blockChange.toBal()), false))
+                  harness.protocolContext(),
+                  blockHeader,
+                  Optional.of(BlockAccessListAccountLookup.of(blockChange.toBal())),
+                  false))
           .isInstanceOf(BalStateRootCommitter.class);
     }
   }
@@ -543,7 +546,7 @@ class StateRootCommitterIntegrationTest {
             factory.forBlock(
                 balHarness.protocolContext(),
                 balBlockHeader,
-                Optional.of(bal),
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
                 worldState.isStorageFrozen());
         worldState.persist(balBlockHeader, committer);
       }
@@ -707,7 +710,7 @@ class StateRootCommitterIntegrationTest {
           factory.forBlock(
               protocolContext,
               blockHeader,
-              Optional.of(blockChange.toBal()),
+              Optional.of(BlockAccessListAccountLookup.of(blockChange.toBal())),
               bonsaiWorldState.isStorageFrozen());
       bonsaiWorldState.persist(blockHeader, committer);
       appendBlock(blockHeader);

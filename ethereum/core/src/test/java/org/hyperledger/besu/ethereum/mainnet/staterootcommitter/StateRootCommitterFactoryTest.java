@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -115,7 +116,10 @@ class StateRootCommitterFactoryTest {
       try (BonsaiWorldState worldState = getWorldState(false)) {
         final StateRootCommitter committer =
             disabledFactory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
 
         assertThat(committer).isInstanceOf(DefaultStateRootCommitter.class);
       }
@@ -129,7 +133,10 @@ class StateRootCommitterFactoryTest {
       try (BonsaiWorldState worldState = getWorldState(false)) {
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
 
         assertThat(committer).isInstanceOf(BalStateRootCommitter.class);
       }
@@ -151,7 +158,8 @@ class StateRootCommitterFactoryTest {
         final BlockAccessList bal = balanceAndNonceBal(testAddress("c0"), Wei.of(1), 0L);
 
         final StateRootCommitter committer =
-            factory.forBlock(forestContext, child, Optional.of(bal), false);
+            factory.forBlock(
+                forestContext, child, Optional.of(BlockAccessListAccountLookup.of(bal)), false);
 
         assertThat(committer).isSameAs(ForestStateRootCommitter.INSTANCE);
       } finally {
@@ -170,7 +178,10 @@ class StateRootCommitterFactoryTest {
       try (BonsaiWorldState worldState = getWorldState(false)) {
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
 
         assertThat(committer).isInstanceOf(TrieDisabledStateRootCommitter.class);
       } finally {
@@ -203,7 +214,10 @@ class StateRootCommitterFactoryTest {
         applyBalanceAndNonce(worldState, address, newBalance, newNonce);
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
         balRoot = worldState.rootHash();
       }
@@ -253,7 +267,10 @@ class StateRootCommitterFactoryTest {
         applyBalanceAndNonce(worldState, address2, balance2, nonce2);
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
         assertThat(worldState.rootHash()).isEqualTo(expectedRoot);
       }
@@ -268,7 +285,10 @@ class StateRootCommitterFactoryTest {
       try (BonsaiWorldState worldState = getWorldState(false)) {
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
         assertThat(worldState.rootHash()).isEqualTo(expectedRoot);
       }
@@ -287,7 +307,10 @@ class StateRootCommitterFactoryTest {
         applyBalanceAndNonce(worldState, address, balBalance, 0L);
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
 
         assertThatThrownBy(() -> worldState.persist(blockHeader, committer))
             .isInstanceOf(StateRootMismatchException.class)
@@ -307,7 +330,10 @@ class StateRootCommitterFactoryTest {
         applyBalanceAndNonce(worldState, address, newBalance, 0L);
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         committer.cancel();
 
         assertThatThrownBy(() -> committer.compute(worldState, blockHeader, worldState.updater()))
@@ -333,7 +359,10 @@ class StateRootCommitterFactoryTest {
         assertThat(worldState.get(address)).isNull();
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
 
         assertThat(worldState.rootHash()).isEqualTo(expectedRoot);
@@ -357,7 +386,10 @@ class StateRootCommitterFactoryTest {
 
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
 
         assertThat(worldState.rootHash()).isEqualTo(expectedRoot);
@@ -378,7 +410,10 @@ class StateRootCommitterFactoryTest {
         assertThat(worldState.get(address)).isNull();
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
 
         assertThat(worldState.rootHash()).isEqualTo(expectedRoot);
@@ -426,7 +461,10 @@ class StateRootCommitterFactoryTest {
       try (BonsaiWorldState worldState = getWorldState(true)) {
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
 
         assertThat(worldState.rootHash()).isEqualTo(expectedRoot);
@@ -471,7 +509,10 @@ class StateRootCommitterFactoryTest {
       try (BonsaiWorldState worldState = getWorldState(true)) {
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
 
         assertThat(worldState.rootHash()).isEqualTo(expectedRoot);
@@ -529,7 +570,10 @@ class StateRootCommitterFactoryTest {
       try (BonsaiWorldState worldState = getWorldState(true)) {
         final StateRootCommitter committer =
             factory.forBlock(
-                protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+                protocolContext,
+                blockHeader,
+                Optional.of(BlockAccessListAccountLookup.of(bal)),
+                worldState.isStorageFrozen());
         worldState.persist(blockHeader, committer);
 
         assertThat(worldState.rootHash()).isEqualTo(expectedRoot);

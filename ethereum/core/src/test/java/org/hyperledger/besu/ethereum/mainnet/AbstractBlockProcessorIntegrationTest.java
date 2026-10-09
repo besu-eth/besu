@@ -439,7 +439,7 @@ class AbstractBlockProcessorIntegrationTest {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> blockAccessList,
+        final Optional<BlockAccessListAccountLookup> blockAccessListLookup,
         final Optional<BlockHeader> maybeParentHeader) {
       return Optional.of(
           new OverBudgetSecondTransaction(transactionProcessor, blockHeader.getGasLimit() + 1));
