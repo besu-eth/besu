@@ -14,13 +14,20 @@
  */
 package org.hyperledger.besu.metrics;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -57,5 +64,50 @@ public class RunnableTimedCounterTest {
 
     verify(backedCounter).inc(1L);
     verify(task).run();
+  }
+
+  @Test
+  public void shouldRunTaskOnceWhenThreadsCrossTheDeadlineConcurrently()
+      throws InterruptedException {
+    final int threadCount = 16;
+    final AtomicLong taskRunCount = new AtomicLong();
+    final RunnableTimedCounter rtc =
+        new RunnableTimedCounter(
+            backedCounter, taskRunCount::incrementAndGet, 1L, TimeUnit.MICROSECONDS);
+
+    // let the first deadline elapse so that every thread sees a deadline that has passed
+    Thread.sleep(2L);
+
+    final CyclicBarrier startBarrier = new CyclicBarrier(threadCount);
+    final CountDownLatch finished = new CountDownLatch(threadCount);
+    final List<Thread> threads = new ArrayList<>();
+    final long startMillis = System.currentTimeMillis();
+    for (int i = 0; i < threadCount; i++) {
+      final Thread thread =
+          new Thread(
+              () -> {
+                try {
+                  startBarrier.await();
+                  rtc.inc();
+                } catch (final Exception e) {
+                  fail("Unexpected exception while incrementing the counter", e);
+                } finally {
+                  finished.countDown();
+                }
+              });
+      threads.add(thread);
+      thread.start();
+    }
+    final long endMillis = System.currentTimeMillis();
+    for (final Thread thread : threads) {
+      thread.join();
+    }
+
+    verify(backedCounter, times(threadCount)).inc(1L);
+    assertThat(taskRunCount.get()).isPositive();
+    // Each execution schedules the next deadline no earlier than the current millisecond, so two
+    // executions cannot fall in the same millisecond: the number of executions is bounded by the
+    // number of milliseconds the concurrent increments actually spanned.
+    assertThat(taskRunCount.get()).isLessThanOrEqualTo(endMillis - startMillis + 1);
   }
 }

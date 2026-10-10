@@ -26,7 +26,7 @@ public class RunnableTimedCounter implements Counter {
   private final Runnable task;
   private final long intervalMillis;
   private final AtomicLong stepCounter;
-  private volatile long nextExecutionAtMillis;
+  private final AtomicLong nextExecutionAtMillis;
 
   /**
    * Instantiates a new Runnable timed counter.
@@ -42,7 +42,7 @@ public class RunnableTimedCounter implements Counter {
     this.task = task;
     this.stepCounter = new AtomicLong(0);
     this.intervalMillis = unit.toMillis(interval);
-    this.nextExecutionAtMillis = System.currentTimeMillis() + intervalMillis;
+    this.nextExecutionAtMillis = new AtomicLong(System.currentTimeMillis() + intervalMillis);
   }
 
   /**
@@ -58,6 +58,10 @@ public class RunnableTimedCounter implements Counter {
   /**
    * Increments the stepCounter by amount. Triggers the runnable if interval has elapsed
    *
+   * <p>The task is triggered by at most one caller per elapsed interval: the deadline update is a
+   * compare-and-set, so when several threads cross the same deadline concurrently only the thread
+   * that wins the race runs the task.
+   *
    * @param amount the value to add to the stepCounter.
    */
   @Override
@@ -65,9 +69,10 @@ public class RunnableTimedCounter implements Counter {
     backedCounter.inc(amount);
     stepCounter.addAndGet(amount);
     final long now = System.currentTimeMillis();
-    if (nextExecutionAtMillis < now) {
+    final long nextExecution = nextExecutionAtMillis.get();
+    if (nextExecution < now
+        && nextExecutionAtMillis.compareAndSet(nextExecution, now + intervalMillis)) {
       task.run();
-      nextExecutionAtMillis = now + intervalMillis;
     }
   }
 
