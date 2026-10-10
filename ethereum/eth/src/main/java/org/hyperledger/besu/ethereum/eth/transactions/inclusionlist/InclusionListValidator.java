@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.transactions.inclusionlist;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -46,7 +47,8 @@ import org.slf4j.LoggerFactory;
  *
  * <ol>
  *   <li>Skip if T is present in the block.
- *   <li>Skip if T.gas &gt; gas_left (transaction cannot fit in remaining gas).
+ *   <li>Skip if T.gas &gt; gas_left or T's blob gas &gt; blob_gas_left (transaction cannot fit in
+ *       the remaining gas or blob gas).
  *   <li>Validate T against post-execution state S: check nonce and balance of T.origin.
  *       <ul>
  *         <li>If T is invalid (wrong nonce or insufficient balance), skip to the next transaction.
@@ -68,6 +70,13 @@ public class InclusionListValidator {
       final List<Bytes> inclusionListTransactions) {
 
     final long blockGasLeft = newBlockHeader.getGasLimit() - cumulativeBlockGasUsed;
+    final long blockBlobGasLeft =
+        protocolSpec.getGasLimitCalculator().currentBlobGasLimit()
+            - newBlockHeader.getBlobGasUsed().orElse(0L);
+    final Wei blobGasPrice =
+        protocolSpec
+            .getFeeMarket()
+            .blobGasPricePerGas(newBlockHeader.getExcessBlobGas().orElse(BlobGas.ZERO));
     final WorldStateQueryParams worldStateQueryParams =
         WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(newBlockHeader);
     try (final MutableWorldState worldState =
@@ -106,12 +115,6 @@ public class InclusionListValidator {
               .addArgument(tx::toTraceLog)
               .log();
 
-          // Fail on blob txs, they are not allowed
-          if (tx.getType().supportsBlob()) {
-            return InclusionListValidationResult.unsatisfied(
-                "Blob transactions not allowed in inclusion list");
-          }
-
           // Step 2: Skip if T.gas > gas_left (block has no room for this transaction)
           if (tx.getGasLimit() > blockGasLeft) {
             LOG.atInfo()
@@ -123,11 +126,23 @@ public class InclusionListValidator {
             continue;
           }
 
+          // Step 2 for blob gas: skip if the block has no room for this transaction's blobs
+          final long txBlobGas = protocolSpec.getGasCalculator().blobGasCost(tx.getBlobCount());
+          if (txBlobGas > blockBlobGasLeft) {
+            LOG.atInfo()
+                .setMessage("IL step 2: skipping tx at index {} — blobGas={} > blobGasLeft={}")
+                .addArgument(i)
+                .addArgument(txBlobGas)
+                .addArgument(blockBlobGasLeft)
+                .log();
+            continue;
+          }
+
           final ValidationResult<TransactionInvalidReason> baseValidationResult =
               transactionValidator.validate(
                   tx,
                   newBlockHeader.getBaseFee(),
-                  Optional.of(Wei.ZERO),
+                  Optional.of(blobGasPrice),
                   TransactionValidationParams.processingBlock());
           if (!baseValidationResult.isValid()) {
             LOG.info("Tx {} not valid reason {}", tx.toTraceLog(), baseValidationResult);
@@ -152,7 +167,7 @@ public class InclusionListValidator {
                   OperationTracer.NO_TRACING,
                   blockHashLookup,
                   TransactionValidationParams.mining(),
-                  Wei.ZERO);
+                  blobGasPrice);
           if (processingResult.isInvalid()) {
             LOG.info("Tx {} invalid after processing reason {}", tx.toTraceLog(), processingResult);
             continue;
