@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.eth;
 
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
-import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 
 /**
@@ -24,8 +23,6 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
  */
 public class SnapProtocol implements SubProtocol {
   public static final String NAME = "snap";
-  public static final Capability SNAP1 = Capability.create(NAME, SnapProtocolVersion.V1);
-  public static final Capability SNAP2 = Capability.create(NAME, SnapProtocolVersion.V2);
 
   private static final SnapProtocol INSTANCE = new SnapProtocol();
 
@@ -36,23 +33,25 @@ public class SnapProtocol implements SubProtocol {
 
   @Override
   public int messageSpace(final int protocolVersion) {
-    return switch (protocolVersion) {
-      case SnapProtocolVersion.V1, SnapProtocolVersion.V2 -> 17;
-      default -> 0;
-    };
+    final SnapProtocolVersion version = SnapProtocolVersion.fromVersion(protocolVersion);
+    return version == null ? 0 : version.getMessageSpace();
   }
 
   @Override
   public boolean isValidMessageCode(final int protocolVersion, final int code) {
-    return SnapProtocolVersion.getSupportedMessages(protocolVersion).contains(code);
+    final SnapProtocolVersion version = SnapProtocolVersion.fromVersion(protocolVersion);
+    return version != null && version.getSupportedMessages().contains(code);
   }
 
   @Override
   public String messageName(final int protocolVersion, final int code) {
-    return switch (protocolVersion) {
-      case SnapProtocolVersion.V1 -> messageNameV1(code);
-      case SnapProtocolVersion.V2 -> messageNameV2(code);
-      default -> INVALID_MESSAGE_NAME;
+    final SnapProtocolVersion version = SnapProtocolVersion.fromVersion(protocolVersion);
+    if (version == null) {
+      return INVALID_MESSAGE_NAME;
+    }
+    return switch (version) {
+      case V1 -> messageNameV1(code);
+      case V2 -> messageNameV2(code);
     };
   }
 

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.manager.snap;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
@@ -99,9 +100,9 @@ public class SnapProtocolManager implements ProtocolManager {
 
   private List<Capability> calculateCapabilities(final SnapSyncConfiguration snapConfig) {
     final ImmutableList.Builder<Capability> capabilities = ImmutableList.builder();
-    capabilities.add(SnapProtocol.SNAP1);
+    capabilities.add(SnapProtocolVersion.V1.getCapability());
     if (Boolean.TRUE.equals(snapConfig.isSnap2Enabled())) {
-      capabilities.add(SnapProtocol.SNAP2);
+      capabilities.add(SnapProtocolVersion.V2.getCapability());
     }
 
     return capabilities.build();

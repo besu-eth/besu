@@ -26,7 +26,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -248,9 +248,18 @@ class GetBlockAccessListsFromPeerTaskTest {
   void shouldSelectOnlySnap2ServingPeers() {
     final RetryingGetBlockAccessListsFromPeerTask task = retryingTask();
 
-    assertThat(task.isSuitablePeer(peerAttributes(true, Set.of(SnapProtocol.SNAP2)))).isTrue();
-    assertThat(task.isSuitablePeer(peerAttributes(false, Set.of(SnapProtocol.SNAP2)))).isFalse();
-    assertThat(task.isSuitablePeer(peerAttributes(true, Set.of(SnapProtocol.SNAP1)))).isFalse();
+    assertThat(
+            task.isSuitablePeer(
+                peerAttributes(true, Set.of(SnapProtocolVersion.V2.getCapability()))))
+        .isTrue();
+    assertThat(
+            task.isSuitablePeer(
+                peerAttributes(false, Set.of(SnapProtocolVersion.V2.getCapability()))))
+        .isFalse();
+    assertThat(
+            task.isSuitablePeer(
+                peerAttributes(true, Set.of(SnapProtocolVersion.V1.getCapability()))))
+        .isFalse();
   }
 
   private GetBlockAccessListsFromPeerTask taskFor(final List<BlockHeader> blockHeaders) {

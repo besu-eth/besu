@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.eth.manager;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer.DisconnectCallback;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerSelector;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
@@ -677,8 +677,8 @@ public class EthPeers implements PeerSelector {
   }
 
   private void checkIsSnapServer(final EthPeer peer, final BlockHeader peersHeadBlockHeader) {
-    if (peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1)
-        || peer.getAgreedCapabilities().contains(SnapProtocol.SNAP2)) {
+    if (peer.getAgreedCapabilities().contains(SnapProtocolVersion.V1.getCapability())
+        || peer.getAgreedCapabilities().contains(SnapProtocolVersion.V2.getCapability())) {
       if (snapServerChecker != null) {
         // set that peer is a snap server for doing the test
         peer.setIsServingSnap(true);

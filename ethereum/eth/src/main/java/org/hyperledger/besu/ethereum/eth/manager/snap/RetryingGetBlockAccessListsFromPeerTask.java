@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.eth.manager.snap;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -155,6 +155,6 @@ public class RetryingGetBlockAccessListsFromPeerTask
   @Override
   protected boolean isSuitablePeer(final EthPeerImmutableAttributes peer) {
     return peer.isServingSnap()
-        && peer.ethPeer().getAgreedCapabilities().contains(SnapProtocol.SNAP2);
+        && peer.ethPeer().getAgreedCapabilities().contains(SnapProtocolVersion.V2.getCapability());
   }
 }
