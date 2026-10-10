@@ -54,6 +54,7 @@ import org.apache.tuweni.bytes.Bytes;
   "s",
   "blobVersionedHashes"
 })
+@JsonInclude(JsonInclude.Include.ALWAYS)
 public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
