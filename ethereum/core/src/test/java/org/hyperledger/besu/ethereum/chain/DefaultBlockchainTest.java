@@ -321,6 +321,88 @@ public class DefaultBlockchainTest {
   }
 
   @Test
+  public void unsafeStoreHeaderPublishesHeadStateAfterCommit() throws Exception {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final CommitBlockingKeyValueStorage chainStorage = new CommitBlockingKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(chainStorage, new InMemoryKeyValueStorage(), genesisBlock);
+    final BlockHeader header =
+        gen.block(
+                new BlockDataGenerator.BlockOptions()
+                    .setBlockNumber(1L)
+                    .setParentHash(genesisBlock.getHash()))
+            .getHeader();
+    final Difficulty initialTotalDifficulty = blockchain.getChainHead().getTotalDifficulty();
+    final Difficulty totalDifficulty = initialTotalDifficulty.add(header.getDifficulty());
+
+    assertHeadPublishedAfterCommit(
+        chainStorage,
+        blockchain,
+        () -> blockchain.unsafeStoreHeader(header, totalDifficulty),
+        genesisBlock.getHeader(),
+        initialTotalDifficulty,
+        header,
+        totalDifficulty);
+  }
+
+  @Test
+  public void unsafeSetChainHeadPublishesHeadStateAfterCommit() throws Exception {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final CommitBlockingKeyValueStorage chainStorage = new CommitBlockingKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(chainStorage, new InMemoryKeyValueStorage(), genesisBlock);
+    final BlockHeader header =
+        gen.block(
+                new BlockDataGenerator.BlockOptions()
+                    .setBlockNumber(1L)
+                    .setParentHash(genesisBlock.getHash()))
+            .getHeader();
+    blockchain.storeBlockHeaders(List.of(header));
+    final Difficulty initialTotalDifficulty = blockchain.getChainHead().getTotalDifficulty();
+    final Difficulty totalDifficulty = initialTotalDifficulty.add(header.getDifficulty());
+
+    assertHeadPublishedAfterCommit(
+        chainStorage,
+        blockchain,
+        () -> blockchain.unsafeSetChainHead(header, totalDifficulty),
+        genesisBlock.getHeader(),
+        initialTotalDifficulty,
+        header,
+        totalDifficulty);
+  }
+
+  private void assertHeadPublishedAfterCommit(
+      final CommitBlockingKeyValueStorage chainStorage,
+      final DefaultBlockchain blockchain,
+      final Runnable headUpdate,
+      final BlockHeader initialHead,
+      final Difficulty initialTotalDifficulty,
+      final BlockHeader newHead,
+      final Difficulty newTotalDifficulty)
+      throws Exception {
+    final ExecutorService executor = Executors.newSingleThreadExecutor();
+    chainStorage.blockNextCommit();
+    final Future<?> updateFuture = executor.submit(headUpdate);
+    try {
+      assertThat(chainStorage.awaitCommit()).isTrue();
+      assertThat(blockchain.getChainHeadHash()).isEqualTo(initialHead.getHash());
+      assertThat(blockchain.getChainHead().getTotalDifficulty()).isEqualTo(initialTotalDifficulty);
+
+      chainStorage.releaseCommit();
+      updateFuture.get(10, TimeUnit.SECONDS);
+
+      assertThat(blockchain.getChainHeadHash()).isEqualTo(newHead.getHash());
+      assertThat(blockchain.getChainHead().getTotalDifficulty()).isEqualTo(newTotalDifficulty);
+      assertThat(blockchain.getBlockHeader(blockchain.getChainHeadHash())).contains(newHead);
+    } finally {
+      chainStorage.releaseCommit();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
   public void appendUnconnectedBlock() {
     final BlockDataGenerator gen = new BlockDataGenerator();
 
