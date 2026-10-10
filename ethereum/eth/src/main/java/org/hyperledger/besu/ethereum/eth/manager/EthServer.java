@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.manager;
 import static org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason.INVALID_FIRST_BLOCK_RECEIPT_INDEX;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -48,6 +49,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -434,10 +436,10 @@ class EthServer {
       hashesToProcess = hashes;
     }
 
-    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
-    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
-    rlp.startList();
+    final SimpleNoCopyRlpEncoder enc = new SimpleNoCopyRlpEncoder();
+    final List<Bytes> encodedTxs = new ArrayList<>();
     final List<Hash> returnedHashes = traceEnabled ? new ArrayList<>() : null;
+    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
     int requestedCount = 0;
     int returnedCount = 0;
     for (final Hash hash : hashesToProcess) {
@@ -450,21 +452,24 @@ class EthServer {
         continue;
       }
 
-      final BytesValueRLPOutput txRlp = new BytesValueRLPOutput();
-      TransactionEncoder.encodeRLP(maybeTx.get(), txRlp, EncodingContext.POOLED_TRANSACTION);
-      final int encodedSize = txRlp.encodedSize();
-      if (responseSizeEstimate + encodedSize > maxMessageSize) {
+      final Transaction tx = maybeTx.get();
+      final Bytes opaqueBytes =
+          TransactionEncoder.encodeOpaqueBytes(tx, EncodingContext.POOLED_TRANSACTION);
+      // FRONTIER opaque bytes are the complete RLP list item (written raw into the outer list).
+      // Typed transaction opaque bytes are wrapped as an RLP byte-string inside the list.
+      final Bytes encodedTx =
+          tx.getType() == TransactionType.FRONTIER ? opaqueBytes : enc.encode(opaqueBytes);
+      if (responseSizeEstimate + encodedTx.size() > maxMessageSize) {
         break;
       }
 
-      responseSizeEstimate += encodedSize;
-      rlp.writeRaw(txRlp.encoded());
+      responseSizeEstimate += encodedTx.size();
+      encodedTxs.add(encodedTx);
       returnedCount++;
       if (returnedHashes != null) {
         returnedHashes.add(hash);
       }
     }
-    rlp.endList();
 
     if (traceEnabled) {
       LOG.atTrace()
@@ -475,6 +480,6 @@ class EthServer {
           .log();
     }
 
-    return PooledTransactionsMessage.createUnsafe(rlp.encoded());
+    return PooledTransactionsMessage.createUnsafe(enc.encodeList(encodedTxs));
   }
 }
