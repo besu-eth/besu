@@ -17,6 +17,8 @@ package org.hyperledger.besu.util;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.config.GenesisConfig.fromConfig;
+import static org.hyperledger.besu.util.EphemeryGenesisUpdater.BPO1_OFFSET_SECONDS;
+import static org.hyperledger.besu.util.EphemeryGenesisUpdater.BPO2_OFFSET_SECONDS;
 
 import org.hyperledger.besu.config.GenesisConfig;
 
@@ -106,12 +108,48 @@ public class EphemeryGenesisUpdaterTest {
     override.put("chainId", String.valueOf(expectedChainId));
     override.put("timestamp", String.valueOf(expectedGenesisTimestamp));
 
+    override.put("bpo1Time", String.valueOf(expectedGenesisTimestamp + BPO1_OFFSET_SECONDS));
+    override.put("bpo2Time", String.valueOf(expectedGenesisTimestamp + BPO2_OFFSET_SECONDS));
+
     assertThat(config.withOverrides(override).getConfigOptions().getChainId()).isPresent();
     assertThat(config.withOverrides(override).getConfigOptions().getChainId())
         .hasValue(expectedChainId);
+    assertThat(config.withOverrides(override).getConfigOptions().getBpo1Time())
+        .hasValue(expectedGenesisTimestamp + BPO1_OFFSET_SECONDS);
+    assertThat(config.withOverrides(override).getConfigOptions().getBpo2Time())
+        .hasValue(expectedGenesisTimestamp + BPO2_OFFSET_SECONDS);
     assertThat(config.withOverrides(override).getTimestamp()).isGreaterThanOrEqualTo(0);
     assertThat(expectedChainId).isEqualTo(override.get("chainId"));
     assertThat(String.valueOf(expectedGenesisTimestamp)).isEqualTo(override.get("timestamp"));
+  }
+
+  @Test
+  public void testEphemeryBaselineBpoTimes() {
+    final GenesisConfig config = GenesisConfig.fromResource("/ephemery.json");
+    assertThat(config.getConfigOptions().getBpo1Time())
+        .hasValue(GENESIS_TEST_TIMESTAMP + BPO1_OFFSET_SECONDS);
+    assertThat(config.getConfigOptions().getBpo2Time())
+        .hasValue(GENESIS_TEST_TIMESTAMP + BPO2_OFFSET_SECONDS);
+  }
+
+  @Test
+  public void testUpdateGenesisPopulatesBpoOverrides() {
+    final Map<String, String> overrides = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    final GenesisConfig updatedConfig = EphemeryGenesisUpdater.updateGenesis(overrides);
+
+    assertThat(overrides).containsKey("bpo1Time");
+    assertThat(overrides).containsKey("bpo2Time");
+
+    long updatedTimestamp = Long.parseLong(overrides.get("timestamp"));
+    assertThat(Long.parseLong(overrides.get("bpo1Time")))
+        .isEqualTo(updatedTimestamp + BPO1_OFFSET_SECONDS);
+    assertThat(Long.parseLong(overrides.get("bpo2Time")))
+        .isEqualTo(updatedTimestamp + BPO2_OFFSET_SECONDS);
+
+    assertThat(updatedConfig.getConfigOptions().getBpo1Time())
+        .hasValue(updatedTimestamp + BPO1_OFFSET_SECONDS);
+    assertThat(updatedConfig.getConfigOptions().getBpo2Time())
+        .hasValue(updatedTimestamp + BPO2_OFFSET_SECONDS);
   }
 
   @Test

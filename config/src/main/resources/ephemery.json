@@ -42,8 +42,8 @@
     },
     "pragueTime": 0,
     "osakaTime": 0,
-    "bpo1Time": 1762033032,
-    "bpo2Time": 1762819464,
+    "bpo1Time": 1720906632,
+    "bpo2Time": 1721693064,
     "discovery": {
       "bootnodes": [
         "enode://50a54ecbd2175497640bcf46a25bbe9bb4fae51d7cc2a29ef4947a7ee17496cf39a699b7fe6b703ed0feb9dbaae7e44fc3827fcb7435ca9ac6de4daa4d983b3d@137.74.203.240:30303",
