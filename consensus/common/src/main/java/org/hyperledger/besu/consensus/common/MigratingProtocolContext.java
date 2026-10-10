@@ -18,8 +18,8 @@ import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 /** The Migrating protocol context. */
@@ -34,16 +34,20 @@ public class MigratingProtocolContext extends ProtocolContext {
    * @param worldStateArchive the world state archive
    * @param migratingConsensusContext the consensus context
    * @param badBlockManager the cache to use to keep invalid blocks
-   * @param serviceManager the plugin service manager
+   * @param pluginProvidedServices the plugin service manager
    */
   public MigratingProtocolContext(
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
       final MigratingConsensusContext migratingConsensusContext,
       final BadBlockManager badBlockManager,
-      final ServiceManager serviceManager) {
+      final PluginProvidedServices pluginProvidedServices) {
     super(
-        blockchain, worldStateArchive, migratingConsensusContext, badBlockManager, serviceManager);
+        blockchain,
+        worldStateArchive,
+        migratingConsensusContext,
+        badBlockManager,
+        pluginProvidedServices);
     this.consensusContextSchedule = migratingConsensusContext.getConsensusContextSchedule();
   }
 

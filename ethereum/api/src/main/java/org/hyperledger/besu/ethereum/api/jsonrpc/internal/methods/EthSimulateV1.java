@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockStateCall
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulationResult;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulator;
@@ -41,7 +42,6 @@ import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
@@ -59,7 +59,7 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
   private final BlockImportTracerProvider blockImportTracerProvider;
 
   public EthSimulateV1(
-      final ServiceManager serviceManager,
+      final PluginProvidedServices pluginProvidedServices,
       final BlockchainQueries blockchainQueries,
       final ProtocolSchedule protocolSchedule,
       final TransactionSimulator transactionSimulator,
@@ -77,8 +77,8 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
             apiConfiguration.getGasCap());
 
     this.blockImportTracerProvider =
-        Optional.ofNullable(serviceManager)
-            .flatMap(mgr -> mgr.getService(BlockImportTracerProvider.class))
+        Optional.ofNullable(pluginProvidedServices)
+            .flatMap(services -> services.lookup(BlockImportTracerProvider.class))
             // if block import tracer provider is not specified by plugin, default to no tracing
             .orElse(__ -> BlockAwareOperationTracer.NO_TRACING);
   }

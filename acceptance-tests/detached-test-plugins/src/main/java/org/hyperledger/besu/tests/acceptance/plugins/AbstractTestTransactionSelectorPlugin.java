@@ -24,7 +24,8 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 import org.hyperledger.besu.plugin.data.TransactionProcessingResult;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
@@ -62,7 +63,6 @@ public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugi
           SIGNATURE_ALGORITHM.createPrivateKey(
               Bytes32.fromHexString(Accounts.GENESIS_ACCOUNT_THREE_PRIVATE_KEY)));
 
-  private ServiceManager serviceManager;
   private File callbackDir;
   private final int pluginNum;
   private final int preMultiple;
@@ -81,15 +81,11 @@ public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugi
   }
 
   @Override
-  public void register(final ServiceManager serviceManager) {
-    this.serviceManager = serviceManager;
-
-    callbackDir = PluginCallbackDir.resolve(serviceManager);
-
+    public void register(final RegistrationContext context) {
+    callbackDir = PluginCallbackDir.resolve(context);
     if (isEnabled()) {
-      serviceManager
-          .getService(TransactionSelectionService.class)
-          .orElseThrow()
+      context
+          .getBesuService(TransactionSelectionService.class)
           .registerPluginTransactionSelectorFactory(
               new PluginTransactionSelectorFactory() {
                 @Override
@@ -175,7 +171,7 @@ public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugi
   protected abstract boolean isEnabled();
 
   @Override
-  public void start() {}
+  public void start(final StartContext context) {}
 
   @Override
   public void stop() {}

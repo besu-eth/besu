@@ -16,7 +16,8 @@ package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
 
@@ -37,23 +38,22 @@ public class TestTransactionPoolSubscriptionPlugin implements BesuPlugin {
   private static final Logger LOG =
       LoggerFactory.getLogger(TestTransactionPoolSubscriptionPlugin.class);
 
-  private ServiceManager context;
   private Optional<Subscription> transactionAdded = Optional.empty();
   private final AtomicInteger transactionCounter = new AtomicInteger();
   private File callbackDir;
 
   @Override
-  public void register(final ServiceManager context) {
-    this.context = context;
+  public void register(final RegistrationContext context) {
     callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     transactionAdded =
-        context
-            .getService(TransactionPoolService.class)
-            .map(service -> service.subscribeTransactionAdded(this::onTransactionAdded));
+        Optional.of(
+            context
+                .getBesuService(TransactionPoolService.class)
+                .subscribeTransactionAdded(this::onTransactionAdded));
     LOG.info("Subscribed to transaction added: {}", transactionAdded.isPresent());
   }
 

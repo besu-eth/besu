@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.wit
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
@@ -35,7 +36,6 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldState;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -70,7 +70,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Blockchain blockchain,
       final ExtraStorageConfiguration extraStorageConfiguration,
-      final ServiceManager pluginContext) {
+      final PluginProvidedServices pluginProvidedServices) {
     this(
         worldStateKeyValueStorage,
         blockchain,
@@ -79,7 +79,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             blockchain,
             worldStateKeyValueStorage,
             extraStorageConfiguration.getMaxLayersToLoad(),
-            pluginContext));
+            pluginProvidedServices));
   }
 
   public PathBasedWorldStateProvider(

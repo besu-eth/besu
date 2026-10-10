@@ -23,8 +23,7 @@ import org.hyperledger.besu.datatypes.Transaction;
  *
  * <pre>{@code
  * context
- *    .getService(PermissioningService.class)
- *    .get()
+ *    .getBesuService(PermissioningService.class)
  *    .registerTransactionPermissioningProvider((tx) -> {
  *        // Your logic here
  *        return true;

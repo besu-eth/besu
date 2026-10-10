@@ -139,8 +139,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     if (blockImportTracerProvider == null) {
       // fetch from context once, and keep.
       blockImportTracerProvider =
-          Optional.ofNullable(protocolContext.getPluginServiceManager())
-              .flatMap(serviceManager -> serviceManager.getService(BlockImportTracerProvider.class))
+          Optional.ofNullable(protocolContext.getPluginProvidedServices())
+              .flatMap(services -> services.lookup(BlockImportTracerProvider.class))
               // if block import tracer provider is not specified by plugin, default to no tracing
               .orElse(
                   ignored -> {

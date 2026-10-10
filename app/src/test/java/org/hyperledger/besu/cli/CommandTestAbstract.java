@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,11 +58,11 @@ import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
-import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.HealthCheckServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointRegistryImpl;
 import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
-import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.sync.BlockBroadcaster;
@@ -74,14 +75,24 @@ import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorS
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
-import org.hyperledger.besu.ethereum.transaction.pluginadapter.TransactionSimulationServiceImpl;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.CoreConfiguration;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.RegistrationService;
+import org.hyperledger.besu.plugin.RunningContext;
+import org.hyperledger.besu.plugin.RunningService;
+import org.hyperledger.besu.plugin.StartContext;
+import org.hyperledger.besu.plugin.StartService;
+import org.hyperledger.besu.plugin.services.BesuEvents;
+import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.StorageService;
 import org.hyperledger.besu.plugin.services.TransactionSelectionService;
+import org.hyperledger.besu.plugin.services.p2p.P2PService;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
@@ -192,8 +203,8 @@ public abstract class CommandTestAbstract {
     keyPair = signatureAlgorithm.createKeyPair(signatureAlgorithm.createPrivateKey(keyPairPrvKey));
   }
 
-  protected static final RpcEndpointServiceImpl rpcEndpointServiceImpl =
-      new RpcEndpointServiceImpl();
+  protected static final RpcEndpointRegistryImpl rpcEndpointRegistry =
+      new RpcEndpointRegistryImpl();
 
   @Mock(lenient = true, answer = Answers.RETURNS_SELF)
   protected RunnerBuilder mockRunnerBuilder;
@@ -306,12 +317,28 @@ public abstract class CommandTestAbstract {
         .when(securityModuleService.getByName(eq("localfile")))
         .thenReturn(Optional.of(() -> securityModule));
 
+    // the plugin context, a mock here and a spy in some subclasses, hands the built-in plugins
+    // contexts backed by the mocked services; doReturn() keeps a spy from running the real method
+    lenient().doReturn(true).when(getBesuPluginContext()).isRegistering();
     lenient()
-        .when(getBesuPluginContext().getService(StorageService.class))
-        .thenReturn(Optional.of(storageService));
+        .doReturn(fakePluginServices.registrationContext())
+        .when(getBesuPluginContext())
+        .registrationContextFor(any());
     lenient()
-        .when(getBesuPluginContext().getService(TransactionSelectionService.class))
-        .thenReturn(Optional.of(txSelectionService));
+        .doReturn(fakePluginServices.startContext())
+        .when(getBesuPluginContext())
+        .startContextFor(any());
+    lenient()
+        .doReturn(fakePluginServices.runningContext())
+        .when(getBesuPluginContext())
+        .runningContextFor(any());
+    fakePluginServices.add(StorageService.class, storageService);
+    fakePluginServices.add(TransactionSelectionService.class, txSelectionService);
+    fakePluginServices.add(CoreConfiguration.class, commonPluginConfiguration);
+    // what the built-in health check plugins look up in each phase
+    fakePluginServices.add(HealthCheckService.class, new HealthCheckServiceImpl());
+    fakePluginServices.add(BesuEvents.class, mock(BesuEvents.class));
+    fakePluginServices.add(P2PService.class, mock(P2PService.class));
   }
 
   @BeforeEach
@@ -500,6 +527,67 @@ public abstract class CommandTestAbstract {
     return mockBesuPluginContext;
   }
 
+  /** Per-phase contexts over a plain map, for the built-in plugins the command drives itself. */
+  protected static final class FakePluginServices {
+    private final Map<Class<?>, BesuService> services = new HashMap<>();
+
+    <T extends BesuService> void add(final Class<T> type, final T service) {
+      services.put(type, service);
+    }
+
+    private <T extends BesuService> T service(final Class<T> type) {
+      final BesuService service = services.get(type);
+      if (service == null) {
+        throw new IllegalStateException(type.getSimpleName() + " is not provided in this test");
+      }
+      return type.cast(service);
+    }
+
+    RegistrationContext registrationContext() {
+      return new RegistrationContext() {
+        @Override
+        public <T extends RegistrationService> T getBesuService(final Class<T> type) {
+          return service(type);
+        }
+
+        @Override
+        public <T extends BesuService> void registerService(final Class<T> type, final T service) {
+          services.put(type, service);
+        }
+      };
+    }
+
+    StartContext startContext() {
+      return new StartContext() {
+        @Override
+        public <T extends StartService> T getBesuService(final Class<T> type) {
+          return service(type);
+        }
+
+        @Override
+        public <T extends BesuService> Optional<T> getPluginService(final Class<T> type) {
+          return Optional.ofNullable(services.get(type)).map(type::cast);
+        }
+      };
+    }
+
+    RunningContext runningContext() {
+      return new RunningContext() {
+        @Override
+        public <T extends RunningService> T getBesuService(final Class<T> type) {
+          return service(type);
+        }
+
+        @Override
+        public <T extends BesuService> Optional<T> getPluginService(final Class<T> type) {
+          return Optional.ofNullable(services.get(type)).map(type::cast);
+        }
+      };
+    }
+  }
+
+  protected final FakePluginServices fakePluginServices = new FakePluginServices();
+
   @CommandLine.Command
   public static class TestBesuCommand extends BesuCommand {
 
@@ -532,11 +620,9 @@ public abstract class CommandTestAbstract {
           storageService,
           securityModuleService,
           new PermissioningServiceImpl(),
-          rpcEndpointServiceImpl,
+          rpcEndpointRegistry,
           new TransactionSelectionServiceImpl(),
           new TransactionPoolValidatorServiceImpl(),
-          new TransactionSimulationServiceImpl(),
-          new BlockchainServiceImpl(),
           new TransactionValidatorServiceImpl(),
           commandLogger);
     }

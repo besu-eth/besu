@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidator;
 import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidatorFactory;
@@ -25,7 +26,7 @@ import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolVal
  * the pool.
  */
 @Unstable
-public interface TransactionPoolValidatorService extends BesuService {
+public interface TransactionPoolValidatorService extends RegistrationService {
 
   /**
    * Returns the transaction validator to be used in the txpool

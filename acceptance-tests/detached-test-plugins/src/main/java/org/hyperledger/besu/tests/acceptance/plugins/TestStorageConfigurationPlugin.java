@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 
 import java.io.File;
@@ -29,21 +30,18 @@ import org.slf4j.LoggerFactory;
 @AutoService(BesuPlugin.class)
 public class TestStorageConfigurationPlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestStorageConfigurationPlugin.class);
-  private ServiceManager serviceManager;
   private File callbackDir;
 
   @Override
-  public void register(final ServiceManager serviceManager) {
+  public void register(final RegistrationContext context) {
     LOG.info("Registering TestStorageConfigurationPlugin");
-    this.serviceManager = serviceManager;
-    callbackDir = PluginCallbackDir.resolve(serviceManager);
+    callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.info("Starting TestStorageConfigurationPlugin");
-    final var storageConfiguration =
-        serviceManager.getService(StorageConfiguration.class).orElseThrow();
+    final var storageConfiguration = context.getBesuService(StorageConfiguration.class);
     writeStoragePath(storageConfiguration.getStoragePath().toString());
   }
 

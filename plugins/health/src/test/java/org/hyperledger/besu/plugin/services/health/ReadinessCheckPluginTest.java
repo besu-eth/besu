@@ -21,7 +21,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.RunningContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
@@ -34,28 +36,41 @@ import org.junit.jupiter.api.Test;
 
 public class ReadinessCheckPluginTest {
 
-  private ServiceManager serviceManager;
+  private RegistrationContext registrationContext;
+  private StartContext startContext;
+  private RunningContext runningContext;
   private HealthCheckService healthCheckService;
   private P2PService p2pService;
   private BesuEvents besuEvents;
 
   @BeforeEach
   void setUp() {
-    serviceManager = mock(ServiceManager.class);
+    registrationContext = mock(RegistrationContext.class);
+    startContext = mock(StartContext.class);
+    runningContext = mock(RunningContext.class);
     healthCheckService = mock(HealthCheckService.class);
     p2pService = mock(P2PService.class);
     besuEvents = mock(BesuEvents.class);
-    when(serviceManager.getService(HealthCheckService.class))
-        .thenReturn(java.util.Optional.of(healthCheckService));
-    when(serviceManager.getService(P2PService.class)).thenReturn(java.util.Optional.of(p2pService));
-    when(serviceManager.getService(BesuEvents.class)).thenReturn(java.util.Optional.of(besuEvents));
+    when(registrationContext.getBesuService(HealthCheckService.class))
+        .thenReturn(healthCheckService);
+    when(startContext.getBesuService(BesuEvents.class)).thenReturn(besuEvents);
+    when(runningContext.getBesuService(P2PService.class)).thenReturn(p2pService);
+  }
+
+  /** Drives the plugin through the phases the node drives it through. */
+  private ReadinessCheckPlugin startedPlugin() {
+    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
+    plugin.register(registrationContext);
+    plugin.start(startContext);
+    plugin.afterMainLoop(runningContext);
+    return plugin;
   }
 
   @Test
   void shouldRegisterReadinessCheck() {
     final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
 
-    plugin.register(serviceManager);
+    plugin.register(registrationContext);
 
     verify(healthCheckService)
         .registerHealthCheck(eq("/readiness"), any(HealthCheckService.HealthCheckProvider.class));
@@ -65,8 +80,9 @@ public class ReadinessCheckPluginTest {
   void shouldCheckPeerCount() {
     final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
 
-    plugin.register(serviceManager);
-    plugin.start();
+    plugin.register(registrationContext);
+    plugin.start(startContext);
+    plugin.afterMainLoop(runningContext);
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -93,8 +109,9 @@ public class ReadinessCheckPluginTest {
   void shouldPassWhenPeerCountMet() {
     final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
 
-    plugin.register(serviceManager);
-    plugin.start();
+    plugin.register(registrationContext);
+    plugin.start(startContext);
+    plugin.afterMainLoop(runningContext);
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -115,9 +132,7 @@ public class ReadinessCheckPluginTest {
   void shouldInitializeRuntimeServicesOnStart() {
     when(besuEvents.addSyncStatusListener(any())).thenReturn(1L);
 
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     verify(besuEvents).addSyncStatusListener(any());
   }
@@ -128,8 +143,9 @@ public class ReadinessCheckPluginTest {
 
     final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
 
-    plugin.register(serviceManager);
-    plugin.start();
+    plugin.register(registrationContext);
+    plugin.start(startContext);
+    plugin.afterMainLoop(runningContext);
 
     plugin.stop();
 
@@ -138,9 +154,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldPassWhenSyncStatusWithinThreshold() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -170,9 +184,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldFailWhenSyncStatusExceedsThreshold() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -202,9 +214,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldPassWhenHighestBlockEqualsCurrentBlock() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -228,9 +238,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldTreatMalformedMinPeersAsUnhealthy() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -247,9 +255,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldTreatMalformedMaxBlocksBehindAsUnhealthy() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -273,9 +279,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldTreatNegativeMinPeersAsUnhealthy() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -292,9 +296,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldTreatNegativeMaxBlocksBehindAsUnhealthy() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -318,9 +320,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldFailByDefaultWhenMoreThanTwoBlocksBehind() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -350,9 +350,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldPassByDefaultWhenWithinTwoBlocksBehind() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);
@@ -376,9 +374,7 @@ public class ReadinessCheckPluginTest {
 
   @Test
   void shouldSkipPeerCheckWhenP2pDisabled() {
-    final ReadinessCheckPlugin plugin = new ReadinessCheckPlugin();
-    plugin.register(serviceManager);
-    plugin.start();
+    startedPlugin();
 
     final var captor =
         org.mockito.ArgumentCaptor.forClass(HealthCheckService.HealthCheckProvider.class);

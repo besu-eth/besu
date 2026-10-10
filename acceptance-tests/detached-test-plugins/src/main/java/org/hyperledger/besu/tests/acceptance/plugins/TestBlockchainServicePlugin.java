@@ -18,7 +18,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.BlockchainService;
@@ -40,7 +41,6 @@ import picocli.CommandLine;
 public class TestBlockchainServicePlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestBlockchainServicePlugin.class);
   private final List<HardforkSeen> seenHardforks = new ArrayList<>();
-  private ServiceManager serviceManager;
   private File callbackDir;
 
   @CommandLine.Option(names = "--plugin-blockchain-service-test-enabled")
@@ -52,23 +52,18 @@ public class TestBlockchainServicePlugin implements BesuPlugin {
   }
 
   @Override
-  public void register(final ServiceManager serviceManager) {
+    public void register(final RegistrationContext context) {
     LOG.info("Registering TestBlockchainServicePlugin");
-    this.serviceManager = serviceManager;
-
-    callbackDir = PluginCallbackDir.resolve(serviceManager);
+    callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     if (enabled) {
       LOG.info("Starting TestBlockchainServicePlugin");
-      final var blockchainService =
-          serviceManager.getService(BlockchainService.class).orElseThrow();
-
-      serviceManager
-          .getService(BesuEvents.class)
-          .orElseThrow()
+      final var blockchainService = context.getBesuService(BlockchainService.class);
+      context
+          .getBesuService(BesuEvents.class)
           .addBlockAddedListener(
               addedBlockContext -> {
                 LOG.info("Block added: {}", addedBlockContext);
