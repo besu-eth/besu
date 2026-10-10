@@ -63,6 +63,7 @@
 - The block creation timing logged for an empty payload now shows when that block was built, instead of the process start time. [#11461](https://github.com/besu-eth/besu/pull/11461)
 - Amsterdam now rejects transactions with a gas limit above the EIP-8037 cap of `2^32-1`. [#11414](https://github.com/besu-eth/besu/pull/11414)
 - Receipt sync no longer rejects a partial receipt list from a peer when one of its transactions used more than 45M gas. [#11414](https://github.com/besu-eth/besu/pull/11414)
+- The task behind a `RunnableTimedCounter` runs once per interval: several threads incrementing it after the deadline elapsed previously each ran the task. [#11554](https://github.com/besu-eth/besu/pull/11554)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
