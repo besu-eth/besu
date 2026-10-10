@@ -52,6 +52,7 @@ public class StreamingOperationTracer implements OperationTracer {
   // Flags used for implementing traceOpcodes functionality
   private boolean traceOpcode;
   private Operation previousOpcode = null;
+  private int stepCount;
 
   /**
    * Instantiates a new StreamingOperationTracer
@@ -106,6 +107,11 @@ public class StreamingOperationTracer implements OperationTracer {
     if (!(traceOpcode = traceOpcode(currentOp))) {
       return;
     }
+    if (opCodeTracerConfig.limit() > 0 && stepCount >= opCodeTracerConfig.limit()) {
+      traceOpcode = false;
+      return;
+    }
+    stepCount++;
     stack = new ArrayList<>(messageFrame.stackSize());
     for (int i = messageFrame.stackSize() - 1; i >= 0; i--) {
       stack.add("\"" + shortBytes(messageFrame.getStackItem(i)) + "\"");
