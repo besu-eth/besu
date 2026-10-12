@@ -38,22 +38,27 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessLi
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.tracing.AccessListOperationTracer;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -68,6 +73,12 @@ public class EthCreateAccessListTest {
   private static final long TX_GAS_LIMIT_CAP = 1_000_000L;
   private static final long BLOCK_GAS_LIMIT = 2_000_000L;
   private static final String METHOD = "eth_createAccessList";
+  private static final Address SENDER =
+      Address.fromHexString("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  private static final Address RECIPIENT =
+      Address.fromHexString("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+  private static final Address PRECOMPILE =
+      Address.fromHexString("0x0000000000000000000000000000000000000001");
 
   private EthCreateAccessList method;
 
@@ -79,6 +90,9 @@ public class EthCreateAccessListTest {
   @Mock private BlockchainQueries blockchainQueries;
   @Mock private TransactionSimulator transactionSimulator;
   @Mock private WorldStateArchive worldStateArchive;
+  @Mock private ProtocolSchedule protocolSchedule;
+  @Mock private ProtocolSpec protocolSpec;
+  @Mock private PrecompileContractRegistry precompileContractRegistry;
 
   @BeforeEach
   public void setUp() {
@@ -103,8 +117,11 @@ public class EthCreateAccessListTest {
     when(pendingBlockHeader.getNumber()).thenReturn(3L);
     when(transactionSimulator.simulatePendingBlockHeader()).thenReturn(pendingBlockHeader);
     when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    when(protocolSpec.getPrecompileContractRegistry()).thenReturn(precompileContractRegistry);
+    when(precompileContractRegistry.getPrecompileAddresses()).thenReturn(Set.of());
 
-    method = new EthCreateAccessList(blockchainQueries, transactionSimulator);
+    method = new EthCreateAccessList(blockchainQueries, transactionSimulator, protocolSchedule);
   }
 
   @Test
@@ -387,6 +404,7 @@ public class EthCreateAccessListTest {
     try (final MockedStatic<AccessListOperationTracer> tracerMockedStatic =
         Mockito.mockStatic(AccessListOperationTracer.class)) {
       tracerMockedStatic.when(AccessListOperationTracer::create).thenReturn(tracer);
+      tracerMockedStatic.when(() -> AccessListOperationTracer.create(any())).thenReturn(tracer);
       return method.response(request);
     }
   }
@@ -467,5 +485,54 @@ public class EthCreateAccessListTest {
   private List<AccessListEntry> generateRandomAccessList() {
     return List.of(
         new AccessListEntry(Address.wrap(Bytes.random(Address.SIZE)), List.of(Bytes32.random())));
+  }
+
+  @Test
+  public void senderIsExcludedFromAccessList() {
+    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, pendingBlockHeader);
+    assertThat(captureExcludedAddresses(callParameterWithSenderAndTo(SENDER, RECIPIENT)))
+        .contains(SENDER);
+  }
+
+  @Test
+  public void recipientIsExcludedFromAccessList() {
+    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, pendingBlockHeader);
+    assertThat(captureExcludedAddresses(callParameterWithSenderAndTo(SENDER, RECIPIENT)))
+        .contains(RECIPIENT);
+  }
+
+  @Test
+  public void precompileIsExcludedFromAccessList() {
+    when(precompileContractRegistry.getPrecompileAddresses()).thenReturn(Set.of(PRECOMPILE));
+    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, pendingBlockHeader);
+    assertThat(captureExcludedAddresses(callParameterWithSenderAndTo(SENDER, RECIPIENT)))
+        .contains(PRECOMPILE);
+  }
+
+  @SuppressWarnings("unchecked")
+  private Set<Address> captureExcludedAddresses(final CallParameter callParams) {
+    final ArgumentCaptor<Set<Address>> captor = ArgumentCaptor.forClass(Set.class);
+    final AccessListOperationTracer tracer = mock(AccessListOperationTracer.class);
+    when(tracer.getAccessList()).thenReturn(List.of());
+    try (final MockedStatic<AccessListOperationTracer> tracerMockedStatic =
+        Mockito.mockStatic(AccessListOperationTracer.class)) {
+      tracerMockedStatic
+          .when(() -> AccessListOperationTracer.create(captor.capture()))
+          .thenReturn(tracer);
+      method.response(ethCreateAccessListRequest(callParams));
+      return captor.getValue();
+    }
+  }
+
+  private CallParameter callParameterWithSenderAndTo(final Address sender, final Address to) {
+    return ImmutableCallParameter.builder()
+        .sender(sender)
+        .to(to)
+        .gas(0L)
+        .gasPrice(Wei.ZERO)
+        .value(Wei.ZERO)
+        .input(Bytes.EMPTY)
+        .strict(true)
+        .build();
   }
 }
