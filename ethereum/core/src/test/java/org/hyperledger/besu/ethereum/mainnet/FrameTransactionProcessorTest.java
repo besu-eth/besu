@@ -425,12 +425,12 @@ class FrameTransactionProcessorTest {
 
   @Test
   void expiryVerifierFrameAcceptsFutureDeadlineAndRejectsPastDeadline() {
-    // Install the canonical EIP-8141 expiry verifier runtime code at 0x8141.
+    // The canonical EIP-8141 expiry verifier, as it appears in genesis.
     final Address expiryVerifier = MainnetTransactionValidator.EXPIRY_VERIFIER;
     final Bytes expiryVerifierCode =
         Bytes.fromHexString("0x60083614600a575f5ffd5b5f3560c01c4211601657005b5f5ffd");
     final WorldUpdater setup = worldState.updater();
-    final MutableAccount verifier = setup.createAccount(expiryVerifier, 0, Wei.ZERO);
+    final MutableAccount verifier = setup.createAccount(expiryVerifier, 1, Wei.ZERO);
     verifier.setCode(expiryVerifierCode);
     setup.commit();
 

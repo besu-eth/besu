@@ -165,9 +165,13 @@ public class MainnetTransactionValidator implements TransactionValidator {
     return validateCostAndFee(transaction, baseFee, blobFee, transactionValidationParams);
   }
 
-  /** The EIP-8141 expiry verifier contract address. */
+  /**
+   * The EIP-8141 expiry verifier contract address. Deployed as an ordinary contract by a keyless
+   * transaction and present in genesis; the protocol does not install it at fork activation.
+   */
   public static final org.hyperledger.besu.datatypes.Address EXPIRY_VERIFIER =
-      org.hyperledger.besu.datatypes.Address.fromHexString("0x8141");
+      org.hyperledger.besu.datatypes.Address.fromHexString(
+          "0x81413f0cF12e9b6a49B1D0439E081c577D57FfFf");
 
   private static final int MAX_FRAMES = 64;
 
