@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -140,8 +141,20 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
 
   @Override
   public PeerTaskValidationResponse validateResult(final List<Transaction> result) {
-    if (!result.stream().allMatch((t) -> hashes.contains(t.getHash()))) {
-      return PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
+    // Unavailable transactions may be omitted, but responses must preserve request order.
+    final Iterator<Hash> requestedHashes = hashes.iterator();
+    for (final Transaction transaction : result) {
+      final Hash transactionHash = transaction.getHash();
+      boolean matched = false;
+      while (requestedHashes.hasNext()) {
+        if (requestedHashes.next().equals(transactionHash)) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        return PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
+      }
     }
     return PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD;
   }
