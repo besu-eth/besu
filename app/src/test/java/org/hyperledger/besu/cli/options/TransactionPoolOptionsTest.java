@@ -90,6 +90,63 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
+  public void pendingTransactionRetentionSecondsDefaultNotSet() {
+    internalTestSuccess(
+        config -> {
+          assertThat(config.getPendingTxRetentionSeconds()).isZero();
+          assertThat(config.getPendingTxRetentionDuration())
+              .isEqualTo(Duration.ofHours(TransactionPoolConfiguration.DEFAULT_TX_RETENTION_HOURS));
+          assertThat(config.getPendingTxEvictionInterval()).isEqualTo(Duration.ofMinutes(1));
+        },
+        "--tx-pool=sequenced");
+  }
+
+  @Test
+  public void pendingTransactionRetentionSecondsBelowOneMinuteShortensEvictionInterval() {
+    internalTestSuccess(
+        config -> {
+          assertThat(config.getPendingTxRetentionSeconds()).isEqualTo(30);
+          assertThat(config.getPendingTxRetentionDuration()).isEqualTo(Duration.ofSeconds(30));
+          assertThat(config.getPendingTxEvictionInterval()).isEqualTo(Duration.ofSeconds(30));
+        },
+        "--tx-pool-retention-seconds",
+        "30",
+        "--tx-pool=sequenced");
+  }
+
+  @Test
+  public void pendingTransactionRetentionSecondsAboveOneMinuteKeepsEvictionInterval() {
+    internalTestSuccess(
+        config -> {
+          assertThat(config.getPendingTxRetentionDuration()).isEqualTo(Duration.ofSeconds(90));
+          assertThat(config.getPendingTxEvictionInterval()).isEqualTo(Duration.ofMinutes(1));
+        },
+        "--tx-pool-retention-seconds",
+        "90",
+        "--tx-pool-retention-hours",
+        "999",
+        "--tx-pool=sequenced");
+  }
+
+  @Test
+  public void pendingTransactionRetentionSecondsNegativeFails() {
+    internalTestFailure(
+        "Transaction pool retention seconds must be greater than or equal to 0",
+        "--tx-pool-retention-seconds",
+        "-1",
+        "--tx-pool=sequenced");
+  }
+
+  @Test
+  public void pendingTransactionRetentionSecondsNotAllowedWithLayered() {
+    internalTestFailure(
+        "Could not use legacy or sequenced transaction pool options with layered implementation",
+        "--tx-pool-retention-seconds",
+        "30",
+        "--tx-pool=layered");
+  }
+
+  @Test
   public void noLocalPriorityDefault() {
     internalTestSuccess(config -> assertThat(config.getNoLocalPriority()).isFalse());
   }

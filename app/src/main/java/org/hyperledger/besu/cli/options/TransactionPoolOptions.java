@@ -226,6 +226,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
 
   static class Sequenced {
     private static final String TX_POOL_RETENTION_HOURS = "--tx-pool-retention-hours";
+    private static final String TX_POOL_RETENTION_SECONDS = "--tx-pool-retention-seconds";
     private static final String TX_POOL_LIMIT_BY_ACCOUNT_PERCENTAGE =
         "--tx-pool-limit-by-account-percentage";
     private static final String TX_POOL_MAX_SIZE = "--tx-pool-max-size";
@@ -236,6 +237,15 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         description =
             "Maximum retention period of pending transactions in hours (default: ${DEFAULT-VALUE})")
     Integer pendingTxRetentionPeriod = TransactionPoolConfiguration.DEFAULT_TX_RETENTION_HOURS;
+
+    @CommandLine.Option(
+        names = {TX_POOL_RETENTION_SECONDS},
+        paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
+        description =
+            "Maximum retention period of pending transactions in seconds. When set to a value greater than 0 it takes precedence over "
+                + TX_POOL_RETENTION_HOURS
+                + ", and when lower than 60 the eviction check runs every this many seconds instead of once a minute (default: ${DEFAULT-VALUE}, meaning not set)")
+    Integer pendingTxRetentionSeconds = TransactionPoolConfiguration.DEFAULT_TX_RETENTION_SECONDS;
 
     @CommandLine.Option(
         names = {TX_POOL_LIMIT_BY_ACCOUNT_PERCENTAGE},
@@ -384,6 +394,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         config.getTxPoolLimitByAccountPercentage();
     options.sequencedOptions.txPoolMaxSize = config.getTxPoolMaxSize();
     options.sequencedOptions.pendingTxRetentionPeriod = config.getPendingTxRetentionPeriod();
+    options.sequencedOptions.pendingTxRetentionSeconds = config.getPendingTxRetentionSeconds();
     options.transactionPoolValidatorService = config.getTransactionPoolValidatorService();
     options.unstableOptions.txMessageKeepAliveSeconds =
         config.getUnstable().getTxMessageKeepAliveSeconds();
@@ -429,6 +440,11 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
       throw new CommandLine.ParameterException(
           commandLine, "Max transaction bytes must be greater than 0");
     }
+
+    if (sequencedOptions.pendingTxRetentionSeconds < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "Transaction pool retention seconds must be greater than or equal to 0");
+    }
   }
 
   @Override
@@ -455,6 +471,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         .txPoolLimitByAccountPercentage(sequencedOptions.txPoolLimitByAccountPercentage)
         .txPoolMaxSize(sequencedOptions.txPoolMaxSize)
         .pendingTxRetentionPeriod(sequencedOptions.pendingTxRetentionPeriod)
+        .pendingTxRetentionSeconds(sequencedOptions.pendingTxRetentionSeconds)
         .transactionPoolValidatorService(transactionPoolValidatorService)
         .unstable(
             ImmutableTransactionPoolConfiguration.Unstable.builder()

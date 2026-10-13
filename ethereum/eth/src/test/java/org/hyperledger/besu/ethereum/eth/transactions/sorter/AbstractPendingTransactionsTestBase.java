@@ -24,6 +24,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRem
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.REPLACED;
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.TIMED_EVICTION;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.TX_EVALUATION_TOO_LONG;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -761,6 +762,111 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   private PendingTransaction createLocalPendingTransaction(final Transaction transaction) {
     return PendingTransaction.newPendingTransaction(transaction, true, true, MAX_SCORE);
+  }
+
+  @Test
+  public void shouldPenalizeNotSelectedTransactionsAndSelectThemAfterTheOthers() {
+    // sender 2 nonce 1 is the oldest, so it is selected first, then its nonce 2, then sender 1
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX2Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+
+    // first selection: sender 2 nonce 1 takes too long and is not included in the block
+    transactionsLarge.selectTransactions(
+        pendingTxs -> {
+          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+              .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX2Sdr2, zeroGasPriceTX1Sdr1);
+          return Map.of(pendingTxs.get(0), TX_EVALUATION_TOO_LONG);
+        });
+
+    // the penalized tx is still in the pool, with a lower score
+    assertThat(transactionsLarge.size()).isEqualTo(3);
+    assertThat(transactionsLarge.getTransactionByHash(zeroGasPriceTX1Sdr2.getHash())).isPresent();
+    assertThat(
+            transactionsLarge.getPendingTransactions().stream()
+                .filter(pt -> pt.getHash().equals(zeroGasPriceTX1Sdr2.getHash()))
+                .findFirst()
+                .orElseThrow()
+                .getScore())
+        .isEqualTo((byte) (MAX_SCORE - 1));
+
+    // second selection: sender 1 goes first, the penalized tx is moved after it and sender 2
+    // nonce 2 is still deferred behind sender 2 nonce 1
+    transactionsLarge.selectTransactions(
+        pendingTxs -> {
+          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+              .containsExactly(zeroGasPriceTX1Sdr1, zeroGasPriceTX1Sdr2, zeroGasPriceTX2Sdr2);
+          return Map.of(pendingTxs.get(1), TX_EVALUATION_TOO_LONG);
+        });
+
+    // penalized again, nothing is removed from the pool
+    assertThat(transactionsLarge.size()).isEqualTo(3);
+    assertThat(
+            transactionsLarge.getPendingTransactions().stream()
+                .filter(pt -> pt.getHash().equals(zeroGasPriceTX1Sdr2.getHash()))
+                .findFirst()
+                .orElseThrow()
+                .getScore())
+        .isEqualTo((byte) (MAX_SCORE - 2));
+  }
+
+  @Test
+  public void shouldNotPenalizeSelectedTransactions() {
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+
+    transactionsLarge.selectTransactions(
+        pendingTxs -> Map.of(pendingTxs.get(0), SELECTED, pendingTxs.get(1), SELECTED));
+
+    assertThat(transactionsLarge.getPendingTransactions())
+        .allSatisfy(pt -> assertThat(pt.getScore()).isEqualTo(MAX_SCORE));
+    transactionsLarge.selectTransactions(
+        pendingTxs -> {
+          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+              .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+          return Collections.emptyMap();
+        });
+  }
+
+  @Test
+  public void shouldEvictTransactionsOlderThanRetentionSeconds() {
+    final PendingTransactions transactions =
+        getPendingTransactions(
+            ImmutableTransactionPoolConfiguration.builder()
+                .pendingTxRetentionSeconds(30)
+                .txPoolMaxSize(MAX_TRANSACTIONS)
+                .txPoolLimitByAccountPercentage(Fraction.fromFloat(1.0f))
+                .build(),
+            Optional.of(clock));
+    transactions.subscribeDroppedTransactions(droppedListener);
+
+    transactions.addTransaction(
+        createRemotePendingTransaction(transaction1, clock.millis()), Optional.empty());
+    clock.step(20L, ChronoUnit.SECONDS);
+    transactions.addTransaction(
+        createRemotePendingTransaction(transaction2, clock.millis()), Optional.empty());
+    assertThat(transactions.size()).isEqualTo(2);
+
+    // 25s after transaction1 was added, nothing is older than 30s
+    clock.step(5L, ChronoUnit.SECONDS);
+    transactions.evictOldTransactions();
+    assertThat(transactions.size()).isEqualTo(2);
+
+    // 35s after transaction1, only transaction1 is older than 30s
+    clock.step(10L, ChronoUnit.SECONDS);
+    transactions.evictOldTransactions();
+    assertThat(transactions.size()).isEqualTo(1);
+    assertThat(transactions.getTransactionByHash(transaction1.getHash())).isEmpty();
+    verify(droppedListener).onTransactionDropped(transaction1, TIMED_EVICTION);
+
+    // timed eviction forgets the tx so it can be re-added, and stops gossiping it
+    assertThat(TIMED_EVICTION.stopTracking()).isTrue();
+    assertThat(TIMED_EVICTION.stopBroadcasting()).isTrue();
   }
 
   @Test

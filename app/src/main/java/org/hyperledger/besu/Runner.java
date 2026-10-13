@@ -146,7 +146,10 @@ public class Runner implements AutoCloseable {
         transactionLogBloomCacher.map(
             cacher -> new AutoTransactionLogBloomCachingService(blockchain, cacher));
     this.transactionPoolEvictionService =
-        new TransactionPoolEvictionService(vertx, besuController.getTransactionPool());
+        new TransactionPoolEvictionService(
+            vertx,
+            besuController.getTransactionPool(),
+            besuController.getTransactionPool().getConfiguration().getPendingTxEvictionInterval());
   }
 
   /** Start external services. */

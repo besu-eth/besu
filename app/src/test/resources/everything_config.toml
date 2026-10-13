@@ -210,6 +210,7 @@ tx-pool-max-future-by-sender=321
 tx-pool-enable-balance-check=false
 ## Legacy/Sequenced
 tx-pool-retention-hours=999
+tx-pool-retention-seconds=30
 tx-pool-max-size=1234
 tx-pool-limit-by-account-percentage=0.017
 tx-pool-min-gas-price=1000
