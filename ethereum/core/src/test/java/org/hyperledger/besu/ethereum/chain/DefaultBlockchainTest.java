@@ -807,6 +807,40 @@ public class DefaultBlockchainTest {
   }
 
   @Test
+  public void rewindToForkReindexesBranchesLongerThanOneLoadingChunk() {
+    final BlockDataGenerator gen = new BlockDataGenerator(3);
+    final List<Block> chain = gen.blockSequence(700);
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, chain.getFirst());
+    for (int i = 1; i < chain.size(); i++) {
+      blockchain.appendBlock(chain.get(i), gen.receipts(chain.get(i)));
+    }
+    // a stored fork off block 1 that is shorter than the chain it replaces
+    final List<Block> fork = gen.blockSequence(chain.get(1), 600);
+    final List<List<TransactionReceipt>> forkReceipts = fork.stream().map(gen::receipts).toList();
+    for (int i = 0; i < fork.size(); i++) {
+      blockchain.storeBlock(fork.get(i), forkReceipts.get(i), Optional.empty());
+    }
+
+    blockchain.rewindToBlock(fork.getLast().getHash());
+
+    assertBlockIsHead(blockchain, fork.getLast());
+    for (int i = 0; i < fork.size(); i++) {
+      assertBlockDataIsStored(blockchain, fork.get(i), forkReceipts.get(i));
+    }
+    for (final Block removed : chain.subList(2, chain.size())) {
+      assertThat(blockchain.blockIsOnCanonicalChain(removed.getHash())).isFalse();
+      for (final Transaction tx : removed.getBody().getTransactions()) {
+        assertThat(blockchain.getTransactionByHash(tx.getHash())).isEmpty();
+      }
+    }
+    assertThat(blockchain.getBlockHashByNumber(fork.getLast().getHeader().getNumber() + 1))
+        .isEmpty();
+  }
+
+  @Test
   public void rewindChain() {
     final BlockDataGenerator gen = new BlockDataGenerator(2);
 

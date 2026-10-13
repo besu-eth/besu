@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -70,6 +71,8 @@ import org.slf4j.LoggerFactory;
 
 public class DefaultBlockchain implements MutableBlockchain {
   private static final Logger LOG = LoggerFactory.getLogger(DefaultBlockchain.class);
+  // bounds the memory of a deep reorg, whose blocks are decoded in parallel this many at a time
+  private static final int REORG_BLOCKS_LOADED_AT_ONCE = 512;
 
   /**
    * The default number of last blocks to cache. It is the snap serving window: peers and the
@@ -1066,60 +1069,67 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   private BlockAddedEvent handleChainReorg(
       final BlockchainStorage.Updater updater, final BlockWithReceipts newChainHeadWithReceipts) {
-    final BlockWithReceipts oldChainWithReceipts = getBlockWithReceipts(chainHeader).get();
-    BlockWithReceipts currentOldChainWithReceipts = oldChainWithReceipts;
-    BlockWithReceipts currentNewChainWithReceipts = newChainHeadWithReceipts;
+    final BlockHeader oldChainHead = chainHeader;
+    final BlockHeader newChainHead = newChainHeadWithReceipts.getHeader();
 
     // Update chain head
-    updater.setChainHead(currentNewChainWithReceipts.getHeader().getHash());
+    updater.setChainHead(newChainHead.getHash());
 
-    // Track transactions and logs to be added and removed
+    // Walk both branches back to their common ancestor by header, from the head down
+    final List<BlockHeader> newBranch = new ArrayList<>();
+    final List<BlockHeader> oldBranch = new ArrayList<>();
+    BlockHeader newBranchHeader = newChainHead;
+    BlockHeader oldBranchHeader = oldChainHead;
+    while (newBranchHeader.getNumber() > oldBranchHeader.getNumber()) {
+      newBranch.add(newBranchHeader);
+      newBranchHeader = parentHeader(newBranchHeader);
+    }
+    while (oldBranchHeader.getNumber() > newBranchHeader.getNumber()) {
+      oldBranch.add(oldBranchHeader);
+      oldBranchHeader = parentHeader(oldBranchHeader);
+    }
+    while (!oldBranchHeader.getHash().equals(newBranchHeader.getHash())) {
+      newBranch.add(newBranchHeader);
+      oldBranch.add(oldBranchHeader);
+      newBranchHeader = parentHeader(newBranchHeader);
+      oldBranchHeader = parentHeader(oldBranchHeader);
+    }
+    final BlockHeader commonAncestor = newBranchHeader;
+
+    // Index the new branch, collecting its transactions and logs
     final Map<Hash, List<Transaction>> newTransactions = new HashMap<>();
+    final List<List<LogWithMetadata>> addedLogsByBlock = new ArrayList<>();
+    forEachBlockWithReceipts(
+        newBranch,
+        newChainHeadWithReceipts,
+        blockWithReceipts -> {
+          final Hash blockHash = blockWithReceipts.getHash();
+          updater.putBlockHash(blockWithReceipts.getNumber(), blockHash);
+          newTransactions.put(blockHash, blockWithReceipts.getBlock().getBody().getTransactions());
+          addedLogsByBlock.add(
+              LogWithMetadata.generate(
+                  blockWithReceipts.getBlock(), blockWithReceipts.getReceipts(), false));
+          if (blockWithReceipts.getNumber() > oldChainHead.getNumber()) {
+            notifyChainReorgBlockAdded(blockWithReceipts);
+          }
+        });
+    // the new branch was walked down, its logs are reported in chain order
+    final List<LogWithMetadata> addedLogsWithMetadata =
+        Lists.reverse(addedLogsByBlock).stream().flatMap(List::stream).toList();
+
+    // Unindex the old branch above the new head, collecting its transactions and logs
     final List<Transaction> removedTransactions = new ArrayList<>();
-    final List<LogWithMetadata> addedLogsWithMetadata = new ArrayList<>();
     final List<LogWithMetadata> removedLogsWithMetadata = new ArrayList<>();
-
-    while (currentNewChainWithReceipts.getNumber() > currentOldChainWithReceipts.getNumber()) {
-      // If new chain is longer than old chain, walk back until we meet the old chain by number
-      // adding indexing for new chain along the way.
-      final Hash blockHash = currentNewChainWithReceipts.getHash();
-      updater.putBlockHash(currentNewChainWithReceipts.getNumber(), blockHash);
-
-      newTransactions.put(
-          blockHash, currentNewChainWithReceipts.getBlock().getBody().getTransactions());
-      addAddedLogsWithMetadata(addedLogsWithMetadata, currentNewChainWithReceipts);
-      notifyChainReorgBlockAdded(currentNewChainWithReceipts);
-      currentNewChainWithReceipts = getParentBlockWithReceipts(currentNewChainWithReceipts);
-    }
-
-    while (currentOldChainWithReceipts.getNumber() > currentNewChainWithReceipts.getNumber()) {
-      // If oldChain is longer than new chain, walk back until we meet the new chain by number,
-      // updating as we go.
-      updater.removeBlockHash(currentOldChainWithReceipts.getNumber());
-
-      removedTransactions.addAll(
-          currentOldChainWithReceipts.getBlock().getBody().getTransactions());
-      addRemovedLogsWithMetadata(removedLogsWithMetadata, currentOldChainWithReceipts);
-
-      currentOldChainWithReceipts = getParentBlockWithReceipts(currentOldChainWithReceipts);
-    }
-
-    while (!currentOldChainWithReceipts.getHash().equals(currentNewChainWithReceipts.getHash())) {
-      // Walk back until we meet the common ancestor between the two chains, updating as we go.
-      final Hash newBlockHash = currentNewChainWithReceipts.getHash();
-      updater.putBlockHash(currentNewChainWithReceipts.getNumber(), newBlockHash);
-
-      newTransactions.put(
-          newBlockHash, currentNewChainWithReceipts.getBlock().getBody().getTransactions());
-      removedTransactions.addAll(
-          currentOldChainWithReceipts.getBlock().getBody().getTransactions());
-      addAddedLogsWithMetadata(addedLogsWithMetadata, currentNewChainWithReceipts);
-      addRemovedLogsWithMetadata(removedLogsWithMetadata, currentOldChainWithReceipts);
-
-      currentNewChainWithReceipts = getParentBlockWithReceipts(currentNewChainWithReceipts);
-      currentOldChainWithReceipts = getParentBlockWithReceipts(currentOldChainWithReceipts);
-    }
-    final BlockWithReceipts commonAncestorWithReceipts = currentNewChainWithReceipts;
+    forEachBlockWithReceipts(
+        oldBranch,
+        null,
+        blockWithReceipts -> {
+          if (blockWithReceipts.getNumber() > newChainHead.getNumber()) {
+            updater.removeBlockHash(blockWithReceipts.getNumber());
+          }
+          removedTransactions.addAll(blockWithReceipts.getBlock().getBody().getTransactions());
+          addRemovedLogsWithMetadata(removedLogsWithMetadata, blockWithReceipts);
+        });
 
     // transactions read back from storage have no sender yet, and the sender-nonce index and the
     // transaction pool both need it, so a deep reorg recovers them in parallel
@@ -1142,16 +1152,14 @@ public class DefaultBlockchain implements MutableBlockchain {
     // Update tracked forks
     final Collection<Hash> forks = blockchainStorage.getForkHeads();
     // Old head is now a fork
-    forks.add(oldChainWithReceipts.getHash());
+    forks.add(oldChainHead.getHash());
     // Remove new chain head's parent if it was tracked as a fork
     final Optional<Hash> parentFork =
-        forks.stream()
-            .filter(f -> f.equals(newChainHeadWithReceipts.getHeader().getParentHash()))
-            .findAny();
+        forks.stream().filter(f -> f.equals(newChainHead.getParentHash())).findAny();
     parentFork.ifPresent(forks::remove);
     updater.setForkHeads(forks);
 
-    maybeLogReorg(newChainHeadWithReceipts, oldChainWithReceipts, commonAncestorWithReceipts);
+    maybeLogReorg(newChainHead, oldChainHead, commonAncestor);
 
     return BlockAddedEvent.createForChainReorg(
         newChainHeadWithReceipts.getBlock(),
@@ -1160,33 +1168,56 @@ public class DefaultBlockchain implements MutableBlockchain {
         newChainHeadWithReceipts.getReceipts(),
         Stream.concat(removedLogsWithMetadata.stream(), addedLogsWithMetadata.stream())
             .collect(Collectors.toUnmodifiableList()),
-        currentNewChainWithReceipts.getBlock().getHash());
+        commonAncestor.getHash());
+  }
+
+  private BlockHeader parentHeader(final BlockHeader header) {
+    return blockchainStorage.getBlockHeader(header.getParentHash()).get();
+  }
+
+  /**
+   * Runs an action on the blocks of a branch in order. Decoding the blocks and receipts of a deep
+   * reorg dominates its cost, so they are loaded in parallel, a chunk at a time to bound memory.
+   *
+   * @param branchHeaders the headers of the branch, in the order to run the action on
+   * @param branchHead the first block of the branch if it is not stored yet, or null
+   */
+  private void forEachBlockWithReceipts(
+      final List<BlockHeader> branchHeaders,
+      final BlockWithReceipts branchHead,
+      final Consumer<BlockWithReceipts> action) {
+    for (int start = 0; start < branchHeaders.size(); start += REORG_BLOCKS_LOADED_AT_ONCE) {
+      branchHeaders
+          .subList(start, Math.min(start + REORG_BLOCKS_LOADED_AT_ONCE, branchHeaders.size()))
+          .parallelStream()
+          .map(
+              header ->
+                  branchHead != null && header.getHash().equals(branchHead.getHash())
+                      ? branchHead
+                      : getBlockWithReceipts(header).get())
+          .toList()
+          .forEach(action);
+    }
   }
 
   private void maybeLogReorg(
-      final BlockWithReceipts newChainHeadWithReceipts,
-      final BlockWithReceipts oldChainWithReceipts,
-      final BlockWithReceipts commonAncestorWithReceipts) {
-    if ((newChainHeadWithReceipts.getNumber() - commonAncestorWithReceipts.getNumber()
-                > reorgLoggingThreshold
-            || oldChainWithReceipts.getNumber() - commonAncestorWithReceipts.getNumber()
-                > reorgLoggingThreshold)
+      final BlockHeader newChainHead,
+      final BlockHeader oldChainHead,
+      final BlockHeader commonAncestor) {
+    if ((newChainHead.getNumber() - commonAncestor.getNumber() > reorgLoggingThreshold
+            || oldChainHead.getNumber() - commonAncestor.getNumber() > reorgLoggingThreshold)
         && LOG.isWarnEnabled()) {
       LOG.warn(
           "Chain Reorganization +{} new / -{} old\n{}",
-          newChainHeadWithReceipts.getNumber() - commonAncestorWithReceipts.getNumber(),
-          oldChainWithReceipts.getNumber() - commonAncestorWithReceipts.getNumber(),
+          newChainHead.getNumber() - commonAncestor.getNumber(),
+          oldChainHead.getNumber() - commonAncestor.getNumber(),
           Streams.zip(
                   Stream.of("Old", "New", "Ancestor"),
-                  Stream.of(
-                          oldChainWithReceipts,
-                          newChainHeadWithReceipts,
-                          commonAncestorWithReceipts)
+                  Stream.of(oldChainHead, newChainHead, commonAncestor)
                       .map(
-                          blockWithReceipts ->
+                          header ->
                               String.format(
-                                  "hash: %s, height: %s",
-                                  blockWithReceipts.getHash(), blockWithReceipts.getNumber())),
+                                  "hash: %s, height: %s", header.getHash(), header.getNumber())),
                   (label, values) -> String.format("%10s - %s", label, values))
               .collect(joining("\n")));
     }
@@ -1373,14 +1404,6 @@ public class DefaultBlockchain implements MutableBlockchain {
     return blockchainStorage.getBlockHeader(block.getHeader().getParentHash()).isPresent();
   }
 
-  private void addAddedLogsWithMetadata(
-      final List<LogWithMetadata> logsWithMetadata, final BlockWithReceipts blockWithReceipts) {
-    logsWithMetadata.addAll(
-        0,
-        LogWithMetadata.generate(
-            blockWithReceipts.getBlock(), blockWithReceipts.getReceipts(), false));
-  }
-
   private void addRemovedLogsWithMetadata(
       final List<LogWithMetadata> logsWithMetadata, final BlockWithReceipts blockWithReceipts) {
     logsWithMetadata.addAll(
@@ -1396,13 +1419,6 @@ public class DefaultBlockchain implements MutableBlockchain {
             block ->
                 getTxReceipts(blockHeader.getHash())
                     .map(receipts -> new BlockWithReceipts(block, receipts)));
-  }
-
-  private BlockWithReceipts getParentBlockWithReceipts(final BlockWithReceipts blockWithReceipts) {
-    return blockchainStorage
-        .getBlockHeader(blockWithReceipts.getHeader().getParentHash())
-        .flatMap(this::getBlockWithReceipts)
-        .get();
   }
 
   @Override
