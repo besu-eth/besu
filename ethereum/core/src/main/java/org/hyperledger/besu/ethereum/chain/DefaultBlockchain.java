@@ -1121,13 +1121,22 @@ public class DefaultBlockchain implements MutableBlockchain {
     }
     final BlockWithReceipts commonAncestorWithReceipts = currentNewChainWithReceipts;
 
+    // transactions read back from storage have no sender yet, and the sender-nonce index and the
+    // transaction pool both need it, so a deep reorg recovers them in parallel
+    Stream.concat(
+            newTransactions.values().stream().flatMap(List::stream), removedTransactions.stream())
+        .parallel()
+        .forEach(Transaction::getSender);
+
     // Update indexed transactions
+    final Set<Hash> reindexedTransactions = new HashSet<>();
     newTransactions.forEach(
         (blockHash, transactionsInBlock) -> {
           indexTransactionsForBlock(updater, blockHash, transactionsInBlock);
-          // Don't remove transactions that are being re-indexed.
-          removedTransactions.removeAll(transactionsInBlock);
+          transactionsInBlock.forEach(tx -> reindexedTransactions.add(tx.getHash()));
         });
+    // Don't remove transactions that are being re-indexed.
+    removedTransactions.removeIf(tx -> reindexedTransactions.contains(tx.getHash()));
     clearIndexedTransactionsForBlock(updater, removedTransactions);
 
     // Update tracked forks
