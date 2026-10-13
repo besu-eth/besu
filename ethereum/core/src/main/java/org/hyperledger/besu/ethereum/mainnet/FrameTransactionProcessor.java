@@ -40,6 +40,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.TxValues;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.ApproveOperation;
+import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
@@ -69,6 +70,7 @@ public class FrameTransactionProcessor {
   private final GasCalculator gasCalculator;
   private final TransactionValidatorFactory transactionValidatorFactory;
   private final MessageCallProcessor messageCallProcessor;
+  private final ContractCreationProcessor contractCreationProcessor;
   private final TopLevelTransactionSupport topLevelSupport;
   private final boolean clearEmptyAccounts;
   private final int maxStackSize;
@@ -78,6 +80,7 @@ public class FrameTransactionProcessor {
       final GasCalculator gasCalculator,
       final TransactionValidatorFactory transactionValidatorFactory,
       final MessageCallProcessor messageCallProcessor,
+      final ContractCreationProcessor contractCreationProcessor,
       final TopLevelTransactionSupport topLevelSupport,
       final boolean clearEmptyAccounts,
       final int maxStackSize,
@@ -85,6 +88,7 @@ public class FrameTransactionProcessor {
     this.gasCalculator = gasCalculator;
     this.transactionValidatorFactory = transactionValidatorFactory;
     this.messageCallProcessor = messageCallProcessor;
+    this.contractCreationProcessor = contractCreationProcessor;
     this.topLevelSupport = topLevelSupport;
     this.clearEmptyAccounts = clearEmptyAccounts;
     this.maxStackSize = maxStackSize;
@@ -436,7 +440,13 @@ public class FrameTransactionProcessor {
       } else {
         // Run the frame in the EVM.
         while (!txValues.messageFrameStack().isEmpty()) {
-          messageCallProcessor.process(txValues.messageFrameStack().peekFirst(), operationTracer);
+          final MessageFrame current = txValues.messageFrameStack().peekFirst();
+          // A CREATE inside a frame pushes a contract-creation frame, which needs the creation
+          // processor: run as a call it gets no nonce 1, no code deposit and no deposit charge.
+          (current.getType() == MessageFrame.Type.CONTRACT_CREATION
+                  ? contractCreationProcessor
+                  : messageCallProcessor)
+              .process(current, operationTracer);
         }
         final boolean success = evmFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS;
         execution.status = success ? FrameReceipt.STATUS_SUCCESS : FrameReceipt.STATUS_FAILURE;

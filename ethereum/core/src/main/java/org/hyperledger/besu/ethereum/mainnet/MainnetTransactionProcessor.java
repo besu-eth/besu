@@ -125,6 +125,7 @@ public class MainnetTransactionProcessor {
                     gasCalculator,
                     transactionValidatorFactory,
                     messageCallProcessor,
+                    contractCreationProcessor,
                     topLevelSupport,
                     clearEmptyAccounts,
                     maxStackSize,
