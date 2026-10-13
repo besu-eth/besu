@@ -1097,9 +1097,9 @@ public class DefaultBlockchain implements MutableBlockchain {
     }
     final BlockHeader commonAncestor = newBranchHeader;
 
-    // a deep reorg moves too many transactions and logs to hold, so like a deep reorg in other
-    // clients its transactions are not put back into the transaction pool, and its logs are read
-    // back from storage when the event is consumed
+    // a deep reorg moves too many transactions and logs to hold, and its old transactions are
+    // rarely worth keeping, so they are not put back into the transaction pool and its logs are
+    // read back from storage when the event is consumed
     final boolean deepReorg = Math.max(newBranch.size(), oldBranch.size()) > DEEP_REORG_BLOCKS;
 
     // Unindex the old branch first: the transactions the new branch includes again are then
