@@ -89,8 +89,8 @@ public interface TransactionPoolConfiguration {
   int DEFAULT_MAX_PENDING_TRANSACTIONS = 4096;
   Fraction DEFAULT_LIMIT_TX_POOL_BY_ACCOUNT_PERCENTAGE = Fraction.fromFloat(0.001f); // 0.1%
   int DEFAULT_TX_RETENTION_HOURS = 13;
-  // 0 means not set: the retention period is taken from DEFAULT_TX_RETENTION_HOURS
-  int DEFAULT_TX_RETENTION_SECONDS = 0;
+  // -1 means disabled: the retention period is taken from DEFAULT_TX_RETENTION_HOURS
+  int DEFAULT_TX_RETENTION_SECONDS = -1;
   Duration DEFAULT_TX_EVICTION_INTERVAL = Duration.ofMinutes(1);
   boolean DEFAULT_STRICT_TX_REPLAY_PROTECTION_ENABLED = false;
   Percentage DEFAULT_PRICE_BUMP = Percentage.fromInt(10);
@@ -139,7 +139,7 @@ public interface TransactionPoolConfiguration {
    * Retention period of pending transactions expressed in seconds, only used by the sequenced
    * txpool. When greater than zero it takes precedence over {@link #getPendingTxRetentionPeriod()}.
    *
-   * @return the retention period in seconds, or 0 if not set
+   * @return the retention period in seconds, or -1 if disabled
    */
   @Value.Default
   default int getPendingTxRetentionSeconds() {
@@ -160,18 +160,23 @@ public interface TransactionPoolConfiguration {
 
   /**
    * How often the sequenced txpool scans for pending transactions older than the retention period.
-   * It is one minute, unless the retention period is shorter, in which case it is the retention
-   * period itself, so that a transaction is evicted at most twice the retention period after it was
-   * added.
+   * It is one minute, unless the retention period in seconds is set and shorter, in which case it
+   * is that retention period itself, so that a transaction is evicted at most twice the retention
+   * period after it was added.
    *
    * @return the interval between two eviction runs
    */
   @Value.Derived
   default Duration getPendingTxEvictionInterval() {
-    final Duration retention = getPendingTxRetentionDuration();
-    return retention.compareTo(DEFAULT_TX_EVICTION_INTERVAL) < 0
-        ? retention
-        : DEFAULT_TX_EVICTION_INTERVAL;
+    // only an explicitly set retention in seconds can shorten the interval, so that the hours
+    // based retention keeps the upstream behavior whatever its value
+    if (getPendingTxRetentionSeconds() > 0) {
+      final Duration retention = Duration.ofSeconds(getPendingTxRetentionSeconds());
+      if (retention.compareTo(DEFAULT_TX_EVICTION_INTERVAL) < 0) {
+        return retention;
+      }
+    }
+    return DEFAULT_TX_EVICTION_INTERVAL;
   }
 
   @Value.Default

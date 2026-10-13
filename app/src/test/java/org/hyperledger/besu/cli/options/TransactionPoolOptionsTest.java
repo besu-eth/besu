@@ -90,10 +90,10 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
-  public void pendingTransactionRetentionSecondsDefaultNotSet() {
+  public void pendingTransactionRetentionSecondsDefaultDisabled() {
     internalTestSuccess(
         config -> {
-          assertThat(config.getPendingTxRetentionSeconds()).isZero();
+          assertThat(config.getPendingTxRetentionSeconds()).isEqualTo(-1);
           assertThat(config.getPendingTxRetentionDuration())
               .isEqualTo(Duration.ofHours(TransactionPoolConfiguration.DEFAULT_TX_RETENTION_HOURS));
           assertThat(config.getPendingTxEvictionInterval()).isEqualTo(Duration.ofMinutes(1));
@@ -129,11 +129,48 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
-  public void pendingTransactionRetentionSecondsNegativeFails() {
-    internalTestFailure(
-        "Transaction pool retention seconds must be greater than or equal to 0",
+  public void pendingTransactionRetentionSecondsExplicitlyDisabledFallsBackToHours() {
+    internalTestSuccess(
+        config -> {
+          assertThat(config.getPendingTxRetentionSeconds()).isEqualTo(-1);
+          assertThat(config.getPendingTxRetentionPeriod()).isEqualTo(5);
+          assertThat(config.getPendingTxRetentionDuration()).isEqualTo(Duration.ofHours(5));
+          assertThat(config.getPendingTxEvictionInterval()).isEqualTo(Duration.ofMinutes(1));
+        },
         "--tx-pool-retention-seconds",
         "-1",
+        "--tx-pool-retention-hours",
+        "5",
+        "--tx-pool=sequenced");
+  }
+
+  @Test
+  public void pendingTransactionRetentionHoursZeroKeepsOneMinuteEvictionInterval() {
+    internalTestSuccess(
+        config -> {
+          assertThat(config.getPendingTxRetentionDuration()).isEqualTo(Duration.ZERO);
+          assertThat(config.getPendingTxEvictionInterval()).isEqualTo(Duration.ofMinutes(1));
+        },
+        "--tx-pool-retention-hours",
+        "0",
+        "--tx-pool=sequenced");
+  }
+
+  @Test
+  public void pendingTransactionRetentionSecondsZeroFails() {
+    internalTestFailure(
+        "Transaction pool retention seconds must be greater than 0, or -1 to disable it",
+        "--tx-pool-retention-seconds",
+        "0",
+        "--tx-pool=sequenced");
+  }
+
+  @Test
+  public void pendingTransactionRetentionSecondsBelowMinusOneFails() {
+    internalTestFailure(
+        "Transaction pool retention seconds must be greater than 0, or -1 to disable it",
+        "--tx-pool-retention-seconds",
+        "-2",
         "--tx-pool=sequenced");
   }
 

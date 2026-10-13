@@ -242,9 +242,9 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         names = {TX_POOL_RETENTION_SECONDS},
         paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
         description =
-            "Maximum retention period of pending transactions in seconds. When set to a value greater than 0 it takes precedence over "
+            "Maximum retention period of pending transactions in seconds, must be greater than 0 or -1 to disable. When enabled it takes precedence over "
                 + TX_POOL_RETENTION_HOURS
-                + ", and when lower than 60 the eviction check runs every this many seconds instead of once a minute (default: ${DEFAULT-VALUE}, meaning not set)")
+                + ", and when lower than 60 the eviction check runs every this many seconds instead of once a minute (default: ${DEFAULT-VALUE}, disabled)")
     Integer pendingTxRetentionSeconds = TransactionPoolConfiguration.DEFAULT_TX_RETENTION_SECONDS;
 
     @CommandLine.Option(
@@ -441,9 +441,14 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
           commandLine, "Max transaction bytes must be greater than 0");
     }
 
-    if (sequencedOptions.pendingTxRetentionSeconds < 0) {
+    if (sequencedOptions.pendingTxRetentionSeconds <= 0
+        && sequencedOptions.pendingTxRetentionSeconds
+            != TransactionPoolConfiguration.DEFAULT_TX_RETENTION_SECONDS) {
       throw new CommandLine.ParameterException(
-          commandLine, "Transaction pool retention seconds must be greater than or equal to 0");
+          commandLine,
+          "Transaction pool retention seconds must be greater than 0, or "
+              + TransactionPoolConfiguration.DEFAULT_TX_RETENTION_SECONDS
+              + " to disable it");
     }
   }
 
@@ -519,4 +524,22 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
   public boolean isMinGasPriceSet(final CommandLine commandLine) {
     return CommandLineUtils.isOptionSet(commandLine, TransactionPoolOptions.TX_POOL_MIN_GAS_PRICE);
   }
+
+  /**
+   * Is the tx-pool-retention-hours option ignored, because tx-pool-retention-seconds is enabled
+   * (set to a value greater than 0) and takes precedence over it?
+   *
+   * @param commandLine the command line
+   * @return true if tx-pool-retention-hours is set but ignored
+   */
+  public boolean isRetentionHoursIgnored(final CommandLine commandLine) {
+    return sequencedOptions.pendingTxRetentionSeconds > 0
+        && CommandLineUtils.isOptionSet(commandLine, Sequenced.TX_POOL_RETENTION_HOURS);
+  }
+
+  /** The name of the tx-pool-retention-hours option, for messages */
+  public static final String TX_POOL_RETENTION_HOURS_OPTION = Sequenced.TX_POOL_RETENTION_HOURS;
+
+  /** The name of the tx-pool-retention-seconds option, for messages */
+  public static final String TX_POOL_RETENTION_SECONDS_OPTION = Sequenced.TX_POOL_RETENTION_SECONDS;
 }
