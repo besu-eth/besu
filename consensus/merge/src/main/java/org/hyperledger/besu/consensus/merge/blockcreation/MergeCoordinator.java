@@ -109,9 +109,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       new ConcurrentHashMap<>();
 
   private final AtomicReference<Hash> finalizedHashAfterBackwardSync = new AtomicReference<>();
-  // at most one head world state move runs in the background
-  private final AtomicBoolean worldStateMoveInBackground = new AtomicBoolean(false);
-  private final AtomicReference<Hash> failedWorldStateMoveInBackground = new AtomicReference<>();
+  // at most one head move runs in the background
+  private final AtomicBoolean headMoveInBackground = new AtomicBoolean(false);
+  private final AtomicReference<Hash> failedHeadMoveInBackground = new AtomicReference<>();
   private final AtomicReference<CompletableFuture<Void>> backwardSyncWithFinalizedUpdate =
       new AtomicReference<>();
 
@@ -880,14 +880,19 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           getLatestValidAncestor(newHead.getParentHash()));
     }
 
-    // checked without the head world state lock, which a move in the background holds
+    // a move in the background holds the head world state and then the chain, so fork choices
+    // answer SYNCING until it is done instead of waiting for it
+    if (headMoveInBackground.get()) {
+      return ForkchoiceResult.withSyncing();
+    }
+    // checked without the head world state lock, so a deep move never blocks the fork choice
     if (protocolContext.getWorldStateArchive().requiresBatchedHeadRoll(newHead)) {
       // a failed move is reported once, the next fork choice starts another one
-      if (newHead.getHash().equals(failedWorldStateMoveInBackground.getAndSet(null))) {
+      if (newHead.getHash().equals(failedHeadMoveInBackground.getAndSet(null))) {
         return ForkchoiceResult.withFailure(
-            INTERNAL_ERROR, "Failed to move world state to new head", Optional.empty());
+            INTERNAL_ERROR, "Failed to set new head", Optional.empty());
       }
-      moveWorldStateInBackground(newHead);
+      moveHeadInBackground(blockchain, newHead);
       return ForkchoiceResult.withSyncing();
     }
 
@@ -955,28 +960,26 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   /**
-   * Moves the head world state to a new head that is too far away to reach within the fork choice
-   * call. The chain head is left alone: a later fork choice to that head finds the world state
-   * there and completes the move.
+   * Moves the world state and then the chain head to a new head that is too far away to reach
+   * within the fork choice call, which would exceed the engine API timeout. A later fork choice to
+   * that head finds both there and applies the finalized and safe blocks.
    */
-  private void moveWorldStateInBackground(final BlockHeader newHead) {
-    if (!worldStateMoveInBackground.compareAndSet(false, true)) {
-      return;
-    }
+  private void moveHeadInBackground(final MutableBlockchain blockchain, final BlockHeader newHead) {
+    headMoveInBackground.set(true);
     LOG.info(
-        "Moving the world state to new head {} in the background, too many blocks away to move within a fork choice",
+        "Moving to new head {} in the background, too many blocks away to move within a fork choice",
         newHead.toLogString());
     ethScheduler.scheduleServiceTask(
         () -> {
           try {
-            if (!moveWorldStateTo(newHead)) {
-              failedWorldStateMoveInBackground.set(newHead.getHash());
+            if (!setNewHead(blockchain, newHead)) {
+              failedHeadMoveInBackground.set(newHead.getHash());
             }
           } catch (final RuntimeException e) {
-            LOG.warn("Failed to move the world state to {}", newHead.toLogString(), e);
-            failedWorldStateMoveInBackground.set(newHead.getHash());
+            LOG.warn("Failed to move to new head {}", newHead.toLogString(), e);
+            failedHeadMoveInBackground.set(newHead.getHash());
           } finally {
-            worldStateMoveInBackground.set(false);
+            headMoveInBackground.set(false);
           }
         });
   }

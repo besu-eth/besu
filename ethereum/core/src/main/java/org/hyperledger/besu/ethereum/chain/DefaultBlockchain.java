@@ -1189,7 +1189,7 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
-  public boolean rewindToBlock(final Hash blockHash) {
+  public synchronized boolean rewindToBlock(final Hash blockHash) {
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     try {
       final BlockHeader oldBlockHeader = blockchainStorage.getBlockHeader(blockHash).get();
@@ -1211,7 +1211,7 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
-  public boolean forwardToBlock(final BlockHeader blockHeader) {
+  public synchronized boolean forwardToBlock(final BlockHeader blockHeader) {
     checkArgument(
         chainHeader.getHash().equals(blockHeader.getParentHash()),
         "Supplied block header is not a child of the current chain head.");

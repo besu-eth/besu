@@ -64,7 +64,7 @@ import org.mockito.quality.Strictness;
 
 /**
  * Fork choices to a head too far from the head world state to move to within the call: the world
- * state is moved in the background, and a later fork choice completes the move.
+ * state and the chain head are moved in the background, and a later fork choice finds them there.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -198,15 +198,16 @@ public class MergeCoordinatorBatchedHeadRollTest implements MergeGenesisConfigHe
     serviceTasks.clear();
 
     assertThat(forkChoice(newHead).getStatus()).isEqualTo(ForkchoiceResult.Status.SYNCING);
-    // a repeated fork choice while the move is running does not start another one
+    // fork choices while the move is running, to any head, neither wait for it nor start another
     assertThat(forkChoice(newHead).getStatus()).isEqualTo(ForkchoiceResult.Status.SYNCING);
+    assertThat(forkChoice(oldHead).getStatus()).isEqualTo(ForkchoiceResult.Status.SYNCING);
     assertThat(serviceTasks).hasSize(1);
     assertThat(blockchain.getChainHeadHash()).isEqualTo(oldHead.getHash());
 
     serviceTasks.getFirst().run();
     assertThat(((PathBasedWorldState) worldStateArchive.getWorldState()).blockHash())
         .isEqualTo(newHead.getHash());
-    assertThat(blockchain.getChainHeadHash()).isEqualTo(oldHead.getHash());
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(newHead.getHash());
 
     assertThat(forkChoice(newHead).getStatus()).isEqualTo(ForkchoiceResult.Status.VALID);
     assertThat(blockchain.getChainHeadHash()).isEqualTo(newHead.getHash());
