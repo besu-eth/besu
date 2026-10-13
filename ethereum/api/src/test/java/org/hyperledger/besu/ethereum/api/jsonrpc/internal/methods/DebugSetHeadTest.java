@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -63,13 +64,13 @@ public class DebugSetHeadTest extends AbstractJsonRpcHttpServiceTest {
     protocolSchedule = blockchainSetupUtil.getProtocolSchedule();
     ;
     archive = blockchainSetupUtil.getWorldArchive();
+    // a batch of 2 exercises all the state rolling code paths
+    ((PathBasedWorldStateProvider) archive).setTrieLogsPerRollBatch(2);
     debugSetHead =
         new DebugSetHead(
             new BlockchainQueries(
                 protocolSchedule, blockchain, archive, MiningConfiguration.MINING_DISABLED),
-            protocolContext,
-            // a value of 2 here exercises all the state rolling code paths
-            2);
+            protocolContext);
     startService();
   }
 

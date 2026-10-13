@@ -109,6 +109,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       new ConcurrentHashMap<>();
 
   private final AtomicReference<Hash> finalizedHashAfterBackwardSync = new AtomicReference<>();
+  // at most one head world state move runs in the background
+  private final AtomicBoolean worldStateMoveInBackground = new AtomicBoolean(false);
+  private final AtomicReference<Hash> failedWorldStateMoveInBackground = new AtomicReference<>();
   private final AtomicReference<CompletableFuture<Void>> backwardSyncWithFinalizedUpdate =
       new AtomicReference<>();
 
@@ -877,6 +880,17 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           getLatestValidAncestor(newHead.getParentHash()));
     }
 
+    // checked without the head world state lock, which a move in the background holds
+    if (protocolContext.getWorldStateArchive().requiresBatchedHeadRoll(newHead)) {
+      // a failed move is reported once, the next fork choice starts another one
+      if (newHead.getHash().equals(failedWorldStateMoveInBackground.getAndSet(null))) {
+        return ForkchoiceResult.withFailure(
+            INTERNAL_ERROR, "Failed to move world state to new head", Optional.empty());
+      }
+      moveWorldStateInBackground(newHead);
+      return ForkchoiceResult.withSyncing();
+    }
+
     if (!setNewHead(blockchain, newHead)) {
       LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
       // the head was already validated by newPayload, failing to move to it says nothing about its
@@ -938,6 +952,33 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .log();
       return blockchain.rewindToBlock(newHead.getHash());
     }
+  }
+
+  /**
+   * Moves the head world state to a new head that is too far away to reach within the fork choice
+   * call. The chain head is left alone: a later fork choice to that head finds the world state
+   * there and completes the move.
+   */
+  private void moveWorldStateInBackground(final BlockHeader newHead) {
+    if (!worldStateMoveInBackground.compareAndSet(false, true)) {
+      return;
+    }
+    LOG.info(
+        "Moving the world state to new head {} in the background, too many blocks away to move within a fork choice",
+        newHead.toLogString());
+    ethScheduler.scheduleServiceTask(
+        () -> {
+          try {
+            if (!moveWorldStateTo(newHead)) {
+              failedWorldStateMoveInBackground.set(newHead.getHash());
+            }
+          } catch (final RuntimeException e) {
+            LOG.warn("Failed to move the world state to {}", newHead.toLogString(), e);
+            failedWorldStateMoveInBackground.set(newHead.getHash());
+          } finally {
+            worldStateMoveInBackground.set(false);
+          }
+        });
   }
 
   private boolean moveWorldStateTo(final BlockHeader newHead) {

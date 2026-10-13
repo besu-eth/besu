@@ -330,7 +330,9 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       /** Ignore update to old head status. */
       IGNORE_UPDATE_TO_OLD_HEAD,
       /** The head could not be set because of a local failure, the head itself may be valid. */
-      INTERNAL_ERROR
+      INTERNAL_ERROR,
+      /** The head is still being moved to, the fork choice is not applied yet. */
+      SYNCING
     }
 
     private final Status status;
@@ -383,6 +385,16 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
           Optional.empty(),
           Optional.empty(),
           Optional.of(oldHead.getHash()));
+    }
+
+    /**
+     * Create forkchoice result for a head that is still being moved to.
+     *
+     * @return the forkchoice result
+     */
+    public static ForkchoiceResult withSyncing() {
+      return new ForkchoiceResult(
+          Status.SYNCING, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     /**

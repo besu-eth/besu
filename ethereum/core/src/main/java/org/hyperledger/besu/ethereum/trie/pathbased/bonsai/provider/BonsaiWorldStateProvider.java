@@ -151,7 +151,8 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
               .flatMap(number -> blockchain.getBlockHeader(number - 1))
               .map(BlockHeader.class::cast);
       if (parent.isEmpty()
-          || rollFullWorldStateToBlockHash(headWorldState, parent.get().getBlockHash(), Level.WARN)
+          || rollFullWorldStateToBlockHash(
+                  headWorldState, parent.get().getBlockHash(), Long.MAX_VALUE, Level.WARN)
               .isEmpty()) {
         warnUnstoredBlockNotRolledBack(unstoredBlockHash, null);
         return Optional.empty();
