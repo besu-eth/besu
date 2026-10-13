@@ -903,6 +903,43 @@ public class DefaultBlockchainTest {
   }
 
   @Test
+  public void deepReorgKeepsSenderNonceEntriesThatNoLongerResolve() {
+    final BlockDataGenerator gen = new BlockDataGenerator(5);
+    final List<Block> chain = gen.blockSequence(100);
+    final DefaultBlockchain blockchain =
+        (DefaultBlockchain)
+            DefaultBlockchain.createMutable(
+                chain.getFirst(),
+                createStorage(new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage()),
+                new NoOpMetricsSystem(),
+                0,
+                "",
+                0,
+                0,
+                0,
+                true);
+    for (int i = 1; i < chain.size(); i++) {
+      blockchain.appendBlock(chain.get(i), gen.receipts(chain.get(i)));
+    }
+    final List<Block> fork = gen.blockSequence(chain.get(1), 90);
+    for (final Block block : fork) {
+      blockchain.storeBlock(block, gen.receipts(block), Optional.empty());
+    }
+
+    blockchain.rewindToBlock(fork.getLast().getHash());
+
+    final Transaction added = fork.get(40).getBody().getTransactions().getFirst();
+    assertThat(blockchain.getTransactionHashBySenderAndNonce(added.getSender(), added.getNonce()))
+        .contains(added.getHash());
+    final Transaction removed = chain.get(60).getBody().getTransactions().getFirst();
+    assertThat(
+            blockchain
+                .getTransactionHashBySenderAndNonce(removed.getSender(), removed.getNonce())
+                .flatMap(blockchain::getTransactionByHash))
+        .isEmpty();
+  }
+
+  @Test
   public void rewindChain() {
     final BlockDataGenerator gen = new BlockDataGenerator(2);
 
