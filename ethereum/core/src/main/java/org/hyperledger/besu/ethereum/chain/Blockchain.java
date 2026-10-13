@@ -330,7 +330,7 @@ public interface Blockchain {
    * @return the observer ID that can be used to remove it later.
    */
   default long observeLogs(final Consumer<LogWithMetadata> logObserver) {
-    return observeBlockAdded((event -> event.getLogsWithMetadata().forEach(logObserver)));
+    return observeBlockAdded((event -> event.streamLogsWithMetadata().forEach(logObserver)));
   }
 
   /**

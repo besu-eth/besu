@@ -25,6 +25,7 @@ import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 public class BlockAddedEvent {
 
@@ -33,7 +34,7 @@ public class BlockAddedEvent {
   private final List<Transaction> removedTransactions;
   private final List<TransactionReceipt> transactionReceipts;
   private final EventType eventType;
-  private final List<LogWithMetadata> logsWithMetadata;
+  private final Supplier<Stream<LogWithMetadata>> logsWithMetadata;
   private final Hash commonAncestorHash;
   private final BlockHeader header;
 
@@ -44,7 +45,7 @@ public class BlockAddedEvent {
       final List<Transaction> addedTransactions,
       final List<Transaction> removedTransactions,
       final List<TransactionReceipt> transactionReceipts,
-      final List<LogWithMetadata> logsWithMetadata,
+      final Supplier<Stream<LogWithMetadata>> logsWithMetadata,
       final Hash commonAncestorHash) {
     this.eventType = eventType;
     this.blockSupplier = blockSupplier;
@@ -68,7 +69,7 @@ public class BlockAddedEvent {
         Collections.emptyList(),
         Collections.emptyList(),
         transactionReceipts,
-        logsWithMetadata,
+        logsWithMetadata::stream,
         blockHeader.getParentHash());
   }
 
@@ -83,7 +84,7 @@ public class BlockAddedEvent {
         block.getBody().getTransactions(),
         Collections.emptyList(),
         transactionReceipts,
-        logsWithMetadata,
+        logsWithMetadata::stream,
         block.getHeader().getParentHash());
   }
 
@@ -101,6 +102,34 @@ public class BlockAddedEvent {
         addedTransactions,
         removedTransactions,
         transactionReceipts,
+        logsWithMetadata::stream,
+        commonAncestorHash);
+  }
+
+  /**
+   * Creates the event of a reorg too deep to hold its transactions and logs in memory. Like a head
+   * advancement, it gives the transaction pool only the new head's transactions, so the removed
+   * ones are not put back into it, and its logs are read back from storage whenever they are
+   * streamed.
+   *
+   * @param block the new head
+   * @param transactionReceipts the receipts of the new head
+   * @param logsWithMetadata the removed and then the added logs, read from storage on each call
+   * @param commonAncestorHash the last block both branches share
+   * @return the event
+   */
+  public static BlockAddedEvent createForDeepChainReorg(
+      final Block block,
+      final List<TransactionReceipt> transactionReceipts,
+      final Supplier<Stream<LogWithMetadata>> logsWithMetadata,
+      final Hash commonAncestorHash) {
+    return new BlockAddedEvent(
+        EventType.CHAIN_REORG,
+        () -> block,
+        block.getHeader(),
+        block.getBody().getTransactions(),
+        Collections.emptyList(),
+        transactionReceipts,
         logsWithMetadata,
         commonAncestorHash);
   }
@@ -113,7 +142,7 @@ public class BlockAddedEvent {
         Collections.emptyList(),
         Collections.emptyList(),
         Collections.emptyList(),
-        Collections.emptyList(),
+        Stream::empty,
         block.getHeader().getParentHash());
   }
 
@@ -125,7 +154,7 @@ public class BlockAddedEvent {
         Collections.emptyList(),
         Collections.emptyList(),
         Collections.emptyList(),
-        Collections.emptyList(),
+        Stream::empty,
         block.getHeader().getParentHash());
   }
 
@@ -157,8 +186,23 @@ public class BlockAddedEvent {
     return transactionReceipts;
   }
 
+  /**
+   * Gets the added and removed logs. A deep reorg reads them from storage on every call, so
+   * consumers stream them with {@link #streamLogsWithMetadata()} instead.
+   *
+   * @return the logs
+   */
   public List<LogWithMetadata> getLogsWithMetadata() {
-    return logsWithMetadata;
+    return logsWithMetadata.get().toList();
+  }
+
+  /**
+   * Streams the added and removed logs, in the same order as {@link #getLogsWithMetadata()}.
+   *
+   * @return the logs
+   */
+  public Stream<LogWithMetadata> streamLogsWithMetadata() {
+    return logsWithMetadata.get();
   }
 
   public Hash getCommonAncestorHash() {
@@ -180,8 +224,6 @@ public class BlockAddedEvent {
         + removedTransactions.size()
         + ", transactionReceipts count ="
         + transactionReceipts.size()
-        + ", logsWithMetadata count="
-        + logsWithMetadata.size()
         + '}';
   }
 }
