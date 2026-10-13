@@ -35,6 +35,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.FrameTransactionContext;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.TxValues;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -52,6 +53,7 @@ import java.util.TreeSet;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -139,18 +141,28 @@ public class FrameTransactionProcessor {
     accessLocationTracker.ifPresent(t -> t.addTouchedAccount(senderAddress));
     final Account senderAtStart = worldState.get(senderAddress);
 
-    // EIP-8141: tx.nonce must equal the sender's current nonce; the nonce is incremented by
-    // APPROVE, not up front. EIP-3607 is deliberately not applied.
-    final long senderNonce = senderAtStart == null ? 0L : senderAtStart.getNonce();
-    if (transaction.getNonce() != senderNonce) {
-      return TransactionProcessingResult.invalid(
-          ValidationResult.invalid(
-              transaction.getNonce() < senderNonce
-                  ? TransactionInvalidReason.NONCE_TOO_LOW
-                  : TransactionInvalidReason.NONCE_TOO_HIGH,
-              String.format(
-                  "transaction nonce %d does not match sender nonce %d",
-                  transaction.getNonce(), senderNonce)));
+    // EIP-8250: every selected nonce key must currently hold the transaction's sequence. The nonce
+    // set is consumed by APPROVE, not up front. EIP-3607 is deliberately not applied.
+    final long legacyNonce = senderAtStart == null ? 0L : senderAtStart.getNonce();
+    final List<UInt256> nonceKeys =
+        transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS);
+    for (final UInt256 nonceKey : nonceKeys) {
+      final UInt256 current =
+          KeyedNonces.currentNonceSeq(worldState, senderAddress, nonceKey, accessLocationTracker);
+      final int order = current.compareTo(KeyedNonces.unsigned(transaction.getNonce()));
+      if (order != 0) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                order > 0
+                    ? TransactionInvalidReason.NONCE_TOO_LOW
+                    : TransactionInvalidReason.NONCE_TOO_HIGH,
+                String.format(
+                    "transaction nonce %s %s nonce key %s sequence %s",
+                    Long.toUnsignedString(transaction.getNonce()),
+                    order > 0 ? "below" : "above",
+                    nonceKey.toShortHexString(),
+                    current.toDecimalString())));
+      }
     }
 
     final List<Frame> frames = transaction.getFrames().orElseThrow();
@@ -167,9 +179,11 @@ public class FrameTransactionProcessor {
     }
 
     // Gas anchors.
-    final long intrinsicGas = FrameTransactionGas.intrinsicGas(frames, signatures, senderAddress);
+    final Bytes nonceCalldata = FrameTransactionGas.nonceCalldata(transaction);
+    final long intrinsicGas =
+        FrameTransactionGas.intrinsicGas(frames, signatures, senderAddress, nonceCalldata);
     final long calldataFloorGas =
-        FrameTransactionGas.calldataFloorGas(frames, signatures, senderAddress);
+        FrameTransactionGas.calldataFloorGas(frames, signatures, senderAddress, nonceCalldata);
     final long totalExecutionGas = FrameTransactionGas.totalExecutionGasLimit(frames);
     final long totalStateGas = FrameTransactionGas.totalStateGasLimit(frames);
     final long standardGasLimit = intrinsicGas + totalExecutionGas + totalStateGas;
@@ -234,6 +248,8 @@ public class FrameTransactionProcessor {
             senderAddress,
             signatureHash,
             transaction.getNonce(),
+            nonceKeys,
+            legacyNonce,
             transaction.getMaxPriorityFeePerGas().orElse(Wei.ZERO),
             transaction.getMaxFeePerGas().orElse(Wei.ZERO),
             transaction.getMaxFeePerBlobGas().orElse(Wei.ZERO),
@@ -605,10 +621,7 @@ public class FrameTransactionProcessor {
       return false;
     }
     return ApproveOperation.attemptApproval(
-            evmFrame,
-            context,
-            allowedScope,
-            gasCalculator.stateGasCostCalculator()::newAccountStateGas)
+            evmFrame, context, allowedScope, gasCalculator.stateGasCostCalculator())
         == ApproveOperation.ApprovalResult.SUCCESS;
   }
 }

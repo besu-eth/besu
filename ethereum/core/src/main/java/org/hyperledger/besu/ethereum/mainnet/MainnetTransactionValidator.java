@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import java.math.BigInteger;
@@ -178,6 +179,11 @@ public class MainnetTransactionValidator implements TransactionValidator {
   /** EIP-8141 static validity constraints on the frames and signature entries. */
   private static ValidationResult<TransactionInvalidReason> validateFrameFields(
       final Transaction transaction) {
+    final Optional<String> malformedNonceKeys =
+        KeyedNonces.validate(transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS));
+    if (malformedNonceKeys.isPresent()) {
+      return frameInvalid(malformedNonceKeys.get());
+    }
     final var frames = transaction.getFrames().orElseThrow();
     if (frames.isEmpty() || frames.size() > MAX_FRAMES) {
       return frameInvalid("frame count must be between 1 and " + MAX_FRAMES);
@@ -385,15 +391,17 @@ public class MainnetTransactionValidator implements TransactionValidator {
       // floor); the declared state gas is exempt.
       final var frames = transaction.getFrames().orElseThrow();
       final var signatures = transaction.getFrameSignatures().orElse(java.util.List.of());
+      final var nonceCalldata =
+          org.hyperledger.besu.ethereum.core.FrameTransactionGas.nonceCalldata(transaction);
       intrinsicGasCostOrFloor =
           Math.max(
               clampedAdd(
                   org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(
-                      frames, signatures, transaction.getSender()),
+                      frames, signatures, transaction.getSender(), nonceCalldata),
                   org.hyperledger.besu.ethereum.core.FrameTransactionGas.totalExecutionGasLimit(
                       frames)),
               org.hyperledger.besu.ethereum.core.FrameTransactionGas.calldataFloorGas(
-                  frames, signatures, transaction.getSender()));
+                  frames, signatures, transaction.getSender(), nonceCalldata));
     } else {
       final long baselineGas =
           clampedAdd(
@@ -484,7 +492,12 @@ public class MainnetTransactionValidator implements TransactionValidator {
       }
     }
 
+    // EIP-8250: a keyed frame transaction's sequence lives in the nonce manager, not the account
+    // nonce; the frame transaction processor checks every selected key.
+    final boolean keyedNonces =
+        transaction.getNonceKeys().map(keys -> !KeyedNonces.isLegacy(keys)).orElse(false);
     if (!validationParams.isAllowPastNonce()
+        && !keyedNonces
         && Long.compareUnsigned(transaction.getNonce(), senderNonce) < 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.NONCE_TOO_LOW,
@@ -493,7 +506,9 @@ public class MainnetTransactionValidator implements TransactionValidator {
               transaction.getNonce(), senderNonce, transaction.getSender()));
     }
 
-    if (!validationParams.isAllowFutureNonce() && senderNonce != transaction.getNonce()) {
+    if (!keyedNonces
+        && !validationParams.isAllowFutureNonce()
+        && senderNonce != transaction.getNonce()) {
       return ValidationResult.invalid(
           TransactionInvalidReason.NONCE_TOO_HIGH,
           String.format(

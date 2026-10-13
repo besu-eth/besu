@@ -23,10 +23,15 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.FrameTransactionContext;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+
+import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * The EIP-8141 APPROVE operation (0xaa).
@@ -46,8 +51,10 @@ public class ApproveOperation extends AbstractOperation {
     SUCCESS,
     /** The approval was refused; the requesting call frame reverts. */
     REVERT,
-    /** The sender-creation state charge was unaffordable; the call frame halts exceptionally. */
-    OUT_OF_STATE_GAS
+    /** The nonce-consumption state charge was unaffordable; the call frame halts exceptionally. */
+    OUT_OF_STATE_GAS,
+    /** The legacy nonce increment would overflow; the call frame halts exceptionally. */
+    NONCE_OVERFLOW
   }
 
   /**
@@ -94,8 +101,7 @@ public class ApproveOperation extends AbstractOperation {
     }
 
     final ApprovalResult result =
-        attemptApproval(
-            frame, context, scope, gasCalculator().stateGasCostCalculator()::newAccountStateGas);
+        attemptApproval(frame, context, scope, gasCalculator().stateGasCostCalculator());
     return switch (result) {
       case SUCCESS -> {
         frame.setOutputData(frame.readMemory(offset, length));
@@ -104,6 +110,7 @@ public class ApproveOperation extends AbstractOperation {
       }
       case REVERT -> revert(frame, cost);
       case OUT_OF_STATE_GAS -> new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+      case NONCE_OVERFLOW -> new OperationResult(cost, ExceptionalHaltReason.NONCE_OVERFLOW);
     };
   }
 
@@ -114,15 +121,14 @@ public class ApproveOperation extends AbstractOperation {
    * @param frame the EVM call frame whose world updater receives the effects
    * @param context the frame transaction context
    * @param scope the requested approval scope
-   * @param senderCreationStateGas supplier of the state gas charged when the sender account must be
-   *     created by the nonce increment
+   * @param stateGas the state gas schedule charged for consuming the nonce set
    * @return the approval outcome
    */
   public static ApprovalResult attemptApproval(
       final MessageFrame frame,
       final FrameTransactionContext context,
       final int scope,
-      final java.util.function.LongSupplier senderCreationStateGas) {
+      final StateGasCostCalculator stateGas) {
     final FrameTransactionContext.FrameInfo currentFrame = context.currentFrame();
     // The scope must be non-empty and within the frame's allowed approval scope.
     if (scope == 0
@@ -157,18 +163,42 @@ public class ApproveOperation extends AbstractOperation {
       if (payerBalance.lessThan(context.maxCost())) {
         return ApprovalResult.REVERT;
       }
-      // The nonce increment may materialise the sender account: charge its creation from the
-      // frame's state-gas pool before any approval effect is applied.
-      final Account senderAccount = getTouchedAccount(frame, sender);
-      if ((senderAccount == null || senderAccount.isEmpty())
-          && !frame.consumeStateGas(senderCreationStateGas.getAsLong())) {
+      // EIP-8250: consuming the nonce set is charged from the frame's state-gas pool before any
+      // approval effect is applied. The legacy set may materialise the sender account by
+      // incrementing its nonce; any other set creates one storage slot per key used the first time.
+      final List<UInt256> nonceKeys = context.nonceKeys();
+      final boolean legacy = KeyedNonces.isLegacy(nonceKeys);
+      final long nonceStateGas;
+      if (legacy) {
+        final Account senderAccount = getTouchedAccount(frame, sender);
+        final long senderNonce = senderAccount == null ? 0L : senderAccount.getNonce();
+        if (Long.compareUnsigned(senderNonce, KeyedNonces.MAX_NONCE_SEQ) >= 0) {
+          return ApprovalResult.NONCE_OVERFLOW;
+        }
+        nonceStateGas =
+            senderAccount == null || senderAccount.isEmpty() ? stateGas.newAccountStateGas() : 0L;
+      } else {
+        final int firstUses =
+            KeyedNonces.countFirstUses(
+                frame.getWorldUpdater(), sender, nonceKeys, frame.getEip7928AccessList());
+        nonceStateGas = stateGas.storageSetStateGas() * firstUses;
+      }
+      if (nonceStateGas > 0 && !frame.consumeStateGas(nonceStateGas)) {
         return ApprovalResult.OUT_OF_STATE_GAS;
       }
       if (approvesExecution) {
         context.approveSender();
       }
-      final MutableAccount mutableSender = frame.getWorldUpdater().getOrCreate(sender);
-      mutableSender.incrementNonce();
+      if (legacy) {
+        frame.getWorldUpdater().getOrCreate(sender).incrementNonce();
+      } else {
+        KeyedNonces.consumeKeyed(
+            frame.getWorldUpdater(),
+            sender,
+            nonceKeys,
+            context.nonce(),
+            frame.getEip7928AccessList());
+      }
       final MutableAccount mutablePayer = frame.getWorldUpdater().getOrCreate(resolvedTarget);
       mutablePayer.decrementBalance(context.maxCost());
       context.setPayer(resolvedTarget);

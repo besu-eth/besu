@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.FrameSignature;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 
 import java.util.List;
 
@@ -28,9 +29,9 @@ import org.apache.tuweni.bytes.Bytes;
 /**
  * Encoder for EIP-8141 frame transactions.
  *
- * <p>Payload: {@code [chain_id, nonce, sender, frames, signatures, fees, blob_versioned_hashes]}
- * with {@code frames = [[mode, flags, target, [execution, state], value, data], ...]}, {@code
- * signatures = [[scheme, signer, msg, signature], ...]} and {@code fees =
+ * <p>Payload: {@code [chain_id, nonce_keys, nonce_seq, sender, frames, signatures, fees,
+ * blob_versioned_hashes]} with {@code frames = [[mode, flags, target, [execution, state], value,
+ * data], ...]}, {@code signatures = [[scheme, signer, msg, signature], ...]} and {@code fees =
  * [max_priority_fee_per_gas, max_fee_per_gas, max_fee_per_blob_gas]}.
  */
 public class FrameTransactionEncoder {
@@ -64,6 +65,9 @@ public class FrameTransactionEncoder {
     final List<FrameSignature> signatures = transaction.getFrameSignatures().orElse(List.of());
     out.startList();
     out.writeBigIntegerScalar(transaction.getChainId().orElseThrow());
+    out.writeList(
+        transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS),
+        (key, rlpOutput) -> rlpOutput.writeUInt256Scalar(key));
     out.writeLongScalar(transaction.getNonce());
     out.writeBytes(transaction.getSender().getBytes());
     out.writeList(frames, FrameTransactionEncoder::encodeFrame);

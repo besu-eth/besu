@@ -86,11 +86,14 @@ public interface BlockGasAccountingStrategy {
     if (transaction.getType().supportsFrames()) {
       final var frames = transaction.getFrames().orElseThrow();
       final var signatures = transaction.getFrameSignatures().orElse(java.util.List.of());
+      final var nonceCalldata = FrameTransactionGas.nonceCalldata(transaction);
       final long executionReservation =
           Math.max(
-              FrameTransactionGas.intrinsicGas(frames, signatures, transaction.getSender())
+              FrameTransactionGas.intrinsicGas(
+                      frames, signatures, transaction.getSender(), nonceCalldata)
                   + FrameTransactionGas.totalExecutionGasLimit(frames),
-              FrameTransactionGas.calldataFloorGas(frames, signatures, transaction.getSender()));
+              FrameTransactionGas.calldataFloorGas(
+                  frames, signatures, transaction.getSender(), nonceCalldata));
       final long stateReservation = FrameTransactionGas.totalStateGasLimit(frames);
       return executionReservation <= Math.max(0L, blockGasLimit - cumulativeRegularGas)
           && stateReservation <= Math.max(0L, blockGasLimit - cumulativeStateGas);

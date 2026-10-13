@@ -39,6 +39,7 @@ import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
 class FrameTransactionCodecTest {
@@ -116,6 +117,29 @@ class FrameTransactionCodecTest {
   }
 
   @Test
+  void keyedNonceFieldsRoundTripAndAreSigned() {
+    final List<UInt256> keys = List.of(UInt256.valueOf(0xbeef), UInt256.valueOf(0xcafe));
+    final Transaction keyed =
+        Transaction.builder().copiedFrom(sampleTransaction()).nonceKeys(keys).build();
+    final Bytes encoded = TransactionEncoder.encodeOpaqueBytes(keyed, EncodingContext.BLOCK_BODY);
+
+    final Transaction decoded =
+        TransactionDecoder.decodeOpaqueBytes(encoded, EncodingContext.BLOCK_BODY);
+    assertThat(decoded.getNonceKeys()).contains(keys);
+    assertThat(decoded.getNonce()).isEqualTo(3);
+    assertThat(TransactionEncoder.encodeOpaqueBytes(decoded, EncodingContext.BLOCK_BODY))
+        .isEqualTo(encoded);
+    // The key set is part of the signed payload.
+    assertThat(keyed.getFrameSignatureHash())
+        .isNotEqualTo(sampleTransaction().getFrameSignatureHash());
+  }
+
+  @Test
+  void frameTransactionsDefaultToTheLegacyKeySet() {
+    assertThat(sampleTransaction().getNonceKeys()).contains(List.of(UInt256.ZERO));
+  }
+
+  @Test
   void signatureHashElidesOnlyCanonicalHashEntries() {
     final Transaction transaction = sampleTransaction();
     // Same transaction with different raw bytes in the canonical-hash entry: same signing hash.
@@ -172,7 +196,8 @@ class FrameTransactionCodecTest {
         org.hyperledger.besu.ethereum.core.FrameTransactionGas.maxGas(
             transaction.getFrames().orElseThrow(),
             transaction.getFrameSignatures().orElseThrow(),
-            SENDER);
+            SENDER,
+            org.hyperledger.besu.ethereum.core.FrameTransactionGas.nonceCalldata(transaction));
     assertThat(transaction.getGasLimit()).isEqualTo(expected);
     assertThat(transaction.isContractCreation()).isFalse();
   }

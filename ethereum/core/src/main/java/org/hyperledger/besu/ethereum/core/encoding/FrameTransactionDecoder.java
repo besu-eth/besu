@@ -29,13 +29,14 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * Decoder for EIP-8141 frame transactions.
  *
- * <p>Payload: {@code [chain_id, nonce, sender, frames, signatures, fees, blob_versioned_hashes]}
- * with {@code frames = [[mode, flags, target, [execution, state], value, data], ...]}, {@code
- * signatures = [[scheme, signer, msg, signature], ...]} and {@code fees =
+ * <p>Payload: {@code [chain_id, nonce_keys, nonce_seq, sender, frames, signatures, fees,
+ * blob_versioned_hashes]} with {@code frames = [[mode, flags, target, [execution, state], value,
+ * data], ...]}, {@code signatures = [[scheme, signer, msg, signature], ...]} and {@code fees =
  * [max_priority_fee_per_gas, max_fee_per_gas, max_fee_per_blob_gas]}.
  */
 public class FrameTransactionDecoder {
@@ -65,7 +66,8 @@ public class FrameTransactionDecoder {
     builder
         .type(TransactionType.FRAME)
         .chainId(input.readBigIntegerScalar())
-        .nonce(readBoundedLong(input, "nonce"))
+        .nonceKeys(input.readList(FrameTransactionDecoder::readNonceKey))
+        .nonce(readBoundedLong(input, "nonce sequence"))
         .sender(readAddress(input, "Frame transaction sender"))
         .frames(input.readList(FrameTransactionDecoder::decodeFrame))
         .frameSignatures(input.readList(FrameTransactionDecoder::decodeSignature));
@@ -101,6 +103,13 @@ public class FrameTransactionDecoder {
       throw new FrameFieldException(field + " exceeds 2^64-1");
     }
     return input.readLongScalar();
+  }
+
+  private static UInt256 readNonceKey(final RLPInput input) {
+    if (input.nextSize() > 32) {
+      throw new FrameFieldException("nonce key exceeds 2^256-1");
+    }
+    return input.readUInt256Scalar();
   }
 
   /** Reads a scalar the EIP bounds at {@code 2^256}, naming the field when it does not fit. */

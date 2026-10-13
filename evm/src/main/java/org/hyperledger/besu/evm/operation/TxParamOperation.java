@@ -17,6 +17,7 @@ package org.hyperledger.besu.evm.operation;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.FrameTransactionContext;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
@@ -72,6 +73,11 @@ public class TxParamOperation extends AbstractOperation {
           case 0x0A -> Words.longBytes(context.currentFrameIndex());
           case 0x0B -> Words.longBytes(context.signatures().size());
           case 0x0C -> Words.longBytes(frame.getStateGasReservoir());
+          // EIP-8250 keyed nonces.
+          case 0x0D -> Words.longBytes(context.legacyNonce());
+          case 0x0E -> Words.longBytes(context.nonceKeys().size());
+          case 0x0F -> KeyedNonces.nonceKeysHash(context.nonceKeys());
+          case 0x10 -> context.nonceKeys().get(0);
           default -> null;
         };
     if (result == null) {

@@ -468,7 +468,8 @@ public class T8nExecutor {
               ? org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(
                   transaction.getFrames().orElseThrow(),
                   transaction.getFrameSignatures().orElse(List.of()),
-                  transaction.getSender())
+                  transaction.getSender(),
+                  org.hyperledger.besu.ethereum.core.FrameTransactionGas.nonceCalldata(transaction))
               : gasCalculator.transactionIntrinsicGasCost(transaction, 0);
       TransactionReceipt receipt =
           protocolSpec

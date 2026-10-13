@@ -59,6 +59,9 @@ public interface ExceptionalHaltReason {
   /** The constant ADDRESS_OUT_OF_RANGE. */
   ExceptionalHaltReason ADDRESS_OUT_OF_RANGE = DefaultExceptionalHaltReason.ADDRESS_OUT_OF_RANGE;
 
+  /** EIP-8250: a payment approval would increment the account nonce past 2^64-1. */
+  ExceptionalHaltReason NONCE_OVERFLOW = DefaultExceptionalHaltReason.NONCE_OVERFLOW;
+
   /**
    * Name string.
    *
@@ -127,7 +130,9 @@ public interface ExceptionalHaltReason {
     /** The Precompile error. */
     PRECOMPILE_ERROR("Precompile error"),
     /** The Address out of range. */
-    ADDRESS_OUT_OF_RANGE("Address out of range");
+    ADDRESS_OUT_OF_RANGE("Address out of range"),
+    /** Nonce overflow. */
+    NONCE_OVERFLOW("Nonce overflow");
 
     /** The Description. */
     final String description;

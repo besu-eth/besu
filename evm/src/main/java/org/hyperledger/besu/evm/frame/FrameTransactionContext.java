@@ -24,6 +24,7 @@ import java.util.List;
 import com.google.common.collect.TreeBasedTable;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * Transaction-scoped context of an EIP-8141 frame transaction, shared by all EVM call frames of
@@ -114,6 +115,8 @@ public class FrameTransactionContext {
   private final Address sender;
   private final Bytes32 signatureHash;
   private final long nonce;
+  private final List<UInt256> nonceKeys;
+  private final long legacyNonce;
   private final Wei maxPriorityFeePerGas;
   private final Wei maxFeePerGas;
   private final Wei maxFeePerBlobGas;
@@ -143,7 +146,9 @@ public class FrameTransactionContext {
    * @param signatures the transaction signature entries
    * @param sender the transaction sender
    * @param signatureHash the canonical transaction signature hash
-   * @param nonce the transaction nonce
+   * @param nonce the transaction nonce sequence (EIP-8250 {@code nonce_seq})
+   * @param nonceKeys the EIP-8250 nonce keys the transaction selects
+   * @param legacyNonce the sender's account nonce before any frame executed
    * @param maxPriorityFeePerGas the max priority fee per gas
    * @param maxFeePerGas the max fee per gas
    * @param maxFeePerBlobGas the max fee per blob gas
@@ -155,6 +160,8 @@ public class FrameTransactionContext {
       final Address sender,
       final Bytes32 signatureHash,
       final long nonce,
+      final List<UInt256> nonceKeys,
+      final long legacyNonce,
       final Wei maxPriorityFeePerGas,
       final Wei maxFeePerGas,
       final Wei maxFeePerBlobGas,
@@ -164,6 +171,8 @@ public class FrameTransactionContext {
     this.sender = sender;
     this.signatureHash = signatureHash;
     this.nonce = nonce;
+    this.nonceKeys = nonceKeys;
+    this.legacyNonce = legacyNonce;
     this.maxPriorityFeePerGas = maxPriorityFeePerGas;
     this.maxFeePerGas = maxFeePerGas;
     this.maxFeePerBlobGas = maxFeePerBlobGas;
@@ -230,12 +239,30 @@ public class FrameTransactionContext {
   }
 
   /**
-   * The transaction nonce.
+   * The transaction nonce sequence, shared by every selected nonce key.
    *
-   * @return the nonce
+   * @return the nonce sequence
    */
   public long nonce() {
     return nonce;
+  }
+
+  /**
+   * The EIP-8250 nonce keys the transaction selects.
+   *
+   * @return the nonce keys
+   */
+  public List<UInt256> nonceKeys() {
+    return nonceKeys;
+  }
+
+  /**
+   * The sender's account nonce in the transaction's pre-state, observed before any frame executed.
+   *
+   * @return the legacy nonce
+   */
+  public long legacyNonce() {
+    return legacyNonce;
   }
 
   /**
