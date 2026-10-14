@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.plugin;
 
-import org.hyperledger.besu.plugin.services.BesuService;
-
 import java.nio.file.Path;
 
 /**
@@ -28,7 +26,7 @@ import java.nio.file.Path;
  * org.hyperledger.besu.plugin.services.BesuConfiguration}.
  */
 @Unstable
-public interface CoreConfiguration extends BesuService {
+public interface CoreConfiguration extends RegistrationService, StartService {
 
   /**
    * Location of the data directory in the file system running the client.

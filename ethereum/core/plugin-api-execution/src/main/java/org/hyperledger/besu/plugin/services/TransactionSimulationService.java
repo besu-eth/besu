@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 import org.hyperledger.besu.plugin.data.TransactionSimulationResult;
@@ -28,7 +29,7 @@ import java.util.Optional;
 
 /** Transaction simulation service interface */
 @Unstable
-public interface TransactionSimulationService extends BesuService {
+public interface TransactionSimulationService extends StartService {
   /**
    * Enumeration of simulation parameters that control validation behavior during transaction
    * simulation.

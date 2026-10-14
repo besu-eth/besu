@@ -123,7 +123,9 @@ public class BesuConfigurationImpl
 
   @Override
   public Wei getMinGasPrice() {
-    checkState(miningConfiguration != null, "The min gas price is available from start()");
+    checkState(
+        miningConfiguration != null,
+        "The mining parameters must be set before the min gas price is read");
     return miningConfiguration.getMinTransactionGasPrice();
   }
 

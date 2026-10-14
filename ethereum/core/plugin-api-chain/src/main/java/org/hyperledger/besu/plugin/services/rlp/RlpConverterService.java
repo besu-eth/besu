@@ -14,15 +14,15 @@
  */
 package org.hyperledger.besu.plugin.services.rlp;
 
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.TransactionReceipt;
-import org.hyperledger.besu.plugin.services.BesuService;
 
 import org.apache.tuweni.bytes.Bytes;
 
 /** RLP serialization and deserialization service. */
-public interface RlpConverterService extends BesuService {
+public interface RlpConverterService extends StartService {
 
   /**
    * Builds a block header from RLP.

@@ -44,7 +44,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.ImmutableInProcessRpcConfigurat
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
-import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointRegistryImpl;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
@@ -434,7 +434,7 @@ public class EphemeryTest extends CommandTestAbstract {
             .permissioningService(new PermissioningServiceImpl())
             .staticNodes(EPHEMERY_BOOT_NODES)
             .storageProvider(new InMemoryKeyValueStorageProvider())
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(new TransactionValidatorServiceImpl());
 
@@ -451,7 +451,7 @@ public class EphemeryTest extends CommandTestAbstract {
             .dataDir(dataDir)
             .pidPath(pidPath)
             .besuPluginContext(new BesuPluginContextImpl())
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .build();
     return runner;
   }

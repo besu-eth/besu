@@ -14,11 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.pluginadapter;
 
+import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.TransactionValidatorService;
 import org.hyperledger.besu.plugin.services.txvalidator.TransactionValidationRule;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,12 +30,29 @@ public class TransactionValidatorServiceImpl implements TransactionValidatorServ
   private static final Logger LOG = LoggerFactory.getLogger(TransactionValidatorServiceImpl.class);
 
   private final List<TransactionValidationRule> transactionValidationRules = new ArrayList<>();
+  private final BooleanSupplier registrationOpen;
 
-  /** Default Constructor. */
-  public TransactionValidatorServiceImpl() {}
+  /** Creates a service that accepts rules at any time. */
+  public TransactionValidatorServiceImpl() {
+    this(() -> true);
+  }
+
+  /**
+   * Creates the service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; rules registered while
+   *     it is closed are rejected
+   */
+  public TransactionValidatorServiceImpl(final BooleanSupplier registrationOpen) {
+    this.registrationOpen = registrationOpen;
+  }
 
   @Override
   public void registerTransactionValidatorRule(final TransactionValidationRule rule) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException(
+          "TransactionValidatorService", "registerTransactionValidatorRule");
+    }
     transactionValidationRules.add(rule);
     LOG.info("Registered new transaction validator rule");
   }

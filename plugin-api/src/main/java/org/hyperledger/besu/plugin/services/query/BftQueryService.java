@@ -19,7 +19,14 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Collection;
 
-/** Allows for the BFT specific aspects of the block chain to be queried. */
+/**
+ * Allows for the BFT specific aspects of the block chain to be queried.
+ *
+ * <p>Besu provides this service only on networks whose genesis selects IBFT2 or QBFT directly. It
+ * is not provided on an IBFT2-to-QBFT (or IBFT1-to-QBFT) migration network, or on an IBFT2 or QBFT
+ * genesis with a terminal total difficulty. On any network without it, a plugin that looks it up
+ * fails to start.
+ */
 public interface BftQueryService extends PoaQueryService {
 
   /**

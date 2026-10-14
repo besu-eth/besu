@@ -137,7 +137,7 @@ public class JsonRpcMethodsFactory {
                   apiConfiguration,
                   genesisConfigOptions,
                   transactionSimulator,
-                  protocolContext.getPluginServiceManager(),
+                  protocolContext.getPluginProvidedServices(),
                   metricsSystem),
               new NetJsonRpcMethods(
                   p2pNetwork,

@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
@@ -23,7 +25,7 @@ import java.util.Optional;
  * endpoints. Registering a provider for {@code /liveness} or {@code /readiness} overrides that
  * endpoint's default implementation.
  */
-public interface HealthCheckService extends BesuService {
+public interface HealthCheckService extends RegistrationService {
 
   /**
    * Registers a health check provider for one of the built-in endpoints, overriding its default
@@ -32,13 +34,21 @@ public interface HealthCheckService extends BesuService {
    * @param endpoint the built-in endpoint path to override ({@code /liveness} or {@code
    *     /readiness})
    * @param provider the health check provider that evaluates health status
+   * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
+   *     has closed
    */
   void registerHealthCheck(String endpoint, HealthCheckProvider provider);
 
   /**
    * Unregisters a health check provider for a specific endpoint.
    *
+   * <p>Like registration, this is only accepted during {@link
+   * org.hyperledger.besu.plugin.BesuPlugin#register}, so an override cannot be removed once
+   * registration has closed, for example from {@code stop()}.
+   *
    * @param endpoint the health check endpoint path to unregister
+   * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
+   *     has closed
    */
   void unregisterHealthCheck(String endpoint);
 
