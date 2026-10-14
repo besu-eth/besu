@@ -111,6 +111,17 @@ public class MainnetTransactionValidator implements TransactionValidator {
           TransactionInvalidReason.NONCE_OVERFLOW, "Nonce must be less than 2^64-1");
     }
 
+    // A frame transaction's gas limit is derived from its frames, so it means nothing until the
+    // frames are statically valid: an invalid frame set can saturate it and would otherwise be
+    // reported as exceeding the gas limit cap rather than as malformed.
+    if (transactionType.supportsFrames()) {
+      final ValidationResult<TransactionInvalidReason> frameValidation =
+          validateFrameFields(transaction);
+      if (!frameValidation.isValid()) {
+        return frameValidation;
+      }
+    }
+
     final long txGasLimitCap = gasLimitCalculator.transactionGasLimitCap();
     if (!transactionValidationParams.isAllowExceedingGasLimit()
         // Long.MAX_VALUE is the sentinel for "no cap" (pre-Osaka). Only apply unsigned
@@ -152,14 +163,6 @@ public class MainnetTransactionValidator implements TransactionValidator {
           validateCodeDelegation(transaction);
       if (!codeDelegationValidation.isValid()) {
         return codeDelegationValidation;
-      }
-    }
-
-    if (transactionType.supportsFrames()) {
-      final ValidationResult<TransactionInvalidReason> frameValidation =
-          validateFrameFields(transaction);
-      if (!frameValidation.isValid()) {
-        return frameValidation;
       }
     }
 
