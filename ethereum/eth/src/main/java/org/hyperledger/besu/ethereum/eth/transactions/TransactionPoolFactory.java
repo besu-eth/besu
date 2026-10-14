@@ -23,6 +23,9 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
+import org.hyperledger.besu.ethereum.eth.transactions.frame.CompositePendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.frame.FramePendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.frame.FrameTransactionAdmission;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.AbstractPrioritizedTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.BaseFeePrioritizedTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.EndLayer;
@@ -265,15 +268,27 @@ public class TransactionPoolFactory {
             scheduledSpec -> scheduledSpec.spec().getFeeMarket().implementsBaseFee());
 
     if (transactionPoolConfiguration.getTxPoolImplementation().equals(LAYERED)) {
-      return createLayeredPendingTransactions(
-          protocolSchedule,
-          protocolContext,
-          ethScheduler,
-          metrics,
-          transactionPoolConfiguration,
-          isFeeMarketImplementBaseFee,
-          blobCache,
-          miningConfiguration);
+      final LayeredPendingTransactions layered =
+          createLayeredPendingTransactions(
+              protocolSchedule,
+              protocolContext,
+              ethScheduler,
+              metrics,
+              transactionPoolConfiguration,
+              isFeeMarketImplementBaseFee,
+              blobCache,
+              miningConfiguration);
+      // EIP-8141 frame transactions get their own pool; the pair is presented as one.
+      final FramePendingTransactions frames =
+          new FramePendingTransactions(
+              transactionPoolConfiguration,
+              new FrameTransactionAdmission(
+                  protocolSchedule, protocolContext.getWorldStateArchive()),
+              protocolContext.getBlockchain()::getChainHeadHeader,
+              clock,
+              FramePendingTransactions.DEFAULT_MAX_SIZE);
+      return new CompositePendingTransactions(
+          layered, frames, protocolContext.getBlockchain()::getChainHeadHeader);
     } else {
       return createPendingTransactionSorter(
           protocolContext,
@@ -305,7 +320,7 @@ public class TransactionPoolFactory {
     }
   }
 
-  private static PendingTransactions createLayeredPendingTransactions(
+  private static LayeredPendingTransactions createLayeredPendingTransactions(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final EthScheduler ethScheduler,

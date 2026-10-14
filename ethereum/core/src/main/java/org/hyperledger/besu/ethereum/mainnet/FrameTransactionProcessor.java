@@ -128,6 +128,98 @@ public class FrameTransactionProcessor {
       final TransactionValidationParams transactionValidationParams,
       final Wei blobGasPrice,
       final Optional<AccessLocationTracker> accessLocationTracker) {
+    return process(
+        worldState,
+        blockHeader,
+        transaction,
+        miningBeneficiary,
+        operationTracer,
+        blockHashLookup,
+        transactionValidationParams,
+        blobGasPrice,
+        accessLocationTracker,
+        null);
+  }
+
+  /**
+   * The outcome of simulating a frame transaction's validation prefix: the shortest prefix of
+   * frames whose successful execution sets the payer.
+   *
+   * @param validity why the prefix is invalid, or valid
+   * @param payer the approved payer, when the prefix approved payment
+   * @param payerFrameIndex the index of the frame that approved payment, or -1
+   */
+  public record ValidationPrefixResult(
+      ValidationResult<TransactionInvalidReason> validity,
+      Optional<Address> payer,
+      int payerFrameIndex) {}
+
+  /**
+   * Executes only the validation prefix of a frame transaction, for EIP-8141 public mempool
+   * admission. Execution stops once a frame approves payment; no fee is settled. The prefix's
+   * writes are committed into {@code worldState}, which the caller is expected to discard.
+   *
+   * @param worldState a disposable updater over the state to simulate against
+   * @param blockHeader the block context to simulate in
+   * @param transaction the frame transaction
+   * @param miningBeneficiary the coinbase
+   * @param operationTracer the tracer enforcing mempool trace rules
+   * @param blockHashLookup the BLOCKHASH lookup
+   * @param blobGasPrice the blob gas price
+   * @return the prefix outcome
+   */
+  public ValidationPrefixResult simulateValidationPrefix(
+      final WorldUpdater worldState,
+      final ProcessableBlockHeader blockHeader,
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final OperationTracer operationTracer,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice) {
+    final PrefixProbe probe = new PrefixProbe();
+    final TransactionProcessingResult result =
+        process(
+            worldState,
+            blockHeader,
+            transaction,
+            miningBeneficiary,
+            operationTracer,
+            blockHashLookup,
+            TransactionValidationParams.transactionPool(),
+            blobGasPrice,
+            Optional.empty(),
+            probe);
+    if (probe.payer == null) {
+      return new ValidationPrefixResult(
+          result.isInvalid()
+              ? result.getValidationResult()
+              : ValidationResult.invalid(
+                  TransactionInvalidReason.FRAME_PAYMENT_NOT_APPROVED,
+                  "no frame approved payment for the transaction"),
+          Optional.empty(),
+          -1);
+    }
+    return new ValidationPrefixResult(
+        ValidationResult.valid(), Optional.of(probe.payer), probe.payerFrameIndex);
+  }
+
+  /** Set by the frame loop when simulating only the validation prefix. */
+  private static final class PrefixProbe {
+    Address payer;
+    int payerFrameIndex = -1;
+  }
+
+  private TransactionProcessingResult process(
+      final WorldUpdater worldState,
+      final ProcessableBlockHeader blockHeader,
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final OperationTracer operationTracer,
+      final BlockHashLookup blockHashLookup,
+      final TransactionValidationParams transactionValidationParams,
+      final Wei blobGasPrice,
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final PrefixProbe prefixProbe) {
     final var transactionValidator = transactionValidatorFactory.get();
     ValidationResult<TransactionInvalidReason> validationResult =
         transactionValidator.validate(
@@ -465,6 +557,15 @@ public class FrameTransactionProcessor {
             ValidationResult.invalid(
                 TransactionInvalidReason.FRAME_VERIFICATION_FAILED,
                 "VERIFY frame " + i + " failed"));
+      }
+
+      // Validation-prefix simulation ends with the frame that approves payment.
+      if (prefixProbe != null && context.payer() != null && batchUpdater == null) {
+        prefixProbe.payer = context.payer();
+        prefixProbe.payerFrameIndex = i;
+        worldUpdater.commit();
+        return TransactionProcessingResult.successful(
+            List.of(), 0L, 0L, 0L, 0L, Bytes.EMPTY, Optional.empty(), ValidationResult.valid());
       }
 
       // Atomic batch bookkeeping.

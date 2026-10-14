@@ -55,7 +55,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
-import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredPendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.frame.CompositePendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.GasPricePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
@@ -396,8 +396,9 @@ public class TransactionPoolFactoryTest {
 
     final TransactionPool pool = createAndEnableTransactionPool(LAYERED, syncState);
 
+    // The layered pool is paired with the EIP-8141 frame transaction pool.
     assertThat(pool.pendingTransactionsImplementation())
-        .isEqualTo(LayeredPendingTransactions.class);
+        .isEqualTo(CompositePendingTransactions.class);
 
     assertThat(pool.logStats()).startsWith("Basefee Prioritized");
   }
@@ -409,8 +410,9 @@ public class TransactionPoolFactoryTest {
 
     final TransactionPool pool = createAndEnableTransactionPool(LAYERED, syncState);
 
+    // The layered pool is paired with the EIP-8141 frame transaction pool.
     assertThat(pool.pendingTransactionsImplementation())
-        .isEqualTo(LayeredPendingTransactions.class);
+        .isEqualTo(CompositePendingTransactions.class);
 
     assertThat(pool.logStats()).startsWith("GasPrice Prioritized");
   }
