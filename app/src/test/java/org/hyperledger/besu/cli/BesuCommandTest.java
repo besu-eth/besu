@@ -44,6 +44,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNotNull;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -79,7 +80,10 @@ import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.metrics.StandardMetricCategory;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.plugin.services.mining.MiningService;
+import org.hyperledger.besu.plugin.services.p2p.P2PService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.number.Fraction;
 import org.hyperledger.besu.util.number.Percentage;
@@ -343,6 +347,32 @@ public class BesuCommandTest extends CommandTestAbstract {
     verify(getBesuPluginContext(), times(2)).registerPlugins();
     final InOrder inOrder = inOrder(getBesuPluginContext());
     inOrder.verify(getBesuPluginContext()).resetState();
+    inOrder.verify(getBesuPluginContext()).beginRegistration();
+    inOrder.verify(getBesuPluginContext()).registerPlugins();
+    inOrder.verify(getBesuPluginContext()).endRegistration();
+  }
+
+  @Test
+  public void reRegisterPluginsClosesRegistrationWhenAPluginFails() {
+    final TestBesuCommand command = parseCommand();
+    doThrow(new RuntimeException("register failed")).when(getBesuPluginContext()).registerPlugins();
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(command::reRegisterPlugins)
+        .withMessage("register failed");
+
+    // once for the first registration, once for the failed re-registration
+    verify(getBesuPluginContext(), times(2)).beginRegistration();
+    verify(getBesuPluginContext(), times(2)).endRegistration();
+  }
+
+  @Test
+  public void minGasPriceIsOnTheConfigurationViewBeforePluginsRegister() {
+    parseCommand("--min-gas-price", "1234");
+
+    assertThat(commonPluginConfiguration.getMinGasPrice()).isEqualTo(Wei.of(1234));
+    final InOrder inOrder = inOrder(commonPluginConfiguration, getBesuPluginContext());
+    inOrder.verify(commonPluginConfiguration).withMiningParameters(any());
     inOrder.verify(getBesuPluginContext()).registerPlugins();
   }
 
@@ -353,6 +383,40 @@ public class BesuCommandTest extends CommandTestAbstract {
     inOrder.verify(getBesuPluginContext()).defineOptions(any());
     inOrder.verify(getBesuPluginContext()).registerPlugins();
     inOrder.verify(getBesuPluginContext()).startPlugins();
+  }
+
+  @Test
+  public void readinessGetsTheRunningServicesBeforeThirdPartyPlugins() {
+    parseCommand();
+
+    final InOrder inOrder = inOrder(mockRunner, getBesuPluginContext());
+    inOrder.verify(mockRunner).startEthereumMainLoop();
+    // only the built-in readiness plugin asks for a running context on this path
+    inOrder.verify(getBesuPluginContext()).runningContextFor(any());
+    inOrder.verify(getBesuPluginContext()).afterMainLoop();
+  }
+
+  @Test
+  @SuppressWarnings("removal") // MiningService is deprecated for removal; drop it from here with it
+  public void runningServicesAreAddedOnceTheMainLoopIsUp() {
+    parseCommand();
+
+    final InOrder inOrder = inOrder(mockRunner, getBesuPluginContext());
+    inOrder.verify(mockRunner).startEthereumMainLoop();
+    inOrder.verify(getBesuPluginContext()).addService(eq(SynchronizationService.class), any());
+    inOrder.verify(getBesuPluginContext()).addService(eq(P2PService.class), any());
+    inOrder.verify(getBesuPluginContext()).addService(eq(MiningService.class), any());
+    inOrder.verify(getBesuPluginContext()).afterMainLoop();
+  }
+
+  @Test
+  public void defaultSecurityModuleRegistersInsideTheRegistrationWindow() {
+    parseCommand();
+
+    final InOrder inOrder = inOrder(getBesuPluginContext(), securityModuleService);
+    inOrder.verify(getBesuPluginContext()).beginRegistration();
+    inOrder.verify(securityModuleService).register(eq("localfile"), any());
+    inOrder.verify(getBesuPluginContext()).endRegistration();
   }
 
   @Test

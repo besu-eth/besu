@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.ExternalSummary;
 import org.hyperledger.besu.plugin.services.metrics.Histogram;
@@ -31,8 +32,15 @@ import java.util.function.Supplier;
 
 import com.google.common.cache.Cache;
 
-/** An interface for creating various Metrics components. */
-public interface MetricsSystem extends BesuService {
+/**
+ * An interface for creating various Metrics components.
+ *
+ * <p>This is a start-phase service: the metrics system is built from the {@code --metrics-category}
+ * option after registration has closed, because that option may name categories that plugins add in
+ * {@code register()} through {@link
+ * org.hyperledger.besu.plugin.services.metrics.MetricCategoryRegistry}.
+ */
+public interface MetricsSystem extends StartService {
 
   /**
    * Creates a Counter.

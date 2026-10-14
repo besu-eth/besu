@@ -15,6 +15,7 @@
 package org.hyperledger.besu.services;
 
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
+import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.StorageService;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
 import javax.inject.Inject;
 
 /** The Storage service implementation. */
@@ -30,16 +32,31 @@ public class StorageServiceImpl implements StorageService {
 
   private final List<SegmentIdentifier> segments;
   private final Map<String, KeyValueStorageFactory> factories;
+  private final BooleanSupplier registrationOpen;
 
-  /** Instantiates a new Storage service. */
+  /** Instantiates a new Storage service that accepts registrations at any time. */
   @Inject
   public StorageServiceImpl() {
+    this(() -> true);
+  }
+
+  /**
+   * Instantiates a new Storage service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; registrations made while
+   *     it is closed are rejected
+   */
+  public StorageServiceImpl(final BooleanSupplier registrationOpen) {
     this.segments = List.of(KeyValueSegmentIdentifier.values());
     this.factories = new ConcurrentHashMap<>();
+    this.registrationOpen = registrationOpen;
   }
 
   @Override
   public void registerKeyValueStorage(final KeyValueStorageFactory factory) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException("StorageService", "registerKeyValueStorage");
+    }
     factories.put(factory.getName(), factory);
   }
 

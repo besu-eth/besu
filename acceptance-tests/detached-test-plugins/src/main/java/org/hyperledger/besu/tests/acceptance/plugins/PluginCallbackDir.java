@@ -15,7 +15,7 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.CoreConfiguration;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
 
 import java.io.File;
 
@@ -23,10 +23,9 @@ import java.io.File;
 final class PluginCallbackDir {
   private PluginCallbackDir() {}
 
-  static File resolve(final ServiceManager serviceManager) {
-    return serviceManager
-        .getService(CoreConfiguration.class)
-        .orElseThrow(() -> new IllegalStateException("CoreConfiguration service not available"))
+  static File resolve(final RegistrationContext context) {
+    return context
+        .getBesuService(CoreConfiguration.class)
         .getDataPath()
         .resolve("plugins")
         .toFile();

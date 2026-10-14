@@ -15,7 +15,7 @@
 package org.hyperledger.besu.plugin.services.transactionpool;
 
 import org.hyperledger.besu.datatypes.PendingTransaction;
-import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAddedListener;
 import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionDroppedListener;
@@ -26,7 +26,7 @@ import java.util.Collection;
  * Service to control and inspect the transaction pool: enable or disable the pool, query whether it
  * is currently enabled, and read the pending transactions.
  */
-public interface TransactionPoolService extends BesuService {
+public interface TransactionPoolService extends StartService {
   /** Disables the transaction pool. */
   void disableTransactionPool();
 

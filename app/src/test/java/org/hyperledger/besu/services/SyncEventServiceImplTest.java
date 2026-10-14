@@ -21,10 +21,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.Subscription;
@@ -42,19 +39,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-class SynchronizationServiceImplTest {
+class SyncEventServiceImplTest {
 
-  @Mock private Synchronizer synchronizer;
-  @Mock private ProtocolContext protocolContext;
-  @Mock private ProtocolSchedule protocolSchedule;
   @Mock private SyncState syncState;
-  private SynchronizationServiceImpl service;
+  private SyncEventServiceImpl service;
 
   @BeforeEach
   void setUp() {
-    service =
-        new SynchronizationServiceImpl(
-            synchronizer, protocolContext, protocolSchedule, syncState, null);
+    service = new SyncEventServiceImpl(syncState);
   }
 
   @Test

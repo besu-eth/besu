@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
@@ -34,7 +35,6 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
@@ -91,9 +91,9 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
   }
 
   public static BonsaiWorldStateProvider createBonsaiInMemoryWorldStateArchive(
-      final Blockchain blockchain, final ServiceManager serviceManager) {
+      final Blockchain blockchain, final PluginProvidedServices pluginProvidedServices) {
     return createBonsaiInMemoryWorldStateArchive(
-        blockchain, EvmConfiguration.DEFAULT, serviceManager);
+        blockchain, EvmConfiguration.DEFAULT, pluginProvidedServices);
   }
 
   public static BonsaiWorldStateProvider createBonsaiInMemoryWorldStateArchive(
@@ -105,20 +105,20 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
   public static BonsaiWorldStateProvider createBonsaiInMemoryWorldStateArchive(
       final Blockchain blockchain,
       final EvmConfiguration evmConfiguration,
-      final ServiceManager serviceManager) {
+      final PluginProvidedServices pluginProvidedServices) {
     return createBonsaiInMemoryWorldStateArchive(
-        blockchain, evmConfiguration, serviceManager, new BonsaiCodeCache());
+        blockchain, evmConfiguration, pluginProvidedServices, new BonsaiCodeCache());
   }
 
   public static BonsaiWorldStateProvider createBonsaiInMemoryWorldStateArchive(
       final Blockchain blockchain,
       final EvmConfiguration evmConfiguration,
-      final ServiceManager serviceManager,
+      final PluginProvidedServices pluginProvidedServices,
       final BonsaiCodeCache codeCache) {
     return createBonsaiInMemoryWorldStateArchive(
         blockchain,
         evmConfiguration,
-        serviceManager,
+        pluginProvidedServices,
         codeCache,
         DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
   }
@@ -134,7 +134,7 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
   private static BonsaiWorldStateProvider createBonsaiInMemoryWorldStateArchive(
       final Blockchain blockchain,
       final EvmConfiguration evmConfiguration,
-      final ServiceManager serviceManager,
+      final PluginProvidedServices pluginProvidedServices,
       final BonsaiCodeCache codeCache,
       final DataStorageConfiguration dataStorageConfiguration) {
     final InMemoryKeyValueStorageProvider inMemoryKeyValueStorageProvider =
@@ -147,7 +147,7 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
         blockchain,
         dataStorageConfiguration.getExtraStorageConfiguration(),
         bonsaiCachedMerkleTrieLoader,
-        serviceManager,
+        pluginProvidedServices,
         evmConfiguration,
         codeCache);
   }

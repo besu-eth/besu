@@ -17,8 +17,9 @@ package org.hyperledger.besu.tests.acceptance.plugins;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
-import org.hyperledger.besu.plugin.services.RpcEndpointService;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
+import org.hyperledger.besu.plugin.services.RpcEndpointRegistry;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -51,24 +52,20 @@ public class TestRpcEndpointServicePlugin implements BesuPlugin {
   }
 
   @Override
-  public void register(final ServiceManager context) {
-    context
-        .getService(RpcEndpointService.class)
-        .ifPresent(
-            rpcEndpointService -> {
-              rpcEndpointService.registerRPCEndpoint(NAMESPACE_ENABLED, "getValue", this::getValue);
-              rpcEndpointService.registerRPCEndpoint(NAMESPACE_ENABLED, "setValue", this::setValue);
-              rpcEndpointService.registerRPCEndpoint(
-                  NAMESPACE_ENABLED, "replaceValueList", this::replaceValueList);
-              rpcEndpointService.registerRPCEndpoint(
-                  NAMESPACE_ENABLED, "throwException", this::throwException);
-              rpcEndpointService.registerRPCEndpoint(
-                  NAMESPACE_NOT_ENABLED, "getValue", this::getValue);
-            });
+  public void register(final RegistrationContext context) {
+    final RpcEndpointRegistry rpcEndpointRegistry =
+        context.getBesuService(RpcEndpointRegistry.class);
+    rpcEndpointRegistry.registerRPCEndpoint(NAMESPACE_ENABLED, "getValue", this::getValue);
+    rpcEndpointRegistry.registerRPCEndpoint(NAMESPACE_ENABLED, "setValue", this::setValue);
+    rpcEndpointRegistry.registerRPCEndpoint(
+        NAMESPACE_ENABLED, "replaceValueList", this::replaceValueList);
+    rpcEndpointRegistry.registerRPCEndpoint(
+        NAMESPACE_ENABLED, "throwException", this::throwException);
+    rpcEndpointRegistry.registerRPCEndpoint(NAMESPACE_NOT_ENABLED, "getValue", this::getValue);
   }
 
   @Override
-  public void start() {}
+  public void start(final StartContext context) {}
 
   @Override
   public void stop() {}

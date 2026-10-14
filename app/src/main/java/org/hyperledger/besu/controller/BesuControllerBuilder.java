@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.chain.VariablesStorage;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
@@ -103,7 +104,6 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -763,12 +763,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final ProtocolContext protocolContext =
         createProtocolContext(
-            blockchain,
-            worldStateArchive,
-            consensusContext,
-            besuComponent
-                .map(BesuComponent::getBesuPluginContext)
-                .orElse(new BesuPluginContextImpl()));
+            blockchain, worldStateArchive, consensusContext, pluginProvidedServices());
     validateContext(protocolContext);
 
     final int maxMessageSize = ethereumWireProtocolConfiguration.getMaxMessageSize();
@@ -1374,25 +1369,38 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
+   * The services plugins published during registration, which the world state and the block
+   * processor consume.
+   *
+   * @return the plugin-provided services, empty when the node runs without a plugin context
+   */
+  private PluginProvidedServices pluginProvidedServices() {
+    return besuComponent
+        .map(BesuComponent::getBesuPluginContext)
+        .map(BesuPluginContextImpl::pluginProvidedServices)
+        .orElse(PluginProvidedServices.NONE);
+  }
+
+  /**
    * Create protocol context protocol context.
    *
    * @param blockchain the blockchain
    * @param worldStateArchive the world state archive
    * @param consensusContext the consensus context
-   * @param serviceManager plugin service manager
+   * @param pluginProvidedServices the services plugins published during registration
    * @return the protocol context
    */
   protected ProtocolContext createProtocolContext(
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
       final ConsensusContext consensusContext,
-      final ServiceManager serviceManager) {
+      final PluginProvidedServices pluginProvidedServices) {
     return new ProtocolContext.Builder()
         .withBlockchain(blockchain)
         .withWorldStateArchive(worldStateArchive)
         .withConsensusContext(consensusContext)
         .withBadBlockManager(badBlockManager)
-        .withServiceManager(serviceManager)
+        .withPluginProvidedServices(pluginProvidedServices)
         .build();
   }
 
@@ -1446,7 +1454,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             blockchain,
             dataStorageConfiguration.getExtraStorageConfiguration(),
             bonsaiCachedMerkleTrieLoader,
-            besuComponent.map(BesuComponent::getBesuPluginContext).orElse(null),
+            pluginProvidedServices(),
             evmConfiguration,
             codeCache,
             amsterdamMilestone);
@@ -1460,7 +1468,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             blockchain,
             dataStorageConfiguration,
             bonsaiCachedMerkleTrieLoader,
-            besuComponent.map(BesuComponent::getBesuPluginContext).orElse(null),
+            pluginProvidedServices(),
             evmConfiguration,
             codeCache,
             metricsSystem,

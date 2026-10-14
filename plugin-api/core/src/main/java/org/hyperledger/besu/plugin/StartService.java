@@ -12,20 +12,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.services.kvstore;
+package org.hyperledger.besu.plugin;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-import org.junit.jupiter.api.Test;
-
-class InMemoryStoragePluginTest {
-
-  @Test
-  void shouldFailToStartBeforeRegistration() {
-    final InMemoryStoragePlugin plugin = new InMemoryStoragePlugin();
-
-    assertThatThrownBy(plugin::start)
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessage("In-memory storage plugin must be registered before it can be started");
-  }
-}
+/**
+ * Marks a Besu-provided service that is usable from {@link BesuPlugin#start(StartContext)} onwards.
+ *
+ * <p>Availability only widens: whatever works at {@code start()} still works once the node is
+ * running, which is why this marker extends {@link RunningService}.
+ */
+public interface StartService extends RunningService {}

@@ -23,8 +23,7 @@ import org.hyperledger.besu.plugin.data.EnodeURL;
  *
  * <pre>{@code
  * context
- *    .getService(PermissioningService.class)
- *    .get()
+ *    .getBesuService(PermissioningService.class)
  *    .registerNodeMessagePermissioningProvider((destinationEnode, code) -> {
  *        // Your logic here
  *        return true;

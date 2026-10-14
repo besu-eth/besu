@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.Unstable;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
@@ -71,7 +72,6 @@ import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfigurati
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
@@ -176,7 +176,7 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
     final BonsaiCachedMerkleTrieLoader cachedMerkleTrieLoader =
         new BonsaiCachedMerkleTrieLoader(noOpMetrics);
 
-    final ServiceManager pluginContext = mock(ServiceManager.class);
+    final PluginProvidedServices pluginProvidedServices = mock(PluginProvidedServices.class);
 
     worldStateArchive =
         new BonsaiWorldStateProvider(
@@ -184,7 +184,7 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
             blockchain,
             ExtraStorageConfiguration.DEFAULT,
             cachedMerkleTrieLoader,
-            pluginContext,
+            pluginProvidedServices,
             EvmConfiguration.DEFAULT,
             new BonsaiCodeCache());
 

@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -26,12 +27,12 @@ public class TestDummyPlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestDummyPlugin.class);
 
   @Override
-  public void register(final ServiceManager serviceManager) {
+  public void register(final RegistrationContext context) {
     LOG.info("Registering TestDummyPlugin");
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.info("Starting TestDummyPlugin");
   }
 

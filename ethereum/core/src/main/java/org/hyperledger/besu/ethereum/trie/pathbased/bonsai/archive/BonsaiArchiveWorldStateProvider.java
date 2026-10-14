@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -34,7 +35,6 @@ import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
@@ -66,7 +66,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final Blockchain blockchain,
       final DataStorageConfiguration dataStorageConfiguration,
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final ServiceManager pluginContext,
+      final PluginProvidedServices pluginProvidedServices,
       final EvmConfiguration evmConfiguration,
       final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem) {
@@ -75,7 +75,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         blockchain,
         dataStorageConfiguration,
         bonsaiCachedMerkleTrieLoader,
-        pluginContext,
+        pluginProvidedServices,
         evmConfiguration,
         codeCache,
         metricsSystem,
@@ -87,7 +87,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final Blockchain blockchain,
       final DataStorageConfiguration dataStorageConfiguration,
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final ServiceManager pluginContext,
+      final PluginProvidedServices pluginProvidedServices,
       final EvmConfiguration evmConfiguration,
       final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem,
@@ -97,7 +97,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         blockchain,
         dataStorageConfiguration.getExtraStorageConfiguration(),
         bonsaiCachedMerkleTrieLoader,
-        pluginContext,
+        pluginProvidedServices,
         evmConfiguration,
         codeCache,
         amsterdamMilestone);

@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.BlockBody;
@@ -43,7 +44,7 @@ import org.apache.tuweni.bytes.Bytes32;
  * events through its {@code subscribe*} methods.
  */
 @Unstable
-public interface BlockchainService extends BesuService {
+public interface BlockchainService extends StartService {
   /**
    * Gets block by number
    *

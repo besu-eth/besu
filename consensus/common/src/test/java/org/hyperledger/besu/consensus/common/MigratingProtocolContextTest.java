@@ -22,8 +22,8 @@ import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.plugin.ServiceManager;
 
 import java.util.List;
 
@@ -55,7 +55,7 @@ public class MigratingProtocolContextTest {
             worldStateArchive,
             new MigratingConsensusContext(contextSchedule),
             new BadBlockManager(),
-            new ServiceManager.SimpleServiceManager());
+            PluginProvidedServices.NONE);
 
     assertThat(migratingProtocolContext.getConsensusContext(ConsensusContext.class))
         .isSameAs(context1);

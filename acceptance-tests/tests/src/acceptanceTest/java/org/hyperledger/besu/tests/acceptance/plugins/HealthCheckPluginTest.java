@@ -14,7 +14,9 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
@@ -86,5 +88,36 @@ public class HealthCheckPluginTest extends AcceptanceTestBase {
     assertThat(body.get("status").asText()).isEqualTo("UP");
     assertThat(body.get("checks").get("testPlugin").asText()).isEqualTo("readiness");
     waitForFile(pluginNode.homeDirectory().resolve("plugins/readiness-plugin-called"));
+  }
+
+  @Test
+  public void builtInReadinessIsUpOnceTheNodeIsRunning() throws IOException {
+    final BesuNode plainNode = besu.createArchiveNode("plainNode");
+    cluster.addNode(plainNode);
+
+    // minPeers=0: the default asks for one peer, which a test node is not guaranteed to have
+    final Request request =
+        new Request.Builder()
+            .get()
+            .url(
+                "http://"
+                    + plainNode.getHostName()
+                    + ":"
+                    + plainNode.getJsonRpcPort().get()
+                    + "/readiness?minPeers=0")
+            .build();
+
+    // the built-in check receives P2PService in afterMainLoop(), so it turns UP after the main loop
+    await()
+        .atMost(30, SECONDS)
+        .untilAsserted(
+            () -> {
+              try (Response response = client.newCall(request).execute()) {
+                assertThat(response.code()).isEqualTo(200);
+                final JsonNode body = new ObjectMapper().readTree(response.body().string());
+                assertThat(body.get("status").asText()).isEqualTo("UP");
+                assertThat(body.get("checks").has("peers")).isTrue();
+              }
+            });
   }
 }

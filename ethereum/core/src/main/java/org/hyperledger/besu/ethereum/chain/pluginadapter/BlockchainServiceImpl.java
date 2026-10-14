@@ -66,23 +66,20 @@ import org.apache.tuweni.units.bigints.UInt256;
 @Unstable
 public class BlockchainServiceImpl implements BlockchainService {
 
-  private ProtocolSchedule protocolSchedule;
-  private MutableBlockchain blockchain;
-  private PropagatedBlockSource propagatedBlockSource;
-  private BadBlockManager badBlockManager;
-
-  /** Instantiates a new Blockchain service implementation. */
-  public BlockchainServiceImpl() {}
+  private final ProtocolSchedule protocolSchedule;
+  private final MutableBlockchain blockchain;
+  private final PropagatedBlockSource propagatedBlockSource;
+  private final BadBlockManager badBlockManager;
 
   /**
-   * Initialize the Blockchain service.
+   * Instantiates a new Blockchain service implementation.
    *
    * @param blockchain the blockchain
    * @param protocolSchedule the protocol schedule
    * @param propagatedBlockSource the source of block-propagated events
    * @param badBlockManager the bad block manager
    */
-  public void init(
+  public BlockchainServiceImpl(
       final MutableBlockchain blockchain,
       final ProtocolSchedule protocolSchedule,
       final PropagatedBlockSource propagatedBlockSource,

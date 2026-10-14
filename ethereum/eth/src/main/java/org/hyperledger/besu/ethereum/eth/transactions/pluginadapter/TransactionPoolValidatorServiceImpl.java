@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions.pluginadapter;
 
+import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
 import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidator;
 import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidatorFactory;
@@ -21,6 +22,7 @@ import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolVal
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BooleanSupplier;
 
 import com.google.common.base.Preconditions;
 
@@ -29,9 +31,22 @@ public class TransactionPoolValidatorServiceImpl implements TransactionPoolValid
 
   private final List<PluginTransactionPoolValidatorFactory> factories =
       new CopyOnWriteArrayList<>();
+  private final BooleanSupplier registrationOpen;
 
-  /** Default Constructor. */
-  public TransactionPoolValidatorServiceImpl() {}
+  /** Creates a service that accepts factories at any time. */
+  public TransactionPoolValidatorServiceImpl() {
+    this(() -> true);
+  }
+
+  /**
+   * Creates the service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; factories registered
+   *     while it is closed are rejected
+   */
+  public TransactionPoolValidatorServiceImpl(final BooleanSupplier registrationOpen) {
+    this.registrationOpen = registrationOpen;
+  }
 
   @Override
   public PluginTransactionPoolValidator createTransactionValidator() {
@@ -51,6 +66,10 @@ public class TransactionPoolValidatorServiceImpl implements TransactionPoolValid
   @Override
   public void registerPluginTransactionValidatorFactory(
       final PluginTransactionPoolValidatorFactory pluginTransactionPoolValidatorFactory) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException(
+          "TransactionPoolValidatorService", "registerPluginTransactionValidatorFactory");
+    }
     Preconditions.checkNotNull(
         pluginTransactionPoolValidatorFactory,
         "PluginTransactionPoolValidatorFactory must not be null");

@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.rpc.RpcConfiguration;
 
 import java.io.File;
@@ -29,20 +30,18 @@ import org.slf4j.LoggerFactory;
 @AutoService(BesuPlugin.class)
 public class TestRpcConfigurationPlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestRpcConfigurationPlugin.class);
-  private ServiceManager serviceManager;
   private File callbackDir;
 
   @Override
-  public void register(final ServiceManager serviceManager) {
+  public void register(final RegistrationContext context) {
     LOG.info("Registering TestRpcConfigurationPlugin");
-    this.serviceManager = serviceManager;
-    callbackDir = PluginCallbackDir.resolve(serviceManager);
+    callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.info("Starting TestRpcConfigurationPlugin");
-    final var rpcConfiguration = serviceManager.getService(RpcConfiguration.class).orElseThrow();
+    final var rpcConfiguration = context.getBesuService(RpcConfiguration.class);
     writeRpcHttpConfig(
         rpcConfiguration.getConfiguredRpcHttpHost()
             + ":"
