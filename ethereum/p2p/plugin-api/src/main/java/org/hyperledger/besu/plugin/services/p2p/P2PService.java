@@ -15,12 +15,12 @@
 package org.hyperledger.besu.plugin.services.p2p;
 
 import org.hyperledger.besu.datatypes.p2p.MessageData;
+import org.hyperledger.besu.plugin.RunningService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.p2p.Capability;
 import org.hyperledger.besu.plugin.data.p2p.Message;
 import org.hyperledger.besu.plugin.data.p2p.Peer;
 import org.hyperledger.besu.plugin.data.p2p.PeerConnection;
-import org.hyperledger.besu.plugin.services.BesuService;
 
 import java.util.Collection;
 
@@ -28,11 +28,15 @@ import org.apache.tuweni.bytes.Bytes;
 
 /**
  * Service giving plugins access to the peer-to-peer network, letting them query peers and
- * connections, subscribe to connect, disconnect and message events, send messages to specific peers
- * and control the P2P network lifecycle.
+ * connections, send messages to specific peers and control the P2P network lifecycle.
+ *
+ * <p>Available once the node is running, since the network starts with the main loop. To be
+ * notified of peers connecting and disconnecting and of incoming messages, subscribe through {@link
+ * PeerEventService}, which is available from {@code start()} so that the subscription is in place
+ * before the network starts connecting.
  */
 @Unstable
-public interface P2PService extends BesuService {
+public interface P2PService extends RunningService {
 
   /** Enables P2P discovery. */
   void enableDiscovery();
@@ -68,28 +72,6 @@ public interface P2PService extends BesuService {
    * @return list of maintained connection peers
    */
   Collection<? extends Peer> getMaintainedConnectionPeers();
-
-  /**
-   * Subscribe to connection events.
-   *
-   * @param networkSubscriber the subscriber to receive connection events
-   */
-  void subscribeConnect(ConnectionListener networkSubscriber);
-
-  /**
-   * Subscribe to disconnection events.
-   *
-   * @param networkSubscriber the subscriber to receive disconnection events
-   */
-  void subscribeDisconnect(DisconnectionListener networkSubscriber);
-
-  /**
-   * Subscribe to messages on a specific capability.
-   *
-   * @param capability the capability to subscribe to
-   * @param networkSubscriber the subscriber to receive messages for the specified capability
-   */
-  void subscribeMessage(final Capability capability, final MessageListener networkSubscriber);
 
   /**
    * Send a message to a specific peer.

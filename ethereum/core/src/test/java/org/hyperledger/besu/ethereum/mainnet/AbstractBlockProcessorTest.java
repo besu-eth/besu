@@ -37,18 +37,19 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.apache.tuweni.units.bigints.UInt64;
@@ -139,17 +140,15 @@ abstract class AbstractBlockProcessorTest {
             .build());
 
     verify(blockTracer).traceStartBlock(any(), any(BlockHeader.class), any(Address.class));
-    verify(protocolContext, never()).getPluginServiceManager();
+    verify(protocolContext, never()).getPluginProvidedServices();
   }
 
   @Test
   void blockImportTracerIsUsedWithoutBlockTracerInContext() {
     final BlockAwareOperationTracer importTracer = mock(BlockAwareOperationTracer.class);
-    final ServiceManager serviceManager = mock(ServiceManager.class);
     final BlockImportTracerProvider provider = header -> importTracer;
-    when(protocolContext.getPluginServiceManager()).thenReturn(serviceManager);
-    when(serviceManager.getService(BlockImportTracerProvider.class))
-        .thenReturn(Optional.of(provider));
+    when(protocolContext.getPluginProvidedServices())
+        .thenReturn(PluginProvidedServices.of(Map.of(BlockImportTracerProvider.class, provider)));
 
     blockProcessor.processBlock(
         BlockExecutionContext.builder()

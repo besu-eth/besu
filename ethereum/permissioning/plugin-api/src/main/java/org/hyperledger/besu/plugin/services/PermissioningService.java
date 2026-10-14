@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.services.permissioning.NodeConnectionPermissioningProvider;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.plugin.services.permissioning.TransactionPermissioningProvider;
@@ -30,12 +31,14 @@ import org.hyperledger.besu.plugin.services.permissioning.TransactionPermissioni
  *       NodeMessagePermissioningProvider}
  * </ul>
  */
-public interface PermissioningService extends BesuService {
+public interface PermissioningService extends RegistrationService {
 
   /**
    * Registers a callback to allow the interception of a peer connection request
    *
    * @param provider The provider to register
+   * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
+   *     has closed
    */
   void registerNodePermissioningProvider(NodeConnectionPermissioningProvider provider);
 
@@ -43,6 +46,8 @@ public interface PermissioningService extends BesuService {
    * Registers a callback for transaction permission.
    *
    * @param provider The provider to register
+   * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
+   *     has closed
    */
   void registerTransactionPermissioningProvider(final TransactionPermissioningProvider provider);
 
@@ -50,6 +55,8 @@ public interface PermissioningService extends BesuService {
    * Registers a callback to allow the interception of a devp2p message sending request
    *
    * @param provider The provider to register
+   * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
+   *     has closed
    */
   void registerNodeMessagePermissioningProvider(NodeMessagePermissioningProvider provider);
 }

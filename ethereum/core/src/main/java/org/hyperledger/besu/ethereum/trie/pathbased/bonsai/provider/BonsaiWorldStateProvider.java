@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -29,7 +30,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.Bonsa
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -54,7 +54,7 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
       final Blockchain blockchain,
       final ExtraStorageConfiguration extraStorageConfiguration,
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final ServiceManager pluginContext,
+      final PluginProvidedServices pluginProvidedServices,
       final EvmConfiguration evmConfiguration,
       final BonsaiCodeCache codeCache) {
     this(
@@ -62,7 +62,7 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
         blockchain,
         extraStorageConfiguration,
         bonsaiCachedMerkleTrieLoader,
-        pluginContext,
+        pluginProvidedServices,
         evmConfiguration,
         codeCache,
         Optional.empty());
@@ -73,11 +73,11 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
       final Blockchain blockchain,
       final ExtraStorageConfiguration extraStorageConfiguration,
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final ServiceManager pluginContext,
+      final PluginProvidedServices pluginProvidedServices,
       final EvmConfiguration evmConfiguration,
       final BonsaiCodeCache codeCache,
       final Optional<Long> amsterdamMilestone) {
-    super(worldStateKeyValueStorage, blockchain, extraStorageConfiguration, pluginContext);
+    super(worldStateKeyValueStorage, blockchain, extraStorageConfiguration, pluginProvidedServices);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.amsterdamMilestone = amsterdamMilestone;
     this.evmConfiguration = evmConfiguration;

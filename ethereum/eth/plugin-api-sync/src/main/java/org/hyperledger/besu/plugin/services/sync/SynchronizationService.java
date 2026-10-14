@@ -15,18 +15,22 @@
 package org.hyperledger.besu.plugin.services.sync;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.plugin.RunningService;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.SyncStatus;
-import org.hyperledger.besu.plugin.services.BesuService;
-import org.hyperledger.besu.plugin.services.Subscription;
-import org.hyperledger.besu.plugin.services.sync.spi.InitialSyncCompletionListener;
-import org.hyperledger.besu.plugin.services.sync.spi.SyncStatusListener;
 
 import java.util.Optional;
 
-/** Synchronization service wraps the sync state and sync event lifecycle. */
-public interface SynchronizationService extends BesuService {
+/**
+ * Queries and controls the synchronizer.
+ *
+ * <p>Available once the node is running, since the synchronizer starts with the main loop and its
+ * answers mean nothing before. To be notified of sync status changes and of initial sync
+ * completion, subscribe through {@link SyncEventService}, which is available from {@code start()}
+ * so that the subscription is in place before the synchronizer starts.
+ */
+public interface SynchronizationService extends RunningService {
 
   /**
    * Fires a new unverified forkchoice event on the merge context and records the safe and finalized
@@ -93,20 +97,4 @@ public interface SynchronizationService extends BesuService {
    * @return the best peer chain head, or empty if no peers are connected.
    */
   Optional<Long> getBestPeerChainHead();
-
-  /**
-   * Subscribes to sync status changes.
-   *
-   * @param listener the listener that receives each status change
-   * @return the subscription; close it to stop receiving events
-   */
-  Subscription subscribeSyncStatus(SyncStatusListener listener);
-
-  /**
-   * Subscribes to initial sync completion and restart.
-   *
-   * @param listener the listener that receives completion and restart callbacks
-   * @return the subscription; close it to stop receiving events
-   */
-  Subscription subscribeInitialSyncCompletion(InitialSyncCompletionListener listener);
 }

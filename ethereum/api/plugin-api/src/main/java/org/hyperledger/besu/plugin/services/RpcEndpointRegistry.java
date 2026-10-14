@@ -14,20 +14,20 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
-import org.hyperledger.besu.plugin.services.rpc.PluginRpcResponse;
 
 import java.util.function.Function;
 
 /**
- * This service allows you to add functions exposed via RPC endpoints.
+ * Registers functions exposed by Besu as JSON-RPC endpoints.
  *
- * <p>This service will be available during the registration callback and must be used during the
- * registration callback. RPC endpoints are configured prior to the start callback and all endpoints
- * connected. No endpoint will actually be called prior to the start callback so initialization
- * unrelated to the callback registration can also be done at that time.
+ * <p>This is a registration-phase service: endpoints are read once, after every plugin has returned
+ * from {@link org.hyperledger.besu.plugin.BesuPlugin#register}, when the JSON-RPC method tables are
+ * built. Calling JSON-RPC methods in-process, Besu's own or those registered here, is a separate,
+ * start-phase service: {@link InProcessRpcService}.
  */
-public interface RpcEndpointService extends BesuService {
+public interface RpcEndpointRegistry extends RegistrationService {
 
   /**
    * Register a function as an RPC endpoint exposed via JSON-RPC.
@@ -50,20 +50,22 @@ public interface RpcEndpointService extends BesuService {
    * object. If the method throws any other exception the return is an error with an INTERNAL_ERROR
    * treatment.
    *
+   * <p>The endpoint is served when the operator enables its namespace with {@code --rpc-http-api}:
+   * on every enabled JSON-RPC interface (HTTP, WebSocket and IPC) and through {@link
+   * InProcessRpcService}. WebSocket also serves it when the namespace is enabled with {@code
+   * --rpc-ws-api}. These interfaces start before {@link
+   * org.hyperledger.besu.plugin.BesuPlugin#start}, so the handler can be invoked before the plugin
+   * has started and must handle that, for example by throwing a {@link
+   * org.hyperledger.besu.plugin.services.exception.PluginRpcEndpointException} until the services
+   * it obtains in {@code start()} are in place.
+   *
    * @param namespace The namespace of the method, must be alphanumeric.
    * @param functionName The name of the function, must be alphanumeric.
    * @param function The function itself.
    * @param <T> specified type of return object
+   * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
+   *     has closed
    */
   <T> void registerRPCEndpoint(
       String namespace, String functionName, Function<PluginRpcRequest, T> function);
-
-  /**
-   * Allow to call any of the enabled in-process RPC methods
-   *
-   * @param methodName the method to invoke
-   * @param params the list of parameters accepted by the method
-   * @return the result of the method
-   */
-  PluginRpcResponse call(String methodName, Object[] params);
 }

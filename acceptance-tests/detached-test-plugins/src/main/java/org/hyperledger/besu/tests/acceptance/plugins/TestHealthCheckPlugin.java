@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 
 import java.io.File;
@@ -41,32 +42,26 @@ public class TestHealthCheckPlugin implements BesuPlugin {
   private Path dataDir;
 
   @Override
-  public void register(final ServiceManager context) {
+  public void register(final RegistrationContext context) {
     LOG.info("Registered TestHealthCheckPlugin");
     dataDir = PluginCallbackDir.resolve(context).toPath();
-    context
-        .getService(HealthCheckService.class)
-        .ifPresent(
-            healthCheckService -> {
-              healthCheckService.registerHealthCheck(
-                  LIVENESS_ENDPOINT,
-                  params -> {
-                    markCalled(LIVENESS_CALLED_FILE);
-                    return new HealthCheckService.HealthCheckResult(
-                        true, Map.of("testPlugin", "liveness"));
-                  });
-              healthCheckService.registerHealthCheck(
-                  READINESS_ENDPOINT,
-                  params -> {
-                    markCalled(READINESS_CALLED_FILE);
-                    return new HealthCheckService.HealthCheckResult(
-                        true, Map.of("testPlugin", "readiness"));
-                  });
-            });
+    final HealthCheckService healthCheckService = context.getBesuService(HealthCheckService.class);
+    healthCheckService.registerHealthCheck(
+        LIVENESS_ENDPOINT,
+        params -> {
+          markCalled(LIVENESS_CALLED_FILE);
+          return new HealthCheckService.HealthCheckResult(true, Map.of("testPlugin", "liveness"));
+        });
+    healthCheckService.registerHealthCheck(
+        READINESS_ENDPOINT,
+        params -> {
+          markCalled(READINESS_CALLED_FILE);
+          return new HealthCheckService.HealthCheckResult(true, Map.of("testPlugin", "readiness"));
+        });
   }
 
   @Override
-  public void start() {}
+  public void start(final StartContext context) {}
 
   @Override
   public void stop() {}

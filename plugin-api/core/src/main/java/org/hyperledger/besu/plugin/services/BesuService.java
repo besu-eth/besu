@@ -14,10 +14,15 @@
  */
 package org.hyperledger.besu.plugin.services;
 
-import org.hyperledger.besu.plugin.ServiceManager;
-
 /**
- * All services that can be resolved via {@link ServiceManager#getService(Class)} must implement
- * {@link BesuService}
+ * Root of every service a plugin can look up or publish.
+ *
+ * <p>Besu-provided services additionally implement at least one tier marker, which says in which
+ * phases the service can be looked up: a {@link org.hyperledger.besu.plugin.RegistrationService}
+ * only during registration, a {@link org.hyperledger.besu.plugin.StartService} from {@code start()}
+ * onwards and a {@link org.hyperledger.besu.plugin.RunningService} from {@code afterMainLoop()}
+ * onwards. Each phase's context only accepts the types of its tier. A service published by a plugin
+ * through {@link org.hyperledger.besu.plugin.RegistrationContext#registerService(Class,
+ * BesuService)} implements this interface directly.
  */
 public interface BesuService {}

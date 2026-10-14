@@ -62,7 +62,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.PendingTransactionSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.syncing.SyncingSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsSubscriptionService;
-import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.HealthCheckServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointRegistryImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -197,7 +198,8 @@ public class RunnerBuilder {
   private BesuPluginContextImpl besuPluginContext;
   private boolean autoLogBloomCaching = true;
   private StorageProvider storageProvider;
-  private RpcEndpointServiceImpl rpcEndpointServiceImpl;
+  private RpcEndpointRegistryImpl rpcEndpointRegistry;
+  private HealthCheckServiceImpl healthCheckService;
   private JsonRpcIpcConfiguration jsonRpcIpcConfiguration;
   private Optional<EnodeDnsConfiguration> enodeDnsConfiguration;
   private List<IPAddress> allowedSubnets = new ArrayList<>();
@@ -609,13 +611,24 @@ public class RunnerBuilder {
   }
 
   /**
-   * Add Rpc endpoint service.
+   * Add the RPC endpoint registry, holding the endpoints plugins registered.
    *
-   * @param rpcEndpointService the rpc endpoint service
+   * @param rpcEndpointRegistry the registry of the RPC endpoints plugins registered
    * @return the runner builder
    */
-  public RunnerBuilder rpcEndpointService(final RpcEndpointServiceImpl rpcEndpointService) {
-    this.rpcEndpointServiceImpl = rpcEndpointService;
+  public RunnerBuilder rpcEndpointRegistry(final RpcEndpointRegistryImpl rpcEndpointRegistry) {
+    this.rpcEndpointRegistry = rpcEndpointRegistry;
+    return this;
+  }
+
+  /**
+   * Add the health check service, holding the health checks plugins registered.
+   *
+   * @param healthCheckService the health check service
+   * @return the runner builder
+   */
+  public RunnerBuilder healthCheckService(final HealthCheckServiceImpl healthCheckService) {
+    this.healthCheckService = healthCheckService;
     return this;
   }
 
@@ -955,7 +968,7 @@ public class RunnerBuilder {
               natService,
               besuPluginContext.getPluginsByName(),
               dataDir,
-              rpcEndpointServiceImpl,
+              rpcEndpointRegistry,
               transactionSimulator,
               besuController.getProtocolManager().ethContext().getScheduler());
 
@@ -968,8 +981,8 @@ public class RunnerBuilder {
                   metricsSystem,
                   natService,
                   nonEngineMethods,
-                  createLivenessHealthService(besuPluginContext),
-                  createReadinessHealthService(besuPluginContext, peerNetwork, synchronizer)));
+                  createLivenessHealthService(),
+                  createReadinessHealthService(peerNetwork, synchronizer)));
     }
 
     final SubscriptionManager subscriptionManager =
@@ -1014,7 +1027,7 @@ public class RunnerBuilder {
               natService,
               besuPluginContext.getPluginsByName(),
               dataDir,
-              rpcEndpointServiceImpl,
+              rpcEndpointRegistry,
               transactionSimulator,
               besuController.getProtocolManager().ethContext().getScheduler());
 
@@ -1049,8 +1062,8 @@ public class RunnerBuilder {
                   Optional.ofNullable(engineSocketConfig),
                   besuController.getProtocolManager().ethContext().getScheduler(),
                   authToUse,
-                  createLivenessHealthService(besuPluginContext),
-                  createReadinessHealthService(besuPluginContext, peerNetwork, synchronizer)));
+                  createLivenessHealthService(),
+                  createReadinessHealthService(peerNetwork, synchronizer)));
     }
 
     Optional<GraphQLHttpService> graphQLHttpService = Optional.empty();
@@ -1115,7 +1128,7 @@ public class RunnerBuilder {
               natService,
               besuPluginContext.getPluginsByName(),
               dataDir,
-              rpcEndpointServiceImpl,
+              rpcEndpointRegistry,
               transactionSimulator,
               besuController.getProtocolManager().ethContext().getScheduler());
 
@@ -1183,7 +1196,7 @@ public class RunnerBuilder {
               natService,
               besuPluginContext.getPluginsByName(),
               dataDir,
-              rpcEndpointServiceImpl,
+              rpcEndpointRegistry,
               transactionSimulator,
               besuController.getProtocolManager().ethContext().getScheduler());
 
@@ -1228,7 +1241,7 @@ public class RunnerBuilder {
               natService,
               besuPluginContext.getPluginsByName(),
               dataDir,
-              rpcEndpointServiceImpl,
+              rpcEndpointRegistry,
               transactionSimulator,
               besuController.getProtocolManager().ethContext().getScheduler());
     } else {
@@ -1394,7 +1407,7 @@ public class RunnerBuilder {
       final NatService natService,
       final Map<String, BesuPlugin> namedPlugins,
       final Path dataDir,
-      final RpcEndpointServiceImpl rpcEndpointServiceImpl,
+      final RpcEndpointRegistryImpl rpcEndpointRegistry,
       final TransactionSimulator transactionSimulator,
       final EthScheduler ethScheduler) {
     // vertx for the engine consensus API: engine methods execute concurrently on its worker
@@ -1442,7 +1455,7 @@ public class RunnerBuilder {
     methods.putAll(besuController.getAdditionalJsonRpcMethods(jsonRpcApis));
 
     final var pluginMethods =
-        rpcEndpointServiceImpl.getPluginMethods(jsonRpcConfiguration.getRpcApis());
+        rpcEndpointRegistry.getPluginMethods(jsonRpcConfiguration.getRpcApis());
 
     final var overriddenMethods =
         methods.keySet().stream().filter(pluginMethods::containsKey).collect(Collectors.toList());
@@ -1520,7 +1533,7 @@ public class RunnerBuilder {
         new WebSocketMethodsFactory(
             subscriptionManager, jsonRpcMethods, apiConfiguration.getMaxFilterAddresses());
 
-    rpcEndpointServiceImpl
+    rpcEndpointRegistry
         .getPluginMethods(configuration.getRpcApis())
         .values()
         .forEach(websocketMethodsFactory::addMethods);
@@ -1552,20 +1565,16 @@ public class RunnerBuilder {
     return MetricsService.create(configuration, metricsSystem);
   }
 
-  private HealthService createLivenessHealthService(final BesuPluginContextImpl pluginContext) {
-    return pluginContext
-        .getService(HealthCheckService.class)
+  private HealthService createLivenessHealthService() {
+    return Optional.ofNullable(healthCheckService)
         .flatMap(HealthCheckService::getLivenessCheck)
         .map(provider -> new HealthService(adaptProvider(provider)))
         .orElseGet(() -> new HealthService(new LivenessCheck()));
   }
 
   private HealthService createReadinessHealthService(
-      final BesuPluginContextImpl pluginContext,
-      final P2PNetwork peerNetwork,
-      final Synchronizer synchronizer) {
-    return pluginContext
-        .getService(HealthCheckService.class)
+      final P2PNetwork peerNetwork, final Synchronizer synchronizer) {
+    return Optional.ofNullable(healthCheckService)
         .flatMap(HealthCheckService::getReadinessCheck)
         .map(provider -> new HealthService(adaptProvider(provider)))
         .orElseGet(() -> new HealthService(new ReadinessCheck(peerNetwork, synchronizer)));
