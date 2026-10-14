@@ -16,7 +16,8 @@ package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.CoreConfiguration;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,20 +30,18 @@ import org.slf4j.LoggerFactory;
 @AutoService(BesuPlugin.class)
 public class TestCoreConfigurationPlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestCoreConfigurationPlugin.class);
-  private ServiceManager serviceManager;
   private File callbackDir;
 
   @Override
-  public void register(final ServiceManager serviceManager) {
+  public void register(final RegistrationContext context) {
     LOG.info("Registering TestCoreConfigurationPlugin");
-    this.serviceManager = serviceManager;
-    callbackDir = PluginCallbackDir.resolve(serviceManager);
+    callbackDir = PluginCallbackDir.resolve(context);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.info("Starting TestCoreConfigurationPlugin");
-    final var coreConfiguration = serviceManager.getService(CoreConfiguration.class).orElseThrow();
+    final var coreConfiguration = context.getBesuService(CoreConfiguration.class);
     writeDataPath(coreConfiguration.getDataPath().toString());
   }
 

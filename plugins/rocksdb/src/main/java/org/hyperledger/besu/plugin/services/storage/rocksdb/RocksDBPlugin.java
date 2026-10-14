@@ -15,7 +15,8 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.StorageService;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
@@ -38,7 +39,6 @@ public class RocksDBPlugin implements BesuPlugin {
 
   private final RocksDBCLIOptions options;
   private final List<SegmentIdentifier> ignorableSegments = new ArrayList<>();
-  private @Nullable ServiceManager context;
   private @Nullable RocksDBKeyValueStorageFactory factory;
 
   /** Instantiates a newRocksDb plugin. */
@@ -61,21 +61,17 @@ public class RocksDBPlugin implements BesuPlugin {
   }
 
   @Override
-  public void register(final ServiceManager context) {
+  public void register(final RegistrationContext context) {
     LOG.debug("Registering plugin");
-    this.context = context;
-    createFactoriesAndRegisterWithStorageService();
+    createAndRegister(context.getBesuService(StorageService.class));
     LOG.debug("Plugin registered.");
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.debug("Starting plugin.");
-    if (factory == null) {
-      if (LOG.isTraceEnabled()) {
-        LOG.trace("Applied configuration: {}", options.toString());
-      }
-      createFactoriesAndRegisterWithStorageService();
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Applied configuration: {}", options.toString());
     }
   }
 
@@ -149,17 +145,5 @@ public class RocksDBPlugin implements BesuPlugin {
             RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);
 
     service.registerKeyValueStorage(factory);
-  }
-
-  private void createFactoriesAndRegisterWithStorageService() {
-    final ServiceManager serviceManager = context;
-    if (serviceManager == null) {
-      throw new IllegalStateException("RocksDB plugin must be registered before it can be started");
-    }
-    serviceManager
-        .getService(StorageService.class)
-        .ifPresentOrElse(
-            this::createAndRegister,
-            () -> LOG.error("Failed to register KeyValueFactory due to missing StorageService."));
   }
 }

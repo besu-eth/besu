@@ -36,6 +36,7 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.ParsedExtraData;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
@@ -49,8 +50,6 @@ import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfigurati
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
-import org.hyperledger.besu.plugin.ServiceManager;
-import org.hyperledger.besu.plugin.services.BesuService;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
@@ -87,7 +86,8 @@ public class BlockchainReferenceTestCaseSpec {
   private WorldStateArchive buildWorldStateArchive(
       final DataStorageConfiguration storageConfiguration,
       final long cacheSize,
-      final Blockchain blockchain) {
+      final Blockchain blockchain,
+      final PluginProvidedServices pluginProvidedServices) {
 
     final InMemoryKeyValueStorageProvider inMemoryKeyValueStorageProvider =
         new InMemoryKeyValueStorageProvider();
@@ -100,16 +100,7 @@ public class BlockchainReferenceTestCaseSpec {
                     storageConfiguration.getExtraStorageConfiguration())
                 .withMaxLayersToLoad(cacheSize),
             new NoOpBonsaiCachedMerkleTrieLoader(),
-            new ServiceManager() {
-              @Override
-              public <T extends BesuService> void addService(
-                  final Class<T> serviceType, final T service) {}
-
-              @Override
-              public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
-                return Optional.empty();
-              }
-            },
+            pluginProvidedServices,
             EvmConfiguration.DEFAULT,
             new BonsaiCodeCache());
 
@@ -170,14 +161,23 @@ public class BlockchainReferenceTestCaseSpec {
 
   public ProtocolContext buildProtocolContext(
       final DataStorageConfiguration storageConfiguration, final MutableBlockchain blockchain) {
+    return buildProtocolContext(storageConfiguration, blockchain, PluginProvidedServices.NONE);
+  }
+
+  public ProtocolContext buildProtocolContext(
+      final DataStorageConfiguration storageConfiguration,
+      final MutableBlockchain blockchain,
+      final PluginProvidedServices pluginProvidedServices) {
     return new ProtocolContext.Builder()
         .withBlockchain(blockchain)
         .withWorldStateArchive(
             buildWorldStateArchive(
                 storageConfiguration,
                 Stream.of(candidateBlocks).filter(CandidateBlock::isExecutable).count(),
-                blockchain))
+                blockchain,
+                pluginProvidedServices))
         .withConsensusContext(new ConsensusContextFixture())
+        .withPluginProvidedServices(pluginProvidedServices)
         .build();
   }
 

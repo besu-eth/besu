@@ -16,8 +16,8 @@ package org.hyperledger.besu.ethereum;
 
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.plugin.ServiceManager;
 
 import java.util.Optional;
 
@@ -31,7 +31,7 @@ public class ProtocolContext {
   private final WorldStateArchive worldStateArchive;
   private final ConsensusContext consensusContext;
   private final BadBlockManager badBlockManager;
-  private final ServiceManager serviceManager;
+  private final PluginProvidedServices pluginProvidedServices;
 
   /**
    * Constructs a new ProtocolContext with the given blockchain, world state archive, consensus
@@ -41,19 +41,19 @@ public class ProtocolContext {
    * @param worldStateArchive the world state archive of the protocol context
    * @param consensusContext the consensus context
    * @param badBlockManager the bad block manager of the protocol context
-   * @param serviceManager plugin service manager
+   * @param pluginProvidedServices the services plugins published during registration
    */
   protected ProtocolContext(
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
       final ConsensusContext consensusContext,
       final BadBlockManager badBlockManager,
-      final ServiceManager serviceManager) {
+      final PluginProvidedServices pluginProvidedServices) {
     this.blockchain = blockchain;
     this.worldStateArchive = worldStateArchive;
     this.consensusContext = consensusContext;
     this.badBlockManager = badBlockManager;
-    this.serviceManager = serviceManager;
+    this.pluginProvidedServices = pluginProvidedServices;
   }
 
   /**
@@ -84,12 +84,12 @@ public class ProtocolContext {
   }
 
   /**
-   * Gets the plugin service manager from protocol context.
+   * Gets the services plugins published during registration.
    *
-   * @return the serviceManager manager from protocol context
+   * @return the plugin-provided services view
    */
-  public ServiceManager getPluginServiceManager() {
-    return serviceManager;
+  public PluginProvidedServices getPluginProvidedServices() {
+    return pluginProvidedServices;
   }
 
   /**
@@ -142,7 +142,7 @@ public class ProtocolContext {
    *     .withWorldStateArchive(new WorldStateArchiveImpl())
    *     .withConsensusContext(new ConsensusContextImpl())
    *     .withBadBlockManager(new BadBlockManagerImpl())
-   *     .withServiceManager(new ServiceManager.SimpleServiceManager())
+   *     .withPluginProvidedServices(PluginProvidedServices.NONE)
    *     .build();
    * </pre>
    */
@@ -151,7 +151,7 @@ public class ProtocolContext {
     private WorldStateArchive worldStateArchive;
     private ConsensusContext consensusContext;
     private BadBlockManager badBlockManager = new BadBlockManager();
-    private ServiceManager serviceManager = new ServiceManager.SimpleServiceManager();
+    private PluginProvidedServices pluginProvidedServices = PluginProvidedServices.NONE;
 
     /** Default constructor. linter requires javadoc. */
     public Builder() {}
@@ -201,13 +201,13 @@ public class ProtocolContext {
     }
 
     /**
-     * Sets the {@link ServiceManager} for the {@link ProtocolContext}.
+     * Sets the {@link PluginProvidedServices} for the {@link ProtocolContext}.
      *
-     * @param serviceManager the service manager to be used in the protocol context.
+     * @param pluginProvidedServices the services plugins published during registration.
      * @return the builder instance for chaining.
      */
-    public Builder withServiceManager(final ServiceManager serviceManager) {
-      this.serviceManager = serviceManager;
+    public Builder withPluginProvidedServices(final PluginProvidedServices pluginProvidedServices) {
+      this.pluginProvidedServices = pluginProvidedServices;
       return this;
     }
 
@@ -218,7 +218,7 @@ public class ProtocolContext {
      */
     public ProtocolContext build() {
       return new ProtocolContext(
-          blockchain, worldStateArchive, consensusContext, badBlockManager, serviceManager);
+          blockchain, worldStateArchive, consensusContext, badBlockManager, pluginProvidedServices);
     }
   }
 }

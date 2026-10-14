@@ -65,6 +65,15 @@ public class PicoCLIOptionsPluginTest extends AcceptanceTestBase {
   }
 
   @Test
+  public void shouldRunAfterMainLoop() throws IOException {
+    final Path signalFile = node.homeDirectory().resolve("plugins/pluginLifecycle.afterMainLoop");
+    waitForFile(signalFile);
+
+    assertThat(Files.readAllLines(signalFile).stream().anyMatch(s -> s.contains(MAGIC_WORDS)))
+        .isTrue();
+  }
+
+  @Test
   @Disabled("No way to do a graceful shutdown of Besu at the moment.")
   public void shouldStop() {
     cluster.stopNode(node);
