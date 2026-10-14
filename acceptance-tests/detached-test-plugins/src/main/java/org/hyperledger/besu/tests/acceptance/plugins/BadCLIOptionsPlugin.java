@@ -17,7 +17,8 @@ package org.hyperledger.besu.tests.acceptance.plugins;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
 import java.io.File;
@@ -47,14 +48,14 @@ public class BadCLIOptionsPlugin implements BesuPlugin {
   }
 
   @Override
-  public void register(final ServiceManager context) {
+  public void register(final RegistrationContext context) {
     LOG.info("Registering BadCliOptionsPlugin");
     callbackDir = PluginCallbackDir.resolve(context);
     writeStatus("register");
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
     LOG.info("Starting BadCliOptionsPlugin");
     writeStatus("start");
   }

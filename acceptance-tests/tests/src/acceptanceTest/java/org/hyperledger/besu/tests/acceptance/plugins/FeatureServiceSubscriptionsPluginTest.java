@@ -28,9 +28,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Covers the subscriptions added to the three feature services, delivered through the test plugins
- * that subscribe via {@code BlockchainService}, {@code TransactionPoolService} and {@code
- * SynchronizationService} instead of {@code BesuEvents}.
+ * Covers the subscriptions added to the feature services, delivered through the test plugins that
+ * subscribe via {@code BlockchainService}, {@code TransactionPoolService} and {@code
+ * SyncEventService} instead of {@code BesuEvents}.
  */
 public class FeatureServiceSubscriptionsPluginTest extends AcceptanceTestBase {
   private BesuNode pluginNode;
@@ -72,7 +72,7 @@ public class FeatureServiceSubscriptionsPluginTest extends AcceptanceTestBase {
   }
 
   @Test
-  public void initialSyncCompletionIsDeliveredThroughSynchronizationService() {
+  public void initialSyncCompletionIsDeliveredThroughSyncEventService() {
     // the plugin closes this subscription from inside the callback, so the file is written once
     waitForFile(pluginNode.homeDirectory().resolve("plugins/initialSyncCompleted"));
   }

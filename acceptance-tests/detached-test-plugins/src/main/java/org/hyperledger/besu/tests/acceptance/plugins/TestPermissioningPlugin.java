@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PermissioningService;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
@@ -45,8 +46,8 @@ public class TestPermissioningPlugin implements BesuPlugin {
   }
 
   @Override
-  public void register(final ServiceManager context) {
-    service = context.getService(PermissioningService.class).orElseThrow();
+  public void register(final RegistrationContext context) {
+    service = context.getBesuService(PermissioningService.class);
 
     if (enabled) {
       service.registerNodePermissioningProvider(
@@ -94,7 +95,7 @@ public class TestPermissioningPlugin implements BesuPlugin {
   }
 
   @Override
-  public void start() {}
+  public void start(final StartContext context) {}
 
   private boolean transactionMessage(final int code) {
     return code == 0x02 || code == 0x08 || code == 0x09 || code == 0x0a;

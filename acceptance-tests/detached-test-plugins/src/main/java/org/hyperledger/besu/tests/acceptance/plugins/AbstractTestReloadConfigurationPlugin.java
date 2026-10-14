@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
 import java.io.File;
@@ -36,14 +37,14 @@ public abstract class AbstractTestReloadConfigurationPlugin implements BesuPlugi
   }
 
   @Override
-  public void register(final ServiceManager serviceManager) {
-    callbackDir = PluginCallbackDir.resolve(serviceManager);
+  public void register(final RegistrationContext context) {
+    callbackDir = PluginCallbackDir.resolve(context);
   }
 
   protected abstract boolean shouldFail();
 
   @Override
-  public void start() {}
+  public void start(final StartContext context) {}
 
   @Override
   public CompletableFuture<Void> reloadConfiguration() {
