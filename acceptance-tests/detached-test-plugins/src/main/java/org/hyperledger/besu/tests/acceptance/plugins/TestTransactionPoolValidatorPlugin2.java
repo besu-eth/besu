@@ -15,7 +15,8 @@
 package org.hyperledger.besu.tests.acceptance.plugins;
 
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
 
@@ -30,20 +31,15 @@ public class TestTransactionPoolValidatorPlugin2 implements BesuPlugin {
   @Option(names = "--plugin-txpool-validator2-test-enabled")
   boolean enabled = false;
 
-  private ServiceManager serviceManager;
-
   @Override
   public void defineOptions(final PicoCLIOptions options) {
     options.addPicoCLIOptions("txpool-validator2", this);
   }
 
   @Override
-  public void register(final ServiceManager serviceManager) {
-    this.serviceManager = serviceManager;
-
-    serviceManager
-        .getService(TransactionPoolValidatorService.class)
-        .orElseThrow()
+  public void register(final RegistrationContext context) {
+    context
+        .getBesuService(TransactionPoolValidatorService.class)
         .registerPluginTransactionValidatorFactory(
             () ->
                 (tx, isLocal, hasPriority) ->
@@ -53,7 +49,7 @@ public class TestTransactionPoolValidatorPlugin2 implements BesuPlugin {
   }
 
   @Override
-  public void start() {}
+  public void start(final StartContext context) {}
 
   @Override
   public void stop() {}

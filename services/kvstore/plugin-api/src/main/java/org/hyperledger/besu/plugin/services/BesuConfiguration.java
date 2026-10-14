@@ -15,6 +15,8 @@
 package org.hyperledger.besu.plugin.services;
 
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.plugin.RegistrationService;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -22,7 +24,7 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import java.nio.file.Path;
 
 /** Generally useful configuration provided by Besu. */
-public interface BesuConfiguration extends BesuService {
+public interface BesuConfiguration extends RegistrationService, StartService {
 
   /**
    * Get the configured RPC http host.

@@ -953,7 +953,7 @@ public class JsonRpcHttpOptionsTest extends CommandTestAbstract {
   @Test
   public void rpcApisPropertyWithPluginNamespaceAreValid() {
 
-    rpcEndpointServiceImpl.registerRPCEndpoint(
+    rpcEndpointRegistry.registerRPCEndpoint(
         "bob", "method", (Function<PluginRpcRequest, Object>) request -> "nothing");
 
     parseCommand("--rpc-http-api", "BOB");

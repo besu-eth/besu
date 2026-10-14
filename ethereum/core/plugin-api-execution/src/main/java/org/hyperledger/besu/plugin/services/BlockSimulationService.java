@@ -17,6 +17,7 @@ package org.hyperledger.besu.plugin.services;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.BlockOverrides;
 import org.hyperledger.besu.plugin.data.PluginBlockSimulationResult;
@@ -24,7 +25,7 @@ import org.hyperledger.besu.plugin.data.PluginBlockSimulationResult;
 import java.util.List;
 
 /** This class is a service that simulates the processing of a block */
-public interface BlockSimulationService extends BesuService {
+public interface BlockSimulationService extends StartService {
 
   /**
    * Simulate the processing of a block given a header, a list of transactions, and blockOverrides.

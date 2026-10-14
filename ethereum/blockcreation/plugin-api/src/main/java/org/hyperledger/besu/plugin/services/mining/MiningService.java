@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services.mining;
 
-import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.RunningService;
 
 /**
  * The MiningService interface provides methods to start and stop the mining process.
@@ -23,7 +23,7 @@ import org.hyperledger.besu.plugin.services.BesuService;
  *     API. It will be removed in a future release.
  */
 @Deprecated(forRemoval = true)
-public interface MiningService extends BesuService {
+public interface MiningService extends RunningService {
 
   /** Starts the mining process. */
   void start();

@@ -19,9 +19,11 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.plugin.BesuPlugin;
-import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
+import org.hyperledger.besu.plugin.services.InProcessRpcService;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
-import org.hyperledger.besu.plugin.services.RpcEndpointService;
+import org.hyperledger.besu.plugin.services.RpcEndpointRegistry;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -34,7 +36,7 @@ import picocli.CommandLine;
 public class TestInProcessRpcServicePlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestInProcessRpcServicePlugin.class);
 
-  private RpcEndpointService rpcEndpointService;
+  private InProcessRpcService inProcessRpcService;
 
   @CommandLine.Option(names = {"--plugin-test-set-min-gas-price"})
   long minGasPrice = -1;
@@ -45,20 +47,15 @@ public class TestInProcessRpcServicePlugin implements BesuPlugin {
   }
 
   @Override
-  public void register(final ServiceManager context) {
-    rpcEndpointService =
-        context
-            .getService(RpcEndpointService.class)
-            .orElseThrow(
-                () ->
-                    new RuntimeException(
-                        "Failed to obtain RpcEndpointService from the BesuContext."));
-
-    rpcEndpointService.registerRPCEndpoint("tests", "estimateGas", this::estimateGas);
+  public void register(final RegistrationContext context) {
+    context
+        .getBesuService(RpcEndpointRegistry.class)
+        .registerRPCEndpoint("tests", "estimateGas", this::estimateGas);
   }
 
   @Override
-  public void start() {
+  public void start(final StartContext context) {
+    inProcessRpcService = context.getBesuService(InProcessRpcService.class);
     LOG.info("TestInProcessRpcServicePlugin minGasPrice option: {}", minGasPrice);
     if (minGasPrice >= 0) {
       callSetMinGasPrice(minGasPrice);
@@ -72,7 +69,7 @@ public class TestInProcessRpcServicePlugin implements BesuPlugin {
     LOG.info("Setting minGasPrice via in-process RPC service");
     final var minGasPriceWei = Wei.of(minGasPrice);
     final var resp =
-        rpcEndpointService.call(
+        inProcessRpcService.call(
             "miner_setMinGasPrice", new Object[] {minGasPriceWei.toShortHexString()});
     LOG.info("miner_setMinGasPrice response: {}", resp);
     if (!resp.getType().equals(RpcResponseType.SUCCESS)) {
@@ -99,7 +96,7 @@ public class TestInProcessRpcServicePlugin implements BesuPlugin {
     }
 
     final var resp =
-        rpcEndpointService.call("eth_estimateGas", new Object[] {builder.build(), "pending"});
+        inProcessRpcService.call("eth_estimateGas", new Object[] {builder.build(), "pending"});
 
     if (resp.getType() == RpcResponseType.ERROR) {
       final var err = (JsonRpcError) resp.getResult();

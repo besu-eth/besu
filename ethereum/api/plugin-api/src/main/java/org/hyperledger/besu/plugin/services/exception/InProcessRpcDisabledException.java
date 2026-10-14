@@ -12,20 +12,18 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.plugin.services.storage.rocksdb;
+package org.hyperledger.besu.plugin.services.exception;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+/**
+ * Thrown by {@link org.hyperledger.besu.plugin.services.InProcessRpcService#call(String, Object[])}
+ * when in-process RPC is disabled on this node.
+ */
+public class InProcessRpcDisabledException extends IllegalStateException {
 
-import org.junit.jupiter.api.Test;
-
-class RocksDBPluginTest {
-
-  @Test
-  void shouldFailToStartBeforeRegistration() {
-    final RocksDBPlugin plugin = new RocksDBPlugin();
-
-    assertThatThrownBy(plugin::start)
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessage("RocksDB plugin must be registered before it can be started");
+  /** Creates the exception. */
+  public InProcessRpcDisabledException() {
+    super(
+        "In-process RPC is disabled on this node; enable it with --Xin-process-rpc-enabled and"
+            + " select the namespaces with --Xin-process-rpc-apis");
   }
 }

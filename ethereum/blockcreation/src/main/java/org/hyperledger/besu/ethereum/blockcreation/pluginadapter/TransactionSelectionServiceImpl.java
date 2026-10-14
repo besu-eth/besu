@@ -23,6 +23,7 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.worldstate.WorldView;
+import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.Nullable;
@@ -47,10 +49,23 @@ import org.jspecify.annotations.Nullable;
 /** The Transaction Selection service implementation. */
 public class TransactionSelectionServiceImpl implements TransactionSelectionService {
 
-  /** Default Constructor. */
-  public TransactionSelectionServiceImpl() {}
-
   private @Nullable List<PluginTransactionSelectorFactory> factories;
+  private final BooleanSupplier registrationOpen;
+
+  /** Creates a service that accepts factories at any time. */
+  public TransactionSelectionServiceImpl() {
+    this(() -> true);
+  }
+
+  /**
+   * Creates the service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; factories registered
+   *     while it is closed are rejected
+   */
+  public TransactionSelectionServiceImpl(final BooleanSupplier registrationOpen) {
+    this.registrationOpen = registrationOpen;
+  }
 
   @Override
   public PluginTransactionSelector createPluginTransactionSelector(
@@ -81,6 +96,10 @@ public class TransactionSelectionServiceImpl implements TransactionSelectionServ
   @Override
   public void registerPluginTransactionSelectorFactory(
       final PluginTransactionSelectorFactory pluginTransactionSelectorFactory) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException(
+          "TransactionSelectionService", "registerPluginTransactionSelectorFactory");
+    }
     if (factories == null) {
       factories = new ArrayList<>();
     }

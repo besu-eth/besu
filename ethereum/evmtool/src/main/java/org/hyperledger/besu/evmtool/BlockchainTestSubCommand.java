@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -46,7 +47,6 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldView;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -371,8 +371,32 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       parentCommand.out.println("Running " + test);
     }
     final MutableBlockchain blockchain = spec.buildBlockchain();
+
+    BlockTestTracerManager tracerManager = null;
+    // the tracer is published the way a plugin would publish a BlockImportTracerProvider, so it
+    // has to exist before the protocol context that carries the plugin-provided services
+    PluginProvidedServices pluginProvidedServices = PluginProvidedServices.NONE;
+    if (parentCommand.showJsonResults && isLastIteration) {
+      final PrintStream traceWriter =
+          traceOutputWriter != null ? traceOutputWriter : new PrintStream(System.err, true, UTF_8);
+      tracerManager =
+          new BlockTestTracerManager(
+              traceWriter,
+              parentCommand.showMemory,
+              !parentCommand.hideStack,
+              parentCommand.showReturnData,
+              parentCommand.showStorage);
+
+      pluginProvidedServices =
+          PluginProvidedServices.of(
+              Map.of(
+                  BlockImportTracerProvider.class,
+                  new BlockchainTestTracerProvider(tracerManager)));
+    }
+
     final ProtocolContext context =
-        spec.buildProtocolContext(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain);
+        spec.buildProtocolContext(
+            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain, pluginProvidedServices);
 
     final BlockHeader genesisBlockHeader = spec.getGenesisBlockHeader();
     final MutableWorldState worldState =
@@ -401,24 +425,6 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         recordResult(test, spec, blockchain, false, reason, results);
       }
       return;
-    }
-
-    BlockTestTracerManager tracerManager = null;
-    if (parentCommand.showJsonResults && isLastIteration) {
-      final PrintStream traceWriter =
-          traceOutputWriter != null ? traceOutputWriter : new PrintStream(System.err, true, UTF_8);
-      tracerManager =
-          new BlockTestTracerManager(
-              traceWriter,
-              parentCommand.showMemory,
-              !parentCommand.hideStack,
-              parentCommand.showReturnData,
-              parentCommand.showStorage);
-
-      final ServiceManager serviceManager = context.getPluginServiceManager();
-      final BlockchainTestTracerProvider tracerProvider =
-          new BlockchainTestTracerProvider(tracerManager);
-      serviceManager.addService(BlockImportTracerProvider.class, tracerProvider);
     }
 
     boolean testPassed = true;

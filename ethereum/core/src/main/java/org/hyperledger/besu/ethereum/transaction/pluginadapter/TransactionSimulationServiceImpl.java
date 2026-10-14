@@ -39,19 +39,17 @@ import java.util.Optional;
 /** TransactionSimulationServiceImpl */
 @Unstable
 public class TransactionSimulationServiceImpl implements TransactionSimulationService {
-  private Blockchain blockchain;
-  private TransactionSimulator transactionSimulator;
-
-  /** Create an instance to be configured */
-  public TransactionSimulationServiceImpl() {}
+  private final Blockchain blockchain;
+  private final TransactionSimulator transactionSimulator;
 
   /**
-   * Configure the service
+   * Create the service
    *
    * @param blockchain the blockchain
    * @param transactionSimulator transaction simulator
    */
-  public void init(final Blockchain blockchain, final TransactionSimulator transactionSimulator) {
+  public TransactionSimulationServiceImpl(
+      final Blockchain blockchain, final TransactionSimulator transactionSimulator) {
     this.blockchain = blockchain;
     this.transactionSimulator = transactionSimulator;
   }
