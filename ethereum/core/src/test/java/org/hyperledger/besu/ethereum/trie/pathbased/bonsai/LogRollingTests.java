@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
@@ -48,7 +49,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.TrieLogService;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
@@ -397,8 +397,9 @@ class LogRollingTests {
     final TrieLogFactory pluginTrieLogFactory = spy(new BonsaiTrieLogFactory());
     final TrieLogService trieLogService = mock(TrieLogService.class);
     when(trieLogService.getTrieLogFactory()).thenReturn(Optional.of(pluginTrieLogFactory));
-    final ServiceManager pluginContext = mock(ServiceManager.class);
-    when(pluginContext.getService(TrieLogService.class)).thenReturn(Optional.of(trieLogService));
+    final PluginProvidedServices pluginProvidedServices = mock(PluginProvidedServices.class);
+    when(pluginProvidedServices.lookup(TrieLogService.class))
+        .thenReturn(Optional.of(trieLogService));
 
     final BonsaiWorldStateKeyValueStorage storage = secondArchive.getWorldStateKeyValueStorage();
     final BonsaiWorldState frozenWorldState =
@@ -406,7 +407,7 @@ class LogRollingTests {
             storage,
             secondArchive.getCachedMerkleTrieLoader(),
             secondArchive.getWorldStateCacheManager(),
-            new TrieLogManager(blockchain, storage, 512, pluginContext),
+            new TrieLogManager(blockchain, storage, 512, pluginProvidedServices),
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
             new BonsaiCodeCache());

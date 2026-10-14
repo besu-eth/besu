@@ -14,8 +14,9 @@
  */
 package org.hyperledger.besu.plugin.rpc;
 
+import org.hyperledger.besu.plugin.RegistrationService;
+import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.Unstable;
-import org.hyperledger.besu.plugin.services.BesuService;
 
 /**
  * RPC configuration of the Besu node.
@@ -27,7 +28,7 @@ import org.hyperledger.besu.plugin.services.BesuService;
  * org.hyperledger.besu.plugin.CoreConfiguration}.
  */
 @Unstable
-public interface RpcConfiguration extends BesuService {
+public interface RpcConfiguration extends RegistrationService, StartService {
 
   /**
    * Get the configured RPC http host.

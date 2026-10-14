@@ -43,7 +43,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.InProcessRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
-import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointRegistryImpl;
 import org.hyperledger.besu.ethereum.blockcreation.NoopMiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -171,7 +171,7 @@ public final class RunnerBuilderTest {
             .vertx(vertx)
             .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
             .build();
@@ -223,7 +223,7 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir)
             .storageProvider(storageProvider)
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
             .build();
@@ -304,7 +304,7 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir.getRoot())
             .storageProvider(storageProvider)
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
             .build();
@@ -392,7 +392,7 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
@@ -437,7 +437,7 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
@@ -481,7 +481,7 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
@@ -526,7 +526,7 @@ public final class RunnerBuilderTest {
             .vertx(Vertx.vertx())
             .dataDir(dataDir)
             .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
-            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .besuPluginContext(mock(BesuPluginContextImpl.class))
             .networkingConfiguration(NetworkingConfiguration.DEFAULT)
             .apiConfiguration(ImmutableApiConfiguration.builder().build())

@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
@@ -57,7 +58,6 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
-import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 
 import java.math.BigInteger;
@@ -198,10 +198,10 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
       final ConsensusContext consensusContext,
-      final ServiceManager serviceManager) {
+      final PluginProvidedServices pluginProvidedServices) {
     final ProtocolContext protocolContext =
         super.createProtocolContext(
-            blockchain, worldStateArchive, consensusContext, serviceManager);
+            blockchain, worldStateArchive, consensusContext, pluginProvidedServices);
     transitionProtocolSchedule.setProtocolContext(protocolContext);
     return protocolContext;
   }

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.txvalidator.TransactionValidationRule;
 
@@ -21,16 +22,20 @@ import org.hyperledger.besu.plugin.services.txvalidator.TransactionValidationRul
  * Service to register additional {@link TransactionValidationRule}s, applied wherever the node
  * validates a transaction.
  *
- * <p>Rules must be registered in {@code BesuPlugin#register}: the node reads them once, when it is
- * built, and rules registered later are not guaranteed to apply.
+ * <p>This is a registration-phase service: rules are wired into the node when it is built, after
+ * every plugin has returned from {@link org.hyperledger.besu.plugin.BesuPlugin#register}, and a
+ * rule registered later is rejected with a {@link
+ * org.hyperledger.besu.plugin.RegistrationClosedException}.
  */
 @Unstable
-public interface TransactionValidatorService extends BesuService {
+public interface TransactionValidatorService extends RegistrationService {
 
   /**
    * Registers a callback for extending the transaction validation with custom rules.
    *
    * @param rule The rule to register
+   * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
+   *     has closed
    */
   void registerTransactionValidatorRule(final TransactionValidationRule rule);
 }

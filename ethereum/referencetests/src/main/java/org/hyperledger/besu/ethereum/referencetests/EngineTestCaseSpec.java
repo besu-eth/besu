@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -32,8 +33,6 @@ import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfigurati
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
-import org.hyperledger.besu.plugin.ServiceManager;
-import org.hyperledger.besu.plugin.services.BesuService;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Iterator;
@@ -54,19 +53,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class EngineTestCaseSpec {
-
-  // Shared no-op ServiceManager — avoids anonymous class allocation per test
-  private static final ServiceManager SHARED_SERVICE_MANAGER =
-      new ServiceManager() {
-        @Override
-        public <T extends BesuService> void addService(
-            final Class<T> serviceType, final T service) {}
-
-        @Override
-        public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
-          return Optional.empty();
-        }
-      };
 
   // Shared no-op trie loader — stateless, safe to reuse
   private static final NoOpBonsaiCachedMerkleTrieLoader SHARED_TRIE_LOADER =
@@ -213,7 +199,7 @@ public class EngineTestCaseSpec {
                 .maxLayersToLoad(engineNewPayloads != null ? (long) engineNewPayloads.length : 0L)
                 .build(),
             SHARED_TRIE_LOADER,
-            SHARED_SERVICE_MANAGER,
+            PluginProvidedServices.NONE,
             EvmConfiguration.DEFAULT,
             new BonsaiCodeCache());
 

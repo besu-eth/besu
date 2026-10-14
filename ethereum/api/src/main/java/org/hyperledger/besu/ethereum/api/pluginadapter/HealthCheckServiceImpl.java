@@ -14,27 +14,48 @@
  */
 package org.hyperledger.besu.ethereum.api.pluginadapter;
 
+import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BooleanSupplier;
 
 /** The health check service implementation. */
 public class HealthCheckServiceImpl implements HealthCheckService {
 
-  /** Instantiates a new health check service implementation. */
-  public HealthCheckServiceImpl() {}
-
   private final ConcurrentHashMap<String, HealthCheckProvider> healthChecks =
       new ConcurrentHashMap<>();
+  private final BooleanSupplier registrationOpen;
+
+  /** Instantiates a health check service that accepts registrations at any time. */
+  public HealthCheckServiceImpl() {
+    this(() -> true);
+  }
+
+  /**
+   * Instantiates a new health check service implementation.
+   *
+   * @param registrationOpen whether plugin registration is currently open; health checks registered
+   *     or unregistered while it is closed are rejected
+   */
+  public HealthCheckServiceImpl(final BooleanSupplier registrationOpen) {
+    this.registrationOpen = registrationOpen;
+  }
 
   @Override
   public void registerHealthCheck(final String endpoint, final HealthCheckProvider provider) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException("HealthCheckService", "registerHealthCheck");
+    }
     healthChecks.put(endpoint, provider);
   }
 
   @Override
   public void unregisterHealthCheck(final String endpoint) {
+    if (!registrationOpen.getAsBoolean()) {
+      throw new RegistrationClosedException("HealthCheckService", "unregisterHealthCheck");
+    }
     healthChecks.remove(endpoint);
   }
 
