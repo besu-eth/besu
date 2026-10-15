@@ -89,11 +89,6 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
             .directory(new File(System.getProperty("user.dir")).getParentFile().getParentFile())
             .redirectErrorStream(true)
             .redirectInput(Redirect.INHERIT);
-    if (!node.getPlugins().isEmpty()) {
-      processBuilder
-          .environment()
-          .put("BESU_OPTS", "-Dbesu.plugins.dir=" + dataDir.resolve("plugins").toAbsolutePath());
-    }
     // Use non-blocking randomness for acceptance tests
     processBuilder
         .environment()
@@ -418,6 +413,10 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
     final String level = System.getProperty("root.log.level");
     if (level != null) {
       params.add("--logging=" + level);
+    }
+
+    if (!node.getPlugins().isEmpty()) {
+      params.add("--plugins-dir=" + dataDir.resolve("plugins").toAbsolutePath());
     }
 
     if (!node.getRequestedPlugins().isEmpty()) {
