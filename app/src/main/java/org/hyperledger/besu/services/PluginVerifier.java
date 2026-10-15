@@ -27,7 +27,6 @@ import java.net.URLClassLoader;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -45,7 +44,6 @@ import org.slf4j.spi.LoggingEventBuilder;
  * <p>This class performs comprehensive verification of plugins including:
  *
  * <ul>
- *   <li>Ensuring plugin names are unique
  *   <li>Validating artifact catalogs are present
  *   <li>Checking Besu version compatibility
  *   <li>Detecting dependency conflicts between plugins
@@ -62,12 +60,12 @@ public class PluginVerifier {
   private PluginVerifier() {}
 
   /**
-   * Performs comprehensive verification of loaded plugins.
+   * Performs comprehensive verification of the detected plugins, from their classes, before any is
+   * instantiated.
    *
    * <p>This method validates plugin integrity by checking:
    *
    * <ul>
-   *   <li>Plugin names are unique
    *   <li>Plugins have associated artifact catalogs
    *   <li>Plugin versions are compatible with the running Besu version
    *   <li>No dependency conflicts exist between plugins
@@ -76,17 +74,15 @@ public class PluginVerifier {
    *
    * @param pluginsVerificationMode the verification mode specifying which checks should fail
    * @param pluginClassLoader the class loader used to load plugins
-   * @param plugins the list of loaded plugins to verify
+   * @param plugins the classes of the detected plugins to verify
    * @throws IOException if an error occurs reading catalog files
    * @throws PluginVerificationException if verification fails based on the verification mode
    */
   static void verify(
       final PluginsVerificationMode pluginsVerificationMode,
       final URLClassLoader pluginClassLoader,
-      final List<BesuPlugin> plugins)
+      final List<Class<? extends BesuPlugin>> plugins)
       throws IOException {
-
-    verifyNamesAreUnique(plugins);
 
     final var pluginsArtifactData = getPluginsArtifactData(pluginClassLoader, plugins);
     LOG.debug("Loaded pluginsArtifactData: {}", pluginsArtifactData);
@@ -104,7 +100,7 @@ public class PluginVerifier {
               leb.log(
                   "Artifact {} containing plugins {} is without a catalog",
                   ad.name(),
-                  ad.plugins().stream().map(BesuPlugin::getName).toList()));
+                  ad.plugins().stream().map(Class::getName).toList()));
 
       if (pluginsVerificationMode.failOnCatalogLess()) {
         throw new PluginVerificationException(
@@ -116,50 +112,27 @@ public class PluginVerifier {
   }
 
   /**
-   * Verifies that all plugin names are unique.
-   *
-   * @param loadedPlugins the list of loaded plugins to check
-   * @throws PluginVerificationException if duplicate plugin names are detected
-   */
-  private static void verifyNamesAreUnique(final List<BesuPlugin> loadedPlugins) {
-    final var pluginNameCounts =
-        loadedPlugins.stream()
-            .collect(Collectors.groupingBy(BesuPlugin::getName, Collectors.counting()));
-
-    final var duplicateNames =
-        pluginNameCounts.entrySet().stream()
-            .filter(entry -> entry.getValue() > 1)
-            .map(Map.Entry::getKey)
-            .toList();
-
-    if (!duplicateNames.isEmpty()) {
-      throw new PluginVerificationException(
-          "Plugins with same name detected: " + String.join(", ", duplicateNames));
-    }
-  }
-
-  /**
-   * Collects artifact information for all loaded plugins.
+   * Collects artifact information for all detected plugins.
    *
    * <p>This method groups plugins by their source artifact (JAR file) and associates each artifact
    * with its metadata catalog if available.
    *
    * @param pluginClassLoader the class loader used to load plugins
-   * @param plugins the list of loaded plugins
+   * @param plugins the classes of the detected plugins
    * @return a list of artifact information for all plugins
    * @throws IOException if an error occurs reading catalog files
    * @throws PluginVerificationException if an error occurs determining plugin artifact locations
    */
   private static List<ArtifactInfo> getPluginsArtifactData(
-      final URLClassLoader pluginClassLoader, final List<BesuPlugin> plugins) throws IOException {
+      final URLClassLoader pluginClassLoader, final List<Class<? extends BesuPlugin>> plugins)
+      throws IOException {
     final var pluginsByArtifact =
         plugins.stream()
             .collect(
                 Collectors.groupingBy(
-                    plugin -> {
+                    pluginType -> {
                       try {
-                        return plugin
-                            .getClass()
+                        return pluginType
                             .getProtectionDomain()
                             .getCodeSource()
                             .getLocation()
@@ -167,7 +140,7 @@ public class PluginVerifier {
                             .getSchemeSpecificPart();
                       } catch (URISyntaxException e) {
                         throw new PluginVerificationException(
-                            "Error getting artifact URL for plugin " + plugin.getName(), e);
+                            "Error getting artifact URL for plugin " + pluginType.getName(), e);
                       }
                     }));
 
@@ -371,11 +344,12 @@ public class PluginVerifier {
    * Holds information about a plugin artifact (JAR file) and its associated plugins.
    *
    * @param name the file path or name of the artifact
-   * @param plugins the list of plugins loaded from this artifact
+   * @param plugins the classes of the plugins declared by this artifact
    * @param catalog the artifact's metadata catalog, or {@link ArtifactCatalog#NO_CATALOG} if none
    *     exists
    */
-  private record ArtifactInfo(String name, List<BesuPlugin> plugins, ArtifactCatalog catalog) {
+  private record ArtifactInfo(
+      String name, List<Class<? extends BesuPlugin>> plugins, ArtifactCatalog catalog) {
     @Override
     public String toString() {
       return "ArtifactInfo{"
@@ -383,7 +357,7 @@ public class PluginVerifier {
           + name
           + '\''
           + ", plugins="
-          + plugins.stream().map(BesuPlugin::getName).collect(Collectors.joining(", "))
+          + plugins.stream().map(Class::getName).collect(Collectors.joining(", "))
           + ", catalog="
           + catalog
           + '}';

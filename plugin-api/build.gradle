@@ -111,13 +111,15 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   // Exclusions are cleared by the release PR that bumps apiBaselineVersion.
   fieldExcludes = []
   // Lifecycle refinements on the plugin-api-refactor holding branch: option declaration (#11223),
-  // then the phase-gated contexts (#11226) which retire ServiceManager and split RpcEndpointService
+  // then the phase-gated contexts (#11226) which retire ServiceManager and split RpcEndpointService,
+  // then the single plugin id (#11442) which retires BesuPlugin#getName()
   classExcludes = [
     'org.hyperledger.besu.plugin.ServiceManager',
     'org.hyperledger.besu.plugin.ServiceManager$SimpleServiceManager',
     'org.hyperledger.besu.plugin.services.RpcEndpointService'
   ]
   methodExcludes = [
+    'org.hyperledger.besu.plugin.BesuPlugin#getName()',
     'org.hyperledger.besu.plugin.BesuPlugin#beforeExternalServices()',
     'org.hyperledger.besu.plugin.BesuPlugin#register(org.hyperledger.besu.plugin.ServiceManager)',
     'org.hyperledger.besu.plugin.BesuPlugin#start()',
