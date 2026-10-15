@@ -16,9 +16,11 @@ package org.hyperledger.besu.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import org.hyperledger.besu.ethereum.api.pluginadapter.HealthCheckServiceImpl;
 import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
+import org.hyperledger.besu.ethereum.core.plugins.PluginInfo;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.RegistrationContext;
@@ -31,8 +33,18 @@ import org.hyperledger.besu.plugin.services.BesuService;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.ServiceConfigurationError;
+import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -40,8 +52,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.jar.JarOutputStream;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
@@ -70,7 +86,7 @@ public class BesuPluginContextImplTest {
     }
 
     @Override
-    public String getName() {
+    public String toString() {
       return name;
     }
 
@@ -178,14 +194,95 @@ public class BesuPluginContextImplTest {
     public void stop() {}
   }
 
-  /** A context that loads the given plugins instead of scanning a plugins directory. */
+  /** A context that detects the given plugins instead of scanning a plugins directory. */
   private static BesuPluginContextImpl contextLoading(final BesuPlugin... plugins) {
+    return contextDetecting(Stream.of(plugins).map(BesuPluginContextImplTest::providerOf).toList());
+  }
+
+  /** A context that detects the given providers instead of scanning a plugins directory. */
+  private static BesuPluginContextImpl contextDetecting(
+      final List<ServiceLoader.Provider<BesuPlugin>> providers) {
     return new BesuPluginContextImpl() {
       @Override
-      List<BesuPlugin> loadPlugins() {
-        return List.of(plugins);
+      List<ServiceLoader.Provider<BesuPlugin>> detectPlugins() {
+        return providers;
       }
     };
+  }
+
+  /** What the service loader hands over for an already constructed plugin. */
+  private static ServiceLoader.Provider<BesuPlugin> providerOf(final BesuPlugin plugin) {
+    return new ServiceLoader.Provider<>() {
+      @Override
+      public Class<? extends BesuPlugin> type() {
+        return plugin.getClass();
+      }
+
+      @Override
+      public BesuPlugin get() {
+        return plugin;
+      }
+    };
+  }
+
+  /** What the service loader hands over for a plugin whose constructor throws. */
+  private static ServiceLoader.Provider<BesuPlugin> failingProviderOf(
+      final Class<? extends BesuPlugin> pluginType, final Throwable cause) {
+    return new ServiceLoader.Provider<>() {
+      @Override
+      public Class<? extends BesuPlugin> type() {
+        return pluginType;
+      }
+
+      @Override
+      public BesuPlugin get() {
+        throw new ServiceConfigurationError(
+            "Provider " + pluginType.getName() + " could not be instantiated", cause);
+      }
+    };
+  }
+
+  /**
+   * Runs the define-options phase, through the real selection and instantiation, for the given
+   * detected plugins and {@code --plugins} list, with the command line parsed.
+   */
+  private static BesuPluginContextImpl contextSelecting(
+      final boolean continueOnPluginError,
+      final List<String> requestedPlugins,
+      final List<ServiceLoader.Provider<BesuPlugin>> detected) {
+    final CommandLine commandLine = new CommandLine(CommandSpec.create());
+    final PicoCLIOptionsImpl picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
+    final BesuPluginContextImpl context = contextDetecting(detected);
+    context.initialize(
+        ImmutablePluginConfiguration.builder()
+            .continueOnPluginError(continueOnPluginError)
+            .requestedPluginsInfo(requestedPlugins.stream().map(PluginInfo::new).toList())
+            .build());
+    context.defineOptions(picoCLIOptions);
+    picoCLIOptions.optionsDefinitionCompleted();
+    commandLine.parseArgs();
+    return context;
+  }
+
+  /** A context that scans the given plugins directory, with its options phase not yet run. */
+  private static BesuPluginContextImpl contextScanning(final Path pluginsDir) {
+    final BesuPluginContextImpl context = new BesuPluginContextImpl();
+    context.initialize(ImmutablePluginConfiguration.builder().pluginsDir(pluginsDir).build());
+    return context;
+  }
+
+  private static PicoCLIOptionsImpl freshPicoCLIOptions() {
+    return new PicoCLIOptionsImpl(new CommandLine(CommandSpec.create()));
+  }
+
+  /** Writes a jar holding only a service file that declares the given plugin classes. */
+  private static void writeJarDeclaring(final Path jar, final String... pluginClassNames)
+      throws IOException {
+    try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar))) {
+      out.putNextEntry(new ZipEntry("META-INF/services/" + BesuPlugin.class.getName()));
+      out.write(String.join("\n", pluginClassNames).getBytes(StandardCharsets.UTF_8));
+      out.closeEntry();
+    }
   }
 
   /** Runs the define-options phase, through the real state transitions, for the given plugins. */
@@ -397,14 +494,16 @@ public class BesuPluginContextImplTest {
         context -> {
           throw new AbstractMethodError("register(RegistrationContext)");
         };
-    final RecordingPlugin fine = new RecordingPlugin("fine");
+    final OptionPlugin fine = new OptionPlugin();
     final BesuPluginContextImpl context = contextReadyToRegister(true, outdated, fine);
 
     register(context);
     context.startPlugins();
 
     assertThat(context.getRegisteredPlugins()).containsExactly(fine);
-    assertThat(context.getPluginVersions()).containsKey("fine").doesNotContainKey("outdated");
+    assertThat(context.getPluginVersions())
+        .containsKey(OptionPlugin.class.getName())
+        .doesNotContainKey(RecordingPlugin.class.getName());
   }
 
   @Test
@@ -692,7 +791,7 @@ public class BesuPluginContextImplTest {
 
     assertThat(plugin.valueAtDefineOptions).isEqualTo("default");
     assertThat(plugin.valueAtRegister).isEqualTo("configured");
-    assertThat(context.getPluginVersions()).containsKey(plugin.getName());
+    assertThat(context.getPluginVersions()).containsKey(OptionPlugin.class.getName());
     assertThat(context.getRegisteredPlugins()).containsExactly(plugin);
   }
 
@@ -740,7 +839,7 @@ public class BesuPluginContextImplTest {
     final OptionPlugin good = new OptionPlugin();
     final BesuPluginContextImpl context =
         contextWithLoadedPlugins(picoCLIOptions, true, failing, good);
-    assertThat(context.getPluginVersions()).containsKey(failing.getName());
+    assertThat(context.getPluginVersions()).containsKey(FailingRegisterPlugin.class.getName());
 
     picoCLIOptions.optionsDefinitionCompleted();
     commandLine.parseArgs();
@@ -748,8 +847,8 @@ public class BesuPluginContextImplTest {
 
     assertThat(context.getRegisteredPlugins()).containsExactly(good);
     assertThat(context.getPluginVersions())
-        .containsKey(good.getName())
-        .doesNotContainKey(failing.getName());
+        .containsKey(OptionPlugin.class.getName())
+        .doesNotContainKey(FailingRegisterPlugin.class.getName());
   }
 
   @Test
@@ -879,5 +978,217 @@ public class BesuPluginContextImplTest {
         .isPresent()
         .get()
         .isNotSameAs(firstCycle);
+  }
+
+  /** Holders of two plugins with the same simple class name, loadable by the service loader. */
+  public static class First {
+    public static class Plugin extends RecordingPlugin {
+      public Plugin() {
+        super("first");
+      }
+    }
+  }
+
+  public static class Second {
+    public static class Plugin extends RecordingPlugin {
+      public Plugin() {
+        super("second");
+      }
+    }
+  }
+
+  @Test
+  void pluginsAreIdentifiedByTheirFullyQualifiedClassName() {
+    final OptionPlugin plugin = new OptionPlugin();
+    final BesuPluginContextImpl context = contextReadyToRegister(false, plugin);
+    register(context);
+
+    assertThat(context.getPluginVersions()).containsOnlyKeys(OptionPlugin.class.getName());
+    assertThat(context.getPluginsByName()).containsOnlyKeys(OptionPlugin.class.getName());
+    assertThat(context.getPluginsSummaryLog())
+        .containsExactly(
+            "Plugin Registration Summary:",
+            "Registered Plugins:",
+            " - " + OptionPlugin.class.getName() + " (" + plugin.getVersion() + ")",
+            "TOTAL = 1 of 1 plugins successfully registered.");
+  }
+
+  @Test
+  void requestedPluginsAreSelectedByIdOrSimpleClassNameAndKeepTheDetectionOrder() {
+    final OptionPlugin option = new OptionPlugin();
+    final First.Plugin first = new First.Plugin();
+    final RecordingPlugin other = new RecordingPlugin("other");
+    final BesuPluginContextImpl context =
+        contextSelecting(
+            false,
+            List.of(First.Plugin.class.getName(), "OptionPlugin"),
+            List.of(providerOf(option), providerOf(other), providerOf(first)));
+    register(context);
+
+    assertThat(context.getRegisteredPlugins()).containsExactly(option, first);
+    assertThat(context.getPluginsSummaryLog())
+        .containsExactly(
+            "Plugin Registration Summary:",
+            "Registered Plugins:",
+            " - " + OptionPlugin.class.getName() + " (" + option.getVersion() + ")",
+            " - " + First.Plugin.class.getName() + " (" + first.getVersion() + ")",
+            "Detected but not selected:",
+            " - " + RecordingPlugin.class.getName(),
+            "TOTAL = 2 of 3 plugins successfully registered.");
+  }
+
+  @Test
+  void pluginsLeftOutOfTheSelectionAreNotInstantiated() {
+    final OptionPlugin option = new OptionPlugin();
+    final AtomicBoolean constructed = new AtomicBoolean();
+    final ServiceLoader.Provider<BesuPlugin> excluded =
+        new ServiceLoader.Provider<>() {
+          @Override
+          public Class<? extends BesuPlugin> type() {
+            return RecordingPlugin.class;
+          }
+
+          @Override
+          public BesuPlugin get() {
+            constructed.set(true);
+            return new RecordingPlugin("excluded");
+          }
+        };
+    final BesuPluginContextImpl context =
+        contextSelecting(false, List.of("OptionPlugin"), List.of(excluded, providerOf(option)));
+    register(context);
+
+    assertThat(constructed).isFalse();
+    assertThat(context.getRegisteredPlugins()).containsExactly(option);
+  }
+
+  @Test
+  void simpleClassNameNamingSeveralPluginsIsRejectedListingTheirIds() {
+    final List<ServiceLoader.Provider<BesuPlugin>> detected =
+        List.of(providerOf(new First.Plugin()), providerOf(new Second.Plugin()));
+
+    assertThatThrownBy(() -> contextSelecting(false, List.of("Plugin"), detected))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage(
+            "Plugin name Plugin matches several plugins, select one by its id: "
+                + First.Plugin.class.getName()
+                + ", "
+                + Second.Plugin.class.getName());
+  }
+
+  @Test
+  void idSelectsOneOfSeveralPluginsWithTheSameSimpleClassName() {
+    final Second.Plugin second = new Second.Plugin();
+    final BesuPluginContextImpl context =
+        contextSelecting(
+            false,
+            List.of(Second.Plugin.class.getName()),
+            List.of(providerOf(new First.Plugin()), providerOf(second)));
+    register(context);
+
+    assertThat(context.getRegisteredPlugins()).containsExactly(second);
+  }
+
+  @Test
+  void requestedPluginThatWasNotDetectedFailsStartup() {
+    final List<ServiceLoader.Provider<BesuPlugin>> detected =
+        List.of(providerOf(new OptionPlugin()));
+
+    assertThatThrownBy(() -> contextSelecting(false, List.of("OptionPlugin", "Missing"), detected))
+        .isInstanceOf(NoSuchElementException.class)
+        .hasMessage("The following requested plugins were not found: Missing");
+  }
+
+  @Test
+  void pluginWhoseConstructorFailsFailsStartupByDefault() {
+    final List<ServiceLoader.Provider<BesuPlugin>> detected =
+        List.of(failingProviderOf(RecordingPlugin.class, new IllegalStateException("boom")));
+
+    assertThatThrownBy(() -> contextSelecting(false, List.of(), detected))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining(
+            "Error instantiating plugin of type " + RecordingPlugin.class.getName())
+        .hasMessageContaining("boom");
+  }
+
+  @Test
+  void pluginWhoseConstructorFailsIsSkippedWhenContinueOnErrorIsSet() {
+    final OptionPlugin option = new OptionPlugin();
+    final BesuPluginContextImpl context =
+        contextSelecting(
+            true,
+            List.of(),
+            List.of(
+                failingProviderOf(RecordingPlugin.class, new IllegalStateException("boom")),
+                providerOf(option)));
+    register(context);
+
+    assertThat(context.getRegisteredPlugins()).containsExactly(option);
+    assertThat(context.getPluginsSummaryLog())
+        .containsSubsequence(
+            "Detected but not registered:",
+            " - " + RecordingPlugin.class.getName(),
+            "TOTAL = 1 of 2 plugins successfully registered.");
+  }
+
+  @Test
+  void jarsAreLoadedInFileNameOrder(@TempDir final Path tempDir) throws IOException {
+    final Path pluginsDir = Files.createDirectory(tempDir.resolve("plugins"));
+    // created in the reverse of their file name order
+    writeJarDeclaring(pluginsDir.resolve("b.jar"), First.Plugin.class.getName());
+    writeJarDeclaring(pluginsDir.resolve("a.jar"), Second.Plugin.class.getName());
+    final BesuPluginContextImpl context = contextScanning(pluginsDir);
+
+    context.defineOptions(freshPicoCLIOptions());
+
+    assertThat(context.getPluginsSummaryLog())
+        .containsSubsequence(
+            "Detected but not registered:",
+            " - " + Second.Plugin.class.getName() + " (" + new Second.Plugin().getVersion() + ")",
+            " - " + First.Plugin.class.getName() + " (" + new First.Plugin().getVersion() + ")",
+            "TOTAL = 0 of 2 plugins successfully registered.");
+  }
+
+  @Test
+  void missingPluginsDirectoryMeansNoPlugins(@TempDir final Path tempDir) {
+    final BesuPluginContextImpl context = contextScanning(tempDir.resolve("missing"));
+
+    context.defineOptions(freshPicoCLIOptions());
+
+    assertThat(context.getPluginsSummaryLog())
+        .contains("TOTAL = 0 of 0 plugins successfully registered.");
+  }
+
+  @Test
+  void unreadablePluginsDirectoryFailsStartupNamingIt(@TempDir final Path tempDir)
+      throws IOException {
+    final Path pluginsDir = Files.createDirectory(tempDir.resolve("plugins"));
+    assumeTrue(
+        Files.getFileStore(pluginsDir).supportsFileAttributeView(PosixFileAttributeView.class));
+    Files.setPosixFilePermissions(pluginsDir, Set.of());
+    try {
+      assumeTrue(!Files.isReadable(pluginsDir), "this user reads the directory regardless");
+      final BesuPluginContextImpl context = contextScanning(pluginsDir);
+
+      assertThatThrownBy(() -> context.defineOptions(freshPicoCLIOptions()))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("Cannot read the plugins directory " + pluginsDir.toAbsolutePath());
+    } finally {
+      Files.setPosixFilePermissions(pluginsDir, PosixFilePermissions.fromString("rwxr-xr-x"));
+    }
+  }
+
+  @Test
+  void pluginDeclarationThatCannotBeLoadedFailsStartupNamingTheDirectory(
+      @TempDir final Path tempDir) throws IOException {
+    final Path pluginsDir = Files.createDirectory(tempDir.resolve("plugins"));
+    writeJarDeclaring(pluginsDir.resolve("broken.jar"), "com.acme.MissingPlugin");
+    final BesuPluginContextImpl context = contextScanning(pluginsDir);
+
+    assertThatThrownBy(() -> context.defineOptions(freshPicoCLIOptions()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining(
+            "Cannot load a plugin declared by a jar in " + pluginsDir.toAbsolutePath())
+        .hasMessageContaining("com.acme.MissingPlugin");
   }
 }
