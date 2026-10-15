@@ -236,16 +236,42 @@ public class VmTraceGenerator {
       case "MSTORE":
       case "MSTORE8":
       case "RETURNDATACOPY":
-        currentTraceFrame
-            .getMaybeUpdatedMemory()
-            .map(
-                updatedMemory ->
-                    new Mem(updatedMemory.getValue().toHexString(), updatedMemory.getOffset()))
-            .ifPresent(report::setMem);
+        addUpdatedMemory(report);
+        break;
+      case "MCOPY":
+        if (mcopyWroteMemory()) {
+          addUpdatedMemory(report);
+        }
         break;
       default:
         break;
     }
+  }
+
+  private void addUpdatedMemory(final VmOperationExecutionReport report) {
+    currentTraceFrame
+        .getMaybeUpdatedMemory()
+        .map(
+            updatedMemory ->
+                new Mem(updatedMemory.getValue().toHexString(), updatedMemory.getOffset()))
+        .ifPresent(report::setMem);
+  }
+
+  /**
+   * MCOPY records no memory update when its length is zero or when it halts before copying, so the
+   * frame's updated memory may still hold the write of a preceding CALL's return data. Only trust
+   * it when this MCOPY actually copied bytes.
+   */
+  private boolean mcopyWroteMemory() {
+    if (currentTraceFrame.getExceptionalHaltReason().isPresent()) {
+      return false;
+    }
+    // the traced stack is the pre-execution snapshot, bottom to top: [..., length, src, dst]
+    return currentTraceFrame
+        .getStack()
+        .filter(stack -> stack.length >= 3)
+        .map(stack -> !stack[stack.length - 3].isZero())
+        .orElse(true);
   }
 
   private void generateTracingPush(final VmOperationExecutionReport report) {
