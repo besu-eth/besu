@@ -43,6 +43,7 @@ import org.apache.tuweni.bytes.Bytes32;
 public class BftBlockCreator extends AbstractBlockCreator {
 
   private final BftExtraDataCodec bftExtraDataCodec;
+  private final boolean saveTrieLogOfCreatedBlocks;
 
   /**
    * Instantiates a new Bft block creator.
@@ -67,6 +68,44 @@ public class BftBlockCreator extends AbstractBlockCreator {
       final ProtocolSchedule protocolSchedule,
       final BftExtraDataCodec bftExtraDataCodec,
       final EthScheduler ethScheduler) {
+    this(
+        miningConfiguration,
+        forksSchedule,
+        localAddress,
+        extraDataCalculator,
+        transactionPool,
+        protocolContext,
+        protocolSchedule,
+        bftExtraDataCodec,
+        ethScheduler,
+        false);
+  }
+
+  /**
+   * Instantiates a new Bft block creator.
+   *
+   * @param miningConfiguration the mining parameters
+   * @param forksSchedule the forks schedule
+   * @param localAddress the local address
+   * @param extraDataCalculator the extra data calculator
+   * @param transactionPool the pending transactions
+   * @param protocolContext the protocol context
+   * @param protocolSchedule the protocol schedule
+   * @param bftExtraDataCodec the bft extra data codec
+   * @param ethScheduler the scheduler for asynchronous block creation tasks
+   * @param saveTrieLogOfCreatedBlocks save the trie log of created blocks
+   */
+  public BftBlockCreator(
+      final MiningConfiguration miningConfiguration,
+      final ForksSchedule<? extends BftConfigOptions> forksSchedule,
+      final Address localAddress,
+      final ExtraDataCalculator extraDataCalculator,
+      final TransactionPool transactionPool,
+      final ProtocolContext protocolContext,
+      final ProtocolSchedule protocolSchedule,
+      final BftExtraDataCodec bftExtraDataCodec,
+      final EthScheduler ethScheduler,
+      final boolean saveTrieLogOfCreatedBlocks) {
     super(
         miningConfiguration.setCoinbase(localAddress),
         miningBeneficiaryCalculator(protocolSchedule),
@@ -76,6 +115,12 @@ public class BftBlockCreator extends AbstractBlockCreator {
         protocolSchedule,
         ethScheduler);
     this.bftExtraDataCodec = bftExtraDataCodec;
+    this.saveTrieLogOfCreatedBlocks = saveTrieLogOfCreatedBlocks;
+  }
+
+  @Override
+  protected boolean savesTrieLogOfCreatedBlocks() {
+    return saveTrieLogOfCreatedBlocks;
   }
 
   @Override

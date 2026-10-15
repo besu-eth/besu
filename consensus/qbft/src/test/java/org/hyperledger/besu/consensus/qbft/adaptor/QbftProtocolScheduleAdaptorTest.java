@@ -51,7 +51,8 @@ class QbftProtocolScheduleAdaptorTest {
     when(besuProtocolSpec.getBlockValidator()).thenReturn(besuBlockValidator);
 
     final QbftProtocolSchedule qbftProtocolSchedule =
-        new QbftProtocolScheduleAdaptor(besuProtocolSchedule, besuProtocolContext);
+        new QbftProtocolScheduleAdaptor(
+            besuProtocolSchedule, besuProtocolContext, new ValidatedBlockCache());
     final QbftBlockValidator qbftBlockValidator =
         qbftProtocolSchedule.getBlockValidator(qbftHeader);
     assertThat(qbftBlockValidator)
@@ -68,7 +69,8 @@ class QbftProtocolScheduleAdaptorTest {
     when(besuProtocolSpec.getBlockImporter()).thenReturn(besuBlockImporter);
 
     final QbftProtocolSchedule qbftProtocolSchedule =
-        new QbftProtocolScheduleAdaptor(besuProtocolSchedule, besuProtocolContext);
+        new QbftProtocolScheduleAdaptor(
+            besuProtocolSchedule, besuProtocolContext, new ValidatedBlockCache());
     final QbftBlockImporter qbftBlockImporter = qbftProtocolSchedule.getBlockImporter(qbftHeader);
     assertThat(qbftBlockImporter).hasFieldOrPropertyWithValue("blockImporter", besuBlockImporter);
   }

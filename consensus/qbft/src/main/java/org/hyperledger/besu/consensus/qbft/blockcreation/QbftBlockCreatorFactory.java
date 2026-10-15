@@ -87,4 +87,14 @@ public class QbftBlockCreatorFactory extends BftBlockCreatorFactory<QbftConfigOp
 
     return super.createExtraData(round, parentHeader);
   }
+
+  /**
+   * Proposer does not execute its block again, so import needs the trie log from block creation.
+   *
+   * @return true
+   */
+  @Override
+  protected boolean savesTrieLogOfCreatedBlocks() {
+    return true;
+  }
 }

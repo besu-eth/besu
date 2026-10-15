@@ -60,6 +60,7 @@ import org.hyperledger.besu.consensus.qbft.adaptor.QbftFinalStateImpl;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftProtocolScheduleAdaptor;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftValidatorModeTransitionLoggerAdaptor;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftValidatorProviderAdaptor;
+import org.hyperledger.besu.consensus.qbft.adaptor.ValidatedBlockCache;
 import org.hyperledger.besu.consensus.qbft.blockcreation.QbftBlockCreatorFactory;
 import org.hyperledger.besu.consensus.qbft.core.payload.MessageFactory;
 import org.hyperledger.besu.consensus.qbft.core.statemachine.QbftBlockHeightManagerFactory;
@@ -207,8 +208,10 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
 
     final Address localAddress = Util.publicKeyToAddress(nodeKey.getPublicKey());
     final BftProtocolSchedule bftProtocolSchedule = (BftProtocolSchedule) protocolSchedule;
+    // shared by block creation, validation and import
+    final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
     QbftProtocolSchedule qbftProtocolSchedule =
-        new QbftProtocolScheduleAdaptor(bftProtocolSchedule, protocolContext);
+        new QbftProtocolScheduleAdaptor(bftProtocolSchedule, protocolContext, validatedBlockCache);
     final QbftBlockCreatorFactory blockCreatorFactory =
         new QbftBlockCreatorFactory(
             transactionPool,
@@ -263,7 +266,8 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
                     Duration.ofSeconds(qbftConfig.getRequestTimeoutSeconds())),
                 bftExecutors),
             blockTimer,
-            new QbftBlockCreatorFactoryAdaptor(blockCreatorFactory, qbftExtraDataCodec),
+            new QbftBlockCreatorFactoryAdaptor(
+                blockCreatorFactory, qbftExtraDataCodec, validatedBlockCache),
             clock);
 
     registerEmptyBlockPeriodMetrics(metricsSystem, blockTimer);
