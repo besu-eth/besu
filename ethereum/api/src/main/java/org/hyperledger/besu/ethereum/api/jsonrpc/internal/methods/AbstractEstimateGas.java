@@ -22,7 +22,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcErrorConverter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
@@ -40,6 +39,7 @@ import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
+import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Optional;
@@ -119,7 +119,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
         (cp, op) ->
             transactionSimulator.processOnPending(
                 cp, maybeStateOverrides, validationParams, op, pendingBlockHeader);
-    return simulate(
+    return simulateOrError(
         requestContext,
         callParameter,
         pendingBlockHeader,
@@ -156,13 +156,34 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
         (cp, op) ->
             transactionSimulator.process(
                 cp, maybeStateOverrides, validationParams, op, blockHeader);
-    return simulate(
+    return simulateOrError(
         requestContext,
         callParameter,
         blockHeader,
         simulationFunction,
         gasLimitUpperBound,
         minTxCost);
+  }
+
+  private Object simulateOrError(
+      final JsonRpcRequestContext requestContext,
+      final CallParameter callParams,
+      final ProcessableBlockHeader blockHeader,
+      final TransactionSimulationFunction simulationFunction,
+      final long gasLimitUpperBound,
+      final long minTxCost) {
+    try {
+      return simulate(
+          requestContext,
+          callParams,
+          blockHeader,
+          simulationFunction,
+          gasLimitUpperBound,
+          minTxCost);
+    } catch (final BlockStateCallException e) {
+      return errorResponse(
+          requestContext, new JsonRpcError(e.getError().getCode(), e.getMessage(), null));
+    }
   }
 
   private Optional<BlockHeader> blockHeader(final long blockNumber) {
@@ -241,7 +262,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     try {
       return request.getOptionalParameter(2, StateOverrideMap.class);
     } catch (JsonRpcParameter.JsonRpcParameterException e) {
-      throw new InvalidJsonRpcRequestException(
+      throw new InvalidJsonRpcParameters(
           "Invalid account overrides parameter (index 2)", RpcErrorType.INVALID_CALL_PARAMS, e);
     }
   }
