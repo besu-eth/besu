@@ -42,13 +42,14 @@ public class RunVersionTest extends AcceptanceTestBase {
     cluster.runNodeStart(node);
 
     final var serviceLoader = ServiceLoader.load(BesuPlugin.class);
-    final var plugins = serviceLoader.stream().map(ServiceLoader.Provider::get).toList();
+    final var pluginIds =
+        serviceLoader.stream().map(provider -> provider.type().getName()).toList();
 
     final var versionOutput =
         BesuVersionUtils.version()
             + System.lineSeparator()
-            + plugins.stream()
-                .map(bp -> bp.getName() + "/testPlugins/" + BesuVersionUtils.shortVersion())
+            + pluginIds.stream()
+                .map(id -> id + "/testPlugins/" + BesuVersionUtils.shortVersion())
                 .collect(Collectors.joining(System.lineSeparator()));
 
     WaitUtils.waitFor(5000, () -> node.verify(exitedSuccessfully));
