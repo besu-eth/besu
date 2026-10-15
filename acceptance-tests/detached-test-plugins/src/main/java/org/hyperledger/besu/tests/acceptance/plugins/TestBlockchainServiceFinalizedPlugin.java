@@ -46,8 +46,7 @@ public class TestBlockchainServiceFinalizedPlugin implements BesuPlugin {
     LOG.trace("Registering plugin ...");
 
     // the endpoints are registered here; the BlockchainService they use is a start-phase service,
-    // so the handler receives it in start(). The JSON-RPC listeners are up before start(), so a
-    // request that arrives earlier is rejected in setFinalizedOrSafeBlock
+    // so the handler receives it in start(), before the JSON-RPC ports open
     final RpcEndpointRegistry rpcEndpointRegistry =
         context.getBesuService(RpcEndpointRegistry.class);
     rpcEndpointRegistry.registerRPCEndpoint(
@@ -86,10 +85,6 @@ public class TestBlockchainServiceFinalizedPlugin implements BesuPlugin {
     private Boolean setFinalizedOrSafeBlock(
         final PluginRpcRequest request, final boolean isFinalized) {
       final Long blockNumberToSet = parseResult(request);
-      if (blockchainService == null) {
-        throw new PluginRpcEndpointException(
-            RpcErrorType.INTERNAL_ERROR, "Plugin has not started yet");
-      }
 
       // lookup finalized block by number in local chain
       final Optional<BlockContext> finalizedBlock =

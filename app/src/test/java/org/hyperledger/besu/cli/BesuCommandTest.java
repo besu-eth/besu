@@ -386,6 +386,16 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void pluginsStartBeforeTheExternalServicesOpenTheirPorts() {
+    parseCommand();
+
+    final InOrder inOrder = inOrder(mockRunner, getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).startPlugins();
+    inOrder.verify(mockRunner).startExternalServices();
+    inOrder.verify(mockRunner).startEthereumMainLoop();
+  }
+
+  @Test
   public void readinessGetsTheRunningServicesBeforeThirdPartyPlugins() {
     parseCommand();
 

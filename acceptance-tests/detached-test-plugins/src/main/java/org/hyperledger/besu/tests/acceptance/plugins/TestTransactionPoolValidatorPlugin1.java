@@ -14,10 +14,12 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationContext;
 import org.hyperledger.besu.plugin.StartContext;
+import org.hyperledger.besu.plugin.services.BlockchainService;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
 
@@ -32,6 +34,10 @@ public class TestTransactionPoolValidatorPlugin1 implements BesuPlugin {
   @Option(names = "--plugin-txpool-validator1-test-enabled")
   boolean enabled = false;
 
+  // obtained in start(): the validator depends on it, and the pool only consults the validator
+  // once every plugin has started
+  private volatile BlockchainService blockchainService;
+
   @Override
   public void defineOptions(final PicoCLIOptions options) {
     options.addPicoCLIOptions("txpool-validator1", this);
@@ -41,16 +47,25 @@ public class TestTransactionPoolValidatorPlugin1 implements BesuPlugin {
   public void register(final RegistrationContext context) {
     context
         .getBesuService(TransactionPoolValidatorService.class)
-        .registerPluginTransactionValidatorFactory(
-            () ->
-                (tx, isLocal, hasPriority) ->
-                    enabled && !tx.getType().equals(TransactionType.FRONTIER)
-                        ? Optional.of("Only Frontier transactions are allowed here")
-                        : Optional.empty());
+        .registerPluginTransactionValidatorFactory(() -> this::validate);
+  }
+
+  private Optional<String> validate(
+      final Transaction tx, final boolean isLocal, final boolean hasPriority) {
+    final BlockchainService service = blockchainService;
+    if (service == null) {
+      return Optional.of("Pool validator consulted before start() returned");
+    }
+    service.getChainHeadHeader();
+    return enabled && !tx.getType().equals(TransactionType.FRONTIER)
+        ? Optional.of("Only Frontier transactions are allowed here")
+        : Optional.empty();
   }
 
   @Override
-  public void start(final StartContext context) {}
+  public void start(final StartContext context) {
+    blockchainService = context.getBesuService(BlockchainService.class);
+  }
 
   @Override
   public void stop() {}
