@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginInfo;
 import org.hyperledger.besu.ethereum.core.plugins.PluginsVerificationMode;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import picocli.CommandLine;
@@ -33,6 +34,7 @@ import picocli.CommandLine;
 /** The Plugins options. */
 public class PluginsConfigurationOptions implements CLIOptions<PluginConfiguration> {
 
+  private static final String PLUGINS_DIR_OPTION_NAME = "--plugins-dir";
   private static final String PLUGINS_OPTION_NAME = "--plugins";
   private static final String CONTINUE_ON_PLUGIN_ERROR_OPTION_NAME = "--plugin-continue-on-error";
   private static final String PLUGINS_EXTERNAL_ENABLED_OPTION_NAME = "--Xplugins-external-enabled";
@@ -45,8 +47,19 @@ public class PluginsConfigurationOptions implements CLIOptions<PluginConfigurati
   private boolean externalPluginsEnabled = DEFAULT_EXTERNAL_PLUGINS_ENABLED;
 
   @CommandLine.Option(
+      names = {PLUGINS_DIR_OPTION_NAME},
+      paramLabel = "<PATH>",
+      description =
+          "The directory to load plugin jars from (default: the besu.plugins.dir system property"
+              + " when set, otherwise the plugins directory under Besu's home)")
+  private Path pluginsDir = PluginConfiguration.defaultPluginsDir();
+
+  @CommandLine.Option(
       names = {PLUGINS_OPTION_NAME},
-      description = "Comma-separated list of plugin names to load",
+      description =
+          "Comma-separated list of the plugins to load, each given by its id (the fully qualified"
+              + " class name, as printed by --version) or by its simple class name when that names"
+              + " exactly one of the detected plugins; the other detected plugins are not loaded",
       split = ",",
       converter = PluginInfoConverter.class)
   private List<PluginInfo> plugins = DEFAULT_REQUESTED_PLUGINS_INFO;
@@ -70,6 +83,7 @@ public class PluginsConfigurationOptions implements CLIOptions<PluginConfigurati
   public PluginConfiguration toDomainObject() {
     return ImmutablePluginConfiguration.builder()
         .externalPluginsEnabled(externalPluginsEnabled)
+        .pluginsDir(pluginsDir)
         .requestedPluginsInfo(plugins)
         .continueOnPluginError(continueOnPluginError)
         .pluginsVerificationMode(pluginsVerificationMode)
@@ -84,7 +98,8 @@ public class PluginsConfigurationOptions implements CLIOptions<PluginConfigurati
   public void validate(final CommandLine commandLine) {
     String errorMessage =
         String.format(
-            "%s, %s and %s options can only be used when %s is true",
+            "%s, %s, %s and %s options can only be used when %s is true",
+            PLUGINS_DIR_OPTION_NAME,
             PLUGINS_OPTION_NAME,
             CONTINUE_ON_PLUGIN_ERROR_OPTION_NAME,
             PLUGINS_VERIFICATION_MODE_OPTION_NAME,
@@ -94,6 +109,7 @@ public class PluginsConfigurationOptions implements CLIOptions<PluginConfigurati
         errorMessage,
         externalPluginsEnabled,
         List.of(
+            PLUGINS_DIR_OPTION_NAME,
             PLUGINS_OPTION_NAME,
             CONTINUE_ON_PLUGIN_ERROR_OPTION_NAME,
             PLUGINS_VERIFICATION_MODE_OPTION_NAME));
@@ -111,6 +127,9 @@ public class PluginsConfigurationOptions implements CLIOptions<PluginConfigurati
    * @return A new {@link PluginConfiguration} instance.
    */
   public static PluginConfiguration fromCommandLine(final CommandLine commandLine) {
+    Path pluginsDir =
+        CommandLineUtils.getOptionValueOrDefault(commandLine, PLUGINS_DIR_OPTION_NAME, Path::of);
+
     List<PluginInfo> plugins =
         CommandLineUtils.getOptionValueOrDefault(
             commandLine, PLUGINS_OPTION_NAME, new PluginInfoConverter());
@@ -130,6 +149,7 @@ public class PluginsConfigurationOptions implements CLIOptions<PluginConfigurati
             PluginsVerificationMode::valueOfIgnoreCase);
 
     return ImmutablePluginConfiguration.builder()
+        .pluginsDir(pluginsDir)
         .requestedPluginsInfo(plugins)
         .externalPluginsEnabled(externalPluginsEnabled)
         .continueOnPluginError(continueOnPluginError)
