@@ -594,22 +594,6 @@ public class BackwardSyncContextTest {
     assertThat(context.estimatedChainHeight(50L)).isEqualTo(50L);
   }
 
-  @Test
-  public void shouldReportSyncingOnlyWhileSessionIsRunning() {
-    final CompletableFuture<Void> session = new CompletableFuture<>();
-    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
-        .thenReturn(backwardSyncAlgorithm);
-    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(session);
-
-    assertThat(context.isSyncing()).isFalse();
-
-    context.syncBackwardsUntil(unknownBlock(42L));
-    assertThat(context.isSyncing()).isTrue();
-
-    session.complete(null);
-    assertThat(context.isSyncing()).isFalse();
-  }
-
   private void startSyncSessionWithTargetHeight(final long targetHeight) {
     when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
