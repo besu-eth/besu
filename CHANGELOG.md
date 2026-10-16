@@ -17,6 +17,7 @@
 - `trace_rawTransaction` now applies the `--rpc-max-trace-steps` cap, as `trace_call` and `trace_callMany` already do. It traced every step of the submitted transaction regardless of the setting. [#11438](https://github.com/besu-eth/besu/pull/11438)
 - Strict transaction replay protection (`--strict-tx-replay-protection-enabled`) no longer rejects transactions from priority senders received from peers; it applies only to transactions submitted via JSON-RPC, as documented. [#11466](https://github.com/besu-eth/besu/pull/11466)
 - With `--cache-last-blocks` set, RPC methods return the total difficulty of recently imported blocks instead of their own difficulty, which is 0 after the merge. [#11790](https://github.com/besu-eth/besu/pull/11790)
+- `eth_call`, `eth_estimateGas`, `eth_createAccessList` and `trace_call` now reject a request with a fourth parameter, and `debug_traceCall` rejects a `blockOverrides` member in its trace config, with `Invalid params` (`-32602`). Block overrides are only supported by `eth_simulateV1`; these methods previously dropped them silently and returned a result for the unmodified block. [#11525](https://github.com/besu-eth/besu/issues/11525)
 
 ### Additions and Improvements
 - With `--Xevm-v2`, `MessageFrame.getMaybeUpdatedMemory` and `getMaybeUpdatedStorage` are recorded only while a tracer that traces operations runs. [#11690](https://github.com/besu-eth/besu/pull/11690)
