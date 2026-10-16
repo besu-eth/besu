@@ -71,7 +71,20 @@ public class SStoreOperation extends AbstractOperation {
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
     final UInt256 key = UInt256.fromBytes(frame.popStackItem());
     final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
+    return store(frame, key, newValue);
+  }
 
+  /**
+   * Stores a value in a storage slot of the current account, once the operation has taken its
+   * arguments off the stack.
+   *
+   * @param frame the current execution frame
+   * @param key the storage slot
+   * @param newValue the value to store
+   * @return the operation result
+   */
+  protected OperationResult store(
+      final MessageFrame frame, final UInt256 key, final UInt256 newValue) {
     // EIP-8038: resolve the account ahead of the gas checks below, so that an SSTORE which halts
     // for insufficient gas has still recorded the account in the block access list.
     final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);

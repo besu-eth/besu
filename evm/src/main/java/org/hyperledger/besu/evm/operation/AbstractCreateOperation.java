@@ -90,11 +90,11 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     // memory (which would expand memory based on an unvalidated length) and before
     // state gas is charged below.
     if (getInputSize(frame) > evm.getMaxInitcodeSize()) {
-      frame.popStackItems(getStackItemsConsumed());
+      popArguments(frame);
       return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
     }
 
-    final Wei value = Wei.wrap(frame.getStackItem(0));
+    final Wei value = value(frame);
 
     final Address address = frame.getRecipientAddress();
     final MutableAccount account = getMutableAccount(address, frame);
@@ -182,6 +182,26 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
   protected abstract Code getInitCode(MessageFrame frame, EVM evm);
 
   /**
+   * Returns the value sent to the new contract.
+   *
+   * @param frame the message frame the operation executed in
+   * @return the value
+   */
+  protected Wei value(final MessageFrame frame) {
+    return Wei.wrap(frame.getStackItem(0));
+  }
+
+  /**
+   * Returns the memory offset of the initcode, clamped to a long.
+   *
+   * @param frame the message frame the operation executed in
+   * @return the memory offset of the initcode
+   */
+  protected long getInputOffset(final MessageFrame frame) {
+    return clampedToLong(frame.getStackItem(1));
+  }
+
+  /**
    * Returns the declared initcode size from the stack, clamped to a long. Used for the EIP-3860
    * size check before initcode is resolved from memory.
    *
@@ -199,11 +219,29 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
    * @param frame the current execution frame
    */
   protected void fail(final MessageFrame frame) {
-    final long inputOffset = clampedToLong(frame.getStackItem(1));
-    final long inputSize = clampedToLong(frame.getStackItem(2));
-    frame.readMutableMemory(inputOffset, inputSize);
+    frame.readMutableMemory(getInputOffset(frame), getInputSize(frame));
+    popArgumentsAndPushResult(frame, null);
+  }
+
+  /**
+   * Removes the arguments of the operation from the stack.
+   *
+   * @param frame the current execution frame
+   */
+  protected void popArguments(final MessageFrame frame) {
     frame.popStackItems(getStackItemsConsumed());
-    frame.pushStackItem(Bytes.EMPTY);
+  }
+
+  /**
+   * Replaces the arguments of the operation on the stack with the address of the created contract,
+   * or with zero when none was created.
+   *
+   * @param frame the current execution frame
+   * @param createdAddress the address of the created contract, or null
+   */
+  protected void popArgumentsAndPushResult(final MessageFrame frame, final Address createdAddress) {
+    popArguments(frame);
+    frame.pushStackItem(createdAddress == null ? Bytes.EMPTY : Words.fromAddress(createdAddress));
   }
 
   private void spawnChildMessage(
@@ -211,7 +249,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       final Code code,
       final Address contractAddress,
       final boolean targetExists) {
-    final Wei value = Wei.wrap(parent.getStackItem(0));
+    final Wei value = value(parent);
     final Bytes inputData = getInputData(parent);
 
     final long childGasStipend =
@@ -261,7 +299,6 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     frame.addLogs(childFrame.getLogs());
     frame.addSelfDestructs(childFrame.getSelfDestructs());
     frame.addCreates(childFrame.getCreates());
-    frame.popStackItems(getStackItemsConsumed());
 
     if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       Address createdAddress = childFrame.getContractAddress();
@@ -270,7 +307,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
       // EIP-8037: a successful create adds the leaf it was charged for, so the charge stands.
       frame.settleStateGasOnChildSuccess();
-      frame.pushStackItem(Words.fromAddress(createdAddress));
+      popArgumentsAndPushResult(frame, createdAddress);
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
     } else {
@@ -281,7 +318,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
             gasCalculator().stateGasCostCalculator().newContractStateGas());
       }
       frame.setReturnData(childFrame.getOutputData());
-      frame.pushStackItem(Bytes.EMPTY);
+      popArgumentsAndPushResult(frame, null);
       onFailure(frame, childFrame.getExceptionalHaltReason());
     }
 

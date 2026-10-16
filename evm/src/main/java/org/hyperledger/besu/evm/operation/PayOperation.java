@@ -56,6 +56,19 @@ public class PayOperation extends AbstractOperation {
 
     final Address to = Words.toAddress(toAddressBytes);
     final Wei value = Wei.wrap(frame.getStackItem(1));
+    return pay(frame, to, value);
+  }
+
+  /**
+   * Pays the value from the current account to the recipient, once the operation has read its
+   * arguments from the stack.
+   *
+   * @param frame the current execution frame
+   * @param to the recipient
+   * @param value the value to pay
+   * @return the operation result
+   */
+  protected OperationResult pay(final MessageFrame frame, final Address to, final Wei value) {
     final boolean hasValue = value.greaterThan(Wei.ZERO);
     final Account recipient = getAccount(to, frame);
 
@@ -67,8 +80,7 @@ public class PayOperation extends AbstractOperation {
     }
 
     if (!hasValue) {
-      frame.popStackItems(getStackItemsConsumed());
-      frame.pushStackItem(LEGACY_SUCCESS_STACK_ITEM);
+      popArgumentsAndPushResult(frame, true);
       return new OperationResult(cost, null);
     }
 
@@ -76,8 +88,7 @@ public class PayOperation extends AbstractOperation {
     final Address from = frame.getRecipientAddress();
     final MutableAccount fromAccount = getMutableAccount(from, frame);
     if (fromAccount == null || value.compareTo(fromAccount.getBalance()) > 0) {
-      frame.popStackItems(getStackItemsConsumed());
-      frame.pushStackItem(LEGACY_FAILURE_STACK_ITEM);
+      popArgumentsAndPushResult(frame, false);
       return new OperationResult(cost, null);
     }
 
@@ -87,9 +98,19 @@ public class PayOperation extends AbstractOperation {
       recipientAccount.incrementBalance(value);
     }
 
-    frame.popStackItems(getStackItemsConsumed());
-    frame.pushStackItem(LEGACY_SUCCESS_STACK_ITEM);
+    popArgumentsAndPushResult(frame, true);
     return new OperationResult(cost, null);
+  }
+
+  /**
+   * Replaces the arguments of the operation on the stack with whether the payment succeeded.
+   *
+   * @param frame the current execution frame
+   * @param success whether the payment succeeded
+   */
+  protected void popArgumentsAndPushResult(final MessageFrame frame, final boolean success) {
+    frame.popStackItems(getStackItemsConsumed());
+    frame.pushStackItem(success ? LEGACY_SUCCESS_STACK_ITEM : LEGACY_FAILURE_STACK_ITEM);
   }
 
   private long cost(

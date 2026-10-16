@@ -42,7 +42,7 @@ public class BaseFeeOperationV2 extends AbstractFixedCostOperationV2 {
     if (maybeBaseFee.isEmpty()) {
       return new Operation.OperationResult(gasCost, ExceptionalHaltReason.INVALID_OPERATION);
     }
-    if (!frame.stackHasSpaceV2(1)) return OVERFLOW_RESPONSE;
+    if (!frame.ensureStackCapacityV2(1)) return overflowResponse;
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();
     pushWei(maybeBaseFee.get(), stack, top);

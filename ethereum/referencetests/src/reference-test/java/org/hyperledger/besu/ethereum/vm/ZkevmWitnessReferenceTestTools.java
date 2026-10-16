@@ -35,11 +35,11 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.FixtureExecutionWitness;
+import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecutionWitnessBuilder;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.testutil.JsonTestParameters;
@@ -173,7 +173,7 @@ public class ZkevmWitnessReferenceTestTools {
             Optional.of(BigInteger.ONE),
             ProtocolSpecAdapters.create(0, Function.identity()),
             false,
-            EvmConfiguration.DEFAULT,
+            ReferenceTestProtocolSchedules.evmConfiguration(),
             MiningConfiguration.MINING_DISABLED,
             new BadBlockManager(),
             false,

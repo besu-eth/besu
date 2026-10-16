@@ -2,6 +2,12 @@ name: reference-tests
 
 on:
   workflow_call:
+    inputs:
+      evm_v2:
+        description: 'Run the reference tests on EVM v2 (-Dtest.evm.v2=true)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   GRADLE_OPTS: "-Xmx6g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
@@ -59,7 +65,7 @@ jobs:
       - name: refTestArgs.txt
         run: cat refTestArgs.txt
       - name: run reference tests
-        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt`
+        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt` ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
       - name: verify test file count matches
         run: |
           listed=$(wc -l < filenames.txt | tr -d ' ')
@@ -73,7 +79,7 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always() # always run even if the previous step fails
         with:
-          name: reference-test-node-${{matrix.runner_index}}-results
+          name: reference-test-node-${{matrix.runner_index}}${{ inputs.evm_v2 && '-evm-v2' || '' }}-results
           path: '**/build/test-results/referenceTests/TEST-*.xml'
 
   referenceTestsPassed:

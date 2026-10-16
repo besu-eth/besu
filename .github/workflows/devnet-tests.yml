@@ -3,6 +3,12 @@ name: devnet-tests
 
 on:
   workflow_call:
+    inputs:
+      evm_v2:
+        description: 'Run the devnet tests on EVM v2 (-Dtest.evm.v2=true)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   GRADLE_OPTS: "-Xmx6g -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
@@ -38,7 +44,7 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Run ${{ matrix.task }}
-        run: ./gradlew :ethereum:evmtool:${{ matrix.task }}
+        run: ./gradlew :ethereum:evmtool:${{ matrix.task }} ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
 
   devnetTestsPassed:
     name: devnetTestsPassed

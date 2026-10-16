@@ -33,7 +33,11 @@ import org.hyperledger.besu.evm.internal.UnderflowException;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -198,6 +202,12 @@ public class MessageFrame {
   /** The constant DEFAULT_MAX_STACK_SIZE. */
   public static final int DEFAULT_MAX_STACK_SIZE = 1024;
 
+  // Most frames stay far below the maximum, and a frame allocates its stack on every call.
+  private static final int INITIAL_STACK_CAPACITY_V2 = 32;
+
+  private static final VarHandle LONG_BE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+
   // Global data fields.
   private final WorldUpdater worldUpdater;
 
@@ -209,12 +219,17 @@ public class MessageFrame {
   private long gasRemaining;
   private int pc;
   private final Memory memory = new Memory();
-  private final OperandStack stack;
+  // null on a frame EVM v2 runs, which only uses the v2 stack. The stack accessors tracers use
+  // check this field, which v1 reads anyway, rather than the v2 stack, to keep v1 as fast.
+  private OperandStack stack;
   // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
   // significant)
-  private final long[] stackDataV2;
+  private long[] stackDataV2;
   private int stackTopV2;
   private final int stackMaxSizeV2;
+  // Tracer view of the v2 stack: the item last handed out per slot, reused while the slot is
+  // unchanged so that tracers snapshotting the stack every step share objects, as on v1
+  private Bytes32[] stackViewV2;
   private Bytes output = Bytes.EMPTY;
   private Bytes returnData = Bytes.EMPTY;
   private Code createdCode = null;
@@ -286,8 +301,11 @@ public class MessageFrame {
     this.type = type;
     this.worldUpdater = worldUpdater;
     this.gasRemaining = initialGas;
-    this.stack = new OperandStack(txValues.maxStackSize());
-    this.stackDataV2 = enableEvmV2 ? new long[txValues.maxStackSize() * 4] : null;
+    this.stack = enableEvmV2 ? null : new OperandStack(txValues.maxStackSize());
+    this.stackDataV2 =
+        enableEvmV2
+            ? new long[Math.min(INITIAL_STACK_CAPACITY_V2, txValues.maxStackSize()) << 2]
+            : null;
     this.stackTopV2 = 0;
     this.stackMaxSizeV2 = txValues.maxStackSize();
     this.pc = 0;
@@ -432,18 +450,24 @@ public class MessageFrame {
   }
 
   /**
-   * Returns the item at the specified offset in the stack.
+   * Returns the item at the specified offset in the stack, from the v2 stack when EVM v2 runs the
+   * frame, so that tracers see the same stack on both interpreters.
    *
    * @param offset The item's position relative to the top of the stack
    * @return The item at the specified offset in the stack
    * @throws UnderflowException if the offset is out of range
    */
   public Bytes getStackItem(final int offset) {
+    if (stack == null) {
+      return stackItemV2(offset);
+    }
     return stack.get(offset);
   }
 
   /**
    * Removes the item at the top of the stack.
+   *
+   * <p>Writes the v1 stack only. A frame run by EVM v2 keeps its stack in {@link #stackDataV2()}.
    *
    * @return the item at the top of the stack
    * @throws UnderflowException if the stack is empty
@@ -455,6 +479,8 @@ public class MessageFrame {
   /**
    * Removes the corresponding number of items from the top of the stack.
    *
+   * <p>Writes the v1 stack only. A frame run by EVM v2 keeps its stack in {@link #stackDataV2()}.
+   *
    * @param n The number of items to pop off the stack
    */
   public void popStackItems(final int n) {
@@ -463,6 +489,8 @@ public class MessageFrame {
 
   /**
    * Pushes the corresponding item onto the top of the stack
+   *
+   * <p>Writes the v1 stack only. A frame run by EVM v2 keeps its stack in {@link #stackDataV2()}.
    *
    * @param value The value to push onto the stack.
    */
@@ -473,6 +501,8 @@ public class MessageFrame {
   /**
    * Sets the stack item at the specified offset from the top of the stack to the value
    *
+   * <p>Writes the v1 stack only. A frame run by EVM v2 keeps its stack in {@link #stackDataV2()}.
+   *
    * @param offset The item's position relative to the top of the stack
    * @param value The value to set the stack item to
    * @throws IllegalStateException if the stack is too small
@@ -482,16 +512,66 @@ public class MessageFrame {
   }
 
   /**
-   * Return the current stack size.
+   * Return the current stack size, of the v2 stack when EVM v2 runs the frame.
    *
    * @return The current stack size
    */
   public int stackSize() {
+    if (stack == null) {
+      return stackTopV2;
+    }
     return stack.size();
   }
 
   // region --- EVM v2 long[] stack operations ---
   // ---------------------------------------------------------------------------
+
+  /**
+   * Allocates the v2 operand stack if the frame was built without one, and drops the v1 stack,
+   * which v2 does not use. Frames are built in places that do not know which interpreter will run
+   * them, so the v2 interpreter calls this first.
+   */
+  public void ensureStackV2() {
+    if (stackDataV2 == null) {
+      stackDataV2 = new long[Math.min(INITIAL_STACK_CAPACITY_V2, stackMaxSizeV2) << 2];
+      stack = null;
+    }
+  }
+
+  private Bytes stackItemV2(final int offset) {
+    if (offset < 0 || offset >= stackTopV2) {
+      throw new UnderflowException();
+    }
+    final int slot = stackTopV2 - 1 - offset;
+    final int index = slot << 2;
+    final long u3 = stackDataV2[index];
+    final long u2 = stackDataV2[index + 1];
+    final long u1 = stackDataV2[index + 2];
+    final long u0 = stackDataV2[index + 3];
+    if (stackViewV2 == null) {
+      stackViewV2 = new Bytes32[stackDataV2.length >> 2];
+    } else if (stackViewV2.length < stackDataV2.length >> 2) {
+      stackViewV2 = Arrays.copyOf(stackViewV2, stackDataV2.length >> 2);
+    }
+    final Bytes32 cached = stackViewV2[slot];
+    if (cached != null) {
+      final byte[] cachedBytes = cached.toArrayUnsafe();
+      if ((long) LONG_BE.get(cachedBytes, 0) == u3
+          && (long) LONG_BE.get(cachedBytes, 8) == u2
+          && (long) LONG_BE.get(cachedBytes, 16) == u1
+          && (long) LONG_BE.get(cachedBytes, 24) == u0) {
+        return cached;
+      }
+    }
+    final byte[] bytes = new byte[32];
+    LONG_BE.set(bytes, 0, u3);
+    LONG_BE.set(bytes, 8, u2);
+    LONG_BE.set(bytes, 16, u1);
+    LONG_BE.set(bytes, 24, u0);
+    final Bytes32 item = Bytes32.wrap(bytes);
+    stackViewV2[slot] = item;
+    return item;
+  }
 
   /**
    * Returns the backing long[] array of the operand stack.
@@ -531,13 +611,25 @@ public class MessageFrame {
   }
 
   /**
-   * Returns true if the stack has space for {@code n} more items.
+   * Makes room for {@code n} more items, growing the backing array when the items fit the maximum
+   * stack size but not the array. Growing replaces the array, so a caller that pushes reads {@link
+   * #stackDataV2()} after this call.
    *
    * @param n the number of additional items
-   * @return true if the stack can accommodate n more items
+   * @return true if the stack can accommodate n more items, false if they exceed the maximum size
    */
-  public boolean stackHasSpaceV2(final int n) {
-    return stackTopV2 + n <= stackMaxSizeV2;
+  public boolean ensureStackCapacityV2(final int n) {
+    final int needed = stackTopV2 + n;
+    return needed <= stackDataV2.length >> 2 || growStackV2(needed);
+  }
+
+  private boolean growStackV2(final int needed) {
+    if (needed > stackMaxSizeV2) {
+      return false;
+    }
+    final int capacity = Math.min(stackMaxSizeV2, Math.max(needed, (stackDataV2.length >> 2) * 2));
+    stackDataV2 = Arrays.copyOf(stackDataV2, capacity << 2);
+    return true;
   }
 
   // ---------------------------------------------------------------------------
@@ -1868,7 +1960,9 @@ public class MessageFrame {
     }
 
     /**
-     * Sets whether the experimental EVM v2 (long[] stack) is enabled.
+     * Sets whether the experimental EVM v2 (long[] stack) runs the frame. A frame built for EVM v2
+     * has no v1 stack. A child frame runs on the interpreter of its parent, so it is built for EVM
+     * v2 when its parent runs on it.
      *
      * @param enableEvmV2 true to enable EVM v2
      * @return the builder
@@ -1950,7 +2044,7 @@ public class MessageFrame {
 
       MessageFrame messageFrame =
           new MessageFrame(
-              enableEvmV2,
+              enableEvmV2 || (parentMessageFrame != null && parentMessageFrame.stackDataV2 != null),
               type,
               updater,
               initialGas,

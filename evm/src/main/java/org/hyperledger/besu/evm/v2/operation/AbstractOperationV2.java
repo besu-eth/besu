@@ -14,22 +14,19 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
-import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.units.bigints.UInt256;
 
 /**
- * All V2 {@link Operation} implementations should inherit from this class to get the setting of
- * some members for free.
+ * The base of the V2 {@link Operation} implementations that have no v1 counterpart to extend. It
+ * shares the account and storage accessors of {@link AbstractOperation}, which record accesses in
+ * the block access list.
  */
-public abstract class AbstractOperationV2 implements Operation {
+public abstract class AbstractOperationV2 extends AbstractOperation {
   static final Bytes BYTES_ONE = Bytes.of(1);
 
   /** Shared underflow response (zero gas cost). */
@@ -39,12 +36,6 @@ public abstract class AbstractOperationV2 implements Operation {
   /** Shared overflow response (zero gas cost). */
   public static final Operation.OperationResult OVERFLOW_RESPONSE =
       new Operation.OperationResult(0L, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
-
-  private final int opcode;
-  private final String name;
-  private final int stackItemsConsumed;
-  private final int stackItemsProduced;
-  private final GasCalculator gasCalculator;
 
   /**
    * Instantiates a new Abstract operation.
@@ -61,118 +52,6 @@ public abstract class AbstractOperationV2 implements Operation {
       final int stackItemsConsumed,
       final int stackItemsProduced,
       final GasCalculator gasCalculator) {
-    this.opcode = opcode & 0xff;
-    this.name = name;
-    this.stackItemsConsumed = stackItemsConsumed;
-    this.stackItemsProduced = stackItemsProduced;
-    this.gasCalculator = gasCalculator;
-  }
-
-  /**
-   * Gets Gas calculator.
-   *
-   * @return the gas calculator
-   */
-  protected GasCalculator gasCalculator() {
-    return gasCalculator;
-  }
-
-  @Override
-  public int getOpcode() {
-    return opcode;
-  }
-
-  @Override
-  public String getName() {
-    return name;
-  }
-
-  @Override
-  public int getStackItemsConsumed() {
-    return stackItemsConsumed;
-  }
-
-  @Override
-  public int getStackItemsProduced() {
-    return stackItemsProduced;
-  }
-
-  /**
-   * Retrieves the {@link Account} at the specified address.
-   *
-   * <p>If an EIP-7928 Block Access List is active, the address is added to the access list.
-   *
-   * @param address the account address
-   * @param frame the current message execution frame
-   * @return the {@link Account}, or {@code null} if it does not exist
-   */
-  protected Account getAccount(final Address address, final MessageFrame frame) {
-    final Account account = frame.getWorldUpdater().get(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
-    return account;
-  }
-
-  /**
-   * Retrieves a mutable view of the account at the specified address.
-   *
-   * <p>If an EIP-7928 Block Access List is active, the address is added to the access list.
-   *
-   * @param address the account address
-   * @param frame the current message execution frame
-   * @return the {@link MutableAccount}, or {@code null} if it does not exist
-   */
-  protected MutableAccount getMutableAccount(final Address address, final MessageFrame frame) {
-    final MutableAccount account = frame.getWorldUpdater().getAccount(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
-    return account;
-  }
-
-  /**
-   * Retrieves a mutable view of the account at the specified address, creating it if it does not
-   * exist.
-   *
-   * <p>If an EIP-7928 Block Access List is active, the address is added to the access list.
-   *
-   * @param address the account address
-   * @param frame the current message execution frame
-   * @return the existing or newly created {@link MutableAccount}
-   */
-  protected MutableAccount getOrCreateAccount(final Address address, final MessageFrame frame) {
-    final MutableAccount account = frame.getWorldUpdater().getOrCreate(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
-    return account;
-  }
-
-  /**
-   * Retrieves a mutable view of the sender's account.
-   *
-   * <p>If an EIP-7928 Block Access List is active, the sender address is added to the access list.
-   *
-   * @param frame the current message execution frame
-   * @return the {@link MutableAccount} for the sender
-   */
-  protected MutableAccount getSenderAccount(final MessageFrame frame) {
-    final MutableAccount account = frame.getWorldUpdater().getSenderAccount(frame);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(account.getAddress()));
-    return account;
-  }
-
-  /**
-   * Reads a storage slot from the specified account.
-   *
-   * <p>If an EIP-7928 Block Access List is active, the slot access is recorded for the account.
-   *
-   * @param account the account whose storage is being accessed
-   * @param slotKey the key of the storage slot
-   * @param frame the current message execution frame
-   * @return the value stored at the specified key
-   */
-  protected UInt256 getStorageValue(
-      final Account account, final UInt256 slotKey, final MessageFrame frame) {
-    final UInt256 slotValue = account.getStorageValue(slotKey);
-    frame
-        .getEip7928AccessList()
-        .ifPresent(t -> t.addSlotAccessForAccount(account.getAddress(), slotKey));
-    return slotValue;
+    super(opcode, name, stackItemsConsumed, stackItemsProduced, gasCalculator);
   }
 }

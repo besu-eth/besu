@@ -28,6 +28,12 @@ abstract class AbstractFixedCostOperationV2 extends AbstractOperationV2 {
   /** The Out of gas response. */
   protected final OperationResult outOfGasResponse;
 
+  /** The stack underflow response, charging the fixed cost as v1 does. */
+  protected final OperationResult underflowResponse;
+
+  /** The stack overflow response, charging the fixed cost as v1 does. */
+  protected final OperationResult overflowResponse;
+
   /** The Gas cost. */
   protected final long gasCost;
 
@@ -52,6 +58,9 @@ abstract class AbstractFixedCostOperationV2 extends AbstractOperationV2 {
     gasCost = fixedCost;
     successResponse = new OperationResult(gasCost, null);
     outOfGasResponse = new OperationResult(gasCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    underflowResponse =
+        new OperationResult(gasCost, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+    overflowResponse = new OperationResult(gasCost, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
   }
 
   @Override

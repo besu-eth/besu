@@ -61,7 +61,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
    * @param stackItemsProduced the stack items produced
    * @param gasCalculator the gas calculator
    */
-  AbstractCallOperation(
+  protected AbstractCallOperation(
       final int opcode,
       final String name,
       final int stackItemsConsumed,
@@ -277,8 +277,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
       // charged. If we return zero then the traces don't have the right per-opcode cost.
       final long gasAvailableForChildCall = gasAvailableForChildCall(frame);
       frame.incrementRemainingGas(gasAvailableForChildCall + cost);
-      frame.popStackItems(getStackItemsConsumed());
-      frame.pushStackItem(LEGACY_FAILURE_STACK_ITEM);
+      popArgumentsAndPushResult(frame, false);
       final SoftFailureReason softFailureReason =
           insufficientBalance ? LEGACY_INSUFFICIENT_BALANCE : LEGACY_MAX_CALL_DEPTH;
       return new OperationResult(cost, 1, softFailureReason, gasAvailableForChildCall);
@@ -358,11 +357,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
       refundCallNewAccountStateGas(frame, childFrame.getRecipientAddress(), childFrame.getValue());
     }
 
-    frame.popStackItems(getStackItemsConsumed());
-    Bytes resultItem;
-
-    resultItem = getCallResultStackItem(childFrame);
-    frame.pushStackItem(resultItem);
+    popArgumentsAndPushResult(frame, childFrame.getState() == State.COMPLETED_SUCCESS);
 
     final int currentPC = frame.getPC();
     frame.setPC(currentPC + 1);
@@ -387,12 +382,15 @@ public abstract class AbstractCallOperation extends AbstractOperation {
     }
   }
 
-  Bytes getCallResultStackItem(final MessageFrame childFrame) {
-    if (childFrame.getState() == State.COMPLETED_SUCCESS) {
-      return LEGACY_SUCCESS_STACK_ITEM;
-    } else {
-      return LEGACY_FAILURE_STACK_ITEM;
-    }
+  /**
+   * Replaces the arguments of the call on the stack with its result.
+   *
+   * @param frame the frame running the call operation
+   * @param success whether the call succeeded
+   */
+  protected void popArgumentsAndPushResult(final MessageFrame frame, final boolean success) {
+    frame.popStackItems(getStackItemsConsumed());
+    frame.pushStackItem(success ? LEGACY_SUCCESS_STACK_ITEM : LEGACY_FAILURE_STACK_ITEM);
   }
 
   /**

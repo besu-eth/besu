@@ -68,6 +68,15 @@ public class SelfDestructOperation extends AbstractOperation {
     this.transferLogEmitter = transferLogEmitter;
   }
 
+  /**
+   * Instantiates a new Self destruct operation with the gas calculator and settings of another one.
+   *
+   * @param operation the operation to take the gas calculator and settings from
+   */
+  protected SelfDestructOperation(final SelfDestructOperation operation) {
+    this(operation.gasCalculator(), operation.eip6780Semantics, operation.transferLogEmitter);
+  }
+
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
 
@@ -76,8 +85,21 @@ public class SelfDestructOperation extends AbstractOperation {
       return new OperationResult(0, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE);
     }
 
-    // First calculate cost.  There's a bit of yak shaving getting values to calculate the cost.
     final Address beneficiaryAddress = Words.toAddress(frame.popStackItem());
+    return selfDestruct(frame, beneficiaryAddress);
+  }
+
+  /**
+   * Sends the balance of the current account to the beneficiary and destroys the account where the
+   * fork does, once the operation has taken the beneficiary off the stack.
+   *
+   * @param frame the current execution frame
+   * @param beneficiaryAddress the address receiving the balance
+   * @return the operation result
+   */
+  protected OperationResult selfDestruct(
+      final MessageFrame frame, final Address beneficiaryAddress) {
+    // First calculate cost.  There's a bit of yak shaving getting values to calculate the cost.
     final boolean beneficiaryIsWarm =
         frame.warmUpAddress(beneficiaryAddress) || gasCalculator().isPrecompile(beneficiaryAddress);
     final long beneficiaryAccessCost =
