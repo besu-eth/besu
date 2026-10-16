@@ -16,6 +16,7 @@ package org.hyperledger.besu.evmtool;
 
 import org.hyperledger.besu.ethereum.core.json.BesuJsonModule;
 
+import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser.Feature;
 import com.fasterxml.jackson.core.util.DefaultIndenter;
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
@@ -37,8 +38,26 @@ public class JsonUtils {
    * @return a properly constructed ObjectMapper
    */
   public static ObjectMapper createObjectMapper() {
-    final ObjectMapper objectMapper = new ObjectMapper();
+    return configure(new ObjectMapper());
+  }
 
+  /**
+   * Create an object mapper for the block-test and engine-test fixtures. A big block's account can
+   * hold tens of thousands of storage keys, and Jackson interns each one as a field name; on some
+   * runs, depending on its hash seed, its guard against hash-collision attacks then rejects the
+   * file. Fixtures are local files, so the guard is off.
+   *
+   * @return an ObjectMapper like {@link #createObjectMapper()}, without the collision guard
+   */
+  public static ObjectMapper createFixtureMapper() {
+    return configure(
+        new ObjectMapper(
+            JsonFactory.builder()
+                .disable(JsonFactory.Feature.FAIL_ON_SYMBOL_HASH_OVERFLOW)
+                .build()));
+  }
+
+  private static ObjectMapper configure(final ObjectMapper objectMapper) {
     // Attempting to get byte-perfect to go's standard json output
     objectMapper.setDefaultPrettyPrinter(
         (new DefaultPrettyPrinter())
