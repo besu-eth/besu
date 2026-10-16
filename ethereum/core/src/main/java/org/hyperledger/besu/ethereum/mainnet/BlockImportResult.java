@@ -14,9 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import java.util.Optional;
+
 /** The result of a block import. */
 public class BlockImportResult {
   private final BlockImportStatus status;
+  private final Optional<String> errorMessage;
 
   public enum BlockImportStatus {
     IMPORTED,
@@ -25,11 +28,23 @@ public class BlockImportResult {
   }
 
   public BlockImportResult(final boolean status) {
+    this(status, Optional.empty());
+  }
+
+  /**
+   * A block import result carrying why the block was not imported.
+   *
+   * @param status whether the block was imported
+   * @param errorMessage the validation error that rejected the block, if any
+   */
+  public BlockImportResult(final boolean status, final Optional<String> errorMessage) {
     this.status = status ? BlockImportStatus.IMPORTED : BlockImportStatus.NOT_IMPORTED;
+    this.errorMessage = errorMessage;
   }
 
   public BlockImportResult(final BlockImportStatus status) {
     this.status = status;
+    this.errorMessage = Optional.empty();
   }
 
   /**
@@ -44,5 +59,14 @@ public class BlockImportResult {
 
   public BlockImportStatus getStatus() {
     return status;
+  }
+
+  /**
+   * The validation error that rejected the block, when the importer reports one.
+   *
+   * @return the error message, or empty
+   */
+  public Optional<String> getErrorMessage() {
+    return errorMessage;
   }
 }
