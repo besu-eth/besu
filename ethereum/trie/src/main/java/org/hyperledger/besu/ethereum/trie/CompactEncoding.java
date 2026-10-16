@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.trie;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.MutableBytes;
 
 public abstract class CompactEncoding {
   private CompactEncoding() {}
@@ -31,15 +30,15 @@ public abstract class CompactEncoding {
    * @param bytes the byte sequence to convert into a path
    * @return the resulting path
    */
-  public static Bytes bytesToPath(final Bytes bytes) {
-    final MutableBytes path = MutableBytes.create(bytes.size() * 2 + 1);
+  public static byte[] bytesToPath(final byte[] bytes) {
+    final byte[] path = new byte[bytes.length * 2 + 1];
     int j = 0;
-    for (int i = 0; i < bytes.size(); i += 1, j += 2) {
-      final byte b = bytes.get(i);
-      path.set(j, (byte) ((b >>> 4) & 0x0f));
-      path.set(j + 1, (byte) (b & 0x0f));
+    for (int i = 0; i < bytes.length; i += 1, j += 2) {
+      final byte b = bytes[i];
+      path[j] = (byte) ((b >>> 4) & 0x0f);
+      path[j + 1] = (byte) (b & 0x0f);
     }
-    path.set(j, LEAF_TERMINATOR);
+    path[j] = LEAF_TERMINATOR;
     return path;
   }
 
@@ -52,18 +51,18 @@ public abstract class CompactEncoding {
    * @throws IllegalArgumentException if the path is empty or not a leaf path, or if it contains
    *     elements larger than a nibble
    */
-  public static Bytes pathToBytes(final Bytes path) {
-    checkArgument(!path.isEmpty(), "Path must not be empty");
-    checkArgument(path.get(path.size() - 1) == LEAF_TERMINATOR, "Path must be a leaf path");
-    final MutableBytes bytes = MutableBytes.create((path.size() - 1) / 2);
+  public static byte[] pathToBytes(final byte[] path) {
+    checkArgument(path.length > 0, "Path must not be empty");
+    checkArgument(path[path.length - 1] == LEAF_TERMINATOR, "Path must be a leaf path");
+    final byte[] bytes = new byte[(path.length - 1) / 2];
     int bytesPos = 0;
-    for (int pathPos = 0; pathPos < path.size() - 1; pathPos += 2, bytesPos += 1) {
-      final byte high = path.get(pathPos);
-      final byte low = path.get(pathPos + 1);
+    for (int pathPos = 0; pathPos < path.length - 1; pathPos += 2, bytesPos += 1) {
+      final byte high = path[pathPos];
+      final byte low = path[pathPos + 1];
       if ((high & 0xf0) != 0 || (low & 0xf0) != 0) {
         throw new IllegalArgumentException("Invalid path: contains elements larger than a nibble");
       }
-      bytes.set(bytesPos, (byte) (high << 4 | low));
+      bytes[bytesPos] = (byte) (high << 4 | low);
     }
     return bytes;
   }
@@ -76,37 +75,37 @@ public abstract class CompactEncoding {
    * @return the encoded path
    * @throws IllegalArgumentException if the path contains elements larger than a nibble
    */
-  public static Bytes encode(final Bytes path) {
-    int size = path.size();
-    final boolean isLeaf = size > 0 && path.get(size - 1) == LEAF_TERMINATOR;
+  public static byte[] encode(final byte[] path) {
+    int size = path.length;
+    final boolean isLeaf = size > 0 && path[size - 1] == LEAF_TERMINATOR;
     if (isLeaf) {
       size = size - 1;
     }
 
-    final MutableBytes encoded = MutableBytes.create((size + 2) / 2);
+    final byte[] encoded = new byte[(size + 2) / 2];
     int i = 0;
     int j = 0;
 
     if (size % 2 == 1) {
       // add first nibble to magic
       final byte high = (byte) (isLeaf ? 0x03 : 0x01);
-      final byte low = path.get(i++);
+      final byte low = path[i++];
       if ((low & 0xf0) != 0) {
         throw new IllegalArgumentException("Invalid path: contains elements larger than a nibble");
       }
-      encoded.set(j++, (byte) (high << 4 | low));
+      encoded[j++] = (byte) (high << 4 | low);
     } else {
       final byte high = (byte) (isLeaf ? 0x02 : 0x00);
-      encoded.set(j++, (byte) (high << 4));
+      encoded[j++] = (byte) (high << 4);
     }
 
     while (i < size) {
-      final byte high = path.get(i++);
-      final byte low = path.get(i++);
+      final byte high = path[i++];
+      final byte low = path[i++];
       if ((high & 0xf0) != 0 || (low & 0xf0) != 0) {
         throw new IllegalArgumentException("Invalid path: contains elements larger than a nibble");
       }
-      encoded.set(j++, (byte) (high << 4 | low));
+      encoded[j++] = (byte) (high << 4 | low);
     }
 
     return encoded;
@@ -116,40 +115,65 @@ public abstract class CompactEncoding {
    * Decodes a path from its compact form. The decoding process takes into account the metadata byte
    * that indicates whether the path is a leaf path and whether its length is odd or even.
    *
-   * @param encoded the encoded path to decode
+   * @param encoded the array holding the encoded path
+   * @param offset the offset of the encoded path in the array
+   * @param size the size of the encoded path
    * @return the decoded path
    * @throws IllegalArgumentException if the encoded path is empty or its metadata byte is invalid
    */
-  public static Bytes decode(final Bytes encoded) {
-    final int size = encoded.size();
+  public static byte[] decode(final byte[] encoded, final int offset, final int size) {
     checkArgument(size > 0);
-    final byte metadata = encoded.get(0);
+    final byte metadata = encoded[offset];
     checkArgument((metadata & 0xc0) == 0, "Invalid compact encoding");
 
     final boolean isLeaf = (metadata & 0x20) != 0;
 
     final int pathLength = ((size - 1) * 2) + (isLeaf ? 1 : 0);
-    final MutableBytes path;
+    final byte[] path;
     int i = 0;
 
     if ((metadata & 0x10) != 0) {
       // need to use lower nibble of metadata
-      path = MutableBytes.create(pathLength + 1);
-      path.set(i++, (byte) (metadata & 0x0f));
+      path = new byte[pathLength + 1];
+      path[i++] = (byte) (metadata & 0x0f);
     } else {
-      path = MutableBytes.create(pathLength);
+      path = new byte[pathLength];
     }
 
     for (int j = 1; j < size; j++) {
-      final byte b = encoded.get(j);
-      path.set(i++, (byte) ((b >>> 4) & 0x0f));
-      path.set(i++, (byte) (b & 0x0f));
+      final byte b = encoded[offset + j];
+      path[i++] = (byte) ((b >>> 4) & 0x0f);
+      path[i++] = (byte) (b & 0x0f);
     }
 
     if (isLeaf) {
-      path.set(i, LEAF_TERMINATOR);
+      path[i] = LEAF_TERMINATOR;
     }
 
     return path;
+  }
+
+  public static byte[] decode(final byte[] encoded) {
+    return decode(encoded, 0, encoded.length);
+  }
+
+  /** See {@link #bytesToPath(byte[])}. */
+  public static Bytes bytesToPath(final Bytes bytes) {
+    return Bytes.wrap(bytesToPath(bytes.toArrayUnsafe()));
+  }
+
+  /** See {@link #pathToBytes(byte[])}. */
+  public static Bytes pathToBytes(final Bytes path) {
+    return Bytes.wrap(pathToBytes(path.toArrayUnsafe()));
+  }
+
+  /** See {@link #encode(byte[])}. */
+  public static Bytes encode(final Bytes path) {
+    return Bytes.wrap(encode(path.toArrayUnsafe()));
+  }
+
+  /** See {@link #decode(byte[], int, int)}. */
+  public static Bytes decode(final Bytes encoded) {
+    return Bytes.wrap(decode(encoded.toArrayUnsafe()));
   }
 }

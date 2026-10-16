@@ -18,19 +18,23 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 
 public interface NodeFactory<V> {
 
-  Node<V> createExtension(Bytes path, Node<V> child);
+  Node<V> createExtension(byte[] path, Node<V> child);
 
   Node<V> createBranch(byte leftIndex, Node<V> left, byte rightIndex, Node<V> right);
 
   Node<V> createBranch(List<Node<V>> newChildren, Optional<V> value);
 
-  Node<V> createLeaf(Bytes path, V value);
+  Node<V> createLeaf(byte[] path, V value);
 
-  default Optional<Node<V>> retrieve(final Bytes location, final Bytes32 hash) {
+  /** See {@link #createLeaf(byte[], Object)}. */
+  default Node<V> createLeaf(final Bytes path, final V value) {
+    return createLeaf(path.toArray(), value);
+  }
+
+  default Optional<Node<V>> retrieve(final byte[] location, final byte[] hash) {
     throw new UnsupportedOperationException("retrieve is not implemented");
   }
 }

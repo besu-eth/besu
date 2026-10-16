@@ -14,16 +14,17 @@
  */
 package org.hyperledger.besu.ethereum.trie;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
-
 public class NullNode<V> implements Node<V> {
   @SuppressWarnings("rawtypes")
   private static final NullNode instance = new NullNode();
+
+  private static final byte[] ENCODED = {TrieRlp.NULL};
+  private static final byte[] HASH = Keccak256.hash(ENCODED);
 
   protected NullNode() {}
 
@@ -32,9 +33,14 @@ public class NullNode<V> implements Node<V> {
     return instance;
   }
 
+  /** Whether {@code hash} is the hash of an empty trie. */
+  public static boolean isEmptyTrieHash(final byte[] hash) {
+    return Arrays.equals(hash, HASH);
+  }
+
   @Override
-  public Node<V> accept(final PathNodeVisitor<V> visitor, final Bytes path) {
-    return visitor.visit(this, path);
+  public Node<V> accept(final PathNodeVisitor<V> visitor, final byte[] path, final int offset) {
+    return visitor.visit(this, path, offset);
   }
 
   @Override
@@ -43,13 +49,13 @@ public class NullNode<V> implements Node<V> {
   }
 
   @Override
-  public void accept(final Bytes location, final LocationNodeVisitor<V> visitor) {
+  public void accept(final byte[] location, final LocationNodeVisitor<V> visitor) {
     visitor.visit(location, this);
   }
 
   @Override
-  public Bytes getPath() {
-    return Bytes.EMPTY;
+  public byte[] path() {
+    return Nibbles.EMPTY;
   }
 
   @Override
@@ -63,22 +69,38 @@ public class NullNode<V> implements Node<V> {
   }
 
   @Override
-  public Bytes getEncodedBytes() {
-    return MerkleTrie.EMPTY_TRIE_NODE;
+  public byte[] encoded() {
+    return ENCODED;
   }
 
   @Override
-  public Bytes getEncodedBytesRef() {
-    return MerkleTrie.EMPTY_TRIE_NODE;
+  public boolean isReferencedByHash() {
+    return false;
   }
 
   @Override
-  public Bytes32 getHash() {
-    return MerkleTrie.EMPTY_TRIE_NODE_HASH;
+  public int encodedRefSize() {
+    return 1;
   }
 
   @Override
-  public Node<V> replacePath(final Bytes path) {
+  public int writeEncodedRef(final byte[] out, final int pos) {
+    out[pos] = TrieRlp.NULL;
+    return pos + 1;
+  }
+
+  @Override
+  public byte[] encodedRef() {
+    return ENCODED;
+  }
+
+  @Override
+  public byte[] hash() {
+    return HASH;
+  }
+
+  @Override
+  public Node<V> replacePath(final byte[] path) {
     return this;
   }
 

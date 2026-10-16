@@ -14,54 +14,54 @@
  */
 package org.hyperledger.besu.ethereum.trie.patricia;
 
+import static org.hyperledger.besu.ethereum.trie.Nibbles.commonPrefixLength;
+
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
 
-import org.apache.tuweni.bytes.Bytes;
-
 public class GetVisitor<V> implements PathNodeVisitor<V> {
   private final Node<V> NULL_NODE_RESULT = NullNode.instance();
 
   @Override
-  public Node<V> visit(final ExtensionNode<V> extensionNode, final Bytes path) {
-    final Bytes extensionPath = extensionNode.getPath();
-    final int commonPathLength = extensionPath.commonPrefixLength(path);
-    assert commonPathLength < path.size()
+  public Node<V> visit(final ExtensionNode<V> extensionNode, final byte[] path, final int offset) {
+    final byte[] extensionPath = extensionNode.path();
+    final int commonPathLength = commonPrefixLength(extensionPath, path, offset);
+    assert commonPathLength < path.length - offset
         : "Visiting path doesn't end with a non-matching terminator";
 
-    if (commonPathLength < extensionPath.size()) {
+    if (commonPathLength < extensionPath.length) {
       // path diverges before the end of the extension, so it cannot match
       return NULL_NODE_RESULT;
     }
 
-    return extensionNode.getChild().accept(this, path.slice(commonPathLength));
+    return extensionNode.getChild().accept(this, path, offset + commonPathLength);
   }
 
   @Override
-  public Node<V> visit(final BranchNode<V> branchNode, final Bytes path) {
-    assert path.size() > 0 : "Visiting path doesn't end with a non-matching terminator";
+  public Node<V> visit(final BranchNode<V> branchNode, final byte[] path, final int offset) {
+    assert path.length > offset : "Visiting path doesn't end with a non-matching terminator";
 
-    final byte childIndex = path.get(0);
+    final byte childIndex = path[offset];
     if (childIndex == CompactEncoding.LEAF_TERMINATOR) {
       return branchNode;
     }
 
-    return branchNode.child(childIndex).accept(this, path.slice(1));
+    return branchNode.child(childIndex).accept(this, path, offset + 1);
   }
 
   @Override
-  public Node<V> visit(final LeafNode<V> leafNode, final Bytes path) {
-    final Bytes leafPath = leafNode.getPath();
-    if (leafPath.commonPrefixLength(path) != leafPath.size()) {
+  public Node<V> visit(final LeafNode<V> leafNode, final byte[] path, final int offset) {
+    final byte[] leafPath = leafNode.path();
+    if (commonPrefixLength(leafPath, path, offset) != leafPath.length) {
       return NULL_NODE_RESULT;
     }
     return leafNode;
   }
 
   @Override
-  public Node<V> visit(final NullNode<V> nullNode, final Bytes path) {
+  public Node<V> visit(final NullNode<V> nullNode, final byte[] path, final int offset) {
     return NULL_NODE_RESULT;
   }
 }

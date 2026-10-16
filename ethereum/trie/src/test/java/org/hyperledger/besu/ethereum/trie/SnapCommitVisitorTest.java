@@ -46,7 +46,7 @@ public class SnapCommitVisitorTest {
     }
     final BranchNode<Bytes> validBranchNode =
         new BranchNode<>(
-            Bytes.of(0x00),
+            new byte[] {0x00},
             children,
             Optional.of(Bytes.of(0x00)),
             storedNodeFactory,
@@ -56,7 +56,7 @@ public class SnapCommitVisitorTest {
         new SnapCommitVisitor<>(
             (location, hash, value) -> {}, RangeManager.MIN_RANGE, RangeManager.MAX_RANGE);
     Assertions.assertThat(validBranchNode.isHealNeeded()).isFalse();
-    snapCommitVisitor.visit(validBranchNode.getLocation().get(), validBranchNode);
+    snapCommitVisitor.visit(validBranchNode.location(), validBranchNode);
     Assertions.assertThat(validBranchNode.isHealNeeded()).isFalse();
   }
 
@@ -74,7 +74,7 @@ public class SnapCommitVisitorTest {
 
     final BranchNode<Bytes> invalidBranchNode =
         new BranchNode<>(
-            Bytes.of(0x01),
+            new byte[] {0x01},
             children,
             Optional.of(Bytes.of(0x00)),
             storedNodeFactory,
@@ -89,7 +89,7 @@ public class SnapCommitVisitorTest {
                         "0x1effffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
                     .getBytes()));
     Assertions.assertThat(invalidBranchNode.isHealNeeded()).isFalse();
-    snapCommitVisitor.visit(invalidBranchNode.getLocation().get(), invalidBranchNode);
+    snapCommitVisitor.visit(invalidBranchNode.location(), invalidBranchNode);
     Assertions.assertThat(invalidBranchNode.isHealNeeded()).isTrue();
   }
 
@@ -98,8 +98,8 @@ public class SnapCommitVisitorTest {
     final StoredNodeFactory<Bytes> storedNodeFactory = mock(StoredNodeFactory.class);
     final ExtensionNode<Bytes> validExtensionNode =
         new ExtensionNode<>(
-            Bytes.of(0x00),
-            Bytes.of(0x01),
+            new byte[] {0x00},
+            new byte[] {0x01},
             new StoredNode<>(
                 storedNodeFactory,
                 Bytes.of((byte) 0x00, (byte) 0x01),
@@ -110,7 +110,7 @@ public class SnapCommitVisitorTest {
         new SnapCommitVisitor<>(
             (location, hash, value) -> {}, RangeManager.MIN_RANGE, RangeManager.MAX_RANGE);
     Assertions.assertThat(validExtensionNode.isHealNeeded()).isFalse();
-    snapCommitVisitor.visit(validExtensionNode.getLocation().get(), validExtensionNode);
+    snapCommitVisitor.visit(validExtensionNode.location(), validExtensionNode);
     Assertions.assertThat(validExtensionNode.isHealNeeded()).isFalse();
   }
 
@@ -119,8 +119,8 @@ public class SnapCommitVisitorTest {
     final StoredNodeFactory<Bytes> storedNodeFactory = mock(StoredNodeFactory.class);
     final ExtensionNode<Bytes> inValidExtensionNode =
         new ExtensionNode<>(
-            Bytes.of(0x00),
-            Bytes.of(0x03),
+            new byte[] {0x00},
+            new byte[] {0x03},
             new StoredNode<>(
                 storedNodeFactory,
                 Bytes.of((byte) 0x00, (byte) 0x03),
@@ -136,7 +136,7 @@ public class SnapCommitVisitorTest {
                         "0x02ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
                     .getBytes()));
     Assertions.assertThat(inValidExtensionNode.isHealNeeded()).isFalse();
-    snapCommitVisitor.visit(inValidExtensionNode.getLocation().get(), inValidExtensionNode);
+    snapCommitVisitor.visit(inValidExtensionNode.location(), inValidExtensionNode);
     Assertions.assertThat(inValidExtensionNode.isHealNeeded()).isTrue();
   }
 }

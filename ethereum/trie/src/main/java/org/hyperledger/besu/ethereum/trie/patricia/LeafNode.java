@@ -14,16 +14,15 @@
  */
 package org.hyperledger.besu.ethereum.trie.patricia;
 
-import static org.hyperledger.besu.crypto.Hash.keccak256;
-
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
+import org.hyperledger.besu.ethereum.trie.Keccak256;
 import org.hyperledger.besu.ethereum.trie.LocationNodeVisitor;
+import org.hyperledger.besu.ethereum.trie.Nibbles;
 import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.NodeFactory;
 import org.hyperledger.besu.ethereum.trie.NodeVisitor;
 import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
+import org.hyperledger.besu.ethereum.trie.TrieRlp;
 
 import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
@@ -33,25 +32,24 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 
 public class LeafNode<V> implements Node<V> {
-  private final Optional<Bytes> location;
-  private final Bytes path;
+  private final byte[] location;
+  private final byte[] path;
   protected final V value;
   private final NodeFactory<V> nodeFactory;
   protected final Function<V, Bytes> valueSerializer;
-  protected WeakReference<Bytes> encodedBytes;
-  private SoftReference<Bytes32> hash;
+  protected WeakReference<byte[]> encodedBytes;
+  private SoftReference<byte[]> hash;
   private boolean dirty = false;
 
   public LeafNode(
-      final Bytes location,
-      final Bytes path,
+      final byte[] location,
+      final byte[] path,
       final V value,
       final NodeFactory<V> nodeFactory,
       final Function<V, Bytes> valueSerializer) {
-    this.location = Optional.ofNullable(location);
+    this.location = location;
     this.path = path;
     this.value = value;
     this.nodeFactory = nodeFactory;
@@ -59,20 +57,16 @@ public class LeafNode<V> implements Node<V> {
   }
 
   public LeafNode(
-      final Bytes path,
+      final byte[] path,
       final V value,
       final NodeFactory<V> nodeFactory,
       final Function<V, Bytes> valueSerializer) {
-    this.location = Optional.empty();
-    this.path = path;
-    this.value = value;
-    this.nodeFactory = nodeFactory;
-    this.valueSerializer = valueSerializer;
+    this(null, path, value, nodeFactory, valueSerializer);
   }
 
   @Override
-  public Node<V> accept(final PathNodeVisitor<V> visitor, final Bytes path) {
-    return visitor.visit(this, path);
+  public Node<V> accept(final PathNodeVisitor<V> visitor, final byte[] path, final int offset) {
+    return visitor.visit(this, path, offset);
   }
 
   @Override
@@ -81,17 +75,17 @@ public class LeafNode<V> implements Node<V> {
   }
 
   @Override
-  public void accept(final Bytes location, final LocationNodeVisitor<V> visitor) {
+  public void accept(final byte[] location, final LocationNodeVisitor<V> visitor) {
     visitor.visit(location, this);
   }
 
   @Override
-  public Optional<Bytes> getLocation() {
+  public byte[] location() {
     return location;
   }
 
   @Override
-  public Bytes getPath() {
+  public byte[] path() {
     return path;
   }
 
@@ -106,48 +100,40 @@ public class LeafNode<V> implements Node<V> {
   }
 
   @Override
-  public Bytes getEncodedBytes() {
+  public byte[] encoded() {
     if (encodedBytes != null) {
-      final Bytes encoded = encodedBytes.get();
+      final byte[] encoded = encodedBytes.get();
       if (encoded != null) {
         return encoded;
       }
     }
 
-    final BytesValueRLPOutput out = new BytesValueRLPOutput();
-    out.startList();
-    out.writeBytes(CompactEncoding.encode(path));
-    out.writeBytes(valueSerializer.apply(value));
-    out.endList();
-    final Bytes encoded = out.encoded();
+    final byte[] encodedPath = CompactEncoding.encode(path);
+    final byte[] serializedValue = valueSerializer.apply(value).toArrayUnsafe();
+    final int payloadSize = TrieRlp.bytesSize(encodedPath) + TrieRlp.bytesSize(serializedValue);
+    final byte[] encoded = new byte[TrieRlp.listSize(payloadSize)];
+    int pos = TrieRlp.writeListHeader(encoded, 0, payloadSize);
+    pos = TrieRlp.writeBytes(encoded, pos, encodedPath);
+    TrieRlp.writeBytes(encoded, pos, serializedValue);
     encodedBytes = new WeakReference<>(encoded);
     return encoded;
   }
 
   @Override
-  public Bytes getEncodedBytesRef() {
-    if (isReferencedByHash()) {
-      return RLP.encodeOne(getHash());
-    } else {
-      return getEncodedBytes();
-    }
-  }
-
-  @Override
-  public Bytes32 getHash() {
+  public byte[] hash() {
     if (hash != null) {
-      final Bytes32 hashed = hash.get();
+      final byte[] hashed = hash.get();
       if (hashed != null) {
         return hashed;
       }
     }
-    final Bytes32 hashed = keccak256(getEncodedBytes());
+    final byte[] hashed = Keccak256.hash(encoded());
     hash = new SoftReference<>(hashed);
     return hashed;
   }
 
   @Override
-  public Node<V> replacePath(final Bytes path) {
+  public Node<V> replacePath(final byte[] path) {
     return nodeFactory.createLeaf(path, value);
   }
 
@@ -155,9 +141,9 @@ public class LeafNode<V> implements Node<V> {
   public String print() {
     return "Leaf:"
         + "\n\tRef: "
-        + getEncodedBytesRef()
+        + Nibbles.toHexString(encodedRef())
         + "\n\tPath: "
-        + CompactEncoding.encode(path)
+        + Nibbles.toHexString(CompactEncoding.encode(path))
         + "\n\tValue: "
         + getValue().map(Object::toString).orElse("empty");
   }

@@ -49,7 +49,8 @@ public class TrieNodeDecoder {
    * @return A {@code Node} representation of the rlp data
    */
   public static Node<Bytes> decode(final Bytes location, final Bytes rlp) {
-    return emptyNodeFactory.decode(location, rlp);
+    return emptyNodeFactory.decode(
+        location == null ? null : location.toArrayUnsafe(), rlp.toArrayUnsafe());
   }
 
   /**
@@ -156,7 +157,7 @@ public class TrieNodeDecoder {
         }
         if (child.isReferencedByHash()) {
           // Retrieve hash-referenced child
-          final Optional<Node<Bytes>> maybeChildNode = nodeFactory.retrieve(null, child.getHash());
+          final Optional<Node<Bytes>> maybeChildNode = nodeFactory.retrieve(null, child.hash());
           if (maybeChildNode.isEmpty()) {
             continue;
           }

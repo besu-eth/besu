@@ -18,15 +18,14 @@ import org.hyperledger.besu.ethereum.trie.patricia.BranchNode;
 import org.hyperledger.besu.ethereum.trie.patricia.ExtensionNode;
 import org.hyperledger.besu.ethereum.trie.patricia.LeafNode;
 
-import org.apache.tuweni.bytes.Bytes;
-
+/** Visits nodes along a path; the remaining path is the nibbles of {@code path} from offset. */
 public interface PathNodeVisitor<V> {
 
-  Node<V> visit(ExtensionNode<V> extensionNode, Bytes path);
+  Node<V> visit(ExtensionNode<V> extensionNode, byte[] path, int offset);
 
-  Node<V> visit(BranchNode<V> branchNode, Bytes path);
+  Node<V> visit(BranchNode<V> branchNode, byte[] path, int offset);
 
-  Node<V> visit(LeafNode<V> leafNode, Bytes path);
+  Node<V> visit(LeafNode<V> leafNode, byte[] path, int offset);
 
-  Node<V> visit(NullNode<V> nullNode, Bytes path);
+  Node<V> visit(NullNode<V> nullNode, byte[] path, int offset);
 }

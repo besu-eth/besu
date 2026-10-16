@@ -23,31 +23,17 @@ import java.util.Arrays;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.bytes.MutableBytes;
 
-/**
- * Implements a visitor for persisting changes to nodes during a snap synchronization process,
- * focusing specifically on nodes that are marked as "dirty" but not as "heal needed".
- *
- * <p>This visitor plays a crucial role in the snap synchronization by identifying nodes that have
- * been modified and require persistence ("dirty" nodes). The key functionality of this visitor is
- * its selective persistence approach: it only persists changes to dirty nodes that are not marked
- * as "heal needed". This strategy is designed to prevent future inconsistencies within the tree by
- * ensuring that only nodes that are both modified and currently consistent with the rest of the
- * structure are persisted. Nodes marked as "heal needed" are excluded from immediate persistence to
- * allow for their proper healing in a controlled manner, ensuring the integrity and consistency of
- * the data structure.
- */
 public class SnapCommitVisitor<V> extends CommitVisitor<V> implements LocationNodeVisitor<V> {
 
-  private final Bytes startKeyPath;
-  private final Bytes endKeyPath;
+  private final byte[] startKeyPath;
+  private final byte[] endKeyPath;
 
   public SnapCommitVisitor(
       final NodeUpdater nodeUpdater, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
     super(nodeUpdater);
-    this.startKeyPath = createPath(startKeyHash);
-    this.endKeyPath = createPath(endKeyHash);
+    this.startKeyPath = createPath(startKeyHash.toArrayUnsafe());
+    this.endKeyPath = createPath(endKeyHash.toArrayUnsafe());
   }
 
   /**
@@ -65,26 +51,25 @@ public class SnapCommitVisitor<V> extends CommitVisitor<V> implements LocationNo
    *
    * <p>Finally, it attempts to persist the extension node if applicable.
    *
-   * @param location The current location represented as {@link Bytes}.
+   * @param location The current location, as nibbles.
    * @param extensionNode The extension node being visited.
    */
   @Override
-  public void visit(final Bytes location, final ExtensionNode<V> extensionNode) {
+  public void visit(final byte[] location, final ExtensionNode<V> extensionNode) {
     if (!extensionNode.isDirty()) {
       return;
     }
 
     final Node<V> child = extensionNode.getChild();
+    final byte[] childLocation = Nibbles.concat(location, extensionNode.path());
     if (child.isDirty()) {
-      child.accept(Bytes.concatenate(location, extensionNode.getPath()), this);
+      child.accept(childLocation, this);
     }
-    if (child.isHealNeeded()
-        || !isInRange(
-            Bytes.concatenate(location, extensionNode.getPath()), startKeyPath, endKeyPath)) {
+    if (child.isHealNeeded() || !isInRange(childLocation, startKeyPath, endKeyPath)) {
       extensionNode.markHealNeeded(); // not save an incomplete node
     }
 
-    maybeStoreNode(location, extensionNode);
+    maybeStoreNode(Bytes.wrap(location), extensionNode);
   }
 
   /**
@@ -104,35 +89,32 @@ public class SnapCommitVisitor<V> extends CommitVisitor<V> implements LocationNo
    *
    * <p>Finally, it attempts to persist the branch node if applicable.
    *
-   * @param location The current location represented as {@link Bytes}.
+   * @param location The current location, as nibbles.
    * @param branchNode The branch node being visited.
    */
   @Override
-  public void visit(final Bytes location, final BranchNode<V> branchNode) {
+  public void visit(final byte[] location, final BranchNode<V> branchNode) {
     if (!branchNode.isDirty()) {
       return;
     }
 
     for (int i = 0; i < branchNode.maxChild(); ++i) {
-      Bytes index = Bytes.of(i);
+      final byte[] childLocation = Nibbles.append(location, i);
       final Node<V> child = branchNode.child((byte) i);
       if (child.isDirty()) {
-        child.accept(Bytes.concatenate(location, index), this);
+        child.accept(childLocation, this);
       }
-      if (child.isHealNeeded()
-          || !isInRange(Bytes.concatenate(location, index), startKeyPath, endKeyPath)) {
+      if (child.isHealNeeded() || !isInRange(childLocation, startKeyPath, endKeyPath)) {
         branchNode.markHealNeeded(); // not save an incomplete node
       }
     }
 
-    maybeStoreNode(location, branchNode);
+    maybeStoreNode(Bytes.wrap(location), branchNode);
   }
 
   private boolean isInRange(
-      final Bytes location, final Bytes startKeyPath, final Bytes endKeyPath) {
-    final MutableBytes path = MutableBytes.create(Bytes32.SIZE * 2);
-    path.set(0, location);
-    return Arrays.compare(path.toArrayUnsafe(), startKeyPath.toArrayUnsafe()) >= 0
-        && Arrays.compare(path.toArrayUnsafe(), endKeyPath.toArrayUnsafe()) <= 0;
+      final byte[] location, final byte[] startKeyPath, final byte[] endKeyPath) {
+    final byte[] path = Arrays.copyOf(location, Bytes32.SIZE * 2);
+    return Arrays.compare(path, startKeyPath) >= 0 && Arrays.compare(path, endKeyPath) <= 0;
   }
 }

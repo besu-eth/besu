@@ -53,21 +53,21 @@ public class PersistVisitor<V> implements NodeVisitor<V> {
 
   @Override
   public void visit(final BranchNode<V> branchNode) {
-    writer.accept(branchNode.getHash(), branchNode.getEncodedBytes());
+    writer.accept(Bytes32.wrap(branchNode.hash()), Bytes.wrap(branchNode.encoded()));
     branchNodeCount++;
     branchNode.getChildren().forEach(node -> node.accept(this));
   }
 
   @Override
   public void visit(final ExtensionNode<V> extensionNode) {
-    writer.accept(extensionNode.getHash(), extensionNode.getEncodedBytes());
+    writer.accept(Bytes32.wrap(extensionNode.hash()), Bytes.wrap(extensionNode.encoded()));
     extensionNodeCount++;
     extensionNode.getChild().accept(this);
   }
 
   @Override
   public void visit(final LeafNode<V> leafNode) {
-    writer.accept(leafNode.getHash(), leafNode.getEncodedBytes());
+    writer.accept(Bytes32.wrap(leafNode.hash()), Bytes.wrap(leafNode.encoded()));
     leafNodeCount++;
   }
 

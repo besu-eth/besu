@@ -14,10 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie;
 
-import static org.hyperledger.besu.crypto.Hash.keccak256;
-
-import org.hyperledger.besu.ethereum.rlp.RLP;
-
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -31,8 +27,8 @@ import org.apache.tuweni.bytes.Bytes32;
 /** A Merkle Patricia Trie. */
 public interface MerkleTrie<K, V> {
 
-  Bytes EMPTY_TRIE_NODE = RLP.NULL;
-  Bytes32 EMPTY_TRIE_NODE_HASH = keccak256(EMPTY_TRIE_NODE);
+  Bytes EMPTY_TRIE_NODE = Bytes.of(TrieRlp.NULL);
+  Bytes32 EMPTY_TRIE_NODE_HASH = Bytes32.wrap(Keccak256.hash(EMPTY_TRIE_NODE.toArray()));
 
   /**
    * Returns an {@code Optional} of value mapped to the hash if it exists; otherwise empty.

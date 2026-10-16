@@ -39,7 +39,7 @@ public class DefaultNodeFactory<V> implements NodeFactory<V> {
   }
 
   @Override
-  public Node<V> createExtension(final Bytes path, final Node<V> child) {
+  public Node<V> createExtension(final byte[] path, final Node<V> child) {
     return new ExtensionNode<>(path, child, this);
   }
 
@@ -72,7 +72,7 @@ public class DefaultNodeFactory<V> implements NodeFactory<V> {
   }
 
   @Override
-  public Node<V> createLeaf(final Bytes path, final V value) {
+  public Node<V> createLeaf(final byte[] path, final V value) {
     return new LeafNode<>(path, value, this, valueSerializer);
   }
 }

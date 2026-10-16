@@ -14,12 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.trie.patricia;
 
+import static org.hyperledger.besu.ethereum.trie.Nibbles.commonPrefixLength;
+
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
-
-import org.apache.tuweni.bytes.Bytes;
 
 public class RemoveVisitor<V> implements PathNodeVisitor<V> {
   private final Node<V> NULL_NODE_RESULT = NullNode.instance();
@@ -35,14 +35,15 @@ public class RemoveVisitor<V> implements PathNodeVisitor<V> {
   }
 
   @Override
-  public Node<V> visit(final ExtensionNode<V> extensionNode, final Bytes path) {
-    final Bytes extensionPath = extensionNode.getPath();
-    final int commonPathLength = extensionPath.commonPrefixLength(path);
-    assert commonPathLength < path.size()
+  public Node<V> visit(final ExtensionNode<V> extensionNode, final byte[] path, final int offset) {
+    final byte[] extensionPath = extensionNode.path();
+    final int commonPathLength = commonPrefixLength(extensionPath, path, offset);
+    assert commonPathLength < path.length - offset
         : "Visiting path doesn't end with a non-matching terminator";
 
-    if (commonPathLength == extensionPath.size()) {
-      final Node<V> newChild = extensionNode.getChild().accept(this, path.slice(commonPathLength));
+    if (commonPathLength == extensionPath.length) {
+      final Node<V> newChild =
+          extensionNode.getChild().accept(this, path, offset + commonPathLength);
       return extensionNode.replaceChild(newChild);
     }
 
@@ -52,27 +53,27 @@ public class RemoveVisitor<V> implements PathNodeVisitor<V> {
   }
 
   @Override
-  public Node<V> visit(final BranchNode<V> branchNode, final Bytes path) {
-    assert path.size() > 0 : "Visiting path doesn't end with a non-matching terminator";
+  public Node<V> visit(final BranchNode<V> branchNode, final byte[] path, final int offset) {
+    assert path.length > offset : "Visiting path doesn't end with a non-matching terminator";
 
-    final byte childIndex = path.get(0);
+    final byte childIndex = path[offset];
     if (childIndex == CompactEncoding.LEAF_TERMINATOR) {
       return branchNode.removeValue();
     }
 
-    final Node<V> updatedChild = branchNode.child(childIndex).accept(this, path.slice(1));
+    final Node<V> updatedChild = branchNode.child(childIndex).accept(this, path, offset + 1);
     return branchNode.replaceChild(childIndex, updatedChild, allowFlatten);
   }
 
   @Override
-  public Node<V> visit(final LeafNode<V> leafNode, final Bytes path) {
-    final Bytes leafPath = leafNode.getPath();
-    final int commonPathLength = leafPath.commonPrefixLength(path);
-    return (commonPathLength == leafPath.size()) ? NULL_NODE_RESULT : leafNode;
+  public Node<V> visit(final LeafNode<V> leafNode, final byte[] path, final int offset) {
+    final byte[] leafPath = leafNode.path();
+    final int commonPathLength = commonPrefixLength(leafPath, path, offset);
+    return (commonPathLength == leafPath.length) ? NULL_NODE_RESULT : leafNode;
   }
 
   @Override
-  public Node<V> visit(final NullNode<V> nullNode, final Bytes path) {
+  public Node<V> visit(final NullNode<V> nullNode, final byte[] path, final int offset) {
     return NULL_NODE_RESULT;
   }
 }

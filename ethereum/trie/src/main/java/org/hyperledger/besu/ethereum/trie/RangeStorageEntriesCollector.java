@@ -60,7 +60,7 @@ public class RangeStorageEntriesCollector extends StorageEntriesCollector<Bytes>
       final TrieIterator<Bytes> visitor,
       final Node<Bytes> root,
       final Bytes32 startKeyHash) {
-    root.accept(visitor, CompactEncoding.bytesToPath(startKeyHash));
+    root.accept(visitor, CompactEncoding.bytesToPath(startKeyHash.toArrayUnsafe()), 0);
     return collector.getValues();
   }
 

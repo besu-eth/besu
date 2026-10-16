@@ -14,30 +14,26 @@
  */
 package org.hyperledger.besu.ethereum.trie;
 
-import java.util.Optional;
-
-import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
-
 public class MissingNode<V> extends NullNode<V> {
 
-  private final Bytes32 hash;
-  private final Bytes location;
-  private final Bytes path;
+  private final byte[] hash;
+  private final byte[] location;
+  private final byte[] path;
 
-  public MissingNode(final Bytes32 hash, final Bytes location) {
+  public MissingNode(final byte[] hash, final byte[] location) {
     this.hash = hash;
     this.location = location;
-    this.path = location.isEmpty() ? Bytes.EMPTY : location.slice(0, location.size() - 1);
+    this.path =
+        location.length == 0 ? Nibbles.EMPTY : Nibbles.slice(location, 0, location.length - 1);
   }
 
   @Override
-  public Bytes32 getHash() {
+  public byte[] hash() {
     return hash;
   }
 
   @Override
-  public Bytes getPath() {
+  public byte[] path() {
     return path;
   }
 
@@ -47,7 +43,7 @@ public class MissingNode<V> extends NullNode<V> {
   }
 
   @Override
-  public Optional<Bytes> getLocation() {
-    return Optional.ofNullable(location);
+  public byte[] location() {
+    return location;
   }
 }

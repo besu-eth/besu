@@ -14,13 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.trie.patricia;
 
+import static org.hyperledger.besu.ethereum.trie.Nibbles.commonPrefixLength;
+import static org.hyperledger.besu.ethereum.trie.Nibbles.slice;
+
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.NodeFactory;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
-
-import org.apache.tuweni.bytes.Bytes;
 
 public class PutVisitor<V> implements PathNodeVisitor<V> {
   private final NodeFactory<V> nodeFactory;
@@ -32,82 +33,84 @@ public class PutVisitor<V> implements PathNodeVisitor<V> {
   }
 
   @Override
-  public Node<V> visit(final ExtensionNode<V> extensionNode, final Bytes path) {
-    final Bytes extensionPath = extensionNode.getPath();
-    final int commonPathLength = extensionPath.commonPrefixLength(path);
-    assert commonPathLength < path.size()
+  public Node<V> visit(final ExtensionNode<V> extensionNode, final byte[] path, final int offset) {
+    final byte[] extensionPath = extensionNode.path();
+    final int commonPathLength = commonPrefixLength(extensionPath, path, offset);
+    assert commonPathLength < path.length - offset
         : "Visiting path doesn't end with a non-matching terminator";
 
-    if (commonPathLength == extensionPath.size()) {
-      final Node<V> newChild = extensionNode.getChild().accept(this, path.slice(commonPathLength));
+    if (commonPathLength == extensionPath.length) {
+      final Node<V> newChild =
+          extensionNode.getChild().accept(this, path, offset + commonPathLength);
       return extensionNode.replaceChild(newChild);
     }
 
     // path diverges before the end of the extension - create a new branch
 
-    final byte leafIndex = path.get(commonPathLength);
-    final Bytes leafPath = path.slice(commonPathLength + 1);
+    final byte leafIndex = path[offset + commonPathLength];
+    final byte[] leafPath = slice(path, offset + commonPathLength + 1);
 
-    final byte extensionIndex = extensionPath.get(commonPathLength);
+    final byte extensionIndex = extensionPath[commonPathLength];
     final Node<V> updatedExtension =
-        extensionNode.replacePath(extensionPath.slice(commonPathLength + 1));
+        extensionNode.replacePath(slice(extensionPath, commonPathLength + 1));
     final Node<V> leaf = nodeFactory.createLeaf(leafPath, value);
     final Node<V> branch =
         nodeFactory.createBranch(leafIndex, leaf, extensionIndex, updatedExtension);
 
     if (commonPathLength > 0) {
-      return nodeFactory.createExtension(extensionPath.slice(0, commonPathLength), branch);
+      return nodeFactory.createExtension(slice(extensionPath, 0, commonPathLength), branch);
     } else {
       return branch;
     }
   }
 
   @Override
-  public Node<V> visit(final BranchNode<V> branchNode, final Bytes path) {
-    assert path.size() > 0 : "Visiting path doesn't end with a non-matching terminator";
+  public Node<V> visit(final BranchNode<V> branchNode, final byte[] path, final int offset) {
+    assert path.length > offset : "Visiting path doesn't end with a non-matching terminator";
 
-    final byte childIndex = path.get(0);
+    final byte childIndex = path[offset];
     if (childIndex == CompactEncoding.LEAF_TERMINATOR) {
       return branchNode.replaceValue(value);
     }
 
-    final Node<V> updatedChild = branchNode.child(childIndex).accept(this, path.slice(1));
+    final Node<V> updatedChild = branchNode.child(childIndex).accept(this, path, offset + 1);
     return branchNode.replaceChild(childIndex, updatedChild);
   }
 
   @Override
-  public Node<V> visit(final LeafNode<V> leafNode, final Bytes path) {
-    final Bytes leafPath = leafNode.getPath();
-    final int commonPathLength = leafPath.commonPrefixLength(path);
+  public Node<V> visit(final LeafNode<V> leafNode, final byte[] path, final int offset) {
+    final byte[] leafPath = leafNode.path();
+    final int commonPathLength = commonPrefixLength(leafPath, path, offset);
+    final int remainingPathLength = path.length - offset;
 
     // Check if the current leaf node should be replaced
-    if (commonPathLength == leafPath.size() && commonPathLength == path.size()) {
+    if (commonPathLength == leafPath.length && commonPathLength == remainingPathLength) {
       return nodeFactory.createLeaf(leafPath, value);
     }
 
-    assert commonPathLength < leafPath.size() && commonPathLength < path.size()
+    assert commonPathLength < leafPath.length && commonPathLength < remainingPathLength
         : "Should not have consumed non-matching terminator";
 
     // The current leaf path must be split to accommodate the new value.
 
-    final byte newLeafIndex = path.get(commonPathLength);
-    final Bytes newLeafPath = path.slice(commonPathLength + 1);
+    final byte newLeafIndex = path[offset + commonPathLength];
+    final byte[] newLeafPath = slice(path, offset + commonPathLength + 1);
 
-    final byte updatedLeafIndex = leafPath.get(commonPathLength);
+    final byte updatedLeafIndex = leafPath[commonPathLength];
 
-    final Node<V> updatedLeaf = leafNode.replacePath(leafPath.slice(commonPathLength + 1));
+    final Node<V> updatedLeaf = leafNode.replacePath(slice(leafPath, commonPathLength + 1));
     final Node<V> leaf = nodeFactory.createLeaf(newLeafPath, value);
     final Node<V> branch =
         nodeFactory.createBranch(updatedLeafIndex, updatedLeaf, newLeafIndex, leaf);
     if (commonPathLength > 0) {
-      return nodeFactory.createExtension(leafPath.slice(0, commonPathLength), branch);
+      return nodeFactory.createExtension(slice(leafPath, 0, commonPathLength), branch);
     } else {
       return branch;
     }
   }
 
   @Override
-  public Node<V> visit(final NullNode<V> nullNode, final Bytes path) {
-    return nodeFactory.createLeaf(path, value);
+  public Node<V> visit(final NullNode<V> nullNode, final byte[] path, final int offset) {
+    return nodeFactory.createLeaf(slice(path, offset), value);
   }
 }
