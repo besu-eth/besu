@@ -67,19 +67,25 @@ public class DownloadAndPersistBlockAccessListsStep
   public CompletableFuture<List<BlockHeader>> apply(final List<BlockHeader> headers) {
     validateAllHeadersBalEnabled(headers);
 
-    if (headers.isEmpty()) {
+    // BALs already stored are not downloaded again.
+    final BlockchainStorage blockchainStorage = blockchain.getBlockchainStorage();
+    final List<BlockHeader> missingHeaders =
+        headers.stream()
+            .filter(header -> !blockchainStorage.hasBlockAccessList(header.getHash()))
+            .toList();
+    if (missingHeaders.isEmpty()) {
       return CompletableFuture.completedFuture(headers);
     }
 
     final CompletableFuture<List<SyncBlockAccessList>> downloadFuture =
         blockAccessListDownloader
-            .apply(headers)
+            .apply(missingHeaders)
             .orTimeout(timeoutDuration.toMillis(), TimeUnit.MILLISECONDS);
 
     return downloadFuture.thenApply(
         blockAccessLists -> {
-          validateRequiredBlockAccessLists(headers, blockAccessLists);
-          persistBlockAccessLists(headers, blockAccessLists);
+          validateRequiredBlockAccessLists(missingHeaders, blockAccessLists);
+          persistBlockAccessLists(missingHeaders, blockAccessLists);
           return headers;
         });
   }

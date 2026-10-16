@@ -46,6 +46,7 @@ import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.services.pipeline.Pipeline;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -138,6 +139,87 @@ class SnapSyncChainDownloaderPivotUpdateTest {
     assertThat(stage1States.get(1).bodyCheckpoint().getNumber()).isEqualTo(0L);
 
     assertThat(loadPersistedState().pivotBlockHeader().getNumber()).isEqualTo(2000L);
+  }
+
+  @Test
+  void pivotAdvanceSkipsStage1WhenTheHeadersAreAlreadyStored() throws Exception {
+    // E.g. stored by a snap/2 pivot catch-up.
+    final List<BlockHeader> storedChain = chainAbove(initialPivot, 1010);
+    stubStoredCanonical(storedChain, storedChain.size());
+    final BlockHeader advancedPivot = storedChain.getLast();
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader = downloader(initialPivot);
+    downloader.onPivotUpdated(advancedPivot);
+    downloader.onWorldStateHealFinished();
+
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    // Stage 1 ran for the initial pivot only; Stage 2 still runs up to the advanced pivot.
+    verify(pipelineFactory, times(1)).createBackwardHeaderDownloadPipeline(any());
+    verify(pipelineFactory)
+        .createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), eq(advancedPivot), any());
+    final ChainSyncState persisted = loadPersistedState();
+    assertThat(persisted.pivotBlockHeader()).isEqualTo(advancedPivot);
+    assertThat(persisted.headersDownloadComplete()).isTrue();
+  }
+
+  @Test
+  void pivotAdvanceRunsStage1WhenOnlyTheNewPivotHeaderIsStored() throws Exception {
+    // A header download stores its pivot before anything below it, e.g. one that then failed on a
+    // reorg or was stopped.
+    final List<BlockHeader> chain = chainAbove(initialPivot, 1010);
+    final BlockHeader advancedPivot = chain.getLast();
+    stubStoredCanonical(List.of(advancedPivot), 1);
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader = downloader(initialPivot);
+    downloader.onPivotUpdated(advancedPivot);
+    downloader.onWorldStateHealFinished();
+
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    verify(pipelineFactory, times(2)).createBackwardHeaderDownloadPipeline(any());
+  }
+
+  @Test
+  void pivotAdvanceRunsStage1WhenAStoredHeaderIsNotCanonical() throws Exception {
+    final List<BlockHeader> storedChain = chainAbove(initialPivot, 1010);
+    // Block 1005's index entry was trimmed: the header is still stored but not canonical.
+    stubStoredCanonical(storedChain, storedChain.size());
+    lenient()
+        .when(blockchain.blockIsOnCanonicalChain(storedChain.get(4).getHash()))
+        .thenReturn(false);
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader = downloader(initialPivot);
+    downloader.onPivotUpdated(storedChain.getLast());
+    downloader.onWorldStateHealFinished();
+
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    verify(pipelineFactory, times(2)).createBackwardHeaderDownloadPipeline(any());
+  }
+
+  @Test
+  void pivotAdvanceRunsStage1WhenTheStoredHeadersDoNotLinkToThePreviousPivot() throws Exception {
+    // The stored chain descends from another block at the previous pivot's height (a reorg).
+    final BlockHeader forkedPreviousPivot =
+        new BlockHeaderTestFixture().number(1000).timestamp(1).buildHeader();
+    final List<BlockHeader> storedChain = chainAbove(forkedPreviousPivot, 1010);
+    stubStoredCanonical(storedChain, storedChain.size());
+    lenient()
+        .when(blockchain.getBlockHeader(forkedPreviousPivot.getHash()))
+        .thenReturn(Optional.of(forkedPreviousPivot));
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader = downloader(initialPivot);
+    downloader.onPivotUpdated(storedChain.getLast());
+    downloader.onWorldStateHealFinished();
+
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    verify(pipelineFactory, times(2)).createBackwardHeaderDownloadPipeline(any());
   }
 
   @Test
@@ -266,6 +348,33 @@ class SnapSyncChainDownloaderPivotUpdateTest {
   private ChainSyncState loadPersistedState() {
     return chainSyncStateStorage.loadState(
         rlp -> BlockHeader.readFrom(rlp, new MainnetBlockHeaderFunctions()));
+  }
+
+  /** Headers from just above {@code bottom} up to {@code topNumber}, linked by parent hash. */
+  private static List<BlockHeader> chainAbove(final BlockHeader bottom, final long topNumber) {
+    final List<BlockHeader> headers = new ArrayList<>();
+    BlockHeader parent = bottom;
+    for (long number = bottom.getNumber() + 1; number <= topNumber; number++) {
+      parent =
+          new BlockHeaderTestFixture().number(number).parentHash(parent.getHash()).buildHeader();
+      headers.add(parent);
+    }
+    return headers;
+  }
+
+  /**
+   * Stubs the highest {@code count} headers and the initial pivot as stored and canonical, so the
+   * walk from the top can reach the initial pivot.
+   */
+  private void stubStoredCanonical(final List<BlockHeader> headers, final int count) {
+    lenient()
+        .when(blockchain.getBlockHeader(initialPivot.getHash()))
+        .thenReturn(Optional.of(initialPivot));
+    lenient().when(blockchain.blockIsOnCanonicalChain(initialPivot.getHash())).thenReturn(true);
+    for (final BlockHeader header : headers.subList(headers.size() - count, headers.size())) {
+      lenient().when(blockchain.blockIsOnCanonicalChain(header.getHash())).thenReturn(true);
+      lenient().when(blockchain.getBlockHeader(header.getHash())).thenReturn(Optional.of(header));
+    }
   }
 
   private static BlockHeader header(final long number) {

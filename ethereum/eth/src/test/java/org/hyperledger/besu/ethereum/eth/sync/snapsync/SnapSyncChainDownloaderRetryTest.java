@@ -245,6 +245,29 @@ class SnapSyncChainDownloaderRetryTest {
             Duration.ofMillis(SnapSyncChainDownloader.SMALL_DELAY_MILLISECONDS));
   }
 
+  @Test
+  void exceptionCreatingTheStage1PipelineIsRetried() throws Exception {
+    failStage1ForFirstAttempts(1);
+    final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
+    lenient().when(driver.getMatchedAncestor()).thenReturn(Optional.empty());
+    final SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult pipelineResult =
+        new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
+            backwardPipeline, driver);
+    lenient()
+        .when(pipelineFactory.createBackwardHeaderDownloadPipeline(any()))
+        .thenReturn(pipelineResult)
+        .thenThrow(new RuntimeException("Busy"))
+        .thenReturn(pipelineResult);
+
+    final SnapSyncChainDownloader downloader = downloader();
+    downloader.onWorldStateHealFinished();
+
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    verify(pipelineFactory, times(3)).createBackwardHeaderDownloadPipeline(any());
+    assertThat(scheduledDelays).hasSize(2);
+  }
+
   /** Fails the Stage 1 pipeline for the first {@code failures} attempts, then succeeds. */
   private void failStage1ForFirstAttempts(final int failures) {
     final AtomicInteger attempts = new AtomicInteger();

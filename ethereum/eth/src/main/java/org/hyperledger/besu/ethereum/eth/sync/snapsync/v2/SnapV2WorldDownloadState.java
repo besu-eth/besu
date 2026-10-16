@@ -208,6 +208,11 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
 
   @Override
   public synchronized boolean checkCompletion(final BlockHeader header) {
+    // The chain downloader's pivot lags a pivot catch-up until it takes the update; verifying
+    // another pivot's root would fail the download.
+    if (!isCurrentPivot(header)) {
+      return false;
+    }
     if (!isStateDownloadFinished()
         && !isPivotCatchupInProgress()
         && accountRangeTracker.completedRangeCount() > 0
@@ -249,6 +254,13 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       }
     }
     return false;
+  }
+
+  private boolean isCurrentPivot(final BlockHeader header) {
+    return snapSyncState
+        .getPivotBlockHeader()
+        .map(pivot -> pivot.getHash().equals(header.getHash()))
+        .orElse(false);
   }
 
   private void persistWorldStateRoot(final BlockHeader header) {

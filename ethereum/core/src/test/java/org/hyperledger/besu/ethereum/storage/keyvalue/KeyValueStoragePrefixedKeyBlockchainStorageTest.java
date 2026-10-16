@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.chain.VariablesStorage;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptDecoder;
@@ -270,5 +271,25 @@ public class KeyValueStoragePrefixedKeyBlockchainStorageTest {
         loaded.rawRlp().isPresent(), "rawRlp must be present on BAL read from storage");
     Assertions.assertEquals(
         bal, loaded, "BAL round-trip through storage must preserve accountChanges");
+  }
+
+  @Test
+  public void hasBlockAccessListOnlyForStoredBlockAccessLists() {
+    final var blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            kvBlockchain, variablesStorage, blockHeaderFunctions, false);
+    final BlockDataGenerator generator = new BlockDataGenerator();
+    final Hash storedHash = generator.hash();
+    final Hash syncStoredHash = generator.hash();
+
+    final Updater updater = blockchainStorage.updater();
+    updater.putBlockAccessList(storedHash, generator.blockAccessList());
+    updater.putSyncBlockAccessList(
+        syncStoredHash, new SyncBlockAccessList(Bytes.fromHexString("0xc0")));
+    updater.commit();
+
+    Assertions.assertTrue(blockchainStorage.hasBlockAccessList(storedHash));
+    Assertions.assertTrue(blockchainStorage.hasBlockAccessList(syncStoredHash));
+    Assertions.assertFalse(blockchainStorage.hasBlockAccessList(generator.hash()));
   }
 }

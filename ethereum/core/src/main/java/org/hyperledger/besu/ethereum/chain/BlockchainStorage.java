@@ -45,6 +45,15 @@ public interface BlockchainStorage {
 
   Optional<BlockAccessList> getBlockAccessList(Hash blockHash);
 
+  /**
+   * Whether a block access list is stored for the block. Cheaper than {@link #getBlockAccessList},
+   * which decodes it.
+   *
+   * @param blockHash the block hash
+   * @return whether a block access list is stored for the block
+   */
+  boolean hasBlockAccessList(Hash blockHash);
+
   Optional<List<TransactionReceipt>> getTransactionReceipts(Hash blockHash);
 
   Optional<Hash> getBlockHash(long blockNumber);

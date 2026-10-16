@@ -336,6 +336,32 @@ class SnapSyncChainDownloaderHandleLoadedStateTest {
   }
 
   /**
+   * Case 2b – the higher new pivot is canonical, but nothing below it down to the old pivot is
+   * stored, as left by a header download stopped right after storing its pivot. Expected: restart
+   * Stage 1 from newPivot down to oldPivot instead of skipping it over the gap.
+   */
+  @Test
+  void whenOnlyTheHigherNewPivotHeaderIsStored_restartsFromOldPivotAsAnchor() throws Exception {
+    final BlockHeader oldPivotHeader = chain.get(OLD_PIVOT).getHeader();
+    final BlockHeader newPivotHeader = chain.get(NEW_PIVOT_HIGHER).getHeader();
+    blockchain.storeBlockHeaders(List.of(newPivotHeader));
+    persistLoadedState(
+        ChainSyncState.initialSync(oldPivotHeader, chain.get(0).getHeader(), oldPivotHeader)
+            .withHeadersDownloadComplete());
+
+    final CountDownLatch latch = new CountDownLatch(1);
+    final ArgumentCaptor<ChainSyncState> captor = wireBackwardPipeline(latch);
+
+    final SnapSyncChainDownloader dl = downloader(newPivotHeader);
+    startAndTerminate(dl, latch);
+
+    final ChainSyncState computed = captor.getValue();
+    assertThat(computed.pivotBlockHeader()).isEqualTo(newPivotHeader);
+    assertThat(computed.headerDownloadAnchor()).isEqualTo(oldPivotHeader);
+    assertThat(computed.headersDownloadComplete()).isFalse();
+  }
+
+  /**
    * Case 3 – not canonical, headers complete, newPivot {@literal ≤} oldPivot. Expected: restart
    * Stage 1 from newPivot with block(newPivot−1) as anchor.
    */
