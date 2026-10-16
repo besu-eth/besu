@@ -97,6 +97,25 @@ public interface MergeContext extends ConsensusContext {
       final Hash headBlockHash, final Hash safeBlockHash, final Hash finalizedBlockHash);
 
   /**
+   * Add new verified forkchoice listener.
+   *
+   * @param verifiedForkchoiceListener the verified forkchoice listener
+   * @return the subscriber id
+   */
+  long addNewVerifiedForkchoiceListener(
+      final VerifiedForkchoiceListener verifiedForkchoiceListener);
+
+  /**
+   * Fire new verified forkchoice event, for a fork choice that is about to be applied or synced to.
+   *
+   * @param headBlockHash the head block hash
+   * @param safeBlockHash the safe block hash
+   * @param finalizedBlockHash the finalized block hash
+   */
+  void fireNewVerifiedForkchoiceEvent(
+      final Hash headBlockHash, final Hash safeBlockHash, final Hash finalizedBlockHash);
+
+  /**
    * Add new payload listener.
    *
    * @param newPayloadListener the new payload listener

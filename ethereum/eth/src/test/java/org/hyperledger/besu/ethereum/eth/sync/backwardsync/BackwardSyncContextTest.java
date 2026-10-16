@@ -82,7 +82,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import jakarta.validation.constraints.NotNull;
 import org.apache.logging.log4j.Level;
@@ -593,6 +595,49 @@ public class BackwardSyncContextTest {
   }
 
   @Test
+  public void shouldNotLetAStaleForkChoiceOverrideANewerOne() throws Exception {
+    final Block localHead = extendLocalBranch(LOCAL_HEIGHT + 5);
+    final Block remoteBlock = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
+    // the import progress of a saved block is logged against a running session
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
+    context.syncBackwardsUntil(remoteBlock);
+    forkChoice(remoteBlock.getHash());
+
+    final CountDownLatch headWriteStarted = new CountDownLatch(1);
+    final CountDownLatch releaseHeadWrite = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              headWriteStarted.countDown();
+              releaseHeadWrite.await(30, TimeUnit.SECONDS);
+              return invocation.callRealMethod();
+            })
+        .when(context)
+        .possiblyMoveHead(any());
+
+    final CompletableFuture<Void> save =
+        CompletableFuture.runAsync(() -> context.saveBlock(remoteBlock, Optional.empty()));
+    assertThat(headWriteStarted.await(30, TimeUnit.SECONDS)).isTrue();
+
+    // the fork choice handler moves the head itself after notifying the context
+    final CompletableFuture<Void> newerForkChoice =
+        CompletableFuture.runAsync(
+            () -> {
+              forkChoice(localHead.getHash());
+              localBlockchain.rewindToBlock(localHead.getHash());
+            });
+    assertThatThrownBy(() -> newerForkChoice.get(500, TimeUnit.MILLISECONDS))
+        .isInstanceOf(TimeoutException.class);
+
+    releaseHeadWrite.countDown();
+    save.get(30, TimeUnit.SECONDS);
+    newerForkChoice.get(30, TimeUnit.SECONDS);
+
+    assertThat(localBlockchain.getChainHeadHash()).isEqualTo(localHead.getHash());
+  }
+
+  @Test
   public void shouldTreatAStoredBlockAboveTheHeadAsImportedUnlessForkChoiceSelectedIt() {
     final Block storedBlock = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
     localBlockchain.storeBlock(storedBlock, blockDataGenerator.receipts(storedBlock));
@@ -605,7 +650,7 @@ public class BackwardSyncContextTest {
   }
 
   private void forkChoice(final Hash headHash) {
-    context.onNewUnverifiedForkchoice(new ForkchoiceEvent(headHash, Hash.ZERO, Hash.ZERO));
+    context.onNewVerifiedForkchoice(new ForkchoiceEvent(headHash, Hash.ZERO, Hash.ZERO));
   }
 
   private Block extendLocalBranch(final int height) {

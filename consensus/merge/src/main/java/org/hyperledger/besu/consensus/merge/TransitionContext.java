@@ -105,6 +105,19 @@ public class TransitionContext implements MergeContext {
   }
 
   @Override
+  public long addNewVerifiedForkchoiceListener(
+      final VerifiedForkchoiceListener verifiedForkchoiceListener) {
+    return postMergeContext.addNewVerifiedForkchoiceListener(verifiedForkchoiceListener);
+  }
+
+  @Override
+  public void fireNewVerifiedForkchoiceEvent(
+      final Hash headBlockHash, final Hash safeBlockHash, final Hash finalizedBlockHash) {
+    postMergeContext.fireNewVerifiedForkchoiceEvent(
+        headBlockHash, safeBlockHash, finalizedBlockHash);
+  }
+
+  @Override
   public long addNewPayloadListener(final NewPayloadListener newPayloadListener) {
     return postMergeContext.addNewPayloadListener(newPayloadListener);
   }

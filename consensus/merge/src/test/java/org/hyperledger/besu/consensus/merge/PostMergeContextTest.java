@@ -289,6 +289,22 @@ public class PostMergeContextTest {
     assertThat(postMergeContext.isSyncing()).isFalse();
   }
 
+  @Test
+  public void verifiedForkchoiceListenerReceivesTheFiredForkchoice() {
+    final List<ForkchoiceEvent> events = new ArrayList<>();
+    postMergeContext.addNewVerifiedForkchoiceListener(events::add);
+    final Hash head = Hash.hash(Bytes32.fromHexStringLenient("0x01"));
+    final Hash safe = Hash.hash(Bytes32.fromHexStringLenient("0x02"));
+    final Hash finalized = Hash.hash(Bytes32.fromHexStringLenient("0x03"));
+
+    postMergeContext.fireNewVerifiedForkchoiceEvent(head, safe, finalized);
+
+    assertThat(events).hasSize(1);
+    assertThat(events.getFirst().getHeadBlockHash()).isEqualTo(head);
+    assertThat(events.getFirst().getSafeBlockHash()).isEqualTo(safe);
+    assertThat(events.getFirst().getFinalizedBlockHash()).isEqualTo(finalized);
+  }
+
   private PayloadWrapper createPayloadWrapper(
       final PayloadIdentifier firstPayloadId,
       final BlockWithReceipts mockBlockWithReceipts,

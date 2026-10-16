@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -69,6 +70,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -234,6 +236,8 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void shouldReturnSyncingOnHeadBlockNotFound() {
     assertSuccessWithPayloadForForkchoiceResult(
         mockFcuParam, Optional.empty(), mock(ForkchoiceResult.class), SYNCING);
+    // the head cannot be checked before it is synced
+    verifyVerifiedForkchoiceFired(mockFcuParam);
   }
 
   @Test
@@ -245,11 +249,11 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(worldStateArchive.isWorldStateAvailable(
             eq(mockHeader.getStateRoot()), eq(mockHeader.getHash())))
         .thenReturn(false);
+    final ForkchoiceStateV1 forkChoice =
+        new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO);
     assertSuccessWithPayloadForForkchoiceResult(
-        new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
-        Optional.empty(),
-        mock(ForkchoiceResult.class),
-        SYNCING);
+        forkChoice, Optional.empty(), mock(ForkchoiceResult.class), SYNCING);
+    verifyVerifiedForkchoiceFired(forkChoice);
   }
 
   @Test
@@ -304,6 +308,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     verify(mergeCoordinator, never()).getOrSyncHeadByHash(any(), any());
     verify(engineCallListener, times(1)).executionEngineCalled();
     verify(mergeContext, never()).fireNewUnverifiedForkchoiceEvent(any(), any(), any());
+    verify(mergeContext, never()).fireNewVerifiedForkchoiceEvent(any(), any(), any());
   }
 
   @Test
@@ -330,11 +335,23 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(mockHeader));
 
+    final ForkchoiceStateV1 forkChoice =
+        new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO);
     assertSuccessWithPayloadForForkchoiceResult(
-        new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+        forkChoice,
         Optional.empty(),
         ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
         VALID);
+
+    // fired before the head is moved, so backward sync cannot move it back to an older choice
+    final InOrder inOrder = inOrder(mergeContext, mergeCoordinator);
+    inOrder
+        .verify(mergeContext)
+        .fireNewVerifiedForkchoiceEvent(
+            forkChoice.getHeadBlockHash(),
+            forkChoice.getSafeBlockHash(),
+            forkChoice.getFinalizedBlockHash());
+    inOrder.verify(mergeCoordinator).updateForkChoice(any(), any(), any());
   }
 
   @Test
@@ -367,6 +384,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
 
     assertInvalidForkchoiceState(resp);
     verify(engineCallListener, times(1)).executionEngineCalled();
+    verify(mergeContext, never()).fireNewVerifiedForkchoiceEvent(any(), any(), any());
   }
 
   @Test
@@ -694,6 +712,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     assertThat(errorResp.getErrorType()).isEqualTo(RpcErrorType.TOO_DEEP_REORG);
 
     verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
+    verify(mergeContext, never()).fireNewVerifiedForkchoiceEvent(any(), any(), any());
   }
 
   @Test
@@ -834,6 +853,14 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
         .map(JsonRpcSuccessResponse::getResult)
         .map(ForkchoiceUpdatedResultV1.class::cast)
         .get();
+  }
+
+  private void verifyVerifiedForkchoiceFired(final ForkchoiceStateV1 forkChoice) {
+    verify(mergeContext)
+        .fireNewVerifiedForkchoiceEvent(
+            forkChoice.getHeadBlockHash(),
+            forkChoice.getSafeBlockHash(),
+            forkChoice.getFinalizedBlockHash());
   }
 
   protected void assertInvalidForkchoiceState(final JsonRpcResponse resp) {
