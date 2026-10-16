@@ -33,6 +33,9 @@ public class JsonQbftConfigOptions extends JsonBftConfigOptions implements QbftC
   /** The constant START_BLOCK. */
   public static final String START_BLOCK = "startblock";
 
+  /** The constant GOQUORUM_COMPATIBILITY_MODE. */
+  public static final String GOQUORUM_COMPATIBILITY_MODE = "goquorumcompatibilitymode";
+
   /**
    * Instantiates a new Json QBFT config options.
    *
@@ -53,6 +56,11 @@ public class JsonQbftConfigOptions extends JsonBftConfigOptions implements QbftC
   }
 
   @Override
+  public boolean isGoQuorumCompatibilityMode() {
+    return JsonUtil.getBoolean(bftConfigRoot, GOQUORUM_COMPATIBILITY_MODE, false);
+  }
+
+  @Override
   public Map<String, Object> asMap() {
     final Map<String, Object> map = super.asMap();
     final ImmutableMap.Builder<String, Object> builder = ImmutableMap.builder();
@@ -61,6 +69,10 @@ public class JsonQbftConfigOptions extends JsonBftConfigOptions implements QbftC
     getValidatorContractAddress()
         .ifPresent((address) -> builder.put(VALIDATOR_CONTRACT_ADDRESS, address));
     getStartBlock().ifPresent((startBlock) -> builder.put(START_BLOCK, getStartBlock()));
+
+    if (isGoQuorumCompatibilityMode()) {
+      builder.put(GOQUORUM_COMPATIBILITY_MODE, true);
+    }
 
     return builder.build();
   }

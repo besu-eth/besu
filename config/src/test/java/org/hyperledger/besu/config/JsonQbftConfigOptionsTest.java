@@ -16,6 +16,7 @@ package org.hyperledger.besu.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.config.JsonQbftConfigOptions.GOQUORUM_COMPATIBILITY_MODE;
 import static org.hyperledger.besu.config.JsonQbftConfigOptions.VALIDATOR_CONTRACT_ADDRESS;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -119,5 +120,39 @@ public class JsonQbftConfigOptionsTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("pertxgaslimit")
         .hasMessageContaining("not-a-number");
+  }
+
+  @Test
+  public void isGoQuorumCompatibilityModeDefaultsToFalse() {
+    final ObjectNode objectNode = objectMapper.createObjectNode();
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.isGoQuorumCompatibilityMode()).isFalse();
+  }
+
+  @Test
+  public void isGoQuorumCompatibilityModeReadFromJson() {
+    final ObjectNode objectNode =
+        objectMapper.createObjectNode().put(GOQUORUM_COMPATIBILITY_MODE, true);
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.isGoQuorumCompatibilityMode()).isTrue();
+  }
+
+  @Test
+  public void asMapIncludesGoQuorumCompatibilityModeWhenTrue() {
+    final ObjectNode objectNode =
+        objectMapper.createObjectNode().put(GOQUORUM_COMPATIBILITY_MODE, true);
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.asMap()).containsEntry(GOQUORUM_COMPATIBILITY_MODE, true);
+  }
+
+  @Test
+  public void asMapDoesNotIncludeGoQuorumCompatibilityModeWhenAbsent() {
+    final ObjectNode objectNode = objectMapper.createObjectNode();
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.asMap()).doesNotContainKey(GOQUORUM_COMPATIBILITY_MODE);
   }
 }
