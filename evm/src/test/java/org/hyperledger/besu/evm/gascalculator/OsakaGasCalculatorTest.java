@@ -65,6 +65,14 @@ class OsakaGasCalculatorTest {
   }
 
   @Test
+  void modExpGasCostSaturatesWhenMaxLengthAdditionWouldOverflow() {
+    OsakaGasCalculator subject = new OsakaGasCalculator();
+    // maxLength already saturated: (maxLength + 7) must use clampedAdd or words wraps negative.
+    assertThat(subject.modExpGasCost(modExpHeader(0, 0, Long.MAX_VALUE))).isEqualTo(Long.MAX_VALUE);
+    assertThat(subject.modExpGasCost(modExpHeader(Long.MAX_VALUE, 0, 0))).isEqualTo(Long.MAX_VALUE);
+  }
+
+  @Test
   void modExpGasCostJustBelowOverflowBoundaryIsExact() {
     OsakaGasCalculator subject = new OsakaGasCalculator();
     // 2^34 - 8 bytes -> words = 2^31 - 1, 2 * words^2 = 9_223_372_028_264_841_218 still fits.
