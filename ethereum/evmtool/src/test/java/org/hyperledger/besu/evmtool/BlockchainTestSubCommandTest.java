@@ -17,18 +17,26 @@ package org.hyperledger.besu.evmtool;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.PrintStream;
 import java.io.PrintWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import picocli.CommandLine;
@@ -40,6 +48,222 @@ import picocli.CommandLine;
 class BlockchainTestSubCommandTest {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  /** An Amsterdam fixture with one self-transfer block and its block access list. */
+  private static final Path FIXTURE =
+      Path.of(BlockchainTestSubCommandTest.class.getResource("bal-self-transfer.json").getPath());
+
+  /** An Amsterdam fixture whose block is rejected for an access list missing an entry. */
+  private static final Path INVALID_ACCESS_LIST =
+      Path.of(
+          BlockchainTestSubCommandTest.class
+              .getResource("bal-invalid-block-access-list.json")
+              .getPath());
+
+  private static final String INVALID_BLOCK_HASH =
+      "0xe07099693533f8c5b69f1030a1932f538ae19e0631dd9951d6d0a210950d8bbb";
+
+  @TempDir Path tempDir;
+
+  @Test
+  void importedBlocksLeaveRejectionsEmpty() throws IOException {
+    final JsonNode result = result(FIXTURE);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("rejections").isArray()).isTrue();
+    assertThat(result.get("rejections")).isEmpty();
+  }
+
+  @Test
+  void rejectedBlockIsReportedWithBesusError() throws IOException {
+    final JsonNode result = result(INVALID_ACCESS_LIST);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("rejections")).hasSize(1);
+    final JsonNode rejection = result.get("rejections").get(0);
+    assertThat(rejection.get("index").asInt()).isZero();
+    assertThat(rejection.get("hash").asText()).isEqualTo(INVALID_BLOCK_HASH);
+    assertThat(rejection.get("error").asText()).contains("Block access list hash mismatch");
+  }
+
+  @Test
+  void blockRejectedForAnotherReasonPassesAndReportsTheError() throws IOException {
+    final Path otherReason =
+        withFirstBlock(
+            INVALID_ACCESS_LIST,
+            block ->
+                block.put("expectException", "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"));
+
+    final JsonNode result = result(otherReason);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("error").isNull()).isTrue();
+    assertThat(result.get("rejections").get(0).get("error").asText())
+        .contains("Block access list hash mismatch");
+  }
+
+  @Test
+  void blockThatFailsToDecodeIsReportedWithTheDecoderMessage() throws IOException {
+    final Path undecodable = withFirstBlock(INVALID_ACCESS_LIST, block -> block.put("rlp", "0xc0"));
+
+    final JsonNode result = result(undecodable);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("rejections")).hasSize(1);
+    final JsonNode rejection = result.get("rejections").get(0);
+    assertThat(rejection.get("index").asInt()).isZero();
+    assertThat(rejection.has("hash")).isFalse();
+    assertThat(rejection.get("error").asText()).isNotEmpty();
+  }
+
+  @Test
+  void jsonArrayStdoutIsTheArrayAlone() throws IOException {
+    final JsonNode stdout = MAPPER.readTree(run("--json-array", FIXTURE.toString()));
+
+    assertThat(stdout.isArray()).isTrue();
+    assertThat(stdout).hasSize(1);
+  }
+
+  /**
+   * A big block's storage map tripped Jackson's guard against hash-collision attacks on some runs,
+   * depending on its hash seed. 40,000 zero-padded keys trip it on about a third of runs, so twenty
+   * runs all read the file only with the guard off.
+   */
+  @Test
+  void storageMapLargeEnoughToTripJacksonsCollisionGuardIsRead() throws IOException {
+    final Path bigStorage = withBigPostStateStorage();
+    for (int run = 0; run < 20; run++) {
+      final JsonNode results = MAPPER.readTree(run("--json-array", bigStorage.toString()));
+      assertThat(results).hasSize(1);
+      assertThat(results.get(0).get("pass").asBoolean()).isTrue();
+    }
+  }
+
+  /**
+   * Copies {@link #FIXTURE} with 40,000 storage keys in a postState account, which the runner
+   * parses but does not check, so the test still passes.
+   */
+  private Path withBigPostStateStorage() throws IOException {
+    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(FIXTURE.toFile());
+    final ObjectNode storage =
+        ((ObjectNode) fixture.elements().next())
+            .putObject("postState")
+            .putObject("0x0000000000000000000000000000000000001000")
+            .putObject("storage");
+    for (int key = 1; key <= 40_000; key++) {
+      storage.put(String.format("0x%064x", key), "0x01");
+    }
+    final Path bigStorage = tempDir.resolve("big-storage.json");
+    Files.writeString(bigStorage, MAPPER.writeValueAsString(fixture));
+    return bigStorage;
+  }
+
+  @Test
+  void missingPathFailsBeforeAnyTestRuns() {
+    assertFailsBeforeAnyTestRuns(tempDir.resolve("does-not-exist.json"));
+  }
+
+  @Test
+  void unreadablePathFailsBeforeAnyTestRuns() throws IOException {
+    final Path unreadable = Files.copy(FIXTURE, tempDir.resolve("unreadable.json"));
+    assumeTrue(unreadable.toFile().setReadable(false) && !Files.isReadable(unreadable));
+    assertFailsBeforeAnyTestRuns(unreadable);
+  }
+
+  private static void assertFailsBeforeAnyTestRuns(final Path badPath) {
+    final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    final BlockchainTestSubCommand blockTest =
+        new BlockchainTestSubCommand(
+            new EvmToolCommand(System.in, new PrintWriter(stdout, true, UTF_8)));
+    new CommandLine(blockTest).parseArgs("--json-array", FIXTURE.toString(), badPath.toString());
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      blockTest.run();
+    } finally {
+      System.setErr(originalErr);
+    }
+
+    assertThat(blockTest.getExitCode()).isEqualTo(2);
+    assertThat(stdout.toString(UTF_8).trim()).isEqualTo("[]");
+    assertThat(stderr.toString(UTF_8)).contains(badPath.toString());
+  }
+
+  @Test
+  void exitStatusIsZeroWhenEveryTestPasses() {
+    assertThat(exitStatus(System.in, "--json-array", FIXTURE.toString())).isZero();
+  }
+
+  @Test
+  void exitStatusIsTwoWhenAFixtureFileCannotBeParsedAndTheRestStillRun() throws IOException {
+    final Path unparseable = Files.writeString(tempDir.resolve("unparseable.json"), "not json");
+    final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+    final BlockchainTestSubCommand blockTest =
+        new BlockchainTestSubCommand(
+            new EvmToolCommand(System.in, new PrintWriter(stdout, true, UTF_8)));
+    new CommandLine(blockTest)
+        .parseArgs("--json-array", FIXTURE.toString(), unparseable.toString());
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      blockTest.run();
+    } finally {
+      System.setErr(originalErr);
+    }
+
+    assertThat(blockTest.getExitCode()).isEqualTo(2);
+    // The good file's results only: the bad file is named on stderr, never as a result.
+    final JsonNode results = MAPPER.readTree(stdout.toString(UTF_8));
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).get("pass").asBoolean()).isTrue();
+    assertThat(stderr.toString(UTF_8)).contains(unparseable.toString());
+  }
+
+  @Test
+  void exitStatusIsTwoWhenAListedFixtureDoesNotExist() {
+    final String fileNames = tempDir.resolve("missing.json") + "\n" + FIXTURE + "\n";
+    assertThat(exitStatus(new ByteArrayInputStream(fileNames.getBytes(UTF_8)))).isEqualTo(2);
+  }
+
+  @Test
+  void exitStatusIsTwoWhenTheTestNameFilterIsInvalid() {
+    assertThat(exitStatus(System.in, "--json-array", "--test-name-regex", "(", FIXTURE.toString()))
+        .isEqualTo(2);
+  }
+
+  private static int exitStatus(final InputStream in, final String... args) {
+    final BlockchainTestSubCommand blockTest =
+        new BlockchainTestSubCommand(
+            new EvmToolCommand(in, new PrintWriter(new ByteArrayOutputStream(), true, UTF_8)));
+    new CommandLine(blockTest).parseArgs(args);
+    blockTest.run();
+    return blockTest.getExitCode();
+  }
+
+  private static JsonNode result(final Path fixture) throws IOException {
+    return MAPPER.readTree(run("--json-array", fixture.toString())).get(0);
+  }
+
+  private Path withFirstBlock(final Path fixture, final Consumer<ObjectNode> change)
+      throws IOException {
+    final ObjectNode test = (ObjectNode) MAPPER.readTree(fixture.toFile());
+    change.accept((ObjectNode) test.elements().next().get("blocks").get(0));
+    final Path changed = tempDir.resolve("changed.json");
+    Files.writeString(changed, MAPPER.writeValueAsString(test));
+    return changed;
+  }
+
+  private static String run(final String... args) {
+    final ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+    final BlockchainTestSubCommand blockTest =
+        new BlockchainTestSubCommand(
+            new EvmToolCommand(System.in, new PrintWriter(stdout, true, UTF_8)));
+    new CommandLine(blockTest).parseArgs(args);
+    blockTest.run();
+    return stdout.toString(UTF_8);
+  }
 
   @Test
   void jsonArrayReportsUndecodableRlpAsFailedRatherThanOmittingTheTest() throws Exception {
@@ -103,7 +327,7 @@ class BlockchainTestSubCommandTest {
         .contains("Passed:       1")
         .contains("Unreadable:   1 file(s)")
         .contains("NOT RUN:      1 of 2 declared case(s) never executed");
-    assertThat(command.getExitCode()).isEqualTo(1);
+    assertThat(command.getExitCode()).isEqualTo(2);
   }
 
   @Test
@@ -141,20 +365,26 @@ class BlockchainTestSubCommandTest {
   }
 
   @Test
-  void jsonArrayCarriesAFailingRowForAnUnreadableFileAndTheCasesNotRun() throws Exception {
+  void jsonArrayNamesAnUnreadableFileAndTheCasesNotRunOnStderrOnly() throws Exception {
     final ByteArrayOutputStream baos = new ByteArrayOutputStream();
     final BlockchainTestSubCommand command =
         new BlockchainTestSubCommand(
             new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8)));
     new CommandLine(command).parseArgs("--json-array", resourcePath("bogus-test.json"));
-    command.run();
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      command.run();
+    } finally {
+      System.setErr(originalErr);
+    }
 
-    final List<Map<String, Object>> rows =
-        MAPPER.readValue(baos.toString(UTF_8), new TypeReference<>() {});
-    assertThat(rows)
-        .extracting(row -> row.get("name"), row -> row.get("pass"))
-        .containsExactly(tuple(resourcePath("bogus-test.json"), false), tuple("NOT RUN", false));
-    assertThat(command.getExitCode()).isEqualTo(1);
+    assertThat(baos.toString(UTF_8).trim()).isEqualTo("[]");
+    assertThat(stderr.toString(UTF_8))
+        .contains("Unreadable file " + resourcePath("bogus-test.json"))
+        .contains("NOT RUN: 1 of 1 declared case(s) never executed");
+    assertThat(command.getExitCode()).isEqualTo(2);
   }
 
   @Test
