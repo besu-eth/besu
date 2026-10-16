@@ -572,6 +572,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<BlockHeader> maybeParentHeader) {
+    balConfiguration.getExecutionPathListener().onSequential(blockHeader, "disabled");
     return Optional.empty();
   }
 
