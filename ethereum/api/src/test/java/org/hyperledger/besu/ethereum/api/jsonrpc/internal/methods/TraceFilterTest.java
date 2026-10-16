@@ -347,6 +347,104 @@ public class TraceFilterTest {
     verify(blockchainQueries, never()).getAndMapWorldState(any(Hash.class), any());
   }
 
+  @Test
+  public void shouldReturnWorldStateUnavailableForRangeWithoutFirstParentState() {
+    when(blockchainQueries.headBlockNumber()).thenReturn(BLOCK_HEADER.getNumber());
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getBlockByNumber(BLOCK_HEADER.getNumber()))
+        .thenReturn(Optional.of(new Block(BLOCK_HEADER, BlockBody.empty())));
+    when(blockchainQueries.getAndMapWorldState(eq(BLOCK_HEADER.getParentHash()), any()))
+        .thenReturn(Optional.empty());
+
+    final JsonRpcResponse response =
+        traceFilter(
+            new FilterParameter(
+                new BlockParameter(BLOCK_HEADER.getNumber()),
+                new BlockParameter(BLOCK_HEADER.getNumber()),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                10));
+
+    assertError(response, RpcErrorType.WORLD_STATE_UNAVAILABLE);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1})
+  public void shouldRejectPartialRangeWhenLaterParentStateIsUnavailable(final int after)
+      throws InterruptedException {
+    assertError(traceRangeWithMissingSecondState(after, 2), RpcErrorType.WORLD_STATE_UNAVAILABLE);
+    verify(blockchainQueries).getAndMapWorldState(eq(BLOCK_HEADER.getHash()), any());
+  }
+
+  @Test
+  public void shouldStopAtCountBeforeUnavailableParentState() throws InterruptedException {
+    final JsonRpcResponse response = traceRangeWithMissingSecondState(0, 1);
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    assertThat((ArrayNode) ((JsonRpcSuccessResponse) response).getResult()).hasSize(1);
+    verify(blockchainQueries, never()).getAndMapWorldState(eq(BLOCK_HEADER.getHash()), any());
+  }
+
+  private JsonRpcResponse traceRangeWithMissingSecondState(final int after, final int count)
+      throws InterruptedException {
+    final Block firstBlock = new Block(BLOCK_HEADER, BlockBody.empty());
+    final Block secondBlock =
+        new Block(
+            new BlockHeaderTestFixture()
+                .number(BLOCK_HEADER.getNumber() + 1)
+                .parentHash(BLOCK_HEADER.getHash())
+                .buildHeader(),
+            BlockBody.empty());
+    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+    final PreExecutionProcessor preExecutionProcessor = mock(PreExecutionProcessor.class);
+    final BlockHashLookup blockHashLookup = mock(BlockHashLookup.class);
+    final MutableWorldState worldState = mock(MutableWorldState.class);
+    when(blockchainQueries.headBlockNumber()).thenReturn(secondBlock.getHeader().getNumber());
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getBlockByNumber(BLOCK_HEADER.getNumber())).thenReturn(Optional.of(firstBlock));
+    when(blockchain.getBlockByNumber(secondBlock.getHeader().getNumber()))
+        .thenReturn(Optional.of(secondBlock));
+    setupProtocolSpec(blockchain, firstBlock, protocolSpec, preExecutionProcessor, blockHashLookup);
+    doAnswer(
+            invocation -> {
+              final Function<MutableWorldState, ?> mapper = invocation.getArgument(1);
+              return mapper.apply(worldState);
+            })
+        .when(blockchainQueries)
+        .getAndMapWorldState(eq(BLOCK_HEADER.getParentHash()), any());
+
+    final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
+    final EthScheduler ethScheduler = new EthScheduler(1, 1, 1, metricsSystem);
+    method = new TraceFilter(protocolSchedule, blockchainQueries, 0L, metricsSystem, ethScheduler);
+    try {
+      final FilterParameter filterParameter =
+          new FilterParameter(
+              new BlockParameter(BLOCK_HEADER.getNumber()),
+              new BlockParameter(secondBlock.getHeader().getNumber()),
+              null,
+              null,
+              null,
+              null,
+              null,
+              after,
+              count);
+      final JsonRpcResponse response =
+          method.response(
+              new JsonRpcRequestContext(
+                  new JsonRpcRequest("2.0", "trace_filter", new Object[] {filterParameter})));
+      assertPreExecutionContext(
+          preExecutionProcessor, firstBlock, protocolSpec, blockHashLookup, worldState);
+      return response;
+    } finally {
+      ethScheduler.stop();
+      ethScheduler.awaitStop();
+    }
+  }
+
   private static FilterParameter blockHashFilter(final Hash blockHash, final int count) {
     return new FilterParameter(null, null, null, null, null, null, blockHash, null, count);
   }
