@@ -195,9 +195,12 @@ public class TraceFilter extends TraceBlock {
     }
     final List<Block> blockList = getBlockList(currentBlockNumber, toBlock, block);
     for (final Block blockToTrace : blockList) {
-      if (resultArrayNode.isFull()
-          || !traceBlockWithPipeline(filterParameter, blockToTrace, resultArrayNode)) {
+      if (resultArrayNode.isFull()) {
         break;
+      }
+      if (!traceBlockWithPipeline(filterParameter, blockToTrace, resultArrayNode)) {
+        return new JsonRpcErrorResponse(
+            requestContext.getRequest().getId(), RpcErrorType.WORLD_STATE_UNAVAILABLE);
       }
     }
 
