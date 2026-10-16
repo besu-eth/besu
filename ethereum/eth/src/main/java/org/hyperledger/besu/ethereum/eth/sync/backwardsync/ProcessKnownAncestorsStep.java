@@ -55,11 +55,8 @@ public class ProcessKnownAncestorsStep {
   protected void processKnownAncestors() {
     while (backwardChain.getFirstAncestorHeader().isPresent()) {
       BlockHeader header = backwardChain.getFirstAncestorHeader().orElseThrow();
-      final long chainHeadBlockNumber =
-          context.getProtocolContext().getBlockchain().getChainHeadBlockNumber();
       boolean isFirstUnProcessedHeader = true;
-      if (context.getProtocolContext().getBlockchain().contains(header.getHash())
-          && header.getNumber() <= chainHeadBlockNumber) {
+      if (context.isAlreadyImported(header)) {
         LOG.atDebug()
             .setMessage("Block {} is already imported, we can ignore it for the sync process")
             .addArgument(header::toLogString)
