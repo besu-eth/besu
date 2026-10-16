@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TraceTypeParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -32,8 +33,8 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
-import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 
@@ -107,12 +108,17 @@ public class TraceRawTransaction extends AbstractTraceByBlock implements JsonRpc
     final BlockHeader headBlock = blockchainQueriesSupplier.get().headBlockHeader();
     return transactionSimulator
         .process(
-            CallParameter.fromTransaction(transaction),
-            buildTransactionValidationParams(),
+            transaction,
+            TransactionValidationParams.blockReplay(),
             tracer,
             (mutableWorldState, transactionSimulatorResult) ->
                 transactionSimulatorResult.map(
                     result -> {
+                      if (result.isInvalid()) {
+                        return new JsonRpcErrorResponse(
+                            requestContext.getRequest().getId(),
+                            JsonRpcError.from(result.getValidationResult()));
+                      }
                       final TransactionTrace transactionTrace =
                           new TransactionTrace(
                               result.transaction(), result.result(), tracer.getTraceFrames());
