@@ -28,6 +28,7 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,9 +37,12 @@ import java.util.function.Consumer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import picocli.CommandLine;
 
 /**
@@ -67,16 +71,17 @@ class BlockchainTestSubCommandTest {
 
   @Test
   void importedBlocksLeaveRejectionsEmpty() throws IOException {
-    final JsonNode result = result(FIXTURE);
+    final JsonNode result = result(FIXTURE, false);
 
     assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("rejections").isArray()).isTrue();
     assertThat(result.get("rejections")).isEmpty();
   }
 
-  @Test
-  void rejectedBlockIsReportedWithBesusError() throws IOException {
-    final JsonNode result = result(INVALID_ACCESS_LIST);
+  @ParameterizedTest(name = "--bal-sequential={0}")
+  @ValueSource(booleans = {false, true})
+  void rejectedBlockIsReportedWithBesusError(final boolean sequential) throws IOException {
+    final JsonNode result = result(INVALID_ACCESS_LIST, sequential);
 
     assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("rejections")).hasSize(1);
@@ -94,7 +99,7 @@ class BlockchainTestSubCommandTest {
             block ->
                 block.put("expectException", "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"));
 
-    final JsonNode result = result(otherReason);
+    final JsonNode result = result(otherReason, false);
 
     assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("error").isNull()).isTrue();
@@ -106,7 +111,7 @@ class BlockchainTestSubCommandTest {
   void blockThatFailsToDecodeIsReportedWithTheDecoderMessage() throws IOException {
     final Path undecodable = withFirstBlock(INVALID_ACCESS_LIST, block -> block.put("rlp", "0xc0"));
 
-    final JsonNode result = result(undecodable);
+    final JsonNode result = result(undecodable, false);
 
     assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("rejections")).hasSize(1);
@@ -116,12 +121,73 @@ class BlockchainTestSubCommandTest {
     assertThat(rejection.get("error").asText()).isNotEmpty();
   }
 
+  @ParameterizedTest(name = "--bal-sequential={0}")
+  @ValueSource(booleans = {false, true})
+  void accessListNotMatchingTheHeaderIsDroppedNotRejected(final boolean sequential)
+      throws IOException {
+    assertThat(passes(FIXTURE, sequential)).isTrue();
+    assertThat(passes(withLastAccessListAccountDropped(), sequential)).isTrue();
+  }
+
+  @Test
+  void droppedAccessListRunsOnTheOptimisticScheduler() throws IOException {
+    final JsonNode delivered = decisionLine(FIXTURE, false);
+    assertThat(delivered.get("reason").asText()).isEmpty();
+    assertThat(delivered.get("scheduler").asText()).isEqualTo("bal");
+
+    final JsonNode dropped = decisionLine(withLastAccessListAccountDropped(), false);
+    assertThat(dropped.get("path").asText()).isEqualTo("parallel");
+    assertThat(dropped.get("reason").asText()).isEqualTo("bad-access-list");
+    assertThat(dropped.get("scheduler").asText()).isEqualTo("optimistic");
+  }
+
+  @Test
+  void droppedAccessListReasonTakesPrecedenceOverTheSwitch() throws IOException {
+    assertThat(decisionLine(FIXTURE, true).get("reason").asText()).isEqualTo("disabled");
+
+    final JsonNode dropped = decisionLine(withLastAccessListAccountDropped(), true);
+    assertThat(dropped.get("path").asText()).isEqualTo("sequential");
+    assertThat(dropped.get("reason").asText()).isEqualTo("bad-access-list");
+  }
+
+  @Test
+  void withheldAccessListRunsOnTheOptimisticSchedulerAndStillPasses() throws IOException {
+    final List<String> lines =
+        eventLines(stderr("--json-array", "--bal-report", "--bal-withhold", FIXTURE.toString()));
+    assertThat(lines).hasSize(1);
+    final JsonNode withheld = MAPPER.readTree(lines.get(0));
+    assertThat(withheld.get("path").asText()).isEqualTo("parallel");
+    assertThat(withheld.get("reason").asText()).isEqualTo("withheld");
+    assertThat(withheld.get("scheduler").asText()).isEqualTo("optimistic");
+
+    final JsonNode results =
+        MAPPER.readTree(run("--json-array", "--bal-withhold", FIXTURE.toString()));
+    assertThat(results).hasSize(1);
+    assertThat(results.get(0).get("pass").asBoolean()).isTrue();
+  }
+
   @Test
   void jsonArrayStdoutIsTheArrayAlone() throws IOException {
     final JsonNode stdout = MAPPER.readTree(run("--json-array", FIXTURE.toString()));
 
     assertThat(stdout.isArray()).isTrue();
     assertThat(stdout).hasSize(1);
+  }
+
+  @Test
+  void balReportPrintsTheDecisionLineOnStderr() throws IOException {
+    final List<String> lines =
+        eventLines(stderr("--json-array", "--bal-report", FIXTURE.toString()));
+
+    assertThat(lines).hasSize(1);
+    final JsonNode line = MAPPER.readTree(lines.get(0));
+    assertThat(line.get("event").asText()).isEqualTo("balExecution");
+    assertThat(line.get("path").asText()).isEqualTo("parallel");
+  }
+
+  @Test
+  void withoutBalReportNoEventLineIsPrinted() {
+    assertThat(eventLines(stderr("--json-array", FIXTURE.toString()))).isEmpty();
   }
 
   /**
@@ -242,8 +308,29 @@ class BlockchainTestSubCommandTest {
     return blockTest.getExitCode();
   }
 
-  private static JsonNode result(final Path fixture) throws IOException {
-    return MAPPER.readTree(run("--json-array", fixture.toString())).get(0);
+  private static JsonNode decisionLine(final Path fixture, final boolean sequential)
+      throws IOException {
+    final List<String> args = new ArrayList<>(List.of("--json-array", "--bal-report"));
+    if (sequential) {
+      args.add("--bal-sequential");
+    }
+    args.add(fixture.toString());
+    final List<String> lines = eventLines(stderr(args.toArray(String[]::new)));
+    assertThat(lines).hasSize(1);
+    return MAPPER.readTree(lines.get(0));
+  }
+
+  private boolean passes(final Path fixture, final boolean sequential) throws IOException {
+    return result(fixture, sequential).get("pass").asBoolean();
+  }
+
+  private static JsonNode result(final Path fixture, final boolean sequential) throws IOException {
+    final List<String> args = new ArrayList<>(List.of("--json-array"));
+    if (sequential) {
+      args.add("--bal-sequential");
+    }
+    args.add(fixture.toString());
+    return MAPPER.readTree(run(args.toArray(String[]::new))).get(0);
   }
 
   private Path withFirstBlock(final Path fixture, final Consumer<ObjectNode> change)
@@ -253,6 +340,32 @@ class BlockchainTestSubCommandTest {
     final Path changed = tempDir.resolve("changed.json");
     Files.writeString(changed, MAPPER.writeValueAsString(test));
     return changed;
+  }
+
+  private Path withLastAccessListAccountDropped() throws IOException {
+    final ObjectNode fixture = (ObjectNode) MAPPER.readTree(FIXTURE.toFile());
+    final ArrayNode accessList =
+        (ArrayNode) fixture.elements().next().get("blocks").get(0).get("blockAccessList");
+    accessList.remove(accessList.size() - 1);
+    final Path corrupted = tempDir.resolve("corrupted.json");
+    Files.writeString(corrupted, MAPPER.writeValueAsString(fixture));
+    return corrupted;
+  }
+
+  private static List<String> eventLines(final String stderr) {
+    return stderr.lines().filter(line -> line.startsWith("{\"event\":")).toList();
+  }
+
+  private static String stderr(final String... args) {
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      run(args);
+    } finally {
+      System.setErr(originalErr);
+    }
+    return stderr.toString(UTF_8);
   }
 
   private static String run(final String... args) {
@@ -389,7 +502,7 @@ class BlockchainTestSubCommandTest {
 
   @Test
   void blocksCanBeImportedWithoutTheirAccessList() {
-    // Through the root command, whose negation pattern makes this --noblock-access-list
+    // Through the root command, as a user runs it
     final ByteArrayOutputStream baos = new ByteArrayOutputStream();
     final int exitCode =
         new EvmToolCommand()
@@ -398,7 +511,7 @@ class BlockchainTestSubCommandTest {
                 new PrintWriter(baos, true, UTF_8),
                 new String[] {
                   "block-test",
-                  "--noblock-access-list",
+                  "--bal-withhold",
                   "--test-name",
                   "good_london_block",
                   resourcePath("blockchain-mixed-rlp.json")
