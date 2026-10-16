@@ -170,7 +170,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
     this.syncState.set(syncState);
     protocolContext
         .getConsensusContext(MergeContext.class)
-        .addNewUnverifiedForkchoiceListener(backwardSyncContext);
+        .addNewVerifiedForkchoiceListener(backwardSyncContext);
 
     final MiningConfiguration.Unstable unstable = miningConfiguration.getUnstable();
     final Optional<MempoolPrewarmer> mempoolPrewarmer =
