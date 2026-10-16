@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import org.hyperledger.besu.consensus.merge.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -75,7 +76,15 @@ public final class EngineForkchoiceUpdatedV4<
       final ConstructorArguments constructorArguments,
       final HardforkId minFork,
       final HardforkId maxFork) {
-    super(constructorArguments, minFork, maxFork);
+    this(constructorArguments, minFork, maxFork, WorldStateRecoveryCoordinator.disabled());
+  }
+
+  public EngineForkchoiceUpdatedV4(
+      final ConstructorArguments constructorArguments,
+      final HardforkId minFork,
+      final HardforkId maxFork,
+      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
+    super(constructorArguments, minFork, maxFork, worldStateRecoveryCoordinator);
     this.transactionPool = constructorArguments.transactionPool();
   }
 

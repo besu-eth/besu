@@ -63,7 +63,8 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
             .maxRequestBlocks(0)
             .build(),
         CANCUN,
-        AMSTERDAM);
+        AMSTERDAM,
+        recoveryCoordinator);
   }
 
   @Override
