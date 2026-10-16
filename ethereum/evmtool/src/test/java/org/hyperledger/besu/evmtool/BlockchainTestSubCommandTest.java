@@ -64,6 +64,13 @@ class BlockchainTestSubCommandTest {
               .getResource("bal-invalid-block-access-list.json")
               .getPath());
 
+  /** An Amsterdam fixture whose block is rejected for a gas limit below the minimum. */
+  private static final Path GAS_LIMIT_BELOW_MINIMUM =
+      Path.of(
+          BlockchainTestSubCommandTest.class
+              .getResource("header-gas-limit-below-minimum.json")
+              .getPath());
+
   private static final String INVALID_BLOCK_HASH =
       "0xe07099693533f8c5b69f1030a1932f538ae19e0631dd9951d6d0a210950d8bbb";
 
@@ -105,6 +112,19 @@ class BlockchainTestSubCommandTest {
     assertThat(result.get("error").isNull()).isTrue();
     assertThat(result.get("rejections").get(0).get("error").asText())
         .contains("Block access list hash mismatch");
+  }
+
+  @ParameterizedTest(name = "--bal-sequential={0}")
+  @ValueSource(booleans = {false, true})
+  void headerRejectionNamesTheRuleThatFailed(final boolean sequential) throws IOException {
+    final JsonNode result = result(GAS_LIMIT_BELOW_MINIMUM, sequential);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("rejections")).hasSize(1);
+    assertThat(result.get("rejections").get(0).get("error").asText())
+        .isEqualTo(
+            "Header validation failed (LIGHT) [Invalid block header: gasLimit = 0 is outside range"
+                + " 5000 --> 9223372036854775807]");
   }
 
   @Test
