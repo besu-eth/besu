@@ -249,6 +249,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     if (balReport) {
       executionPathListener = new BalExecutionReporter(System.err);
     }
+    if (jsonArray) {
+      RejectionReasons.install();
+    }
     try {
       if (engineTestFiles.isEmpty()) {
         final BufferedReader in =
@@ -284,6 +287,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       setupFailed = true;
       System.err.println("Error: " + e.getMessage());
     } finally {
+      if (jsonArray) {
+        RejectionReasons.uninstall();
+      }
       // An empty run is not a pass: a typo in --test-name, or a fixture tree that failed to
       // materialise, would otherwise be indistinguishable from a clean sweep.
       if (!results.hasTests()) {
@@ -776,17 +782,26 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
       try {
         // Call the real engine method directly
+        final List<String> reasons = new ArrayList<>();
+        final List<Throwable> thrown = new ArrayList<>();
         final JsonRpcResponse response =
-            method.syncResponse(
-                new JsonRpcRequestContext(
-                    new JsonRpcRequest("2.0", "engine_newPayloadV" + version, rpcParams)));
+            RejectionReasons.capturing(
+                reasons,
+                thrown,
+                () ->
+                    method.syncResponse(
+                        new JsonRpcRequestContext(
+                            new JsonRpcRequest("2.0", "engine_newPayloadV" + version, rpcParams))));
 
         // Handle RPC-level errors (the engine method returned a JSON-RPC error response).
         // Mirrors the hive consume-engine oracle: when the fixture sets an errorCode the
         // returned code must match exactly; when it does not, any RPC error is unexpected.
         if (response instanceof JsonRpcErrorResponse errorResponse) {
           FixtureRunner.addRejection(
-              rejections, i, Optional.empty(), rpcError(errorResponse.getError()));
+              rejections,
+              i,
+              Optional.empty(),
+              rpcError(errorResponse.getError(), "engine_newPayloadV" + version, thrown));
           String mismatch =
               checkExpectedErrorCode(i, payload.getErrorCode(), errorResponse.getError().getCode());
           if (mismatch != null) {
@@ -810,7 +825,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
               rejections,
               i,
               Optional.of(Hash.fromHexString(payload.getParams()[0].get("blockHash").asText())),
-              Objects.toString(status.getError(), ""));
+              RejectionReasons.append(Objects.toString(status.getError(), ""), reasons));
         } else if (INVALID_BLOCK_HASH.equals(status.getStatus())) {
           // The client's hash of the payload is not the one it was sent, so there is none to
           // report.
@@ -940,8 +955,35 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
    * : <data>} when the error carries data.
    */
   private static String rpcError(final JsonRpcError error) {
-    final String reason = error.getCode() + ": " + error.getMessage();
-    return error.getData() == null ? reason : reason + ": " + error.getData();
+    return rpcError(error, "", List.of());
+  }
+
+  /**
+   * Formats a JSON-RPC error as {@link #rpcError(JsonRpcError)} does, with the exceptions Besu
+   * logged during the call added to its data.
+   */
+  private static String rpcError(
+      final JsonRpcError error, final String method, final List<Throwable> thrown) {
+    return error.getCode() + ": " + error.getMessage() + dataSuffix(error, method, thrown);
+  }
+
+  /**
+   * Returns {@code : <data>} for an error's data followed by the exceptions Besu logged during the
+   * call, which is all that is left of one a handler caught before answering with the error, or
+   * nothing when there are neither. Each exception is also printed in full to stderr.
+   */
+  private static String dataSuffix(
+      final JsonRpcError error, final String method, final List<Throwable> thrown) {
+    final List<String> data = new ArrayList<>();
+    if (error.getData() != null) {
+      data.add(error.getData());
+    }
+    for (final Throwable t : thrown) {
+      data.add(RejectionReasons.describe(t));
+      System.err.println(method + " answered " + error.getCode() + " after Besu logged:");
+      t.printStackTrace(System.err);
+    }
+    return data.isEmpty() ? "" : ": " + String.join("; ", data);
   }
 
   /**
@@ -953,15 +995,28 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   @VisibleForTesting
   static @Nullable String forkchoiceFailure(
       final ExecutionEngineJsonRpcMethod fcuMethod, final int version, final Hash head) {
+    final String method = "engine_forkchoiceUpdatedV" + version;
+    final List<Throwable> thrown = new ArrayList<>();
     final JsonRpcResponse response =
-        fcuMethod.syncResponse(
-            new JsonRpcRequestContext(
-                new JsonRpcRequest(
-                    "2.0",
-                    "engine_forkchoiceUpdatedV" + version,
-                    new Object[] {new ForkchoiceStateV1(head, Hash.ZERO, Hash.ZERO), null})));
+        RejectionReasons.capturing(
+            new ArrayList<>(),
+            thrown,
+            () ->
+                fcuMethod.syncResponse(
+                    new JsonRpcRequestContext(
+                        new JsonRpcRequest(
+                            "2.0",
+                            method,
+                            new Object[] {
+                              new ForkchoiceStateV1(head, Hash.ZERO, Hash.ZERO), null
+                            }))));
     if (response instanceof JsonRpcErrorResponse err) {
-      return "error: " + err.getError().getCode() + " " + err.getError().getMessage();
+      final JsonRpcError error = err.getError();
+      return "error: "
+          + error.getCode()
+          + " "
+          + error.getMessage()
+          + dataSuffix(error, method, thrown);
     }
     final PayloadStatusV1 status =
         ((ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult())

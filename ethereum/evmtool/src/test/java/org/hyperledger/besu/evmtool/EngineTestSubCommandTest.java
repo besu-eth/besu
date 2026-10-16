@@ -53,6 +53,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
 // The first engine-test run in a JVM stops the harness's scheduler, after which a valid payload
@@ -74,6 +75,13 @@ class EngineTestSubCommandTest {
               .getResource("bal-invalid-block-access-list-engine.json")
               .getPath());
 
+  /** An Amsterdam engine fixture whose payload is INVALID for a gas limit below the minimum. */
+  private static final Path GAS_LIMIT_BELOW_MINIMUM =
+      Path.of(
+          EngineTestSubCommandTest.class
+              .getResource("header-gas-limit-below-minimum-engine.json")
+              .getPath());
+
   private static final String INVALID_BLOCK_HASH =
       "0xe07099693533f8c5b69f1030a1932f538ae19e0631dd9951d6d0a210950d8bbb";
 
@@ -90,6 +98,18 @@ class EngineTestSubCommandTest {
     assertThat(rejection.get("index").asInt()).isZero();
     assertThat(rejection.get("hash").asText()).isEqualTo(INVALID_BLOCK_HASH);
     assertThat(rejection.get("error").asText()).contains("Block access list hash mismatch");
+  }
+
+  @Test
+  void headerRejectionNamesTheRuleThatFailed() throws IOException {
+    final JsonNode result = result(GAS_LIMIT_BELOW_MINIMUM, false);
+
+    assertThat(result.get("pass").asBoolean()).isTrue();
+    assertThat(result.get("rejections")).hasSize(1);
+    assertThat(result.get("rejections").get(0).get("error").asText())
+        .isEqualTo(
+            "Header validation failed (FULL) [Invalid block header: gasLimit = 0 is outside range"
+                + " 5000 --> 9223372036854775807]");
   }
 
   @Test
@@ -194,6 +214,41 @@ class EngineTestSubCommandTest {
             forkchoiceFailure(
                 new JsonRpcErrorResponse(null, RpcErrorType.INVALID_FORKCHOICE_STATE)))
         .startsWith("error: -38002");
+  }
+
+  @Test
+  void forkchoiceUpdateErrorCarriesTheExceptionBesuLogged() {
+    final ExecutionEngineJsonRpcMethod forkchoiceUpdated = mock(ExecutionEngineJsonRpcMethod.class);
+    // As Besu's world state provider does: catch the exception, log it, and fail the update.
+    when(forkchoiceUpdated.syncResponse(any()))
+        .thenAnswer(
+            invocation -> {
+              try {
+                rollForward();
+              } catch (final IllegalStateException e) {
+                LoggerFactory.getLogger(
+                        "org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider"
+                            + ".PathBasedWorldStateProvider")
+                    .warn("State rolling failed", e);
+              }
+              return new JsonRpcErrorResponse(
+                  null, RpcErrorType.INTERNAL_ERROR, "Failed to set new head");
+            });
+
+    RejectionReasons.install();
+    try {
+      assertThat(EngineTestSubCommand.forkchoiceFailure(forkchoiceUpdated, 4, Hash.ZERO))
+          .startsWith(
+              "error: -32603 Internal error: Failed to set new head;"
+                  + " java.lang.IllegalStateException: rolled past the trie log at"
+                  + " org.hyperledger.besu.evmtool.EngineTestSubCommandTest.rollForward(");
+    } finally {
+      RejectionReasons.uninstall();
+    }
+  }
+
+  private static void rollForward() {
+    throw new IllegalStateException("rolled past the trie log");
   }
 
   private static JsonRpcResponse forkchoiceStatus(final EngineStatus status) {
