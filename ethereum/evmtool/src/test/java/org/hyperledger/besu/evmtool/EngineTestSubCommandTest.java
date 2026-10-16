@@ -38,20 +38,34 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import picocli.CommandLine;
 
+// The first engine-test run in a JVM stops the harness's scheduler, after which a valid payload
+// cannot run, so the one test that runs a valid payload goes first.
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EngineTestSubCommandTest {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
+
+  /** An Amsterdam engine fixture with one self-transfer payload and its block access list. */
+  private static final Path FIXTURE =
+      Path.of(
+          EngineTestSubCommandTest.class.getResource("bal-self-transfer-engine.json").getPath());
 
   /** An Amsterdam engine fixture whose payload is INVALID for an access list missing an entry. */
   private static final Path INVALID_ACCESS_LIST =
@@ -65,9 +79,10 @@ class EngineTestSubCommandTest {
 
   @TempDir Path tempDir;
 
-  @Test
-  void invalidPayloadIsReportedWithBesusError() throws IOException {
-    final JsonNode result = result(INVALID_ACCESS_LIST);
+  @ParameterizedTest(name = "--bal-sequential={0}")
+  @ValueSource(booleans = {false, true})
+  void invalidPayloadIsReportedWithBesusError(final boolean sequential) throws IOException {
+    final JsonNode result = result(INVALID_ACCESS_LIST, sequential);
 
     assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("rejections")).hasSize(1);
@@ -84,7 +99,7 @@ class EngineTestSubCommandTest {
             payload ->
                 payload.put("validationError", "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"));
 
-    final JsonNode result = result(otherReason);
+    final JsonNode result = result(otherReason, false);
 
     assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("rejections").get(0).get("error").asText())
@@ -112,7 +127,7 @@ class EngineTestSubCommandTest {
               payload.put("errorCode", "-32602");
             });
 
-    final JsonNode result = result(wrongVersion);
+    final JsonNode result = result(wrongVersion, false);
 
     assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("rejections")).hasSize(1);
@@ -132,11 +147,31 @@ class EngineTestSubCommandTest {
     final Path unsupported = tempDir.resolve("unsupported.json");
     Files.writeString(unsupported, MAPPER.writeValueAsString(fixture));
 
-    final JsonNode result = result(unsupported);
+    final JsonNode result = result(unsupported, false);
 
     assertThat(result.get("pass").asBoolean()).isFalse();
     assertThat(result.get("rejections").isArray()).isTrue();
     assertThat(result.get("rejections")).isEmpty();
+  }
+
+  @Test
+  @Order(1)
+  void balReportPrintsTheDecisionLineOnStderr() throws IOException {
+    final PrintStream originalErr = System.err;
+    final ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    System.setErr(new PrintStream(stderr, true, UTF_8));
+    try {
+      run("--json-array", "--bal-report", FIXTURE.toString());
+    } finally {
+      System.setErr(originalErr);
+    }
+
+    final List<String> lines =
+        stderr.toString(UTF_8).lines().filter(line -> line.startsWith("{\"event\":")).toList();
+    assertThat(lines).hasSize(1);
+    final JsonNode line = MAPPER.readTree(lines.get(0));
+    assertThat(line.get("event").asText()).isEqualTo("balExecution");
+    assertThat(line.get("path").asText()).isEqualTo("parallel");
   }
 
   @Test
@@ -253,8 +288,13 @@ class EngineTestSubCommandTest {
     return engineTest.getExitCode();
   }
 
-  private static JsonNode result(final Path fixture) throws IOException {
-    return MAPPER.readTree(run("--json-array", fixture.toString())).get(0);
+  private static JsonNode result(final Path fixture, final boolean sequential) throws IOException {
+    final List<String> args = new ArrayList<>(List.of("--json-array"));
+    if (sequential) {
+      args.add("--bal-sequential");
+    }
+    args.add(fixture.toString());
+    return MAPPER.readTree(run(args.toArray(String[]::new))).get(0);
   }
 
   private static String run(final String... args) {
