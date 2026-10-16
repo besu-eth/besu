@@ -7,6 +7,7 @@
 - `engine_getPayload` no longer waits for the in-progress block build when only the empty block has been built, as [execution-apis#958](https://github.com/ethereum/execution-apis/pull/958) requires. The default of `--Xpos-block-finalization-timeout-ms` changes from 800 to 0 and the option now accepts 0; set it to a positive value to restore the previous wait. [#11774](https://github.com/besu-eth/besu/pull/11774)
 - `eth_simulateV1` now rejects unknown account overrides [#11695](https://github.com/besu-eth/besu/pull/11695)
 - `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
+- `evmtool block-test --block-access-list` and `--noblock-access-list`, added in 26.10.2, are removed. Use `--bal-withhold` to import blocks without their access lists, the name the client test runner interface gives the flag; access lists are delivered by default. [#TODO-PR-NUMBER](https://github.com/besu-eth/besu/pull/TODO-PR-NUMBER)
 
 ### Bug fixes
 - Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
@@ -32,6 +33,7 @@
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, including after a round change, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469) [#11817](https://github.com/besu-eth/besu/pull/11817)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
+- `evmtool block-test` and `engine-test` follow the client test runner interface shared by execution clients: `engine-test` runs through the node's `MergeCoordinator`, both run blocks on the parallel block processor unless `--bal-sequential` is given, `--json-array` results list each rejected block with Besu's own error, `--bal-report` prints which executor ran each block, and `block-test --bal-withhold` imports blocks without their access lists. [#TODO-PR-NUMBER](https://github.com/besu-eth/besu/pull/TODO-PR-NUMBER)
 
 ## 26.10.2
 
