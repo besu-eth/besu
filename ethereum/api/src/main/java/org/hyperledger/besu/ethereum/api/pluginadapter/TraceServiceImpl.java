@@ -51,7 +51,13 @@ import java.util.stream.LongStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** The Trace service implementation. */
+/**
+ * The Trace service implementation.
+ *
+ * <p>Open the parent state directly, not through {@code Tracer.processTracing}: plugin tracers must
+ * see the state before pre-execution in {@code traceStartBlock}. The block-aware path runs
+ * pre-execution afterwards with the plugin tracer.
+ */
 @Unstable
 public class TraceServiceImpl implements TraceService {
   private static final Logger LOG = LoggerFactory.getLogger(TraceServiceImpl.class);
