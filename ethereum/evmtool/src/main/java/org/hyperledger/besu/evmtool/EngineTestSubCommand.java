@@ -78,6 +78,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -184,6 +185,24 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private boolean jsonArray = false;
 
   @Option(
+      names = {"--bal-sequential"},
+      description =
+          "Run every payload on the sequential block processor. By default the parallel block"
+              + " processor runs, as on a Bonsai node, scheduling transactions from the payload's block"
+              + " access list. The list is validated either way.")
+  private boolean balSequential = false;
+
+  @Option(
+      names = {"--bal-report"},
+      description =
+          "Print one JSON line to stderr for each payload executed, naming the executor that ran it,"
+              + " and one more when the parallel block processor failed it and re-ran it"
+              + " sequentially. Off by default.")
+  private boolean balReport = false;
+
+  private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
+
+  @Option(
       names = {"--verbose"},
       description =
           "Print per-test progress output. By default only failing tests and the final summary are"
@@ -227,6 +246,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     boolean setupFailed = false;
+    if (balReport) {
+      executionPathListener = new BalExecutionReporter(System.err);
+    }
     try {
       if (engineTestFiles.isEmpty()) {
         final BufferedReader in =
@@ -469,7 +491,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     try {
       schedule =
           ReferenceTestProtocolSchedules.cached(
-                  parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                  parentCommand.getEvmConfiguration(),
+                  spec.getBlobScheduleOptions().orElse(null),
+                  !balSequential,
+                  executionPathListener)
               .getByName(spec.getNetwork());
     } catch (final RuntimeException e) {
       recordResult(
