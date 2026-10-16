@@ -28,6 +28,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -92,7 +93,8 @@ class SnapProtocolManagerTest {
 
     snapProtocolManager = createSnapProtocolManager();
 
-    assertThat(snapProtocolManager.getSupportedCapabilities()).containsExactly(SnapProtocol.SNAP1);
+    assertThat(snapProtocolManager.getSupportedCapabilities())
+        .containsExactly(SnapProtocolVersion.V1.getCapability());
   }
 
   @Test
@@ -102,21 +104,23 @@ class SnapProtocolManagerTest {
     snapProtocolManager = createSnapProtocolManager();
 
     assertThat(snapProtocolManager.getSupportedCapabilities())
-        .containsExactly(SnapProtocol.SNAP1, SnapProtocol.SNAP2);
+        .containsExactly(
+            SnapProtocolVersion.V1.getCapability(), SnapProtocolVersion.V2.getCapability());
   }
 
   @Test
   void disconnectsPeerOnDecompressionFailure() {
     final MockPeerConnection peerConnection =
         new MockPeerConnection(
-            new HashSet<>(Collections.singletonList(SnapProtocol.SNAP1)), (cap, msg, conn) -> {});
+            new HashSet<>(Collections.singletonList(SnapProtocolVersion.V1.getCapability())),
+            (cap, msg, conn) -> {});
     when(ethPeers.peer(peerConnection)).thenReturn(ethPeer);
     when(ethPeer.validateReceivedMessage(any(), any())).thenReturn(true);
 
     // Create a RawMessage with invalid compressed data that will throw FramingException
     final RawMessage badMessage = new RawMessage(0x00, new byte[] {0x01, 0x02, 0x03});
     snapProtocolManager.processMessage(
-        SnapProtocol.SNAP1, new DefaultMessage(peerConnection, badMessage));
+        SnapProtocolVersion.V1.getCapability(), new DefaultMessage(peerConnection, badMessage));
 
     assertThat(peerConnection.isDisconnected()).isFalse();
     // ethPeer (mock) receives the disconnect call
@@ -134,7 +138,7 @@ class SnapProtocolManagerTest {
 
     for (int i = 0; i < 5; i++) {
       snapProtocolManager.processMessage(
-          SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, i));
+          SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, i));
     }
 
     // Only the first 2 requests are scheduled; the remaining 3 are dropped once the per-peer cap
@@ -156,9 +160,9 @@ class SnapProtocolManagerTest {
 
     for (int i = 0; i < 2; i++) {
       snapProtocolManager.processMessage(
-          SnapProtocol.SNAP1, getTrieNodesMessage(peerConnectionA, i));
+          SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnectionA, i));
       snapProtocolManager.processMessage(
-          SnapProtocol.SNAP1, getTrieNodesMessage(peerConnectionB, i));
+          SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnectionB, i));
     }
 
     // Both peers stay within their own per-peer cap, so all 4 requests are scheduled.
@@ -178,7 +182,7 @@ class SnapProtocolManagerTest {
       stubPeer(peer, peerConnection);
       for (int i = 0; i < 2; i++) {
         snapProtocolManager.processMessage(
-            SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, i));
+            SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, i));
       }
     }
 
@@ -202,14 +206,17 @@ class SnapProtocolManagerTest {
               return future;
             });
 
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 0));
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 1));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 0));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 1));
     // Second request dropped: the peer's single slot is still held by the first, in-flight task.
     verify(ethScheduler, times(1)).scheduleServiceTask(any(Runnable.class));
 
     scheduledTasks.get(0).complete(null);
 
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 2));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 2));
     // Completing the first task freed the slot, so the third request is now accepted.
     verify(ethScheduler, times(2)).scheduleServiceTask(any(Runnable.class));
   }
@@ -229,7 +236,8 @@ class SnapProtocolManagerTest {
               return future;
             });
 
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 0));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 0));
 
     assertThat(metricsSystem.getGaugeValue("snap_service_requests_in_flight_current"))
         .isEqualTo(1.0);
@@ -257,10 +265,11 @@ class SnapProtocolManagerTest {
     assertThatThrownBy(
             () ->
                 snapProtocolManager.processMessage(
-                    SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 0)))
+                    SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 0)))
         .isInstanceOf(RejectedExecutionException.class);
 
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 1));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 1));
     // If the failed first attempt had leaked its reserved slot, this second request would be
     // dropped (only 1 call to scheduleServiceTask) instead of being scheduled (2 calls).
     verify(ethScheduler, times(2)).scheduleServiceTask(any(Runnable.class));
@@ -275,14 +284,16 @@ class SnapProtocolManagerTest {
     stubPeer(ethPeer, peerConnection);
     stubPendingServiceTasks();
 
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 0));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 0));
     verify(ethScheduler, times(1)).scheduleServiceTask(any(Runnable.class));
 
     // The peer disconnects before its in-flight task ever completes.
     snapProtocolManager.handleDisconnect(
         peerConnection, DisconnectReason.TCP_SUBSYSTEM_ERROR, false);
 
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 1));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 1));
     // Disconnect cleanup freed the slot rather than leaking it, so this request is accepted.
     verify(ethScheduler, times(2)).scheduleServiceTask(any(Runnable.class));
   }
@@ -296,8 +307,10 @@ class SnapProtocolManagerTest {
     stubPeer(ethPeer, peerConnection);
     stubPendingServiceTasks();
 
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 0));
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 1));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 0));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 1));
 
     // The first request holds the peer's only slot; the second is rejected but still answered
     // rather than left to time out.
@@ -321,8 +334,10 @@ class SnapProtocolManagerTest {
     final MockPeerConnection peerConnectionB = snapPeerConnection();
     stubPeer(ethPeerB, peerConnectionB);
 
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnectionA, 0));
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnectionB, 7));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnectionA, 0));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnectionB, 7));
 
     // The global cap is already spent on peer A's request, so peer B's is rejected but answered.
     verify(ethScheduler, times(1)).scheduleServiceTask(any(Runnable.class));
@@ -342,13 +357,14 @@ class SnapProtocolManagerTest {
     stubPendingServiceTasks();
 
     // First request holds the peer's only slot.
-    snapProtocolManager.processMessage(SnapProtocol.SNAP1, getTrieNodesMessage(peerConnection, 0));
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), getTrieNodesMessage(peerConnection, 0));
 
     // Second request is over cap, and its body isn't a valid RLP list, so decoding a request id
     // for the empty reply fails.
     final MessageData malformed = new RawMessage(SnapV1.GET_TRIE_NODES, Bytes.of(0x01));
     snapProtocolManager.processMessage(
-        SnapProtocol.SNAP1, new DefaultMessage(peerConnection, malformed));
+        SnapProtocolVersion.V1.getCapability(), new DefaultMessage(peerConnection, malformed));
 
     verify(ethPeer).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     verify(ethPeer, never()).send(any(), any());
@@ -367,7 +383,8 @@ class SnapProtocolManagerTest {
 
   private MockPeerConnection snapPeerConnection() {
     return new MockPeerConnection(
-        new HashSet<>(Collections.singletonList(SnapProtocol.SNAP1)), (cap, msg, conn) -> {});
+        new HashSet<>(Collections.singletonList(SnapProtocolVersion.V1.getCapability())),
+        (cap, msg, conn) -> {});
   }
 
   private Message getTrieNodesMessage(final PeerConnection peerConnection, final int requestId) {

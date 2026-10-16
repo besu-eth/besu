@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -79,7 +80,7 @@ public class GetBlockAccessListsFromPeerTask
                   "EthPeer that is not serving snap called in "
                       + GetBlockAccessListsFromPeerTask.class);
             }
-            if (!peer.getAgreedCapabilities().contains(SnapProtocol.SNAP2)) {
+            if (!peer.getAgreedCapabilities().contains(SnapProtocolVersion.V2.getCapability())) {
               LOG.atDebug()
                   .setMessage("EthPeer does not support snap/2 in {}, peer: {}")
                   .addArgument(GetBlockAccessListsFromPeerTask.class)
@@ -95,7 +96,10 @@ public class GetBlockAccessListsFromPeerTask
           @Override
           public boolean isEthPeerSuitable(final EthPeerImmutableAttributes ethPeer) {
             return ethPeer.isServingSnap()
-                && ethPeer.ethPeer().getAgreedCapabilities().contains(SnapProtocol.SNAP2);
+                && ethPeer
+                    .ethPeer()
+                    .getAgreedCapabilities()
+                    .contains(SnapProtocolVersion.V2.getCapability());
           }
         },
         blockHeaders.stream()
