@@ -22,12 +22,15 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
@@ -55,6 +58,30 @@ class CallParameterUtilTest {
         params -> params.maxFeePerGas(Wei.ONE),
         params -> params.maxPriorityFeePerGas(Wei.ZERO),
         params -> params.maxFeePerGas(Wei.ONE).maxPriorityFeePerGas(Wei.ONE));
+  }
+
+  @Test
+  void rejectsFourthParameterBecauseBlockOverridesAreNotSupported() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0",
+                "eth_call",
+                new Object[] {Map.of(), "latest", Map.of(), Map.of("time", "0x80000000")}));
+
+    assertThatThrownBy(() -> CallParameterUtil.rejectBlockOverrides(request))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
+  }
+
+  @Test
+  void acceptsUpToThreeParameters() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_call", new Object[] {Map.of(), "latest", Map.of()}));
+
+    assertThatNoException().isThrownBy(() -> CallParameterUtil.rejectBlockOverrides(request));
   }
 
   @Test
