@@ -79,6 +79,7 @@
 - Fix incorrect sync status reporting. `eth_syncing` now reports progress during snap sync (previously it reported "not syncing" for the whole snap sync), with `highestBlock` taken from the best-chain height (the latest `engine_newPayload` head under PoS). The ethstats `syncing` field and `BackwardSyncContext.isSyncing()` no longer report the inverse of the actual state. `/readiness` no longer reports ready while the world state download, trie heal or flat database heal is still in progress. A backward sync session that completed synchronously is no longer reused by later calls. [#11260](https://github.com/besu-eth/besu/issues/11260)
 
 ### Additions and Improvements
+- `eth_getLogs` range-limit errors (`-32005`) now return `--rpc-max-logs-range` as `data`; the message is unchanged. [#11611](https://github.com/besu-eth/besu/issues/11611)
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
 - Update Jackson to 2.21.6 to address CVE `CVE-2026-68497` [#11396](https://github.com/besu-eth/besu/pull/11396)
 - Update Jackson to 2.21.7 to address CVE `CVE-2026-91777` [#11503](https://github.com/besu-eth/besu/pull/11503)
