@@ -131,7 +131,8 @@ class AbstractTraceByHashTest {
                       protocolSchedule, transactionTrace, block))
           .thenReturn(Stream.of(flatTrace));
 
-      assertThat(traceByHash.resultByTransactionHash(transactionHash)).containsExactly(flatTrace);
+      assertThat(traceByHash.resultByTransactionHash(transactionHash).orElseThrow())
+          .containsExactly(flatTrace);
 
       flatTraceGenerator.verify(
           () ->
