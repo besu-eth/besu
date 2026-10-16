@@ -26,6 +26,7 @@ import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECT
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.TX_EVALUATION_TOO_LONG;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.AbstractTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlobPriceTransactionSelector;
@@ -66,10 +67,16 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,6 +87,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 import com.google.common.base.Stopwatch;
 import org.jspecify.annotations.Nullable;
@@ -139,6 +147,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   private volatile @Nullable TransactionSelectionResult invalidTxSelectionTimeoutResult;
   private volatile @Nullable FutureTask<Void> currTxSelectionTask;
   private final List<CompletableFuture<Void>> scheduledSelectionTasks = new ArrayList<>(2);
+  private final List<Transaction> inclusionListTransactions;
 
   public BlockTransactionSelector(
       final MiningConfiguration miningConfiguration,
@@ -154,7 +163,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       final PluginTransactionSelector pluginTransactionSelector,
       final EthScheduler ethScheduler,
       final SelectorsStateManager selectorsStateManager,
-      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder) {
+      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder,
+      final List<Transaction> inclusionListTransactions) {
     this.transactionProcessor = transactionProcessor;
     this.blockchain = blockchain;
     this.worldState = worldState;
@@ -184,6 +194,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     this.pluginTxsSelectionMaxTimeNanos =
         miningConfiguration.getPluginTxsSelectionMaxTime(blockTxsSelectionMaxTime).toNanos();
     this.maybeBlockAccessListBuilder = maybeBlockAccessListBuilder;
+    this.inclusionListTransactions = List.copyOf(inclusionListTransactions);
   }
 
   private List<AbstractTransactionSelector> createTransactionSelectors(
@@ -213,6 +224,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
    */
   public TransactionSelectionResults buildTransactionListForBlock() {
     blockSelectionContext.transactionPool().selectTransactions(this::timeLimitedSelection);
+
+    selectInclusionListTransactions();
+
     LOG.atTrace()
         .setMessage("Transaction selection result {}")
         .addArgument(transactionSelectionResults::toTraceLog)
@@ -229,6 +243,100 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
    */
   public CompletableFuture<Void> selectionTasksDone() {
     return CompletableFuture.allOf(scheduledSelectionTasks.toArray(CompletableFuture[]::new));
+  }
+
+  /**
+   * Evaluates the inclusion list transactions (EIP-7805) that are not already part of the block,
+   * after the other transactions have been evaluated. This is not time-limited: a block that leaves
+   * out an inclusion list transaction that could have been included does not satisfy the inclusion
+   * list.
+   */
+  private void selectInclusionListTransactions() {
+    if (inclusionListTransactions.isEmpty() || isCancelled.get()) {
+      return;
+    }
+
+    if (isTimeout.get() && !resetTimeoutAfterSelectionTasksStopped()) {
+      LOG.warn(
+          "Skipping the selection of {} inclusion list transactions, since the timed out"
+              + " transaction selection is still running",
+          inclusionListTransactions.size());
+      return;
+    }
+
+    final Set<Hash> alreadySelected =
+        transactionSelectionResults.getSelectedTransactions().stream()
+            .map(Transaction::getHash)
+            .collect(Collectors.toSet());
+
+    final List<Transaction> candidates =
+        sortTransactionList(
+            inclusionListTransactions.stream()
+                .filter(tx -> !alreadySelected.contains(tx.getHash()))
+                .toList());
+
+    LOG.debug(
+        "Inclusion list transactions selection will evaluate {} of {} transactions",
+        candidates.size(),
+        inclusionListTransactions.size());
+
+    for (final Transaction ilTx : candidates) {
+      final TransactionSelectionResult ilResult =
+          evaluateTransaction(new PendingTransaction.Local.Priority(ilTx));
+      LOG.atDebug()
+          .setMessage("Inclusion list tx {} selection result: {}")
+          .addArgument(ilTx::toTraceLog)
+          .addArgument(ilResult)
+          .log();
+    }
+  }
+
+  /**
+   * When the time-limited selection timed out, its task could still be running, and while the
+   * timeout flag is set nothing more can be committed to the block. Wait for the selection tasks to
+   * stop, and only then reset the flag, so the inclusion list transactions can be committed without
+   * any concurrent access to the world state.
+   *
+   * @return true if the selection tasks stopped and the timeout flag was reset
+   */
+  private boolean resetTimeoutAfterSelectionTasksStopped() {
+    try {
+      selectionTasksDone().get(blockTxsSelectionMaxTimeNanos, TimeUnit.NANOSECONDS);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return false;
+    } catch (final ExecutionException | CancellationException e) {
+      // the task has stopped anyway
+    } catch (final TimeoutException e) {
+      return false;
+    }
+    synchronized (isTimeout) {
+      isTimeout.set(false);
+    }
+    return true;
+  }
+
+  private List<Transaction> sortTransactionList(
+      final Collection<Transaction> inclusionListTransactions) {
+    // for the moment we just make sure txs are sorted by nonce for each sender (note that there
+    // could be multiple txs for the same nonce)
+    // more sophisticated sorting based on effective priority fee can be implemented later
+    final Map<Address, NavigableSet<Transaction>> txsBySender = new HashMap<>();
+
+    for (final Transaction tx : inclusionListTransactions) {
+      txsBySender
+          .computeIfAbsent(
+              // compare first by nonce then by hash, in case there is more than one tx with the
+              // same nonce
+              tx.getSender(),
+              k ->
+                  new TreeSet<>(
+                      Comparator.comparingLong(Transaction::getNonce)
+                          .thenComparing(t -> t.getHash().getBytes())))
+          .add(tx);
+    }
+
+    return txsBySender.values().stream().flatMap(NavigableSet::stream).toList();
   }
 
   public void cancel() {
@@ -536,8 +644,12 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   public TransactionSelectionResults evaluateTransactions(final List<Transaction> transactions) {
     selectorsStateManager.blockSelectionStarted();
 
+    LOG.debug("Considering only passed {} transactions for block creation", transactions.size());
+
     transactions.forEach(
         transaction -> evaluateTransaction(new PendingTransaction.Local.Priority(transaction)));
+
+    selectInclusionListTransactions();
 
     return transactionSelectionResults;
   }
