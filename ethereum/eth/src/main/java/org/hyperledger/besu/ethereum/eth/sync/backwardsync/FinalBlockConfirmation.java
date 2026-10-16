@@ -40,10 +40,14 @@ public interface FinalBlockConfirmation {
     };
   }
 
-  static FinalBlockConfirmation ancestorConfirmation(final MutableBlockchain blockchain) {
+  static FinalBlockConfirmation ancestorConfirmation(final BackwardSyncContext context) {
     return firstHeader ->
-        blockchain.contains(firstHeader.getParentHash())
-            && blockchain.getChainHeadBlockNumber() + 1 >= firstHeader.getNumber();
+        context
+            .getProtocolContext()
+            .getBlockchain()
+            .getBlockHeader(firstHeader.getParentHash())
+            .map(context::isAlreadyImported)
+            .orElse(false);
   }
 
   static FinalBlockConfirmation confirmationChain(final FinalBlockConfirmation... confirmations) {

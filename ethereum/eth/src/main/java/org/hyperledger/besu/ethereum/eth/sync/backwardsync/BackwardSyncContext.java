@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 
+import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
+import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -44,7 +46,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 
-public class BackwardSyncContext {
+public class BackwardSyncContext implements UnverifiedForkchoiceListener {
   private static final Logger LOG = LoggerFactory.getLogger(BackwardSyncContext.class);
   public static final int BATCH_SIZE = 200;
   private static final int DEFAULT_MAX_RETRIES = 2;
@@ -67,6 +69,7 @@ public class BackwardSyncContext {
   private final long millisBetweenRetries = DEFAULT_MILLIS_BETWEEN_RETRIES;
   private final Subscribers<BadChainListener> badChainListeners = Subscribers.create();
   private final AtomicReference<Hash> lastBlockWithUnavailableWorldState = new AtomicReference<>();
+  private final ForkChoicePath forkChoicePath;
 
   public BackwardSyncContext(
       final ProtocolContext protocolContext,
@@ -112,6 +115,12 @@ public class BackwardSyncContext {
     this.backwardSyncAlgorithmFactory = backwardSyncAlgorithmFactory;
     this.maxRetries = maxRetries;
     this.maxBadChainEventEntries = maxBadChainEventEntries;
+    this.forkChoicePath =
+        new ForkChoicePath(
+            hash ->
+                backwardChain
+                    .getHeader(hash)
+                    .or(() -> protocolContext.getBlockchain().getBlockHeader(hash)));
   }
 
   /**
@@ -123,6 +132,20 @@ public class BackwardSyncContext {
     return Optional.ofNullable(currentBackwardSyncStatus.get())
         .map(status -> !status.currentFuture.isDone())
         .orElse(Boolean.FALSE);
+  }
+
+  /**
+   * Records the head of every fork choice, also of one for a known head, so a running session stops
+   * moving the chain head to an older choice. The chain head is only moved to the head of the
+   * latest fork choice and its ancestors.
+   *
+   * @param event the fork choice
+   */
+  @Override
+  public void onNewUnverifiedForkchoice(final ForkchoiceEvent event) {
+    if (!Hash.ZERO.equals(event.getHeadBlockHash())) {
+      forkChoicePath.setForkChoiceHead(event.getHeadBlockHash());
+    }
   }
 
   public synchronized void maybeUpdateTargetHeight(final Hash headHash) {
@@ -217,6 +240,7 @@ public class BackwardSyncContext {
         .handle(
             (unused, throwable) -> {
               this.currentBackwardSyncStatus.set(null);
+              forkChoicePath.reset();
               if (throwable != null) {
                 LOG.info("Current backward sync session failed, it will be restarted");
                 throw extractBackwardSyncException(throwable)
@@ -353,17 +377,24 @@ public class BackwardSyncContext {
                 blockAccessList,
                 true);
     if (optResult.isSuccessful()) {
-      LOG.atTrace()
-          .setMessage("Block {} was validated, going to move the head")
-          .addArgument(block::toLogString)
-          .log();
-      this.getProtocolContext()
-          .getBlockchain()
-          .appendBlock(
-              block,
-              optResult.getYield().get().getReceipts(),
-              optResult.getYield().get().getBlockAccessList());
-      possiblyMoveHead(block);
+      final MutableBlockchain blockchain = this.getProtocolContext().getBlockchain();
+      final var outputs = optResult.getYield().get();
+      if (isOnForkChoicePath(block.getHeader())) {
+        LOG.atTrace()
+            .setMessage("Block {} was validated, going to move the head")
+            .addArgument(block::toLogString)
+            .log();
+        blockchain.appendBlock(block, outputs.getReceipts(), outputs.getBlockAccessList());
+        possiblyMoveHead(block);
+      } else {
+        // only fork choice moves the head, a block it has not selected is stored like newPayload
+        // stores it
+        LOG.atTrace()
+            .setMessage("Block {} was validated, storing it without moving the head")
+            .addArgument(block::toLogString)
+            .log();
+        blockchain.storeBlock(block, outputs.getReceipts(), outputs.getBlockAccessList());
+      }
       logImportedBlockParallelization(
           block, optResult.getNbParallelizedTransactions(), blockAccessList.isPresent());
       logBlockImportProgress(block.getHeader().getNumber());
@@ -419,6 +450,25 @@ public class BackwardSyncContext {
     emitBadChainEvent(header);
     throw new BackwardSyncException(
         "Cannot save block " + header.toLogString() + " because it is a known bad block");
+  }
+
+  /**
+   * Whether this session has nothing left to do for the block: it is on the chain, and the head
+   * does not have to be moved to it.
+   *
+   * @param header the header of the block
+   * @return true if the block needs no import
+   */
+  public boolean isAlreadyImported(final BlockHeader header) {
+    final MutableBlockchain blockchain = getProtocolContext().getBlockchain();
+    return blockchain.contains(header.getHash())
+        && (header.getNumber() <= blockchain.getChainHeadBlockNumber()
+            || !isOnForkChoicePath(header));
+  }
+
+  @VisibleForTesting
+  protected boolean isOnForkChoicePath(final BlockHeader header) {
+    return forkChoicePath.contains(header);
   }
 
   @VisibleForTesting

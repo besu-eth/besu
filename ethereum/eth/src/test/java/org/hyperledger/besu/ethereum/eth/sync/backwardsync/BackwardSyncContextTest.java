@@ -30,6 +30,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
+import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
@@ -51,6 +52,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestBuilder;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTaskExecutorAnswer;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
@@ -74,6 +76,7 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -232,9 +235,18 @@ public class BackwardSyncContextTest {
     Mockito.when(peerTaskExecutor.execute(Mockito.any(GetHeadersFromPeerTask.class)))
         .thenAnswer(
             new GetHeadersFromPeerTaskExecutorAnswer(remoteBlockchain, ethContext.getEthPeers()));
+    final GetBodiesFromPeerTaskExecutorAnswer bodiesAnswer =
+        new GetBodiesFromPeerTaskExecutorAnswer(remoteBlockchain, ethContext.getEthPeers());
+    // the forward sync step sorts the received blocks in place, as a peer's response allows
     Mockito.when(peerTaskExecutor.execute(Mockito.any(GetBodiesFromPeerTask.class)))
         .thenAnswer(
-            new GetBodiesFromPeerTaskExecutorAnswer(remoteBlockchain, ethContext.getEthPeers()));
+            invocation -> {
+              final PeerTaskExecutorResult<List<Block>> result = bodiesAnswer.answer(invocation);
+              return new PeerTaskExecutorResult<>(
+                  result.result().<List<Block>>map(ArrayList::new),
+                  result.responseCode(),
+                  result.ethPeers());
+            });
   }
 
   @Test
@@ -531,6 +543,93 @@ public class BackwardSyncContextTest {
     context.possiblyMoveHead(lastSavedBlock);
 
     assertThat(localBlockchain.getChainHeadBlock().getHeader().getNumber()).isEqualTo(25);
+  }
+
+  @Test
+  public void shouldNotMoveHeadToABranchOnlySentByNewPayload() throws Exception {
+    // the local head is on its own branch, higher than the remote branch block sent by newPayload
+    final Block localHead = extendLocalBranch(REMOTE_HEIGHT - 5);
+    final Block newPayloadBlock = getRemoteBlockByNumber(REMOTE_HEIGHT - 10);
+
+    syncWithRealAlgorithm(newPayloadBlock);
+
+    assertThat(localBlockchain.getChainHeadHash()).isEqualTo(localHead.getHash());
+    assertRemoteBranchStoredUntil(newPayloadBlock);
+  }
+
+  @Test
+  public void shouldStoreABranchOnlySentByNewPayloadThatIsHigherThanTheHead() throws Exception {
+    final Block localHead = extendLocalBranch(LOCAL_HEIGHT + 5);
+    final Block newPayloadBlock = getRemoteBlockByNumber(REMOTE_HEIGHT);
+
+    syncWithRealAlgorithm(newPayloadBlock);
+
+    assertThat(localBlockchain.getChainHeadHash()).isEqualTo(localHead.getHash());
+    assertRemoteBranchStoredUntil(newPayloadBlock);
+  }
+
+  @Test
+  public void shouldMoveHeadToTheBranchSelectedByForkChoice() throws Exception {
+    extendLocalBranch(LOCAL_HEIGHT + 5);
+    final Block forkChoiceHead = getRemoteBlockByNumber(REMOTE_HEIGHT);
+
+    forkChoice(forkChoiceHead.getHash());
+    syncWithRealAlgorithm(forkChoiceHead);
+
+    assertThat(localBlockchain.getChainHeadHash()).isEqualTo(forkChoiceHead.getHash());
+  }
+
+  @Test
+  public void shouldStopMovingHeadWhenForkChoiceSelectsAnotherBranch() throws Exception {
+    final Block localHead = extendLocalBranch(LOCAL_HEIGHT + 5);
+    final Block newPayloadBlock = getRemoteBlockByNumber(REMOTE_HEIGHT);
+
+    forkChoice(newPayloadBlock.getHash());
+    forkChoice(localHead.getHash());
+    syncWithRealAlgorithm(newPayloadBlock);
+
+    assertThat(localBlockchain.getChainHeadHash()).isEqualTo(localHead.getHash());
+    assertRemoteBranchStoredUntil(newPayloadBlock);
+  }
+
+  @Test
+  public void shouldTreatAStoredBlockAboveTheHeadAsImportedUnlessForkChoiceSelectedIt() {
+    final Block storedBlock = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
+    localBlockchain.storeBlock(storedBlock, blockDataGenerator.receipts(storedBlock));
+
+    assertThat(context.isAlreadyImported(storedBlock.getHeader())).isTrue();
+
+    // a block fork choice selected still has to become the head
+    forkChoice(storedBlock.getHash());
+    assertThat(context.isAlreadyImported(storedBlock.getHeader())).isFalse();
+  }
+
+  private void forkChoice(final Hash headHash) {
+    context.onNewUnverifiedForkchoice(new ForkchoiceEvent(headHash, Hash.ZERO, Hash.ZERO));
+  }
+
+  private Block extendLocalBranch(final int height) {
+    Block block = localBlockchain.getChainHeadBlock();
+    while (block.getHeader().getNumber() < height) {
+      block = createBlock((int) block.getHeader().getNumber() + 1, block.getHash());
+      localBlockchain.appendBlock(block, blockDataGenerator.receipts(block));
+    }
+    return block;
+  }
+
+  private void syncWithRealAlgorithm(final Block target) throws Exception {
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenAnswer(
+            invocation -> new BackwardSyncAlgorithmFactory().createBackwardSyncAlgorithm(context));
+    context.syncBackwardsUntil(target).get(30, TimeUnit.SECONDS);
+  }
+
+  private void assertRemoteBranchStoredUntil(final Block target) {
+    for (long i = LOCAL_HEIGHT + 1; i <= target.getHeader().getNumber(); i++) {
+      assertThat(localBlockchain.contains(getRemoteBlockByNumber((int) i).getHash()))
+          .describedAs("remote block %d", i)
+          .isTrue();
+    }
   }
 
   @Test

@@ -167,6 +167,9 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
       final EthScheduler ethScheduler) {
 
     this.syncState.set(syncState);
+    protocolContext
+        .getConsensusContext(MergeContext.class)
+        .addNewUnverifiedForkchoiceListener(backwardSyncContext);
 
     return new MergeCoordinator(
         protocolContext,

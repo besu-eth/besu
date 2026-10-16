@@ -22,7 +22,6 @@ public class BackwardSyncAlgorithmFactory {
         FinalBlockConfirmation.confirmationChain(
             FinalBlockConfirmation.genesisConfirmation(
                 backwardSyncContext.protocolContext.getBlockchain()),
-            FinalBlockConfirmation.ancestorConfirmation(
-                backwardSyncContext.protocolContext.getBlockchain())));
+            FinalBlockConfirmation.ancestorConfirmation(backwardSyncContext)));
   }
 }
