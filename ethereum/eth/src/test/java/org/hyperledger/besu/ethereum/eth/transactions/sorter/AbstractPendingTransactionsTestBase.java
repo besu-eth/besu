@@ -45,11 +45,13 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
@@ -84,6 +86,8 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   protected final TestClock clock = new TestClock();
   protected final StubMetricsSystem metricsSystem = new StubMetricsSystem();
+  protected final TransactionEventNotifier transactionEventNotifier =
+      new TransactionEventNotifier(new DeterministicEthScheduler());
   protected AbstractPendingTransactionsSorter transactions =
       getPendingTransactions(
           ImmutableTransactionPoolConfiguration.builder()
@@ -259,7 +263,7 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   @Test
   public void shouldNotifyListenerWhenRemoteTransactionAdded() {
-    transactions.subscribePendingTransactions(listener);
+    transactionEventNotifier.subscribePendingTransactionAdded(listener);
 
     transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
 
@@ -268,13 +272,13 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   @Test
   public void shouldNotNotifyListenerAfterUnsubscribe() {
-    final long id = transactions.subscribePendingTransactions(listener);
+    final long id = transactionEventNotifier.subscribePendingTransactionAdded(listener);
 
     transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
 
     verify(listener).onTransactionAdded(transaction1);
 
-    transactions.unsubscribePendingTransactions(id);
+    transactionEventNotifier.unsubscribePendingTransactionAdded(id);
 
     transactions.addTransaction(createRemotePendingTransaction(transaction2), Optional.empty());
 
@@ -283,7 +287,7 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   @Test
   public void shouldNotifyListenerWhenLocalTransactionAdded() {
-    transactions.subscribePendingTransactions(listener);
+    transactionEventNotifier.subscribePendingTransactionAdded(listener);
 
     transactions.addTransaction(createLocalPendingTransaction(transaction1), Optional.empty());
 
@@ -292,40 +296,44 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   @Test
   public void shouldNotifyDroppedListenerWhenRemoteTransactionDropped() {
-    transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createRemotePendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
 
-    transactions.subscribeDroppedTransactions(droppedListener);
+    transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
 
-    transactions.removeTransaction(transaction1, TIMED_EVICTION);
+    transactions.removeTransaction(pendingTransaction1, TIMED_EVICTION);
 
     verify(droppedListener).onTransactionDropped(transaction1, TIMED_EVICTION);
   }
 
   @Test
   public void shouldNotNotifyDroppedListenerAfterUnsubscribe() {
-    transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
-    transactions.addTransaction(createRemotePendingTransaction(transaction2), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createRemotePendingTransaction(transaction1);
+    final PendingTransaction pendingTransaction2 = createRemotePendingTransaction(transaction2);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
+    transactions.addTransaction(pendingTransaction2, Optional.empty());
 
-    final long id = transactions.subscribeDroppedTransactions(droppedListener);
+    final long id = transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
 
-    transactions.removeTransaction(transaction1, EVICTED);
+    transactions.removeTransaction(pendingTransaction1, EVICTED);
 
     verify(droppedListener).onTransactionDropped(transaction1, EVICTED);
 
-    transactions.unsubscribeDroppedTransactions(id);
+    transactionEventNotifier.unsubscribePendingTransactionDropped(id);
 
-    transactions.removeTransaction(transaction2, EVICTED);
+    transactions.removeTransaction(pendingTransaction2, EVICTED);
 
     verifyNoMoreInteractions(droppedListener);
   }
 
   @Test
   public void shouldNotifyDroppedListenerWhenLocalTransactionDropped() {
-    transactions.addTransaction(createLocalPendingTransaction(transaction1), Optional.empty());
+    final PendingTransaction pendingTransaction1 = createLocalPendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
 
-    transactions.subscribeDroppedTransactions(droppedListener);
+    transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
 
-    transactions.removeTransaction(transaction1, REPLACED);
+    transactions.removeTransaction(pendingTransaction1, REPLACED);
 
     verify(droppedListener).onTransactionDropped(transaction1, REPLACED);
   }
@@ -334,7 +342,7 @@ public abstract class AbstractPendingTransactionsTestBase {
   public void shouldNotNotifyDroppedListenerWhenTransactionAddedToBlock() {
     transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
 
-    transactions.subscribeDroppedTransactions(droppedListener);
+    transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
 
     transactions.transactionAddedToBlock(transaction1);
 
@@ -431,9 +439,10 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   @Test
   public void shouldReturnEmptyOptionalAsMaximumNonceWhenLastTransactionForSenderRemoved() {
-    final Transaction transaction = transactionWithNonceAndSender(1, KEYS1);
-    transactions.addTransaction(createRemotePendingTransaction(transaction), Optional.empty());
-    transactions.removeTransaction(transaction, INVALID);
+    final PendingTransaction pendingTransaction =
+        createRemotePendingTransaction(transactionWithNonceAndSender(1, KEYS1));
+    transactions.addTransaction(pendingTransaction, Optional.empty());
+    transactions.removeTransaction(pendingTransaction, INVALID);
     assertThat(transactions.getNextNonceForSender(SENDER1)).isEmpty();
   }
 
@@ -570,7 +579,7 @@ public abstract class AbstractPendingTransactionsTestBase {
                 createRemotePendingTransaction(transaction1), Optional.empty()))
         .isEqualTo(ADDED);
 
-    transactions.subscribePendingTransactions(listener);
+    transactionEventNotifier.subscribePendingTransactionAdded(listener);
     assertThat(
             transactions.addTransaction(
                 createRemotePendingTransaction(transaction1b), Optional.empty()))
@@ -816,7 +825,7 @@ public abstract class AbstractPendingTransactionsTestBase {
                 .build(),
             Optional.of(clock));
 
-    twoHourEvictionTransactionPool.subscribeDroppedTransactions(droppedListener);
+    transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
 
     twoHourEvictionTransactionPool.addTransaction(
         createRemotePendingTransaction(transaction1, clock.millis()), Optional.empty());
@@ -945,9 +954,9 @@ public abstract class AbstractPendingTransactionsTestBase {
   @Test
   public void shouldPrioritizeGasPriceThenTimeAddedToPool() {
     // Make sure the 100 gas price TX isn't dropped
-    transactions.subscribeDroppedTransactions(
-        (transaction, reason) ->
-            assertThat(transaction.getGasPrice().get().toLong()).isLessThan(100));
+    final List<Transaction> droppedTransactions = new ArrayList<>();
+    transactionEventNotifier.subscribePendingTransactionDropped(
+        (transaction, reason) -> droppedTransactions.add(transaction));
 
     // Fill the pool with transactions from random senders
     final List<Transaction> lowGasPriceTransactions =
@@ -978,5 +987,7 @@ public abstract class AbstractPendingTransactionsTestBase {
     lowGasPriceTransactions.stream()
         .limit(lowGasPriceTransactions.size() - 1)
         .forEach(this::assertTransactionPending);
+    assertThat(droppedTransactions)
+        .containsExactly(lowGasPriceTransactions.get(lowGasPriceTransactions.size() - 1));
   }
 }

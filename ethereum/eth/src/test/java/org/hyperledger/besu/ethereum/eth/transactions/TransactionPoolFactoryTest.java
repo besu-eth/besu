@@ -68,6 +68,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.math.BigInteger;
@@ -460,7 +461,8 @@ public class TransactionPoolFactoryTest {
         newPooledTransactionHashesMessageSender,
         new BlobCache(),
         MiningConfiguration.newDefault(),
-        EthProtocolConfiguration.DEFAULT);
+        EthProtocolConfiguration.DEFAULT,
+        new TransactionEventNotifier(new DeterministicEthScheduler()));
   }
 
   private TransactionPool createAndEnableTransactionPool(

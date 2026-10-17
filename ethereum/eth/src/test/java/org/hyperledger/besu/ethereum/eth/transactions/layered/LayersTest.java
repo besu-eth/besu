@@ -57,6 +57,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
@@ -1559,38 +1560,40 @@ public class LayersTest extends BaseTransactionPoolTest {
       final TransactionPoolMetrics txPoolMetrics = new TransactionPoolMetrics(metricsSystem);
       when(senderBalanceChecker.hasEnoughBalanceFor(any())).thenReturn(true);
 
-      this.dropped = new EvictCollectorLayer(txPoolMetrics);
       final EthScheduler ethScheduler = new DeterministicEthScheduler();
+      final TransactionEventNotifier transactionEventNotifier =
+          new TransactionEventNotifier(ethScheduler);
+      this.dropped = new EvictCollectorLayer(txPoolMetrics, transactionEventNotifier);
       this.sparse =
           new SparseTransactions(
               poolConfig,
-              ethScheduler,
               this.dropped,
               txPoolMetrics,
               (pt1, pt2) -> transactionReplacementTester(poolConfig, pt1, pt2),
-              new BlobCache());
+              new BlobCache(),
+              transactionEventNotifier);
 
       this.ready =
           new ReadyTransactions(
               poolConfig,
-              ethScheduler,
               this.sparse,
               txPoolMetrics,
               (pt1, pt2) -> transactionReplacementTester(poolConfig, pt1, pt2),
-              new BlobCache());
+              new BlobCache(),
+              transactionEventNotifier);
 
       this.prio =
           new BaseFeePrioritizedTransactions(
               poolConfig,
               LayersTest::mockBlockHeader,
-              ethScheduler,
               this.ready,
               txPoolMetrics,
               (pt1, pt2) -> transactionReplacementTester(poolConfig, pt1, pt2),
               FeeMarket.london(0L),
               new BlobCache(),
               MiningConfiguration.newDefault().setMinTransactionGasPrice(MIN_GAS_PRICE),
-              senderBalanceChecker);
+              senderBalanceChecker,
+              transactionEventNotifier);
 
       final ProtocolContext protocolContext = mock(ProtocolContext.class);
       when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
@@ -1598,8 +1601,9 @@ public class LayersTest extends BaseTransactionPoolTest {
       this.pending =
           new LayeredPendingTransactions(protocolContext, poolConfig, this.prio, ethScheduler);
 
-      this.pending.subscribePendingTransactions(notificationsChecker::collectAddNotification);
-      this.pending.subscribeDroppedTransactions(
+      transactionEventNotifier.subscribePendingTransactionAdded(
+          notificationsChecker::collectAddNotification);
+      transactionEventNotifier.subscribePendingTransactionDropped(
           (tx, reason) -> notificationsChecker.collectDropNotification(tx));
     }
 

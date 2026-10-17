@@ -54,6 +54,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -73,6 +74,7 @@ import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
@@ -137,12 +139,15 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
           .txPoolMaxSize(10)
           .txPoolLimitByAccountPercentage(Fraction.fromPercentage(100))
           .build();
+  private final TransactionEventNotifier transactionEventNotifier =
+      new TransactionEventNotifier(new DeterministicEthScheduler());
   private final BaseFeePendingTransactionsSorter transactions =
       new BaseFeePendingTransactionsSorter(
           poolConf,
           TestClock.system(ZoneId.systemDefault()),
           metricsSystem,
-          MergeCoordinatorCacheReorgTest::mockBlockHeader);
+          MergeCoordinatorCacheReorgTest::mockBlockHeader,
+          transactionEventNotifier);
 
   private CompletableFuture<Void> blockCreationTask = CompletableFuture.completedFuture(null);
 
@@ -221,7 +226,8 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConf,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
     transactionPool.setEnabled();
 
     MiningConfiguration miningConfiguration =

@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.transactions.layered;
 
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 
 import java.util.ArrayList;
@@ -25,8 +26,9 @@ public class EvictCollectorLayer extends EndLayer {
   static final String LAYER_NAME = "evict-collector";
   final List<PendingTransaction> evictedTxs = new ArrayList<>();
 
-  public EvictCollectorLayer(final TransactionPoolMetrics metrics) {
-    super(metrics);
+  public EvictCollectorLayer(
+      final TransactionPoolMetrics metrics, final TransactionEventNotifier eventNotifier) {
+    super(metrics, eventNotifier);
   }
 
   @Override

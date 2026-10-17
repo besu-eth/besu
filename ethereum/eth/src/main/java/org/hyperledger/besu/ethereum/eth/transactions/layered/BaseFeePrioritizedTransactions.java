@@ -20,9 +20,9 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
@@ -45,7 +45,6 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
   public BaseFeePrioritizedTransactions(
       final TransactionPoolConfiguration poolConfig,
       final Supplier<BlockHeader> chainHeadHeaderSupplier,
-      final EthScheduler ethScheduler,
       final TransactionsLayer nextLayer,
       final TransactionPoolMetrics metrics,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
@@ -53,15 +52,16 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
       final FeeMarket feeMarket,
       final BlobCache blobCache,
       final MiningConfiguration miningConfiguration,
-      final SenderBalanceChecker senderBalanceChecker) {
+      final SenderBalanceChecker senderBalanceChecker,
+      final TransactionEventNotifier eventNotifier) {
     super(
         poolConfig,
-        ethScheduler,
         nextLayer,
         metrics,
         transactionReplacementTester,
         blobCache,
-        miningConfiguration);
+        miningConfiguration,
+        eventNotifier);
     this.nextBlockBaseFee =
         Optional.of(calculateNextBlockBaseFee(feeMarket, chainHeadHeaderSupplier.get()));
     this.senderBalanceChecker = senderBalanceChecker;

@@ -67,14 +67,14 @@ public class BaseFeePrioritizedTransactionsTest extends AbstractPrioritizedTrans
     return new BaseFeePrioritizedTransactions(
         poolConfig,
         this::mockBlockHeader,
-        ethScheduler,
         nextLayer,
         txPoolMetrics,
         transactionReplacementTester,
         EIP1559_FEE_MARKET,
         new BlobCache(),
         miningConfiguration,
-        senderBalanceChecker);
+        senderBalanceChecker,
+        transactionEventNotifier);
   }
 
   @Override

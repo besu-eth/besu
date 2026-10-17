@@ -22,15 +22,13 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
-import org.hyperledger.besu.util.Subscribers;
 
 import java.util.List;
 import java.util.Map;
@@ -41,16 +39,14 @@ import java.util.function.Predicate;
 public class EndLayer implements TransactionsLayer {
 
   private final TransactionPoolMetrics metrics;
-  private final Subscribers<PendingTransactionAddedListener> onAddedListeners =
-      Subscribers.create();
-
-  private final Subscribers<PendingTransactionDroppedListener> onDroppedListeners =
-      Subscribers.create();
+  private final TransactionEventNotifier eventNotifier;
 
   private long droppedCount = 0;
 
-  public EndLayer(final TransactionPoolMetrics metrics) {
+  public EndLayer(
+      final TransactionPoolMetrics metrics, final TransactionEventNotifier eventNotifier) {
     this.metrics = metrics;
+    this.eventNotifier = eventNotifier;
   }
 
   @Override
@@ -87,7 +83,7 @@ public class EndLayer implements TransactionsLayer {
   public TransactionAddedResult add(
       final PendingTransaction pendingTransaction, final int gap, final AddReason reason) {
     logRemoved(pendingTransaction, DROPPED, name());
-    notifyTransactionDropped(pendingTransaction, DROPPED);
+    eventNotifier.notifyPendingTransactionDropped(pendingTransaction, DROPPED);
     metrics.incrementRemoved(pendingTransaction, DROPPED.label(), name());
     ++droppedCount;
     return TransactionAddedResult.DROPPED;
@@ -140,32 +136,6 @@ public class EndLayer implements TransactionsLayer {
       final int freeSlots,
       final int[] remainingPromotionsPerType) {
     return List.of();
-  }
-
-  @Override
-  public long subscribeToAdded(final PendingTransactionAddedListener listener) {
-    return onAddedListeners.subscribe(listener);
-  }
-
-  @Override
-  public void unsubscribeFromAdded(final long id) {
-    onAddedListeners.unsubscribe(id);
-  }
-
-  @Override
-  public long subscribeToDropped(final PendingTransactionDroppedListener listener) {
-    return onDroppedListeners.subscribe(listener);
-  }
-
-  @Override
-  public void unsubscribeFromDropped(final long id) {
-    onDroppedListeners.unsubscribe(id);
-  }
-
-  protected void notifyTransactionDropped(
-      final PendingTransaction pendingTransaction, final LayeredRemovalReason reason) {
-    onDroppedListeners.forEach(
-        listener -> listener.onTransactionDropped(pendingTransaction.getTransaction(), reason));
   }
 
   @Override

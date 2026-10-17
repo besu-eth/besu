@@ -72,6 +72,9 @@ public class TransactionPoolFactory {
     final NewPooledTransactionHashesMessageSender newPooledTransactionHashesMessageSender =
         new NewPooledTransactionHashesMessageSender(transactionTracker);
 
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(ethContext.getScheduler());
+
     return createTransactionPool(
         protocolSchedule,
         protocolContext,
@@ -85,7 +88,8 @@ public class TransactionPoolFactory {
         newPooledTransactionHashesMessageSender,
         blobCache,
         miningConfiguration,
-        ethProtocolConfiguration);
+        ethProtocolConfiguration,
+        transactionEventNotifier);
   }
 
   static TransactionPool createTransactionPool(
@@ -101,7 +105,8 @@ public class TransactionPoolFactory {
       final NewPooledTransactionHashesMessageSender newPooledTransactionHashesMessageSender,
       final BlobCache blobCache,
       final MiningConfiguration miningConfiguration,
-      final EthProtocolConfiguration ethProtocolConfiguration) {
+      final EthProtocolConfiguration ethProtocolConfiguration,
+      final TransactionEventNotifier transactionEventNotifier) {
 
     final TransactionPool transactionPool =
         new TransactionPool(
@@ -114,7 +119,8 @@ public class TransactionPoolFactory {
                     metrics,
                     transactionPoolConfiguration,
                     blobCache,
-                    miningConfiguration),
+                    miningConfiguration,
+                    transactionEventNotifier),
             protocolSchedule,
             protocolContext,
             new TransactionBroadcaster(
@@ -125,7 +131,8 @@ public class TransactionPoolFactory {
             ethContext,
             metrics,
             transactionPoolConfiguration,
-            blobCache);
+            blobCache,
+            transactionEventNotifier);
 
     final TransactionsMessageHandler transactionsMessageHandler =
         new TransactionsMessageHandler(
@@ -258,7 +265,8 @@ public class TransactionPoolFactory {
       final TransactionPoolMetrics metrics,
       final TransactionPoolConfiguration transactionPoolConfiguration,
       final BlobCache blobCache,
-      final MiningConfiguration miningConfiguration) {
+      final MiningConfiguration miningConfiguration,
+      final TransactionEventNotifier transactionEventNotifier) {
 
     boolean isFeeMarketImplementBaseFee =
         protocolSchedule.anyMatch(
@@ -273,14 +281,16 @@ public class TransactionPoolFactory {
           transactionPoolConfiguration,
           isFeeMarketImplementBaseFee,
           blobCache,
-          miningConfiguration);
+          miningConfiguration,
+          transactionEventNotifier);
     } else {
       return createPendingTransactionSorter(
           protocolContext,
           clock,
           metrics.getMetricsSystem(),
           transactionPoolConfiguration,
-          isFeeMarketImplementBaseFee);
+          isFeeMarketImplementBaseFee,
+          transactionEventNotifier);
     }
   }
 
@@ -289,19 +299,22 @@ public class TransactionPoolFactory {
       final Clock clock,
       final MetricsSystem metricsSystem,
       final TransactionPoolConfiguration transactionPoolConfiguration,
-      final boolean isFeeMarketImplementBaseFee) {
+      final boolean isFeeMarketImplementBaseFee,
+      final TransactionEventNotifier transactionEventNotifier) {
     if (isFeeMarketImplementBaseFee) {
       return new BaseFeePendingTransactionsSorter(
           transactionPoolConfiguration,
           clock,
           metricsSystem,
-          protocolContext.getBlockchain()::getChainHeadHeader);
+          protocolContext.getBlockchain()::getChainHeadHeader,
+          transactionEventNotifier);
     } else {
       return new GasPricePendingTransactionsSorter(
           transactionPoolConfiguration,
           clock,
           metricsSystem,
-          protocolContext.getBlockchain()::getChainHeadHeader);
+          protocolContext.getBlockchain()::getChainHeadHeader,
+          transactionEventNotifier);
     }
   }
 
@@ -313,7 +326,8 @@ public class TransactionPoolFactory {
       final TransactionPoolConfiguration transactionPoolConfiguration,
       final boolean isFeeMarketImplementBaseFee,
       final BlobCache blobCache,
-      final MiningConfiguration miningConfiguration) {
+      final MiningConfiguration miningConfiguration,
+      final TransactionEventNotifier transactionEventNotifier) {
 
     final TransactionPoolReplacementHandler transactionReplacementHandler =
         new TransactionPoolReplacementHandler(
@@ -329,25 +343,25 @@ public class TransactionPoolFactory {
         SenderBalanceChecker.create(
             protocolSchedule, protocolContext, transactionPoolConfiguration);
 
-    final EndLayer endLayer = new EndLayer(metrics);
+    final EndLayer endLayer = new EndLayer(metrics, transactionEventNotifier);
 
     final SparseTransactions sparseTransactions =
         new SparseTransactions(
             transactionPoolConfiguration,
-            ethScheduler,
             endLayer,
             metrics,
             transactionReplacementTester,
-            blobCache);
+            blobCache,
+            transactionEventNotifier);
 
     final ReadyTransactions readyTransactions =
         new ReadyTransactions(
             transactionPoolConfiguration,
-            ethScheduler,
             sparseTransactions,
             metrics,
             transactionReplacementTester,
-            blobCache);
+            blobCache,
+            transactionEventNotifier);
 
     final AbstractPrioritizedTransactions pendingTransactionsSorter;
     if (isFeeMarketImplementBaseFee) {
@@ -360,25 +374,25 @@ public class TransactionPoolFactory {
           new BaseFeePrioritizedTransactions(
               transactionPoolConfiguration,
               protocolContext.getBlockchain()::getChainHeadHeader,
-              ethScheduler,
               readyTransactions,
               metrics,
               transactionReplacementTester,
               feeMarket,
               blobCache,
               miningConfiguration,
-              senderBalanceChecker);
+              senderBalanceChecker,
+              transactionEventNotifier);
     } else {
       pendingTransactionsSorter =
           new GasPricePrioritizedTransactions(
               transactionPoolConfiguration,
-              ethScheduler,
               readyTransactions,
               metrics,
               transactionReplacementTester,
               blobCache,
               miningConfiguration,
-              senderBalanceChecker);
+              senderBalanceChecker,
+              transactionEventNotifier);
     }
 
     return new LayeredPendingTransactions(

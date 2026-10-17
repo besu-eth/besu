@@ -29,11 +29,10 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
@@ -45,7 +44,6 @@ import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
-import org.hyperledger.besu.util.Subscribers;
 
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
@@ -88,30 +86,26 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   protected final Map<Address, PendingTransactionsForSender> transactionsBySender =
       new ConcurrentHashMap<>();
 
-  protected final Subscribers<PendingTransactionAddedListener> pendingTransactionSubscribers =
-      Subscribers.create();
-
-  protected final Subscribers<PendingTransactionDroppedListener> transactionDroppedListeners =
-      Subscribers.create();
-
   protected final LabelledMetric<Counter> transactionRemovedCounter;
   protected final Counter localTransactionAddedCounter;
   protected final Counter remoteTransactionAddedCounter;
 
   protected final TransactionPoolReplacementHandler transactionReplacementHandler;
   protected final Supplier<BlockHeader> chainHeadHeaderSupplier;
-
+  private final TransactionEventNotifier eventNotifier;
   private final BlobCache blobCache;
 
   public AbstractPendingTransactionsSorter(
       final TransactionPoolConfiguration poolConfig,
       final Clock clock,
       final MetricsSystem metricsSystem,
-      final Supplier<BlockHeader> chainHeadHeaderSupplier) {
+      final Supplier<BlockHeader> chainHeadHeaderSupplier,
+      final TransactionEventNotifier eventNotifier) {
     this.poolConfig = poolConfig;
     this.pendingTransactions = new ConcurrentHashMap<>(poolConfig.getTxPoolMaxSize());
     this.clock = clock;
     this.chainHeadHeaderSupplier = chainHeadHeaderSupplier;
+    this.eventNotifier = eventNotifier;
     this.transactionReplacementHandler =
         new TransactionPoolReplacementHandler(
             poolConfig.getPriceBump(), poolConfig.getBlobPriceBump());
@@ -163,7 +157,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                   .setMessage("Evicted {} due to age")
                   .addArgument(transactionInfo::toTraceLog)
                   .log();
-              removeTransaction(transactionInfo.getTransaction(), TIMED_EVICTION);
+              removeTransaction(transactionInfo, TIMED_EVICTION);
             });
   }
 
@@ -199,9 +193,10 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     return transactionAddedStatus;
   }
 
-  void removeTransaction(final Transaction transaction, final SequencedRemovalReason reason) {
-    removeTransaction(transaction, false);
-    notifyTransactionDropped(transaction, reason);
+  void removeTransaction(
+      final PendingTransaction pendingTransaction, final SequencedRemovalReason reason) {
+    removeTransaction(pendingTransaction.getTransaction(), false);
+    eventNotifier.notifyPendingTransactionDropped(pendingTransaction, reason);
   }
 
   @Override
@@ -264,7 +259,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
       if (result.discard()) {
         synchronized (lock) {
-          removeTransaction(pendingTransaction.getTransaction(), INVALID);
+          removeTransaction(pendingTransaction, INVALID);
         }
         logDiscardedTransaction(pendingTransaction, result);
       }
@@ -304,7 +299,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     PendingTransaction existingPendingTx =
         pendingTxsForSender.getPendingTransactionForNonce(pendingTransaction.getNonce());
 
-    final Optional<Transaction> maybeReplacedTransaction;
+    final Optional<PendingTransaction> maybeReplacedPendingTransaction;
     if (existingPendingTx != null) {
       if (!transactionReplacementHandler.shouldReplace(
           existingPendingTx, pendingTransaction, chainHeadHeaderSupplier.get())) {
@@ -319,9 +314,9 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
           .addArgument(existingPendingTx::toTraceLog)
           .addArgument(pendingTransaction::toTraceLog)
           .log();
-      maybeReplacedTransaction = Optional.of(existingPendingTx.getTransaction());
+      maybeReplacedPendingTransaction = Optional.of(existingPendingTx);
     } else {
-      maybeReplacedTransaction = Optional.empty();
+      maybeReplacedPendingTransaction = Optional.empty();
     }
 
     pendingTxsForSender.updateSenderAccount(maybeSenderAccount);
@@ -330,7 +325,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
         .setMessage("Tracked transaction by sender {}")
         .addArgument(pendingTxsForSender::toTraceLog)
         .log();
-    maybeReplacedTransaction.ifPresent(tx -> removeTransaction(tx, REPLACED));
+    maybeReplacedPendingTransaction.ifPresent(ptx -> removeTransaction(ptx, REPLACED));
     return ADDED;
   }
 
@@ -354,16 +349,6 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                     .log();
               }
             });
-  }
-
-  private void notifyTransactionAdded(final Transaction transaction) {
-    pendingTransactionSubscribers.forEach(listener -> listener.onTransactionAdded(transaction));
-  }
-
-  private void notifyTransactionDropped(
-      final Transaction transaction, final SequencedRemovalReason reason) {
-    transactionDroppedListeners.forEach(
-        listener -> listener.onTransactionDropped(transaction, reason));
   }
 
   @Override
@@ -417,26 +402,6 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                         entry.getKey(),
                         entry.getValue().maybeCurrentNonce().orElse(0),
                         entry.getValue().getPendingTransactions())));
-  }
-
-  @Override
-  public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
-    return pendingTransactionSubscribers.subscribe(listener);
-  }
-
-  @Override
-  public void unsubscribePendingTransactions(final long id) {
-    pendingTransactionSubscribers.unsubscribe(id);
-  }
-
-  @Override
-  public long subscribeDroppedTransactions(final PendingTransactionDroppedListener listener) {
-    return transactionDroppedListeners.subscribe(listener);
-  }
-
-  @Override
-  public void unsubscribeDroppedTransactions(final long id) {
-    transactionDroppedListeners.unsubscribe(id);
   }
 
   @Override
@@ -512,7 +477,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
         evictLessPriorityTransactions();
       }
     }
-    notifyTransactionAdded(pendingTransaction.getTransaction());
+    eventNotifier.notifyPendingTransactionAdded(pendingTransaction);
     return ADDED;
   }
 
@@ -526,7 +491,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
     // remove backward to avoid gaps
     for (int i = txsToEvict.size() - 1; i >= 0; i--) {
-      removeTransaction(txsToEvict.get(i).getTransaction(), EVICTED);
+      removeTransaction(txsToEvict.get(i), EVICTED);
     }
   }
 

@@ -112,6 +112,8 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
   protected static final Wei DEFAULT_MIN_GAS_PRICE = Wei.of(50L);
 
   protected final EthScheduler ethScheduler = new DeterministicEthScheduler();
+  protected final TransactionEventNotifier transactionEventNotifier =
+      new TransactionEventNotifier(ethScheduler);
 
   @Mock(answer = Answers.RETURNS_DEEP_STUBS)
   protected TransactionValidatorFactory transactionValidatorFactory;
@@ -286,7 +288,8 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConfig,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
     txPool.setEnabled();
     return txPool;
   }

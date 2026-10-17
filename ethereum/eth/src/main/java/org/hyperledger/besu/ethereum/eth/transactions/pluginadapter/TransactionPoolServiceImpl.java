@@ -61,14 +61,14 @@ public class TransactionPoolServiceImpl implements TransactionPoolService {
 
   @Override
   public Subscription subscribeTransactionAdded(final TransactionAddedListener listener) {
-    final long id = transactionPool.subscribePendingTransactions(listener::onTransactionAdded);
+    final long id = transactionPool.subscribePendingTransactionsAsync(listener::onTransactionAdded);
     return unsubscribeOnClose(() -> transactionPool.unsubscribePendingTransactions(id));
   }
 
   @Override
   public Subscription subscribeTransactionDropped(final TransactionDroppedListener listener) {
     final long id =
-        transactionPool.subscribeDroppedTransactions(
+        transactionPool.subscribeDroppedTransactionsAsync(
             (transaction, reason) -> listener.onTransactionDropped(transaction, reason.label()));
     return unsubscribeOnClose(() -> transactionPool.unsubscribeDroppedTransactions(id));
   }

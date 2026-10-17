@@ -19,10 +19,10 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.LayerMoveReason.FOLLOW_INVALIDATED;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason;
@@ -37,13 +37,13 @@ public abstract class AbstractSequentialTransactionsLayer extends AbstractTransa
 
   public AbstractSequentialTransactionsLayer(
       final TransactionPoolConfiguration poolConfig,
-      final EthScheduler ethScheduler,
       final TransactionsLayer nextLayer,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
           transactionReplacementTester,
       final TransactionPoolMetrics metrics,
-      final BlobCache blobCache) {
-    super(poolConfig, ethScheduler, nextLayer, transactionReplacementTester, metrics, blobCache);
+      final BlobCache blobCache,
+      final TransactionEventNotifier eventNotifier) {
+    super(poolConfig, nextLayer, transactionReplacementTester, metrics, blobCache, eventNotifier);
   }
 
   @Override

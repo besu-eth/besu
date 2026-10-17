@@ -65,7 +65,8 @@ public class BlobV1TransactionPoolTest extends AbstractTransactionPoolTestBase {
         poolConfig,
         TestClock.system(ZoneId.systemDefault()),
         metricsSystem,
-        protocolContext.getBlockchain()::getChainHeadHeader);
+        protocolContext.getBlockchain()::getChainHeadHeader,
+        transactionEventNotifier);
   }
 
   @Override

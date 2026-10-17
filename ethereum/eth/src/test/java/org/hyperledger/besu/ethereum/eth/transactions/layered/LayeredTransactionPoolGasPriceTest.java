@@ -41,13 +41,13 @@ public class LayeredTransactionPoolGasPriceTest extends AbstractLayeredTransacti
           transactionReplacementTester) {
     return new GasPricePrioritizedTransactions(
         poolConfig,
-        ethScheduler,
         nextLayer,
         txPoolMetrics,
         transactionReplacementTester,
         new BlobCache(),
         MiningConfiguration.newDefault(),
-        senderBalanceChecker);
+        senderBalanceChecker,
+        transactionEventNotifier);
   }
 
   @Override

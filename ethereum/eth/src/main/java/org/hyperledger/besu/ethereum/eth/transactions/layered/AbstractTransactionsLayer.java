@@ -36,17 +36,14 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
-import org.hyperledger.besu.util.Subscribers;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -56,7 +53,6 @@ import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.function.BiFunction;
 import java.util.function.BinaryOperator;
@@ -85,27 +81,20 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
   protected final Map<Hash, PendingTransaction> pendingTransactions = new HashMap<>();
   protected final Map<Address, NavigableMap<Long, PendingTransaction>> txsBySender =
       new HashMap<>();
-  private final Subscribers<PendingTransactionAddedListener> onAddedListeners =
-      Subscribers.create();
-  private final Subscribers<PendingTransactionDroppedListener> onDroppedListeners =
-      Subscribers.create();
-  private OptionalLong nextLayerOnAddedListenerId = OptionalLong.empty();
-  private OptionalLong nextLayerOnDroppedListenerId = OptionalLong.empty();
   protected long spaceUsed = 0;
   protected final int[] txCountByType = new int[TransactionType.values().length];
   private final BlobCache blobCache;
-  private final EthScheduler ethScheduler;
+  private final TransactionEventNotifier eventNotifier;
 
   protected AbstractTransactionsLayer(
       final TransactionPoolConfiguration poolConfig,
-      final EthScheduler ethScheduler,
       final TransactionsLayer nextLayer,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
           transactionReplacementTester,
       final TransactionPoolMetrics metrics,
-      final BlobCache blobCache) {
+      final BlobCache blobCache,
+      final TransactionEventNotifier eventNotifier) {
     this.poolConfig = poolConfig;
-    this.ethScheduler = ethScheduler;
     this.nextLayer = nextLayer;
     this.transactionReplacementTester = transactionReplacementTester;
     this.metrics = metrics;
@@ -118,6 +107,7 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
                 metrics.initTransactionCountByType(
                     () -> txCountByType[type.ordinal()], name(), type));
     this.blobCache = blobCache;
+    this.eventNotifier = eventNotifier;
   }
 
   protected abstract boolean gapsAllowed();
@@ -225,7 +215,7 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
 
       if (addReason.sendNotification()) {
         logAdded(addedPendingTransaction, gap, addReason, name());
-        ethScheduler.scheduleServiceTask(() -> notifyTransactionAdded(addedPendingTransaction));
+        eventNotifier.notifyPendingTransactionAdded(addedPendingTransaction);
       }
 
     } else {
@@ -421,7 +411,7 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
     decreaseCounters(replacedTx);
     metrics.incrementRemoved(replacedTx, REPLACED.label(), name());
     internalReplaced(replacedTx);
-    notifyTransactionDropped(replacedTx, REPLACED);
+    eventNotifier.notifyPendingTransactionDropped(replacedTx, REPLACED);
   }
 
   protected abstract void internalReplaced(final PendingTransaction replacedTx);
@@ -459,7 +449,7 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
       internalRemove(senderTxs, removedTx, removalReason);
       if (removalReason.removedFrom().equals(POOL)) {
         logRemoved(removedTx, removalReason, name());
-        notifyTransactionDropped(removedTx, removalReason);
+        eventNotifier.notifyPendingTransactionDropped(removedTx, removalReason);
       } else {
         logMoved(removedTx, removalReason, name());
       }
@@ -640,41 +630,6 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
   @Override
   public int count() {
     return pendingTransactions.size() + nextLayer.count();
-  }
-
-  protected void notifyTransactionAdded(final PendingTransaction pendingTransaction) {
-    onAddedListeners.forEach(
-        listener -> listener.onTransactionAdded(pendingTransaction.getTransaction()));
-  }
-
-  protected void notifyTransactionDropped(
-      final PendingTransaction pendingTransaction, final LayeredRemovalReason reason) {
-    onDroppedListeners.forEach(
-        listener -> listener.onTransactionDropped(pendingTransaction.getTransaction(), reason));
-  }
-
-  @Override
-  public long subscribeToAdded(final PendingTransactionAddedListener listener) {
-    nextLayerOnAddedListenerId = OptionalLong.of(nextLayer.subscribeToAdded(listener));
-    return onAddedListeners.subscribe(listener);
-  }
-
-  @Override
-  public void unsubscribeFromAdded(final long id) {
-    nextLayerOnAddedListenerId.ifPresent(nextLayer::unsubscribeFromAdded);
-    onAddedListeners.unsubscribe(id);
-  }
-
-  @Override
-  public long subscribeToDropped(final PendingTransactionDroppedListener listener) {
-    nextLayerOnDroppedListenerId = OptionalLong.of(nextLayer.subscribeToDropped(listener));
-    return onDroppedListeners.subscribe(listener);
-  }
-
-  @Override
-  public void unsubscribeFromDropped(final long id) {
-    nextLayerOnDroppedListenerId.ifPresent(nextLayer::unsubscribeFromDropped);
-    onDroppedListeners.unsubscribe(id);
   }
 
   @Override
