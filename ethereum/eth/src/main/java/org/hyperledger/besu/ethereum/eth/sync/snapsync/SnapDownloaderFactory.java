@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2WorldStateDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -64,43 +63,6 @@ public class SnapDownloaderFactory {
       final Clock clock,
       final SyncDurationMetrics syncDurationMetrics,
       final Optional<ChainDataPruner> chainDataPruner) {
-    if (Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
-      // The snap/2 controller will be created here; until then v2 uses v1 behavior.
-    }
-
-    return createSnapDownloaderV1(
-        snapContext,
-        pivotBlockSelector,
-        syncConfig,
-        dataDirectory,
-        protocolSchedule,
-        protocolContext,
-        metricsSystem,
-        ethContext,
-        worldStateStorageCoordinator,
-        syncState,
-        clock,
-        syncDurationMetrics,
-        chainDataPruner);
-  }
-
-  public static Optional<SnapSyncController> createSnapDownloaderV1(
-      final SnapSyncStatePersistenceManager snapContext,
-      final PivotBlockSelector pivotBlockSelector,
-      final SynchronizerConfiguration syncConfig,
-      final Path dataDirectory,
-      final ProtocolSchedule protocolSchedule,
-      final ProtocolContext protocolContext,
-      final MetricsSystem metricsSystem,
-      final EthContext ethContext,
-      final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final SyncState syncState,
-      final Clock clock,
-      final SyncDurationMetrics syncDurationMetrics,
-      final Optional<ChainDataPruner> chainDataPruner) {
-    final boolean snap2Enabled =
-        Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled());
-
     final Path syncDataDirectory = dataDirectory.resolve(SYNC_FOLDER);
 
     ensureDirectoryExists(syncDataDirectory.toFile());
@@ -127,45 +89,20 @@ public class SnapDownloaderFactory {
 
     final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection =
         createSnapWorldStateDownloaderTaskCollection();
-    final WorldStateDownloader snapWorldStateDownloader;
-    if (snap2Enabled) {
-      if (!worldStateStorageCoordinator.getDataStorageFormat().isBonsaiFormat()) {
-        throw new IllegalStateException(
-            "Snap/2 synchronization requires a Bonsai data storage format, but "
-                + worldStateStorageCoordinator.getDataStorageFormat()
-                + " is configured");
-      }
-      snapWorldStateDownloader =
-          new SnapV2WorldStateDownloader(
-              ethContext,
-              snapContext,
-              protocolContext.getBlockchain(),
-              worldStateStorageCoordinator,
-              protocolSchedule,
-              snapTaskCollection,
-              syncConfig.getSnapSyncConfiguration(),
-              syncConfig.getSnapSyncConfiguration().getSnap2RequestParallelism(),
-              syncConfig.getWorldStateMaxRequestsWithoutProgress(),
-              syncConfig.getWorldStateMinMillisBeforeStalling(),
-              clock,
-              metricsSystem,
-              syncDurationMetrics);
-    } else {
-      snapWorldStateDownloader =
-          new SnapWorldStateDownloader(
-              ethContext,
-              snapContext,
-              protocolContext,
-              worldStateStorageCoordinator,
-              snapTaskCollection,
-              syncConfig.getSnapSyncConfiguration(),
-              syncConfig.getWorldStateRequestParallelism(),
-              syncConfig.getWorldStateMaxRequestsWithoutProgress(),
-              syncConfig.getWorldStateMinMillisBeforeStalling(),
-              clock,
-              metricsSystem,
-              syncDurationMetrics);
-    }
+    final WorldStateDownloader snapWorldStateDownloader =
+        new SnapWorldStateDownloader(
+            ethContext,
+            snapContext,
+            protocolContext,
+            worldStateStorageCoordinator,
+            snapTaskCollection,
+            syncConfig.getSnapSyncConfiguration(),
+            syncConfig.getWorldStateRequestParallelism(),
+            syncConfig.getWorldStateMaxRequestsWithoutProgress(),
+            syncConfig.getWorldStateMinMillisBeforeStalling(),
+            clock,
+            metricsSystem,
+            syncDurationMetrics);
     final SnapSyncDownloader fastSyncDownloader =
         new SnapSyncDownloader(
             new PivotSyncActions(

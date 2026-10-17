@@ -116,7 +116,11 @@ public class TraceCallMany extends TraceCall implements JsonRpcMethod {
     }
     Arrays.stream(transactionsAndTraceTypeParameters)
         .map(param -> param.getTuple().getCallParameter())
-        .forEach(CallParameterUtil::rejectMixedFeeFields);
+        .forEach(
+            callParams -> {
+              CallParameterUtil.rejectMixedFeeFields(callParams);
+              CallParameterUtil.rejectBlobFieldsWithoutHashes(callParams);
+            });
 
     final Optional<BlockHeader> maybeBlockHeader =
         blockchainQueriesSupplier.get().getBlockHeaderByNumber(blockNumber);

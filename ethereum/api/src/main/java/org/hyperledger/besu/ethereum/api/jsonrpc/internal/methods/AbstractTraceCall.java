@@ -102,7 +102,9 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
   }
 
   protected CallParameter getCallParams(final JsonRpcRequestContext requestContext) {
-    return CallParameterUtil.validateAndGetCallParams(requestContext);
+    final CallParameter callParams = CallParameterUtil.validateAndGetCallParams(requestContext);
+    CallParameterUtil.rejectEmptyBlobHashes(callParams);
+    return callParams;
   }
 
   /**

@@ -179,6 +179,20 @@ public class EthCreateAccessListTest {
   }
 
   @Test
+  public void shouldRejectBlobFeeWithoutBlobHashes() {
+    final JsonRpcRequestContext request =
+        ethCreateAccessListRequest(
+            ImmutableCallParameter.copyOf(legacyTransactionCallParameter(Wei.ZERO))
+                .withMaxFeePerBlobGas(Wei.ONE));
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_BLOB_COUNT));
+    verifyNoInteractions(transactionSimulator);
+  }
+
+  @Test
   public void shouldReturnErrorWhenWorldStateIsNotAvailable() {
     when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(false);
     final JsonRpcRequestContext request =

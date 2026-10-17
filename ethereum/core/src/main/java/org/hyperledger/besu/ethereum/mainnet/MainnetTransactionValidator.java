@@ -335,7 +335,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
       }
     }
 
-    if (Long.compareUnsigned(transaction.getNonce(), senderNonce) < 0) {
+    if (!validationParams.isAllowPastNonce()
+        && Long.compareUnsigned(transaction.getNonce(), senderNonce) < 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.NONCE_TOO_LOW,
           String.format(

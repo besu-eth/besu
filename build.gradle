@@ -991,7 +991,7 @@ subprojects {
     jmh {
       zip64.set(true)
       jmhVersion = '1.37'
-      fork = 3
+      fork = 5
       resultFormat = 'JSON'
       var inc = _strListCmdArg('includes', [''])
       includes = inc.size() > 1 ? [".*(${inc.join('|')}).*"] : inc

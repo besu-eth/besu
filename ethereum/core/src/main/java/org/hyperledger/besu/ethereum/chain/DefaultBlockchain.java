@@ -1252,10 +1252,6 @@ public class DefaultBlockchain implements MutableBlockchain {
     return totalDifficultyCache;
   }
 
-  public BlockchainStorage getBlockchainStorage() {
-    return blockchainStorage;
-  }
-
   /**
    * Performs a binary search to find the first existing block number in the blockchain. This method
    * starts the search from block number 1, as the genesis block (block 0) is assumed to always

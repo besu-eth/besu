@@ -88,7 +88,7 @@ public class TransactionSimulator {
 
   // TODO: Identify a better default from account to use, such as the registered
   // coinbase or an account currently unlocked by the client.
-  private static final Address DEFAULT_FROM =
+  static final Address DEFAULT_FROM =
       Address.fromHexString("0x0000000000000000000000000000000000000000");
 
   private final Blockchain blockchain;

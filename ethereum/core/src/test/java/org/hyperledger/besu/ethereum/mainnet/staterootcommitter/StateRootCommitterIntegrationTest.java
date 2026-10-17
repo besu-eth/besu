@@ -66,6 +66,7 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.math.BigInteger;
@@ -379,6 +380,30 @@ class StateRootCommitterIntegrationTest {
         assertThat(worldState.get(CONTRACT).getStorageValue(SLOT.getSlotKey().orElseThrow()))
             .isEqualTo(SLOT_VALUE);
       }
+    }
+
+    @Test
+    void timedPersist_writesTheWorldStateKeysToTheCommitterTrieBranch() {
+      final BlockChange blockChange = BlockChange.complex();
+      final BlockHeader parent = harness.persistParent();
+      final BlockHeader blockHeader = harness.childHeader(parent, blockChange);
+      final StateRootCommitter committer =
+          new DefaultStateRootCommitter().timed(NoOpMetricsSystem.NO_OP_OPERATION_TIMER);
+
+      try (BonsaiWorldState worldState = harness.newWritableWorldState()) {
+        blockChange.apply(worldState.updater());
+        worldState.updater().commit();
+        worldState.persist(blockHeader, committer);
+      }
+
+      assertThat(committer.getTrieBranchType()).isEqualTo(TrieBranchType.PATRICIA);
+      final BonsaiWorldStateKeyValueStorage worldStateStorage = harness.worldStateStorage();
+      assertThat(worldStateStorage.getWorldStateRootHash(TrieBranchType.PATRICIA))
+          .contains(blockHeader.getStateRoot().getBytes());
+      assertThat(worldStateStorage.getWorldStateBlockHash(TrieBranchType.PATRICIA))
+          .contains(blockHeader.getBlockHash());
+      assertThat(worldStateStorage.getWorldStateBlockNumber(TrieBranchType.PATRICIA))
+          .contains(blockHeader.getNumber());
     }
 
     @Test
@@ -937,6 +962,10 @@ class StateRootCommitterIntegrationTest {
 
     ProtocolContext protocolContext() {
       return protocolContext;
+    }
+
+    BonsaiWorldStateKeyValueStorage worldStateStorage() {
+      return archive.getWorldStateKeyValueStorage();
     }
 
     BonsaiWorldState newWritableWorldState() {

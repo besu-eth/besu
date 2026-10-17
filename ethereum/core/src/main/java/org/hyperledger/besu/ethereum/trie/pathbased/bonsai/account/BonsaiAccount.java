@@ -23,6 +23,9 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
+import org.hyperledger.besu.ethereum.trie.common.MptStorageRootStrategy;
+import org.hyperledger.besu.ethereum.trie.common.StorageRootStrategy;
+import org.hyperledger.besu.ethereum.trie.common.TrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
@@ -41,7 +44,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
-public class BonsaiAccount implements MutableAccount, AccountValue {
+/** Bonsai account, whose storage root is held by a {@link StorageRootStrategy}. */
+public class BonsaiAccount implements MutableAccount, TrieAccountValue {
   protected final BonsaiWorldView context;
   protected boolean immutable;
   protected final Address address;
@@ -54,7 +58,7 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
 
   protected final Map<UInt256, UInt256> updatedStorage = new HashMap<>();
 
-  private Hash storageRoot;
+  private final StorageRootStrategy storageRootStrategy;
 
   public BonsaiAccount(
       final BonsaiWorldView context,
@@ -62,7 +66,7 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
       final Hash addressHash,
       final long nonce,
       final Wei balance,
-      final Hash storageRoot,
+      final StorageRootStrategy storageRootStrategy,
       final Hash codeHash,
       final boolean mutable,
       final CodeCache codeCache) {
@@ -74,29 +78,11 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
     this.codeHash = codeHash;
     this.codeCache = codeCache;
     this.immutable = !mutable;
-    this.storageRoot = storageRoot;
+    this.storageRootStrategy = storageRootStrategy;
 
     if (codeHash.equals(Hash.EMPTY)) {
       this.code = Code.EMPTY_CODE;
     }
-  }
-
-  public BonsaiAccount(
-      final BonsaiWorldView context,
-      final Address address,
-      final AccountValue stateTrieAccount,
-      final boolean mutable,
-      final CodeCache codeCache) {
-    this(
-        context,
-        address,
-        address.addressHash(),
-        stateTrieAccount.getNonce(),
-        stateTrieAccount.getBalance(),
-        stateTrieAccount.getStorageRoot(),
-        stateTrieAccount.getCodeHash(),
-        mutable,
-        codeCache);
   }
 
   public BonsaiAccount(final BonsaiAccount toCopy) {
@@ -113,7 +99,7 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
     this.codeHash = toCopy.codeHash;
     this.immutable = !mutable;
     this.codeCache = toCopy.codeCache;
-    this.storageRoot = toCopy.storageRoot;
+    this.storageRootStrategy = toCopy.storageRootStrategy.copy();
     this.updatedStorage.putAll(toCopy.updatedStorage);
 
     if (toCopy.code == null && toCopy.codeHash.equals(Hash.EMPTY)) {
@@ -138,7 +124,7 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
     this.immutable = false;
     this.codeCache = codeCache;
     this.code = new Code(tracked.getCode());
-    this.storageRoot = Hash.EMPTY_TRIE_HASH;
+    this.storageRootStrategy = new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH);
     this.updatedStorage.putAll(tracked.getUpdatedStorage());
   }
 
@@ -154,7 +140,9 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
 
     final long nonce = in.readLongScalar();
     final Wei balance = Wei.of(in.readUInt256Scalar());
-    final Hash storageRoot = Hash.wrap(in.readBytes32());
+    final StorageRootStrategy storageRootStrategy =
+        new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH);
+    storageRootStrategy.readStorageRoot(in);
     final Hash codeHash = Hash.wrap(in.readBytes32());
 
     in.leaveList();
@@ -165,10 +153,20 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
         address.addressHash(),
         nonce,
         balance,
-        storageRoot,
+        storageRootStrategy,
         codeHash,
         mutable,
         codeCache);
+  }
+
+  /** Returns the {@link StorageRootStrategy} held by this account. */
+  StorageRootStrategy getStorageRootStrategy() {
+    return storageRootStrategy;
+  }
+
+  @Override
+  public StorageRootStrategy storageRootStrategy() {
+    return storageRootStrategy.copy();
   }
 
   @Override
@@ -340,7 +338,7 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
 
     out.writeLongScalar(nonce);
     out.writeUInt256Scalar(balance);
-    out.writeBytes(storageRoot.getBytes());
+    storageRootStrategy.writeStorageRoot(out);
     out.writeBytes(codeHash.getBytes());
 
     out.endList();
@@ -348,14 +346,14 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
 
   @Override
   public Hash getStorageRoot() {
-    return storageRoot;
+    return storageRootStrategy.getStorageRoot();
   }
 
   public void setStorageRoot(final Hash storageRoot) {
     if (immutable) {
       throw new ModificationNotAllowedException();
     }
-    this.storageRoot = storageRoot;
+    storageRootStrategy.setStorageRoot(storageRoot);
   }
 
   @Override
@@ -368,7 +366,7 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
         + ", balance="
         + balance
         + ", storageRoot="
-        + storageRoot
+        + storageRootStrategy.getStorageRoot()
         + ", codeHash="
         + codeHash
         + '}';
@@ -393,9 +391,7 @@ public class BonsaiAccount implements MutableAccount, AccountValue {
       if (!Objects.equals(source.balance, account.getBalance())) {
         throw new IllegalStateException(context + ": balances differ");
       }
-      if (!Objects.equals(source.storageRoot, account.getStorageRoot())) {
-        throw new IllegalStateException(context + ": Storage Roots differ");
-      }
+      source.storageRootStrategy.assertStorageRootMatches(account, context);
     }
   }
 }

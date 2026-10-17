@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
@@ -30,6 +29,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapsho
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.StorageSubscriber;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.TrieBranchSegments;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.PathBasedWorldStateCacheManager;
@@ -44,6 +44,7 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -216,7 +217,8 @@ public abstract class PathBasedWorldState
         computation.applyTo(stateUpdater);
       }
       final Hash calculatedRootHash = computation.root();
-      stageWorldStateKeys(stateUpdater, blockHeader, calculatedRootHash);
+      stageWorldStateKeys(
+          stateUpdater, committer.getTrieBranchType(), blockHeader, calculatedRootHash);
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
@@ -246,28 +248,27 @@ public abstract class PathBasedWorldState
 
   private void stageWorldStateKeys(
       final BonsaiWorldStateKeyValueStorage.Updater stateUpdater,
+      final TrieBranchType trieBranchType,
       final BlockHeader blockHeader,
       final Hash calculatedRootHash) {
+    final SegmentIdentifier trieBranchSegment = TrieBranchSegments.segmentFor(trieBranchType);
     if (blockHeader != null) {
       stateUpdater
           .getWorldStateTransaction()
           .put(
-              TRIE_BRANCH_STORAGE,
+              trieBranchSegment,
               WORLD_BLOCK_HASH_KEY,
               blockHeader.getBlockHash().getBytes().toArrayUnsafe());
     } else {
-      stateUpdater.getWorldStateTransaction().remove(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY);
+      stateUpdater.getWorldStateTransaction().remove(trieBranchSegment, WORLD_BLOCK_HASH_KEY);
     }
     stateUpdater
         .getWorldStateTransaction()
-        .put(
-            TRIE_BRANCH_STORAGE,
-            WORLD_ROOT_HASH_KEY,
-            calculatedRootHash.getBytes().toArrayUnsafe());
+        .put(trieBranchSegment, WORLD_ROOT_HASH_KEY, calculatedRootHash.getBytes().toArrayUnsafe());
     stateUpdater
         .getWorldStateTransaction()
         .put(
-            TRIE_BRANCH_STORAGE,
+            trieBranchSegment,
             WORLD_BLOCK_NUMBER_KEY,
             Bytes.ofUnsignedLong(blockHeader == null ? 0L : blockHeader.getNumber())
                 .toArrayUnsafe());

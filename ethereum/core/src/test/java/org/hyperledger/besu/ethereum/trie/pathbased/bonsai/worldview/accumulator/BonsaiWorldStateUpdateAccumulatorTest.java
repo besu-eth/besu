@@ -16,7 +16,10 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulato
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
@@ -24,6 +27,8 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
@@ -36,10 +41,11 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
-/** Tests for {@link BonsaiWorldStateUpdateAccumulator#importStateChangesFromPartialView}. */
+/** Tests for {@link BonsaiWorldStateUpdateAccumulator}. */
 class BonsaiWorldStateUpdateAccumulatorTest {
 
   private static final Address ACCOUNT =
@@ -77,6 +83,42 @@ class BonsaiWorldStateUpdateAccumulatorTest {
       final BonsaiValue<UInt256> trieLogSlot = trieLog.getStorageChanges(ACCOUNT).get(SLOT);
       assertThat(trieLogSlot.getPrior()).isEqualTo(V0);
       assertThat(trieLogSlot.getUpdated()).isEqualTo(V2);
+    }
+  }
+
+  @Test
+  void rollForward_keepsTheStorageRootOfThePatriciaAccountValue() {
+    final Hash storageRoot = Hash.hash(Bytes.of(1, 2, 3));
+    final AccountValue accountValue =
+        new PatriciaTrieAccountValue(1L, Wei.ONE, storageRoot, Hash.EMPTY);
+
+    assertThat(rollForwardStorageRoot(accountValue)).isEqualTo(storageRoot);
+  }
+
+  @Test
+  void rollForward_keepsTheStorageRootOfAPluginAccountValue() {
+    // a trie log from a plugin factory may hold another account value implementation
+    final Hash storageRoot = Hash.hash(Bytes.of(4, 5, 6));
+    final AccountValue accountValue = mock(AccountValue.class);
+    when(accountValue.getNonce()).thenReturn(1L);
+    when(accountValue.getBalance()).thenReturn(Wei.ONE);
+    when(accountValue.getStorageRoot()).thenReturn(storageRoot);
+    when(accountValue.getCodeHash()).thenReturn(Hash.EMPTY);
+
+    assertThat(rollForwardStorageRoot(accountValue)).isEqualTo(storageRoot);
+  }
+
+  private static Hash rollForwardStorageRoot(final AccountValue accountValue) {
+    try (BonsaiWorldState worldState = newEmptyWorldState()) {
+      final BonsaiWorldStateUpdateAccumulator accumulator =
+          (BonsaiWorldStateUpdateAccumulator) worldState.updater();
+      final TrieLogLayer trieLog = new TrieLogLayer();
+      trieLog.addAccountChange(ACCOUNT, null, accountValue);
+
+      accumulator.rollForward(trieLog);
+
+      final BonsaiAccount account = accumulator.getAccountsToUpdate().get(ACCOUNT).getUpdated();
+      return account.getStorageRoot();
     }
   }
 

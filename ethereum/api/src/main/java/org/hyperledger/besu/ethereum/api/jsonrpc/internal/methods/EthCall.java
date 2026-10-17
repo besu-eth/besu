@@ -96,6 +96,7 @@ public class EthCall extends AbstractBlockParameterOrBlockHashMethod {
   protected Object resultByBlockHeader(
       final JsonRpcRequestContext request, final BlockHeader header) {
     CallParameter callParams = CallParameterUtil.validateAndGetCallParams(request);
+    CallParameterUtil.rejectBlobFieldsWithoutHashes(callParams);
     Optional<StateOverrideMap> maybeStateOverrides = getAddressStateOverrideMap(request);
     // TODO implement for block overrides
 

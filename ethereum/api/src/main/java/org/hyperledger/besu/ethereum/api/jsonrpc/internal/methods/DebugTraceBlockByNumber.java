@@ -86,12 +86,12 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod
           request.getRequest().getId(), RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE);
     }
 
-    return maybeBlock
-        .map(
-            block ->
-                new DebugTraceBlockStreamer(
-                    block, traceOptions, protocolSchedule, blockchainQueriesRef, serverStepLimit))
-        .orElse(null);
+    if (maybeBlock.isEmpty()) {
+      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND);
+    }
+
+    return new DebugTraceBlockStreamer(
+        maybeBlock.get(), traceOptions, protocolSchedule, blockchainQueriesRef, serverStepLimit);
   }
 
   @Override
@@ -105,7 +105,7 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod
       return;
     }
 
-    final DebugTraceBlockStreamer streamer = result instanceof DebugTraceBlockStreamer s ? s : null;
+    final DebugTraceBlockStreamer streamer = (DebugTraceBlockStreamer) result;
     AbstractDebugTraceBlock.writeStreamingResponse(
         requestContext.getRequest().getId(), streamer, out, mapper, requestContext::isAlive);
   }
@@ -120,9 +120,7 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod
     if (result instanceof JsonRpcErrorResponse errorResponse) {
       return errorResponse;
     }
-    if (!(result instanceof DebugTraceBlockStreamer streamer)) {
-      return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null);
-    }
+    final DebugTraceBlockStreamer streamer = (DebugTraceBlockStreamer) result;
     return new JsonRpcSuccessResponse(
         requestContext.getRequest().getId(), streamer.accumulateAll(requestContext::isAlive));
   }

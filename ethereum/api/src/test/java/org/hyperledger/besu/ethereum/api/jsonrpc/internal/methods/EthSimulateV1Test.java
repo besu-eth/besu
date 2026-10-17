@@ -15,14 +15,17 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonBlockStateCallParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.SimulateV1Parameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -52,6 +55,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -213,6 +218,62 @@ public class EthSimulateV1Test {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) response).getError().getCode())
         .isEqualTo(RpcErrorType.INVALID_PARAMS.getCode());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void shouldRejectEmptyBlobHashesInAnyCall(final boolean validation) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+
+    final Map<String, Object> call =
+        Map.of(
+            "from", "0xc000000000000000000000000000000000000000",
+            "to", "0xd000000000000000000000000000000000000000");
+    final Map<String, Object> emptyBlobHashesCall =
+        Map.of(
+            "from", "0xc000000000000000000000000000000000000000",
+            "to", "0xd000000000000000000000000000000000000000",
+            "blobVersionedHashes", List.of());
+    final Map<String, Object> simulateParam =
+        Map.of(
+            "blockStateCalls",
+            List.of(
+                Map.of("calls", List.of(call)),
+                Map.of("calls", List.of(call, emptyBlobHashesCall))),
+            "validation",
+            validation);
+
+    assertThatThrownBy(() -> method.response(simulateRequest(simulateParam)))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_BLOB_COUNT));
+    verifyNoInteractions(blockSimulator);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0x0", "0x1"})
+  public void shouldAcceptMaxFeePerBlobGasWithoutBlobHashes(final String maxFeePerBlobGas) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenReturn(List.of());
+
+    final Map<String, Object> call =
+        Map.of(
+            "from", "0xc000000000000000000000000000000000000000",
+            "to", "0xd000000000000000000000000000000000000000",
+            "maxFeePerBlobGas", maxFeePerBlobGas);
+    final Map<String, Object> simulateParam =
+        Map.of("blockStateCalls", List.of(Map.of("calls", List.of(call))));
+
+    assertThat(method.response(simulateRequest(simulateParam)))
+        .isNotInstanceOf(JsonRpcErrorResponse.class);
+  }
+
+  private static JsonRpcRequestContext simulateRequest(final Map<String, Object> simulateParam) {
+    return new JsonRpcRequestContext(
+        new JsonRpcRequest("2.0", "eth_simulateV1", new Object[] {simulateParam, "latest"}));
   }
 
   private void setupMethodWithMockSimulator() {

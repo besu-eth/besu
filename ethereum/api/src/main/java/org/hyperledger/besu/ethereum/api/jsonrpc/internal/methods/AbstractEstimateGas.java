@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.CallParameterUtil.rejectBlobFieldsWithoutHashes;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.CallParameterUtil.validateAndGetCallParams;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -82,6 +83,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       return super.findResultByParamType(requestContext);
     }
     final CallParameter callParameter = validateAndGetCallParams(requestContext);
+    rejectBlobFieldsWithoutHashes(callParameter);
     final Optional<BlockHeader> maybeBlockHeader =
         getBlockchainQueries().getBlockHeaderByHash(maybeBlockHash.get());
     final Optional<RpcErrorType> jsonRpcError = validateBlockHeader(maybeBlockHeader);
@@ -106,6 +108,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
   @Override
   protected Object pendingResult(final JsonRpcRequestContext requestContext) {
     final CallParameter callParameter = validateAndGetCallParams(requestContext);
+    rejectBlobFieldsWithoutHashes(callParameter);
     final var validationParams = getTransactionValidationParams(callParameter);
     final var maybeStateOverrides = getAddressStateOverrideMap(requestContext);
     final var pendingBlockHeader = transactionSimulator.simulatePendingBlockHeader();
@@ -132,6 +135,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext requestContext, final long blockNumber) {
     final CallParameter callParameter = validateAndGetCallParams(requestContext);
+    rejectBlobFieldsWithoutHashes(callParameter);
     final Optional<BlockHeader> maybeBlockHeader = blockHeader(blockNumber);
     final Optional<RpcErrorType> jsonRpcError = validateBlockHeader(maybeBlockHeader);
     if (jsonRpcError.isPresent()) {

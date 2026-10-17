@@ -24,7 +24,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
@@ -45,6 +45,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.nio.charset.StandardCharsets;
@@ -199,19 +200,33 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
   }
 
   public Optional<Bytes> getWorldStateRootHash() {
-    return composedWorldStateStorage.get(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY).map(Bytes::wrap);
+    return getWorldStateRootHash(TrieBranchType.PATRICIA);
+  }
+
+  public Optional<Bytes> getWorldStateRootHash(final TrieBranchType trieBranchType) {
+    return composedWorldStateStorage
+        .get(TrieBranchSegments.segmentFor(trieBranchType), WORLD_ROOT_HASH_KEY)
+        .map(Bytes::wrap);
   }
 
   public Optional<Hash> getWorldStateBlockHash() {
+    return getWorldStateBlockHash(TrieBranchType.PATRICIA);
+  }
+
+  public Optional<Hash> getWorldStateBlockHash(final TrieBranchType trieBranchType) {
     return composedWorldStateStorage
-        .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY)
+        .get(TrieBranchSegments.segmentFor(trieBranchType), WORLD_BLOCK_HASH_KEY)
         .map(Bytes32::wrap)
         .map(Hash::wrap);
   }
 
   public Optional<Long> getWorldStateBlockNumber() {
+    return getWorldStateBlockNumber(TrieBranchType.PATRICIA);
+  }
+
+  public Optional<Long> getWorldStateBlockNumber(final TrieBranchType trieBranchType) {
     return composedWorldStateStorage
-        .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY)
+        .get(TrieBranchSegments.segmentFor(trieBranchType), WORLD_BLOCK_NUMBER_KEY)
         .map(bytes -> Bytes.wrap(bytes).toLong());
   }
 
@@ -243,8 +258,13 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
   }
 
   public boolean isWorldStateAvailable(final Bytes32 rootHash, final Hash blockHash) {
+    return isWorldStateAvailable(TrieBranchType.PATRICIA, rootHash, blockHash);
+  }
+
+  public boolean isWorldStateAvailable(
+      final TrieBranchType trieBranchType, final Bytes32 rootHash, final Hash blockHash) {
     return composedWorldStateStorage
-        .get(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY)
+        .get(TrieBranchSegments.segmentFor(trieBranchType), WORLD_ROOT_HASH_KEY)
         .map(Bytes32::wrap)
         .map(
             hash ->
@@ -342,7 +362,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
             getAccount(accountHash)
                 .map(
                     b ->
-                        PmtStateTrieAccountValue.readFrom(
+                        PatriciaTrieAccountValue.readFrom(
                                 org.hyperledger.besu.ethereum.rlp.RLP.input(b))
                             .getStorageRoot()),
         accountHash,
@@ -581,12 +601,21 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     }
 
     public Updater saveWorldState(final Bytes blockHash, final Bytes32 nodeHash, final Bytes node) {
+      return saveWorldState(TrieBranchType.PATRICIA, blockHash, nodeHash, node);
+    }
+
+    public Updater saveWorldState(
+        final TrieBranchType trieBranchType,
+        final Bytes blockHash,
+        final Bytes32 nodeHash,
+        final Bytes node) {
+      final SegmentIdentifier trieBranchSegment = TrieBranchSegments.segmentFor(trieBranchType);
       composedWorldStateTransaction.put(
-          TRIE_BRANCH_STORAGE, Bytes.EMPTY.toArrayUnsafe(), node.toArrayUnsafe());
+          trieBranchSegment, Bytes.EMPTY.toArrayUnsafe(), node.toArrayUnsafe());
       composedWorldStateTransaction.put(
-          TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY, nodeHash.toArrayUnsafe());
+          trieBranchSegment, WORLD_ROOT_HASH_KEY, nodeHash.toArrayUnsafe());
       composedWorldStateTransaction.put(
-          TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY, blockHash.toArrayUnsafe());
+          trieBranchSegment, WORLD_BLOCK_HASH_KEY, blockHash.toArrayUnsafe());
       return this;
     }
 
