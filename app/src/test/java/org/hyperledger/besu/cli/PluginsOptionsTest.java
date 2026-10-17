@@ -21,6 +21,8 @@ import static org.mockito.Mockito.verify;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginsVerificationMode;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -114,7 +116,7 @@ public class PluginsOptionsTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
-            "-plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
+            "--plugins-dir, --plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
   }
 
   @Test
@@ -147,7 +149,7 @@ public class PluginsOptionsTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
-            "-plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
+            "--plugins-dir, --plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
   }
 
   @Test
@@ -167,6 +169,62 @@ public class PluginsOptionsTest extends CommandTestAbstract {
     verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
     assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsVerificationMode())
         .isEqualTo(PluginsVerificationMode.FULL);
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldFailWhenPluginsIsDisabledAndPluginsDirExplicitlySet() {
+    parseCommand("--Xplugins-external-enabled=false", "--plugins-dir", "/some/plugins");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "--plugins-dir, --plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
+  }
+
+  @Test
+  public void shouldDefaultThePluginsDirToTheSystemPropertyOrBesuHome() {
+    parseCommand();
+    verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+    assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+        .isEqualTo(PluginConfiguration.defaultPluginsDir());
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldReadThePluginsDirFromTheCommandLine() {
+    parseCommand("--plugins-dir", "/some/plugins");
+    verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+    assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+        .isEqualTo(Path.of("/some/plugins"));
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldReadThePluginsDirFromTheEnvironment() {
+    setEnvironmentVariable("BESU_PLUGINS_DIR", "/env/plugins");
+    parseCommand();
+    verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+    assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+        .isEqualTo(Path.of("/env/plugins"));
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldReadThePluginsDirFromTheConfigFile() throws IOException {
+    final Path toml = createTempFile("toml", "plugins-dir=\"/toml/plugins\"\n");
+    parseCommand("--config-file", toml.toString());
+    verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+    assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+        .isEqualTo(Path.of("/toml/plugins"));
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();

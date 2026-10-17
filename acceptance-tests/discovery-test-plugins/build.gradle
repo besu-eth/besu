@@ -1,0 +1,26 @@
+
+dependencies {
+  api 'org.slf4j:slf4j-api'
+
+  implementation project(':plugin-api')
+  implementation 'com.google.auto.service:auto-service'
+
+  testImplementation 'org.assertj:assertj-core'
+  testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+jar {
+  archiveFileName = 'discoveryTestPlugins.jar'
+  manifest {
+    attributes(
+      'Specification-Title': archiveBaseName,
+      'Specification-Version': project.version,
+      'Implementation-Title': archiveBaseName,
+      'Implementation-Version': calculateVersion(),
+      'Commit-Hash': getGitCommitDetails(40).hash
+      )
+  }
+  from sourceSets.main.output
+}
+
+javadoc { enabled = false }

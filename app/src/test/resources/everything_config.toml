@@ -259,6 +259,7 @@ Xevm-jumpdest-cache-weight-kb=32000
 
 # plugins
 Xplugins-external-enabled=true
+plugins-dir="/plugins"
 plugins=["none"]
 plugin-continue-on-error=false
 plugins-verification-mode="none"

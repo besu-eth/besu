@@ -39,18 +39,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
@@ -105,8 +107,14 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private final Map<Class<?>, BesuService> besuServices = new ConcurrentHashMap<>();
   private final Map<Class<?>, ServiceWithProvider> pluginServices = new ConcurrentHashMap<>();
 
-  private List<BesuPlugin> detectedPlugins = new ArrayList<>();
-  private List<String> requestedPlugins = new ArrayList<>();
+  /** The ids of every plugin found in the plugins directory, in load order. */
+  private List<String> detectedPluginIds = List.of();
+
+  /** The ids of the detected plugins that the configuration selects, in load order. */
+  private List<String> selectedPluginIds = List.of();
+
+  /** The selected plugins that were instantiated, by id, in load order. */
+  private final Map<String, BesuPlugin> instantiatedPlugins = new LinkedHashMap<>();
 
   /** Plugins that completed {@code defineOptions()}, in load order. */
   private final List<BesuPlugin> loadedPlugins = new ArrayList<>();
@@ -323,13 +331,13 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     for (final BesuPlugin plugin : loadPlugins()) {
       try {
         plugin.defineOptions(picoCLIOptions);
-        pluginVersions.put(plugin.getName(), plugin.getVersion());
+        pluginVersions.put(pluginId(plugin), plugin.getVersion());
         loadedPlugins.add(plugin);
         if (LOG.isDebugEnabled()) {
           LOG.debug("Defined options of plugin of type {}.", plugin.getClass().getName());
         }
       } catch (final Exception | LinkageError e) {
-        final String failure = failureMessage("defining options of", plugin, e);
+        final String failure = failureMessage("defining options of", pluginId(plugin), e);
         if (config.isContinueOnPluginError()) {
           LOG.error("{}, register, start and stop will not be called.", failure, e);
         } else {
@@ -341,24 +349,107 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   }
 
   /**
-   * Discovers, verifies and instantiates the plugins selected by the configuration.
+   * The id of a plugin: its fully qualified class name, which is what {@code --plugins}, {@code
+   * --version}, the startup summary and the reload RPC use.
+   */
+  private static String pluginId(final BesuPlugin plugin) {
+    return pluginId(plugin.getClass());
+  }
+
+  private static String pluginId(final Class<?> pluginType) {
+    return pluginType.getName();
+  }
+
+  /**
+   * Discovers and verifies the plugins in the plugins directory, selects the ones the configuration
+   * requests and instantiates only those, in load order.
    *
    * @return the plugins to define options for, empty when external plugins are disabled
    */
-  @VisibleForTesting
-  List<BesuPlugin> loadPlugins() {
+  private List<BesuPlugin> loadPlugins() {
     if (!config.isExternalPluginsEnabled()) {
       LOG.debug("External plugins are disabled. Skipping plugins loading.");
       return List.of();
     }
-    detectedPlugins = detectPlugins(config);
-    if (config.getRequestedPlugins().isEmpty()) {
-      // If no plugins were specified, load all detected plugins
-      return detectedPlugins;
+    final List<ServiceLoader.Provider<BesuPlugin>> detected = detectPlugins();
+    detectedPluginIds = detected.stream().map(provider -> pluginId(provider.type())).toList();
+    final List<ServiceLoader.Provider<BesuPlugin>> selected =
+        config.getRequestedPlugins().isEmpty()
+            ? detected
+            : selectRequestedPlugins(config.getRequestedPlugins(), detected);
+    selectedPluginIds = selected.stream().map(provider -> pluginId(provider.type())).toList();
+    return instantiate(selected);
+  }
+
+  /**
+   * Resolves each requested plugin to one of the detected plugins: by id, or by simple class name
+   * when exactly one detected plugin has it.
+   *
+   * @return the selected plugins, in load order rather than in the order they were requested
+   * @throws IllegalArgumentException if a simple class name matches several detected plugins
+   * @throws NoSuchElementException if a requested plugin was not detected
+   */
+  private static List<ServiceLoader.Provider<BesuPlugin>> selectRequestedPlugins(
+      final List<String> requestedPlugins,
+      final List<ServiceLoader.Provider<BesuPlugin>> detected) {
+    final Set<String> selectedIds = new HashSet<>();
+    final List<String> missing = new ArrayList<>();
+    for (final String requested : requestedPlugins) {
+      final List<String> matchingIds =
+          detected.stream()
+              .map(ServiceLoader.Provider::type)
+              .filter(
+                  pluginType ->
+                      requested.equals(pluginId(pluginType))
+                          || requested.equals(pluginType.getSimpleName()))
+              .map(BesuPluginContextImpl::pluginId)
+              .toList();
+      if (matchingIds.size() > 1) {
+        throw new IllegalArgumentException(
+            "Plugin name "
+                + requested
+                + " matches several plugins, select one by its id: "
+                + String.join(", ", matchingIds));
+      }
+      if (matchingIds.isEmpty()) {
+        missing.add(requested);
+      } else {
+        selectedIds.add(matchingIds.getFirst());
+      }
     }
-    // Load only the plugins that were explicitly requested and validated
-    requestedPlugins = config.getRequestedPlugins();
-    return matchAndValidateRequestedPlugins(requestedPlugins, detectedPlugins);
+    if (!missing.isEmpty()) {
+      throw new NoSuchElementException(
+          "The following requested plugins were not found: " + String.join(", ", missing));
+    }
+    return detected.stream()
+        .filter(provider -> selectedIds.contains(pluginId(provider.type())))
+        .toList();
+  }
+
+  /**
+   * Instantiates the selected plugins. A plugin whose constructor or static initializer fails is
+   * skipped with {@code --plugin-continue-on-error}, and fails startup otherwise.
+   */
+  private List<BesuPlugin> instantiate(final List<ServiceLoader.Provider<BesuPlugin>> selected) {
+    final List<BesuPlugin> plugins = new ArrayList<>(selected.size());
+    for (final ServiceLoader.Provider<BesuPlugin> provider : selected) {
+      final String pluginId = pluginId(provider.type());
+      try {
+        final BesuPlugin plugin = provider.get();
+        plugins.add(plugin);
+        instantiatedPlugins.put(pluginId, plugin);
+      } catch (final ServiceConfigurationError e) {
+        // the service loader wraps what the constructor threw
+        final Throwable cause = e.getCause() == null ? e : e.getCause();
+        final String failure = failureMessage("instantiating", pluginId, cause);
+        if (config.isContinueOnPluginError()) {
+          LOG.error("{}, defineOptions, register, start and stop will not be called.", failure, e);
+        } else {
+          throw new RuntimeException(failure, e);
+        }
+      }
+    }
+    return plugins;
   }
 
   /**
@@ -412,33 +503,6 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     state = Lifecycle.REGISTERED;
   }
 
-  private List<BesuPlugin> matchAndValidateRequestedPlugins(
-      final List<String> requestedPluginNames, final List<BesuPlugin> detectedPlugins)
-      throws NoSuchElementException {
-
-    // Filter detected plugins to include only those that match the requested names
-    List<BesuPlugin> matchingPlugins =
-        detectedPlugins.stream()
-            .filter(plugin -> requestedPluginNames.contains(plugin.getClass().getSimpleName()))
-            .toList();
-
-    // Check if all requested plugins were found among the detected plugins
-    if (matchingPlugins.size() != requestedPluginNames.size()) {
-      // Find which requested plugins were not matched to throw a detailed exception
-      Set<String> matchedPluginNames =
-          matchingPlugins.stream()
-              .map(plugin -> plugin.getClass().getSimpleName())
-              .collect(Collectors.toSet());
-      String missingPlugins =
-          requestedPluginNames.stream()
-              .filter(name -> !matchedPluginNames.contains(name))
-              .collect(Collectors.joining(", "));
-      throw new NoSuchElementException(
-          "The following requested plugins were not found: " + missingPlugins);
-    }
-    return matchingPlugins;
-  }
-
   /**
    * Finds the plugin misuse in the causal chain of a lifecycle failure that is always fatal, even
    * with {@code --plugin-continue-on-error} and even when the plugin wrapped it.
@@ -460,8 +524,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
    * cause, since the startup path logs only the message at the default level.
    */
   private static String failureMessage(
-      final String action, final BesuPlugin plugin, final Throwable e) {
-    final String pluginType = plugin.getClass().getName();
+      final String action, final String pluginType, final Throwable e) {
     if (isPluginApiMismatch(e)) {
       return "Plugin of type "
           + pluginType
@@ -506,11 +569,11 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         throw new RuntimeException(
             "Plugin " + plugin.getClass().getName() + ": " + unrecoverable.get().getMessage(), e);
       }
-      final String failure = failureMessage("registering", plugin, e);
+      final String failure = failureMessage("registering", pluginId(plugin), e);
       if (config.isContinueOnPluginError()) {
         LOG.error("{}, start and stop will not be called.", failure, e);
         // recorded when its options were defined; a plugin that is not registered is not listed
-        pluginVersions.remove(plugin.getName());
+        pluginVersions.remove(pluginId(plugin));
         // nothing can have looked up what it published yet, so retract it: a later plugin may
         // publish the same type, and no one is handed a service of a plugin that never starts
         pluginServices.values().removeIf(entry -> entry.provider() == plugin);
@@ -546,7 +609,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
           throw new RuntimeException(
               "Plugin " + plugin.getClass().getName() + ": " + unrecoverable.get().getMessage(), e);
         }
-        final String failure = failureMessage("starting", plugin, e);
+        final String failure = failureMessage("starting", pluginId(plugin), e);
         if (config.isContinueOnPluginError()) {
           LOG.error("{}, stop will not be called.", failure, e);
           pluginsIterator.remove();
@@ -582,7 +645,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
           throw new RuntimeException(
               "Plugin " + plugin.getClass().getName() + ": " + unrecoverable.get().getMessage(), e);
         }
-        final String failure = failureMessage("calling `afterMainLoop` on", plugin, e);
+        final String failure = failureMessage("calling `afterMainLoop` on", pluginId(plugin), e);
         if (config.isContinueOnPluginError()) {
           LOG.error("{}, stop will not be called.", failure, e);
           pluginsIterator.remove();
@@ -635,39 +698,58 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     }
   }
 
-  private List<BesuPlugin> detectPlugins(final PluginConfiguration config) {
-    final var pluginsDir = config.getPluginsDir();
-    if (pluginsDir != null && pluginsDir.toFile().isDirectory()) {
-      LOG.debug("Searching for plugins in {}", pluginsDir.toAbsolutePath());
-
-      try (final Stream<Path> pluginFilesList = Files.list(pluginsDir)) {
-        final URL[] pluginJarURLs =
-            pluginFilesList
-                .filter(p -> p.getFileName().toString().endsWith(".jar"))
-                .map(BesuPluginContextImpl::pathToURIOrNull)
-                .toArray(URL[]::new);
-        // The URLClassLoader must remain open for the entire application lifecycle
-        // as plugins may load classes lazily during their operation. The classloader
-        // will be closed in stopPlugins() during shutdown.
-        this.pluginClassLoader =
-            new URLClassLoader(pluginJarURLs, this.getClass().getClassLoader());
-        ServiceLoader<BesuPlugin> serviceLoader =
-            ServiceLoader.load(BesuPlugin.class, this.pluginClassLoader);
-        final var foundPlugins = StreamSupport.stream(serviceLoader.spliterator(), false).toList();
-        PluginVerifier.verify(
-            config.getPluginsVerificationMode(), this.pluginClassLoader, foundPlugins);
-
-        return foundPlugins;
-      } catch (final MalformedURLException e) {
-        LOG.error("Error converting files to URLs, could not load plugins", e);
-      } catch (final IOException e) {
-        LOG.error("Error enumerating plugins, could not load plugins", e);
-      }
-    } else {
-      LOG.debug("Plugin directory does not exist, skipping registration. - {}", pluginsDir);
+  /**
+   * Puts the jars of the plugins directory, in file name order, on the plugin class loader and
+   * discovers the plugins they declare, without instantiating any. A plugins directory that exists
+   * but cannot be read, or a plugin declaration that cannot be loaded, fails startup; a missing
+   * directory means no plugins.
+   *
+   * @return the detected plugins, in load order
+   */
+  @VisibleForTesting
+  List<ServiceLoader.Provider<BesuPlugin>> detectPlugins() {
+    final Path pluginsDir = config.getPluginsDir().toAbsolutePath();
+    if (!Files.isDirectory(pluginsDir)) {
+      LOG.info("Plugins directory {} does not exist, no plugins will be loaded", pluginsDir);
+      return List.of();
     }
+    LOG.debug("Searching for plugins in {}", pluginsDir);
 
-    return List.of();
+    final URL[] pluginJarURLs;
+    try (final Stream<Path> pluginFiles = Files.list(pluginsDir)) {
+      pluginJarURLs =
+          pluginFiles
+              .filter(p -> p.getFileName().toString().endsWith(".jar"))
+              .sorted(Comparator.comparing(p -> p.getFileName().toString()))
+              .map(BesuPluginContextImpl::pathToURIOrNull)
+              .toArray(URL[]::new);
+    } catch (final IOException e) {
+      throw new IllegalStateException(
+          "Cannot read the plugins directory " + pluginsDir + " (" + e + ")", e);
+    }
+    // The URLClassLoader must remain open for the entire application lifecycle
+    // as plugins may load classes lazily during their operation. The classloader
+    // will be closed in stopPlugins() during shutdown.
+    this.pluginClassLoader = new URLClassLoader(pluginJarURLs, this.getClass().getClassLoader());
+
+    final List<ServiceLoader.Provider<BesuPlugin>> detected;
+    try {
+      detected = ServiceLoader.load(BesuPlugin.class, this.pluginClassLoader).stream().toList();
+    } catch (final ServiceConfigurationError e) {
+      throw new IllegalStateException(
+          "Cannot load a plugin declared by a jar in " + pluginsDir + " (" + e.getMessage() + ")",
+          e);
+    }
+    try {
+      PluginVerifier.verify(
+          config.getPluginsVerificationMode(),
+          this.pluginClassLoader,
+          detected.stream().map(ServiceLoader.Provider::type).toList());
+    } catch (final IOException e) {
+      throw new IllegalStateException(
+          "Cannot verify the plugins in " + pluginsDir + " (" + e + ")", e);
+    }
+    return detected;
   }
 
   @Override
@@ -686,55 +768,60 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   }
 
   /**
-   * Gets plugins by name.
+   * Gets the registered plugins by id.
    *
-   * @return the plugins by name
+   * @return the plugins by id
    */
   public Map<String, BesuPlugin> getPluginsByName() {
     return registeredPlugins.stream()
-        .collect(Collectors.toMap(plugin -> plugin.getName(), plugin -> plugin));
+        .collect(Collectors.toMap(BesuPluginContextImpl::pluginId, plugin -> plugin));
   }
 
   /**
-   * Generates a summary log of plugin registration. The summary includes registered plugins,
-   * detected but not registered (skipped) plugins
+   * Generates a summary log of plugin registration: the registered plugins, the selected plugins
+   * that did not register and the detected plugins the configuration did not select, each by id,
+   * with the version of those that were instantiated.
    *
    * @return A list of strings, each representing a line in the summary log.
    */
   public List<String> getPluginsSummaryLog() {
-    List<String> summary = new ArrayList<>();
+    final List<String> summary = new ArrayList<>();
     summary.add("Plugin Registration Summary:");
 
-    // Log registered plugins with their names and versions
     if (registeredPlugins.isEmpty()) {
       summary.add("No plugins have been registered.");
     } else {
       summary.add("Registered Plugins:");
-      registeredPlugins.forEach(
-          plugin ->
-              summary.add(
-                  String.format(
-                      " - %s (%s)", plugin.getClass().getSimpleName(), plugin.getVersion())));
+      registeredPlugins.forEach(plugin -> summary.add(" - " + describe(pluginId(plugin))));
     }
 
-    // Identify and log detected but not registered (skipped) plugins
-    List<BesuPlugin> skippedPlugins =
-        detectedPlugins.stream().filter(plugin -> !registeredPlugins.contains(plugin)).toList();
-
-    if (!skippedPlugins.isEmpty()) {
+    final Set<String> registeredIds =
+        registeredPlugins.stream().map(BesuPluginContextImpl::pluginId).collect(Collectors.toSet());
+    final List<String> notRegistered =
+        selectedPluginIds.stream().filter(id -> !registeredIds.contains(id)).toList();
+    if (!notRegistered.isEmpty()) {
       summary.add("Detected but not registered:");
-      skippedPlugins.forEach(
-          plugin ->
-              summary.add(
-                  String.format(
-                      " - %s (%s)", plugin.getClass().getSimpleName(), plugin.getVersion())));
+      notRegistered.forEach(id -> summary.add(" - " + describe(id)));
+    }
+
+    final List<String> notSelected =
+        detectedPluginIds.stream().filter(id -> !selectedPluginIds.contains(id)).toList();
+    if (!notSelected.isEmpty()) {
+      summary.add("Detected but not selected:");
+      notSelected.forEach(id -> summary.add(" - " + id));
     }
     summary.add(
         String.format(
             "TOTAL = %d of %d plugins successfully registered.",
-            registeredPlugins.size(), detectedPlugins.size()));
+            registeredPlugins.size(), detectedPluginIds.size()));
 
     return summary;
+  }
+
+  /** The id of a plugin, followed by its version when the plugin was instantiated. */
+  private String describe(final String pluginId) {
+    final BesuPlugin plugin = instantiatedPlugins.get(pluginId);
+    return plugin == null ? pluginId : pluginId + " (" + plugin.getVersion() + ")";
   }
 
   /**
