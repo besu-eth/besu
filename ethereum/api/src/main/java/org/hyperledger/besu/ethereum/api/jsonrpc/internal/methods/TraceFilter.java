@@ -332,12 +332,16 @@ public class TraceFilter extends TraceBlock {
   }
 
   private long resolveBlockNumber(final BlockParameter param) {
-    if (param.getNumber().isPresent()) {
-      return param.getNumber().get();
-    } else if (param.isLatest()) {
-      return blockchainQueriesSupplier.get().headBlockNumber();
-    } else {
-      throw new IllegalStateException("Unknown block parameter type.");
+    // a range of mined blocks, as in eth_getLogs, so pending is not a bound
+    if (param.isPending()) {
+      throw new InvalidJsonRpcParameters(
+          "pending is not a trace_filter bound", RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
     }
+    return param
+        .getBlockNumber(getBlockchainQueries())
+        .orElseThrow(
+            () ->
+                new InvalidJsonRpcParameters(
+                    "block not found: " + param, RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS));
   }
 }

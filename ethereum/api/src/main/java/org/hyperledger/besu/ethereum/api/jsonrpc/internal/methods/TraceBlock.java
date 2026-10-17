@@ -93,6 +93,13 @@ public class TraceBlock extends AbstractBlockParameterMethod {
   }
 
   @Override
+  protected Object pendingResult(final JsonRpcRequestContext request) {
+    // there is no pending block to trace, so pending is rejected rather than traced as latest
+    return new JsonRpcErrorResponse(
+        request.getRequest().getId(), RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
+  }
+
+  @Override
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext request, final long blockNumber) {
     if (blockNumber == BlockHeader.GENESIS_BLOCK_NUMBER) {

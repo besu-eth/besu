@@ -86,6 +86,13 @@ public class TraceReplayBlockTransactions extends AbstractBlockParameterMethod {
   }
 
   @Override
+  protected Object pendingResult(final JsonRpcRequestContext request) {
+    // there is no pending block to replay, so pending is rejected rather than replayed as latest
+    return new JsonRpcErrorResponse(
+        request.getRequest().getId(), RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
+  }
+
+  @Override
   protected BlockParameter blockParameter(final JsonRpcRequestContext request) {
     try {
       return request.getRequiredParameter(0, BlockParameter.class);
