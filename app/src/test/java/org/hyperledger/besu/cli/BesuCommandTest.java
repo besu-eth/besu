@@ -49,7 +49,6 @@ import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -89,7 +88,6 @@ import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.mining.MiningService;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
-import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
 import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.number.Fraction;
@@ -136,7 +134,6 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
@@ -1519,20 +1516,17 @@ public class BesuCommandTest extends CommandTestAbstract {
   // any other node leaves them out, so that it can still go back to an older version
   @Test
   public void syncMode_snap2OnForestCreatesTheSegmentsItStagesTheStateIn() {
-    try (MockedConstruction<RocksDBPlugin> plugins = mockConstruction(RocksDBPlugin.class)) {
-      parseCommand(
-          "--sync-mode",
-          "SNAP2",
-          "--data-storage-format",
-          "FOREST",
-          "--Xchain-pruning-enabled",
-          "NONE");
+    parseCommand(
+        "--sync-mode",
+        "SNAP2",
+        "--data-storage-format",
+        "FOREST",
+        "--Xchain-pruning-enabled",
+        "NONE");
 
-      final RocksDBPlugin plugin = plugins.constructed().getFirst();
-      verify(plugin).addIgnorableSegmentIdentifier(CHAIN_PRUNER_STATE);
-      verify(plugin, never()).addIgnorableSegmentIdentifier(SNAPSYNC_FLAT_ACCOUNTS);
-      verify(plugin, never()).addIgnorableSegmentIdentifier(SNAPSYNC_FLAT_STORAGE);
-    }
+    assertThat(commonPluginConfiguration.getIgnorableSegments())
+        .containsExactly(CHAIN_PRUNER_STATE)
+        .doesNotContain(SNAPSYNC_FLAT_ACCOUNTS, SNAPSYNC_FLAT_STORAGE);
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 

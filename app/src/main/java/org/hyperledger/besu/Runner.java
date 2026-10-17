@@ -286,7 +286,7 @@ public class Runner implements AutoCloseable {
    * @throws Exception if startup fails
    */
   public void startEphemery(final BesuCommand besuCommand) throws Exception {
-    ephemeryRestartPrepare(besuCommand);
+    besuCommand.reRegisterPlugins();
     besuCommand.initialProcess();
     var keypair = besuCommand.getKeyPair();
     if (keypair != null) {
@@ -295,11 +295,6 @@ public class Runner implements AutoCloseable {
     } else {
       LOG.info("Key is null");
     }
-  }
-
-  private void ephemeryRestartPrepare(final BesuCommand besuCommand) {
-    besuCommand.getRocksDBPlugin().reset();
-    besuCommand.reRegisterPlugins();
   }
 
   /** Stop services but not shutdown */

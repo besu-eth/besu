@@ -180,6 +180,7 @@ import org.hyperledger.besu.plugin.services.health.LivenessCheckPlugin;
 import org.hyperledger.besu.plugin.services.health.ReadinessCheckPlugin;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
 import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
@@ -381,11 +382,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final Supplier<ApiConfiguration> apiConfigurationSupplier =
       Suppliers.memoize(this::getApiConfiguration);
 
-  private RocksDBPlugin rocksDBPlugin;
-  private InMemoryStoragePlugin inMemoryStoragePlugin;
   private PicoCLIOptionsImpl picoCLIOptions;
-  private LivenessCheckPlugin livenessCheckPlugin;
-  private ReadinessCheckPlugin readinessCheckPlugin;
 
   private int maxPeers;
   private int maxRemoteInitiatedPeers;
@@ -955,8 +952,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   /** Option-definition phase: every plugin declares its CLI options, then the registry closes. */
   private void definePluginOptions() {
-    rocksDBPlugin.defineOptions(picoCLIOptions);
-    inMemoryStoragePlugin.defineOptions(picoCLIOptions);
     besuPluginContext.defineOptions(picoCLIOptions);
     picoCLIOptions.optionsDefinitionCompleted();
   }
@@ -978,34 +973,21 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     securityModuleService.register(
         DEFAULT_SECURITY_MODULE, Suppliers.memoize(this::defaultSecurityModule));
 
-    // Built-in storage plugins register before external plugins, so external plugins can build on
-    // or override their factories in register(); the health-check built-ins below register after,
-    // so external plugins can claim the endpoints first
-    rocksDBPlugin.register(besuPluginContext.registrationContextFor(rocksDBPlugin));
-    inMemoryStoragePlugin.register(besuPluginContext.registrationContextFor(inMemoryStoragePlugin));
+    // registration runs the built-in plugins ahead of the external ones, so an external plugin
+    // can look up a storage factory in its own register(), and a check it registers for
+    // /liveness or /readiness replaces the built-in one
     besuPluginContext.registerPlugins();
-
-    // Register built-in health-check plugins only if no external plugin already claimed the
-    // endpoint. This runs after registerPlugins() so external plugins have had their chance;
-    // the built-in field stays null when an external plugin owns the endpoint, so the
-    // start()/stop() calls skip it (no orphaned SyncStatusListener).
-    if (healthCheckService.getHealthCheck("/liveness").isEmpty()) {
-      livenessCheckPlugin = new LivenessCheckPlugin();
-      livenessCheckPlugin.register(besuPluginContext.registrationContextFor(livenessCheckPlugin));
-    }
-    if (healthCheckService.getHealthCheck("/readiness").isEmpty()) {
-      readinessCheckPlugin = new ReadinessCheckPlugin();
-      readinessCheckPlugin.register(besuPluginContext.registrationContextFor(readinessCheckPlugin));
-    }
     besuPluginContext.endRegistration();
   }
 
   /**
-   * Registers the loaded plugins again for an Ephemery restart, after refreshing the configuration
-   * views for the current data path.
+   * Stops the plugins the previous cycle started, refreshes the configuration views for the current
+   * data path and registers the same plugin instances again, for an Ephemery restart. The storage
+   * provider is built again from the factory the storage plugin registers for the new cycle.
    */
   public void reRegisterPlugins() {
     besuPluginContext.resetState();
+    keyValueStorageProvider = null;
     initPluginCommonConfiguration();
     besuPluginContext.beginRegistration();
     try {
@@ -1026,8 +1008,27 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private void initPluginCommonConfiguration() {
     pluginCommonConfiguration
         .init(dataDir(), dataDir().resolve(DATABASE_PATH), getDataStorageConfiguration())
+        .withIgnorableSegments(ignorableStorageSegments())
         .withJsonRpcHttpOptions(jsonRpcHttpOptions, unstableRPCOptions.getHttpTimeoutSec())
         .withMiningParameters(miningParametersSupplier.get());
+  }
+
+  /**
+   * The segments a storage factory need not create: the chain pruner state when nothing prunes, and
+   * the flat state the SNAP2 sync stages on Forest, created only for that sync.
+   */
+  private List<SegmentIdentifier> ignorableStorageSegments() {
+    final List<SegmentIdentifier> ignorable = new ArrayList<>();
+    if (unstableChainPruningOptions.getChainPruningStrategy().equals(ChainPruningStrategy.NONE)
+        && !getDataStorageConfiguration().getHistoryExpiryPruneEnabled()) {
+      ignorable.add(KeyValueSegmentIdentifier.CHAIN_PRUNER_STATE);
+    }
+    if (getDefaultSyncModeIfNotSet() != SyncMode.SNAP2
+        || getDataStorageConfiguration().getDataStorageFormat() != DataStorageFormat.FOREST) {
+      ignorable.add(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_ACCOUNTS);
+      ignorable.add(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_STORAGE);
+    }
+    return List.copyOf(ignorable);
   }
 
   @SuppressWarnings("BannedMethod")
@@ -1198,16 +1199,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     runner.startEthereumMainLoop();
 
     BesuPluginServiceRegistrar.registerRunningServices(besuPluginContext, besuController, runner);
-    // the built-in readiness check goes first, so a slow afterMainLoop() of a third-party plugin
-    // cannot hold /readiness at DOWN while the node is running
-    if (readinessCheckPlugin != null) {
-      try {
-        readinessCheckPlugin.afterMainLoop(
-            besuPluginContext.runningContextFor(readinessCheckPlugin));
-      } catch (final Exception e) {
-        logger.warn("Failed to run readinessCheckPlugin after the main loop", e);
-      }
-    }
     besuPluginContext.afterMainLoop();
   }
 
@@ -1459,9 +1450,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         transactionValidatorServiceImpl,
         healthCheckService);
 
-    // created here; defineOptions() and register() run later, from the execution strategy chain
-    rocksDBPlugin = new RocksDBPlugin();
-    inMemoryStoragePlugin = new InMemoryStoragePlugin();
+    // the built-in plugins go through the context like the external ones, ahead of them; their
+    // options and registration run later from the execution strategy chain, the remaining phases
+    // from initialProcess()
+    besuPluginContext.addBuiltInPlugin(new RocksDBPlugin());
+    besuPluginContext.addBuiltInPlugin(new InMemoryStoragePlugin());
+    besuPluginContext.addBuiltInPlugin(new LivenessCheckPlugin());
+    besuPluginContext.addBuiltInPlugin(new ReadinessCheckPlugin());
   }
 
   private SecurityModule defaultSecurityModule() {
@@ -1515,20 +1510,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         inProcessRpcConfiguration.isEnabled());
 
     besuPluginContext.startPlugins();
-    if (livenessCheckPlugin != null) {
-      try {
-        livenessCheckPlugin.start(besuPluginContext.startContextFor(livenessCheckPlugin));
-      } catch (final Exception e) {
-        logger.warn("Failed to start livenessCheckPlugin", e);
-      }
-    }
-    if (readinessCheckPlugin != null) {
-      try {
-        readinessCheckPlugin.start(besuPluginContext.startContextFor(readinessCheckPlugin));
-      } catch (final Exception e) {
-        logger.warn("Failed to start readinessCheckPlugin", e);
-      }
-    }
   }
 
   private void setReleaseMetrics() {
@@ -2433,8 +2414,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private KeyValueStorageProvider keyValueStorageProvider(final String name) {
     if (this.keyValueStorageProvider == null) {
-      // before the database opens, for the node and the subcommands alike
-      setIgnorableStorageSegments();
       this.keyValueStorageProvider =
           new KeyValueStorageProviderBuilder()
               .withStorageFactory(
@@ -2730,20 +2709,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             new Thread(
                 () -> {
                   try {
-                    if (readinessCheckPlugin != null) {
-                      try {
-                        readinessCheckPlugin.stop();
-                      } catch (final Exception e) {
-                        logger.warn("Failed to stop readinessCheckPlugin", e);
-                      }
-                    }
-                    if (livenessCheckPlugin != null) {
-                      try {
-                        livenessCheckPlugin.stop();
-                      } catch (final Exception e) {
-                        logger.warn("Failed to stop livenessCheckPlugin", e);
-                      }
-                    }
                     besuPluginContext.stopPlugins();
                     runner.close();
                     LogConfigurator.shutdown();
@@ -3159,20 +3124,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         genesisConfigOptionsSupplier.get().getTerminalTotalDifficulty().isPresent());
   }
 
-  /** Set ignorable segments in RocksDB Storage Provider plugin. */
-  private void setIgnorableStorageSegments() {
-    if (unstableChainPruningOptions.getChainPruningStrategy().equals(ChainPruningStrategy.NONE)
-        && !getDataStorageConfiguration().getHistoryExpiryPruneEnabled()) {
-      rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.CHAIN_PRUNER_STATE);
-    }
-    // the flat state the SNAP2 sync stages on Forest, created only for that sync
-    if (getDefaultSyncModeIfNotSet() != SyncMode.SNAP2
-        || getDataStorageConfiguration().getDataStorageFormat() != DataStorageFormat.FOREST) {
-      rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_ACCOUNTS);
-      rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_STORAGE);
-    }
-  }
-
   private void validateAndResolveCheckpointRelatedConfig() {
     if (checkpointOverride != null) {
       checkpoint = Optional.of(checkpointOverride);
@@ -3295,10 +3246,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       }
     }
 
-    if (rocksDBPlugin.isHighSpecEnabled()) {
-      builder.setHighSpecEnabled();
-    }
-
     if (DataStorageFormat.BONSAI.equals(getDataStorageConfiguration().getDataStorageFormat())) {
       final ExtraStorageConfiguration subStorageConfiguration =
           getDataStorageConfiguration().getExtraStorageConfiguration();
@@ -3346,9 +3293,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
-        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
-        .setRocksDbMaxOpenFiles(
-            rocksDBPlugin.getResolvedMaxOpenFiles(), rocksDBPlugin.isMaxOpenFilesExplicitlySet());
+        .setPluginConfigurationOverview(besuPluginContext.getConfigurationOverviewLines());
 
     return framed ? builder.build() : builder.buildCompact();
   }
@@ -3378,15 +3323,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    */
   public Runner getRunner() {
     return this.runner;
-  }
-
-  /**
-   * returns rocksDBPlugin for Ephemery restart.
-   *
-   * @return rocksDBPlugin
-   */
-  public RocksDBPlugin getRocksDBPlugin() {
-    return this.rocksDBPlugin;
   }
 
   /**
