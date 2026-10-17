@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.tracing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -25,6 +26,8 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerCo
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
@@ -131,6 +134,46 @@ class StreamingOperationTracerTest {
                                 {"pc":21,"op":"0x60","gas":9999979175,"gasCost":3,"memory":"0xf5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b00000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000","memSize":96,"stack":["0x1"],"returnData":"0xf5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b","depth":1,"refund":0,"opName":"PUSH1"}
                                 {"pc":23,"op":"0xf3","gas":9999979172,"gasCost":0,"memory":"0xf5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b00000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000","memSize":96,"stack":["0x1","0x40"],"returnData":"0xf5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b","depth":1,"refund":0,"opName":"RETURN"}
                                 """);
+  }
+
+  @Test
+  void stopsTracingAtTheStepLimit() {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(baos);
+    var executor = new EVMExecutor(EvmSpec.evmSpec(EvmSpecVersion.ISTANBUL));
+    StreamingOperationTracer tracer =
+        new StreamingOperationTracer(
+            out, OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT).limit(3).build());
+    executor.tracer(tracer);
+    executor.gas(10_000_000_000L);
+
+    var codeBytes = Bytes.fromHexString("0x604080536040604055604060006040600060025afa6040f3");
+    executor.execute(codeBytes, Bytes.EMPTY, Wei.ZERO, Address.ZERO);
+
+    assertThat(baos.toString(StandardCharsets.UTF_8).lines()).hasSize(3);
+  }
+
+  @Test
+  void stepLimitCountsOnlyTracedOpcodes() {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    PrintStream out = new PrintStream(baos);
+    var executor = new EVMExecutor(EvmSpec.evmSpec(EvmSpecVersion.ISTANBUL));
+    StreamingOperationTracer tracer =
+        new StreamingOperationTracer(
+            out,
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceOpcodes(Set.of("sstore"))
+                .limit(1)
+                .build());
+    executor.tracer(tracer);
+    executor.gas(10_000_000_000L);
+
+    var codeBytes = Bytes.fromHexString("0x604080536040604055604060006040600060025afa6040f3");
+    executor.execute(codeBytes, Bytes.EMPTY, Wei.ZERO, Address.ZERO);
+
+    assertThat(baos.toString(StandardCharsets.UTF_8).lines())
+        .singleElement(STRING)
+        .contains("\"opName\":\"SSTORE\"");
   }
 
   @Test
