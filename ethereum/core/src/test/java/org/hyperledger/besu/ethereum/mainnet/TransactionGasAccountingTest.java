@@ -93,6 +93,23 @@ public class TransactionGasAccountingTest {
   }
 
   @Test
+  public void floorCostAppliesToTotalGasNotToExecutionGasPlusStateGas() {
+    final var result =
+        baseBuilder()
+            .txGasLimit(300_000L)
+            .remainingGas(43_295L)
+            .stateGasUsed(232_560L)
+            .floorCost(24_576L)
+            .build()
+            .calculate();
+
+    // consumedGas = 256,705; executionGas = 24,145 < floorCost 24,576 < consumedGas
+    assertThat(result.gasUsedByTransaction()).isEqualTo(256_705L);
+    assertThat(result.executionGas()).isEqualTo(24_576L);
+    assertThat(result.effectiveStateGas()).isEqualTo(232_560L);
+  }
+
+  @Test
   public void zeroStateGas_preAmsterdamEquivalent() {
     final var result =
         baseBuilder()

@@ -38,8 +38,7 @@ public abstract class TransactionGasAccounting {
    * Result of the gas accounting calculation.
    *
    * @param effectiveStateGas the state gas dimension
-   * @param gasUsedByTransaction floored 2D gas (max(execution, floor) + state) for
-   *     estimation/receipts
+   * @param gasUsedByTransaction gas used before refunds, raised to the floor: max(consumed, floor)
    * @param usedGas post-refund gas the sender pays
    * @param executionGas the execution gas dimension for block accounting: max(consumed - state,
    *     floor)
@@ -101,7 +100,7 @@ public abstract class TransactionGasAccounting {
     // EIP-8037: the floor binds the execution-gas dimension, and state gas is out of executionGas
     // before the max is taken, so state spending cannot discount the floor.
     final long flooredExecutionGas = Math.max(executionGas, floorCost());
-    final long gasUsedByTransaction = flooredExecutionGas + stateGas;
+    final long gasUsedByTransaction = Math.max(consumedGas, floorCost());
     final long usedGas = txGasLimit() - refundedGas();
     return new GasResult(stateGas, gasUsedByTransaction, usedGas, flooredExecutionGas);
   }

@@ -589,14 +589,16 @@ class AbstractBlockProcessorIntegrationTest {
         return Optional.empty();
       }
       // gasLimit - gasRemaining (pre-Amsterdam) and gasUsed (Amsterdam) both come to gasUsed.
-      return Optional.of(
+      final TransactionProcessingResult result =
           TransactionProcessingResult.successful(
               List.of(),
               gasUsed,
               transaction.getGasLimit() - gasUsed,
               Bytes.EMPTY,
               Optional.empty(),
-              ValidationResult.valid()));
+              ValidationResult.valid());
+      result.setExecutionGasUsedForBlock(gasUsed);
+      return Optional.of(result);
     }
   }
 

@@ -37,7 +37,9 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
@@ -424,6 +426,26 @@ class BlockSizeTransactionSelectorTest {
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx2, null, null, null, NEVER_CANCELLED);
     assertThat(selector.evaluateTransactionPreProcessing(ctx2)).isEqualTo(BLOCK_FULL);
+  }
+
+  @Test
+  void eip8037InvalidResultAddsNoGas() {
+    when(blockSelectionContext.protocolSpec().getBlockGasAccountingStrategy())
+        .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
+    selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
+    selectorsStateManager.blockSelectionStarted();
+
+    final var tx = createPendingTransaction(TRANSFER_GAS_LIMIT);
+    final var ctx =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(), tx, null, null, null, NEVER_CANCELLED);
+    final var result =
+        TransactionProcessingResult.invalid(
+            ValidationResult.invalid(TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE));
+
+    assertThat(selector.evaluateTransactionPostProcessing(ctx, result)).isEqualTo(SELECTED);
+    assertThat(selector.getWorkingState().executionGas()).isZero();
+    assertThat(selector.getWorkingState().stateGas()).isZero();
   }
 
   private void evaluateAndAssertSelected(
