@@ -87,11 +87,6 @@ public final class BlockAccessListsMessageData {
     return decodeEntries(data, false, false, input -> input.readAsRlp().raw());
   }
 
-  public static Iterable<Bytes> decodeSnapResponseRaw(
-      final Bytes data, final boolean withRequestId) {
-    return decodeEntries(data, withRequestId, true, input -> input.readAsRlp().raw());
-  }
-
   private static void writeBlockAccessList(
       final BytesValueRLPOutput output, final Optional<BlockAccessList> maybeBlockAccessList) {
     if (maybeBlockAccessList.isPresent()) {

@@ -22,8 +22,6 @@ import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.consensus.merge.MergeContext;
-import org.hyperledger.besu.consensus.merge.NewPayloadListener;
-import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.consensus.qbft.BFTPivotSelectorFromPeers;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId;
@@ -67,7 +65,6 @@ import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorAtHead;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromPeers;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromSafeBlock;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
@@ -1196,48 +1193,24 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             cleanups.forEach(Runnable::run);
           };
 
-      final PivotBlockSelector selector;
-      final NewPayloadListener newPayloadListener;
-      final UnverifiedForkchoiceListener forkchoiceListener;
-      if (Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
-        final PivotSelectorAtHead atHeadSelector =
-            new PivotSelectorAtHead(
-                protocolContext,
-                genesisConfigOptions,
-                headerDownloader,
-                protocolSchedule,
-                ethContext,
-                syncConfig.getSyncMinimumPeerCount(),
-                Clock.systemUTC(),
-                syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
-                cleanupAction);
-        selector = atHeadSelector;
-        newPayloadListener = atHeadSelector;
-        forkchoiceListener = atHeadSelector;
-      } else {
-        final PivotSelectorFromSafeBlock safeBlockSelector =
-            new PivotSelectorFromSafeBlock(
-                protocolContext,
-                genesisConfigOptions,
-                headerDownloader,
-                protocolSchedule,
-                Clock.systemUTC(),
-                syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
-                cleanupAction);
-        selector = safeBlockSelector;
-        newPayloadListener = safeBlockSelector;
-        forkchoiceListener = safeBlockSelector;
-      }
+      final PivotSelectorFromSafeBlock selector =
+          new PivotSelectorFromSafeBlock(
+              protocolContext,
+              genesisConfigOptions,
+              headerDownloader,
+              protocolSchedule,
+              Clock.systemUTC(),
+              syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
+              cleanupAction);
 
-      final long newPayloadSubscriptionId = mergeContext.addNewPayloadListener(newPayloadListener);
+      final long newPayloadSubscriptionId = mergeContext.addNewPayloadListener(selector);
       cleanups.add(
           () -> {
             mergeContext.removeNewPayloadListener(newPayloadSubscriptionId);
             LOG.info("Unsubscribed newPayload listener");
           });
 
-      final long selectorSubscriptionId =
-          mergeContext.addNewUnverifiedForkchoiceListener(forkchoiceListener);
+      final long selectorSubscriptionId = mergeContext.addNewUnverifiedForkchoiceListener(selector);
       cleanups.add(
           () -> {
             mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId);

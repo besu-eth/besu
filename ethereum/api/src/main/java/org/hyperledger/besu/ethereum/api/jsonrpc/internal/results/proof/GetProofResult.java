@@ -19,7 +19,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,7 +65,7 @@ public class GetProofResult {
 
   public static GetProofResult build(final Address address, final WorldStateProof worldStateProof) {
 
-    final Optional<PmtStateTrieAccountValue> maybeStateTrieAccountValue =
+    final Optional<PatriciaTrieAccountValue> maybeStateTrieAccountValue =
         worldStateProof.getStateTrieAccountValue();
     final List<StorageEntryProof> storageEntries = new ArrayList<>();
     worldStateProof

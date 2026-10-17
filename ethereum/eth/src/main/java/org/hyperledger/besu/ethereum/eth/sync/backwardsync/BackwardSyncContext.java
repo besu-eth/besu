@@ -114,9 +114,14 @@ public class BackwardSyncContext {
     this.maxBadChainEventEntries = maxBadChainEventEntries;
   }
 
+  /**
+   * Whether a backward sync session is currently running.
+   *
+   * @return true while a backward sync session is running
+   */
   public synchronized boolean isSyncing() {
     return Optional.ofNullable(currentBackwardSyncStatus.get())
-        .map(status -> status.currentFuture.isDone())
+        .map(status -> !status.currentFuture.isDone())
         .orElse(Boolean.FALSE);
   }
 
@@ -175,12 +180,22 @@ public class BackwardSyncContext {
   }
 
   private Status getOrStartSyncSession() {
-    Optional<Status> maybeCurrentStatus = Optional.ofNullable(this.currentBackwardSyncStatus.get());
+    // A completed session is not reused, otherwise every later call would get a completed future.
+    Optional<Status> maybeCurrentStatus =
+        Optional.ofNullable(this.currentBackwardSyncStatus.get())
+            .filter(status -> !status.currentFuture.isDone());
     return maybeCurrentStatus.orElseGet(
         () -> {
           LOG.info("Starting a new backward sync session");
           Status newStatus = new Status(prepareBackwardSyncFutureWithRetry());
-          this.currentBackwardSyncStatus.set(newStatus);
+          // Don't publish a session that already completed synchronously.
+          if (!newStatus.currentFuture.isDone()) {
+            this.currentBackwardSyncStatus.set(newStatus);
+            // It may have completed in the meantime; retract it without touching a newer session.
+            if (newStatus.currentFuture.isDone()) {
+              this.currentBackwardSyncStatus.compareAndSet(newStatus, null);
+            }
+          }
           return newStatus;
         });
   }

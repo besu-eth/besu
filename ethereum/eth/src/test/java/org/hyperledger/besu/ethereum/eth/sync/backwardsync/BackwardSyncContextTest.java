@@ -381,6 +381,67 @@ public class BackwardSyncContextTest {
   }
 
   @Test
+  public void isSyncingReturnsTrueWhileBackwardSyncSessionIsInFlight() {
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    // Never completes, so the session stays in flight.
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
+
+    context.syncBackwardsUntil(getRemoteBlockByNumber(REMOTE_HEIGHT));
+
+    assertThat(context.isSyncing()).isTrue();
+  }
+
+  @Test
+  public void isSyncingReturnsFalseWhenNoSessionHasStarted() {
+    assertThat(context.isSyncing()).isFalse();
+  }
+
+  @Test
+  public void isSyncingReturnsFalseAfterBackwardSyncSessionCompletes() throws Exception {
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null))
+        .thenReturn(CompletableFuture.completedFuture(null));
+
+    final CompletableFuture<Void> future =
+        context.syncBackwardsUntil(getRemoteBlockByNumber(REMOTE_HEIGHT));
+    future.orTimeout(30, TimeUnit.SECONDS);
+    future.get();
+
+    assertThat(context.isSyncing()).isFalse();
+  }
+
+  @Test
+  public void shouldStartNewSessionAfterAPreviousSessionCompletedSynchronously() throws Exception {
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null))
+        .thenReturn(CompletableFuture.completedFuture(null))
+        .thenReturn(new CompletableFuture<>());
+
+    context.syncBackwardsUntil(getRemoteBlockByNumber(REMOTE_HEIGHT)).get();
+
+    final CompletableFuture<Void> secondFuture =
+        context.syncBackwardsUntil(getRemoteBlockByNumber(REMOTE_HEIGHT));
+
+    assertThat(secondFuture.isDone()).isFalse();
+    assertThat(context.isSyncing()).isTrue();
+  }
+
+  @Test
+  public void shouldNotPublishASessionThatCompletedSynchronously() throws Exception {
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null))
+        .thenReturn(CompletableFuture.completedFuture(null));
+
+    context.syncBackwardsUntil(getRemoteBlockByNumber(REMOTE_HEIGHT)).get();
+
+    assertThat(context.getStatus()).isNull();
+  }
+
+  @Test
   public void shouldQueueHashForSyncWhenNotReady() throws Exception {
     doReturn(false).when(context).isReady();
     when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
@@ -443,7 +504,8 @@ public class BackwardSyncContextTest {
     final CompletableFuture<Void> future = context.syncBackwardsUntil(lowerBlock);
     final CompletableFuture<Void> secondFuture = context.syncBackwardsUntil(higherBlock);
 
-    assertThat(future).isSameAs(secondFuture);
+    // The stub completes synchronously, so the second call starts a new session.
+    assertThat(future).isNotSameAs(secondFuture);
     future.orTimeout(30, TimeUnit.SECONDS);
 
     future.get();
@@ -476,8 +538,8 @@ public class BackwardSyncContextTest {
     // Given
     when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
-    when(backwardSyncAlgorithm.executeBackwardsSync(null))
-        .thenReturn(CompletableFuture.completedFuture(null));
+    // Never completes, so the session stays published and its target height can be updated.
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
 
     BlockHeader unknownBlockHeader = Mockito.mock(BlockHeader.class);
     when(unknownBlockHeader.getParentHash()).thenReturn(Hash.fromHexStringLenient("0x41"));

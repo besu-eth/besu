@@ -19,7 +19,6 @@ import static org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfigurat
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
-import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.net.URI;
 import java.util.Arrays;
@@ -79,7 +78,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   // Regular (stable) flag
   private static final String SNAP_SERVER_ENABLED_FLAG = "--snapsync-server-enabled";
   private static final String SNAP2_ENABLED_FLAG = "--Xsnap2-enabled";
-  private static final String SNAP2_REQUEST_PARALLELISM_FLAG = "--Xsnap2-request-parallelism";
 
   private static final String SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG =
       "--Xsnapsync-synchronizer-pivot-block-window-validity";
@@ -382,15 +380,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private Boolean snap2Enabled = SnapSyncConfiguration.DEFAULT_SNAP2_ENABLED;
 
   @CommandLine.Option(
-      names = {SNAP2_REQUEST_PARALLELISM_FLAG},
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description =
-          "Number of concurrent requests per snap/2 world state download pipeline (default: ${DEFAULT-VALUE})")
-  private PositiveNumber snap2RequestParallelism =
-      PositiveNumber.fromInt(SnapSyncConfiguration.DEFAULT_SNAP2_REQUEST_PARALLELISM);
-
-  @CommandLine.Option(
       names = SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG,
       hidden = true,
       paramLabel = "<INTEGER>",
@@ -558,8 +547,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
         config.getSnapSyncConfiguration().getLocalFlatStorageCountToHealPerRequest();
     options.snapsyncServerEnabled = config.getSnapSyncConfiguration().isSnapServerEnabled();
     options.snap2Enabled = config.getSnapSyncConfiguration().isSnap2Enabled();
-    options.snap2RequestParallelism =
-        PositiveNumber.fromInt(config.getSnapSyncConfiguration().getSnap2RequestParallelism());
     options.snapsyncServerMaxConcurrentRequestsPerPeer =
         config.getSnapSyncConfiguration().getMaxConcurrentSnapRequestsPerPeer();
     options.snapsyncServerMaxConcurrentRequests =
@@ -609,7 +596,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             .localFlatStorageCountToHealPerRequest(snapsyncFlatStorageHealedCountPerRequest)
             .isSnapServerEnabled(snapsyncServerEnabled)
             .isSnap2Enabled(snap2Enabled)
-            .snap2RequestParallelism(snap2RequestParallelism.getValue())
             .maxConcurrentSnapRequestsPerPeer(snapsyncServerMaxConcurrentRequestsPerPeer)
             .maxConcurrentSnapRequestsGlobal(snapsyncServerMaxConcurrentRequests)
             .isSnapSyncTransactionIndexingEnabled(snapTransactionIndexingEnabled)
@@ -686,8 +672,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(snapsyncServerEnabled),
             SNAP2_ENABLED_FLAG,
             OptionParser.format(snap2Enabled),
-            SNAP2_REQUEST_PARALLELISM_FLAG,
-            OptionParser.format(snap2RequestParallelism.getValue()),
             SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG,
             OptionParser.format(snapsyncServerMaxConcurrentRequestsPerPeer),
             SNAP_SERVER_MAX_CONCURRENT_REQUESTS_FLAG,

@@ -299,6 +299,23 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
   }
 
   @Test
+  public void shouldAcceptTransactionNonceBelowAccountNonceInNonStrictBlockSimulation() {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator, GasLimitCalculator.constant(), false, Optional.of(BigInteger.ONE));
+
+    final Account account = accountWithNonce(basicTransaction.getNonce() + 1);
+    assertThat(
+            validator.validateForSender(
+                basicTransaction, account, TransactionValidationParams.blockSimulatorNonStrict()))
+        .isEqualTo(ValidationResult.valid());
+    assertThat(
+            validator.validateForSender(
+                basicTransaction, account, TransactionValidationParams.blockSimulatorStrict()))
+        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.NONCE_TOO_LOW));
+  }
+
+  @Test
   public void shouldRejectTransactionWhenNonceExceedsMaximumAllowedNonce() {
     final TransactionValidator validator =
         createTransactionValidator(

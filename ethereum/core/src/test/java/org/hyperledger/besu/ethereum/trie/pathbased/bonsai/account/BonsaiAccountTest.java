@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.trie.common.MptStorageRootStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
@@ -48,7 +49,7 @@ public class BonsaiAccountTest {
             Hash.hash(Address.ZERO.getBytes()),
             0,
             Wei.ONE,
-            Hash.EMPTY_TRIE_HASH,
+            new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
             Hash.EMPTY,
             true,
             new BonsaiCodeCache());
@@ -76,7 +77,7 @@ public class BonsaiAccountTest {
             Hash.hash(Address.ZERO.getBytes()),
             0,
             Wei.ONE,
-            Hash.EMPTY_TRIE_HASH,
+            new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
             Hash.EMPTY,
             true,
             new BonsaiCodeCache());
@@ -84,6 +85,30 @@ public class BonsaiAccountTest {
     account.setStorageValue(UInt256.ONE, UInt256.ONE);
     assertThat(new BonsaiAccount(account, bonsaiWorldState, true))
         .isEqualToComparingFieldByField(account);
+  }
+
+  @Test
+  void mptAccountDelegatesToMptStorageRootStrategy() {
+    final Hash storageRoot = Hash.hash(Bytes.of(1, 2, 3));
+    final BonsaiAccount account =
+        new BonsaiAccount(
+            bonsaiWorldState,
+            Address.ZERO,
+            Hash.hash(Address.ZERO.getBytes()),
+            1L,
+            Wei.ONE,
+            new MptStorageRootStrategy(storageRoot),
+            Hash.EMPTY,
+            true,
+            new BonsaiCodeCache());
+
+    assertThat(account.getStorageRoot()).isEqualTo(storageRoot);
+
+    // setStorageRoot updates the held root (used by the state root committers)
+    final Hash patched = Hash.hash(Bytes.of(4, 5, 6));
+    account.setStorageRoot(patched);
+    assertThat(account.getStorageRoot()).isEqualTo(patched);
+    assertThat(account.getStorageRootStrategy().getStorageRoot()).isEqualTo(patched);
   }
 
   @Test
@@ -116,7 +141,7 @@ public class BonsaiAccountTest {
         Hash.hash(Address.ZERO.getBytes()),
         0,
         Wei.ZERO,
-        Hash.EMPTY_TRIE_HASH,
+        new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
         codeHash,
         false,
         codeCache);

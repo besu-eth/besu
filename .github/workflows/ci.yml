@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - main
-      - release-*
+      - release*
       - performance
       - '*-devnet-*'
       - plugin-api-refactor

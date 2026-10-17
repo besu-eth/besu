@@ -59,6 +59,7 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallExcept
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
@@ -444,6 +445,18 @@ public class BlockSimulator {
         throw new BlockStateCallException(
             BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED.getMessage(),
             BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
+      }
+
+      if (validationParams.isAllowFutureNonce()) {
+        final Address sender = callParameter.getSender().orElse(TransactionSimulator.DEFAULT_FROM);
+        final Account senderAccount = blockUpdater.get(sender);
+        if (senderAccount != null && senderAccount.getNonce() == Account.MAX_NONCE) {
+          throw new BlockStateCallException(
+              String.format(
+                  "nonce has max value: address %s, nonce: %s",
+                  sender, Long.toUnsignedString(Account.MAX_NONCE)),
+              TransactionInvalidReason.NONCE_OVERFLOW);
+        }
       }
 
       long gasLimit =

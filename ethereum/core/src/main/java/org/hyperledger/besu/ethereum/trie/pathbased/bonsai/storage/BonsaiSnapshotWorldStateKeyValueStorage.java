@@ -22,6 +22,7 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SnappableKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
 import java.util.List;
 import java.util.Optional;
@@ -116,18 +117,18 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public Optional<Bytes> getWorldStateRootHash() {
-    return isClosedGet() ? Optional.empty() : super.getWorldStateRootHash();
+  public Optional<Bytes> getWorldStateRootHash(final TrieBranchType trieBranchType) {
+    return isClosedGet() ? Optional.empty() : super.getWorldStateRootHash(trieBranchType);
   }
 
   @Override
-  public Optional<Hash> getWorldStateBlockHash() {
-    return isClosedGet() ? Optional.empty() : super.getWorldStateBlockHash();
+  public Optional<Hash> getWorldStateBlockHash(final TrieBranchType trieBranchType) {
+    return isClosedGet() ? Optional.empty() : super.getWorldStateBlockHash(trieBranchType);
   }
 
   @Override
-  public Optional<Long> getWorldStateBlockNumber() {
-    return isClosedGet() ? Optional.empty() : super.getWorldStateBlockNumber();
+  public Optional<Long> getWorldStateBlockNumber(final TrieBranchType trieBranchType) {
+    return isClosedGet() ? Optional.empty() : super.getWorldStateBlockNumber(trieBranchType);
   }
 
   @Override
@@ -158,8 +159,9 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public boolean isWorldStateAvailable(final Bytes32 rootHash, final Hash blockHash) {
-    return !isClosedGet() && super.isWorldStateAvailable(rootHash, blockHash);
+  public boolean isWorldStateAvailable(
+      final TrieBranchType trieBranchType, final Bytes32 rootHash, final Hash blockHash) {
+    return !isClosedGet() && super.isWorldStateAvailable(trieBranchType, rootHash, blockHash);
   }
 
   @Override

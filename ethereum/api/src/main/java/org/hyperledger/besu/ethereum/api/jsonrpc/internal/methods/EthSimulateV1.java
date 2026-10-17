@@ -128,6 +128,9 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
     } catch (final JsonRpcParameterException e) {
       return errorResponse(request, INVALID_PARAMS);
     }
+    simulateV1Parameter.getBlockStateCalls().stream()
+        .flatMap(blockStateCall -> blockStateCall.getCalls().stream())
+        .forEach(CallParameterUtil::rejectEmptyBlobHashes);
     try {
       Optional<BlockStateCallError> maybeValidationError =
           simulateV1Parameter.validate(getValidPrecompileAddresses(header));

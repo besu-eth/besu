@@ -192,6 +192,10 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
       CompletableFuture<Void> future;
       if (fastSyncDownloader.isPresent()) {
+        // Report progress from the start, so eth_syncing is not false during pivot selection and
+        // the backward header download, before the first block import reports any.
+        final long chainHead = protocolContext.getBlockchain().getChainHeadBlockNumber();
+        syncState.setSyncProgress(chainHead, chainHead);
         future = fastSyncDownloader.get().start().thenCompose(this::handleSyncResult);
       } else {
         syncState.markInitialSyncPhaseAsDone();
@@ -294,6 +298,11 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   @Override
   public boolean isInSync() {
     return syncState.isInSync();
+  }
+
+  @Override
+  public boolean isInitialSyncPhaseDone() {
+    return syncState.isInitialSyncPhaseDone();
   }
 
   /**

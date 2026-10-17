@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.trie.common.MptStorageRootStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -88,7 +89,7 @@ class TransactionCollisionDetectorTest {
         Hash.hash(Address.ZERO.getBytes()),
         0,
         Wei.ONE,
-        Hash.EMPTY_TRIE_HASH,
+        new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
         Hash.EMPTY,
         false,
         new BonsaiCodeCache());

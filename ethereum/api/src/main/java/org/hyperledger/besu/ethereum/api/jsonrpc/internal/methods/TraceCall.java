@@ -61,7 +61,9 @@ public class TraceCall extends AbstractTraceCall {
 
   @Override
   protected CallParameter getCallParams(final JsonRpcRequestContext requestContext) {
-    return withoutNonce(super.getCallParams(requestContext));
+    final CallParameter callParams = super.getCallParams(requestContext);
+    CallParameterUtil.rejectBlobFieldsWithoutHashes(callParams);
+    return withoutNonce(callParams);
   }
 
   /**
