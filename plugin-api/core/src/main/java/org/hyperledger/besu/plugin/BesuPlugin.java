@@ -76,9 +76,19 @@ public interface BesuPlugin {
   void register(RegistrationContext context);
 
   /**
-   * Called once Besu has built the node and started its external services, before the main loop is
-   * up. The plugin should begin operation: obtain the services it uses, subscribe to events and
-   * start any background threads it requires.
+   * Called once Besu has built the node, before its external services open their ports and before
+   * the main loop is up. The plugin should begin operation: obtain the services it uses, subscribe
+   * to events and start any background threads it requires.
+   *
+   * <p>Besu does not invoke an RPC handler, pool validator, validation rule, permissioning provider
+   * or health check a plugin registered until every plugin's {@code start()} has returned: the
+   * external services open their ports only after that, and the peer-to-peer network starts with
+   * the main loop. Not covered: storage factories and security modules, which Besu uses while it
+   * builds the node; in-process work another plugin does from its own {@code start()}, since
+   * plugins start in discovery order; the saved transaction pool, which a node running full sync or
+   * with peer-to-peer disabled reloads with {@code --tx-pool-enable-save-restore} while the node is
+   * built; and a plugin dropped under {@code --plugin-continue-on-error} after failing in {@code
+   * start()}, whose callbacks stay wired.
    *
    * <p>The context offers every {@link StartService}, and those services keep working for the rest
    * of the node's life, so the context and the services obtained from it may be kept and used from
@@ -89,11 +99,16 @@ public interface BesuPlugin {
   void start(StartContext context);
 
   /**
-   * Called once the main loop is running: the mining coordinator has started and, unless
-   * peer-to-peer networking is disabled, so have the network and the synchronizer. This is the
-   * first point at which the {@link RunningService} types ({@code P2PService}, {@code
-   * SynchronizationService}, {@code MiningService}) return meaningful answers, so work that needs
-   * them belongs here rather than in {@link #start(StartContext)}.
+   * Called once the main loop is running. By then the mining coordinator has started, though it may
+   * not be producing blocks, and, unless peer-to-peer networking is disabled, the network is
+   * listening with discovery running, though the peer count may still be zero, and the synchronizer
+   * has started, though sync may be in progress or already complete. This is the first point at
+   * which the {@link RunningService} types ({@code P2PService}, {@code SynchronizationService},
+   * {@code MiningService}) return meaningful answers, so work that needs a running network, the
+   * sync status or mining control belongs here rather than in {@link #start(StartContext)}.
+   *
+   * <p>The external services have been accepting requests since before the main loop started, so a
+   * callback this plugin registered may already have run by the time this method is called.
    *
    * @param context the running-phase context, whose lookup also accepts every {@link StartService}
    */
