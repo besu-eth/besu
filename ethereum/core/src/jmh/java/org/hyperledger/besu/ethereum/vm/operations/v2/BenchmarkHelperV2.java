@@ -26,7 +26,6 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -110,7 +109,7 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random UInt256 value
    */
-  static UInt256 randomUInt256Value(final ThreadLocalRandom random) {
+  static UInt256 randomUInt256Value(final Random random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
     return UInt256.fromBytesBE(value);
@@ -122,7 +121,7 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random positive UInt256 value
    */
-  static UInt256 randomPositiveUInt256Value(final ThreadLocalRandom random) {
+  static UInt256 randomPositiveUInt256Value(final Random random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
     value[0] = (byte) (value[0] & 0x7F);
@@ -135,7 +134,7 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random negative UInt256 value
    */
-  static UInt256 randomNegativeUInt256Value(final ThreadLocalRandom random) {
+  static UInt256 randomNegativeUInt256Value(final Random random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
     value[0] = (byte) (value[0] | 0x80);
