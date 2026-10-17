@@ -360,6 +360,14 @@ public class MainnetBlockValidator implements BlockValidator {
           result = new BlockProcessingResult("failed to validate output of imported block");
           handleFailedBlockProcessing(
               block, blockAccessList, result, shouldRecordBadBlock, context);
+          // processBlock already persisted the block's world state, so the head world state is now
+          // on a block that will never be stored. Move it back to the parent.
+          if (shouldUpdateHead) {
+            context
+                .getWorldStateArchive()
+                .getWorldState(
+                    WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead(parentHeader));
+          }
           return result;
         }
 
