@@ -20,7 +20,10 @@ import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 
+import java.util.Map;
+
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * An {@link AbstractDebugOperationTracer} that streams trace data directly to a {@link FrameWriter}
@@ -30,9 +33,7 @@ import org.apache.tuweni.bytes.Bytes;
  */
 public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer {
 
-  /**
-   * Functional interface for zero-allocation streaming of trace data directly from a MessageFrame.
-   */
+  /** Functional interface for zero-allocation streaming of trace data. */
   @FunctionalInterface
   public interface FrameWriter {
     void writeFrame(
@@ -42,13 +43,21 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         long gasCost,
         int depth,
         Bytes[] preExecutionStack,
-        MessageFrame frame,
+        Bytes[] preExecutionMemory,
+        long preExecutionGasRefund,
+        Bytes preExecutionReturnData,
+        Map<UInt256, UInt256> storage,
         ExceptionalHaltReason haltReason,
         Bytes revertReason);
   }
 
+  private static final Bytes[] NO_MEMORY = new Bytes[0];
+
   private final FrameWriter frameWriter;
   private boolean hasEmittedFrame = false;
+  private Bytes[] preExecutionMemory = NO_MEMORY;
+  private long preExecutionGasRefund;
+  private Bytes preExecutionReturnData = Bytes.EMPTY;
   private int stepCount = 0;
 
   /**
@@ -74,10 +83,31 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
       return;
     }
     stepCount++;
+    preExecutionMemory = options.traceMemory() ? snapshotMemory(frame) : NO_MEMORY;
+    preExecutionGasRefund = frame.getGasRefund();
+    preExecutionReturnData = frame.getReturnData();
+    memorySnapshotFrame = frame;
+    memoryDirty = false;
+  }
+
+  private Bytes[] snapshotMemory(final MessageFrame frame) {
+    final int wordCount = frame.memoryWordSize();
+    if (wordCount == 0) {
+      return NO_MEMORY;
+    }
+    if (memoryUnchangedSinceSnapshot(frame) && preExecutionMemory.length == wordCount) {
+      return preExecutionMemory;
+    }
+    final Bytes[] words = new Bytes[wordCount];
+    for (int i = 0; i < wordCount; i++) {
+      words[i] = frame.readMemory(i * 32L, 32);
+    }
+    return words;
   }
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
+    memoryDirty |= frame.getMaybeUpdatedMemory().isPresent();
     if (!traceOpcode) {
       return;
     }
@@ -103,7 +133,10 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         thisGasCost,
         depth,
         preExecutionStack.orElse(null),
-        frame,
+        preExecutionMemory,
+        preExecutionGasRefund,
+        preExecutionReturnData,
+        captureStorage(frame, currentOperation, operationResult).orElse(Map.of()),
         haltReason,
         revertReason);
 
@@ -122,7 +155,10 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
           0L,
           frame.getDepth(),
           null,
-          frame,
+          NO_MEMORY,
+          frame.getGasRefund(),
+          frame.getReturnData(),
+          Map.of(),
           null,
           frame.getRevertReason().orElse(null));
       hasEmittedFrame = true;

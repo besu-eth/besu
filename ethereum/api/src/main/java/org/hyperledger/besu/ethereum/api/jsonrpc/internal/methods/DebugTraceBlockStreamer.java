@@ -33,11 +33,8 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.StreamingDebugOperationTracer;
-import org.hyperledger.besu.evm.ModificationNotAllowedException;
-import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
-import org.hyperledger.besu.evm.frame.MessageFrame;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -48,7 +45,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 import java.util.function.BooleanSupplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -106,7 +102,6 @@ public class DebugTraceBlockStreamer {
 
   private final byte[] numBuf = new byte[20];
   private final byte[] writeBuf = new byte[BUF_SIZE];
-  private final TreeMap<UInt256, UInt256> sortedStorage = new TreeMap<>();
   private final HashMap<String, byte[]> opcodeCache = new HashMap<>(256);
 
   private OutputStream rawOut;
@@ -310,9 +305,31 @@ public class DebugTraceBlockStreamer {
         new StreamingDebugOperationTracer(
             traceOptions.opCodeTracerConfig(),
             true,
-            (pc, opcode, gasRemaining, gasCost, depth, stack, frame, halt, revert) ->
+            (pc,
+                opcode,
+                gasRemaining,
+                gasCost,
+                depth,
+                stack,
+                memory,
+                refund,
+                returnData,
+                storage,
+                halt,
+                revert) ->
                 writeStructLog(
-                    pc, opcode, gasRemaining, gasCost, depth, stack, frame, halt, revert));
+                    pc,
+                    opcode,
+                    gasRemaining,
+                    gasCost,
+                    depth,
+                    stack,
+                    memory,
+                    refund,
+                    returnData,
+                    storage,
+                    halt,
+                    revert));
 
     try {
       if (!firstTx) writeByte(COMMA);
@@ -393,7 +410,10 @@ public class DebugTraceBlockStreamer {
       final long gasCost,
       final int depth,
       final Bytes[] stack,
-      final MessageFrame frame,
+      final Bytes[] memory,
+      final long refund,
+      final Bytes returnData,
+      final Map<UInt256, UInt256> storage,
       final ExceptionalHaltReason haltReason,
       final Bytes revertReason) {
     try {
@@ -415,7 +435,6 @@ public class DebugTraceBlockStreamer {
       writeBytes(SL_DEPTH);
       writeInt(depth + 1);
 
-      final long refund = frame.getGasRefund();
       if (refund > 0) {
         writeBytes(SL_REFUND);
         writeLong(refund);
@@ -432,55 +451,38 @@ public class DebugTraceBlockStreamer {
         writeByte(ARR_CLOSE);
       }
 
-      if (traceOptions.opCodeTracerConfig().traceMemory() && frame.memoryWordSize() > 0) {
+      if (traceOptions.opCodeTracerConfig().traceMemory() && memory.length > 0) {
         writeBytes(SL_MEMORY);
-        final int wordCount = frame.memoryWordSize();
-        for (int i = 0; i < wordCount; i++) {
+        for (int i = 0; i < memory.length; i++) {
           if (i > 0) writeByte(COMMA);
           writeByte(QUOTE);
-          writeHex(frame.readMutableMemory(i * 32L, 32).toArrayUnsafe(), false);
+          writeHex(memory[i].toArrayUnsafe(), false);
           writeByte(QUOTE);
         }
         writeByte(ARR_CLOSE);
       }
 
-      if (traceOptions.opCodeTracerConfig().traceReturnData()) {
-        final Bytes returnData = frame.getReturnData();
-        if (returnData != null && !returnData.isEmpty()) {
-          writeBytes(SL_RETURN_DATA);
-          writeHex(returnData.toArrayUnsafe(), false);
-          writeByte(QUOTE);
-        }
+      if (traceOptions.opCodeTracerConfig().traceReturnData() && !returnData.isEmpty()) {
+        writeBytes(SL_RETURN_DATA);
+        writeHex(returnData.toArrayUnsafe(), false);
+        writeByte(QUOTE);
       }
 
-      if (traceOptions.opCodeTracerConfig().traceStorage()) {
-        try {
-          final MutableAccount account =
-              frame.getWorldUpdater().getAccount(frame.getRecipientAddress());
-          if (account != null) {
-            final Map<UInt256, UInt256> updatedStorage = account.getUpdatedStorage();
-            if (!updatedStorage.isEmpty()) {
-              writeBytes(SL_STORAGE);
-              sortedStorage.clear();
-              sortedStorage.putAll(updatedStorage);
-              boolean firstEntry = true;
-              for (final Map.Entry<UInt256, UInt256> entry : sortedStorage.entrySet()) {
-                if (!firstEntry) writeByte(COMMA);
-                firstEntry = false;
-                writeByte(QUOTE);
-                writeHex(entry.getKey().toArrayUnsafe(), false);
-                writeByte(QUOTE);
-                writeByte(COLON);
-                writeByte(QUOTE);
-                writeHex(entry.getValue().toArrayUnsafe(), false);
-                writeByte(QUOTE);
-              }
-              writeByte(OBJ_CLOSE);
-            }
-          }
-        } catch (final ModificationNotAllowedException e) {
-          // no storage to write
+      if (traceOptions.opCodeTracerConfig().traceStorage() && !storage.isEmpty()) {
+        writeBytes(SL_STORAGE);
+        boolean firstEntry = true;
+        for (final Map.Entry<UInt256, UInt256> entry : storage.entrySet()) {
+          if (!firstEntry) writeByte(COMMA);
+          firstEntry = false;
+          writeByte(QUOTE);
+          writeHex(entry.getKey().toArrayUnsafe(), false);
+          writeByte(QUOTE);
+          writeByte(COLON);
+          writeByte(QUOTE);
+          writeHex(entry.getValue().toArrayUnsafe(), false);
+          writeByte(QUOTE);
         }
+        writeByte(OBJ_CLOSE);
       }
 
       if (revertReason != null) {
