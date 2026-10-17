@@ -64,6 +64,8 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
   private final NavigableSet<PendingTransaction> prioritizedTransactionsStaticRange =
       new TreeSet<>(
           comparing(PendingTransaction::hasPriority)
+              // penalized txs (lower score) are selected after the others
+              .thenComparing(PendingTransaction::getScore)
               .thenComparing(
                   pendingTx ->
                       pendingTx
@@ -79,6 +81,8 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
   private final NavigableSet<PendingTransaction> prioritizedTransactionsDynamicRange =
       new TreeSet<>(
           comparing(PendingTransaction::hasPriority)
+              // penalized txs (lower score) are selected after the others
+              .thenComparing(PendingTransaction::getScore)
               .thenComparing(
                   pendingTx ->
                       pendingTx
@@ -158,8 +162,12 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
           currentStaticRangeTransaction = getNextOptional(staticRangeIterable);
           return best;
         } else {
-          // there are both static and dynamic txs remaining, so we need to compare them by their
-          // effective priority fees
+          // there are both static and dynamic txs remaining, so we need to compare them first by
+          // score (penalized txs go last) and then by their effective priority fees
+          final int scoreComparison =
+              Byte.compare(
+                  currentDynamicRangeTransaction.get().getScore(),
+                  currentStaticRangeTransaction.get().getScore());
           final Wei dynamicRangeEffectivePriorityFee =
               currentDynamicRangeTransaction
                   .get()
@@ -171,7 +179,10 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
                   .getTransaction()
                   .getEffectivePriorityFeePerGas(baseFee);
           final PendingTransaction best;
-          if (dynamicRangeEffectivePriorityFee.compareTo(staticRangeEffectivePriorityFee) > 0) {
+          if (scoreComparison > 0
+              || (scoreComparison == 0
+                  && dynamicRangeEffectivePriorityFee.compareTo(staticRangeEffectivePriorityFee)
+                      > 0)) {
             best = currentDynamicRangeTransaction.get();
             currentDynamicRangeTransaction = getNextOptional(dynamicRangeIterable);
           } else {

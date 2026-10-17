@@ -208,6 +208,14 @@ public abstract class AbstractBlockTransactionSelectorTest {
 
   protected abstract TransactionPool createTransactionPool();
 
+  /**
+   * @return true if the txpool created by {@link #createTransactionPool()} is a sequenced one, that
+   *     penalizes not selected txs synchronously (the layered one does it asynchronously)
+   */
+  protected boolean isSequencedPool() {
+    return true;
+  }
+
   protected ProcessableBlockHeader createBlock(final long gasLimit) {
     return createBlock(gasLimit, Wei.ONE);
   }
@@ -1478,6 +1486,19 @@ public abstract class AbstractBlockTransactionSelectorTest {
     // Ensure receipts have the correct cumulative gas
     assertThat(results.getReceipts().get(0).getCumulativeGasUsed()).isEqualTo(100_000);
     assertThat(results.getReceipts().get(1).getCumulativeGasUsed()).isEqualTo(200_000);
+
+    if (isSequencedPool() && !isLongProcessingTxDropped) {
+      // the evaluation of the late tx was still running when the selection returned, but the
+      // txpool must have been given a (provisional) result for it, so that it is penalized
+      // immediately and not retried first on the next block
+      assertThat(
+              transactionPool.getPendingTransactions().stream()
+                  .filter(pt -> pt.getHash().equals(lateTx.getHash()))
+                  .findFirst()
+                  .orElseThrow()
+                  .getScore())
+          .isLessThan(org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MAX_SCORE);
+    }
 
     // given enough time we can check the not selected tx
     await().until(() -> !results.getNotSelectedTransactions().isEmpty());

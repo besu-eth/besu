@@ -342,9 +342,46 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       final long elapsedSelectionTime = System.nanoTime() - startTimeNanos;
       final long maxWaitTime = remainingSelectionTime - elapsedSelectionTime;
       waitForCancellationToBeProcessed("Internal", internalSelectionDone, maxWaitTime);
+      if (internalSelectionDone.getCount() != 0) {
+        recordInFlightTransactionResult(selectionResults);
+      }
     }
 
     return selectionResults;
+  }
+
+  /**
+   * When the block creation continues in best effort mode, the thread evaluating the current tx has
+   * not reported its result yet, and it will do so only after the results have been consumed by the
+   * txpool, so the txpool would never know about it (for example it would never be reordered).
+   * Record a provisional result for it now: if the evaluating thread completes in the meantime its
+   * own result is preserved.
+   *
+   * @param selectionResults the results of the selection, returned to the txpool
+   */
+  private void recordInFlightTransactionResult(
+      final Map<PendingTransaction, TransactionSelectionResult> selectionResults) {
+    final var evaluationContext = currTxEvaluationContext;
+    if (evaluationContext == null
+        || !(evaluationContext.getPendingTransaction() instanceof PendingTransaction inFlightTx)) {
+      return;
+    }
+
+    // Only results that neither discard nor penalize are used here, since the final outcome of the
+    // evaluation is not known yet: the layered txpool ignores them, while the sequenced txpool
+    // moves any not selected tx to the back of its selection order.
+    final TransactionSelectionResult provisionalResult =
+        isCancelled.get() ? SELECTION_CANCELLED : BLOCK_SELECTION_TIMEOUT;
+
+    if (selectionResults.putIfAbsent(inFlightTx, provisionalResult) == null) {
+      LOG.atDebug()
+          .setMessage(
+              "Transaction {} is still being evaluated after {} at the end of the block selection, recording provisional result {}")
+          .addArgument(inFlightTx::getHash)
+          .addArgument(evaluationContext.getEvaluationTimer())
+          .addArgument(provisionalResult)
+          .log();
+    }
   }
 
   private void pluginTimeLimitedSelection(

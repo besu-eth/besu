@@ -625,6 +625,10 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.size();
   }
 
+  public TransactionPoolConfiguration getConfiguration() {
+    return configuration;
+  }
+
   public Collection<PendingTransaction> getPendingTransactions() {
     return pendingTransactions.getPendingTransactions();
   }

@@ -48,7 +48,6 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.time.Clock;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -150,10 +149,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   @Override
   public void evictOldTransactions() {
     final long removeTransactionsBefore =
-        clock
-            .instant()
-            .minus(poolConfig.getPendingTxRetentionPeriod(), ChronoUnit.HOURS)
-            .toEpochMilli();
+        clock.instant().minus(poolConfig.getPendingTxRetentionDuration()).toEpochMilli();
 
     pendingTransactions.values().stream()
         .filter(transaction -> transaction.getAddedAt() < removeTransactionsBefore)
@@ -267,8 +263,41 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
           removeTransaction(pendingTransaction.getTransaction(), INVALID);
         }
         logDiscardedTransaction(pendingTransaction, result);
+      } else if (!result.selected()) {
+        penalizeTransaction(pendingTransaction, result);
       }
     }
+  }
+
+  /**
+   * A transaction that was evaluated for block inclusion but not selected (for example because its
+   * execution did not complete within the block creation time budget) is moved to the back of the
+   * selection order, so that the other pending transactions are evaluated before it on the next
+   * block. A transaction that is never selected is eventually removed by {@link
+   * #evictOldTransactions()} once it is older than the configured retention period.
+   *
+   * @param pendingTransaction the evaluated transaction
+   * @param result the reason why it was not selected
+   */
+  private void penalizeTransaction(
+      final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
+    synchronized (lock) {
+      // the tx could have been removed or replaced while the selection was running
+      if (!pendingTransaction.equals(pendingTransactions.get(pendingTransaction.getHash()))) {
+        return;
+      }
+      // the score is part of the prioritization order, so the tx must be removed from the
+      // ordered structures before it is changed, and re-inserted afterwards
+      removePrioritizedTransaction(pendingTransaction);
+      pendingTransaction.decrementScore();
+      prioritizeTransaction(pendingTransaction);
+    }
+    LOG.atDebug()
+        .setMessage("Transaction {} penalized by block selection with result {}, new score {}")
+        .addArgument(pendingTransaction::getHash)
+        .addArgument(result)
+        .addArgument(pendingTransaction::getScore)
+        .log();
   }
 
   private void logDiscardedTransaction(

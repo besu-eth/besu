@@ -2361,6 +2361,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       txPoolConfBuilder.priceBump(Percentage.ZERO);
     }
 
+    if (transactionPoolOptions.isRetentionHoursIgnored(commandLine)) {
+      logger.warn(
+          TransactionPoolOptions.TX_POOL_RETENTION_HOURS_OPTION
+              + " is ignored when "
+              + TransactionPoolOptions.TX_POOL_RETENTION_SECONDS_OPTION
+              + " is set");
+    }
+
     if (miningParametersSupplier
         .get()
         .getMinTransactionGasPrice()
