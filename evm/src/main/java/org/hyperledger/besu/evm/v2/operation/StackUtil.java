@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.v2.operation;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.Wei;
 
 import java.lang.invoke.MethodHandles;
@@ -125,6 +126,27 @@ final class StackUtil {
       return;
     }
     final byte[] b = value.toArrayUnsafe();
+    stack[offset] = (long) LONG_BE.get(b, 0);
+    stack[offset + 1] = (long) LONG_BE.get(b, 8);
+    stack[offset + 2] = (long) LONG_BE.get(b, 16);
+    stack[offset + 3] = (long) LONG_BE.get(b, 24);
+  }
+
+  /**
+   * Writes a 32-byte hash value as four big-endian limbs at the given stack slot.
+   *
+   * <p>Deliberately separate from {@link #pushBytes32}: it gives BLOCKHASH and BLOBHASH their own
+   * {@code toArrayUnsafe()} call site, so the JIT's type profile for it is not shared with other
+   * callers. When other callers pass several {@code Bytes} implementations to a shared helper, the
+   * call can no longer be inlined, which made BLOBHASH about 28% slower in JMH (see PR #10962).
+   *
+   * @param hash the hash value to write
+   * @param stack the flat limb array
+   * @param top the slot index to write to
+   */
+  static void pushHash(final BytesHolder hash, final long[] stack, final int top) {
+    final int offset = top << 2;
+    final byte[] b = hash.getBytes().toArrayUnsafe();
     stack[offset] = (long) LONG_BE.get(b, 0);
     stack[offset + 1] = (long) LONG_BE.get(b, 8);
     stack[offset + 2] = (long) LONG_BE.get(b, 16);
