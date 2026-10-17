@@ -124,7 +124,7 @@ public class TransactionPool implements BlockAddedObserver {
   private volatile OptionalLong subscribeConnectId = OptionalLong.empty();
   private final SaveRestoreManager saveRestoreManager = new SaveRestoreManager();
   private final Set<Address> localSenders = ConcurrentHashMap.newKeySet();
-  private final EthScheduler.OrderedProcessor<BlockAddedEvent> blockAddedEventOrderedProcessor;
+  private final EthScheduler.OrderedProcessor<Runnable> blockAddedEventOrderedProcessor;
   private final ListMultimap<VersionedHash, BlobProofBundle> mapOfBlobsInTransactionPool =
       Multimaps.synchronizedListMultimap(
           Multimaps.newListMultimap(new HashMap<>(), () -> new ArrayList<>(1)));
@@ -147,7 +147,7 @@ public class TransactionPool implements BlockAddedObserver {
     this.metrics = metrics;
     this.configuration = configuration;
     this.blockAddedEventOrderedProcessor =
-        ethContext.getScheduler().createOrderedProcessor(this::processBlockAddedEvent);
+        ethContext.getScheduler().createOrderedProcessor(Runnable::run);
     this.cacheForBlobsOfTransactionsAddedToABlock = blobCache;
     initializeBlobMetrics();
     subscribePendingTransactions(this::mapBlobsOnTransactionAdded);
@@ -384,9 +384,20 @@ public class TransactionPool implements BlockAddedObserver {
       if (event.getEventType().equals(EventType.HEAD_ADVANCED)
           || event.getEventType().equals(EventType.CHAIN_REORG)) {
 
-        blockAddedEventOrderedProcessor.submit(event);
+        blockAddedEventOrderedProcessor.submit(() -> processBlockAddedEvent(event));
       }
     }
+  }
+
+  /**
+   * Block added events are applied to the pool asynchronously, so right after a block is imported
+   * the pool can still contain the transactions it confirmed. The action runs once every block
+   * added event received so far has been applied, so pool reads inside it reflect those blocks.
+   *
+   * @param action the action to run after the pending block added events
+   */
+  public void runAfterBlockAddedEventsProcessed(final Runnable action) {
+    blockAddedEventOrderedProcessor.submit(action);
   }
 
   private void processBlockAddedEvent(final BlockAddedEvent e) {

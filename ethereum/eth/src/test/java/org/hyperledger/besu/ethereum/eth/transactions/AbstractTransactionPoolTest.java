@@ -58,6 +58,7 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.util.number.Percentage;
 
 import java.math.BigInteger;
@@ -66,6 +67,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -135,6 +137,35 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     appendBlock(transaction0);
 
     assertTransactionNotPending(transaction0);
+  }
+
+  @Test
+  public void actionRunAfterBlockAddedEventsSeesPoolWithoutConfirmedTransactions() {
+    givenTransactionIsValid(transaction0);
+    givenTransactionIsValid(transaction1);
+
+    addAndAssertRemoteTransactionsValid(transaction0);
+    addAndAssertRemoteTransactionsValid(transaction1);
+
+    final DeterministicEthScheduler ethScheduler =
+        (DeterministicEthScheduler) ethContext.getScheduler();
+    ethScheduler.disableAutoRun();
+
+    appendBlock(transaction0);
+
+    final AtomicInteger countSeenByAction = new AtomicInteger(-1);
+    transactionPool.runAfterBlockAddedEventsProcessed(
+        () -> countSeenByAction.set(transactionPool.count()));
+
+    // the block added event is still queued, so the confirmed transaction is still counted
+    assertThat(transactionPool.count()).isEqualTo(2);
+    assertThat(countSeenByAction).hasValue(-1);
+
+    ethScheduler.runPendingFutures();
+
+    assertThat(countSeenByAction).hasValue(1);
+    assertTransactionNotPending(transaction0);
+    assertTransactionPending(transaction1);
   }
 
   @Test

@@ -466,30 +466,40 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
           qbftBlock instanceof QbftBlockAdaptor adaptor
               ? adaptor.getBlockCreationTiming()
               : Optional.empty();
+      // the pool drops the transactions confirmed by this block asynchronously, so log once that
+      // is done, otherwise the pending count still includes the transactions of this block
       if (block.getHeader().getCoinbase().equals(localAddress) && timing.isPresent()) {
-        LOG.info(
-            String.format(
-                "Produced #%,d  (%s)| %4d tx | %d pending | %,d (%01.1f%%) gas in %01.3fs | Timing(%s)",
-                block.getHeader().getNumber(),
-                block.getHash().toShortLogString(),
-                block.getBody().getTransactions().size(),
-                transactionPool.count(),
-                block.getHeader().getGasUsed(),
-                (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
-                timing.get().end("blockImported").toMillis() / 1000.0,
-                timing.get()));
+        final double creationSeconds = timing.get().end("blockImported").toMillis() / 1000.0;
+        final String timingSteps = timing.get().toString();
+        transactionPool.runAfterBlockAddedEventsProcessed(
+            () ->
+                LOG.info(
+                    String.format(
+                        "Produced #%,d  (%s)| %4d tx | %d pending | %,d (%01.1f%%) gas in %01.3fs | Timing(%s)",
+                        block.getHeader().getNumber(),
+                        block.getHash().toShortLogString(),
+                        block.getBody().getTransactions().size(),
+                        transactionPool.count(),
+                        block.getHeader().getGasUsed(),
+                        (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
+                        creationSeconds,
+                        timingSteps)));
       } else {
-        LOG.info(
-            String.format(
-                "%s %-11s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)",
-                block.getHeader().getCoinbase().equals(localAddress) ? "Produced" : "Imported",
-                block.getBody().getTransactions().isEmpty() ? "empty block" : "block",
-                block.getHeader().getNumber(),
-                block.getBody().getTransactions().size(),
-                transactionPool.count(),
-                block.getHeader().getGasUsed(),
-                (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
-                block.getHash().getBytes().toHexString()));
+        transactionPool.runAfterBlockAddedEventsProcessed(
+            () ->
+                LOG.info(
+                    String.format(
+                        "%s %-11s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)",
+                        block.getHeader().getCoinbase().equals(localAddress)
+                            ? "Produced"
+                            : "Imported",
+                        block.getBody().getTransactions().isEmpty() ? "empty block" : "block",
+                        block.getHeader().getNumber(),
+                        block.getBody().getTransactions().size(),
+                        transactionPool.count(),
+                        block.getHeader().getGasUsed(),
+                        (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
+                        block.getHash().getBytes().toHexString())));
       }
     };
   }
