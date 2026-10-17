@@ -84,6 +84,7 @@
 - `evmtool t8n` now reports a failure while processing execution layer requests, such as a malformed deposit event, as `blockException` in its result, like block import rejects the block. It previously failed the whole transition, so `t8n-server` answered with HTTP 500. [#11570](https://github.com/besu-eth/besu/pull/11570)
 - `--ethstats` connections no longer drop at the next garbage collection, a regression since 26.8.1. [#11589](https://github.com/besu-eth/besu/pull/11589)
 - `--ethstats` no longer retains a few KB of heap per reconnect attempt while the ethstats server is unreachable. [#11614](https://github.com/besu-eth/besu/pull/11614)
+- The Osaka (EIP-7883) MODEXP gas cost now saturates for declared base or modulus lengths of 2^34 - 7 bytes and above, matching go-ethereum and reth. The multiplication complexity overflowed and the price fell to the 500 gas floor. Mainnet is unaffected because EIP-7823 caps those lengths at 1024 bytes. [#11596](https://github.com/besu-eth/besu/issues/11596)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
