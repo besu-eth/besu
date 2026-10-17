@@ -96,6 +96,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,6 +105,15 @@ import org.slf4j.LoggerFactory;
 @ExtendWith(MockitoExtension.class)
 public class EphemeryTest extends CommandTestAbstract {
   private static final Logger LOG = LoggerFactory.getLogger(EphemeryTest.class);
+
+  // the real context, so the restart runs the built-ins through the real stop, register and start
+  // loops; the per-phase contexts the plugins see stay the fakes of the base class
+  @Spy private BesuPluginContextImpl besuPluginContextSpy;
+
+  @Override
+  protected BesuPluginContextImpl getBesuPluginContext() {
+    return besuPluginContextSpy;
+  }
 
   private TestBesuCommand besuCommand;
   private Runner runner;
@@ -263,6 +273,8 @@ public class EphemeryTest extends CommandTestAbstract {
   @Test
   public void testInitialProcessWithEphemeryNetwork() throws Exception {
     runner.stopEphemery(besuCommand);
+    // what startEphemery() does before initialProcess(): the plugins register again for the cycle
+    besuCommand.reRegisterPlugins();
     besuCommand.initialProcess();
 
     assertThat(besuCommand.dataPath.toString()).contains(ephemeryDataPathPrefix);

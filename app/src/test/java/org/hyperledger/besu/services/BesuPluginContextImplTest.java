@@ -80,6 +80,7 @@ public class BesuPluginContextImplTest {
     Consumer<RegistrationContext> onRegister = context -> {};
     Consumer<StartContext> onStart = context -> {};
     Consumer<RunningContext> onAfterMainLoop = context -> {};
+    Runnable onStop = () -> {};
 
     RecordingPlugin(final String name) {
       this.name = name;
@@ -106,7 +107,16 @@ public class BesuPluginContextImplTest {
     }
 
     @Override
-    public void stop() {}
+    public void stop() {
+      onStop.run();
+    }
+  }
+
+  /** A recording plugin of its own class, so it has an id distinct from {@link RecordingPlugin}. */
+  static class BuiltInRecordingPlugin extends RecordingPlugin {
+    BuiltInRecordingPlugin(final String name) {
+      super(name);
+    }
   }
 
   /** A plugin that declares one option and records the value it sees in each phase. */
@@ -352,6 +362,315 @@ public class BesuPluginContextImplTest {
     context.beginRegistration();
     context.registerPlugins();
     context.endRegistration();
+  }
+
+  /**
+   * A context with the given built-in plugins, loading the given external plugins, with the options
+   * defined and the command line parsed.
+   */
+  private static BesuPluginContextImpl contextWithBuiltIns(
+      final boolean continueOnPluginError,
+      final List<BesuPlugin> builtIns,
+      final BesuPlugin... externalPlugins) {
+    final CommandLine commandLine = new CommandLine(CommandSpec.create());
+    final PicoCLIOptionsImpl picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
+    final BesuPluginContextImpl context = contextLoading(externalPlugins);
+    builtIns.forEach(context::addBuiltInPlugin);
+    context.initialize(
+        ImmutablePluginConfiguration.builder()
+            .continueOnPluginError(continueOnPluginError)
+            .build());
+    context.defineOptions(picoCLIOptions);
+    picoCLIOptions.optionsDefinitionCompleted();
+    commandLine.parseArgs();
+    return context;
+  }
+
+  @Test
+  void builtInPluginsRunEveryPhaseAheadOfTheExternalPlugins() {
+    final List<String> order = new ArrayList<>();
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onRegister = context -> order.add("builtIn.register");
+    builtIn.onStart = context -> order.add("builtIn.start");
+    builtIn.onAfterMainLoop = context -> order.add("builtIn.afterMainLoop");
+    builtIn.onStop = () -> order.add("builtIn.stop");
+    final RecordingPlugin external = new RecordingPlugin("external");
+    external.onRegister = context -> order.add("external.register");
+    external.onStart = context -> order.add("external.start");
+    external.onAfterMainLoop = context -> order.add("external.afterMainLoop");
+    external.onStop = () -> order.add("external.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(builtIn), external);
+
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+    context.stopPlugins();
+
+    assertThat(order)
+        .containsExactly(
+            "builtIn.register",
+            "external.register",
+            "builtIn.start",
+            "external.start",
+            "builtIn.afterMainLoop",
+            "external.afterMainLoop",
+            "builtIn.stop",
+            "external.stop");
+  }
+
+  @Test
+  void builtInPluginsRunWhenExternalPluginsAreDisabled() {
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    final AtomicBoolean registered = new AtomicBoolean();
+    builtIn.onRegister = context -> registered.set(true);
+    final CommandLine commandLine = new CommandLine(CommandSpec.create());
+    final PicoCLIOptionsImpl picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
+    final BesuPluginContextImpl context = new BesuPluginContextImpl();
+    context.addBuiltInPlugin(builtIn);
+    context.initialize(
+        ImmutablePluginConfiguration.builder().externalPluginsEnabled(false).build());
+    context.defineOptions(picoCLIOptions);
+    picoCLIOptions.optionsDefinitionCompleted();
+    commandLine.parseArgs();
+
+    register(context);
+
+    assertThat(registered).isTrue();
+    assertThat(context.getRegisteredPlugins()).containsExactly(builtIn);
+  }
+
+  @Test
+  void builtInPluginFailingToDefineOptionsIsFatalEvenWithContinueOnError() {
+    final CommandLine commandLine = new CommandLine(CommandSpec.create());
+    final PicoCLIOptionsImpl picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
+    final BesuPluginContextImpl context = contextLoading();
+    context.addBuiltInPlugin(new FailingDefineOptionsPlugin());
+    context.initialize(ImmutablePluginConfiguration.builder().continueOnPluginError(true).build());
+
+    assertThatThrownBy(() -> context.defineOptions(picoCLIOptions))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Error defining options of plugin of type")
+        .hasMessageContaining(
+            "a built-in plugin failure is fatal regardless of --plugin-continue-on-error");
+  }
+
+  @Test
+  void builtInPluginFailingToRegisterIsFatalEvenWithContinueOnError() {
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(true, List.of(new FailingRegisterPlugin()));
+    context.beginRegistration();
+
+    assertThatThrownBy(context::registerPlugins)
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Error registering plugin of type")
+        .hasMessageContaining(
+            "a built-in plugin failure is fatal regardless of --plugin-continue-on-error");
+  }
+
+  @Test
+  void builtInPluginFailingToStartIsFatalEvenWithContinueOnError() {
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onStart =
+        context -> {
+          throw new RuntimeException("cannot start");
+        };
+    final BesuPluginContextImpl context = contextWithBuiltIns(true, List.of(builtIn));
+    register(context);
+
+    assertThatThrownBy(context::startPlugins)
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Error starting plugin of type")
+        .hasMessageContaining("cannot start");
+  }
+
+  @Test
+  void builtInPluginFailingAfterTheMainLoopIsFatalEvenWithContinueOnError() {
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onAfterMainLoop =
+        context -> {
+          throw new RuntimeException("cannot run");
+        };
+    final BesuPluginContextImpl context = contextWithBuiltIns(true, List.of(builtIn));
+    register(context);
+    context.startPlugins();
+
+    assertThatThrownBy(context::afterMainLoop)
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Error calling `afterMainLoop` on plugin of type")
+        .hasMessageContaining("cannot run");
+  }
+
+  @Test
+  void externalPluginFailureIsStillSkippedWithContinueOnError() {
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(true, List.of(builtIn), new FailingRegisterPlugin());
+
+    register(context);
+
+    assertThat(context.getRegisteredPlugins()).containsExactly(builtIn);
+  }
+
+  @Test
+  void builtInPluginsAreListedWithTheExternalOnes() {
+    final RecordingPlugin builtIn = new BuiltInRecordingPlugin("builtIn");
+    final RecordingPlugin external = new RecordingPlugin("external");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(builtIn), external);
+
+    register(context);
+
+    assertThat(context.getPluginVersions())
+        .containsKeys(BuiltInRecordingPlugin.class.getName(), RecordingPlugin.class.getName());
+    assertThat(context.getPluginsById())
+        .containsKeys(BuiltInRecordingPlugin.class.getName(), RecordingPlugin.class.getName());
+  }
+
+  @Test
+  void summaryListsTheBuiltInsApartAndCountsOnlyTheExternalPlugins() {
+    final RecordingPlugin builtIn = new BuiltInRecordingPlugin("builtIn");
+    final RecordingPlugin external = new RecordingPlugin("external");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(builtIn), external);
+    register(context);
+
+    final List<String> summary = context.getPluginsSummaryLog();
+
+    assertThat(summary)
+        .containsSubsequence(
+            "Plugin Registration Summary:",
+            "Built-in plugins:",
+            " - " + BuiltInRecordingPlugin.class.getName() + " (" + builtIn.getVersion() + ")",
+            "Registered Plugins:",
+            " - " + RecordingPlugin.class.getName() + " (" + external.getVersion() + ")")
+        .doesNotContain("No external plugins have been registered.");
+    // the total counts the plugins directory, which the built-in is not part of: one external
+    // plugin detected, one registered
+    assertThat(summary.getLast()).isEqualTo("TOTAL = 1 of 1 plugins successfully registered.");
+  }
+
+  @Test
+  void summaryStillReportsTheBuiltInsWhenNoExternalPluginRegistered() {
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(false, List.of(new RecordingPlugin("builtIn")));
+    register(context);
+
+    assertThat(context.getPluginsSummaryLog())
+        .containsSubsequence("Built-in plugins:", "No external plugins have been registered.")
+        .doesNotContain("Registered Plugins:");
+  }
+
+  @Test
+  void configurationOverviewLinesAreCollectedByPluginNameLeavingOutSilentPlugins() {
+    final RecordingPlugin talkative =
+        new RecordingPlugin("talkative") {
+          @Override
+          public List<String> configurationOverviewLines() {
+            return List.of("one", "two");
+          }
+        };
+    final RecordingPlugin silent = new RecordingPlugin("silent");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(talkative), silent);
+    register(context);
+
+    assertThat(context.getConfigurationOverviewLines())
+        .containsOnlyKeys(talkative.getClass().getName())
+        .containsEntry(talkative.getClass().getName(), List.of("one", "two"));
+  }
+
+  /** A plugin whose overview lines cannot be read. */
+  private static RecordingPlugin pluginFailingTheOverview(final String name) {
+    return new RecordingPlugin(name) {
+      @Override
+      public List<String> configurationOverviewLines() {
+        throw new RuntimeException("no overview");
+      }
+    };
+  }
+
+  @Test
+  void externalPluginFailingTheOverviewIsLeftOutWithContinueOnError() {
+    final RecordingPlugin fine =
+        new RecordingPlugin("fine") {
+          @Override
+          public List<String> configurationOverviewLines() {
+            return List.of("one");
+          }
+        };
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(true, List.of(), pluginFailingTheOverview("broken"), fine);
+    register(context);
+
+    assertThat(context.getConfigurationOverviewLines())
+        .containsOnlyKeys(fine.getClass().getName())
+        .containsEntry(fine.getClass().getName(), List.of("one"));
+  }
+
+  @Test
+  void externalPluginFailingTheOverviewIsFatalWithoutContinueOnError() {
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(false, List.of(), pluginFailingTheOverview("broken"));
+    register(context);
+
+    assertThatThrownBy(context::getConfigurationOverviewLines)
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Error reading the configuration overview of plugin of type")
+        .hasMessageContaining("no overview");
+  }
+
+  @Test
+  void builtInPluginFailingTheOverviewIsFatalEvenWithContinueOnError() {
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(true, List.of(pluginFailingTheOverview("broken")));
+    register(context);
+
+    assertThatThrownBy(context::getConfigurationOverviewLines)
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Error reading the configuration overview of plugin of type")
+        .hasMessageContaining(
+            "a built-in plugin failure is fatal regardless of --plugin-continue-on-error");
+  }
+
+  @Test
+  void resetStateStopsThePluginsAndRegistersTheSameInstancesAgain() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onRegister = context -> events.add("builtIn.register");
+    builtIn.onStop = () -> events.add("builtIn.stop");
+    final RecordingPlugin external = new RecordingPlugin("external");
+    external.onRegister = context -> events.add("external.register");
+    external.onStop = () -> events.add("external.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(builtIn), external);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+    events.clear();
+
+    context.resetState();
+    register(context);
+    context.startPlugins();
+
+    assertThat(events)
+        .containsExactly("builtIn.stop", "external.stop", "builtIn.register", "external.register");
+    assertThat(context.getRegisteredPlugins()).containsExactly(builtIn, external);
+  }
+
+  @Test
+  void builtInPluginsCannotBeAddedOnceTheOptionsAreDefined() {
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of());
+
+    assertThatThrownBy(() -> context.addBuiltInPlugin(new RecordingPlugin("late")))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("before the plugins define their options");
+  }
+
+  @Test
+  void aBuiltInPluginIsAddedOnce() {
+    final BesuPluginContextImpl context = new BesuPluginContextImpl();
+    final RecordingPlugin plugin = new RecordingPlugin("twice");
+    context.addBuiltInPlugin(plugin);
+
+    assertThatThrownBy(() -> context.addBuiltInPlugin(plugin))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("already added");
   }
 
   @Test

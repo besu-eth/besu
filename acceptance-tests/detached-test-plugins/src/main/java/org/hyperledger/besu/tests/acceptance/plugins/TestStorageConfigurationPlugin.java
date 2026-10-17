@@ -17,9 +17,12 @@ package org.hyperledger.besu.tests.acceptance.plugins;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationContext;
 import org.hyperledger.besu.plugin.StartContext;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 
 import java.io.File;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -44,6 +47,14 @@ public class TestStorageConfigurationPlugin implements BesuPlugin {
         callbackDir,
         "storageConfiguration.storagePath",
         storageConfiguration.getStoragePath().toString());
+    // as one line even when empty, so the test's wait for the file sees it
+    PluginCallbackDir.write(
+        callbackDir,
+        "storageConfiguration.ignorableSegments",
+        List.of(
+            storageConfiguration.getIgnorableSegments().stream()
+                .map(SegmentIdentifier::getName)
+                .collect(Collectors.joining(","))));
   }
 
   @Override
