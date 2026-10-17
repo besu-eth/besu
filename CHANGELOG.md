@@ -84,6 +84,7 @@
 - `evmtool t8n` now reports a failure while processing execution layer requests, such as a malformed deposit event, as `blockException` in its result, like block import rejects the block. It previously failed the whole transition, so `t8n-server` answered with HTTP 500. [#11570](https://github.com/besu-eth/besu/pull/11570)
 - `--ethstats` connections no longer drop at the next garbage collection, a regression since 26.8.1. [#11589](https://github.com/besu-eth/besu/pull/11589)
 - `--ethstats` no longer retains a few KB of heap per reconnect attempt while the ethstats server is unreachable. [#11614](https://github.com/besu-eth/besu/pull/11614)
+- `eth_simulateV1` with `validation` disabled no longer caps the execution gas of a call after Amsterdam at `TX_MAX_GAS_LIMIT` (EIP-8037). The whole gas limit of the call is execution gas, and the default gas limit is the block gas limit minus the larger of the execution gas and the state gas that the block has used. With `validation` enabled, a call whose intrinsic or calldata floor cost exceeds `TX_MAX_GAS_LIMIT` is now rejected with `-38013`, because EIP-8037 caps that cost. Geth rejects the same call with `-32603`. [#11579](https://github.com/besu-eth/besu/pull/11579)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
