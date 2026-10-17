@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.vm;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.AbstractCallOperation;
 import org.hyperledger.besu.evm.operation.Operation;
@@ -21,10 +22,14 @@ import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * Base class for opcode-level operation tracers. Manages the per-frame state that must be captured
@@ -66,6 +71,9 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
 
   private Operation previousOpcode = null;
 
+  private Optional<UInt256> preExecutionStorageKey = Optional.empty();
+  private final Map<Address, Map<UInt256, UInt256>> accessedStorage = new HashMap<>();
+
   protected AbstractDebugOperationTracer(
       final OpCodeTracerConfig options, final boolean recordChildCallGas) {
     this.options = options;
@@ -80,6 +88,13 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   @Override
   public void tracePreExecution(final MessageFrame frame) {
     final Operation currentOperation = frame.getCurrentOperation();
+    if (options.traceStorage()
+        && "SLOAD".equals(currentOperation.getName())
+        && frame.stackSize() > 0) {
+      preExecutionStorageKey = Optional.of(UInt256.fromBytes(frame.getStackItem(0)));
+    } else {
+      preExecutionStorageKey = Optional.empty();
+    }
     traceOpcode = shouldTraceOpcode(currentOperation);
     if (!traceOpcode) {
       return;
@@ -129,6 +144,46 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
       stackContents[i] = frame.getStackItem(stackContents.length - i - 1);
     }
     return Optional.of(stackContents);
+  }
+
+  /**
+   * Records the slot touched by a successful SLOAD or SSTORE and returns the live map of all slots
+   * the current contract accessed so far in the transaction. Returns {@link Optional#empty()} for
+   * all other opcodes, per the execution-apis opcode tracer spec. Subclasses call it for every
+   * operation, traced or not, so that the map also holds slots of filtered-out opcodes, and copy
+   * the map only for a step they emit and keep.
+   */
+  protected Optional<Map<UInt256, UInt256>> recordStorage(
+      final MessageFrame frame,
+      final Operation currentOperation,
+      final OperationResult operationResult) {
+    if (!options.traceStorage() || operationResult.getHaltReason() != null) {
+      return Optional.empty();
+    }
+    final String opName = currentOperation.getName();
+    final UInt256 key;
+    final UInt256 value;
+    if ("SSTORE".equals(opName) && frame.getMaybeUpdatedStorage().isPresent()) {
+      key = frame.getMaybeUpdatedStorage().get().getOffset();
+      value = UInt256.fromBytes(frame.getMaybeUpdatedStorage().get().getValue());
+    } else if ("SLOAD".equals(opName)
+        && preExecutionStorageKey.isPresent()
+        && frame.stackSize() > 0) {
+      // after SLOAD executes the loaded value sits at the top of the stack
+      key = preExecutionStorageKey.get();
+      value = UInt256.fromBytes(frame.getStackItem(0));
+    } else {
+      return Optional.empty();
+    }
+    final Map<UInt256, UInt256> storage =
+        accessedStorage.computeIfAbsent(frame.getRecipientAddress(), a -> new TreeMap<>());
+    storage.put(key, value);
+    return Optional.of(storage);
+  }
+
+  protected void resetStorage() {
+    preExecutionStorageKey = Optional.empty();
+    accessedStorage.clear();
   }
 
   private boolean shouldTraceOpcode(final Operation currentOpcode) {
