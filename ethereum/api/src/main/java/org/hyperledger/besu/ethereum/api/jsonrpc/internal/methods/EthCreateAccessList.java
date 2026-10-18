@@ -53,28 +53,41 @@ public class EthCreateAccessList extends AbstractEstimateGas {
       final long gasLimitUpperBound,
       final long minTxCost) {
 
+    final CallParameter accessListCallParams = withAccessList(callParams);
     final AccessListOperationTracer tracer = AccessListOperationTracer.create();
     if (attemptOptimisticSimulationWithMinimumBlockGasUsed(
-        minTxCost, callParams, simulationFunction, tracer)) {
+        minTxCost, accessListCallParams, simulationFunction, tracer)) {
       return new CreateAccessListResult(tracer.getAccessList(), minTxCost);
     }
     // Otherwise, do the calculation with the provided gasLimit
     final Optional<TransactionSimulatorResult> firstResult =
-        simulationFunction.simulate(overrideGasLimit(callParams, gasLimitUpperBound), tracer);
+        simulationFunction.simulate(
+            overrideGasLimit(accessListCallParams, gasLimitUpperBound), tracer);
 
     // if the call accessList is different from the simulation result, calculate gas and return
     if (shouldProcessWithAccessListOverride(callParams, tracer)) {
       final AccessListSimulatorResult result =
           processTransactionWithAccessListOverride(
-              callParams, gasLimitUpperBound, tracer.getAccessList(), simulationFunction);
+              accessListCallParams, gasLimitUpperBound, tracer.getAccessList(), simulationFunction);
       return createResponse(requestContext, result);
     } else {
       return createResponse(requestContext, new AccessListSimulatorResult(firstResult, tracer));
     }
   }
 
+  // Simulate as an access list transaction so that a block before Berlin rejects it.
+  private CallParameter withAccessList(final CallParameter callParams) {
+    if (callParams.getAccessList().isPresent()) {
+      return callParams;
+    }
+    return ImmutableCallParameter.builder().from(callParams).accessList(List.of()).build();
+  }
+
   private Object createResponse(
       final JsonRpcRequestContext requestContext, final AccessListSimulatorResult result) {
+    if (result.result().isPresent() && result.result().get().isInvalid()) {
+      return errorResponse(requestContext, result.result().get());
+    }
     return result
         .result()
         .map(createResponse(result.tracer()))
