@@ -319,13 +319,8 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
     LOG.debug(
         "Round has expired or changing based on RC quorum, creating PreparedCertificate and notifying peers. round={}",
         currentRound.get().getRoundIdentifier());
-    final Optional<PreparedCertificate> preparedCertificate =
-        currentRound.get().constructPreparedCertificate();
-
-    if (preparedCertificate.isPresent()) {
-      latestPreparedCertificate = preparedCertificate;
-    }
-
+    // The prepared certificate of the round being abandoned is latched by startNewRound, which
+    // covers this path and the two that do not pass through here.
     startNewRound(newRoundNumber);
     if (currentRound.isEmpty()) {
       LOG.info("Failed to start round ");
@@ -480,6 +475,28 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
 
   private void startNewRound(final int roundNumber) {
     LOG.debug("Starting new round {}", roundNumber);
+
+    // Latch the outgoing round's prepared certificate before currentRound is replaced below.
+    //
+    // This capture used to live solely in doRoundChange, but startNewRound is also reached from
+    // the future-round-proposal path and the round-change-quorum path (the latter being the
+    // default, as --Xqbft-enable-early-round-change defaults to false). Neither passes through
+    // doRoundChange, so a validator that had prepared a block and then advanced by either route
+    // discarded the RoundState holding that fact and reported no prepared certificate in its next
+    // RoundChange.
+    //
+    // That matters beyond under-reporting: QBFT's safety argument requires that any 2f+1
+    // round-change set intersects the 2f+1 set that prepared a block in at least one honest
+    // member, whose report binds the next proposer to re-propose that block. An honest node that
+    // has forgotten its certificate fills its slot in that intersection while contributing
+    // nothing - the exact case the argument exists to exclude.
+    //
+    // Rounds advance monotonically, so an outgoing round's certificate is never older than the
+    // one already latched and overwriting is correct.
+    currentRound
+        .flatMap(QbftRound::constructPreparedCertificate)
+        .ifPresent(certificate -> latestPreparedCertificate = Optional.of(certificate));
+
     // validate the current round
     if (futureRoundStateBuffer.containsKey(roundNumber)) {
       currentRound =

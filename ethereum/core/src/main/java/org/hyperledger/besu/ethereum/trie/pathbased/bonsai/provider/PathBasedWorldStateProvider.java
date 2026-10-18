@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
@@ -365,9 +366,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
               mutableState.getWorldStateStorage().getClass().getSimpleName(),
               blockHash);
           return Optional.of(mutableState);
-        } catch (final MerkleTrieException re) {
-          // need to throw to trigger the heal
-          throw re;
+        } catch (final MerkleTrieException | MissingCodeException e) {
+          // the caller heals and rolls the state again, from a clean updater
+          pathBasedUpdater.reset();
+          throw e;
         } catch (final Exception e) {
           // if we fail we must clean up the updater
           pathBasedUpdater.reset();
@@ -382,7 +384,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         }
       } catch (final RuntimeException re) {
         LOG.warn("Archive rolling failed for block hash " + blockHash, re);
-        if (re instanceof MerkleTrieException) {
+        if (re instanceof MerkleTrieException || re instanceof MissingCodeException) {
           // need to throw to trigger the heal
           throw re;
         }

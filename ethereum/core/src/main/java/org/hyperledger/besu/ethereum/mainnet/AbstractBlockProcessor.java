@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -489,14 +490,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       try {
         worldState.persist(blockHeader, stateRootCommitter);
       } catch (MerkleTrieException e) {
-        LOG.trace("Merkle trie exception during Transaction processing ", e);
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
-        @SuppressWarnings(
-            "java:S2139") // Exception is logged and rethrown to preserve original behavior
-        RuntimeException rethrown = e;
-        throw rethrown;
+        // kept out of the catch below, the outer catch resets the accumulator and rethrows it
+        throw e;
       } catch (StateRootMismatchException ex) {
         LOG.info(
             "failed persisting block due to stateroot mismatch; expected {}, actual {}",
@@ -521,6 +516,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   gasMetered,
                   blockHashLookup.getAccessedAncestors())),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
+    } catch (final MerkleTrieException | MissingCodeException e) {
+      // the block may be processed again on this world state, without the transactions before
+      if (worldState instanceof BonsaiWorldState) {
+        ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+      }
+      throw e;
     } finally {
       stateRootCommitter.cancel();
       parallelProcessor.ifPresent(

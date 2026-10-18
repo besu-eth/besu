@@ -151,7 +151,20 @@ public class BonsaiWorldState extends PathBasedWorldState {
 
   @Override
   public Optional<Code> getCode(@NotNull final Address address, final Hash codeHash) {
-    return getWorldStateStorage().getCode(codeHash, address.addressHash());
+    final Optional<Code> code = getWorldStateStorage().getCode(codeHash, address.addressHash());
+    if (code.isPresent()) {
+      return code;
+    }
+    // a stored account always has its code, running empty code instead would fork
+    if (isStoredCodeHash(address, codeHash)) {
+      throw new MissingCodeException(address, codeHash);
+    }
+    return Optional.empty();
+  }
+
+  private boolean isStoredCodeHash(final Address address, final Hash codeHash) {
+    final Account account = get(address);
+    return account != null && account.getCodeHash().equals(codeHash);
   }
 
   @Override
