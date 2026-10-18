@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
+package org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia;
 
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView.encodeTrieValue;
 
@@ -20,6 +20,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootComputations;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.WriteSink;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
@@ -35,6 +37,7 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -51,18 +54,23 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.rlp.RLP;
 import org.apache.tuweni.units.bigints.UInt256;
 
-/** Bonsai path-based root from accumulated block updates (no BAL background). */
-public class DefaultStateRootCommitter implements StateRootCommitter {
+/** Bonsai path-based Patricia root from accumulated block updates (no BAL background). */
+public class DefaultPatriciaStateRootCommitter implements StateRootCommitter {
 
   private final BiFunction<BonsaiWorldState, Address, Hash> addressHasher;
 
-  public DefaultStateRootCommitter() {
+  public DefaultPatriciaStateRootCommitter() {
     this((bonsai, address) -> address.addressHash());
   }
 
-  public DefaultStateRootCommitter(
+  public DefaultPatriciaStateRootCommitter(
       final BiFunction<BonsaiWorldState, Address, Hash> addressHasher) {
     this.addressHasher = addressHasher;
+  }
+
+  @Override
+  public TrieBranchType getTrieBranchType() {
+    return TrieBranchType.PATRICIA;
   }
 
   @Override
@@ -109,7 +117,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
       this.bonsai = bonsai;
       this.worldStateUpdater = worldStateUpdater;
       this.addressHasher = addressHasher;
-      this.sink = bonsai.isStorageFrozen() ? new FrozenSink() : new PersistingSink(writes);
+      this.sink = WriteSink.of(bonsai.isStorageFrozen(), writes);
     }
 
     Hash executeInto(final List<StateRootComputations.UpdaterWrite> writeSink) {
@@ -118,7 +126,8 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
         collectCodeWrites();
       }
 
-      final MerkleTrie<Bytes, Bytes> accountTrie = bonsai.createAccountStateTrie();
+      final MerkleTrie<Bytes, Bytes> accountTrie =
+          PatriciaTrieFactory.createAccountStateTrie(bonsai);
 
       // Step 1: launch storage trie updates concurrently for every touched account.
       for (final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>>>
@@ -199,7 +208,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
               ? Hash.EMPTY_TRIE_HASH
               : accountOriginal.getStorageRoot();
       final MerkleTrie<Bytes, Bytes> storageTrie =
-          bonsai.createStorageTrie(updatedAddressHash, storageRoot);
+          PatriciaTrieFactory.createStorageTrie(bonsai, updatedAddressHash, storageRoot);
 
       for (final Map.Entry<StorageSlotKey, BonsaiValue<UInt256>> storageUpdate :
           storageUpdates.entrySet()) {
@@ -245,7 +254,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
         }
         final Hash addressHash = addressHasher.apply(bonsai, address);
         final MerkleTrie<Bytes, Bytes> storageTrie =
-            bonsai.createStorageTrie(addressHash, oldAccount.getStorageRoot());
+            PatriciaTrieFactory.createStorageTrie(bonsai, addressHash, oldAccount.getStorageRoot());
         try {
           StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> storageToDelete = null;
           Bytes32 nextKeyHash = Bytes32.ZERO;

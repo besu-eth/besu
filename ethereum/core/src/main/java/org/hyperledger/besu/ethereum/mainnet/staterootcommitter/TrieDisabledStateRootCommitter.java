@@ -83,7 +83,7 @@ public enum TrieDisabledStateRootCommitter implements StateRootCommitter {
     FlatComputation(
         final BonsaiWorldState bonsai, final BonsaiWorldStateUpdateAccumulator worldStateUpdater) {
       this.worldStateUpdater = worldStateUpdater;
-      this.sink = bonsai.isStorageFrozen() ? new FrozenSink() : new PersistingSink(writes);
+      this.sink = WriteSink.of(bonsai.isStorageFrozen(), writes);
     }
 
     void executeInto(final List<StateRootComputations.UpdaterWrite> writeSink) {

@@ -47,6 +47,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.NoFallbackParallelB
 import org.hyperledger.besu.ethereum.mainnet.parallelization.OptimisticConcurrentTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.PatriciaBalEngine;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -1709,7 +1710,8 @@ class AbstractBlockProcessorIntegrationTest {
                 protocolContext,
                 block.getHeader(),
                 BlockAccessListAccountLookup.of(blockAccessList),
-                false)
+                false,
+                PatriciaBalEngine.INSTANCE)
             .start();
 
     final BlockHeader parentHeader =
