@@ -31,6 +31,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Fix JSON-RPC active-connection counter leaks on the Engine API, HTTP, and WebSocket services. Rejected connections no longer increment the count or register a close handler; abrupt WebSocket disconnects (including TCP RST mid-response) now release the counter exactly once; rejection logs print `{current}/{max}`; and the Engine API exposes `besu_rpc_active_engine_connection_count` like the existing HTTP/WS gauges. Without this, counters could climb until `--rpc-*-max-active-connections` blocked all new clients (including a consensus client on the Engine API). [#11453](https://github.com/besu-eth/besu/pull/11453)
 - `evmtool t8n-server` keeps serving requests again. Since `evmtool` began exiting with the subcommand's exit code, the server process exited right after printing `Transition server listening on`, so filling tests with Besu as the transition tool failed. A server that cannot bind its port now exits with a non-zero code instead of 0. [#11555](https://github.com/besu-eth/besu/pull/11555)
 - DNS-discovered dual-stack peers now respect `--p2p-ipv6-outbound-enabled` when choosing the connection address. [#11422](https://github.com/besu-eth/besu/issues/11422)
 - The layered transaction pool no longer logs an `IndexOutOfBoundsException` when a sender's pending transactions are reconciled against an account nonce that leaves them `--tx-pool-max-future-by-sender` or more nonces ahead, as on a node that has fallen behind the chain head. Those transactions are now dropped during the reconciliation, as a new transaction that far ahead would be. [#11501](https://github.com/besu-eth/besu/issues/11501)
@@ -86,6 +87,7 @@
 - `debug_traceBlockByNumber` now returns `BLOCK_NOT_FOUND` for a block number beyond the chain head, as `debug_traceBlockByHash` does for an unknown hash. Previously it returned a `null` result. [#11437](https://github.com/besu-eth/besu/pull/11437)
 
 ### Additions and Improvements
+- `--rpc-http-max-active-connections` and `--rpc-ws-max-active-connections` accept `0` as unlimited (same convention as `--rpc-ws-max-active-subscriptions`). Negative values are rejected. [#11453](https://github.com/besu-eth/besu/pull/11453)
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
 - Update Jackson to 2.21.6 to address CVE `CVE-2026-68497` [#11396](https://github.com/besu-eth/besu/pull/11396)
 - Update Jackson to 2.21.7 to address CVE `CVE-2026-91777` [#11503](https://github.com/besu-eth/besu/pull/11503)
