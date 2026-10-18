@@ -32,9 +32,12 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecutionWitnessBuilder;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Map;
 import java.util.Optional;
@@ -116,19 +119,7 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
     try (final var worldState =
         protocolContext.getWorldStateArchive().getWorldState(worldStateQueryParams).orElse(null)) {
 
-      // Re-execute against the parent state to collect the BAL and BLOCKHASH ancestors required for
-      // the witness.
-      final BlockProcessingResult result =
-          protocolSchedule
-              .getByBlockHeader(blockHeader)
-              .getBlockProcessor()
-              .processBlock(
-                  BlockExecutionContext.builder()
-                      .protocolContext(protocolContext)
-                      .worldState(worldState)
-                      .block(block)
-                      .blockAccessList(Optional.empty())
-                      .build());
+      final BlockProcessingResult result = processBlock(block, worldState);
 
       if (!result.isSuccessful() || result.getYield().isEmpty()) {
         return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
@@ -158,5 +149,45 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
       LOG.error("Failed to build execution witness for block {}", blockHeader.getHash(), ex);
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
     }
+  }
+
+  /**
+   * Re-executes {@code block} on its parent's state to collect what the witness is built from: the
+   * block access list, which records the accounts, storage and code the block touched, and the
+   * ancestors its BLOCKHASH calls resolved.
+   *
+   * @param block the block to re-execute
+   * @param worldState the state of the block's parent, which the execution modifies
+   * @return the result of the execution, whose outputs carry the block access list and the accessed
+   *     ancestors
+   */
+  private BlockProcessingResult processBlock(
+      final Block block, final MutableWorldState worldState) {
+    return protocolSchedule
+        .getByBlockHeader(block.getHeader())
+        .getBlockProcessor()
+        .processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .blockAccessListFactoryProvider(DebugExecutionWitness::blockAccessListFactory)
+                .build());
+  }
+
+  /**
+   * Returns the block access list factory to re-execute a block of {@code protocolSpec} with. The
+   * witness needs a block access list, which forks before Amsterdam do not define, so they get a
+   * default factory; a fork that defines one keeps its own.
+   *
+   * @param protocolSpec the protocol spec of the block
+   * @return the fork's block access list factory, or a default one
+   */
+  private static Optional<BlockAccessListFactory> blockAccessListFactory(
+      final ProtocolSpec protocolSpec) {
+    return protocolSpec
+        .getBlockAccessListFactory()
+        .or(() -> Optional.of(new BlockAccessListFactory()));
   }
 }
