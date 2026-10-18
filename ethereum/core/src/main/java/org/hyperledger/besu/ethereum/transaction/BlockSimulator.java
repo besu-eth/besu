@@ -21,6 +21,7 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.wit
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
+import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
@@ -348,6 +349,31 @@ public class BlockSimulator {
                 BlockAccessListBuilder.createPostExecutionAccessLocationTracker(
                     blockStateCallSimulationResult.getTransactions().size()));
 
+    final List<Withdrawal> withdrawals =
+        blockOverrides
+            .getWithdrawals()
+            .map(
+                list ->
+                    list.stream()
+                        .map(
+                            w ->
+                                new Withdrawal(
+                                    w.getIndex(),
+                                    w.getValidatorIndex(),
+                                    w.getAddress(),
+                                    GWei.of(w.getAmount().getAsBigInteger())))
+                        .toList())
+            .orElse(List.of());
+    protocolSpec
+        .getWithdrawalsProcessor()
+        .ifPresent(
+            processor ->
+                processor.processWithdrawals(
+                    withdrawals,
+                    ws.updater(),
+                    postExecutionAccessLocationTracker,
+                    blockAccessListBuilder));
+
     // EIP-7685: process EL requests
     final Optional<RequestProcessorCoordinator> requestProcessor =
         protocolSpec.getRequestProcessorCoordinator();
@@ -381,6 +407,7 @@ public class BlockSimulator {
             overridenBaseBlockHeader,
             blockStateCallSimulationResult,
             blockOverrides,
+            withdrawals,
             protocolSpec,
             ws,
             maybeRequests,
@@ -572,6 +599,7 @@ public class BlockSimulator {
       final BlockHeader blockHeader,
       final BlockStateCallSimulationResult simResult,
       final BlockOverrides blockOverrides,
+      final List<Withdrawal> withdrawals,
       final ProtocolSpec protocolSpec,
       final MutableWorldState ws,
       final Optional<List<Request>> maybeRequests,
@@ -607,15 +635,16 @@ public class BlockSimulator {
     }
 
     if (isShanghaiPlus) {
-      headerBuilder.withdrawalsRoot(BodyValidation.withdrawalsRoot(List.of()));
+      headerBuilder.withdrawalsRoot(BodyValidation.withdrawalsRoot(withdrawals));
     }
 
     BlockHeader finalBlockHeader = headerBuilder.buildBlockHeader();
 
-    Optional<List<Withdrawal>> withdrawals =
-        isShanghaiPlus ? Optional.of(List.of()) : Optional.empty();
+    Optional<List<Withdrawal>> maybeWithdrawals =
+        isShanghaiPlus ? Optional.of(withdrawals) : Optional.empty();
 
-    Block block = new Block(finalBlockHeader, new BlockBody(transactions, List.of(), withdrawals));
+    Block block =
+        new Block(finalBlockHeader, new BlockBody(transactions, List.of(), maybeWithdrawals));
 
     // if we have a block-aware operation tracer, trace end block here
     maybeBlockAwareOperationTracer.ifPresent(

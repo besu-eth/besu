@@ -111,6 +111,7 @@ public class SimulateV1ParameterTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     return new JsonBlockStateCallParameter(List.of(), blockOverridesParameter, stateOverrideMap);
