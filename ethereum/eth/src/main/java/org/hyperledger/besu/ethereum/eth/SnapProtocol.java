@@ -19,6 +19,8 @@ import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 
+import java.util.Set;
+
 /**
  * Snap protocol messages as defined in https://github.com/ethereum/devp2p/blob/master/caps/snap.md}
  */
@@ -28,6 +30,16 @@ public class SnapProtocol implements SubProtocol {
   public static final Capability SNAP2 = Capability.create(NAME, SnapProtocolVersion.V2);
 
   private static final SnapProtocol INSTANCE = new SnapProtocol();
+
+  /**
+   * Whether a peer agreed any version of the snap protocol.
+   *
+   * @param agreedCapabilities the capabilities agreed with the peer
+   * @return whether one of them is a snap version
+   */
+  public static boolean isAgreed(final Set<Capability> agreedCapabilities) {
+    return agreedCapabilities.stream().anyMatch(capability -> NAME.equals(capability.getName()));
+  }
 
   @Override
   public String getName() {
