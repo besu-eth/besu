@@ -105,10 +105,10 @@
 
 ## 26.9.0
 
-This release contains security fixes. Operators are advised to upgrade promptly.
-Details will be published in security advisories on
-https://github.com/besu-eth/besu/security/advisories after operators have had an
-opportunity to upgrade.
+### Security Fixes
+- [GHSA-g5j7-4r2x-rx9j](https://github.com/besu-eth/besu/security/advisories/GHSA-g5j7-4r2x-rx9j): Permissionless non-validator peer can halt QBFT finality via pre-authorization proposal decoding
+- [GHSA-qfmh-cxw4-9h66](https://github.com/besu-eth/besu/security/advisories/GHSA-qfmh-cxw4-9h66): debug_traceBlock/ByHash/ByNumber/Transaction unbounded step output - remote DoS
+- [GHSA-8j3g-67qm-7rqp](https://github.com/besu-eth/besu/security/advisories/GHSA-8j3g-67qm-7rqp): snap isValidRangeProof accepts non-empty ranges as valid - soundness gap in snap sync
 
 ### Breaking Changes
 - `BlockSimulationParameter.Builder.enforceConsensusGasLimitCaps()` is renamed to `enforceConsensusGasLimit()`. The flag now also controls whether the EIP-1559 gas limit adjustment algorithm is applied: when `true` (plugin/block-production path) `getNextGasLimit()` is used; when `false` (default, `eth_simulateV1` path) the parent gas limit is inherited unchanged, matching geth and Nethermind. [#11254](https://github.com/besu-eth/besu/pull/11254)
@@ -171,6 +171,19 @@ opportunity to upgrade.
 - Schedule the Amsterdam fork on Sepolia at timestamp `1791294816` (Tue, 06 Oct 2026, 13:53:36 UTC). [#11333](https://github.com/besu-eth/besu/pull/11333)
 
 ## 26.8.1
+
+### Security Fixes
+- [GHSA-p4h2-gvh4-pv6j](https://github.com/besu-eth/besu/security/advisories/GHSA-p4h2-gvh4-pv6j): QBFT Byzantine validator can mint native currency via unvalidated withdrawals
+- [GHSA-p6f8-q9mp-7mj9](https://github.com/besu-eth/besu/security/advisories/GHSA-p6f8-q9mp-7mj9): Log filter/subscription address lists unbounded on block-import thread - stalls block production
+- [GHSA-f429-4669-7rpx](https://github.com/besu-eth/besu/security/advisories/GHSA-f429-4669-7rpx): Engine API JWT secret exposed in logs on ephemeral key write failure
+- [GHSA-hmg2-5mmq-gv7c](https://github.com/besu-eth/besu/security/advisories/GHSA-hmg2-5mmq-gv7c): EIP-7825 per-block gas cap compared as signed long - per-block gas-cap bypass
+- [GHSA-jxwx-rxf9-pg2g](https://github.com/besu-eth/besu/security/advisories/GHSA-jxwx-rxf9-pg2g): JWT algorithm confusion - HMAC accepted with public key file
+- [GHSA-g499-x5x3-8gjj](https://github.com/besu-eth/besu/security/advisories/GHSA-g499-x5x3-8gjj): GraphQL logs(filter) unbounded block range - remote DoS
+- [GHSA-rw6m-h55m-hggm](https://github.com/besu-eth/besu/security/advisories/GHSA-rw6m-h55m-hggm): Transaction pool has no per-transaction encoded-size cap - peers penalize/disconnect the relaying node
+- [GHSA-h552-3fxr-chmx](https://github.com/besu-eth/besu/security/advisories/GHSA-h552-3fxr-chmx): Snap storage-range count amplification - tiny returned slot hash yields unbounded child-range count
+- [GHSA-pr92-c4mc-x48r](https://github.com/besu-eth/besu/security/advisories/GHSA-pr92-c4mc-x48r): P256VerifyPrecompile writes directly to System.err - log amplification via EVM execution
+- [GHSA-h594-ww62-rcxv](https://github.com/besu-eth/besu/security/advisories/GHSA-h594-ww62-rcxv): Invalid DiscV4 packet triggers unbounded log amplification - unauthenticated remote DoS
+- [GHSA-m886-r6ch-pjvr](https://github.com/besu-eth/besu/security/advisories/GHSA-m886-r6ch-pjvr): QBFT/IBFT2 message decode performs unbounded eager signature recovery before the validator check - DoS
 
 ### Breaking Changes
 - JSON-RPC `eth_newFilter` and `eth_subscribe` (logs) now cap the number of addresses per filter at 1000 by default. Requests exceeding the limit are rejected with a `-32005` error. Configure via `--rpc-max-log-filter-addresses` (set to `0` for no limit).
@@ -255,6 +268,18 @@ opportunity to upgrade.
 
 ## 26.8.0
 
+### Security Fixes
+- [GHSA-xw6x-9526-6w9r](https://github.com/besu-eth/besu/security/advisories/GHSA-xw6x-9526-6w9r): DiscV4 UDP discovery inbound packet pipeline unbounded - remote DoS
+- [GHSA-6r9q-wjp4-34gh](https://github.com/besu-eth/besu/security/advisories/GHSA-6r9q-wjp4-34gh): Pre-STATUS RLPx connections excluded from --max-peers accounting - --max-peers bypass
+- [GHSA-pcv4-pxhv-99m7](https://github.com/besu-eth/besu/security/advisories/GHSA-pcv4-pxhv-99m7): Snap server schedules unbounded native thread per inbound GET request - remote resource-exhaustion DoS
+- [GHSA-4776-8c3f-fx7g](https://github.com/besu-eth/besu/security/advisories/GHSA-4776-8c3f-fx7g): debug_traceCall unbounded step output causes OOM and consensus drop
+- [GHSA-9w9r-w3rf-j6vj](https://github.com/besu-eth/besu/security/advisories/GHSA-9w9r-w3rf-j6vj): eth_getFilterLogs and eth_newFilter missing maxLogRange enforcement - unbounded log-query DoS
+- [GHSA-23rh-rrqg-wq82](https://github.com/besu-eth/besu/security/advisories/GHSA-23rh-rrqg-wq82): QBFT/IBFT round-change cache unbounded - single validator can exhaust heap
+- [GHSA-8g2r-qvch-4c9j](https://github.com/besu-eth/besu/security/advisories/GHSA-8g2r-qvch-4c9j): GraphQL blocks(from, to) range queries unbounded - remote DoS
+- [GHSA-xg9p-226c-vxvw](https://github.com/besu-eth/besu/security/advisories/GHSA-xg9p-226c-vxvw): Bonsai parallel block processor retains transaction futures after block rejection - memory exhaustion and node outage
+- [GHSA-cgvq-9xfq-c54j](https://github.com/besu-eth/besu/security/advisories/GHSA-cgvq-9xfq-c54j): RLP-wrapped typed transactions accepted in ExecutionPayload block bodies - client-line consensus split
+- [GHSA-4h4f-925g-8h9p](https://github.com/besu-eth/besu/security/advisories/GHSA-4h4f-925g-8h9p): EIP-7702 and sender signature recovery skip the secp256k1 curve-order bound - native vs BouncyCastle consensus split
+
 ### Upcoming Breaking Changes
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
 - Plugin API
@@ -272,18 +297,7 @@ opportunity to upgrade.
 - Removed the legacy `PANTHEON_` environment variable prefix for configuration options, everyone should already use the `BESU_` prefix at this time.
 
 ### Bug fixes
-- Abort pending speculative transaction futures when the block-budget is exhausted in parallel block production.
-- Bound the DiscV4 inbound packet pipeline with an admission gate (256 in-flight packets) and a bounded crypto executor queue, preventing a UDP flood from exhausting memory.
-- Cap the number of snap/1-2 GET_* requests concurrently scheduled for processing on a snap-serving node, both per-peer (--Xsnapsync-server-max-concurrent-requests-per-peer, default 8) and globally (--Xsnapsync-server-max-concurrent-requests, default 200). [#11101](https://github.com/besu-eth/besu/pull/11101)
-- Cap the QBFT/IBFT round change number to prevent unbounded memory growth from malformed round-change messages.
-- Improve logging for malformed discv4 UDP packets.
-- Bound the snap sync storage sub-range split count to prevent unbounded memory growth under a malformed snap response.
-- Added a configurable range cap (--graphql-max-blocks-range, default 5000) for GraphQL blocks(from, to) range queries; queries exceeding the cap are cancelled.
-- Bound secp256k1 signature r and s values to [1, n) on signature recovery, fixing a consensus divergence with EIP-7702 code delegations.
-- Add a server-side cap on EVM steps captured per debug_traceCall, debug_traceTransaction, and related trace methods to prevent unbounded execution [#11100](https://github.com/besu-eth/besu/pull/11100)
-- Apply --rpc-max-logs-range to eth_getFilterLogs and eth_newFilter to prevent unbounded log queries.
 - Fix optimistic parallel execution materialising an empty account for an unrewarded fee recipient, causing incorrect EIP-158 account deletion.
-- Remove `System.out`/`System.err` logging from `P256VerifyPrecompiledContract` and `BlockchainQueries` — these could leak sensitive data to stdout/stderr in production.
 - EIP-1459 DNS discovery now rejoins TXT records split across multiple `<character-string>`s. Records longer than 255 bytes were truncated, so Besu silently discarded most of every tree, resolving 832 of 3000 nodes from the mainnet tree. [#10985](https://github.com/besu-eth/besu/pull/10985)
 - Queue backward-sync targets received before peer readiness and retry when a peer connects. [#10843](https://github.com/besu-eth/besu/pull/10843)
 - Return `BLOCK_NOT_FOUND` for unknown block hashes and `GENESIS_BLOCK_NOT_TRACEABLE` for genesis blocks from `debug_traceBlockByHash`. [#10701](https://github.com/besu-eth/besu/pull/10701)
@@ -298,9 +312,7 @@ opportunity to upgrade.
 - Fix `ibft_*` and `qbft_*` JSON-RPC methods returning `Method not enabled` on IBFT2->QBFT migration networks (genesis containing both `ibft2` and `qbft` sections). [#10679](https://github.com/besu-eth/besu/issues/10679)
 - Fix `admin_nodeInfo` reporting wrong RLPx/discovery ephemeral ports under `--nat-method=DOCKER`, due to a swapped NAT port mapping and a stale pre-bind snapshot. [#10860](https://github.com/besu-eth/besu/pull/10860)
 - Recover from restart during flatDB heal sync step [#10883](https://github.com/besu-eth/besu/pull/10883)
-- Cap pre-STATUS RLPx connections and close them on eviction to prevent resource exhaustion.
 - Fix txpool incorrectly evicting authority pending transactions when EIP-7702 delegation tuples are skipped during block execution
-- Reject RLP-wrapped typed transactions in block-body opaque decoding, preventing a potential consensus divergence.
 - Reject an EIP-7928 block access list whose `uint256` fields are not minimally encoded, and report an undecodable `blockAccessList` as an invalid payload rather than an invalid-params error, per [execution-apis#869](https://github.com/ethereum/execution-apis/pull/869); re-applies [#11177](https://github.com/besu-eth/besu/pull/11177) (reverted in [#11219](https://github.com/besu-eth/besu/pull/11219)) with a narrower trigger.
 
 ### Additions and Improvements
@@ -322,6 +334,16 @@ opportunity to upgrade.
 - Add `--p2p-tx-feecap` CLI option, the P2P equivalent of `--rpc-tx-feecap`, capping the maximum transaction fees (in Wei) accepted for transactions received from peers. The default is no cap, leaving existing behaviour unchanged. [#10819](https://github.com/besu-eth/besu/pull/10819)
 
 ## 26.7.1
+### Security Fixes
+- [GHSA-qhrf-865g-38rh](https://github.com/besu-eth/besu/security/advisories/GHSA-qhrf-865g-38rh): FutureMessageBuffer unbounded by byte size - oversized BFT proposals cause OOM
+- [GHSA-j2cm-8hc2-6975](https://github.com/besu-eth/besu/security/advisories/GHSA-j2cm-8hc2-6975): SELFDESTRUCT markers applied from failed transactions - EIP-6780 semantics violated
+- [GHSA-65m7-wvhv-9gch](https://github.com/besu-eth/besu/security/advisories/GHSA-65m7-wvhv-9gch): Precompile result cache keyed by 32-bit hashCode - hash collision allows cache poisoning
+- [GHSA-m2pj-j62h-7jwm](https://github.com/besu-eth/besu/security/advisories/GHSA-m2pj-j62h-7jwm): Per-transaction O(N²) HashDoS via EVM warm-access and transient-storage hash-bucket collisions
+- [GHSA-ffqr-pj4h-xq37](https://github.com/besu-eth/besu/security/advisories/GHSA-ffqr-pj4h-xq37): eth_subscribe allows unbounded WebSocket subscription creation - resource-exhaustion DoS
+- [GHSA-j2j5-x2rr-cv75](https://github.com/besu-eth/besu/security/advisories/GHSA-j2j5-x2rr-cv75): Single devp2p peer can drive unbounded block-fetch work via repeated announcements
+- [GHSA-mqqm-3pp2-ff8j](https://github.com/besu-eth/besu/security/advisories/GHSA-mqqm-3pp2-ff8j): Post-Prague block header missing requestsHash field accepted without validation - header validation bypass
+- [GHSA-vff7-xxjc-rccp](https://github.com/besu-eth/besu/security/advisories/GHSA-vff7-xxjc-rccp): FilterRepository stores all filters in unbounded map - no expiry or cap
+
 ### Breaking Changes
 - If you are a heavy user of `eth_newFilter`/`eth_newBlockFilter`/`eth_newPendingTransactionFilter` RPC methods, you may need to review the default values of the new configuration options `--rpc-max-active-filters` (default `1000`; `0` = no limit) which rejects filter creation past the cap, and `--rpc-filter-timeout-seconds` (seconds; default 120) which makes the previously hardcoded 10-minute filter expiry configurable.
 - If you are a heavy user of `eth_subscribe` websocket RPC, you may need to review the default values of the new configuration options `--rpc-ws-max-active-subscriptions` (default `100,000`; `0` = no limit) which rejects subscription creation past the cap.
