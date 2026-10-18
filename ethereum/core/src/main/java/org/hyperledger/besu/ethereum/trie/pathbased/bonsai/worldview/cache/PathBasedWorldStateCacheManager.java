@@ -230,6 +230,8 @@ public abstract class PathBasedWorldStateCacheManager implements StorageSubscrib
   }
 
   public void reset() {
+    // each view holds a storage snapshot, closed once the world states using it are closed
+    this.cachedWorldStatesByHash.values().forEach(BonsaiCachedWorldStateView::close);
     this.cachedWorldStatesByHash.clear();
     this.stateRootToBlockHeaderCache.clear();
   }

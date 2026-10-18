@@ -62,6 +62,7 @@ import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
+import org.hyperledger.besu.ethereum.eth.sync.MissingCodeFetcher;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
@@ -917,6 +918,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       ethPeers.snapServerPeersNeeded(true);
     } else {
       ethPeers.snapServerPeersNeeded(false);
+    }
+
+    // a stored account missing its code is healed by fetching the code by hash from peers
+    if (protocolContext.getWorldStateArchive() instanceof BonsaiWorldStateProvider bonsaiArchive) {
+      bonsaiArchive.setCodeFetcher(new MissingCodeFetcher(ethContext, blockchain));
     }
 
     final Optional<SnapProtocolManager> maybeSnapProtocolManager =

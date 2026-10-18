@@ -26,6 +26,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -51,6 +52,7 @@ import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -634,6 +636,89 @@ public class MainnetBlockValidatorTest {
                 headerValidationMode,
                 headerValidationMode,
                 BodyValidationMode.FULL));
+  }
+
+  @ParameterizedTest(name = "thrown={0}")
+  @ValueSource(booleans = {true, false})
+  public void validateAndProcessBlock_healsMissingCodeAndProcessesTheBlockAgain(
+      final boolean thrown) {
+    final MissingCodeException missingCode = new MissingCodeException(Address.ZERO, Hash.ZERO);
+    final var processing = when(blockProcessor.processBlock(contextWith(block, Optional.empty())));
+    // a fault raised on a worker thread arrives wrapped in the result
+    (thrown
+            ? processing.thenThrow(missingCode)
+            : processing.thenReturn(
+                new BlockProcessingResult(Optional.empty(), new RuntimeException(missingCode))))
+        .thenReturn(new BlockProcessingResult(Optional.empty(), false));
+    when(worldStateArchive.healMissingCode(Address.ZERO, Hash.ZERO)).thenReturn(true);
+
+    final BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY);
+
+    assertThat(result.isSuccessful()).isTrue();
+    verify(worldStateArchive).healMissingCode(Address.ZERO, Hash.ZERO);
+    verify(blockProcessor, times(2)).processBlock(contextWith(block, Optional.empty()));
+    assertNoBadBlocks();
+  }
+
+  @Test
+  public void validateAndProcessBlock_healsMissingCodeMetWhileRollingTheParentWorldState() {
+    final MissingCodeException missingCode = new MissingCodeException(Address.ZERO, Hash.ZERO);
+    when(worldStateArchive.getWorldState(any()))
+        .thenThrow(missingCode)
+        .thenReturn(Optional.of(worldState));
+    when(worldStateArchive.healMissingCode(Address.ZERO, Hash.ZERO)).thenReturn(true);
+
+    final BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY);
+
+    assertThat(result.isSuccessful()).isTrue();
+    verify(worldStateArchive).healMissingCode(Address.ZERO, Hash.ZERO);
+    assertNoBadBlocks();
+  }
+
+  @Test
+  public void validateAndProcessBlock_whenMissingCodeIsNotHealed() {
+    final MissingCodeException missingCode = new MissingCodeException(Address.ZERO, Hash.ZERO);
+    doThrow(missingCode).when(blockProcessor).processBlock(contextWith(block, Optional.empty()));
+
+    final BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY);
+
+    assertValidationFailedExceptionally(result, missingCode);
+    verify(blockProcessor).processBlock(contextWith(block, Optional.empty()));
+    assertNoBadBlocks();
+  }
+
+  @Test
+  public void validateAndProcessBlock_healsMissingCodeOnce() {
+    final MissingCodeException missingCode = new MissingCodeException(Address.ZERO, Hash.ZERO);
+    doThrow(missingCode).when(blockProcessor).processBlock(contextWith(block, Optional.empty()));
+    when(worldStateArchive.healMissingCode(Address.ZERO, Hash.ZERO)).thenReturn(true);
+
+    final BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY);
+
+    assertValidationFailedExceptionally(result, missingCode);
+    verify(worldStateArchive).healMissingCode(Address.ZERO, Hash.ZERO);
+    verify(blockProcessor, times(2)).processBlock(contextWith(block, Optional.empty()));
+    assertNoBadBlocks();
   }
 
   private void assertNoBadBlocks() {

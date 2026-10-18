@@ -20,9 +20,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.consensus.common.bft.BftContextBuilder.setupContextWithValidators;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.BftContext;
+import org.hyperledger.besu.consensus.common.bft.BftExtraData;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
@@ -60,7 +63,7 @@ public class BftCommitSealsValidationRuleTest {
     final BftContext bftContext = setupContextWithValidators(committerAddresses);
     final ProtocolContext context =
         new ProtocolContext.Builder().withConsensusContext(bftContext).build();
-    when(bftContext.getBlockInterface().getCommitters(any())).thenReturn(committerAddresses);
+    stubCommitters(bftContext, committerAddresses);
 
     assertThat(commitSealsValidationRule.validate(blockHeader, null, context)).isTrue();
   }
@@ -76,7 +79,7 @@ public class BftCommitSealsValidationRuleTest {
     final BftContext bftContext = setupContextWithValidators(validators);
     final ProtocolContext context =
         new ProtocolContext.Builder().withConsensusContext(bftContext).build();
-    when(bftContext.getBlockInterface().getCommitters(any())).thenReturn(emptyList());
+    stubCommitters(bftContext, emptyList());
 
     assertThat(commitSealsValidationRule.validate(blockHeader, null, context)).isFalse();
   }
@@ -94,8 +97,8 @@ public class BftCommitSealsValidationRuleTest {
     final BftContext bftContext = setupContextWithValidators(validators);
     final ProtocolContext context =
         new ProtocolContext.Builder().withConsensusContext(bftContext).build();
-    when(bftContext.getBlockInterface().getCommitters(any()))
-        .thenReturn(singletonList(Util.publicKeyToAddress(nonValidatorNodeKey.getPublicKey())));
+    stubCommitters(
+        bftContext, singletonList(Util.publicKeyToAddress(nonValidatorNodeKey.getPublicKey())));
 
     assertThat(commitSealsValidationRule.validate(blockHeader, null, context)).isFalse();
   }
@@ -135,17 +138,52 @@ public class BftCommitSealsValidationRuleTest {
 
   @Test
   public void headerContainsDuplicateSealsFailsValidation() {
-    final NodeKey committerNodeKey = NodeKeyUtils.generate();
-    final Address committerAddress = Util.publicKeyToAddress(committerNodeKey.getPublicKey());
-    final List<Address> validators = singletonList(committerAddress);
+    final Address committerAddress =
+        Util.publicKeyToAddress(NodeKeyUtils.generate().getPublicKey());
+    final Address otherValidator = Util.publicKeyToAddress(NodeKeyUtils.generate().getPublicKey());
+    // Two validators, so a two-seal header clears the seal-count bound and this test still
+    // exercises the duplicate-committer branch rather than being rejected before it.
+    final List<Address> validators = List.of(committerAddress, otherValidator);
 
     final BftContext bftContext = setupContextWithValidators(validators);
     final ProtocolContext context =
         new ProtocolContext.Builder().withConsensusContext(bftContext).build();
-    when(bftContext.getBlockInterface().getCommitters(any()))
-        .thenReturn(List.of(committerAddress, committerAddress));
+    stubCommitters(bftContext, List.of(committerAddress, committerAddress));
 
     assertThat(commitSealsValidationRule.validate(blockHeader, null, context)).isFalse();
+  }
+
+  @Test
+  public void moreSealsThanValidatorsFailsValidationWithoutRecoveringAnyKey() {
+    final List<Address> validators =
+        List.of(
+            Util.publicKeyToAddress(NodeKeyUtils.generate().getPublicKey()),
+            Util.publicKeyToAddress(NodeKeyUtils.generate().getPublicKey()));
+
+    final BftContext bftContext = setupContextWithValidators(validators);
+    final ProtocolContext context =
+        new ProtocolContext.Builder().withConsensusContext(bftContext).build();
+
+    // 50,000 seals against a 2-validator set. The header must be rejected on the count alone.
+    final BftExtraData extraData = mock(BftExtraData.class);
+    when(extraData.getSeals()).thenReturn(Collections.nCopies(50_000, null));
+    when(bftContext.getBlockInterface().getExtraData(any())).thenReturn(extraData);
+
+    assertThat(commitSealsValidationRule.validate(blockHeader, null, context)).isFalse();
+
+    // This is the finding: no ecrecover may run for a header rejectable on an integer comparison.
+    verify(bftContext.getBlockInterface(), never()).getCommitters(any());
+  }
+
+  /**
+   * Stubs the committers the rule will recover, and the raw seal list it now counts before
+   * recovering anything. Real headers carry one seal per committer, so the two stay in step.
+   */
+  private static void stubCommitters(final BftContext bftContext, final List<Address> committers) {
+    final BftExtraData extraData = mock(BftExtraData.class);
+    when(extraData.getSeals()).thenReturn(Collections.nCopies(committers.size(), null));
+    when(bftContext.getBlockInterface().getExtraData(any())).thenReturn(extraData);
+    when(bftContext.getBlockInterface().getCommitters(any())).thenReturn(committers);
   }
 
   private boolean subExecution(final int validatorCount, final int committerCount) {
@@ -165,8 +203,7 @@ public class BftCommitSealsValidationRuleTest {
     final BftContext bftContext = setupContextWithValidators(validators);
     final ProtocolContext context =
         new ProtocolContext.Builder().withConsensusContext(bftContext).build();
-    when(bftContext.getBlockInterface().getCommitters(any()))
-        .thenReturn(validators.subList(0, committerCount));
+    stubCommitters(bftContext, validators.subList(0, committerCount));
 
     return commitSealsValidationRule.validate(blockHeader, null, context);
   }

@@ -151,10 +151,15 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()) {
         /*
          * If the address of the mining beneficiary has been touched only for adding rewards,
-         * we remove it from the accumulator to avoid a false positive collision.
-         * The balance will be increased during the sequential processing.
+         * we remove it from the accumulator to avoid a false positive collision. Its code and
+         * storage are removed too, as the merge would otherwise overwrite the block's ones while
+         * the collision detection skips it. It stays in the deleted accounts, so a deletion still
+         * collides. The balance will be increased during the sequential processing.
          */
         roundWorldStateUpdater.getAccountsToUpdate().remove(miningBeneficiary);
+        roundWorldStateUpdater.getCodeToUpdate().remove(miningBeneficiary);
+        roundWorldStateUpdater.getStorageToUpdate().remove(miningBeneficiary);
+        roundWorldStateUpdater.getStorageToClear().remove(miningBeneficiary);
       }
       return parallelizedTransactionContext;
     } catch (Exception ex) {
