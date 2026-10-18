@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.services.pipeline;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 
 import org.hyperledger.besu.services.pipeline.exception.AsyncOperationException;
@@ -42,6 +43,7 @@ class AsyncOperationProcessor<I, O> implements Processor<I, O> {
       final Function<I, CompletableFuture<O>> processor,
       final int maxConcurrency,
       final boolean preserveOrder) {
+    checkArgument(maxConcurrency > 0, "Maximum concurrency must be greater than 0");
     this.processor = processor;
     this.maxConcurrency = maxConcurrency;
     this.inProgress = new ArrayList<>(maxConcurrency);
