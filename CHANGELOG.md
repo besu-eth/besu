@@ -102,6 +102,7 @@
 - The EVM no longer calls the operation tracer for every operation when tracing is disabled.
 - New `besu storage revert-code-format` subcommand reverts the contract code storage and the database metadata, so that a database upgraded to store the jump destination analysis can be opened by an older Besu version again; Besu logs how to run it after the upgrade. [#11364](https://github.com/besu-eth/besu/pull/11364)
 - EVM v2: add DUP1-16 and SWAP1-16. [#11482](https://github.com/besu-eth/besu/pull/11482)
+- Limit the snap/2 `GetBlockAccessLists` server to 1024 block access list lookups per request, counting unavailable hashes, in line with `GetByteCodes` and `GetStorageRanges`. [#11487](https://github.com/besu-eth/besu/pull/11487)
 
 ## 26.9.0
 

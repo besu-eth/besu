@@ -75,6 +75,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   private static final int MAX_ENTRIES_PER_REQUEST = 100000;
   private static final int MAX_RESPONSE_SIZE = 2 * 1024 * 1024;
   private static final int MAX_CODE_LOOKUPS_PER_REQUEST = 1024;
+  private static final int MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST = 1024;
   private static final int MAX_STORAGE_RANGE_ACCOUNTS_PER_REQUEST = 4096;
   static final AccountRangeMessage EMPTY_ACCOUNT_RANGE =
       AccountRangeMessage.create(new HashMap<>(), new ArrayDeque<>());
@@ -283,6 +284,9 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                     maxMillisPerRequest,
                     SnapServer::calculateBlockAccessListEncodedSize));
         for (final Hash blockHash : blockHashes) {
+          if (requestedCount >= MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST) {
+            break;
+          }
           requestedCount++;
           final Optional<BlockAccessList> maybeBlockAccessList =
               blockchain.getBlockAccessList(blockHash);
