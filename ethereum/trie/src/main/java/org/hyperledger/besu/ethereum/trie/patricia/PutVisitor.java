@@ -22,8 +22,14 @@ import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
 
 import org.apache.tuweni.bytes.Bytes;
 
+/**
+ * Path visitor that inserts or replaces a leaf value.
+ *
+ * <p>Subclasses may override the protected hooks to specialize behavior while reusing split/insert
+ * logic — for example collapsing completed left siblings during ascending-key bulk inserts.
+ */
 public class PutVisitor<V> implements PathNodeVisitor<V> {
-  private final NodeFactory<V> nodeFactory;
+  protected final NodeFactory<V> nodeFactory;
   private final V value;
 
   public PutVisitor(final NodeFactory<V> nodeFactory, final V value) {
@@ -49,9 +55,10 @@ public class PutVisitor<V> implements PathNodeVisitor<V> {
     final Bytes leafPath = path.slice(commonPathLength + 1);
 
     final byte extensionIndex = extensionPath.get(commonPathLength);
+    validateSplitDirection(leafIndex, extensionIndex);
     final Node<V> updatedExtension =
-        extensionNode.replacePath(extensionPath.slice(commonPathLength + 1));
-    final Node<V> leaf = nodeFactory.createLeaf(leafPath, value);
+        mapAttachedSibling(extensionNode.replacePath(extensionPath.slice(commonPathLength + 1)));
+    final Node<V> leaf = newNode(leafPath);
     final Node<V> branch =
         nodeFactory.createBranch(leafIndex, leaf, extensionIndex, updatedExtension);
 
@@ -71,8 +78,9 @@ public class PutVisitor<V> implements PathNodeVisitor<V> {
       return branchNode.replaceValue(value);
     }
 
-    final Node<V> updatedChild = branchNode.child(childIndex).accept(this, path.slice(1));
-    return branchNode.replaceChild(childIndex, updatedChild);
+    final BranchNode<V> prepared = beforeDescendChild(branchNode, childIndex);
+    final Node<V> updatedChild = prepared.child(childIndex).accept(this, path.slice(1));
+    return prepared.replaceChild(childIndex, updatedChild);
   }
 
   @Override
@@ -95,8 +103,10 @@ public class PutVisitor<V> implements PathNodeVisitor<V> {
 
     final byte updatedLeafIndex = leafPath.get(commonPathLength);
 
-    final Node<V> updatedLeaf = leafNode.replacePath(leafPath.slice(commonPathLength + 1));
-    final Node<V> leaf = nodeFactory.createLeaf(newLeafPath, value);
+    validateSplitDirection(newLeafIndex, updatedLeafIndex);
+    final Node<V> updatedLeaf =
+        mapAttachedSibling(leafNode.replacePath(leafPath.slice(commonPathLength + 1)));
+    final Node<V> leaf = newNode(newLeafPath);
     final Node<V> branch =
         nodeFactory.createBranch(updatedLeafIndex, updatedLeaf, newLeafIndex, leaf);
     if (commonPathLength > 0) {
@@ -108,6 +118,62 @@ public class PutVisitor<V> implements PathNodeVisitor<V> {
 
   @Override
   public Node<V> visit(final NullNode<V> nullNode, final Bytes path) {
+    return newNode(path);
+  }
+
+  /**
+   * Node placed for an absent key with {@code path} left below it (the root, an empty child, or the
+   * new side of a split).
+   *
+   * <p>Stock put creates the leaf. Subclasses may place a prebuilt subtree whose first key is being
+   * inserted.
+   *
+   * @param path nibbles of the key below the node's position, terminator included
+   * @return node to attach
+   */
+  protected Node<V> newNode(final Bytes path) {
     return nodeFactory.createLeaf(path, value);
+  }
+
+  /**
+   * Invoked immediately before descending into a branch's child.
+   *
+   * <p>Stock put returns {@code branchNode} unchanged. Subclasses may return a branch with reshaped
+   * siblings (for example collapsing completed left-nibble subtrees) before the recursive visit.
+   *
+   * @param branchNode branch whose child will be updated next
+   * @param childIndex nibble selector for the child being descended into ({@code 0}-{@code 15})
+   * @return branch to descend from (may be the same instance or a replacement)
+   */
+  protected BranchNode<V> beforeDescendChild(
+      final BranchNode<V> branchNode, final byte childIndex) {
+    return branchNode;
+  }
+
+  /**
+   * Maps a sibling node being attached beside a newly inserted leaf after a split.
+   *
+   * <p>Stock put returns the node unchanged (identity). Subclasses may transform the attached
+   * sibling — for example replacing a completed left subtree with a hash stub.
+   *
+   * @param sibling existing subtree attached as the opposite child of the new leaf
+   * @return node to store in that sibling slot
+   */
+  protected Node<V> mapAttachedSibling(final Node<V> sibling) {
+    return sibling;
+  }
+
+  /**
+   * Validates (or gates) the direction of a split/insert relative to an existing key or subtree.
+   *
+   * <p>Stock put allows any insert order. Subclasses may reject directions that violate their
+   * ordering constraints (for example requiring the new leaf nibble to be strictly greater than the
+   * existing sibling nibble).
+   *
+   * @param newLeafIndex nibble that places the new leaf ({@code 0}-{@code 15})
+   * @param siblingIndex nibble of the existing remnant being attached beside it
+   */
+  protected void validateSplitDirection(final byte newLeafIndex, final byte siblingIndex) {
+    // no-op
   }
 }
