@@ -436,7 +436,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                 new WorldStateStorageCoordinator(ws.getWorldStateStorage()));
         return mapper.apply(
             worldStateProofProvider.getAccountProof(
-                ws.getWorldStateRootHash(), accountAddress, accountStorageKeys));
+                ws.getWorldStateRootHash(),
+                ws.getWorldStateBlockHash(),
+                accountAddress,
+                accountStorageKeys));
       }
     } catch (Exception ex) {
       LOG.error(

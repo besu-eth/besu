@@ -49,6 +49,7 @@ public class WorldStateProofProviderTest {
 
   private static final Address address =
       Address.fromHexString("0x1234567890123456789012345678901234567890");
+  private static final Hash blockHash = Hash.hash(Bytes.of(1));
 
   private BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage;
   private WorldStateProofProvider worldStateProofProvider;
@@ -67,7 +68,23 @@ public class WorldStateProofProviderTest {
   @Test
   public void getProofWhenWorldStateNotAvailable() {
     Optional<WorldStateProof> accountProof =
-        worldStateProofProvider.getAccountProof(Hash.EMPTY, address, new ArrayList<>());
+        worldStateProofProvider.getAccountProof(Hash.EMPTY, blockHash, address, new ArrayList<>());
+
+    assertThat(accountProof).isEmpty();
+  }
+
+  @Test
+  public void getProofWhenAnotherWorldStateIsStored() {
+    final Bytes rootNode = Bytes.of(0x80);
+    worldStateKeyValueStorage
+        .updater()
+        .saveWorldState(
+            Hash.ZERO.getBytes(), Bytes32.wrap(Hash.hash(rootNode).getBytes()), rootNode)
+        .commit();
+
+    // The stored root is another one and no trie log leads to this block.
+    final Optional<WorldStateProof> accountProof =
+        worldStateProofProvider.getAccountProof(Hash.EMPTY, blockHash, address, new ArrayList<>());
 
     assertThat(accountProof).isEmpty();
   }
@@ -105,7 +122,7 @@ public class WorldStateProofProviderTest {
         Arrays.asList(UInt256.ONE, UInt256.valueOf(3L), UInt256.valueOf(6L));
     final Optional<WorldStateProof> accountProof =
         worldStateProofProvider.getAccountProof(
-            Hash.wrap(worldStateTrie.getRootHash()), address, storageKeys);
+            Hash.wrap(worldStateTrie.getRootHash()), blockHash, address, storageKeys);
 
     assertThat(accountProof).isPresent();
     Assertions.assertThat(accountProof.get().getStateTrieAccountValue()).contains(accountValue);
@@ -146,7 +163,7 @@ public class WorldStateProofProviderTest {
         Arrays.asList(UInt256.ONE, UInt256.valueOf(2L), UInt256.valueOf(3L));
     final Optional<WorldStateProof> proof =
         worldStateProofProvider.getAccountProof(
-            Hash.wrap(worldStateTrie.getRootHash()), address, storageKeys);
+            Hash.wrap(worldStateTrie.getRootHash()), blockHash, address, storageKeys);
 
     assertThat(proof).isPresent();
     assertThat(proof.get().getStateTrieAccountValue()).isEmpty();
@@ -180,6 +197,7 @@ public class WorldStateProofProviderTest {
     final Optional<WorldStateProof> accountProof =
         worldStateProofProvider.getAccountProof(
             Hash.wrap(worldStateTrie.getRootHash()),
+            blockHash,
             Address.ZERO,
             new ArrayList<>()); // missing address
 
