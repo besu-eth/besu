@@ -42,6 +42,10 @@ class AsyncOperationProcessor<I, O> implements Processor<I, O> {
       final Function<I, CompletableFuture<O>> processor,
       final int maxConcurrency,
       final boolean preserveOrder) {
+    if (maxConcurrency <= 0) {
+      throw new IllegalArgumentException(
+          "maxConcurrency must be positive, got " + maxConcurrency);
+    }
     this.processor = processor;
     this.maxConcurrency = maxConcurrency;
     this.inProgress = new ArrayList<>(maxConcurrency);

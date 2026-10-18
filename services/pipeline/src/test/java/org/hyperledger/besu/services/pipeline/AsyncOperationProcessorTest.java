@@ -269,6 +269,16 @@ public class AsyncOperationProcessorTest {
         .hasRootCause(exception);
   }
 
+  @Test
+  public void shouldRejectNonPositiveMaxConcurrency() {
+    assertThatThrownBy(() -> new AsyncOperationProcessor<>(Function.identity(), 0, false))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("maxConcurrency must be positive");
+    assertThatThrownBy(() -> new AsyncOperationProcessor<>(Function.identity(), -1, true))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("maxConcurrency must be positive");
+  }
+
   private AsyncOperationProcessor<CompletableFuture<String>, String> createProcessor(
       final boolean preserveOrder) {
     return new AsyncOperationProcessor<>(Function.identity(), 3, preserveOrder);
