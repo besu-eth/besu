@@ -31,6 +31,8 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.DatabaseMetadata;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
@@ -304,6 +306,36 @@ public class RocksDBKeyValueStorageFactoryTest {
     try (final var storage = storageFactory.create(segment, commonConfiguration, metricsSystem)) {
       assertThat(DatabaseMetadata.lookUpFrom(tempRealDataDir).getVersionedStorageFormat())
           .isEqualTo(BaseVersionedStorageFormat.FOREST_WITH_RECEIPT_COMPACTION);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(DataStorageFormat.class)
+  public void shouldReopenStorageWhenCreatedAgainAfterClose(
+      final DataStorageFormat dataStorageFormat) throws Exception {
+    final Path tempDataDir = temporaryFolder.resolve("data");
+    final Path tempDatabaseDir = temporaryFolder.resolve("db");
+    mockCommonConfiguration(tempDataDir, tempDatabaseDir, dataStorageFormat);
+    final byte[] key = {1};
+    final byte[] value = {2};
+
+    final RocksDBKeyValueStorageFactory storageFactory =
+        new RocksDBKeyValueStorageFactory(
+            () -> rocksDbConfiguration, segments, RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);
+
+    final SegmentedKeyValueStorage first =
+        storageFactory.create(segments, commonConfiguration, metricsSystem);
+    final SegmentedKeyValueStorageTransaction tx = first.startTransaction();
+    tx.put(segment, key, value);
+    tx.commit();
+    first.close();
+
+    // A node restarted in the same process asks the same factory for storage again
+    try (final SegmentedKeyValueStorage reopened =
+        storageFactory.create(segments, commonConfiguration, metricsSystem)) {
+      assertThat(reopened).isNotSameAs(first);
+      assertThat(reopened.isClosed()).isFalse();
+      assertThat(reopened.get(segment, key)).contains(value);
     }
   }
 
