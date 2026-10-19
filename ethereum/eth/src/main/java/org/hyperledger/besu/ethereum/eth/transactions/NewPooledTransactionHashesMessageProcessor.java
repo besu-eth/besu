@@ -47,6 +47,7 @@ public class NewPooledTransactionHashesMessageProcessor {
   private final EthContext ethContext;
   private final TransactionPoolMetrics metrics;
   private final int maxTransactionsMessageSize;
+  private final int maxAnnouncementsPerMessage;
 
   public NewPooledTransactionHashesMessageProcessor(
       final PeerTransactionTracker transactionTracker,
@@ -54,7 +55,8 @@ public class NewPooledTransactionHashesMessageProcessor {
       final TransactionPoolConfiguration transactionPoolConfiguration,
       final EthContext ethContext,
       final TransactionPoolMetrics metrics,
-      final int maxTransactionsMessageSize) {
+      final int maxTransactionsMessageSize,
+      final int maxAnnouncementsPerMessage) {
     this.transactionTracker = transactionTracker;
     this.transactionPool = transactionPool;
     this.transactionPoolConfiguration = transactionPoolConfiguration;
@@ -63,6 +65,7 @@ public class NewPooledTransactionHashesMessageProcessor {
     metrics.initExpiredMessagesCounter(METRIC_LABEL);
     this.scheduledTasks = new ConcurrentHashMap<>();
     this.maxTransactionsMessageSize = maxTransactionsMessageSize;
+    this.maxAnnouncementsPerMessage = maxAnnouncementsPerMessage;
   }
 
   void processNewPooledTransactionHashesMessage(
@@ -82,7 +85,15 @@ public class NewPooledTransactionHashesMessageProcessor {
           .addArgument(latency)
           .addArgument(queueAt)
           .addArgument(keepAlive)
-          .addArgument(transactionsMessage::pendingTransactionAnnouncements)
+          .addArgument(
+              () -> {
+                try {
+                  return transactionsMessage.pendingTransactionAnnouncements(
+                      maxAnnouncementsPerMessage);
+                } catch (final RLPException e) {
+                  return e.getMessage();
+                }
+              })
           .log();
       metrics.incrementExpiredMessages(METRIC_LABEL);
     }
@@ -92,7 +103,7 @@ public class NewPooledTransactionHashesMessageProcessor {
       final EthPeer peer, final NewPooledTransactionHashesMessage transactionsMessage) {
     try {
       final List<TransactionAnnouncement> incomingAnnouncements =
-          transactionsMessage.pendingTransactionAnnouncements();
+          transactionsMessage.pendingTransactionAnnouncements(maxAnnouncementsPerMessage);
 
       final var freshAnnouncements =
           transactionTracker.receivedAnnouncements(peer, incomingAnnouncements);
