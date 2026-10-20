@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationContext;
@@ -26,8 +24,6 @@ import org.hyperledger.besu.plugin.services.BlockchainService;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -97,30 +93,18 @@ public class TestBlockchainServicePlugin implements BesuPlugin {
   public void stop() {}
 
   private void writeSeenHardforks() {
-    try {
-      final File callbackFile = new File(callbackDir, "hardfork.list");
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-
-      final var content =
-          seenHardforks.stream()
-              .map(
-                  r ->
-                      String.join(
-                          ",",
-                          String.valueOf(r.blockNumber),
-                          r.current.name(),
-                          r.currentByNumber().name(),
-                          r.next.name()))
-              .collect(Collectors.joining("\n"));
-
-      Files.write(callbackFile.toPath(), content.getBytes(UTF_8));
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    final var content =
+        seenHardforks.stream()
+            .map(
+                r ->
+                    String.join(
+                        ",",
+                        String.valueOf(r.blockNumber),
+                        r.current.name(),
+                        r.currentByNumber().name(),
+                        r.next.name()))
+            .collect(Collectors.joining("\n"));
+    PluginCallbackDir.write(callbackDir, "hardfork.list", content);
   }
 
   private record HardforkSeen(
