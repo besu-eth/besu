@@ -1190,6 +1190,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     runner = buildRunner();
 
     startPlugins(runner);
+    runner.enableTransactionPool();
     runner.startExternalServices();
     setReleaseMetrics();
     preSynchronization();
