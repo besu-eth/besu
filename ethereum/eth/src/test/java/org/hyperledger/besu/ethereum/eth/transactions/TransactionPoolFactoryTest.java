@@ -213,7 +213,6 @@ public class TransactionPoolFactoryTest {
     verify(blockchain, atLeastOnce()).observeBlockAdded(blockAddedListeners.capture());
 
     assertThat(blockAddedListeners.getAllValues()).contains(pool);
-    assertThat(pool.isEnabled()).isTrue();
   }
 
   @Test
@@ -301,12 +300,13 @@ public class TransactionPoolFactoryTest {
   }
 
   @Test
-  public void txPoolStartsEnabledWhenFullSyncConfigured() {
-    // when using FULL sync, txpool starts enabled, because it could be
-    // that it is the first node on a new network and so, it is in sync with genesis
-    // and must accept txs. Otherwise, asap it find a sync target that is ahead, the txpool
-    // will be disabled, until in sync.
+  public void txPoolIsLeftForTheNodeToEnableWhenFullSyncConfigured() {
+    // when using FULL sync there is no initial sync to wait for, so the node enables the txpool
+    // itself once its plugins have started, rather than the factory enabling it at creation
     setupInitialSyncPhase(false);
+    assertThat(pool.isEnabled()).isFalse();
+
+    pool.setEnabled();
     assertThat(pool.isEnabled()).isTrue();
   }
 
@@ -340,6 +340,8 @@ public class TransactionPoolFactoryTest {
         ArgumentCaptor.forClass(BlockAddedObserver.class);
     verify(blockchain).observeBlockAdded(syncStateObserver.capture());
     setupInitialSyncPhase(syncState);
+    // with no initial sync phase the node enables the pool once its plugins have started
+    pool.setEnabled();
     assertThat(pool.isEnabled()).isTrue();
 
     syncStateObserver
