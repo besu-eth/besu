@@ -145,6 +145,7 @@
 - Discovery no longer buffers unbounded memory for inbound DiscV5 packets: over-sized datagrams are dropped before they are copied for dispatch, and the dispatch queue is bounded. [#11672](https://github.com/besu-eth/besu/pull/11672)
 - On OpenTelemetry, a supplied metric created again, as by the world state download after a resync, now replaces the old one, as on Prometheus. Previously a labelled supplied gauge or counter threw `IllegalStateException` and a gauge kept reporting its first supplier. `debug_metrics` no longer fails on OpenTelemetry once a supplied counter is registered. [#11773](https://github.com/besu-eth/besu/pull/11773)
 - `eth_getProof` on Bonsai now returns `Internal error` (`-32603`) when building the proof fails, for example on a storage error. Previously the failure was logged and reported as `World state unavailable` (`-32000`), as if the node did not have the state of the block. [#PR](https://github.com/besu-eth/besu/pull/PR)
+- `eth_getProof` on Bonsai now returns `Internal error` (`-32603`) when building the proof fails, for example on a storage error. Previously the failure was logged and reported as `World state unavailable` (`-32000`), as if the node did not have the state of the block. [#11673](https://github.com/besu-eth/besu/pull/11673)
 
 ### Additions and Improvements
 - `trace_filter` accepts `mode`: `intersection`, the default, or `union`, which matches a trace in either `fromAddress` or `toAddress`. An unknown value is rejected with `-32602`. [#11436](https://github.com/besu-eth/besu/pull/11436)
