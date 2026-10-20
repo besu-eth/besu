@@ -20,8 +20,6 @@ import org.hyperledger.besu.plugin.RegistrationContext;
 import org.hyperledger.besu.plugin.StartContext;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -42,23 +40,10 @@ public class TestCoreConfigurationPlugin implements BesuPlugin {
   public void start(final StartContext context) {
     LOG.info("Starting TestCoreConfigurationPlugin");
     final var coreConfiguration = context.getBesuService(CoreConfiguration.class);
-    writeDataPath(coreConfiguration.getDataPath().toString());
+    PluginCallbackDir.write(
+        callbackDir, "coreConfiguration.dataPath", coreConfiguration.getDataPath().toString());
   }
 
   @Override
   public void stop() {}
-
-  private void writeDataPath(final String dataPath) {
-    try {
-      final File callbackFile = new File(callbackDir, "coreConfiguration.dataPath");
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.writeString(callbackFile.toPath(), dataPath);
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
-  }
 }
