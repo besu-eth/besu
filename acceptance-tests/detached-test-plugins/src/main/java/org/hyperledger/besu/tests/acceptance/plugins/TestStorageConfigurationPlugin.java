@@ -20,8 +20,6 @@ import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -42,23 +40,12 @@ public class TestStorageConfigurationPlugin implements BesuPlugin {
   public void start(final StartContext context) {
     LOG.info("Starting TestStorageConfigurationPlugin");
     final var storageConfiguration = context.getBesuService(StorageConfiguration.class);
-    writeStoragePath(storageConfiguration.getStoragePath().toString());
+    PluginCallbackDir.write(
+        callbackDir,
+        "storageConfiguration.storagePath",
+        storageConfiguration.getStoragePath().toString());
   }
 
   @Override
   public void stop() {}
-
-  private void writeStoragePath(final String storagePath) {
-    try {
-      final File callbackFile = new File(callbackDir, "storageConfiguration.storagePath");
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.writeString(callbackFile.toPath(), storagePath);
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
-  }
 }

@@ -18,6 +18,9 @@ import org.hyperledger.besu.plugin.CoreConfiguration;
 import org.hyperledger.besu.plugin.RegistrationContext;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.List;
 
 /** The directory the acceptance tests watch for signal files: {@code <data-path>/plugins}. */
 final class PluginCallbackDir {
@@ -29,5 +32,28 @@ final class PluginCallbackDir {
         .getDataPath()
         .resolve("plugins")
         .toFile();
+  }
+
+  /** Writes the lines as a signal file, each followed by a line separator. */
+  static void write(final File dir, final String name, final List<String> lines) {
+    write(dir, name, String.join(System.lineSeparator(), lines) + System.lineSeparator());
+  }
+
+  /**
+   * Writes the content as is into the directory, creating the directory if needed; both go at JVM
+   * exit.
+   */
+  static void write(final File dir, final String name, final String content) {
+    try {
+      final File file = new File(dir, name);
+      if (!dir.exists()) {
+        dir.mkdirs();
+        dir.deleteOnExit();
+      }
+      Files.writeString(file.toPath(), content);
+      file.deleteOnExit();
+    } catch (final IOException ioe) {
+      throw new RuntimeException(ioe);
+    }
   }
 }
