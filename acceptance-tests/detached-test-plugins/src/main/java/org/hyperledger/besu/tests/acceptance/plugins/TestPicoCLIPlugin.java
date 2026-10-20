@@ -22,9 +22,7 @@ import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.Collections;
+import java.util.List;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -132,21 +130,10 @@ public class TestPicoCLIPlugin implements BesuPlugin {
   }
 
   /** This is used to signal to the acceptance test that certain tasks were completed. */
-  @SuppressWarnings("ResultOfMethodCallIgnored")
   private void writeSignal(final String signal) {
-    try {
-      final File callbackFile = new File(callbackDir, PLUGIN_LIFECYCLE_PREFIX + signal);
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.write(
-          callbackFile.toPath(),
-          Collections.singletonList(
-              signal + "\ntestOption=" + testOption + "\nid=" + System.identityHashCode(this)));
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    PluginCallbackDir.write(
+        callbackDir,
+        PLUGIN_LIFECYCLE_PREFIX + signal,
+        List.of(signal, "testOption=" + testOption, "id=" + System.identityHashCode(this)));
   }
 }

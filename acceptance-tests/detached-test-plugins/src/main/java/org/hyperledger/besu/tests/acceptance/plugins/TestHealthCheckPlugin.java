@@ -20,10 +20,7 @@ import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import com.google.auto.service.AutoService;
@@ -39,12 +36,12 @@ public class TestHealthCheckPlugin implements BesuPlugin {
   private static final String LIVENESS_CALLED_FILE = "liveness-plugin-called";
   private static final String READINESS_CALLED_FILE = "readiness-plugin-called";
 
-  private Path dataDir;
+  private File callbackDir;
 
   @Override
   public void register(final RegistrationContext context) {
     LOG.info("Registered TestHealthCheckPlugin");
-    dataDir = PluginCallbackDir.resolve(context).toPath();
+    callbackDir = PluginCallbackDir.resolve(context);
     final HealthCheckService healthCheckService = context.getBesuService(HealthCheckService.class);
     healthCheckService.registerHealthCheck(
         LIVENESS_ENDPOINT,
@@ -67,13 +64,7 @@ public class TestHealthCheckPlugin implements BesuPlugin {
   public void stop() {}
 
   private void markCalled(final String fileName) {
-    try {
-      final File markerFile = new File(dataDir.toFile(), fileName);
-      Files.write(markerFile.toPath(), Collections.singletonList("plugin-called"));
-      markerFile.deleteOnExit();
-      LOG.info("Health endpoint called by plugin, marker written to {}", markerFile.toPath());
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    PluginCallbackDir.write(callbackDir, fileName, List.of("plugin-called"));
+    LOG.info("Health endpoint called by plugin, marker written to {}/{}", callbackDir, fileName);
   }
 }

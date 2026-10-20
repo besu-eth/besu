@@ -23,9 +23,7 @@ import org.hyperledger.besu.plugin.data.PropagatedBlockContext;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -73,17 +71,7 @@ public class TestBesuEventsPlugin implements BesuPlugin {
     final BlockHeader header = propagatedBlockContext.getBlockHeader();
     final int blockCount = propagatedBlockCounter.incrementAndGet();
     LOG.info("I got a new block! (I've seen {}) - {}", blockCount, header);
-    try {
-      final File callbackFile = new File(callbackDir, "newBlock." + blockCount);
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.write(callbackFile.toPath(), Collections.singletonList(header.toString()));
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    PluginCallbackDir.write(callbackDir, "newBlock." + blockCount, List.of(header.toString()));
   }
 
   private void onBlockAdded(final AddedBlockContext addedBlockContext) {
@@ -94,18 +82,7 @@ public class TestBesuEventsPlugin implements BesuPlugin {
         blockCount,
         header,
         addedBlockContext.getEventType());
-    try {
-      final File callbackFile = new File(callbackDir, "addedBlock." + blockCount);
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.write(
-          callbackFile.toPath(),
-          Collections.singletonList(addedBlockContext.getEventType().name()));
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    PluginCallbackDir.write(
+        callbackDir, "addedBlock." + blockCount, List.of(addedBlockContext.getEventType().name()));
   }
 }

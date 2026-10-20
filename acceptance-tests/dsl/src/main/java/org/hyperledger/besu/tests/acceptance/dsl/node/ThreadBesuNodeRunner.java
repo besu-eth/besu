@@ -230,8 +230,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     node.engineRpcConfiguration().ifPresent(runnerBuilder::engineJsonRpcConfiguration);
     final Runner runner = runnerBuilder.build();
 
-    runner.startExternalServices();
-
     BesuPluginServiceRegistrar.registerStartServices(
         besuPluginContext,
         besuController,
@@ -241,6 +239,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         inProcessRpcConfiguration.isEnabled());
 
     besuPluginContext.startPlugins();
+
+    runner.startExternalServices();
 
     runner.startEthereumMainLoop();
 

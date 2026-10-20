@@ -1169,9 +1169,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     besuController = buildController();
 
     runner = buildRunner();
-    runner.startExternalServices();
 
     startPlugins(runner);
+    runner.startExternalServices();
     setReleaseMetrics();
     preSynchronization();
 

@@ -14,16 +14,12 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationContext;
 import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -66,19 +62,8 @@ public class BadCLIOptionsPlugin implements BesuPlugin {
     writeStatus("stop");
   }
 
-  @SuppressWarnings("ResultOfMethodCallIgnored")
   private void writeStatus(final String status) {
-    try {
-      final File callbackFile = new File(callbackDir, "badCLIOptions." + status);
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.write(callbackFile.toPath(), status.getBytes(UTF_8));
-      callbackFile.deleteOnExit();
-      LOG.info("Write status " + status);
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    PluginCallbackDir.write(callbackDir, "badCLIOptions." + status, status);
+    LOG.info("Write status " + status);
   }
 }

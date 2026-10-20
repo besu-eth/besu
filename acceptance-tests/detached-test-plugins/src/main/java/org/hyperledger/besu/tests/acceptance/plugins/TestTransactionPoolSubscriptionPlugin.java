@@ -22,9 +22,7 @@ import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -66,20 +64,7 @@ public class TestTransactionPoolSubscriptionPlugin implements BesuPlugin {
   private void onTransactionAdded(final Transaction transaction) {
     final int count = transactionCounter.incrementAndGet();
     LOG.info("Transaction added via subscription (seen {}) - {}", count, transaction.getHash());
-    writeCallbackFile("subscribedTx." + count, transaction.getHash().toHexString());
-  }
-
-  private void writeCallbackFile(final String name, final String content) {
-    try {
-      final File callbackFile = new File(callbackDir, name);
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.write(callbackFile.toPath(), Collections.singletonList(content));
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    PluginCallbackDir.write(
+        callbackDir, "subscribedTx." + count, List.of(transaction.getHash().toHexString()));
   }
 }
