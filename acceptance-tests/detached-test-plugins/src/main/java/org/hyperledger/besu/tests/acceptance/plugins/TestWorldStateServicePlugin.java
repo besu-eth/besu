@@ -14,10 +14,7 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationContext;
 import org.hyperledger.besu.plugin.StartContext;
@@ -25,8 +22,6 @@ import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.WorldStateService;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -65,7 +60,8 @@ public class TestWorldStateServicePlugin implements BesuPlugin {
                 .getWorldView()
                 .get(Address.fromHexString("0xfe3b557e8fb62b89f4916b721be55ceb828dbd73"));
         final var balance = account.getBalance();
-        writeBalance(balance);
+        PluginCallbackDir.write(
+            callbackDir, "TestWorldStateServicePlugin.txt", balance.toHexString());
       } catch (Exception e) {
         LOG.error("Error in TestWorldStateServicePlugin", e);
         throw new RuntimeException(e);
@@ -75,21 +71,4 @@ public class TestWorldStateServicePlugin implements BesuPlugin {
 
   @Override
   public void stop() {}
-
-  private void writeBalance(final Wei balance) {
-    try {
-      final File callbackFile = new File(callbackDir, "TestWorldStateServicePlugin.txt");
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-
-      final var content = balance.toHexString();
-
-      Files.write(callbackFile.toPath(), content.getBytes(UTF_8));
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
-  }
 }
