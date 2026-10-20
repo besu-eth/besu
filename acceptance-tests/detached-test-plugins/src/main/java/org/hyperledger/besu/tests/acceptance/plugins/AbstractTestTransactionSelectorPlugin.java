@@ -39,10 +39,7 @@ import org.hyperledger.besu.plugin.services.txselection.TransactionEvaluationCon
 import org.hyperledger.besu.tests.acceptance.dsl.account.Accounts;
 
 import java.io.File;
-import java.io.IOException;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -182,34 +179,18 @@ public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugi
       final List<? extends org.hyperledger.besu.datatypes.PendingTransaction>
           candidatePendingTransactions) {
 
-    final File callbackFile =
-        new File(
-            callbackDir,
-            "seenCandidatePendingTransactions-%d-%d.txt"
-                .formatted(pluginNum, pendingBlockHeader.getNumber()));
-
-    try {
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-
-      final var content =
-          candidatePendingTransactions.stream()
-              .map(org.hyperledger.besu.datatypes.PendingTransaction::getTransaction)
-              .map(
-                  tx ->
-                      String.join(
-                          ",",
-                          tx.getSender().getBytes().toHexString(),
-                          Long.toString(tx.getNonce())))
-              .collect(Collectors.joining(System.lineSeparator()));
-
-      Files.write(callbackFile.toPath(), content.getBytes(StandardCharsets.UTF_8));
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    } finally {
-      callbackFile.deleteOnExit();
-    }
+    final var content =
+        candidatePendingTransactions.stream()
+            .map(org.hyperledger.besu.datatypes.PendingTransaction::getTransaction)
+            .map(
+                tx ->
+                    String.join(
+                        ",", tx.getSender().getBytes().toHexString(), Long.toString(tx.getNonce())))
+            .collect(Collectors.joining(System.lineSeparator()));
+    PluginCallbackDir.write(
+        callbackDir,
+        "seenCandidatePendingTransactions-%d-%d.txt"
+            .formatted(pluginNum, pendingBlockHeader.getNumber()),
+        content);
   }
 }

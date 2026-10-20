@@ -23,9 +23,7 @@ import org.hyperledger.besu.plugin.services.sync.SyncEventService;
 import org.hyperledger.besu.plugin.services.sync.spi.InitialSyncCompletionListener;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -66,7 +64,7 @@ public class TestSynchronizationSubscriptionPlugin implements BesuPlugin {
               @Override
               public void onInitialSyncCompleted() {
                 LOG.info("Initial sync completed via subscription");
-                writeCallbackFile("initialSyncCompleted", "completed");
+                PluginCallbackDir.write(callbackDir, "initialSyncCompleted", List.of("completed"));
                 final Subscription self = initialSyncCompletion.getAndSet(null);
                 if (self != null) {
                   self.close();
@@ -94,22 +92,9 @@ public class TestSynchronizationSubscriptionPlugin implements BesuPlugin {
   private void onSyncStatusChanged(final Optional<SyncStatus> status) {
     final int count = syncStatusCounter.incrementAndGet();
     LOG.info("Sync status changed via subscription (seen {}) - {}", count, status);
-    writeCallbackFile(
+    PluginCallbackDir.write(
+        callbackDir,
         "subscribedSync." + count,
-        status.map(s -> Long.toString(s.getCurrentBlock())).orElse("in-sync"));
-  }
-
-  private void writeCallbackFile(final String name, final String content) {
-    try {
-      final File callbackFile = new File(callbackDir, name);
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.write(callbackFile.toPath(), Collections.singletonList(content));
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+        List.of(status.map(s -> Long.toString(s.getCurrentBlock())).orElse("in-sync")));
   }
 }

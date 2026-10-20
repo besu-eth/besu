@@ -33,8 +33,6 @@ import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelecto
 import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidator;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -166,25 +164,10 @@ public class TestLateRegistrationPlugin implements BesuPlugin {
               rejected.add(method);
             }
           });
-      writeRejected(rejected);
+      PluginCallbackDir.write(callbackDir, REJECTED_FILE, rejected);
     }
   }
 
   @Override
   public void stop() {}
-
-  @SuppressWarnings("ResultOfMethodCallIgnored")
-  private void writeRejected(final List<String> rejected) {
-    try {
-      final File callbackFile = new File(callbackDir, REJECTED_FILE);
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.write(callbackFile.toPath(), rejected);
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
-  }
 }
