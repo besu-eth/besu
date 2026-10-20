@@ -27,6 +27,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -49,10 +50,12 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -320,6 +323,69 @@ class BonsaiWorldStateProviderTest {
             ws ->
                 assertThat(((BonsaiWorldState) ws).getWorldStateBlockHash())
                     .isEqualTo(genesis.getBlockHash()));
+  }
+
+  @Test
+  void getAccountProofReturnsEmptyWhenLoadingMoreThanMaxLayersBack() {
+    bonsaiWorldStateArchive =
+        new BonsaiWorldStateProvider(
+            new BonsaiWorldStateKeyValueStorage(
+                storageProvider, new NoOpMetricsSystem(), DEFAULT_CONFIG),
+            blockchain,
+            ImmutableExtraStorageConfiguration.builder().maxLayersToLoad(512L).build(),
+            new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
+            null,
+            EvmConfiguration.DEFAULT,
+            new BonsaiCodeCache());
+
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    final BlockHeader blockHeader512 =
+        blockBuilder.number(512).parentHash(genesis.getHash()).buildHeader();
+    when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis));
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader512);
+
+    final AtomicBoolean mapperCalled = new AtomicBoolean();
+    assertThat(
+            bonsaiWorldStateArchive.getAccountProof(
+                genesis,
+                Address.ZERO,
+                List.of(),
+                proof -> {
+                  mapperCalled.set(true);
+                  return Optional.of(proof);
+                }))
+        .isEmpty();
+    assertThat(mapperCalled).isFalse();
+  }
+
+  @Test
+  void getAccountProofPropagatesFailure() {
+    final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
+        new BonsaiWorldStateKeyValueStorage(
+            storageProvider, new NoOpMetricsSystem(), DEFAULT_CONFIG);
+    bonsaiWorldStateArchive = createBonsaiWorldStateProvider(worldStateKeyValueStorage);
+
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    final BonsaiWorldState mockWorldState = createMockWorldState(genesis.getHash());
+    when(mockWorldState.getWorldStateStorage()).thenReturn(worldStateKeyValueStorage);
+    when(mockWorldState.getWorldStateRootHash()).thenReturn(Hash.EMPTY_TRIE_HASH);
+    when(mockWorldState.getWorldStateBlockHash()).thenReturn(genesis.getHash());
+    when(worldStateCacheManager.getWorldState(genesis.getHash()))
+        .thenReturn(Optional.of(mockWorldState));
+    when(blockchain.getChainHeadHeader()).thenReturn(genesis);
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(512L);
+
+    final RuntimeException failure = new RuntimeException("proof failure");
+    assertThatThrownBy(
+            () ->
+                bonsaiWorldStateArchive.getAccountProof(
+                    genesis,
+                    Address.ZERO,
+                    List.of(),
+                    proof -> {
+                      throw failure;
+                    }))
+        .isSameAs(failure);
   }
 
   // Helper methods

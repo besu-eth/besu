@@ -429,25 +429,23 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       final Address accountAddress,
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
+    // Empty means no world state for the block; failures propagate so callers do not mistake
+    // them for missing state.
     try (PathBasedWorldState ws =
         (PathBasedWorldState)
             getWorldState(withBlockHeaderAndNoUpdateNodeHead(blockHeader)).orElse(null)) {
-      if (ws != null) {
-        final WorldStateProofProvider worldStateProofProvider =
-            new WorldStateProofProvider(
-                new WorldStateStorageCoordinator(ws.getWorldStateStorage()));
-        return mapper.apply(
-            worldStateProofProvider.getAccountProof(
-                ws.getWorldStateRootHash(),
-                ws.getWorldStateBlockHash(),
-                accountAddress,
-                accountStorageKeys));
+      if (ws == null) {
+        return Optional.empty();
       }
-    } catch (Exception ex) {
-      LOG.error(
-          "failed proof query for " + blockHeader.getBlockHash().getBytes().toShortHexString(), ex);
+      final WorldStateProofProvider worldStateProofProvider =
+          new WorldStateProofProvider(new WorldStateStorageCoordinator(ws.getWorldStateStorage()));
+      return mapper.apply(
+          worldStateProofProvider.getAccountProof(
+              ws.getWorldStateRootHash(),
+              ws.getWorldStateBlockHash(),
+              accountAddress,
+              accountStorageKeys));
     }
-    return Optional.empty();
   }
 
   @Override
