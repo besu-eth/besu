@@ -39,9 +39,7 @@ import org.hyperledger.besu.plugin.services.txselection.TransactionEvaluationCon
 import org.hyperledger.besu.tests.acceptance.dsl.account.Accounts;
 
 import java.io.File;
-import java.io.IOException;
 import java.math.BigInteger;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -190,19 +188,6 @@ public class TestBundlePlugin implements BesuPlugin {
   public void stop() {}
 
   private void writeEvents() {
-    try {
-      final File callbackFile = new File(callbackDir, "bundle.events");
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-
-      final var content = String.join("\n", events);
-
-      Files.writeString(callbackFile.toPath(), content);
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    PluginCallbackDir.write(callbackDir, "bundle.events", String.join("\n", events));
   }
 }

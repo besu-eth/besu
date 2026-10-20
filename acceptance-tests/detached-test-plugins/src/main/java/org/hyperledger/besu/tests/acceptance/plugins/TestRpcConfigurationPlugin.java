@@ -20,8 +20,6 @@ import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.rpc.RpcConfiguration;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -42,7 +40,9 @@ public class TestRpcConfigurationPlugin implements BesuPlugin {
   public void start(final StartContext context) {
     LOG.info("Starting TestRpcConfigurationPlugin");
     final var rpcConfiguration = context.getBesuService(RpcConfiguration.class);
-    writeRpcHttpConfig(
+    PluginCallbackDir.write(
+        callbackDir,
+        "rpcConfiguration.rpcHttpConfig",
         rpcConfiguration.getConfiguredRpcHttpHost()
             + ":"
             + rpcConfiguration.getConfiguredRpcHttpPort()
@@ -52,18 +52,4 @@ public class TestRpcConfigurationPlugin implements BesuPlugin {
 
   @Override
   public void stop() {}
-
-  private void writeRpcHttpConfig(final String rpcHttpConfig) {
-    try {
-      final File callbackFile = new File(callbackDir, "rpcConfiguration.rpcHttpConfig");
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      Files.writeString(callbackFile.toPath(), rpcHttpConfig);
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
-  }
 }

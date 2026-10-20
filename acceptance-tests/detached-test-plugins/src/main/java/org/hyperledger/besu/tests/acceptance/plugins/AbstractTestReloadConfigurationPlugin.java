@@ -20,7 +20,6 @@ import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
 
 public abstract class AbstractTestReloadConfigurationPlugin implements BesuPlugin {
@@ -61,16 +60,6 @@ public abstract class AbstractTestReloadConfigurationPlugin implements BesuPlugi
   public void stop() {}
 
   private void notifyConfigurationReloaded() {
-    try {
-      final File callbackFile = new File(callbackDir, "reloadConfiguration." + pluginNum);
-      if (!callbackFile.getParentFile().exists()) {
-        callbackFile.getParentFile().mkdirs();
-        callbackFile.getParentFile().deleteOnExit();
-      }
-      callbackFile.createNewFile();
-      callbackFile.deleteOnExit();
-    } catch (final IOException ioe) {
-      throw new RuntimeException(ioe);
-    }
+    PluginCallbackDir.write(callbackDir, "reloadConfiguration." + pluginNum, "");
   }
 }
