@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.BLOCK_NOT_FOUND;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_PARAMS;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -46,7 +45,6 @@ import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -54,7 +52,6 @@ import com.google.common.annotations.VisibleForTesting;
 public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
 
   private final BlockSimulator blockSimulator;
-  private final ProtocolSchedule protocolSchedule;
   private final BlockImportTracerProvider blockImportTracerProvider;
 
   public EthSimulateV1(
@@ -65,7 +62,6 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
       final MiningConfiguration miningConfiguration,
       final ApiConfiguration apiConfiguration) {
     super(blockchainQueries);
-    this.protocolSchedule = protocolSchedule;
     this.blockSimulator =
         new BlockSimulator(
             blockchainQueries.getWorldStateArchive(),
@@ -83,12 +79,8 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
   }
 
   @VisibleForTesting
-  EthSimulateV1(
-      final BlockchainQueries blockchainQueries,
-      final ProtocolSchedule protocolSchedule,
-      final BlockSimulator blockSimulator) {
+  EthSimulateV1(final BlockchainQueries blockchainQueries, final BlockSimulator blockSimulator) {
     super(blockchainQueries);
-    this.protocolSchedule = protocolSchedule;
     this.blockSimulator = blockSimulator;
     this.blockImportTracerProvider = __ -> BlockAwareOperationTracer.NO_TRACING;
   }
@@ -126,8 +118,7 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
         .flatMap(blockStateCall -> blockStateCall.getCalls().stream())
         .forEach(CallParameterUtil::rejectEmptyBlobHashes);
     try {
-      Optional<BlockStateCallError> maybeValidationError =
-          simulateV1Parameter.validate(getValidPrecompileAddresses(header));
+      Optional<BlockStateCallError> maybeValidationError = simulateV1Parameter.validate();
       if (maybeValidationError.isPresent()) {
         JsonRpcError error =
             new JsonRpcError(
@@ -159,13 +150,6 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
             result ->
                 BlockStateCallResult.create(result, simulateV1Parameter.isReturnFullTransactions()))
         .collect(Collectors.toList());
-  }
-
-  private Set<Address> getValidPrecompileAddresses(final BlockHeader header) {
-    return protocolSchedule
-        .getByBlockHeader(header)
-        .getPrecompileContractRegistry()
-        .getPrecompileAddresses();
   }
 
   private SimulateV1Parameter getBlockStateCalls(final JsonRpcRequestContext request)

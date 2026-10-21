@@ -75,7 +75,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -413,24 +412,6 @@ public class BlockSimulatorTest {
     assertEquals(parentGasLimit, result.getGasLimit());
   }
 
-  @Test
-  public void shouldDetectInvalidPrecompile() {
-    var stateOverrideMap = new StateOverrideMap();
-    var targetAddress = Address.fromHexString("0x3");
-    var precompileAddress = Address.fromHexString("0x1");
-
-    var stateOverride =
-        new StateOverride.Builder().withMovePrecompileToAddress(targetAddress).build();
-
-    stateOverrideMap.put(precompileAddress, stateOverride);
-
-    var validationResult = buildParameterWithOverrides(stateOverrideMap).validate(Set.of());
-
-    assertThat(validationResult).isPresent();
-    assertThat(validationResult.orElseThrow())
-        .isEqualTo(BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
-  }
-
   @ParameterizedTest
   @ValueSource(strings = {"0x1", "0x4"})
   public void shouldRejectPrecompileMovedToItself(final String address) {
@@ -440,8 +421,7 @@ public class BlockSimulatorTest {
         precompileAddress,
         new StateOverride.Builder().withMovePrecompileToAddress(precompileAddress).build());
 
-    var validationResult =
-        buildParameterWithOverrides(stateOverrideMap).validate(Set.of(precompileAddress));
+    var validationResult = buildParameterWithOverrides(stateOverrideMap).validate();
 
     assertThat(validationResult).isPresent();
     assertThat(validationResult.orElseThrow().getCode()).isEqualTo(-38022);
@@ -459,8 +439,7 @@ public class BlockSimulatorTest {
             .withMovePrecompileToAddress(Address.fromHexString("0x1234"))
             .build());
 
-    assertThat(buildParameterWithOverrides(stateOverrideMap).validate(Set.of(precompileAddress)))
-        .isEmpty();
+    assertThat(buildParameterWithOverrides(stateOverrideMap).validate()).isEmpty();
   }
 
   @Test
@@ -477,9 +456,7 @@ public class BlockSimulatorTest {
     stateOverrideMap.put(precompileAddress1, stateOverride);
     stateOverrideMap.put(precompileAddress2, stateOverride);
 
-    var validationResult =
-        buildParameterWithOverrides(stateOverrideMap)
-            .validate(Set.of(precompileAddress1, precompileAddress2));
+    var validationResult = buildParameterWithOverrides(stateOverrideMap).validate();
 
     assertThat(validationResult).isEmpty();
   }
