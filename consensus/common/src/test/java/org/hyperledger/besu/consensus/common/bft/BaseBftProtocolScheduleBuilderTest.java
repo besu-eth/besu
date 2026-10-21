@@ -34,7 +34,9 @@ import org.hyperledger.besu.ethereum.core.MilestoneStreamingProtocolSchedule;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.MainnetBlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
@@ -219,6 +221,81 @@ public class BaseBftProtocolScheduleBuilderTest {
 
     assertThat(spec.getWithdrawalsValidator())
         .isInstanceOf(WithdrawalsValidator.NotApplicableWithdrawals.class);
+  }
+
+  @Test
+  public void withoutBeneficiaryContractTheRewardIsPaidByTheMainnetRewardProcessor() {
+    final BftConfigOptions configOptions = createBftConfig(BigInteger.valueOf(5));
+    when(genesisConfig.getBftConfigOptions()).thenReturn(configOptions);
+    when(genesisConfig.getTransitions()).thenReturn(TransitionsConfigOptions.DEFAULT);
+
+    final ProtocolSchedule schedule =
+        createProtocolSchedule(List.of(new ForkSpec<>(0, configOptions)));
+
+    assertThat(schedule.getByBlockHeader(blockHeader(1)).getBlockRewardProcessor())
+        .isInstanceOf(MainnetBlockRewardProcessor.class);
+  }
+
+  @Test
+  public void withBeneficiaryContractTheRewardIsPaidByTheContractRewardProcessor() {
+    final MutableBftConfigOptions configOptions =
+        new MutableBftConfigOptions(JsonBftConfigOptions.DEFAULT);
+    configOptions.setBlockRewardWei(BigInteger.valueOf(5));
+    configOptions.setBeneficiaryContractAddress(Optional.of(Address.fromHexString("0xc0de")));
+    when(genesisConfig.getBftConfigOptions()).thenReturn(configOptions);
+    when(genesisConfig.getTransitions()).thenReturn(TransitionsConfigOptions.DEFAULT);
+
+    final ProtocolSchedule schedule =
+        createProtocolSchedule(List.of(new ForkSpec<>(0, configOptions)));
+    final BlockRewardProcessor processor =
+        schedule.getByBlockHeader(blockHeader(1)).getBlockRewardProcessor();
+
+    assertThat(processor).isInstanceOf(ContractBeneficiaryBlockRewardProcessor.class);
+    assertThat(processor.getBlockReward()).isEqualTo(Wei.of(5));
+  }
+
+  @Test
+  public void beneficiaryContractWithAZeroRewardPaysNothingAndMakesNoCall() {
+    final MutableBftConfigOptions configOptions =
+        new MutableBftConfigOptions(JsonBftConfigOptions.DEFAULT);
+    configOptions.setBeneficiaryContractAddress(Optional.of(Address.fromHexString("0xc0de")));
+    when(genesisConfig.getBftConfigOptions()).thenReturn(configOptions);
+    when(genesisConfig.getTransitions()).thenReturn(TransitionsConfigOptions.DEFAULT);
+
+    final ProtocolSchedule schedule =
+        createProtocolSchedule(List.of(new ForkSpec<>(0, configOptions)));
+
+    assertThat(schedule.getByBlockHeader(blockHeader(1)).getBlockRewardProcessor())
+        .isSameAs(BlockRewardProcessor.NO_REWARDS);
+  }
+
+  @Test
+  public void beneficiaryContractIsOnlyUsedFromTheTransitionBlock() {
+    final MutableBftConfigOptions initial =
+        new MutableBftConfigOptions(JsonBftConfigOptions.DEFAULT);
+    initial.setBlockRewardWei(BigInteger.valueOf(5));
+    final MutableBftConfigOptions withContract = new MutableBftConfigOptions(initial);
+    withContract.setBeneficiaryContractAddress(Optional.of(Address.fromHexString("0xc0de")));
+    final MutableBftConfigOptions withoutContract = new MutableBftConfigOptions(withContract);
+    withoutContract.setBeneficiaryContractAddress(Optional.empty());
+    when(genesisConfig.getBftConfigOptions()).thenReturn(initial);
+    when(genesisConfig.getTransitions()).thenReturn(TransitionsConfigOptions.DEFAULT);
+
+    final ProtocolSchedule schedule =
+        createProtocolSchedule(
+            List.of(
+                new ForkSpec<>(0, initial),
+                new ForkSpec<>(10, withContract),
+                new ForkSpec<>(20, withoutContract)));
+
+    assertThat(schedule.getByBlockHeader(blockHeader(9)).getBlockRewardProcessor())
+        .isInstanceOf(MainnetBlockRewardProcessor.class);
+    assertThat(schedule.getByBlockHeader(blockHeader(10)).getBlockRewardProcessor())
+        .isInstanceOf(ContractBeneficiaryBlockRewardProcessor.class);
+    assertThat(schedule.getByBlockHeader(blockHeader(19)).getBlockRewardProcessor())
+        .isInstanceOf(ContractBeneficiaryBlockRewardProcessor.class);
+    assertThat(schedule.getByBlockHeader(blockHeader(20)).getBlockRewardProcessor())
+        .isInstanceOf(MainnetBlockRewardProcessor.class);
   }
 
   @Test

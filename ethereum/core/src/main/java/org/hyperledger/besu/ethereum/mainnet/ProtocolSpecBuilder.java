@@ -53,7 +53,7 @@ public class ProtocolSpecBuilder {
 
   private Supplier<GasCalculator> gasCalculatorBuilder;
   private GasLimitCalculatorBuilder gasLimitCalculatorBuilder;
-  private BlockRewardProcessor blockRewardProcessor;
+  private Function<MainnetTransactionProcessor, BlockRewardProcessor> blockRewardProcessorBuilder;
 
   private BlockHeaderFunctions blockHeaderFunctions;
   private AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory;
@@ -122,7 +122,22 @@ public class ProtocolSpecBuilder {
   }
 
   public ProtocolSpecBuilder blockRewardProcessor(final BlockRewardProcessor blockRewardProcessor) {
-    this.blockRewardProcessor = blockRewardProcessor;
+    this.blockRewardProcessorBuilder = __ -> blockRewardProcessor;
+    return this;
+  }
+
+  /**
+   * Sets a block reward processor that needs the spec's transaction processor, for example to run a
+   * contract call while paying the reward. The function is applied once the transaction processor
+   * has been built.
+   *
+   * @param blockRewardProcessorBuilder builds the block reward processor
+   * @return this builder
+   */
+  public ProtocolSpecBuilder blockRewardProcessorBuilder(
+      final Function<MainnetTransactionProcessor, BlockRewardProcessor>
+          blockRewardProcessorBuilder) {
+    this.blockRewardProcessorBuilder = blockRewardProcessorBuilder;
     return this;
   }
 
@@ -358,7 +373,7 @@ public class ProtocolSpecBuilder {
     checkNotNull(blockImporterBuilder, "Missing block importer");
     checkNotNull(blockValidatorBuilder, "Missing block validator");
     checkNotNull(blockHeaderFunctions, "Missing block hash function");
-    checkNotNull(blockRewardProcessor, "Missing block reward processor");
+    checkNotNull(blockRewardProcessorBuilder, "Missing block reward processor");
     checkNotNull(difficultyCalculator, "Missing difficulty calculator");
     checkNotNull(transactionReceiptFactory, "Missing transaction receipt factory");
     checkNotNull(hardforkId, "Missing hardfork id");
@@ -396,6 +411,8 @@ public class ProtocolSpecBuilder {
             transactionValidatorFactory,
             contractCreationProcessor,
             messageCallProcessor);
+    final BlockRewardProcessor blockRewardProcessor =
+        blockRewardProcessorBuilder.apply(transactionProcessor);
 
     final BlockHeaderValidator blockHeaderValidator =
         createBlockHeaderValidator(

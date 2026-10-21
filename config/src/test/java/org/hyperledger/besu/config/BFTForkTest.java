@@ -17,6 +17,8 @@ package org.hyperledger.besu.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.datatypes.Address;
+
 import java.util.Collections;
 import java.util.Map;
 
@@ -127,6 +129,48 @@ public class BFTForkTest {
 
     final BftFork bftFork = new BftFork(config);
     assertThat(bftFork.isMiningBeneficiaryConfigured()).isTrue();
+  }
+
+  @Test
+  public void isBeneficiaryContractAddressConfigured_noKeySet() {
+    final BftFork bftFork = new BftFork(JsonUtil.objectNodeFromString("{}"));
+
+    assertThat(bftFork.isBeneficiaryContractAddressConfigured()).isFalse();
+    assertThat(bftFork.getBeneficiaryContractAddress()).isEmpty();
+  }
+
+  @Test
+  public void emptyBeneficiaryContractAddressIsConfiguredButEmpty() {
+    final BftFork bftFork =
+        new BftFork(
+            JsonUtil.objectNodeFromMap(Map.of(BftFork.BENEFICIARY_CONTRACT_ADDRESS_KEY, "")));
+
+    assertThat(bftFork.isBeneficiaryContractAddressConfigured()).isTrue();
+    assertThat(bftFork.getBeneficiaryContractAddress()).isEmpty();
+  }
+
+  @Test
+  public void getBeneficiaryContractAddress_whenAddressIsProvided() {
+    final BftFork bftFork =
+        new BftFork(
+            JsonUtil.objectNodeFromMap(
+                Map.of(BftFork.BENEFICIARY_CONTRACT_ADDRESS_KEY, BENEFICIARY)));
+
+    assertThat(bftFork.isBeneficiaryContractAddressConfigured()).isTrue();
+    assertThat(bftFork.getBeneficiaryContractAddress())
+        .contains(Address.fromHexString(BENEFICIARY));
+  }
+
+  @Test
+  public void getBeneficiaryContractAddress_throwsOnInvalidAddress() {
+    final BftFork bftFork =
+        new BftFork(
+            JsonUtil.objectNodeFromMap(Map.of(BftFork.BENEFICIARY_CONTRACT_ADDRESS_KEY, "bla")));
+
+    assertThatThrownBy(bftFork::getBeneficiaryContractAddress)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining(
+            "Beneficiary contract address in transition config is not a valid ethereum address");
   }
 
   @Test

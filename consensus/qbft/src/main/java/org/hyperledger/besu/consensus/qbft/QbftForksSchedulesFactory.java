@@ -56,6 +56,10 @@ public class QbftForksSchedulesFactory {
     fork.getTransactionGasLimit()
         .ifPresent(val -> bftConfigOptions.setTransactionGasLimit(OptionalLong.of(val)));
 
+    if (fork.isBeneficiaryContractAddressConfigured()) {
+      bftConfigOptions.setBeneficiaryContractAddress(fork.getBeneficiaryContractAddress());
+    }
+
     if (fork.isMiningBeneficiaryConfigured()) {
       // Only override if mining beneficiary is explicitly configured
       bftConfigOptions.setMiningBeneficiary(fork.getMiningBeneficiary());
