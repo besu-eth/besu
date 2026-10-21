@@ -384,6 +384,9 @@ public class BackwardSyncContext implements VerifiedForkchoiceListener {
     if (optResult.isSuccessful()) {
       final MutableBlockchain blockchain = this.getProtocolContext().getBlockchain();
       final var outputs = optResult.getYield().get();
+      // walks the fork choice ancestors before taking the lock, so a fork choice update does not
+      // wait for the walk
+      isOnForkChoicePath(block.getHeader());
       synchronized (forkChoiceLock) {
         if (isOnForkChoicePath(block.getHeader())) {
           LOG.atTrace()

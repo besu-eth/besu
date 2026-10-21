@@ -638,6 +638,40 @@ public class BackwardSyncContextTest {
   }
 
   @Test
+  public void shouldNotMakeAForkChoiceWaitForTheFirstWalkOfTheForkChoicePath() throws Exception {
+    final Block localHead = extendLocalBranch(LOCAL_HEIGHT + 5);
+    final Block remoteBlock = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
+    context.syncBackwardsUntil(remoteBlock);
+    forkChoice(remoteBlock.getHash());
+
+    final CountDownLatch walkStarted = new CountDownLatch(1);
+    final CountDownLatch releaseWalk = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              walkStarted.countDown();
+              releaseWalk.await(30, TimeUnit.SECONDS);
+              return invocation.callRealMethod();
+            })
+        .doCallRealMethod()
+        .when(context)
+        .isOnForkChoicePath(any());
+
+    final CompletableFuture<Void> save =
+        CompletableFuture.runAsync(() -> context.saveBlock(remoteBlock, Optional.empty()));
+    assertThat(walkStarted.await(30, TimeUnit.SECONDS)).isTrue();
+
+    CompletableFuture.runAsync(() -> forkChoice(localHead.getHash())).get(5, TimeUnit.SECONDS);
+
+    releaseWalk.countDown();
+    save.get(30, TimeUnit.SECONDS);
+
+    assertThat(localBlockchain.getChainHeadHash()).isEqualTo(localHead.getHash());
+  }
+
+  @Test
   public void shouldTreatAStoredBlockAboveTheHeadAsImportedUnlessForkChoiceSelectedIt() {
     final Block storedBlock = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
     localBlockchain.storeBlock(storedBlock, blockDataGenerator.receipts(storedBlock));
