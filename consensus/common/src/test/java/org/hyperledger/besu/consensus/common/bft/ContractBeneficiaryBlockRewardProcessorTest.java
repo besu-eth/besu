@@ -15,8 +15,14 @@
 package org.hyperledger.besu.consensus.common.bft;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -24,9 +30,12 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
 import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
@@ -278,7 +287,142 @@ public class ContractBeneficiaryBlockRewardProcessorTest {
     assertPaidToMiningBeneficiary(1000);
   }
 
+  // ---- gas cap boundary ----
+
+  /**
+   * Gas of {@link #paddedReturning} besides its padding, for the one-beneficiary return data (192
+   * bytes, 6 words): PUSH2, PUSH3, PUSH1 (3 each), CODECOPY (3 + 3 * 6 copy + 18 memory expansion),
+   * PUSH2, PUSH1 (3 each), RETURN (0, memory already expanded) = 54.
+   */
+  private static final int PADDED_RETURNING_GAS = 54;
+
+  @Test
+  public void aCallUsingExactlyTheGasCapSucceeds() {
+    final Bytes data = BeneficiaryContractDecoderTest.encode(List.of(A), weights(10_000));
+    deploy(
+        paddedReturning(
+            (int) ContractBeneficiaryBlockRewardProcessor.CALL_GAS_LIMIT - PADDED_RETURNING_GAS,
+            data));
+
+    reward(1000);
+
+    assertThat(balance(A)).isEqualTo(Wei.of(1000));
+    assertThat(worldState.get(MINING_BENEFICIARY)).isNull();
+  }
+
+  @Test
+  public void aCallNeedingOneGasMoreThanTheCapFallsBack() {
+    final Bytes data = BeneficiaryContractDecoderTest.encode(List.of(A), weights(10_000));
+    deploy(
+        paddedReturning(
+            (int) ContractBeneficiaryBlockRewardProcessor.CALL_GAS_LIMIT - PADDED_RETURNING_GAS + 1,
+            data));
+
+    reward(1000);
+
+    assertPaidToMiningBeneficiary(1000);
+  }
+
+  // ---- local faults are rethrown, other exceptions fall back ----
+
+  @Test
+  public void aMerkleTrieExceptionIsRethrownAndNothingIsPaid() {
+    assertRethrownWithoutPaying(new MerkleTrieException("missing trie node"));
+  }
+
+  @Test
+  public void aMissingCodeExceptionIsRethrownAndNothingIsPaid() {
+    assertRethrownWithoutPaying(new MissingCodeException(CONTRACT, Hash.ZERO));
+  }
+
+  @Test
+  public void aStorageExceptionIsRethrownAndNothingIsPaid() {
+    assertRethrownWithoutPaying(new StorageException("database closed"));
+  }
+
+  @Test
+  public void aWrappedStorageFaultIsRethrown() {
+    assertRethrownWithoutPaying(
+        new IllegalStateException(new MerkleTrieException("missing trie node")));
+  }
+
+  @Test
+  public void anInterruptionIsRethrownAndNothingIsPaid() {
+    assertRethrownWithoutPaying(new RuntimeException(new InterruptedException()));
+  }
+
+  @Test
+  public void anUnexpectedExceptionFallsBack() {
+    final MutableWorldState failingFirstRead = failingOnContractRead(new IllegalStateException());
+
+    assertThat(
+            processor(1000)
+                .rewardBeneficiaries(failingFirstRead, header, List.of(), MINING_BENEFICIARY))
+        .isTrue();
+
+    assertPaidToMiningBeneficiary(1000);
+  }
+
+  private void assertRethrownWithoutPaying(final RuntimeException fault) {
+    final MutableWorldState failingFirstRead = failingOnContractRead(fault);
+
+    assertThatThrownBy(
+            () ->
+                processor(1000)
+                    .rewardBeneficiaries(failingFirstRead, header, List.of(), MINING_BENEFICIARY))
+        .isSameAs(fault);
+
+    assertThat(worldState.get(MINING_BENEFICIARY)).isNull();
+  }
+
+  /** The world state, whose first updater throws {@code fault} when the contract is read. */
+  private MutableWorldState failingOnContractRead(final RuntimeException fault) {
+    final WorldUpdater callUpdater = mock(WorldUpdater.class);
+    when(callUpdater.get(CONTRACT)).thenThrow(fault);
+    final WorldUpdater blockUpdater = mock(WorldUpdater.class);
+    when(blockUpdater.updater()).thenReturn(callUpdater);
+    final MutableWorldState spy = spy(worldState);
+    doReturn(blockUpdater).doCallRealMethod().when(spy).updater();
+    return spy;
+  }
+
   // ---- other behaviour ----
+
+  @Test
+  public void coinbaseIsZeroInsideTheCall() {
+    // COINBASE, ISZERO, PUSH1 10, JUMPI, REVERT(0, 0), JUMPDEST: returns the data only if zero
+    final Bytes guard = Bytes.fromHexString("41" + "15" + "600a" + "57" + "60006000fd" + "5b");
+    deploy(
+        Bytes.concatenate(
+            guard,
+            returningAt(
+                BeneficiaryContractDecoderTest.encode(List.of(A), weights(10_000)), guard.size())));
+
+    reward(1000);
+
+    assertThat(balance(A)).isEqualTo(Wei.of(1000));
+  }
+
+  @Test
+  public void remainderGoesToTheFirstBeneficiaryEvenWithZeroWeight() {
+    deploy(returning(BeneficiaryContractDecoderTest.encode(List.of(A, B), weights(0, 10_000))));
+
+    reward(1);
+
+    // B's share is the whole reward, so the remainder is zero and A stays uncredited
+    assertThat(worldState.get(A)).isNull();
+    assertThat(balance(B)).isEqualTo(Wei.of(1));
+
+    deploy(
+        returning(BeneficiaryContractDecoderTest.encode(List.of(A, B, C), weights(0, 5000, 5000))));
+
+    reward(3);
+
+    // floor(3 * 5000 / 10000) = 1 each, the remainder of 1 goes to A despite its zero weight
+    assertThat(balance(A)).isEqualTo(Wei.of(1));
+    assertThat(balance(B)).isEqualTo(Wei.of(2));
+    assertThat(balance(C)).isEqualTo(Wei.of(1));
+  }
 
   @Test
   public void aBlockWithOmmersIsHandledByTheFallback() {
@@ -371,6 +515,28 @@ public class ContractBeneficiaryBlockRewardProcessorTest {
         Bytes.of((byte) (length >> 8), (byte) length),
         Bytes.fromHexString("60"),
         Bytes.of((byte) (base + RETURNING_PREFIX_SIZE)),
+        Bytes.fromHexString("600039"),
+        Bytes.fromHexString("61"),
+        Bytes.of((byte) (length >> 8), (byte) length),
+        Bytes.fromHexString("6000f3"),
+        data);
+  }
+
+  /**
+   * {@code padding} JUMPDESTs, which cost 1 gas each, then code that returns {@code data}: PUSH2
+   * len, PUSH3 dataOffset, PUSH1 0, CODECOPY, PUSH2 len, PUSH1 0, RETURN.
+   */
+  private static Bytes paddedReturning(final int padding, final Bytes data) {
+    final int length = data.size();
+    final int dataOffset = padding + 16;
+    final byte[] jumpdests = new byte[padding];
+    java.util.Arrays.fill(jumpdests, (byte) 0x5b);
+    return Bytes.concatenate(
+        Bytes.wrap(jumpdests),
+        Bytes.fromHexString("61"),
+        Bytes.of((byte) (length >> 8), (byte) length),
+        Bytes.fromHexString("62"),
+        Bytes.of((byte) (dataOffset >> 16), (byte) (dataOffset >> 8), (byte) dataOffset),
         Bytes.fromHexString("600039"),
         Bytes.fromHexString("61"),
         Bytes.of((byte) (length >> 8), (byte) length),

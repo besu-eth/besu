@@ -60,6 +60,7 @@ dependencies {
   implementation project(':ethereum:eth')
   implementation project(':ethereum:p2p')
   implementation project(':ethereum:rlp')
+  implementation project(':ethereum:trie')
   implementation project(':evm')
   implementation project(':util')
 

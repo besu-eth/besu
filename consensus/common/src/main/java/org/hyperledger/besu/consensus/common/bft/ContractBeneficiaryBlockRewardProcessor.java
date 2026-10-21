@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -31,6 +32,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.math.BigInteger;
@@ -38,7 +40,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
+import com.google.common.base.Throwables;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,12 +58,20 @@ import org.slf4j.LoggerFactory;
  * single beneficiary's reward is. The call therefore sees the world state the block is executed on,
  * after the block's transactions, so block import and block creation compute the same split.
  *
- * <p>The call never fails a block. If the contract has no code, or the call reverts or runs out of
- * gas, or its output is not valid (see {@link BeneficiaryContractDecoder}), the whole reward is
- * paid exactly as it would be without a contract, to the mining beneficiary.
+ * <p>Inside the call, {@code COINBASE} is the zero address and {@code BLOCKHASH} returns zero, so
+ * the result depends only on the world state and the block's number, timestamp and other header
+ * values.
+ *
+ * <p>Nothing the contract does can make a block invalid. If the contract has no code, or the call
+ * reverts, runs out of gas or halts, or its output is not valid (see {@link
+ * BeneficiaryContractDecoder}), the whole reward is paid exactly as it would be without a contract,
+ * to the mining beneficiary. A fault of the local storage while reading the contract, or an
+ * interruption, is not the contract's doing: it is rethrown, as it is during transaction execution,
+ * so that the block is not judged on it and the world state can be healed.
  *
  * <p>Each share is {@code reward * weightBps / 10000}, rounded down. The rounding remainder goes to
- * the first beneficiary. A share of zero is not credited, so it creates no empty account.
+ * the first beneficiary in the returned list, even if its weight is zero. A share of zero is not
+ * credited, so it creates no empty account.
  */
 public class ContractBeneficiaryBlockRewardProcessor implements BlockRewardProcessor {
 
@@ -66,8 +79,8 @@ public class ContractBeneficiaryBlockRewardProcessor implements BlockRewardProce
       LoggerFactory.getLogger(ContractBeneficiaryBlockRewardProcessor.class);
 
   /**
-   * The gas available to the {@code getBeneficiaries()} call. A fixed protocol constant, so that no
-   * node-local setting can make the call succeed on one node and fail on another.
+   * The gas available to the {@code getBeneficiaries()} call. A fixed protocol constant, so that
+   * the outcome of the call does not depend on any node-local setting.
    */
   public static final long CALL_GAS_LIMIT = 1_000_000L;
 
@@ -81,9 +94,17 @@ public class ContractBeneficiaryBlockRewardProcessor implements BlockRewardProce
           .getBytes()
           .slice(0, 4);
 
+  /**
+   * A fallback is logged at WARN at most once per interval, and at DEBUG otherwise: the reward is
+   * also paid when blocks are simulated over RPC, which must not be able to flood the log.
+   */
+  private static final long WARN_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
+
   private final MainnetTransactionProcessor transactionProcessor;
   private final Address contractAddress;
   private final BlockRewardProcessor fallback;
+  private final AtomicLong lastWarnNanos = new AtomicLong();
+  private volatile boolean warnedBefore = false;
 
   /**
    * Creates the processor.
@@ -144,6 +165,10 @@ public class ContractBeneficiaryBlockRewardProcessor implements BlockRewardProce
   /**
    * Calls {@code getBeneficiaries()}. The call is made on a child of the world state's updater that
    * is dropped without being committed, so it cannot change any state.
+   *
+   * @return the beneficiaries, or empty if the reward must be paid to the mining beneficiary
+   * @throws RuntimeException a local storage fault or an interruption, which must not be turned
+   *     into a different reward
    */
   private Optional<List<WeightedBeneficiary>> readBeneficiaries(
       final MutableWorldState worldState, final ProcessableBlockHeader header) {
@@ -151,7 +176,7 @@ public class ContractBeneficiaryBlockRewardProcessor implements BlockRewardProce
       final WorldUpdater callUpdater = worldState.updater().updater();
       final Account contract = callUpdater.get(contractAddress);
       if (contract == null || contract.getCode().isEmpty()) {
-        LOG.warn(
+        logFallback(
             "Block {}: no code at beneficiary contract {}, paying the block reward to the mining beneficiary",
             header.getNumber(),
             contractAddress);
@@ -173,6 +198,7 @@ public class ContractBeneficiaryBlockRewardProcessor implements BlockRewardProce
               .apparentValue(Wei.ZERO)
               .blockValues(header)
               .completer(__ -> {})
+              // COINBASE reads this, so it is the zero address inside the call, not the proposer.
               .miningBeneficiary(Address.ZERO)
               .type(MessageFrame.Type.MESSAGE_CALL)
               .address(contractAddress)
@@ -194,7 +220,7 @@ public class ContractBeneficiaryBlockRewardProcessor implements BlockRewardProce
       }
 
       if (frame.getState() != MessageFrame.State.COMPLETED_SUCCESS) {
-        LOG.warn(
+        logFallback(
             "Block {}: beneficiary contract call did not succeed ({}), paying the block reward to the mining beneficiary",
             header.getNumber(),
             frame.getExceptionalHaltReason().map(Object::toString).orElse(frame.getState().name()));
@@ -204,17 +230,47 @@ public class ContractBeneficiaryBlockRewardProcessor implements BlockRewardProce
       final Optional<List<WeightedBeneficiary>> beneficiaries =
           BeneficiaryContractDecoder.decode(frame.getOutputData());
       if (beneficiaries.isEmpty()) {
-        LOG.warn(
+        logFallback(
             "Block {}: beneficiary contract returned invalid data, paying the block reward to the mining beneficiary",
             header.getNumber());
       }
       return beneficiaries;
     } catch (final RuntimeException e) {
-      LOG.warn(
+      if (isLocalFault(e)) {
+        // As in MainnetTransactionProcessor: not the contract's fault, rethrow to trigger the heal
+        throw e;
+      }
+      logFallback(
           "Block {}: beneficiary contract call failed, paying the block reward to the mining beneficiary",
           header.getNumber(),
           e);
       return Optional.empty();
+    }
+  }
+
+  /**
+   * Whether an exception is a fault of the local node, a storage fault or an interruption, rather
+   * than of the contract. Block processing rethrows the same storage exceptions, so that a block is
+   * not judged on them and missing state can be healed.
+   */
+  static boolean isLocalFault(final Throwable throwable) {
+    return Throwables.getCausalChain(throwable).stream()
+        .anyMatch(
+            t ->
+                t instanceof MerkleTrieException
+                    || t instanceof StorageException
+                    || t instanceof InterruptedException);
+  }
+
+  private void logFallback(final String message, final Object... args) {
+    final long now = System.nanoTime();
+    final long last = lastWarnNanos.get();
+    if ((!warnedBefore || now - last >= WARN_INTERVAL_NANOS)
+        && lastWarnNanos.compareAndSet(last, now)) {
+      warnedBefore = true;
+      LOG.warn(message + " (repeats within a minute are logged at DEBUG)", args);
+    } else {
+      LOG.debug(message, args);
     }
   }
 

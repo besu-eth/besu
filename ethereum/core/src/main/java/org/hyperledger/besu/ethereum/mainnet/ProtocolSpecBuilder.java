@@ -412,7 +412,9 @@ public class ProtocolSpecBuilder {
             contractCreationProcessor,
             messageCallProcessor);
     final BlockRewardProcessor blockRewardProcessor =
-        blockRewardProcessorBuilder.apply(transactionProcessor);
+        checkNotNull(
+            blockRewardProcessorBuilder.apply(transactionProcessor),
+            "Block reward processor builder returned null");
 
     final BlockHeaderValidator blockHeaderValidator =
         createBlockHeaderValidator(
