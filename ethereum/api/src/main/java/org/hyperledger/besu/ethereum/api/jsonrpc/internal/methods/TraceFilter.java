@@ -311,24 +311,19 @@ public class TraceFilter extends TraceBlock {
       final Optional<FilterParameter> maybeFilterParameter,
       final Block block,
       final ArrayNodeWrapper resultArrayNode) {
+    // a reward has no sender; its author is matched as the recipient
     maybeFilterParameter.ifPresent(
-        filterParameter -> {
-          final List<Address> fromAddress = filterParameter.getFromAddress();
-          if (fromAddress.isEmpty()) {
-            final List<Address> toAddress = filterParameter.getToAddress();
+        filterParameter ->
             RewardTraceGenerator.generateFromBlock(protocolSchedule, block)
                 .map(FlatTrace.class::cast)
                 .filter(trace -> trace.getBlockNumber() != 0)
                 .filter(
                     trace ->
-                        toAddress.isEmpty()
-                            || Optional.ofNullable(trace.getAction().getAuthor())
-                                .map(Address::fromHexString)
-                                .map(toAddress::contains)
-                                .orElse(false))
-                .forEachOrdered(resultArrayNode::addPOJO);
-          }
-        });
+                        filterParameter.matchesTraceAddresses(
+                            Optional.empty(),
+                            Optional.ofNullable(trace.getAction().getAuthor())
+                                .map(Address::fromHexString)))
+                .forEachOrdered(resultArrayNode::addPOJO));
   }
 
   private long resolveBlockNumber(final BlockParameter param) {

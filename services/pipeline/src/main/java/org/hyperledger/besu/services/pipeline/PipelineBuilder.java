@@ -250,7 +250,6 @@ public class PipelineBuilder<I, T> {
    * @return a {@link PipelineBuilder} ready to extend the pipeline with additional stages.
    */
   public PipelineBuilder<I, List<T>> inBatches(final int maximumBatchSize) {
-    checkArgument(maximumBatchSize > 0, "Maximum batch size must be greater than 0");
     return new PipelineBuilder<>(
         inputPipe,
         stages,

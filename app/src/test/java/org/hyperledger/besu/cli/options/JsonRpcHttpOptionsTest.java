@@ -233,6 +233,23 @@ public class JsonRpcHttpOptionsTest extends CommandTestAbstract {
   }
 
   @Test
+  public void rpcHttpMaxActiveConnectionsAcceptsZero() {
+    parseCommand("--rpc-http-max-active-connections", "0");
+
+    verify(mockRunnerBuilder).jsonRpcConfiguration(jsonRpcConfigArgumentCaptor.capture());
+    assertThat(jsonRpcConfigArgumentCaptor.getValue().getMaxActiveConnections()).isEqualTo(0);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcHttpMaxActiveConnectionsNegativeValueMustFail() {
+    parseCommand("--rpc-http-max-active-connections", "-1");
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--rpc-http-max-active-connections must be >= 0 (0 specifies no limit)");
+  }
+
+  @Test
   public void rpcHttpTlsRequiresRpcHttpEnabled() {
     parseCommand("--rpc-http-tls-enabled");
 

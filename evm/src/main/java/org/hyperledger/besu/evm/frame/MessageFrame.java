@@ -213,8 +213,10 @@ public class MessageFrame {
   // null on a frame EVM v2 runs, which only uses the v2 stack
   private final OperandStack stack;
   // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
-  // significant)
-  private final long[] stackDataV2;
+  // significant). Null once released, so that a completed frame cannot touch a later frame's stack
+  private long[] stackDataV2;
+  // the call depth whose free v2 stack this frame takes and returns
+  private final int stackDepthV2;
   private int stackTopV2;
   private final int stackMaxSizeV2;
   // Tracer view of the v2 stack: the item last handed out per slot, reused while the slot is
@@ -292,7 +294,9 @@ public class MessageFrame {
     this.worldUpdater = worldUpdater;
     this.gasRemaining = initialGas;
     this.stack = enableEvmV2 ? null : new OperandStack(txValues.maxStackSize());
-    this.stackDataV2 = enableEvmV2 ? new long[txValues.maxStackSize() * 4] : null;
+    this.stackDepthV2 = txValues.messageFrameStack().size();
+    this.stackDataV2 =
+        enableEvmV2 ? StacksV2.take(stackDepthV2, txValues.maxStackSize() * 4) : null;
     this.stackTopV2 = 0;
     this.stackMaxSizeV2 = txValues.maxStackSize();
     this.pc = 0;
@@ -510,10 +514,10 @@ public class MessageFrame {
    * Returns whether EVM v2 runs the frame, and so whether its stack is the v2 stack rather than the
    * one {@link #getStackItem} and {@link #stackSize} read.
    *
-   * @return true if the frame has a v2 stack
+   * @return true if EVM v2 runs the frame
    */
   public boolean runsOnEvmV2() {
-    return stackDataV2 != null;
+    return stack == null;
   }
 
   /**
@@ -587,6 +591,17 @@ public class MessageFrame {
    */
   public boolean stackHasSpaceV2(final int n) {
     return stackTopV2 + n <= stackMaxSizeV2;
+  }
+
+  /**
+   * Hands the v2 stack to the next frame at this frame's depth. Call it after the frame's
+   * completion has been notified; reading the frame's v2 stack afterwards fails.
+   */
+  public void releaseStackV2() {
+    if (stackDataV2 != null) {
+      StacksV2.release(stackDepthV2, stackDataV2);
+      stackDataV2 = null;
+    }
   }
 
   // ---------------------------------------------------------------------------

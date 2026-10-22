@@ -359,11 +359,14 @@ public class MainnetTransactionProcessor {
           intrinsicExecutionGas);
 
       // EIP-8037: execution gas is capped at TX_MAX_GAS_LIMIT, so anything bought above that cap
-      // can
-      // only ever be spent as state gas and starts in the reservoir. Pre-Amsterdam the cap is
-      // Long.MAX_VALUE, leaving the whole budget as execution gas.
-      final long executionBudget =
-          Math.max(0L, stateGasCalc.transactionExecutionGasLimit() - intrinsicExecutionGas);
+      // can only ever be spent as state gas and starts in the reservoir. Pre-Amsterdam, and in
+      // eth_simulateV1 without validation, the cap is Long.MAX_VALUE, leaving the whole budget as
+      // execution gas.
+      final long executionGasLimit =
+          transactionValidationParams.isAllowExceedingExecutionGasLimit()
+              ? Long.MAX_VALUE
+              : stateGasCalc.transactionExecutionGasLimit();
+      final long executionBudget = Math.max(0L, executionGasLimit - intrinsicExecutionGas);
       final long initialGas = Math.min(executionBudget, gasAvailable);
       final long initialStateGasReservoir = gasAvailable - initialGas;
 
@@ -474,14 +477,13 @@ public class MainnetTransactionProcessor {
           initialFrame.getRemainingGas() + initialFrame.getStateGasReservoir();
       final long totalConsumed = transaction.getGasLimit() - totalRemaining;
       final long executionConsumed = totalConsumed - initialFrame.getStateGasUsed();
-      final boolean executionGasLimitExceeded =
-          executionConsumed > stateGasCalc.transactionExecutionGasLimit();
+      final boolean executionGasLimitExceeded = executionConsumed > executionGasLimit;
       if (executionGasLimitExceeded) {
         LOG.debug(
             "Transaction {} execution gas {} exceeds TX_MAX_GAS_LIMIT {}, reverting",
             transaction.getHash(),
             executionConsumed,
-            stateGasCalc.transactionExecutionGasLimit());
+            executionGasLimit);
       }
 
       final boolean txSucceeded =

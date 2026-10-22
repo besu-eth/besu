@@ -1,0 +1,34 @@
+{
+  "comment": "Without a block argument the bundle runs at latest, block 0x21, as in trace_call. The creation returns NUMBER.",
+  "request": {
+    "method": "trace_callMany",
+    "params": [
+      [
+        [
+          {
+            "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+            "gas": "0xfffff2",
+            "gasPrice": "0xef",
+            "input": "0x4360005260206000f3"
+          },
+          []
+        ]
+      ]
+    ],
+    "id": 1,
+    "jsonrpc": "2.0"
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": [
+      {
+        "output": "0x0000000000000000000000000000000000000000000000000000000000000021",
+        "stateDiff": null,
+        "trace": [],
+        "vmTrace": null
+      }
+    ],
+    "id": 1
+  },
+  "statusCode": 200
+}

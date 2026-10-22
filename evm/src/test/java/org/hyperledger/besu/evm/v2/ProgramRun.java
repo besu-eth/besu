@@ -273,6 +273,8 @@ final class ProgramRun {
     // as the transaction calling the contract has done, so that an operation touching the contract
     // before it fails on the stack makes no difference, just as in a block access list
     accesses.addTouchedAccount(CONTRACT);
+    // read when the frame completes, as the frame's v2 stack is handed on afterwards
+    final List<String> finalStack = new ArrayList<>();
     final MessageFrame frame =
         MessageFrame.builder()
             .enableEvmV2(evm.getEvmConfiguration().enableEvmV2())
@@ -290,7 +292,7 @@ final class ProgramRun {
             .contract(CONTRACT)
             .code(new Code(code))
             .blockValues(BLOCK_VALUES)
-            .completer(c -> {})
+            .completer(completed -> finalStack.addAll(stack(completed)))
             .miningBeneficiary(Address.ZERO)
             .blockHashLookup((__, number) -> Hash.hash(Words.longBytes(number)))
             .isStatic(isStatic)
@@ -313,7 +315,7 @@ final class ProgramRun {
             frame.getGasRefund(),
             frame.getStateGasUsed(),
             // a frame that halted exceptionally is discarded, its stack and memory with it
-            halted ? List.of() : stack(frame),
+            halted ? List.of() : finalStack,
             halted ? "" : frame.shadowReadMemory(0, frame.memoryByteSize()).toHexString(),
             frame.getOutputData().toHexString(),
             frame.getReturnData().toHexString(),

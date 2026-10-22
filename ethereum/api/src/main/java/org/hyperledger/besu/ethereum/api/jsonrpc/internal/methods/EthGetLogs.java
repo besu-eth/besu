@@ -40,10 +40,13 @@ public class EthGetLogs implements JsonRpcMethod {
 
   private final BlockchainQueries blockchain;
   private final long maxLogRange;
+  private final int maxFilterAddresses;
 
-  public EthGetLogs(final BlockchainQueries blockchain, final long maxLogRange) {
+  public EthGetLogs(
+      final BlockchainQueries blockchain, final long maxLogRange, final int maxFilterAddresses) {
     this.blockchain = blockchain;
     this.maxLogRange = maxLogRange;
+    this.maxFilterAddresses = maxFilterAddresses;
   }
 
   @Override
@@ -65,6 +68,13 @@ public class EthGetLogs implements JsonRpcMethod {
     if (!filter.isValid()) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INVALID_FILTER_PARAMS);
+    }
+
+    // The address list costs a bloom lookup per address per block, so the same cap that
+    // eth_newFilter and eth_subscribe enforce applies here; otherwise it is bypassed in ~100x.
+    if (maxFilterAddresses > 0 && filter.getAddresses().size() > maxFilterAddresses) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
     }
 
     final AtomicReference<Exception> ex = new AtomicReference<>();

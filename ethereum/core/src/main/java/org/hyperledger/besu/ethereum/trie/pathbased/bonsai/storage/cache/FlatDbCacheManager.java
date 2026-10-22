@@ -24,6 +24,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * No-op implementation of FlatDbCacheManager that bypasses caching entirely. Used when caching is
@@ -97,6 +98,19 @@ public interface FlatDbCacheManager {
     // No-op
   }
 
+  /**
+   * Trie nodes are cached by hash, so an entry is valid at every version. A hit only says what the
+   * node is, not that storage holds it.
+   */
+  default Optional<Bytes> getTrieNode(final Bytes32 nodeHash) {
+    return Optional.empty();
+  }
+
+  /** Caches committed trie nodes. The list must not be modified after the call. */
+  default void putTrieNodes(final List<TrieNode> nodes) {
+    // No-op
+  }
+
   default long getCacheSize(final SegmentIdentifier segment) {
     return 0;
   }
@@ -109,6 +123,9 @@ public interface FlatDbCacheManager {
       final SegmentIdentifier segment, final Bytes key) {
     return Optional.empty();
   }
+
+  /** A trie node and the hash it is referenced by. */
+  record TrieNode(Bytes32 hash, Bytes node) {}
 
   /** Value wrapper with version and removal flag. */
   final class VersionedValue {
