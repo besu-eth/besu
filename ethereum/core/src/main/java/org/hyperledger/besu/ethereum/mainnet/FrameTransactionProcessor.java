@@ -366,7 +366,8 @@ public class FrameTransactionProcessor {
               .blockValues(blockHeader)
               .miningBeneficiary(miningBeneficiary)
               .blockHashLookup(blockHashLookup)
-              .completer(__ -> {});
+              .completer(__ -> {})
+              .enableEvmV2(messageCallProcessor.runsOnEvmV2());
       // Shared across every frame: one tracker per transaction, as for a non-frame transaction.
       accessLocationTracker.ifPresent(evmFrameBuilder::eip7928AccessList);
       final MessageFrame evmFrame = evmFrameBuilder.build();
