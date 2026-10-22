@@ -420,12 +420,18 @@ public class MainnetTransactionValidator implements TransactionValidator {
     final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
     if (!transactionValidationParams.isAllowExceedingIntrinsicGasLimit()
         && Long.compareUnsigned(intrinsicGasCostOrFloor, intrinsicGasLimitCap) > 0) {
-      // Exceeding the protocol cap is a different failure from exceeding the transaction's own
-      // gas limit, checked immediately below. Report it the way the plain gas limit cap above
-      // does, so the two stay distinguishable rather than sharing one message.
+      // EIP-8141 reports a frame transaction over the cap as exceeding the gas limit cap, while
+      // every other type keeps the intrinsic gas failure.
+      if (transaction.getType().supportsFrames()) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT,
+            "Transaction gas limit must be at most " + intrinsicGasLimitCap);
+      }
       return ValidationResult.invalid(
-          TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT,
-          "Transaction gas limit must be at most " + intrinsicGasLimitCap);
+          TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+          String.format(
+              "intrinsic gas cost %s exceeds gas limit %s",
+              intrinsicGasCostOrFloor, intrinsicGasLimitCap));
     }
 
     if (Long.compareUnsigned(intrinsicGasCostOrFloor, transaction.getGasLimit()) > 0) {
