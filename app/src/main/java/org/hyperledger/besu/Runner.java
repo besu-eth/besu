@@ -153,7 +153,7 @@ public class Runner implements AutoCloseable {
    * or with peer-to-peer disabled; otherwise the pool is enabled once the initial sync completes.
    * Called after the plugins have started, so a saved pool is restored through validators and
    * permissioning that are in place, and before the external services open their ports, so no
-   * submission is refused as pool disabled.
+   * submission from outside the node is refused as pool disabled.
    */
   public void enableTransactionPool() {
     if (besuController.getSyncState().isInitialSyncPhaseDone()) {

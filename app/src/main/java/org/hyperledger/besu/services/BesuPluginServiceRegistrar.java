@@ -51,6 +51,7 @@ import org.hyperledger.besu.plugin.services.rlp.RlpConverterService;
 import org.hyperledger.besu.plugin.services.sync.SyncEventService;
 import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
 import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
+import org.hyperledger.besu.plugin.services.transactionpool.TxPoolEventService;
 
 /**
  * Single source of truth for adding Besu-provided services to a {@link BesuPluginContextImpl}.
@@ -176,10 +177,6 @@ public final class BesuPluginServiceRegistrar {
             besuController.getProtocolContext().getBlockchain()));
 
     pluginContext.addService(
-        TransactionPoolService.class,
-        new TransactionPoolServiceImpl(besuController.getTransactionPool()));
-
-    pluginContext.addService(
         RlpConverterService.class,
         new RlpConverterServiceImpl(besuController.getProtocolSchedule()));
 
@@ -193,12 +190,16 @@ public final class BesuPluginServiceRegistrar {
                 miningConfiguration),
             besuController.getProtocolSchedule()));
 
-    // the subscription halves of sync and P2P: a subscription has to be in place before the
-    // synchronizer and the network start producing events, which they do with the main loop
+    // the subscription halves of sync, P2P and the transaction pool: a subscription has to be in
+    // place before the synchronizer and the network start producing events, which they do with the
+    // main loop, and before the pool is enabled, which happens once every plugin has started
     pluginContext.addService(
         SyncEventService.class, new SyncEventServiceImpl(besuController.getSyncState()));
     pluginContext.addService(
         PeerEventService.class, new PeerEventServiceImpl(runner.getP2PNetwork()));
+    pluginContext.addService(
+        TxPoolEventService.class,
+        new TransactionPoolServiceImpl(besuController.getTransactionPool()));
 
     pluginContext.addService(
         BlockSimulationService.class,
@@ -237,6 +238,12 @@ public final class BesuPluginServiceRegistrar {
 
     pluginContext.addService(
         P2PService.class, new P2PServiceImpl(runner.getP2PNetwork(), besuController.getEthPeers()));
+
+    // enabled once every plugin has started, or once the initial sync completes, so its state only
+    // holds from here on
+    pluginContext.addService(
+        TransactionPoolService.class,
+        new TransactionPoolServiceImpl(besuController.getTransactionPool()));
 
     registerMiningService(pluginContext, besuController);
   }
