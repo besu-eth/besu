@@ -14,7 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.processing;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.ethereum.core.FrameReceipt;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
@@ -61,8 +63,19 @@ public class TransactionProcessingResult
 
   private Optional<Boolean> isProcessedInParallel = Optional.empty();
 
+  /** EIP-8141: the payer and per-frame receipts of a frame transaction; empty otherwise. */
+  private Optional<FrameTransactionOutcome> frameTransactionOutcome = Optional.empty();
+
   private final ValidationResult<TransactionInvalidReason> validationResult;
   private final Optional<Bytes> revertReason;
+
+  /**
+   * EIP-8141: the payer and per-frame receipts of a processed frame transaction.
+   *
+   * @param payer the account that paid the transaction fees
+   * @param frameReceipts one receipt per frame, in frame order
+   */
+  public record FrameTransactionOutcome(Address payer, List<FrameReceipt> frameReceipts) {}
 
   public PathBasedWorldStateUpdateAccumulator<?> accumulator;
   private final Optional<ExceptionalHaltReason> exceptionalHaltReason;
@@ -464,6 +477,24 @@ public class TransactionProcessingResult
    */
   public Optional<Boolean> getIsProcessedInParallel() {
     return isProcessedInParallel;
+  }
+
+  /**
+   * EIP-8141: the payer and per-frame receipts of a processed frame transaction.
+   *
+   * @return the frame transaction outcome, or empty for other transaction types
+   */
+  public Optional<FrameTransactionOutcome> getFrameTransactionOutcome() {
+    return frameTransactionOutcome;
+  }
+
+  /**
+   * EIP-8141: attaches the payer and per-frame receipts of a processed frame transaction.
+   *
+   * @param outcome the frame transaction outcome
+   */
+  public void setFrameTransactionOutcome(final FrameTransactionOutcome outcome) {
+    this.frameTransactionOutcome = Optional.of(outcome);
   }
 
   /**

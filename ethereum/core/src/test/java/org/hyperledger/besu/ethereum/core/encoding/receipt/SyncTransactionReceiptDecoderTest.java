@@ -20,8 +20,10 @@ import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.ethereum.core.FrameReceipt;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
@@ -158,6 +160,79 @@ public class SyncTransactionReceiptDecoderTest {
   }
 
   /**
+   * EIP-8141 frame receipts have their own payload, with no status and no bloom, so they are not
+   * split into components. A typed frame receipt, as eth/68 sends it, is already the trie-root
+   * form, so it is returned raw.
+   */
+  @Test
+  public void typedFrameReceiptIsReturnedRaw() {
+    final Bytes encodedReceipt =
+        RLP.encode(
+            (rlpOut) ->
+                TransactionReceiptEncoder.writeTo(
+                    frameReceipt(),
+                    rlpOut,
+                    TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION));
+
+    final SyncTransactionReceipt syncTransactionReceipt =
+        syncTransactionReceiptDecoder.decode(encodedReceipt);
+
+    Assertions.assertEquals(encodedReceipt, syncTransactionReceipt.getRlpBytes());
+    assertFrameReceiptIsNotSplit(syncTransactionReceipt);
+  }
+
+  /**
+   * An eth/69 frame receipt, {@code [0x06, cumulative_gas_used, payer, frame_receipts]}, is not
+   * split into components either. It is returned in the trie-root form, {@code 0x06 ||
+   * rlp([cumulative_gas_used, payer, frame_receipts])}.
+   */
+  @Test
+  public void eth69FrameReceiptIsReturnedInTheTrieRootForm() {
+    final TransactionReceipt frameReceipt = frameReceipt();
+    final Bytes encodedReceipt =
+        RLP.encode(
+            (rlpOut) ->
+                TransactionReceiptEncoder.writeTo(
+                    frameReceipt,
+                    rlpOut,
+                    TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION));
+    final BytesValueRLPOutput trieRootForm = new BytesValueRLPOutput();
+    TransactionReceiptEncoder.writeTo(
+        frameReceipt, trieRootForm, TransactionReceiptEncodingConfiguration.TRIE_ROOT);
+
+    final SyncTransactionReceipt syncTransactionReceipt =
+        syncTransactionReceiptDecoder.decode(encodedReceipt);
+
+    Assertions.assertEquals(trieRootForm.encoded(), syncTransactionReceipt.getRlpBytes());
+    assertFrameReceiptIsNotSplit(syncTransactionReceipt);
+  }
+
+  private static TransactionReceipt frameReceipt() {
+    return new TransactionReceipt(
+        Address.fromHexString("0x1111111111111111111111111111111111111111"),
+        2,
+        List.of(
+            new FrameReceipt(
+                FrameReceipt.STATUS_SUCCESS,
+                1,
+                0,
+                List.of(
+                    new Log(
+                        Address.fromHexString("03"),
+                        Bytes.fromHexStringLenient("04"),
+                        List.of(LogTopic.fromHexString("05")))))));
+  }
+
+  private static void assertFrameReceiptIsNotSplit(
+      final SyncTransactionReceipt syncTransactionReceipt) {
+    Assertions.assertTrue(syncTransactionReceipt.isFormattedForRootCalculation());
+    Assertions.assertNull(syncTransactionReceipt.getTransactionTypeCode());
+    Assertions.assertNull(syncTransactionReceipt.getStatusOrStateRoot());
+    Assertions.assertNull(syncTransactionReceipt.getCumulativeGasUsed());
+    Assertions.assertNull(syncTransactionReceipt.getBloomFilter());
+  }
+
+  /**
    * Builds a valid EIP-2718 typed receipt and replaces its leading type byte, keeping the payload
    * intact. The DEFAULT configuration writes a typed receipt as an RLP byte string holding {@code
    * type || rlp(payload)}, which is the shape decodeTypedReceipt handles.
@@ -207,11 +282,16 @@ public class SyncTransactionReceiptDecoderTest {
         RLPException.class, () -> syncTransactionReceiptDecoder.decode(encodedReceipt));
   }
 
-  /** Every type byte that {@link TransactionType} defines must still decode. */
+  /**
+   * Every type byte that {@link TransactionType} defines must still decode.
+   *
+   * <p>FRAME is excluded: a frame receipt has its own payload, so the EIP-1559 payload used here is
+   * rejected with the frame type, see {@link #typedReceiptWithFrameTypeByteNeedsTheFramePayload()}.
+   */
   @ParameterizedTest(name = "type byte {0}")
   @EnumSource(
       value = TransactionType.class,
-      names = {"FRONTIER"},
+      names = {"FRONTIER", "FRAME"},
       mode = EnumSource.Mode.EXCLUDE)
   public void typedReceiptWithDefinedTypeByteIsAccepted(final TransactionType txType) {
     final Bytes encodedReceipt = typedReceiptWithTypeByte(txType.getSerializedType());
@@ -219,6 +299,39 @@ public class SyncTransactionReceiptDecoderTest {
     final SyncTransactionReceipt decoded = syncTransactionReceiptDecoder.decode(encodedReceipt);
 
     Assertions.assertEquals(encodedReceipt, decoded.getRlpBytes());
+  }
+
+  /** A typed frame receipt must carry the frame receipt payload, not that of the other types. */
+  @Test
+  public void typedReceiptWithFrameTypeByteNeedsTheFramePayload() {
+    final Bytes encodedReceipt =
+        typedReceiptWithTypeByte(TransactionType.FRAME.getSerializedType());
+
+    Assertions.assertThrows(
+        RLPException.class, () -> syncTransactionReceiptDecoder.decode(encodedReceipt));
+  }
+
+  /**
+   * A typed frame receipt whose payload is short a field is rejected, even when an item follows the
+   * payload list that would otherwise be read in place of the missing field.
+   */
+  @Test
+  public void typedFrameReceiptMissingAPayloadFieldIsRejected() {
+    final Bytes payload =
+        RLP.encode(
+            (out) -> {
+              out.startList();
+              out.writeLongScalar(21_000);
+              out.writeBytes(Address.fromHexString("03").getBytes());
+              out.endList();
+            });
+    final Bytes trailingFrameReceipts = RLP.encode((out) -> out.writeEmptyList());
+    final Bytes encodedReceipt =
+        Bytes.concatenate(
+            Bytes.of(TransactionType.FRAME.getSerializedType()), payload, trailingFrameReceipts);
+
+    Assertions.assertThrows(
+        RLPException.class, () -> syncTransactionReceiptDecoder.decode(encodedReceipt));
   }
 
   /**
@@ -279,9 +392,15 @@ public class SyncTransactionReceiptDecoderTest {
    * Every type the enum defines must still be accepted on the eth/69 path, including a literal
    * {@code 0x00}. That is a non-canonical encoding of the scalar zero rather than an invalid type,
    * and it means the same thing as the empty field, so it is tolerated rather than rejected.
+   *
+   * <p>FRAME is excluded: an eth/69 frame receipt has its own shape after the type, see {@link
+   * #eth69ReceiptWithFrameTypeFieldNeedsTheFrameReceiptShape()}.
    */
   @ParameterizedTest(name = "eth/69 type field {0}")
-  @EnumSource(TransactionType.class)
+  @EnumSource(
+      value = TransactionType.class,
+      names = {"FRAME"},
+      mode = EnumSource.Mode.EXCLUDE)
   public void eth69ReceiptWithDefinedTypeFieldIsAccepted(final TransactionType txType) {
     final Bytes encodedReceipt = eth69ReceiptWithTypeField(Bytes.of(txType.getEthSerializedType()));
 
@@ -289,5 +408,19 @@ public class SyncTransactionReceiptDecoderTest {
 
     Assertions.assertEquals(
         Bytes.of(txType.getEthSerializedType()), decoded.getTransactionTypeCode());
+  }
+
+  /**
+   * An eth/69 frame receipt is {@code [0x06, cumulative_gas_used, payer, frame_receipts]}, so the
+   * {@code [type, statusOrStateRoot, cumulativeGasUsed, logs]} shape of the other types is rejected
+   * with the frame type.
+   */
+  @Test
+  public void eth69ReceiptWithFrameTypeFieldNeedsTheFrameReceiptShape() {
+    final Bytes encodedReceipt =
+        eth69ReceiptWithTypeField(Bytes.of(TransactionType.FRAME.getEthSerializedType()));
+
+    Assertions.assertThrows(
+        RLPException.class, () -> syncTransactionReceiptDecoder.decode(encodedReceipt));
   }
 }

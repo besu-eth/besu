@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.core.SyncBlock;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.BogotaDevnet1FrameReceipts;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
@@ -62,6 +63,8 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 
 import java.util.HashMap;
@@ -69,6 +72,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -455,6 +459,91 @@ public class GetSyncReceiptsFromPeerTaskTest {
     assertEquals(
         PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD,
         task.validateResult(new Response(Map.of(block.block, decodedReceipts), List.of())));
+  }
+
+  /**
+   * The EIP-8141 frame receipts of a bogota-devnet-1 block, in each form that peers send them,
+   * decode and match the receipts root of the block header.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("frameReceiptResponses")
+  public void frameReceiptsFromPeersMatchTheHeaderReceiptsRoot(
+      final String sender, final Set<Capability> agreedCapabilities, final Bytes messageData)
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    final SyncBlock block = frameReceiptsBlock(BogotaDevnet1FrameReceipts.BLOCK_0X843A);
+    final GetSyncReceiptsFromPeerTask task =
+        createTask(new Request(List.of(block), List.of()), protocolSchedule);
+
+    final Response response =
+        task.processResponse(
+            new RawMessage(EthProtocolMessages.RECEIPTS, messageData), agreedCapabilities);
+
+    assertThat(response.completeReceiptsByBlock()).containsOnlyKeys(block);
+    assertEquals(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD, task.validateResult(response));
+  }
+
+  static Stream<Arguments> frameReceiptResponses() {
+    final BogotaDevnet1FrameReceipts receipts = BogotaDevnet1FrameReceipts.BLOCK_0X843A;
+    final Bytes eth69Form =
+        receiptsMessageData(receipts.eth69Receipts(), (r, out) -> out.writeRaw(r));
+    final Bytes typedForm =
+        receiptsMessageData(receipts.typedReceipts(), (r, out) -> out.writeBytes(r));
+    return Stream.of(
+        Arguments.of("geth and ethrex, eth/69", AGREED_CAPABILITIES_ETH69, eth69Form),
+        Arguments.of("geth and ethrex, eth/70+", AGREED_CAPABILITIES_LATEST, paginated(eth69Form)),
+        Arguments.of("reth, eth/69", AGREED_CAPABILITIES_ETH69, typedForm),
+        Arguments.of("reth, eth/70+", AGREED_CAPABILITIES_LATEST, paginated(typedForm)),
+        Arguments.of(
+            "besu, eth/69",
+            AGREED_CAPABILITIES_ETH69,
+            serializeReceiptsList(
+                List.of(receipts.receipts()),
+                TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION)));
+  }
+
+  @Test
+  public void frameReceiptsInTheWrongOrderDoNotMatchTheHeaderReceiptsRoot()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    final BogotaDevnet1FrameReceipts receipts = BogotaDevnet1FrameReceipts.BLOCK_0X843A;
+    final SyncBlock block = frameReceiptsBlock(receipts);
+    final GetSyncReceiptsFromPeerTask task =
+        createTask(new Request(List.of(block), List.of()), protocolSchedule);
+
+    final Response response =
+        task.processResponse(
+            new RawMessage(
+                EthProtocolMessages.RECEIPTS,
+                receiptsMessageData(
+                    receipts.eth69Receipts().reversed(), (r, out) -> out.writeRaw(r))),
+            AGREED_CAPABILITIES_ETH69);
+
+    assertEquals(
+        PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY, task.validateResult(response));
+  }
+
+  /** A {@code Receipts} message holding the receipts of a single block. */
+  private static Bytes receiptsMessageData(
+      final List<Bytes> receipts, final BiConsumer<Bytes, RLPOutput> receiptWriter) {
+    return RLP.encode(
+        out ->
+            out.writeList(
+                List.of(receipts),
+                (blockReceipts, blockOut) -> blockOut.writeList(blockReceipts, receiptWriter)));
+  }
+
+  /** The eth/70 {@code Receipts} message for the same receipts, with the last block complete. */
+  private static Bytes paginated(final Bytes receiptsMessageData) {
+    return Bytes.concatenate(RLP.encode(out -> out.writeLongScalar(0)), receiptsMessageData);
+  }
+
+  private static SyncBlock frameReceiptsBlock(final BogotaDevnet1FrameReceipts receipts) {
+    final BlockHeader header = mock(BlockHeader.class);
+    when(header.getNumber()).thenReturn(Long.decode(receipts.blockNumber()));
+    when(header.getReceiptsRoot()).thenReturn(receipts.receiptsRoot());
+    when(header.getGasLimit()).thenReturn(200_000_000L);
+    final SyncBlockBody body = mock(SyncBlockBody.class);
+    when(body.getTransactionCount()).thenReturn(receipts.typedReceipts().size());
+    return new SyncBlock(header, body);
   }
 
   @Test

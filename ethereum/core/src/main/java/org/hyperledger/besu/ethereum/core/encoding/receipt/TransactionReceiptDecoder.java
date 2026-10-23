@@ -14,10 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.core.encoding.receipt;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.ethereum.core.FrameReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
@@ -43,6 +45,13 @@ import org.jspecify.annotations.Nullable;
  * ]
  *
  * (eth/69): receipt = [tx-type, post-state-or-status, cumulative-gas, logs]
+ *
+ * EIP-8141 frame receipts replace the legacy-receipt payload with their own:
+ *
+ * (eth/68): typed-receipt = 0x06 || rlp([cumulative-gas, payer, frame-receipts])
+ * (eth/69): receipt = [0x06, cumulative-gas, payer, frame-receipts]
+ *
+ * frame-receipts = [[status, [execution-gas-used, state-gas-used], logs], ...]
  * </pre>
  */
 public class TransactionReceiptDecoder {
@@ -85,10 +94,80 @@ public class TransactionReceiptDecoder {
 
   private static TransactionReceipt decodeTypedReceipt(
       final RLPInput rlpInput, final boolean revertReasonAllowed) {
-    final ReceiptComponents components = decodeTypedReceiptComponents(rlpInput);
+    final Bytes typedTransactionReceiptBytes = rlpInput.readBytes();
+    final TransactionType transactionType =
+        TransactionType.fromOpaque(typedTransactionReceiptBytes.get(0))
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Invalid transaction type %x"
+                            .formatted(typedTransactionReceiptBytes.get(0))));
+    final RLPInput input = new BytesValueRLPInput(typedTransactionReceiptBytes.slice(1), false);
+    // EIP-8141 frame receipts carry their own payload shape.
+    if (transactionType.supportsFrames()) {
+      return decodeFrameReceipt(input);
+    }
+    final ReceiptComponents components = decodeTypedReceiptComponents(transactionType, input);
     Optional<Bytes> revertReason = readMaybeRevertReason(components.input(), revertReasonAllowed);
     components.input().leaveList();
     return createReceipt(components, revertReason);
+  }
+
+  /**
+   * Decodes an EIP-8141 frame receipt payload: {@code [cumulative_gas_used, payer, [[status,
+   * [execution, state], logs], ...]]}.
+   *
+   * @param input the payload RLP (after the type byte)
+   * @return the frame transaction receipt
+   */
+  private static TransactionReceipt decodeFrameReceipt(final RLPInput input) {
+    input.enterList();
+    final TransactionReceipt receipt = decodeFrameReceiptFields(input);
+    input.leaveList();
+    return receipt;
+  }
+
+  /**
+   * Decodes the fields of an EIP-8141 frame receipt payload, {@code cumulative_gas_used, payer,
+   * [[status, [execution, state], logs], ...]}, from the current list. They make up the whole
+   * payload list in the typed form, and follow the type in the eth/69 form.
+   *
+   * @param input the RLP input positioned at the cumulative gas used
+   * @return the frame transaction receipt
+   */
+  private static TransactionReceipt decodeFrameReceiptFields(final RLPInput input) {
+    final long cumulativeGas = input.readLongScalar();
+    final Address payer = Address.readFrom(input);
+    final List<FrameReceipt> frameReceipts =
+        input.readList(
+            frameInput -> {
+              frameInput.enterList();
+              final int status = frameInput.readIntScalar();
+              frameInput.enterList();
+              final long executionGasUsed = frameInput.readLongScalar();
+              final long stateGasUsed = frameInput.readLongScalar();
+              frameInput.leaveList();
+              final List<Log> logs = frameInput.readList(logInput -> Log.readFrom(logInput, false));
+              frameInput.leaveList();
+              return new FrameReceipt(status, executionGasUsed, stateGasUsed, logs);
+            });
+    return new TransactionReceipt(payer, cumulativeGas, frameReceipts);
+  }
+
+  /**
+   * Whether the first element of a flat receipt is the type of an EIP-8141 frame transaction, which
+   * makes it an eth/69 frame receipt. A legacy receipt cannot start with that value, its first
+   * element being a status of 0 or 1 or a 32-byte state root.
+   *
+   * @param firstElement the first element of the flat receipt
+   * @return true if the receipt is an eth/69 frame receipt
+   */
+  private static boolean isFrameTransactionType(final RLPInput firstElement) {
+    final Bytes encoded = firstElement.raw();
+    return encoded.size() == 1
+        && TransactionType.fromEthSerializedType(encoded.get(0))
+            .map(TransactionType::supportsFrames)
+            .orElse(false);
   }
 
   /**
@@ -96,20 +175,12 @@ public class TransactionReceiptDecoder {
    * to construct the final receipt. The returned RLPInput is positioned after logs, ready to read
    * optional fields (revertReason).
    *
-   * @param rlpInput the RLP input positioned at the start of a typed receipt
+   * @param transactionType the already-parsed transaction type
+   * @param input the payload RLP input (after the type byte)
    * @return the decoded receipt components
    */
-  private static ReceiptComponents decodeTypedReceiptComponents(final RLPInput rlpInput) {
-    RLPInput input = rlpInput;
-    final Bytes typedTransactionReceiptBytes = input.readBytes();
-    TransactionType transactionType =
-        TransactionType.fromOpaque(typedTransactionReceiptBytes.get(0))
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "Invalid transaction type %x"
-                            .formatted(typedTransactionReceiptBytes.get(0))));
-    input = new BytesValueRLPInput(typedTransactionReceiptBytes.slice(1), false);
+  private static ReceiptComponents decodeTypedReceiptComponents(
+      final TransactionType transactionType, final RLPInput input) {
     input.enterList();
     final RLPInput statusOrStateRoot = input.readAsRlp();
     final long cumulativeGas = input.readLongScalar();
@@ -135,6 +206,12 @@ public class TransactionReceiptDecoder {
     // used. This is because compacted legacy receipts also lack a bloom filter.
     // The first element can be either the transaction type (eth/69 or stateRootOrStatus (eth/68
     final RLPInput firstElement = rlpInput.readAsRlp();
+    // An eth/69 frame receipt continues with the fields of the frame receipt payload.
+    if (isFrameTransactionType(firstElement)) {
+      final TransactionReceipt receipt = decodeFrameReceiptFields(rlpInput);
+      rlpInput.leaveList();
+      return receipt;
+    }
     // The second element can be either the state root or status (eth/68) or cumulative gas (eth/69)
     final RLPInput secondElement = rlpInput.readAsRlp();
     final boolean isCompacted = isNextNotBloomFilter(rlpInput);
@@ -158,6 +235,12 @@ public class TransactionReceiptDecoder {
   private static TransactionReceipt decodeEth69Receipt(
       final RLPInput input, final RLPInput transactionByteRlp, final RLPInput statusOrStateRoot) {
     final TransactionType transactionType = getTransactionType(transactionByteRlp);
+    // decodeFlatReceipt sends an eth/69 frame receipt to the frame payload decoder. This keeps any
+    // other encoding of the frame type from producing a frame receipt without a payer.
+    if (transactionType.supportsFrames()) {
+      throw new IllegalStateException(
+          "Frame receipts do not use the eth/69 form of the other receipt types");
+    }
     final long cumulativeGas = input.readLongScalar();
     final List<Log> logs = input.readList(logInput -> Log.readFrom(logInput, false));
     final LogsBloomFilter bloomFilter = LogsBloomFilter.builder().insertLogs(logs).build();
