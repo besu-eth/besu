@@ -139,6 +139,50 @@ class JsonRpcErrorConverterTest {
                     .isNotEqualTo(RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION));
   }
 
+  @ParameterizedTest
+  @EnumSource(
+      value = TransactionInvalidReason.class,
+      names = {
+        "FRAME_PAYER_EXPOSURE_EXCEEDED",
+        "FRAME_PAYMASTER_PENDING_LIMIT",
+        "FRAME_SENDER_ALREADY_PENDING"
+      })
+  void framePoolReasonsMapToTheirOwnErrorTypes(final TransactionInvalidReason reason) {
+    final RpcErrorType type = JsonRpcErrorConverter.convertTransactionInvalidReason(reason);
+
+    assertThat(type.name()).isEqualTo(reason.name());
+    assertThat(type.getCode()).isEqualTo(-32000);
+    assertThat(errorTypeOf(JsonRpcError.from(ValidationResult.invalid(reason)))).isEqualTo(type);
+  }
+
+  @Test
+  void framePoolErrorTypesDescribeThePoolRule() {
+    assertThat(RpcErrorType.FRAME_PAYER_EXPOSURE_EXCEEDED.getMessage())
+        .isEqualTo("Pending frame transactions would exceed the payer's balance");
+    assertThat(RpcErrorType.FRAME_PAYMASTER_PENDING_LIMIT.getMessage())
+        .isEqualTo("Paymaster already has a pending frame transaction");
+    assertThat(RpcErrorType.FRAME_SENDER_ALREADY_PENDING.getMessage())
+        .isEqualTo("Sender already has a pending frame transaction with a different nonce");
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = RpcErrorType.class,
+      names = {
+        "FRAME_PAYER_EXPOSURE_EXCEEDED",
+        "FRAME_PAYMASTER_PENDING_LIMIT",
+        "FRAME_SENDER_ALREADY_PENDING"
+      })
+  void framePoolErrorTypesDoNotCaptureExistingErrorMessages(final RpcErrorType framePoolType) {
+    Arrays.stream(RpcErrorType.values())
+        .filter(type -> type != framePoolType)
+        .forEach(
+            type ->
+                assertThat(errorTypeOf(new JsonRpcError(type)))
+                    .as("error type resolved for %s", type)
+                    .isNotEqualTo(framePoolType));
+  }
+
   private static RpcErrorType errorTypeOf(final JsonRpcError error) {
     return new JsonRpcErrorResponse(null, error).getErrorType();
   }

@@ -55,6 +55,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
+import org.hyperledger.besu.ethereum.eth.transactions.frame.CompositePendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredPendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.GasPricePendingTransactionsSorter;
@@ -414,6 +415,31 @@ public class TransactionPoolFactoryTest {
         .isEqualTo(LayeredPendingTransactions.class);
 
     assertThat(pool.logStats()).startsWith("GasPrice Prioritized");
+  }
+
+  @Test
+  public void
+      createLayeredTransactionPool_shouldPairTheFramePool_whenAFrameCapableForkIsScheduled() {
+    // EIP-8141: Bogota is scheduled after genesis, which is enough to pair the frame pool.
+    setupScheduleWith(new StubGenesisConfigOptions().londonBlock(0).bogotaTime(1_000));
+
+    final TransactionPool pool = createAndEnableTransactionPool(LAYERED, syncState);
+
+    assertThat(pool.pendingTransactionsImplementation())
+        .isEqualTo(CompositePendingTransactions.class);
+
+    assertThat(pool.logStats()).startsWith("Basefee Prioritized").endsWith(" | Frame 0/1024");
+  }
+
+  @Test
+  public void
+      createLegacyTransactionPool_shouldNotPairTheFramePool_whenAFrameCapableForkIsScheduled() {
+    setupScheduleWith(new StubGenesisConfigOptions().londonBlock(0).bogotaTime(1_000));
+
+    final TransactionPool pool = createAndEnableTransactionPool(LEGACY, syncState);
+
+    assertThat(pool.pendingTransactionsImplementation())
+        .isEqualTo(BaseFeePendingTransactionsSorter.class);
   }
 
   private void setupScheduleWith(final StubGenesisConfigOptions config) {

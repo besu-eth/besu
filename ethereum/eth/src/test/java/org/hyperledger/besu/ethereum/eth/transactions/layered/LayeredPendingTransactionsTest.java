@@ -586,6 +586,85 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  public void selectionCandidatesAreASnapshotByScore() {
+    final Transaction lowFeeTx = createTransaction(0, DEFAULT_MIN_GAS_PRICE.multiply(2), KEYS1);
+    final Transaction highFeeTx = createTransaction(0, DEFAULT_MIN_GAS_PRICE.multiply(4), KEYS2);
+    pendingTransactions.addTransaction(createRemotePendingTransaction(lowFeeTx), Optional.empty());
+    pendingTransactions.addTransaction(createRemotePendingTransaction(highFeeTx), Optional.empty());
+
+    final List<PendingTransaction> candidates = pendingTransactions.selectionCandidates();
+    assertThat(candidates)
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(highFeeTx, lowFeeTx);
+    assertThat(candidates).isEqualTo(layers.prioritizedTransactions.getByScore());
+
+    // a later change to the pool does not reach candidates already collected
+    final Transaction nextTx = createTransaction(1, DEFAULT_MIN_GAS_PRICE.multiply(2), KEYS1);
+    pendingTransactions.addTransaction(createRemotePendingTransaction(nextTx), Optional.empty());
+    assertThat(candidates)
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(highFeeTx, lowFeeTx);
+
+    // selectTransactions offers exactly the current candidates
+    final List<PendingTransaction> offered = new ArrayList<>();
+    pendingTransactions.selectTransactions(
+        pendingTxs -> {
+          offered.addAll(pendingTxs);
+          return Map.of();
+        });
+    assertThat(offered).isEqualTo(pendingTransactions.selectionCandidates());
+  }
+
+  @Test
+  public void applyingResultsToTheSelectionCandidatesIsEquivalentToSelectTransactions() {
+    final KeyPair keys3 = SIGNATURE_ALGORITHM.generateKeyPair();
+    final Transaction selectedTx = createTransaction(0, DEFAULT_MIN_GAS_PRICE.multiply(4), KEYS1);
+    final Transaction invalidTx = createTransaction(0, DEFAULT_MIN_GAS_PRICE.multiply(3), KEYS2);
+    final Transaction penalizedTx = createTransaction(0, DEFAULT_MIN_GAS_PRICE.multiply(2), keys3);
+    final Map<Transaction, TransactionSelectionResult> resultByTx =
+        Map.of(
+            selectedTx,
+            SELECTED,
+            invalidTx,
+            TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()),
+            penalizedTx,
+            TransactionSelectionResult.invalidPenalized(GAS_PRICE_BELOW_CURRENT_BASE_FEE.name()));
+    final PendingTransactions.PendingTransactionsSelector selector =
+        pendingTxs ->
+            pendingTxs.stream()
+                .collect(
+                    Collectors.toMap(
+                        Function.identity(), pt -> resultByTx.get(pt.getTransaction())));
+
+    final CreatedLayers splitLayers = createLayers(poolConf);
+    final LayeredPendingTransactions splitPool =
+        new LayeredPendingTransactions(
+            mockProtocolContext(), poolConf, splitLayers.prioritizedTransactions, ethScheduler);
+    final var droppedBySelect = new DroppedTransactionCollector();
+    layers.eventNotifier().subscribePendingTransactionDropped(droppedBySelect);
+    final var droppedBySplit = new DroppedTransactionCollector();
+    splitLayers.eventNotifier().subscribePendingTransactionDropped(droppedBySplit);
+    for (final Transaction tx : List.of(selectedTx, invalidTx, penalizedTx)) {
+      pendingTransactions.addTransaction(createRemotePendingTransaction(tx), Optional.empty());
+      splitPool.addTransaction(createRemotePendingTransaction(tx), Optional.empty());
+    }
+
+    pendingTransactions.selectTransactions(selector);
+    splitPool.applySelectionResults(
+        selector.evaluatePendingTransactions(splitPool.selectionCandidates()));
+
+    assertThat(droppedBySelect.droppedTransactions).containsExactly(entry(invalidTx, INVALIDATED));
+    assertThat(droppedBySplit.droppedTransactions)
+        .containsExactlyEntriesOf(droppedBySelect.droppedTransactions);
+    assertThat(pendingTransactions.selectionCandidates())
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(selectedTx, penalizedTx);
+    assertThat(splitPool.selectionCandidates())
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(selectedTx, penalizedTx);
+  }
+
+  @Test
   public void lateInvalidResultForReplacedTransactionDoesNotRemoveReplacement() {
     final Transaction tx = createEIP1559Transaction(0, KEYS1, 1);
     final Transaction replacementTx = createTransactionReplacement(tx, KEYS1);

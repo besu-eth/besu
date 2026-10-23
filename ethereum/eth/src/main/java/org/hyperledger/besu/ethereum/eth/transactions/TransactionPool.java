@@ -556,7 +556,8 @@ public class TransactionPool implements BlockAddedObserver {
     } else if (transaction.getType().supportsFrames()
         && !pendingTransactions.supportsFrameTransactions()) {
       // EIP-8141 frame transactions need a pending transactions implementation that applies the
-      // frame mempool rules; every other implementation never sees them.
+      // frame mempool rules: the layered pool paired with the frame pool, which the factory builds
+      // when a fork in the schedule executes frames. Every other implementation never sees them.
       return ValidationResultAndAccount.invalid(
           TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
           "Frame transactions are not supported by the configured transaction pool");
