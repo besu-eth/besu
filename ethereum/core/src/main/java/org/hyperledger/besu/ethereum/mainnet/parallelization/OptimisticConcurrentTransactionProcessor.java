@@ -114,8 +114,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               transaction.detachedCopy(),
               miningBeneficiary,
               new OperationTracer() {
+                // only the reward hook is needed, so the EVM skips the per-operation calls
                 @Override
-                public boolean tracesOperations() {
+                public boolean isEnabled() {
                   return false;
                 }
 
