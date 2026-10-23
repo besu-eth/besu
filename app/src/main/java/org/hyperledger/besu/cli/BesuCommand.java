@@ -729,6 +729,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private Optional<Checkpoint> checkpoint = Optional.empty();
 
   private Vertx vertx;
+  private Vertx engineVertx;
   private Runner runner;
   private EnodeDnsConfiguration enodeDnsConfiguration;
   private KeyValueStorageProvider keyValueStorageProvider;
@@ -1069,6 +1070,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
       // Need to create vertx after cmdline has been parsed, such that metricsSystem is configurable
       vertx = createVertx(besuComponent.getMetricsSystem());
+      engineVertx = createEngineVertx(besuComponent.getMetricsSystem());
 
       validateOptions();
 
@@ -2584,6 +2586,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     final Runner runner =
         runnerBuilder
             .vertx(vertx)
+            .engineVertx(engineVertx)
             .besuController(controller)
             .p2pEnabled(p2pEnabled)
             .natMethod(natMethod)
@@ -2644,6 +2647,20 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     return Vertx.builder()
         .with(new VertxOptions().setPreferNativeTransport(true))
         .withMetrics(new VertxMetricsAdapterFactory(metricsSystem))
+        .build();
+  }
+
+  /**
+   * Builds the engine API's dedicated Vertx instance from MetricsSystem. Visible for testing.
+   *
+   * @param metricsSystem Instance of MetricsSystem
+   * @return Instance of Vertx.
+   */
+  @VisibleForTesting
+  protected Vertx createEngineVertx(final MetricsSystem metricsSystem) {
+    return Vertx.builder()
+        .with(new VertxOptions().setPreferNativeTransport(true))
+        .withMetrics(new VertxMetricsAdapterFactory(metricsSystem, "engine-api-"))
         .build();
   }
 
