@@ -15,6 +15,7 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 
 import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryUsage;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -246,7 +247,8 @@ public class RocksDBCLIOptions {
   }
 
   /**
-   * Derives max open files from the host's available memory.
+   * Derives max open files from the host's available memory, leaving out the heap the JVM can still
+   * grow into.
    *
    * @return the max open files value for the current machine, or {@link #DEFAULT_MAX_OPEN_FILES} if
    *     memory information is unavailable
@@ -255,9 +257,28 @@ public class RocksDBCLIOptions {
     final java.lang.management.OperatingSystemMXBean osBean =
         ManagementFactory.getOperatingSystemMXBean();
     if (osBean instanceof OperatingSystemMXBean operatingSystemMXBean) {
-      return calculateMaxOpenFiles(operatingSystemMXBean.getFreeMemorySize());
+      final MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+      return calculateMaxOpenFiles(
+          freeMemoryOutsideHeap(
+              operatingSystemMXBean.getFreeMemorySize(), heap.getMax(), heap.getCommitted()));
     }
     return DEFAULT_MAX_OPEN_FILES;
+  }
+
+  /**
+   * Returns the free memory that the heap will not take. At startup the JVM has committed only part
+   * of its maximum heap, so the rest still shows as free memory.
+   *
+   * @param freeMemoryBytes the free memory of the host in bytes
+   * @param maxHeapBytes the maximum heap size in bytes, -1 if undefined
+   * @param committedHeapBytes the heap the JVM has already committed, in bytes
+   * @return the free memory minus the heap not committed yet, at least 0
+   */
+  public static long freeMemoryOutsideHeap(
+      final long freeMemoryBytes, final long maxHeapBytes, final long committedHeapBytes) {
+    final long uncommittedHeapBytes =
+        maxHeapBytes < 0 ? 0 : Math.max(0, maxHeapBytes - committedHeapBytes);
+    return Math.max(0, freeMemoryBytes - uncommittedHeapBytes);
   }
 
   /**

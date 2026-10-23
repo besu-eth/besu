@@ -31,6 +31,8 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
 
 import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
 
 import com.sun.management.OperatingSystemMXBean;
 import org.junit.jupiter.api.Test;
@@ -154,6 +156,25 @@ public class RocksDBCLIOptionsTest {
     assertMaxOpenFilesDerivedFromAvailableMemory(sixteenPointOneGib, 8243);
   }
 
+  @Test
+  public void autoMaxOpenFilesLeavesOutHeapNotCommittedYet() {
+    // 24 GiB free and a 16 GiB heap of which 2 GiB are committed leave 10 GiB
+    final RocksDBCLIOptions options = toOptionsWithAvailableMemory(24L * GIB, 16L * GIB, 2L * GIB);
+
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(5120);
+  }
+
+  @Test
+  public void freeMemoryOutsideHeapIsNeverNegative() {
+    assertThat(RocksDBCLIOptions.freeMemoryOutsideHeap(4L * GIB, 16L * GIB, 2L * GIB)).isZero();
+  }
+
+  @Test
+  public void undefinedMaxHeapLeavesFreeMemoryUnchanged() {
+    assertThat(RocksDBCLIOptions.freeMemoryOutsideHeap(24L * GIB, -1, 2L * GIB))
+        .isEqualTo(24L * GIB);
+  }
+
   private static RocksDBFactoryConfiguration toDomainObjectWithAvailableMemory(
       final long freeMemoryBytes, final String... cliArgs) {
     return toOptionsWithAvailableMemory(freeMemoryBytes, cliArgs).toDomainObject();
@@ -161,10 +182,23 @@ public class RocksDBCLIOptionsTest {
 
   private static RocksDBCLIOptions toOptionsWithAvailableMemory(
       final long freeMemoryBytes, final String... cliArgs) {
+    // a fully committed heap, so all the free memory is available
+    return toOptionsWithAvailableMemory(freeMemoryBytes, GIB, GIB, cliArgs);
+  }
+
+  private static RocksDBCLIOptions toOptionsWithAvailableMemory(
+      final long freeMemoryBytes,
+      final long maxHeapBytes,
+      final long committedHeapBytes,
+      final String... cliArgs) {
     try (MockedStatic<ManagementFactory> managementFactory = mockStatic(ManagementFactory.class)) {
       final OperatingSystemMXBean osBean = mock(OperatingSystemMXBean.class);
       when(osBean.getFreeMemorySize()).thenReturn(freeMemoryBytes);
       managementFactory.when(ManagementFactory::getOperatingSystemMXBean).thenReturn(osBean);
+      final MemoryMXBean memoryBean = mock(MemoryMXBean.class);
+      when(memoryBean.getHeapMemoryUsage())
+          .thenReturn(new MemoryUsage(0, committedHeapBytes, committedHeapBytes, maxHeapBytes));
+      managementFactory.when(ManagementFactory::getMemoryMXBean).thenReturn(memoryBean);
 
       final RocksDBCLIOptions options = RocksDBCLIOptions.create();
       new CommandLine(options).parseArgs(cliArgs);
