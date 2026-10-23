@@ -19,28 +19,39 @@ import static java.util.Collections.emptyMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameSignature;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.plugin.ServiceManager;
@@ -48,9 +59,12 @@ import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -218,6 +232,7 @@ abstract class AbstractBlockProcessorTest {
     final long blockGasLimit = 100_000L;
     final BlockHeader header = new BlockHeaderTestFixture().gasLimit(blockGasLimit).buildHeader();
     final Transaction tx = mock(Transaction.class);
+    when(tx.getType()).thenReturn(TransactionType.EIP1559);
     when(tx.getGasLimit()).thenReturn(50_000L);
     when(tx.getHash()).thenReturn(Hash.fromHexStringLenient("0x1234"));
 
@@ -244,6 +259,146 @@ abstract class AbstractBlockProcessorTest {
         .thenReturn(BlockGasAccountingStrategy.FRONTIER);
     assertThat(blockProcessor.hasAvailableBlockBudget(header, tx, 60_000L, 40_000L, protocolSpec))
         .isTrue();
+  }
+
+  @Test
+  void staticallyInvalidFrameTransactionFailsWithTheFrameErrorBeforeTheBudgetCheck() {
+    // EIP-8141: an undefined signature scheme saturates the frame transaction's gas, so the budget
+    // check would report it as a gas failure. The frame error must be reported instead.
+    when(protocolSpec.getTransactionValidatorFactory()).thenReturn(frameValidatorFactory());
+    final Transaction frameTransaction = frameTransactionWithUndefinedScheme();
+
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(blockWith(frameTransaction, 30_000_000L))
+                .blockAccessList(Optional.empty())
+                .sequentialExecutionRequested(true)
+                .build());
+
+    assertThat(result.isSuccessful()).isFalse();
+    assertThat(result.errorMessage)
+        .hasValueSatisfying(
+            message ->
+                assertThat(message)
+                    .contains("unknown signature scheme 3")
+                    .contains(frameTransaction.getHash().getBytes().toHexString()));
+    verify(protocolSpec, never()).getBlockGasAccountingStrategy();
+    verifyNoInteractions(transactionProcessor);
+  }
+
+  @Test
+  void staticallyInvalidFrameTransactionResetsTheBonsaiAccumulator() {
+    when(protocolSpec.getTransactionValidatorFactory()).thenReturn(frameValidatorFactory());
+    final BonsaiWorldState bonsaiWorldState = mock(BonsaiWorldState.class);
+    final BonsaiWorldStateUpdateAccumulator accumulator =
+        mock(BonsaiWorldStateUpdateAccumulator.class);
+    doReturn(accumulator).when(bonsaiWorldState).updater();
+
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(bonsaiWorldState)
+                .block(blockWith(frameTransactionWithUndefinedScheme(), 30_000_000L))
+                .blockAccessList(Optional.empty())
+                .sequentialExecutionRequested(true)
+                .build());
+
+    assertThat(result.isSuccessful()).isFalse();
+    verify(accumulator).reset();
+    verifyNoInteractions(transactionProcessor);
+  }
+
+  @Test
+  void staticallyValidFrameTransactionReachesTheFrameAwareBudgetCheck() {
+    when(protocolSpec.getTransactionValidatorFactory()).thenReturn(frameValidatorFactory());
+    final GasCalculator gasCalculator = mock(GasCalculator.class);
+    final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
+    when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
+    when(stateGasCalc.transactionExecutionGasLimit()).thenReturn(Long.MAX_VALUE);
+    when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
+    when(protocolSpec.getBlockGasAccountingStrategy())
+        .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
+
+    // Valid, but it declares more state gas than the whole block has.
+    final Transaction frameTransaction =
+        frameTransactionBuilder()
+            .frames(
+                List.of(
+                    new Frame(
+                        Frame.MODE_SENDER,
+                        Frame.APPROVE_SCOPE_MASK,
+                        Optional.empty(),
+                        50_000L,
+                        200_000L,
+                        Wei.ZERO,
+                        Bytes.EMPTY)))
+            .build();
+
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(blockWith(frameTransaction, 100_000L))
+                .blockAccessList(Optional.empty())
+                .sequentialExecutionRequested(true)
+                .build());
+
+    assertThat(result).isSameAs(BlockProcessingResult.INSUFFICIENT_BLOCK_GAS);
+    verifyNoInteractions(transactionProcessor);
+  }
+
+  private static TransactionValidatorFactory frameValidatorFactory() {
+    return new TransactionValidatorFactory(
+        mock(GasCalculator.class),
+        GasLimitCalculator.constant(),
+        FeeMarket.london(0L),
+        false,
+        Optional.of(BigInteger.ONE),
+        Set.of(TransactionType.EIP1559, TransactionType.FRAME),
+        Integer.MAX_VALUE);
+  }
+
+  private static Transaction.Builder frameTransactionBuilder() {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+        .frameSignatures(List.of())
+        .maxPriorityFeePerGas(Wei.ZERO)
+        .maxFeePerGas(Wei.ZERO);
+  }
+
+  private static Transaction frameTransactionWithUndefinedScheme() {
+    return frameTransactionBuilder()
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_VERIFY,
+                    Frame.APPROVE_SCOPE_MASK,
+                    Optional.empty(),
+                    50_000L,
+                    0L,
+                    Wei.ZERO,
+                    Bytes.EMPTY)))
+        .frameSignatures(List.of(new FrameSignature(3, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY)))
+        .build();
+  }
+
+  private static Block blockWith(final Transaction transaction, final long gasLimit) {
+    return new Block(
+        new BlockHeaderTestFixture()
+            .gasLimit(gasLimit)
+            .baseFeePerGas(Wei.ZERO)
+            .transactionsRoot(Hash.EMPTY_LIST_HASH)
+            .ommersHash(Hash.EMPTY_LIST_HASH)
+            .buildHeader(),
+        new BlockBody(List.of(transaction), emptyList()));
   }
 
   private static class TestBlockProcessor extends AbstractBlockProcessor {
