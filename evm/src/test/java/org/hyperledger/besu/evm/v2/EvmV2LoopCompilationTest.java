@@ -59,6 +59,10 @@ class EvmV2LoopCompilationTest {
           "MessageFrame::getState",
           "MessageFrame::getPC",
           "MessageFrame::setPC",
+          "MessageFrame::stackTopV2",
+          "MessageFrame::setTopV2",
+          "MessageFrame::getRemainingGas",
+          "MessageFrame::setGasRemaining",
           "MessageFrame::decrementRemainingGas",
           "Operation$OperationResult::getHaltReason",
           "Operation$OperationResult::getGasCost",
@@ -66,8 +70,8 @@ class EvmV2LoopCompilationTest {
 
   /**
    * The most the loop and everything inlined into it may take of C2's 8000, leaving room for what a
-   * newer JDK or library inlines more. Past the 8000 C2 makes calls of the last operations of the
-   * switch, but not of the loop's own steps, which it inlines first.
+   * newer JDK or library inlines more. Past the 8000 C2 makes calls of what it parses last: the
+   * last operations of the switch and the completion of the general path and of halts.
    */
   private static final int BUDGET = 7500;
 

@@ -42,9 +42,10 @@ class EvmV2LoopMethodSizeTest {
 
   /**
    * The loop's own bytecode counts against the 8000 bytes C2 inlines into it, so it is held well
-   * under that. Raising this is a decision about the room left for the operations, not a formality.
+   * under that. Raising this is a decision about the room left for the operations, not a formality:
+   * handing the stack top, pc and gas between the loop's locals and the frame takes about 500.
    */
-  private static final int LOOP_BUDGET = 1000;
+  private static final int LOOP_BUDGET = 1500;
 
   @Test
   void theUntracedLoopLeavesRoomToInlineInto() {
