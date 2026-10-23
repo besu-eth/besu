@@ -1072,6 +1072,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       // Need to create vertx after cmdline has been parsed, such that metricsSystem is configurable
       vertx = createVertx(besuComponent.getMetricsSystem());
       engineVertx = createEngineVertx(besuComponent.getMetricsSystem());
+      logVertxPoolSizes();
 
       validateOptions();
 
@@ -2651,9 +2652,21 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   @VisibleForTesting
   protected Vertx createVertx(final MetricsSystem metricsSystem) {
     return Vertx.builder()
-        .with(new VertxOptions().setPreferNativeTransport(true))
+        .with(createVertxOptions())
         .withMetrics(new VertxMetricsAdapterFactory(metricsSystem))
         .build();
+  }
+
+  /**
+   * Builds VertxOptions. Visible for testing.
+   *
+   * @return Instance of VertxOptions.
+   */
+  @VisibleForTesting
+  protected VertxOptions createVertxOptions() {
+    return new VertxOptions()
+        .setPreferNativeTransport(true)
+        .setWorkerPoolSize(unstableRPCOptions.getRpcVertxWorkerPoolSize().getValue());
   }
 
   /**
@@ -2665,9 +2678,30 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   @VisibleForTesting
   protected Vertx createEngineVertx(final MetricsSystem metricsSystem) {
     return Vertx.builder()
-        .with(new VertxOptions().setPreferNativeTransport(true))
+        .with(createEngineVertxOptions())
         .withMetrics(new VertxMetricsAdapterFactory(metricsSystem, "engine-api-"))
         .build();
+  }
+
+  /**
+   * Builds VertxOptions for the engine API's dedicated Vertx instance. Visible for testing.
+   *
+   * @return Instance of VertxOptions.
+   */
+  @VisibleForTesting
+  protected VertxOptions createEngineVertxOptions() {
+    return new VertxOptions()
+        .setPreferNativeTransport(true)
+        .setWorkerPoolSize(unstableRPCOptions.getEngineRpcVertxWorkerPoolSize().getValue())
+        .setEventLoopPoolSize(unstableRPCOptions.getEngineRpcVertxEventLoopPoolSize().getValue());
+  }
+
+  private void logVertxPoolSizes() {
+    logger.info(
+        "Vert.x pools: json-rpc worker {}, engine worker {}, engine event loop {}",
+        unstableRPCOptions.getRpcVertxWorkerPoolSize().getValue(),
+        unstableRPCOptions.getEngineRpcVertxWorkerPoolSize().getValue(),
+        unstableRPCOptions.getEngineRpcVertxEventLoopPoolSize().getValue());
   }
 
   private void addShutdownHook(final Runner runner) {
