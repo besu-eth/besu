@@ -79,6 +79,16 @@ public interface PendingTransactions {
 
   Optional<Transaction> restoreBlob(Transaction transaction);
 
+  /**
+   * Whether this implementation holds EIP-8141 frame transactions. Those that do not have frame
+   * transactions rejected before they reach the pool.
+   *
+   * @return true if frame transactions are accepted
+   */
+  default boolean supportsFrameTransactions() {
+    return false;
+  }
+
   @FunctionalInterface
   interface PendingTransactionsSelector {
     Map<PendingTransaction, TransactionSelectionResult> evaluatePendingTransactions(

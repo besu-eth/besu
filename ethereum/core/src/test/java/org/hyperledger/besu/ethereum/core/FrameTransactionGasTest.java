@@ -21,7 +21,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.core.encoding.FrameTransactionDecoder;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.evm.frame.KeyedNonces;
 
 import java.math.BigInteger;
@@ -75,8 +76,8 @@ class FrameTransactionGasTest {
           + "44226f997ec30b81dad6faa405d1609b3e0a62cc84773594008504a817c80080c0";
 
   private static Transaction decode(final String hex) {
-    // The frame transaction decoder is not registered for type 0x06 yet, so call it directly.
-    return FrameTransactionDecoder.decode(Bytes.fromHexString(hex));
+    return TransactionDecoder.decodeOpaqueBytes(
+        Bytes.fromHexString(hex), EncodingContext.BLOCK_BODY);
   }
 
   private static Frame frame(

@@ -38,9 +38,9 @@ import java.util.function.Function;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
- * Transaction-level steps of {@link MainnetTransactionProcessor}, kept apart so that other
- * top-level execution paths can share them: resolving a top-level call's code, the EIP-2780 charges
- * on entering a top-level call, crediting the coinbase, and settling self-destructs.
+ * Transaction-level steps shared by {@link MainnetTransactionProcessor} and {@link
+ * FrameTransactionProcessor}: resolving a top-level call's code, the EIP-2780 charges on entering a
+ * top-level call, crediting the coinbase, and settling self-destructs.
  */
 final class TopLevelTransactionSupport {
 

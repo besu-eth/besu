@@ -29,11 +29,21 @@ import java.util.Set;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableSet;
 
 public class TransactionValidatorFactory {
 
   private volatile Supplier<TransactionValidator> transactionValidatorSupplier;
   private static final Set<BlobType> BLOBS_PROHIBITED = Set.of();
+
+  private final GasCalculator gasCalculator;
+  private final GasLimitCalculator gasLimitCalculator;
+  private final FeeMarket feeMarket;
+  private final boolean checkSignatureMalleability;
+  private final Optional<BigInteger> chainId;
+  private final Set<TransactionType> acceptedTransactionTypes;
+  private final Set<BlobType> acceptedBlobVersions;
+  private final int maxInitcodeSize;
 
   public TransactionValidatorFactory(
       final GasCalculator gasCalculator,
@@ -92,6 +102,14 @@ public class TransactionValidatorFactory {
       final Set<TransactionType> acceptedTransactionTypes,
       final Set<BlobType> acceptedBlobVersions,
       final int maxInitcodeSize) {
+    this.gasCalculator = gasCalculator;
+    this.gasLimitCalculator = gasLimitCalculator;
+    this.feeMarket = feeMarket;
+    this.checkSignatureMalleability = checkSignatureMalleability;
+    this.chainId = chainId;
+    this.acceptedTransactionTypes = acceptedTransactionTypes;
+    this.acceptedBlobVersions = acceptedBlobVersions;
+    this.maxInitcodeSize = maxInitcodeSize;
 
     this.transactionValidatorSupplier =
         Suppliers.memoize(
@@ -105,6 +123,32 @@ public class TransactionValidatorFactory {
                     acceptedTransactionTypes,
                     acceptedBlobVersions,
                     maxInitcodeSize));
+  }
+
+  /**
+   * Creates a factory with this factory's configuration that also accepts {@code transactionType}.
+   * A fork that adds a transaction type derives its factory from its parent fork's this way, so it
+   * keeps every other rule of the parent. Permission filters and additional validation rules are
+   * not carried over: they are installed on each fork's factory after the protocol schedule is
+   * built.
+   *
+   * @param transactionType the transaction type to accept as well
+   * @return the new factory
+   */
+  public TransactionValidatorFactory withAcceptedTransactionType(
+      final TransactionType transactionType) {
+    return new TransactionValidatorFactory(
+        gasCalculator,
+        gasLimitCalculator,
+        feeMarket,
+        checkSignatureMalleability,
+        chainId,
+        ImmutableSet.<TransactionType>builder()
+            .addAll(acceptedTransactionTypes)
+            .add(transactionType)
+            .build(),
+        acceptedBlobVersions,
+        maxInitcodeSize);
   }
 
   public void setPermissionTransactionFilter(

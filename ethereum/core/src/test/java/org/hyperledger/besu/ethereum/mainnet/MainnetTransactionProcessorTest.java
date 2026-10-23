@@ -18,7 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -30,6 +32,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -305,6 +308,8 @@ class MainnetTransactionProcessorTest {
     final TransactionValidationParams expectedValidationParams =
         ImmutableTransactionValidationParams.builder().build();
 
+    when(transaction.getType()).thenReturn(TransactionType.EIP1559);
+
     var transactionProcessor = createTransactionProcessor(false);
 
     transactionProcessor.processTransaction(
@@ -368,6 +373,81 @@ class MainnetTransactionProcessorTest {
     assertThat(result.isInvalid()).isTrue();
     assertThat(result.getValidationResult().getInvalidReason())
         .isEqualTo(TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER);
+  }
+
+  @Test
+  void frameTransactionIsNotSupportedWithoutFrameSupport() {
+    when(transaction.getType()).thenReturn(TransactionType.FRAME);
+
+    final var result = processFrameTransaction(createTransactionProcessor(false));
+
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INVALID_TRANSACTION_FORMAT);
+    assertThat(result.getValidationResult().getErrorMessage())
+        .isEqualTo("frame transactions are not supported at the current fork");
+    // Rejected before validation: the non-frame path never sees a frame transaction.
+    verifyNoInteractions(transactionValidatorFactory);
+  }
+
+  @Test
+  void frameTransactionIsHandedToTheFrameTransactionProcessor() {
+    when(transaction.getType()).thenReturn(TransactionType.FRAME);
+    when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))
+        .thenReturn(
+            ValidationResult.invalid(TransactionInvalidReason.INVALID_FRAMES, "frame rule"));
+
+    final var result =
+        processFrameTransaction(
+            MainnetTransactionProcessor.builder()
+                .populateFrom(createTransactionProcessor(false))
+                .supportsFrameTransactions(true)
+                .build());
+
+    // The frame processor runs the fork's validator first and stops on its result; the non-frame
+    // path would go on to validateForSender.
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INVALID_FRAMES);
+    assertThat(result.getValidationResult().getErrorMessage()).isEqualTo("frame rule");
+    verify(transactionValidatorFactory.get(), never()).validateForSender(any(), any(), any());
+  }
+
+  @Test
+  void populateFromCopiesFrameSupport() {
+    when(transaction.getType()).thenReturn(TransactionType.FRAME);
+    when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))
+        .thenReturn(
+            ValidationResult.invalid(TransactionInvalidReason.INVALID_FRAMES, "frame rule"));
+    final MainnetTransactionProcessor withFrames =
+        MainnetTransactionProcessor.builder()
+            .populateFrom(createTransactionProcessor(false))
+            .supportsFrameTransactions(true)
+            .build();
+
+    final MainnetTransactionProcessor copied =
+        MainnetTransactionProcessor.builder().populateFrom(withFrames).build();
+
+    assertThat(processFrameTransaction(copied).getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INVALID_FRAMES);
+    final MainnetTransactionProcessor copiedWithout =
+        MainnetTransactionProcessor.builder()
+            .populateFrom(createTransactionProcessor(false))
+            .build();
+    assertThat(processFrameTransaction(copiedWithout).getValidationResult().getErrorMessage())
+        .isEqualTo("frame transactions are not supported at the current fork");
+  }
+
+  private TransactionProcessingResult processFrameTransaction(
+      final MainnetTransactionProcessor transactionProcessor) {
+    return transactionProcessor.processTransaction(
+        worldState,
+        blockHeader,
+        transaction,
+        Address.fromHexString("1"),
+        blockHashLookup,
+        TransactionValidationParams.processingBlock(),
+        Wei.ZERO);
   }
 
   private ArgumentCaptor<TransactionValidationParams> transactionValidationParamCaptor() {

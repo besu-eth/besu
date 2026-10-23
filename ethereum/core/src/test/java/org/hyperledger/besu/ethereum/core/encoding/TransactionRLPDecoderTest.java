@@ -146,36 +146,38 @@ class TransactionRLPDecoderTest {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
-  /**
-   * Type 0x06 is defined as the EIP-8141 frame transaction type, but no decoder is registered for
-   * it, so frame transaction bytes are rejected as an unsupported type in every context rather than
-   * failing with an internal error.
-   */
+  /** Type 0x06 is the EIP-8141 frame transaction type, decoded in every context. */
   @ParameterizedTest(name = "{0}")
   @EnumSource(EncodingContext.class)
-  void decodeOpaqueBytesRejectsFrameTransactions(final EncodingContext context) {
+  void decodeOpaqueBytesDecodesFrameTransactions(final EncodingContext context) {
     assertThat(TransactionType.fromOpaque((byte) 0x06)).contains(TransactionType.FRAME);
-    assertThatThrownBy(() -> TransactionDecoder.decodeOpaqueBytes(frameTransactionBytes(), context))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("Unsupported transaction type FRAME: no decoder registered");
+    final Bytes encoded = frameTransactionBytes();
+
+    final Transaction decoded = TransactionDecoder.decodeOpaqueBytes(encoded, context);
+
+    assertThat(decoded.getType()).isEqualTo(TransactionType.FRAME);
+    assertThat(TransactionEncoder.encodeOpaqueBytes(decoded, context)).isEqualTo(encoded);
   }
 
   @ParameterizedTest(name = "{0}")
   @EnumSource(EncodingContext.class)
-  void decodeRLPRejectsRlpWrappedFrameTransactions(final EncodingContext context) {
-    final Bytes wrapped = RLP.encode(out -> out.writeBytes(frameTransactionBytes()));
-    assertThatThrownBy(() -> TransactionDecoder.decodeRLP(RLP.input(wrapped), context))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("Unsupported transaction type FRAME: no decoder registered");
+  void decodeRLPDecodesRlpWrappedFrameTransactions(final EncodingContext context) {
+    final Bytes encoded = frameTransactionBytes();
+    final Bytes wrapped = RLP.encode(out -> out.writeBytes(encoded));
+
+    final Transaction decoded = TransactionDecoder.decodeRLP(RLP.input(wrapped), context);
+
+    assertThat(decoded.getType()).isEqualTo(TransactionType.FRAME);
+    assertThat(TransactionEncoder.encodeOpaqueBytes(decoded, context)).isEqualTo(encoded);
   }
 
+  /** Malformed bytes typed as a frame transaction fail as malformed RLP, not internally. */
   @ParameterizedTest(name = "{0}")
   @EnumSource(EncodingContext.class)
-  void decodeOpaqueBytesRejectsAnyPayloadTypedAsAFrameTransaction(final EncodingContext context) {
+  void decodeOpaqueBytesRejectsAMalformedFrameTransaction(final EncodingContext context) {
     assertThatThrownBy(
             () -> TransactionDecoder.decodeOpaqueBytes(Bytes.fromHexString("0x06c0"), context))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("Unsupported transaction type FRAME: no decoder registered");
+        .isInstanceOf(RLPException.class);
   }
 
   private static Bytes frameTransactionBytes() {

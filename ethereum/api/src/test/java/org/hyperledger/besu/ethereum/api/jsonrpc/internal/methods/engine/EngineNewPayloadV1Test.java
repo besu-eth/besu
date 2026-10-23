@@ -36,6 +36,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
@@ -58,12 +59,14 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -72,10 +75,13 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.UnaryOperator;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Vertx;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -352,6 +358,84 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     assertThat(res.getStatus()).isEqualTo(INVALID);
     assertThat(res.getError()).startsWith("Failed to decode transactions from block parameter");
     verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldAttributeAMalformedFrameTransactionToTheFrameFormat() {
+    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
+
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, List.of("0x06c0"))));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getLatestValidHash()).isNull();
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getError()).startsWith("Invalid frame transaction format (");
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldAttributeAMalformedFrameTransactionInAParsedPayloadToTheFrameFormat() {
+    // evmtool's engine-test hands the method a parsed JSON tree rather than a Map.
+    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
+    final JsonNode payload =
+        new ObjectMapper().valueToTree(mockEnginePayloadParam(mockHeader, List.of("0x06c0")));
+
+    var resp = resp(ArrayUtils.addAll(new Object[] {payload}, getVersionSpecificDefaultParams()));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getError()).startsWith("Invalid frame transaction format (");
+  }
+
+  @Test
+  public void shouldKeepTheFrameDecoderMessageForANamedFrameField() {
+    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeByte(TransactionType.FRAME.getSerializedType());
+    out.startList();
+    out.writeBigIntegerScalar(BigInteger.ONE);
+    out.writeList(List.of(UInt256.ZERO), (key, o) -> o.writeUInt256Scalar(key));
+    // A nonce sequence wider than 64 bits.
+    out.writeBytes(Bytes.repeat((byte) 1, 9));
+    out.endList();
+
+    var resp =
+        resp(
+            requestParams(
+                mockEnginePayloadParam(mockHeader, List.of(out.encoded().toHexString()))));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getError())
+        .startsWith("Failed to decode transactions from block parameter")
+        .contains("nonce sequence exceeds 2^64-1");
+  }
+
+  @Test
+  public void shouldAttributeADecodingFailureToTheEntryItStoppedOn() {
+    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
+
+    var frameFirst =
+        fromSuccessResp(
+            resp(requestParams(mockEnginePayloadParam(mockHeader, List.of("0x06c0", "0xDEAD")))));
+    var frameSecond =
+        fromSuccessResp(
+            resp(requestParams(mockEnginePayloadParam(mockHeader, List.of("0xDEAD", "0x06c0")))));
+
+    assertThat(frameFirst.getError()).startsWith("Invalid frame transaction format (");
+    assertThat(frameSecond.getError())
+        .startsWith("Failed to decode transactions from block parameter");
+  }
+
+  @Test
+  public void shouldKeepTheGenericMessageForANonHexEntry() {
+    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
+
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, List.of("0x06zz"))));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getError()).startsWith("Failed to decode transactions from block parameter");
   }
 
   @Test

@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionValidator;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.account.Account;
@@ -374,6 +375,27 @@ final class GenesisStateTest {
     assertThat(header.getRequestsHash()).contains(Hash.EMPTY_REQUESTS_HASH);
     assertThat(header.getOptionalSlotNumber()).contains(0x42L);
     assertThat(header.getBalHash()).contains(Hash.EMPTY_BAL_HASH);
+  }
+
+  @ParameterizedTest
+  @ArgumentsSource(GenesisStateTestArguments.class)
+  void genesisFromBogotaCarriesExpiryVerifier(
+      final DataStorageConfiguration dataStorageConfiguration) {
+    // EIP-8141 no longer installs the verifier at activation, so a Bogota chain gets it from
+    // genesis.
+    final GenesisState genesisState =
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesis_bogota.json"),
+            ProtocolScheduleFixture.TESTING_NETWORK);
+    final MutableWorldState worldState = InMemoryKeyValueStorageProvider.createInMemoryWorldState();
+    genesisState.writeStateTo(worldState);
+
+    final Account verifier = worldState.get(MainnetTransactionValidator.EXPIRY_VERIFIER);
+    assertThat(verifier).isNotNull();
+    assertThat(verifier.getNonce()).isEqualTo(1L);
+    assertThat(verifier.getCode())
+        .isEqualTo(Bytes.fromHexString("0x60083614600a575f5ffd5b5f3560c01c4211601657005b5f5ffd"));
   }
 
   @ParameterizedTest

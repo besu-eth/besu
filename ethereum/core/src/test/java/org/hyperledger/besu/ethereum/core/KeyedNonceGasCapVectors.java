@@ -14,7 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.core;
 
-import org.hyperledger.besu.ethereum.core.encoding.FrameTransactionDecoder;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -98,7 +99,6 @@ public final class KeyedNonceGasCapVectors {
   }
 
   private static Transaction decode(final Bytes encoded) {
-    // The frame transaction decoder is not registered for type 0x06 yet, so call it directly.
-    return FrameTransactionDecoder.decode(encoded);
+    return TransactionDecoder.decodeOpaqueBytes(encoded, EncodingContext.BLOCK_BODY);
   }
 }

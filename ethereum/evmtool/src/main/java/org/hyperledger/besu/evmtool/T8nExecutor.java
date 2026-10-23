@@ -37,6 +37,7 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -463,7 +464,10 @@ public class T8nExecutor {
       long transactionGasUsed = transaction.getGasLimit() - result.getGasRemaining();
 
       gasUsed += transactionGasUsed;
-      long intrinsicGas = gasCalculator.transactionIntrinsicGasCost(transaction, 0);
+      long intrinsicGas =
+          transaction.getType().supportsFrames()
+              ? FrameTransactionGas.intrinsicGas(transaction)
+              : gasCalculator.transactionIntrinsicGasCost(transaction, 0);
       TransactionReceipt receipt =
           protocolSpec
               .getTransactionReceiptFactory()

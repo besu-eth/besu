@@ -352,14 +352,56 @@ abstract class AbstractBlockProcessorTest {
     verifyNoInteractions(transactionProcessor);
   }
 
+  @Test
+  void frameTransactionOnAForkWithoutFramesFailsTheBlockBeforeExecution() {
+    // A fork that does not accept FRAME: its validator rejects the type in the prefilter, so the
+    // block fails with the validator's message and the transaction processor never sees it.
+    when(protocolSpec.getTransactionValidatorFactory())
+        .thenReturn(validatorFactory(Set.of(TransactionType.EIP1559)));
+    final Transaction frameTransaction =
+        frameTransactionBuilder()
+            .frames(
+                List.of(
+                    new Frame(
+                        Frame.MODE_VERIFY,
+                        Frame.APPROVE_SCOPE_MASK,
+                        Optional.empty(),
+                        50_000L,
+                        0L,
+                        Wei.ZERO,
+                        Bytes.EMPTY)))
+            .build();
+
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(blockWith(frameTransaction, 30_000_000L))
+                .blockAccessList(Optional.empty())
+                .sequentialExecutionRequested(true)
+                .build());
+
+    assertThat(result.isSuccessful()).isFalse();
+    assertThat(result.errorMessage)
+        .hasValueSatisfying(
+            message -> assertThat(message).contains("Transaction type FRAME is invalid"));
+    verifyNoInteractions(transactionProcessor);
+  }
+
   private static TransactionValidatorFactory frameValidatorFactory() {
+    return validatorFactory(Set.of(TransactionType.EIP1559, TransactionType.FRAME));
+  }
+
+  private static TransactionValidatorFactory validatorFactory(
+      final Set<TransactionType> acceptedTransactionTypes) {
     return new TransactionValidatorFactory(
         mock(GasCalculator.class),
         GasLimitCalculator.constant(),
         FeeMarket.london(0L),
         false,
         Optional.of(BigInteger.ONE),
-        Set.of(TransactionType.EIP1559, TransactionType.FRAME),
+        acceptedTransactionTypes,
         Integer.MAX_VALUE);
   }
 
