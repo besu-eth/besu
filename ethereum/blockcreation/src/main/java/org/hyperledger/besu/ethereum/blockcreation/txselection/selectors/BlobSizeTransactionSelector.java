@@ -51,7 +51,8 @@ public class BlobSizeTransactionSelector extends AbstractStatefulTransactionSele
       final TransactionEvaluationContext evaluationContext) {
 
     final var tx = evaluationContext.getTransaction();
-    if (tx.getType().supportsBlob()) {
+    // A frame transaction's type supports blobs, but one without blobs needs no blob gas.
+    if (tx.getBlobCount() > 0) {
 
       final var cumulativeBlobGasUsed = getWorkingState();
 
@@ -89,7 +90,7 @@ public class BlobSizeTransactionSelector extends AbstractStatefulTransactionSele
       final TransactionEvaluationContext evaluationContext,
       final TransactionProcessingResult processingResult) {
     final var tx = evaluationContext.getTransaction();
-    if (tx.getType().supportsBlob()) {
+    if (tx.getBlobCount() > 0) {
       setWorkingState(getWorkingState() + context.gasCalculator().blobGasCost(tx.getBlobCount()));
     }
     return TransactionSelectionResult.SELECTED;

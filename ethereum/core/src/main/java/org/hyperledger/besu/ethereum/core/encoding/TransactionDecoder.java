@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.core.encoding;
 
-import static com.google.common.base.Preconditions.checkNotNull;
-
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLP;
@@ -181,9 +179,13 @@ public class TransactionDecoder {
         return POOLED_TRANSACTION_DECODERS.get(transactionType);
       }
     }
-    return checkNotNull(
-        TRANSACTION_DECODERS.get(transactionType),
-        "Developer Error. A supported transaction type %s has no associated decoding logic",
-        transactionType);
+    final Decoder decoder = TRANSACTION_DECODERS.get(transactionType);
+    if (decoder == null) {
+      // A known type byte with no decoder registered (e.g. a type defined for an unscheduled fork)
+      // is malformed input, reported like an unknown type byte rather than as an internal error.
+      throw new IllegalArgumentException(
+          "Unsupported transaction type " + transactionType + ": no decoder registered");
+    }
+    return decoder;
   }
 }

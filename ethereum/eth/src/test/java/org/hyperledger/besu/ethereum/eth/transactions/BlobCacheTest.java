@@ -18,10 +18,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
@@ -32,10 +34,12 @@ import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.BaseTransactionPoolTest;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 /** Stripping a blob transaction's sidecar and putting it back from the cache. */
@@ -84,6 +88,34 @@ class BlobCacheTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  void answersEmptyForAFrameTransactionThatCarriesNoBlobs() {
+    final Transaction blobLess = frameTransaction(null, null);
+    blobCache.cacheBlobs(blobLess);
+
+    assertThat(blobCache.size()).isZero();
+    assertThat(blobCache.restoreBlob(blobLess)).isEmpty();
+  }
+
+  @Test
+  void restoresTheSidecarOfAFrameTransactionCarryingBlobs() {
+    // A frame transaction may carry blobs; those are cached and restored like a blob
+    // transaction's.
+    final Transaction blobTransaction = createEIP4844Transaction(0, KEYS, 1, 2);
+    final List<VersionedHash> versionedHashes = blobTransaction.getVersionedHashes().orElseThrow();
+    final Transaction withBlobs =
+        frameTransaction(versionedHashes, blobTransaction.getBlobsWithCommitments().orElseThrow());
+    blobCache.cacheBlobs(withBlobs);
+
+    final Optional<Transaction> restored =
+        blobCache.restoreBlob(frameTransaction(versionedHashes, null));
+
+    assertThat(restored).isPresent();
+    assertThat(restored.get().getType()).isEqualTo(TransactionType.FRAME);
+    assertThat(restored.get().getBlobsWithCommitments())
+        .isEqualTo(withBlobs.getBlobsWithCommitments());
+  }
+
+  @Test
   void doesNotCacheATransactionHoldingOnlySampledCells() {
     final Transaction withBlobs = createEIP4844CellProofsTransaction(0, 2);
     final Transaction sampled = holdingOnlyCellsOf(withBlobs, withBlobs.getVersionedHashes().get());
@@ -114,6 +146,25 @@ class BlobCacheTest extends BaseTransactionPoolTest {
     assertThat(restored).isPresent();
     assertThat(restored.get().getBlobsWithCommitments())
         .isEqualTo(withBlobs.getBlobsWithCommitments());
+  }
+
+  private static Transaction frameTransaction(
+      final List<VersionedHash> versionedHashes, final BlobsWithCommitments blobsWithCommitments) {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_SENDER, 0, Optional.empty(), 21_000L, 0L, Wei.ZERO, Bytes.EMPTY)))
+        .maxPriorityFeePerGas(Wei.of(1))
+        .maxFeePerGas(Wei.of(10))
+        .maxFeePerBlobGas(Wei.of(1))
+        .versionedHashes(versionedHashes)
+        .blobsWithCommitments(blobsWithCommitments)
+        .build();
   }
 
   private Transaction createEIP4844CellProofsTransaction(final long nonce, final int blobCount) {

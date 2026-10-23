@@ -24,6 +24,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.CodeDelegation;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
@@ -33,10 +34,13 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class TransactionRLPDecoderTest {
@@ -140,6 +144,65 @@ class TransactionRLPDecoderTest {
                 TransactionDecoder.decodeOpaqueBytes(
                     Bytes.fromHexString(EIP1559_TX_RLP), EncodingContext.BLOCK_BODY))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /**
+   * Type 0x06 is defined as the EIP-8141 frame transaction type, but no decoder is registered for
+   * it, so frame transaction bytes are rejected as an unsupported type in every context rather than
+   * failing with an internal error.
+   */
+  @ParameterizedTest(name = "{0}")
+  @EnumSource(EncodingContext.class)
+  void decodeOpaqueBytesRejectsFrameTransactions(final EncodingContext context) {
+    assertThat(TransactionType.fromOpaque((byte) 0x06)).contains(TransactionType.FRAME);
+    assertThatThrownBy(() -> TransactionDecoder.decodeOpaqueBytes(frameTransactionBytes(), context))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Unsupported transaction type FRAME: no decoder registered");
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @EnumSource(EncodingContext.class)
+  void decodeRLPRejectsRlpWrappedFrameTransactions(final EncodingContext context) {
+    final Bytes wrapped = RLP.encode(out -> out.writeBytes(frameTransactionBytes()));
+    assertThatThrownBy(() -> TransactionDecoder.decodeRLP(RLP.input(wrapped), context))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Unsupported transaction type FRAME: no decoder registered");
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @EnumSource(EncodingContext.class)
+  void decodeOpaqueBytesRejectsAnyPayloadTypedAsAFrameTransaction(final EncodingContext context) {
+    assertThatThrownBy(
+            () -> TransactionDecoder.decodeOpaqueBytes(Bytes.fromHexString("0x06c0"), context))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Unsupported transaction type FRAME: no decoder registered");
+  }
+
+  private static Bytes frameTransactionBytes() {
+    final Transaction frameTransaction =
+        Transaction.builder()
+            .type(TransactionType.FRAME)
+            .chainId(BigInteger.ONE)
+            .nonce(0)
+            .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+            .frames(
+                List.of(
+                    new Frame(
+                        Frame.MODE_VERIFY,
+                        Frame.APPROVE_SCOPE_MASK,
+                        Optional.empty(),
+                        50_000L,
+                        0L,
+                        Wei.ZERO,
+                        Bytes.EMPTY)))
+            .frameSignatures(List.of())
+            .maxPriorityFeePerGas(Wei.of(1))
+            .maxFeePerGas(Wei.of(10))
+            .build();
+    final Bytes encoded =
+        TransactionEncoder.encodeOpaqueBytes(frameTransaction, EncodingContext.BLOCK_BODY);
+    assertThat(encoded.get(0)).isEqualTo((byte) 0x06);
+    return encoded;
   }
 
   @Test

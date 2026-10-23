@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet;
 import static org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper.verify4844Kzg;
 
 import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -108,8 +109,9 @@ public class MainnetBlobsValidator {
   private ValidationResult<TransactionInvalidReason> validateBlobTransaction(
       final Transaction transaction) {
 
-    // Blob transactions must target a recipient account
-    if (transaction.getType().supportsBlob() && transaction.getTo().isEmpty()) {
+    // Blob transactions must target a recipient account (frame transactions have no top-level
+    // recipient by design)
+    if (transaction.getType() == TransactionType.BLOB && transaction.getTo().isEmpty()) {
       return ValidationResult.invalid(
           TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
           "transaction blob transactions must have a to address");

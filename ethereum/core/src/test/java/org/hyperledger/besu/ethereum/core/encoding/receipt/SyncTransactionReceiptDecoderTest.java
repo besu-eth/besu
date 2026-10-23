@@ -198,7 +198,8 @@ public class SyncTransactionReceiptDecoderTest {
    * only as a value read off the wire in the EIP-2718 envelope, which is what this rejects.
    */
   @ParameterizedTest(name = "type byte {0}")
-  @ValueSource(ints = {0x00, 0x05, 0x06, 0x7f, 0xc0, 0xf8, 0xfe, 0xff})
+  // 0x06 is defined: it is the EIP-8141 frame transaction type.
+  @ValueSource(ints = {0x00, 0x05, 0x07, 0x7f, 0xc0, 0xf8, 0xfe, 0xff})
   public void typedReceiptWithUndefinedTypeByteIsRejected(final int typeByte) {
     final Bytes encodedReceipt = typedReceiptWithTypeByte(typeByte);
 
@@ -253,7 +254,8 @@ public class SyncTransactionReceiptDecoderTest {
    * the receipts-root check while being stored with the bogus byte.
    */
   @ParameterizedTest(name = "eth/69 type field {0}")
-  @ValueSource(ints = {0x05, 0x06, 0x7f, 0xc0, 0xf8, 0xfe, 0xff})
+  // 0x06 is defined: it is the EIP-8141 frame transaction type.
+  @ValueSource(ints = {0x05, 0x07, 0x7f, 0xc0, 0xf8, 0xfe, 0xff})
   public void eth69ReceiptWithUndefinedTypeFieldIsRejected(final int typeByte) {
     final Bytes encodedReceipt = eth69ReceiptWithTypeField(Bytes.of((byte) typeByte));
 
