@@ -142,6 +142,7 @@ public enum RpcErrorType implements RpcMethodError {
   ETH_SEND_TX_REPLACEMENT_UNDERPRICED(-32000, "Replacement transaction underpriced"),
   // EIP-8141 frame transactions
   FRAME_VALIDATION_FAILED(-32000, "Frame transaction validation failed"),
+  FRAME_MEMPOOL_POLICY_VIOLATION(-32000, "Frame transaction violates the public mempool policy"),
   // P2P related errors
   P2P_DISABLED(-32000, "P2P has been disabled. This functionality is not available"),
   DISCOVERY_DISABLED(-32000, "Discovery has been disabled. This functionality is not available"),

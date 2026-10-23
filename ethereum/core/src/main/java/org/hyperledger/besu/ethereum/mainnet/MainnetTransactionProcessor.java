@@ -778,6 +778,15 @@ public class MainnetTransactionProcessor {
     executor.process(frame, operationTracer);
   }
 
+  /**
+   * The EIP-8141 frame transaction processor, when the fork supports frame transactions.
+   *
+   * @return the frame transaction processor, if any
+   */
+  public Optional<FrameTransactionProcessor> getFrameTransactionProcessor() {
+    return maybeFrameTransactionProcessor;
+  }
+
   public AbstractMessageProcessor getMessageProcessor(final MessageFrame.Type type) {
     return switch (type) {
       case MESSAGE_CALL -> messageCallProcessor;

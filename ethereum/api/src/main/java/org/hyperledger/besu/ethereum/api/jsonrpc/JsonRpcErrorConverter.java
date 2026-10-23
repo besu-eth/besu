@@ -62,6 +62,7 @@ public class JsonRpcErrorConverter {
           FRAME_SENDER_NOT_APPROVED,
           FRAME_PAYMENT_NOT_APPROVED ->
           RpcErrorType.FRAME_VALIDATION_FAILED;
+      case FRAME_MEMPOOL_POLICY_VIOLATION -> RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION;
       default -> RpcErrorType.INTERNAL_ERROR;
     };
   }

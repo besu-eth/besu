@@ -802,6 +802,207 @@ class FrameTransactionProcessorTest {
     assertThat(keyedSequence(key)).isEqualTo(UInt256.valueOf(3));
   }
 
+  private FrameTransactionProcessor.ValidationPrefixResult simulatePrefix(
+      final WorldUpdater updater, final Transaction transaction) {
+    return processor()
+        .getFrameTransactionProcessor()
+        .orElseThrow()
+        .simulateValidationPrefix(
+            updater,
+            blockHeader,
+            transaction,
+            coinbase,
+            OperationTracer.NO_TRACING,
+            blockHashLookup,
+            Wei.ZERO);
+  }
+
+  @Test
+  void onlyForksWithFrameSupportExposeAFrameProcessor() {
+    assertThat(processor().getFrameTransactionProcessor()).isPresent();
+    final ProtocolSchedule amsterdam =
+        MainnetProtocolSchedule.fromConfig(
+            new StubGenesisConfigOptions().amsterdamTime(0).chainId(CHAIN_ID),
+            Optional.of(false),
+            Optional.of(EvmConfiguration.DEFAULT),
+            MiningConfiguration.newDefault(),
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem());
+    assertThat(
+            amsterdam
+                .getByBlockHeader(blockHeader)
+                .getTransactionProcessor()
+                .getFrameTransactionProcessor())
+        .isEmpty();
+  }
+
+  @Test
+  void validationPrefixOfASelfRelayEndsWithTheSelfVerifyFrame() {
+    final Transaction transaction =
+        signedFrameTransaction(
+            0, List.of(selfVerifyFrame(), senderFrame(recipient, Wei.of(123_456))));
+    final Wei senderBalanceBefore = worldState.get(sender).getBalance();
+    final WorldUpdater updater = worldState.updater();
+
+    final FrameTransactionProcessor.ValidationPrefixResult result =
+        simulatePrefix(updater, transaction);
+
+    assertThat(result.validity().isValid()).isTrue();
+    assertThat(result.payer()).contains(sender);
+    assertThat(result.payerFrameIndex()).isZero();
+    // The prefix's writes reach the caller's updater: APPROVE consumed the nonce.
+    assertThat(updater.get(sender).getNonce()).isEqualTo(1L);
+    // APPROVE debited the maximum cost. The SENDER frame did not run, and the fee was not
+    // settled: no refund to the payer, nothing credited to the coinbase.
+    assertThat(updater.get(recipient)).isNull();
+    assertThat(updater.get(sender).getBalance())
+        .isEqualTo(senderBalanceBefore.subtract(MAX_FEE.multiply(transaction.getGasLimit())));
+    assertThat(updater.get(coinbase)).isNull();
+    // Nothing reaches the state under the updater until the caller commits it.
+    assertThat(worldState.get(sender).getNonce()).isZero();
+  }
+
+  @Test
+  void validationPrefixOfAPaymasterEndsWithThePayFrame() {
+    final WorldUpdater setup = worldState.updater();
+    setup
+        .createAccount(contractAddress, 0, Wei.of(10).multiply(Wei.of(10).pow(18)))
+        .setCode(PAYMASTER_CODE);
+    setup.commit();
+    final Wei paymasterBalanceBefore = worldState.get(contractAddress).getBalance();
+    final Frame onlyVerify =
+        new Frame(
+            Frame.MODE_VERIFY,
+            Frame.FLAG_APPROVE_EXECUTION,
+            Optional.empty(),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Frame payFrame =
+        new Frame(
+            Frame.MODE_VERIFY,
+            Frame.FLAG_APPROVE_PAYMENT,
+            Optional.of(contractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction =
+        signedFrameTransaction(
+            0, List.of(onlyVerify, payFrame, senderFrame(recipient, Wei.of(1000))));
+    final WorldUpdater updater = worldState.updater();
+
+    final FrameTransactionProcessor.ValidationPrefixResult result =
+        simulatePrefix(updater, transaction);
+
+    assertThat(result.validity().isValid()).isTrue();
+    assertThat(result.payer()).contains(contractAddress);
+    assertThat(result.payerFrameIndex()).isEqualTo(1);
+    assertThat(updater.get(recipient)).isNull();
+    assertThat(updater.get(contractAddress).getBalance())
+        .isEqualTo(paymasterBalanceBefore.subtract(MAX_FEE.multiply(transaction.getGasLimit())));
+    assertThat(updater.get(coinbase)).isNull();
+  }
+
+  @Test
+  void validationPrefixThatNeverApprovesPaymentIsInvalid() {
+    final Frame onlyVerify =
+        new Frame(
+            Frame.MODE_VERIFY,
+            Frame.FLAG_APPROVE_EXECUTION,
+            Optional.empty(),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction =
+        signedFrameTransaction(0, List.of(onlyVerify, senderFrame(recipient, Wei.ZERO)));
+
+    final FrameTransactionProcessor.ValidationPrefixResult result =
+        simulatePrefix(worldState.updater(), transaction);
+
+    assertThat(result.validity().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.FRAME_PAYMENT_NOT_APPROVED);
+    assertThat(result.payer()).isEmpty();
+    assertThat(result.payerFrameIndex()).isEqualTo(-1);
+  }
+
+  @Test
+  void validationPrefixKeepsTheReasonOfAnInvalidTransaction() {
+    final FrameSignature badSignature =
+        new FrameSignature(
+            FrameSignature.SCHEME_SECP256K1,
+            Bytes.EMPTY,
+            Bytes.EMPTY,
+            Bytes.concatenate(Bytes.of(0), UInt256.valueOf(1), UInt256.valueOf(1)));
+    assertThat(
+            simulatePrefix(
+                    worldState.updater(),
+                    buildFrameTransaction(0, List.of(selfVerifyFrame()), List.of(badSignature)))
+                .validity()
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INVALID_TRANSACTION_FORMAT);
+
+    final WorldUpdater setup = worldState.updater();
+    setup.createAccount(secondContractAddress, 0, Wei.ZERO).setCode(REVERTING_CODE);
+    setup.commit();
+    final Frame onlyVerify =
+        new Frame(
+            Frame.MODE_VERIFY,
+            Frame.FLAG_APPROVE_EXECUTION,
+            Optional.empty(),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Frame failingPay =
+        new Frame(
+            Frame.MODE_VERIFY,
+            Frame.FLAG_APPROVE_PAYMENT,
+            Optional.of(secondContractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final FrameTransactionProcessor.ValidationPrefixResult failed =
+        simulatePrefix(
+            worldState.updater(), signedFrameTransaction(0, List.of(onlyVerify, failingPay)));
+    assertThat(failed.validity().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.FRAME_VERIFICATION_FAILED);
+    assertThat(failed.payer()).isEmpty();
+  }
+
+  @Test
+  void validationPrefixRequiresTheExactNonceThatThePoolParametersRelax() {
+    final List<Frame> frames = List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO));
+
+    // The transaction pool's parameters accept a future legacy nonce...
+    assertThat(TransactionValidationParams.transactionPool().isAllowFutureNonce()).isTrue();
+    // ...but the prefix simulation does not.
+    assertThat(
+            simulatePrefix(worldState.updater(), signedFrameTransaction(1, frames))
+                .validity()
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_HIGH);
+
+    final WorldUpdater setup = worldState.updater();
+    setup.getAccount(sender).setNonce(5L);
+    setup.commit();
+    assertThat(
+            simulatePrefix(worldState.updater(), signedFrameTransaction(4, frames))
+                .validity()
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_LOW);
+    assertThat(
+            simulatePrefix(worldState.updater(), signedFrameTransaction(5, frames))
+                .validity()
+                .isValid())
+        .isTrue();
+  }
+
   private StateGasCostCalculator stateGas() {
     return protocolSchedule
         .getByBlockHeader(blockHeader)
