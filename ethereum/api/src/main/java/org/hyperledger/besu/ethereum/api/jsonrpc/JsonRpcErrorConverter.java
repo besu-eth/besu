@@ -57,6 +57,11 @@ public class JsonRpcErrorConverter {
       case EXECUTION_HALTED -> RpcErrorType.EXECUTION_HALTED;
       case BLOCK_NOT_FOUND -> RpcErrorType.BLOCK_NOT_FOUND;
       case INSUFFICIENT_FUNDS_FOR_TRANSFER -> RpcErrorType.INSUFFICIENT_FUNDS_FOR_TRANSFER;
+      case INVALID_FRAMES,
+          FRAME_VERIFICATION_FAILED,
+          FRAME_SENDER_NOT_APPROVED,
+          FRAME_PAYMENT_NOT_APPROVED ->
+          RpcErrorType.FRAME_VALIDATION_FAILED;
       default -> RpcErrorType.INTERNAL_ERROR;
     };
   }
