@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidationResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.blockcreation.MempoolPrewarmer;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -102,6 +103,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   /** The Protocol schedule. */
   protected final ProtocolSchedule protocolSchedule;
 
+  private final Optional<MempoolPrewarmer> mempoolPrewarmer;
+
   private final Map<PayloadIdentifier, BlockCreationTask> blockCreationTasks =
       new ConcurrentHashMap<>();
 
@@ -130,6 +133,35 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         protocolContext,
         protocolSchedule,
         ethScheduler,
+        transactionPool,
+        miningParams,
+        backwardSyncContext,
+        Optional.empty());
+  }
+
+  /**
+   * Instantiates a new Merge coordinator.
+   *
+   * @param protocolContext the protocol context
+   * @param protocolSchedule the protocol schedule
+   * @param ethScheduler the block builder executor
+   * @param transactionPool the pending transactions
+   * @param miningParams the mining params
+   * @param backwardSyncContext the backward sync context
+   * @param mempoolPrewarmer prewarms the state for the next block between blocks, if enabled
+   */
+  public MergeCoordinator(
+      final ProtocolContext protocolContext,
+      final ProtocolSchedule protocolSchedule,
+      final EthScheduler ethScheduler,
+      final TransactionPool transactionPool,
+      final MiningConfiguration miningParams,
+      final BackwardSyncContext backwardSyncContext,
+      final Optional<MempoolPrewarmer> mempoolPrewarmer) {
+    this(
+        protocolContext,
+        protocolSchedule,
+        ethScheduler,
         miningParams,
         backwardSyncContext,
         (parentHeader, address) -> {
@@ -142,7 +174,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
               protocolSchedule,
               parentHeader,
               ethScheduler);
-        });
+        },
+        mempoolPrewarmer);
   }
 
   /**
@@ -163,6 +196,36 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final MiningConfiguration miningParams,
       final BackwardSyncContext backwardSyncContext,
       final MergeBlockCreatorFactory mergeBlockCreatorFactory) {
+    this(
+        protocolContext,
+        protocolSchedule,
+        ethScheduler,
+        miningParams,
+        backwardSyncContext,
+        mergeBlockCreatorFactory,
+        Optional.empty());
+  }
+
+  /**
+   * Instantiates a new Merge coordinator.
+   *
+   * @param protocolContext the protocol context
+   * @param protocolSchedule the protocol schedule
+   * @param ethScheduler the block builder executor
+   * @param miningParams the mining params
+   * @param backwardSyncContext the backward sync context
+   * @param mergeBlockCreatorFactory the merge block creator factory
+   * @param mempoolPrewarmer prewarms the state for the next block between blocks, if enabled
+   */
+  @VisibleForTesting
+  public MergeCoordinator(
+      final ProtocolContext protocolContext,
+      final ProtocolSchedule protocolSchedule,
+      final EthScheduler ethScheduler,
+      final MiningConfiguration miningParams,
+      final BackwardSyncContext backwardSyncContext,
+      final MergeBlockCreatorFactory mergeBlockCreatorFactory,
+      final Optional<MempoolPrewarmer> mempoolPrewarmer) {
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
     this.ethScheduler = ethScheduler;
@@ -178,6 +241,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     this.miningConfiguration = miningParams;
 
     this.mergeBlockCreatorFactory = mergeBlockCreatorFactory;
+    this.mempoolPrewarmer = mempoolPrewarmer;
 
     this.backwardSyncContext.subscribeBadChainListener(this);
   }
@@ -186,7 +250,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public void start() {}
 
   @Override
-  public void stop() {}
+  public void stop() {
+    // mining can be started again, so the prewarmer's threads stay
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.empty()));
+  }
 
   @Override
   public void awaitStop() throws InterruptedException {}
@@ -243,6 +310,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     // we assume that preparePayload is always called sequentially, since the RPC Engine calls
     // are sequential, if this assumption changes then more synchronization should be added to
     // shared data structures
+
+    // building executes the pool's transactions itself
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.empty()));
 
     final PayloadIdentifier payloadIdentifier =
         PayloadIdentifier.forPayloadParams(preparePayloadArgs);
@@ -700,6 +770,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   private BlockProcessingResult validateBlock(
       final Block block, final Optional<BlockAccessList> blockAccessList) {
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.of(block)));
     final var validationResult =
         protocolSchedule
             .getByBlockHeader(block.getHeader())
@@ -802,6 +873,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       return ForkchoiceResult.withFailure(
           INTERNAL_ERROR, "Failed to set new head", Optional.empty());
     }
+
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.start(newHead));
 
     // set and persist the new finalized block if it is present
     newFinalized.ifPresent(
