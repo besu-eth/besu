@@ -44,6 +44,7 @@ import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.v2.worldstate.JournaledWorldUpdaterV2;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -373,7 +374,16 @@ public class MainnetTransactionProcessor {
       final long initialGas = Math.min(executionBudget, gasAvailable);
       final long initialStateGasReservoir = gasAvailable - initialGas;
 
-      final WorldUpdater worldUpdater = frameWorldState.updater();
+      // On EVM v2 the call frames share one journal instead of stacking an updater each.
+      final WorldUpdater worldUpdater;
+      if (messageCallProcessor.runsOnEvmV2()) {
+        final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(frameWorldState);
+        // the journal also tracks the EIP-2929 warm slots, starting with the access list's
+        eip2930StorageList.forEach(journal::warmUpStorage);
+        worldUpdater = journal;
+      } else {
+        worldUpdater = frameWorldState.updater();
+      }
 
       operationTracer.traceStartTransaction(worldUpdater, transaction);
 
