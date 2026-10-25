@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
+import org.hyperledger.besu.evm.v2.worldstate.JournaledWorldUpdaterV2;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +30,8 @@ import org.apache.tuweni.bytes.Bytes32;
 public class AccessListOperationTracer implements OperationTracer {
 
   private Table<Address, Bytes32, Boolean> warmedUpStorage;
+  // on EVM v2 the journal of the transaction keeps the warm slots
+  private JournaledWorldUpdaterV2 journal;
 
   /** Default constructor. */
   private AccessListOperationTracer() {
@@ -37,7 +40,11 @@ public class AccessListOperationTracer implements OperationTracer {
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    warmedUpStorage = frame.getWarmedUpStorage();
+    if (frame.getWorldUpdater() instanceof JournaledWorldUpdaterV2 journaled) {
+      journal = journaled;
+    } else {
+      warmedUpStorage = frame.getWarmedUpStorage();
+    }
   }
 
   /**
@@ -46,6 +53,8 @@ public class AccessListOperationTracer implements OperationTracer {
    * @return the access list
    */
   public List<AccessListEntry> getAccessList() {
+    final Table<Address, Bytes32, Boolean> warmedUpStorage =
+        journal != null ? journal.getWarmedUpStorage() : this.warmedUpStorage;
     if (warmedUpStorage != null && !warmedUpStorage.isEmpty()) {
       final List<AccessListEntry> list = new ArrayList<>(warmedUpStorage.size());
       warmedUpStorage
