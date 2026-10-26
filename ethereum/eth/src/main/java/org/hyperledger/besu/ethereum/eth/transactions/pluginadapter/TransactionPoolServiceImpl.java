@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.transactions.pluginadapter;
 import static org.hyperledger.besu.ethereum.core.plugins.Subscriptions.unsubscribeOnClose;
 
 import org.hyperledger.besu.datatypes.PendingTransaction;
+import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
@@ -24,6 +25,7 @@ import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAdded
 import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionDroppedListener;
 
 import java.util.Collection;
+import java.util.Optional;
 
 /** The Transaction pool service implementation. */
 public class TransactionPoolServiceImpl implements TransactionPoolService {
@@ -74,5 +76,23 @@ public class TransactionPoolServiceImpl implements TransactionPoolService {
             (transaction, reason) -> listener.onTransactionDropped(transaction, reason.label()),
             listener.getClass().getName());
     return unsubscribeOnClose(() -> transactionPool.unsubscribeDroppedTransactions(id));
+  }
+
+  @Override
+  public int getPendingTransactionCount() {
+    return transactionPool.count();
+  }
+
+  @Override
+  public Optional<String> addTransactionViaApi(final Transaction transaction) {
+    if (!(transaction instanceof org.hyperledger.besu.ethereum.core.Transaction coreTransaction)) {
+      throw new IllegalArgumentException(
+          "Transaction was not obtained from Besu: "
+              + (transaction == null ? "null" : transaction.getClass().getName()));
+    }
+    final var validationResult = transactionPool.addTransactionViaApi(coreTransaction);
+    return validationResult.isValid()
+        ? Optional.empty()
+        : Optional.of(validationResult.getInvalidReason().name());
   }
 }

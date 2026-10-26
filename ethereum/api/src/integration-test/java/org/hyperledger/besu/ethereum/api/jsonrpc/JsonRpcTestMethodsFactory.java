@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManagerBu
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethodsFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.NetworkEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.NoopMiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -229,6 +230,7 @@ public class JsonRpcTestMethodsFactory {
             webSocketConfiguration,
             metricsConfiguration,
             graphQLConfiguration,
+            new NetworkEndpointServiceImpl(),
             natService,
             new HashMap<>(),
             dataDir,

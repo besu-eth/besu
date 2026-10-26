@@ -15,12 +15,15 @@
 package org.hyperledger.besu.plugin.services.transactionpool;
 
 import org.hyperledger.besu.datatypes.PendingTransaction;
+import org.hyperledger.besu.datatypes.Transaction;
+import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.BesuService;
 import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAddedListener;
 import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionDroppedListener;
 
 import java.util.Collection;
+import java.util.Optional;
 
 /**
  * Service to control and inspect the transaction pool: enable or disable the pool, query whether it
@@ -81,4 +84,37 @@ public interface TransactionPoolService extends BesuService {
    * @return the subscription; close it to stop receiving events
    */
   Subscription subscribeTransactionDropped(TransactionDroppedListener listener);
+
+  /**
+   * Get the number of transactions currently in the pool. While the pool is disabled, for example
+   * during initial sync, it holds no transactions and this returns 0.
+   *
+   * @return the number of pending transactions
+   */
+  @Unstable
+  default int getPendingTransactionCount() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Submit a transaction to the pool as a local transaction, the way {@code eth_sendRawTransaction}
+   * does: it is validated, added to the pool with the priority of local transactions, and broadcast
+   * to peers if accepted.
+   *
+   * <p>The transaction must be an instance that Besu created, such as one returned by {@code
+   * RlpConverterService.buildTransactionFromRlp}, a transaction of a block body returned by {@code
+   * BlockchainService}, or the transaction of a pending transaction returned by {@link
+   * #getPendingTransactions()}. Other implementations of {@link Transaction} are rejected.
+   *
+   * @param transaction the transaction to submit
+   * @return empty if the transaction was accepted, otherwise the reason it was rejected, as the
+   *     name of a Besu {@code TransactionInvalidReason} (for example {@code NONCE_TOO_LOW}, or
+   *     {@code TX_POOL_DISABLED} while the pool is disabled). The set of reasons is informational
+   *     and may grow.
+   * @throws IllegalArgumentException if the transaction is not an instance that Besu created
+   */
+  @Unstable
+  default Optional<String> addTransactionViaApi(final Transaction transaction) {
+    throw new UnsupportedOperationException();
+  }
 }

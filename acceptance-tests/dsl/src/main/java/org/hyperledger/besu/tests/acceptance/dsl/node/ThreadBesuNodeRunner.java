@@ -40,7 +40,9 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.pluginadapter.SecurityModuleServiceImpl;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
+import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.InProcessRpcConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.NetworkEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -226,6 +228,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         .autoLogBloomCaching(false)
         .storageProvider(besuController.getStorageProvider())
         .rpcEndpointService(component.rpcEndpointService())
+        .networkEndpointService(component.networkEndpointService())
         .inProcessRpcConfiguration(inProcessRpcConfiguration)
         .transactionValidatorService(component.getTransactionValidatorService());
     node.engineRpcConfiguration().ifPresent(runnerBuilder::engineJsonRpcConfiguration);
@@ -360,6 +363,12 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     @Singleton
     RpcEndpointServiceImpl provideRpcEndpointService() {
       return new RpcEndpointServiceImpl();
+    }
+
+    @Provides
+    @Singleton
+    NetworkEndpointServiceImpl provideNetworkEndpointService() {
+      return new NetworkEndpointServiceImpl();
     }
 
     @Provides
@@ -538,6 +547,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final BlockchainServiceImpl blockchainServiceImpl,
         final SecurityModuleServiceImpl securityModuleService,
         final RpcEndpointServiceImpl rpcEndpointServiceImpl,
+        final NetworkEndpointServiceImpl networkEndpointService,
         final BesuConfigurationImpl commonPluginConfiguration,
         final PermissioningServiceImpl permissioningService,
         final TransactionSelectionServiceImpl transactionSelectionServiceImpl,
@@ -568,6 +578,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           storageService,
           securityModuleService,
           rpcEndpointServiceImpl,
+          networkEndpointService,
           blockchainServiceImpl,
           commonPluginConfiguration,
           permissioningService,
@@ -619,6 +630,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final StorageServiceImpl storageService,
         final SecurityModuleServiceImpl securityModuleService,
         final RpcEndpointServiceImpl rpcEndpointServiceImpl,
+        final NetworkEndpointServiceImpl networkEndpointService,
         final BlockchainServiceImpl blockchainServiceImpl,
         final BesuConfigurationImpl commonPluginConfiguration,
         final PermissioningServiceImpl permissioningService,
@@ -649,7 +661,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           transactionPoolValidatorServiceImpl,
           transactionSimulationServiceImpl,
           blockchainServiceImpl,
-          transactionValidatorServiceImpl);
+          transactionValidatorServiceImpl,
+          networkEndpointService);
       final Path pluginsPath;
       final String pluginDir = System.getProperty("besu.plugins.dir");
       if (pluginDir == null || pluginDir.isEmpty()) {
@@ -670,6 +683,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
               .requestedPluginsInfo(requestedPlugins.stream().map(PluginInfo::new).toList())
               .build());
       besuPluginContext.registerPlugins();
+      networkEndpointService.seal();
       commandLine.parseArgs(extraCLIOptions.toArray(new String[0]));
 
       // register built-in plugins
@@ -716,6 +730,14 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
       commonPluginConfiguration.init(
           dataDir, dataDir.resolve(DATABASE_PATH), node.getDataStorageConfiguration());
       commonPluginConfiguration.withMiningParameters(miningConfiguration);
+      // Process-mode nodes never pass --host-allowlist or --Xhttp-timeout-seconds, so use the CLI
+      // defaults rather than the node's JSON-RPC values (which allow any host), keeping the host
+      // checks of plugin services the same in both runner modes.
+      commonPluginConfiguration
+          .withRpcHttpTimeoutSec(TimeoutOptions.defaultOptions().getTimeoutSeconds())
+          .withHostsAllowlist(List.of("localhost", "127.0.0.1"))
+          .withDefaultHostAddress(node.getHostName())
+          .withMaxLogFilterAddresses(node.getApiConfiguration().getMaxFilterAddresses());
       return commonPluginConfiguration;
     }
   }
@@ -788,6 +810,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     EthNetworkConfig.Builder ethNetworkConfigBuilder();
 
     RpcEndpointServiceImpl rpcEndpointService();
+
+    NetworkEndpointServiceImpl networkEndpointService();
 
     BlockchainServiceImpl blockchainService();
 

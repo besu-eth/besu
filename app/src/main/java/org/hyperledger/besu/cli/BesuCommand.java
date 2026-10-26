@@ -118,6 +118,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.JwtAlgorithm;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.NetworkEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -175,6 +176,7 @@ import org.hyperledger.besu.plugin.rpc.RpcConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.NetworkEndpointService;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.health.LivenessCheckPlugin;
@@ -708,6 +710,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private Collection<EnodeURLImpl> staticNodes;
   private BesuController besuController;
   private BesuConfigurationImpl pluginCommonConfiguration;
+  private final NetworkEndpointServiceImpl networkEndpointService =
+      new NetworkEndpointServiceImpl();
 
   private Optional<Checkpoint> checkpoint = Optional.empty();
 
@@ -927,6 +931,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                   readinessCheckPlugin.register(besuPluginContext);
                 }
               });
+      // every plugin, built-in or external, has registered its network endpoints by now; later
+      // registrations would miss the port checks
+      networkEndpointService.seal();
 
       commandLine.setExecutionStrategy(nextStep);
       return commandLine.execute(parseResult.originalArgs().toArray(new String[0]));
@@ -1265,6 +1272,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     return isMember;
   }
 
+  /**
+   * Returns the registry of network listeners owned by plugins.
+   *
+   * @return the network endpoint service
+   */
+  @VisibleForTesting
+  NetworkEndpointServiceImpl getNetworkEndpointService() {
+    return networkEndpointService;
+  }
+
   @VisibleForTesting
   void setBesuConfiguration(final BesuConfigurationImpl pluginCommonConfiguration) {
     this.pluginCommonConfiguration = pluginCommonConfiguration;
@@ -1361,7 +1378,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         transactionPoolValidatorServiceImpl,
         transactionSimulationServiceImpl,
         blockchainServiceImpl,
-        transactionValidatorServiceImpl);
+        transactionValidatorServiceImpl,
+        networkEndpointService);
 
     // register built-in plugins
     rocksDBPlugin = new RocksDBPlugin();
@@ -2166,7 +2184,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     pluginCommonConfiguration
         .init(dataDir(), dataDir().resolve(DATABASE_PATH), getDataStorageConfiguration())
         .withMiningParameters(miningParametersSupplier.get())
-        .withJsonRpcHttpOptions(jsonRpcHttpOptions);
+        .withJsonRpcHttpOptions(jsonRpcHttpOptions)
+        .withRpcHttpTimeoutSec(unstableRPCOptions.getHttpTimeoutSec())
+        .withHostsAllowlist(hostsAllowlist)
+        // same value as p2PDiscoveryConfig.p2pHost(), which is not built on subcommand paths
+        .withDefaultHostAddress(p2PDiscoveryOptions.p2pHost)
+        .withMaxLogFilterAddresses(apiConfigurationSupplier.get().getMaxFilterAddresses());
     final KeyValueStorageProvider storageProvider = keyValueStorageProvider(keyValueStorageName);
     final ApiConfiguration apiConfiguration = apiConfigurationSupplier.get();
     final BalConfiguration balConfiguration = balConfigurationOptions.toDomainObject();
@@ -2541,6 +2564,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .ethstatsOptions(ethstatsOptions)
             .storageProvider(keyValueStorageProvider(keyValueStorageName))
             .rpcEndpointService(rpcEndpointServiceImpl)
+            .networkEndpointService(networkEndpointService)
             .enodeDnsConfiguration(getEnodeDnsConfiguration())
             .allowedSubnets(p2PDiscoveryConfig.allowedSubnets())
             .poaDiscoveryRetryBootnodes(p2PDiscoveryConfig.poaDiscoveryRetryBootnodes())
@@ -2911,6 +2935,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         graphQlOptions.getGraphQLHttpPort(),
         Transport.TCP,
         graphQlOptions.isGraphQLHttpEnabled());
+    // Listeners owned by plugins, registered during plugin registration.
+    for (final NetworkEndpointService.NetworkEndpoint endpoint :
+        networkEndpointService.getEndpoints()) {
+      addPortIfEnabled(
+          effectivePorts, endpoint.getConfiguredPort(), Transport.TCP, endpoint.isEnabled());
+    }
     addPortIfEnabled(
         effectivePorts,
         jsonRpcHttpOptions.getRpcHttpPort(),

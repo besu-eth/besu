@@ -188,4 +188,41 @@ public interface TransactionSimulationService extends BesuService {
       ProcessableBlockHeader processableBlockHeader,
       OperationTracer operationTracer,
       EnumSet<SimulationParameters> simulationParameters);
+
+  /**
+   * Simulate a call on the world state after the given block, using that block's header as the
+   * execution environment, as {@code eth_call} does at that block. Fields that are not set in the
+   * call parameters keep the simulator defaults: the zero address as sender, the simulator gas cap,
+   * the sender's current nonce, and non-strict gas price checks.
+   *
+   * <p>Validation is relaxed only as {@code simulationParameters} asks. To validate as {@code
+   * eth_call} does, pass {@link SimulationParameters#ALLOW_FUTURE_NONCE}, and also {@link
+   * SimulationParameters#ALLOW_EXCEEDING_BALANCE} when the call sets no gas price and no non-zero
+   * fee per gas.
+   *
+   * <p>A present result wraps the transaction actually executed, so {@link
+   * TransactionSimulationResult#getGasEstimate()} reflects the gas used by that execution.
+   *
+   * <p>Unlike {@link #simulate(Transaction, Optional, Hash, OperationTracer, EnumSet)}, which
+   * returns an invalid result with reason {@code BLOCK_NOT_FOUND} for an unknown block, this method
+   * returns empty: there is no transaction to wrap until the call has been executed.
+   *
+   * @param callParameters the call parameters
+   * @param stateOverrides state overrides to apply to this simulation
+   * @param blockHash the hash of the block whose post-state and header to use
+   * @param operationTracer the tracer
+   * @param simulationParameters the simulation parameters
+   * @return the result of the simulation; empty if the block is unknown, its world state is
+   *     unavailable, or the simulation could not be executed
+   * @throws IllegalArgumentException if the state overrides are invalid, for example when they move
+   *     a precompile from an address that is not a precompile
+   */
+  default Optional<TransactionSimulationResult> simulate(
+      final CallParameter callParameters,
+      final Optional<StateOverrideMap> stateOverrides,
+      final Hash blockHash,
+      final OperationTracer operationTracer,
+      final EnumSet<SimulationParameters> simulationParameters) {
+    throw new UnsupportedOperationException();
+  }
 }

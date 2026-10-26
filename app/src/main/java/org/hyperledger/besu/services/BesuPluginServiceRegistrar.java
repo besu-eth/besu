@@ -16,6 +16,7 @@ package org.hyperledger.besu.services;
 
 import org.hyperledger.besu.Runner;
 import org.hyperledger.besu.controller.BesuController;
+import org.hyperledger.besu.ethereum.api.pluginadapter.BlockchainQueryServiceImpl;
 import org.hyperledger.besu.ethereum.api.pluginadapter.HealthCheckServiceImpl;
 import org.hyperledger.besu.ethereum.api.pluginadapter.TraceServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -27,9 +28,11 @@ import org.hyperledger.besu.ethereum.transaction.pluginadapter.BlockSimulatorSer
 import org.hyperledger.besu.ethereum.worldstate.pluginadapter.WorldStateServiceImpl;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.BlockSimulationService;
+import org.hyperledger.besu.plugin.services.BlockchainQueryService;
 import org.hyperledger.besu.plugin.services.BlockchainService;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.NetworkEndpointService;
 import org.hyperledger.besu.plugin.services.PermissioningService;
 import org.hyperledger.besu.plugin.services.RpcEndpointService;
 import org.hyperledger.besu.plugin.services.SecurityModuleService;
@@ -91,6 +94,8 @@ public final class BesuPluginServiceRegistrar {
    * @param transactionSimulationService the transaction simulation service
    * @param blockchainService the blockchain service
    * @param transactionValidatorService the transaction validator service
+   * @param networkEndpointService the registry of network listeners owned by plugins; it must be
+   *     the same instance that is later passed to the {@code RunnerBuilder}
    */
   public static void registerEarlyServices(
       final BesuPluginContextImpl pluginContext,
@@ -103,7 +108,8 @@ public final class BesuPluginServiceRegistrar {
       final TransactionPoolValidatorService transactionPoolValidatorService,
       final TransactionSimulationService transactionSimulationService,
       final BlockchainService blockchainService,
-      final TransactionValidatorService transactionValidatorService) {
+      final TransactionValidatorService transactionValidatorService,
+      final NetworkEndpointService networkEndpointService) {
 
     pluginContext.addService(SecurityModuleService.class, securityModuleService);
     pluginContext.addService(StorageService.class, storageService);
@@ -116,6 +122,7 @@ public final class BesuPluginServiceRegistrar {
     pluginContext.addService(TransactionSimulationService.class, transactionSimulationService);
     pluginContext.addService(BlockchainService.class, blockchainService);
     pluginContext.addService(TransactionValidatorService.class, transactionValidatorService);
+    pluginContext.addService(NetworkEndpointService.class, networkEndpointService);
 
     pluginContext.addService(HealthCheckService.class, new HealthCheckServiceImpl());
   }
@@ -156,7 +163,8 @@ public final class BesuPluginServiceRegistrar {
    *
    * @param pluginContext the plugin context to register services into
    * @param besuController the fully built Besu controller
-   * @param runner the fully built runner (provides P2P network and in-process RPC)
+   * @param runner the fully built runner (provides P2P network, in-process RPC and blockchain
+   *     queries)
    * @param metricsSystem the fully configured metrics system
    * @param miningConfiguration the active mining configuration
    */
@@ -213,6 +221,11 @@ public final class BesuPluginServiceRegistrar {
                 besuController.getProtocolContext().getWorldStateArchive(),
                 miningConfiguration),
             besuController.getProtocolSchedule()));
+
+    // shares the BlockchainQueries the JSON-RPC APIs use: same gas price oracle and log bloom cache
+    pluginContext.addService(
+        BlockchainQueryService.class,
+        new BlockchainQueryServiceImpl(runner.getBlockchainQueries()));
 
     registerMiningService(pluginContext, besuController);
 

@@ -62,6 +62,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.PendingTransactionSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.syncing.SyncingSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsSubscriptionService;
+import org.hyperledger.besu.ethereum.api.pluginadapter.NetworkEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
@@ -124,6 +125,7 @@ import org.hyperledger.besu.nat.upnp.UpnpNatManager;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
+import org.hyperledger.besu.plugin.services.NetworkEndpointService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.NetworkUtility;
@@ -198,6 +200,7 @@ public class RunnerBuilder {
   private boolean autoLogBloomCaching = true;
   private StorageProvider storageProvider;
   private RpcEndpointServiceImpl rpcEndpointServiceImpl;
+  private NetworkEndpointService networkEndpointService = new NetworkEndpointServiceImpl();
   private JsonRpcIpcConfiguration jsonRpcIpcConfiguration;
   private Optional<EnodeDnsConfiguration> enodeDnsConfiguration;
   private List<IPAddress> allowedSubnets = new ArrayList<>();
@@ -616,6 +619,18 @@ public class RunnerBuilder {
    */
   public RunnerBuilder rpcEndpointService(final RpcEndpointServiceImpl rpcEndpointService) {
     this.rpcEndpointServiceImpl = rpcEndpointService;
+    return this;
+  }
+
+  /**
+   * Add the registry of network listeners owned by plugins. They are reported by net_services and
+   * written to the ports file. Defaults to an empty registry.
+   *
+   * @param networkEndpointService the network endpoint service
+   * @return the runner builder
+   */
+  public RunnerBuilder networkEndpointService(final NetworkEndpointService networkEndpointService) {
+    this.networkEndpointService = networkEndpointService;
     return this;
   }
 
@@ -1251,7 +1266,9 @@ public class RunnerBuilder {
         dataDir,
         pidPath,
         autoLogBloomCaching ? blockchainQueries.getTransactionLogBloomCacher() : Optional.empty(),
-        context.getBlockchain());
+        context.getBlockchain(),
+        networkEndpointService,
+        blockchainQueries);
   }
 
   private boolean isEthStatsEnabled() {
@@ -1430,6 +1447,7 @@ public class RunnerBuilder {
                 webSocketConfiguration,
                 metricsConfiguration,
                 graphQLConfiguration,
+                networkEndpointService,
                 natService,
                 namedPlugins,
                 dataDir,

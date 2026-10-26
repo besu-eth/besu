@@ -24,7 +24,7 @@ import java.util.Objects;
  * Specifies the location of a transaction within the blockchain (where the transaction was included
  * in the block and location within this block's transactions list).
  */
-public class TransactionLocation {
+public class TransactionLocation implements org.hyperledger.besu.plugin.data.TransactionLocation {
 
   private final Hash blockHash;
   private final int transactionIndex;
@@ -34,10 +34,12 @@ public class TransactionLocation {
     this.transactionIndex = transactionIndex;
   }
 
+  @Override
   public Hash getBlockHash() {
     return blockHash;
   }
 
+  @Override
   public int getTransactionIndex() {
     return transactionIndex;
   }

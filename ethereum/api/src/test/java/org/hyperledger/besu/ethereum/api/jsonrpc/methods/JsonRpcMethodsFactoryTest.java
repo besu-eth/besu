@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.NetworkEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -140,6 +141,7 @@ class JsonRpcMethodsFactoryTest {
                 mock(WebSocketConfiguration.class),
                 mock(MetricsConfiguration.class),
                 mock(GraphQLConfiguration.class),
+                new NetworkEndpointServiceImpl(),
                 natService,
                 new HashMap<>(),
                 folder,
@@ -184,6 +186,7 @@ class JsonRpcMethodsFactoryTest {
                 mock(WebSocketConfiguration.class),
                 mock(MetricsConfiguration.class),
                 mock(GraphQLConfiguration.class),
+                new NetworkEndpointServiceImpl(),
                 natService,
                 new HashMap<>(),
                 folder,

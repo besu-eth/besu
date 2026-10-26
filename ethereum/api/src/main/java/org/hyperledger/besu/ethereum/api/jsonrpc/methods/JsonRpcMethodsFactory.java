@@ -41,6 +41,7 @@ import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.plugin.BesuPlugin;
+import org.hyperledger.besu.plugin.services.NetworkEndpointService;
 
 import java.math.BigInteger;
 import java.nio.file.Path;
@@ -79,6 +80,7 @@ public class JsonRpcMethodsFactory {
       final WebSocketConfiguration webSocketConfiguration,
       final MetricsConfiguration metricsConfiguration,
       final GraphQLConfiguration graphQLConfiguration,
+      final NetworkEndpointService networkEndpointService,
       final NatService natService,
       final Map<String, BesuPlugin> namedPlugins,
       final Path dataDir,
@@ -145,6 +147,7 @@ public class JsonRpcMethodsFactory {
                   jsonRpcConfiguration,
                   webSocketConfiguration,
                   metricsConfiguration,
+                  networkEndpointService,
                   graphQLConfiguration),
               new MinerJsonRpcMethods(miningConfiguration, miningCoordinator),
               new PermJsonRpcMethods(accountsAllowlistController, nodeAllowlistController),

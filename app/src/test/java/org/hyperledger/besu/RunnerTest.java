@@ -68,6 +68,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.services.NetworkEndpointService;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBKeyValueStorageFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
@@ -76,6 +77,7 @@ import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.nio.file.Files;
@@ -85,7 +87,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -192,6 +196,35 @@ public final class RunnerTest {
 
     final String listenHost = InetAddress.getLoopbackAddress().getHostAddress();
     final Path pidPath = dataDirAhead.resolve("pid");
+    // A stub registry rather than NetworkEndpointServiceImpl, so that it can also serve an
+    // endpoint whose ports file key clashes with a built-in entry, which the real registry rejects.
+    final List<NetworkEndpointService.NetworkEndpoint> pluginEndpoints =
+        List.of(
+            new TestNetworkEndpoint(
+                "pluginService", "plugin-service", true, 8600, Optional.of(4321)),
+            new TestNetworkEndpoint("notStarted", "not-started", true, 8999, Optional.empty()),
+            new TestNetworkEndpoint("disabled", "disabled", false, 0, Optional.of(9998)),
+            // a plugin endpoint whose ports file key clashes with a built-in entry
+            new TestNetworkEndpoint("clash", "json-rpc", true, 1, Optional.of(1)),
+            // a plugin endpoint that fails when asked whether it is enabled
+            new TestNetworkEndpoint("broken", "broken", true, 2, Optional.of(2)) {
+              @Override
+              public boolean isEnabled() {
+                throw new IllegalStateException("broken endpoint");
+              }
+            });
+    final NetworkEndpointService networkEndpointService =
+        new NetworkEndpointService() {
+          @Override
+          public void registerEndpoint(final NetworkEndpoint endpoint) {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public List<NetworkEndpoint> getEndpoints() {
+            return pluginEndpoints;
+          }
+        };
     final RunnerBuilder runnerBuilder =
         new RunnerBuilder()
             .vertx(vertx)
@@ -203,6 +236,7 @@ public final class RunnerTest {
             .staticNodes(emptySet())
             .storageProvider(new InMemoryKeyValueStorageProvider())
             .rpcEndpointService(new RpcEndpointServiceImpl())
+            .networkEndpointService(networkEndpointService)
             .apiConfiguration(ImmutableApiConfiguration.builder().build())
             .transactionValidatorService(new TransactionValidatorServiceImpl());
 
@@ -226,6 +260,10 @@ public final class RunnerTest {
       runnerAhead.startExternalServices();
       runnerAhead.startEthereumMainLoop();
       assertThat(pidPath.toFile()).exists();
+      assertThat(runnerAhead.getBlockchainQueries()).isNotNull();
+      assertThat(runnerAhead.getBlockchainQueries().getBlockchain())
+          .isSameAs(controllerAhead.getProtocolContext().getBlockchain());
+      assertPluginEndpointsReported(runnerAhead, dbAhead, listenHost);
 
       final SynchronizerConfiguration syncConfigBehind =
           SynchronizerConfiguration.builder()
@@ -363,6 +401,84 @@ public final class RunnerTest {
   private int getNumber(final Response response) throws IOException {
     return UInt256.fromHexString(new JsonObject(response.body().string()).getString("result"))
         .intValue();
+  }
+
+  private void assertPluginEndpointsReported(
+      final Runner runner, final Path dataDir, final String listenHost) throws IOException {
+    final Properties ports = new Properties();
+    try (final InputStream in = Files.newInputStream(dataDir.resolve("besu.ports"))) {
+      ports.load(in);
+    }
+    assertThat(ports.getProperty("json-rpc"))
+        .isEqualTo(String.valueOf(runner.getJsonRpcPort().orElseThrow()));
+    assertThat(ports.getProperty("plugin-service")).isEqualTo("4321");
+    // not started, disabled (even with a listening port) and failing endpoints are left out, and a
+    // built-in entry wins on a key clash
+    assertThat(ports).doesNotContainKeys("not-started", "disabled", "broken");
+
+    final String baseUrl =
+        String.format("http://%s:%s", listenHost, runner.getJsonRpcPort().orElseThrow());
+    try (final Response resp =
+        new OkHttpClient().newCall(getRequest("net_services", baseUrl)).execute()) {
+      assertThat(resp.code()).isEqualTo(200);
+      final JsonObject result = new JsonObject(resp.body().string()).getJsonObject("result");
+      assertThat(result.fieldNames())
+          .contains("pluginService", "notStarted")
+          .doesNotContain("disabled", "broken");
+      assertThat(result.getJsonObject("pluginService").getMap())
+          .isEqualTo(Map.of("host", "127.0.0.1", "port", "8600"));
+    }
+  }
+
+  private static class TestNetworkEndpoint implements NetworkEndpointService.NetworkEndpoint {
+    private final String serviceName;
+    private final String portsFileKey;
+    private final boolean enabled;
+    private final int configuredPort;
+    private final Optional<Integer> listeningPort;
+
+    TestNetworkEndpoint(
+        final String serviceName,
+        final String portsFileKey,
+        final boolean enabled,
+        final int configuredPort,
+        final Optional<Integer> listeningPort) {
+      this.serviceName = serviceName;
+      this.portsFileKey = portsFileKey;
+      this.enabled = enabled;
+      this.configuredPort = configuredPort;
+      this.listeningPort = listeningPort;
+    }
+
+    @Override
+    public String getServiceName() {
+      return serviceName;
+    }
+
+    @Override
+    public String getPortsFileKey() {
+      return portsFileKey;
+    }
+
+    @Override
+    public boolean isEnabled() {
+      return enabled;
+    }
+
+    @Override
+    public String getHost() {
+      return "127.0.0.1";
+    }
+
+    @Override
+    public int getConfiguredPort() {
+      return configuredPort;
+    }
+
+    @Override
+    public Optional<Integer> getListeningPort() {
+      return listeningPort;
+    }
   }
 
   private Request getRequest(final String method, final String baseUrl) {

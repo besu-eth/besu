@@ -42,8 +42,11 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNotNull;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -78,6 +81,7 @@ import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.metrics.StandardMetricCategory;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.plugin.services.NetworkEndpointService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.number.Fraction;
@@ -102,6 +106,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -2445,6 +2450,119 @@ public class BesuCommandTest extends CommandTestAbstract {
     verify(mockRunnerBuilder).jsonRpcConfiguration(jsonRpcConfigArgumentCaptor.capture());
     verify(mockRunnerBuilder).build();
     assertThat(jsonRpcConfigArgumentCaptor.getValue().getHttpTimeoutSec()).isEqualTo(513);
+    assertThat(commonPluginConfiguration.getConfiguredRpcHttpTimeoutSec()).isEqualTo(513);
+  }
+
+  @Test
+  public void pluginRpcConfigurationDefaults() {
+    parseCommand("--p2p-host=10.1.2.3");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+
+    assertThat(commonPluginConfiguration.getConfiguredRpcHttpTimeoutSec())
+        .isEqualTo(TimeoutOptions.defaultOptions().getTimeoutSeconds());
+    assertThat(commonPluginConfiguration.getConfiguredHostAllowlist())
+        .containsExactly("localhost", "127.0.0.1");
+    assertThat(commonPluginConfiguration.getDefaultHostAddress()).isEqualTo("10.1.2.3");
+    assertThat(commonPluginConfiguration.getConfiguredMaxLogFilterAddresses())
+        .isEqualTo(ApiConfiguration.DEFAULT_MAX_FILTER_ADDRESSES);
+  }
+
+  @Test
+  public void pluginRpcConfigurationFollowsOptions() {
+    parseCommand(
+        "--host-allowlist=a,b", "--rpc-max-log-filter-addresses=7", "--Xhttp-timeout-seconds=42");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+
+    assertThat(commonPluginConfiguration.getConfiguredHostAllowlist()).containsExactly("a", "b");
+    assertThat(commonPluginConfiguration.getConfiguredMaxLogFilterAddresses()).isEqualTo(7);
+    assertThat(commonPluginConfiguration.getConfiguredRpcHttpTimeoutSec()).isEqualTo(42);
+  }
+
+  @Test
+  public void pluginHostsAllowlistNoneIsEmpty() {
+    parseCommand("--host-allowlist=none");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+
+    assertThat(commonPluginConfiguration.getConfiguredHostAllowlist()).isEmpty();
+  }
+
+  @Test
+  public void pluginHostsAllowlistAllIsWildcard() {
+    parseCommand("--host-allowlist=all");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+
+    assertThat(commonPluginConfiguration.getConfiguredHostAllowlist()).containsExactly("*");
+  }
+
+  @Test
+  public void networkEndpointServiceIsSharedWithPluginsAndRunner() {
+    final TestBesuCommand besuCommand = parseCommand();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+
+    final NetworkEndpointService networkEndpointService = besuCommand.getNetworkEndpointService();
+    verify(getBesuPluginContext())
+        .addService(eq(NetworkEndpointService.class), same(networkEndpointService));
+    verify(mockRunnerBuilder).networkEndpointService(same(networkEndpointService));
+  }
+
+  @Test
+  public void pluginEndpointPortIsIncludedInPortClashCheck() {
+    registerPluginEndpointDuringPluginRegistration(true, 8545);
+    parseCommand("--rpc-http-enabled", "--rpc-http-port=8545");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "Port number '8545' has been specified multiple times. Please review the supplied configuration.");
+  }
+
+  @Test
+  public void disabledPluginEndpointPortIsNotIncludedInPortClashCheck() {
+    registerPluginEndpointDuringPluginRegistration(false, 8545);
+    parseCommand("--rpc-http-enabled", "--rpc-http-port=8545");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  private void registerPluginEndpointDuringPluginRegistration(
+      final boolean enabled, final int port) {
+    final AtomicReference<NetworkEndpointService> service = new AtomicReference<>();
+    lenient()
+        .doAnswer(
+            invocation -> {
+              service.set(invocation.getArgument(1));
+              return null;
+            })
+        .when(getBesuPluginContext())
+        .addService(eq(NetworkEndpointService.class), any());
+    doAnswer(
+            invocation -> {
+              service.get().registerEndpoint(new TestNetworkEndpoint(enabled, port));
+              return null;
+            })
+        .when(getBesuPluginContext())
+        .registerPlugins();
+  }
+
+  private record TestNetworkEndpoint(boolean isEnabled, int getConfiguredPort)
+      implements NetworkEndpointService.NetworkEndpoint {
+
+    @Override
+    public String getServiceName() {
+      return "testService";
+    }
+
+    @Override
+    public String getPortsFileKey() {
+      return "test-service";
+    }
+
+    @Override
+    public String getHost() {
+      return "127.0.0.1";
+    }
+
+    @Override
+    public Optional<Integer> getListeningPort() {
+      return Optional.empty();
+    }
   }
 
   @Test

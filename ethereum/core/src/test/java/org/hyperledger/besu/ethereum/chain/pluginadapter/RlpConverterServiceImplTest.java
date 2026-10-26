@@ -15,12 +15,19 @@
 package org.hyperledger.besu.ethereum.chain.pluginadapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Optional;
@@ -56,5 +63,51 @@ public class RlpConverterServiceImplTest {
     assertThat(header.getBlobGasUsed()).isEqualTo(deserialized.getBlobGasUsed());
     assertThat(header.getExcessBlobGas()).isEqualTo(deserialized.getExcessBlobGas());
     assertThat(header.getBalHash()).isEqualTo(deserialized.getBalHash());
+  }
+
+  @Test
+  public void buildTransactionFromRlpDecodesLegacyAndTypedTransactions() {
+    final RlpConverterServiceImpl rlpConverterServiceImpl =
+        new RlpConverterServiceImpl(ProtocolScheduleFixture.TESTING_NETWORK);
+    final BlockDataGenerator gen = new BlockDataGenerator();
+
+    for (final TransactionType type :
+        new TransactionType[] {TransactionType.FRONTIER, TransactionType.EIP1559}) {
+      final Transaction transaction = gen.transaction(type);
+      final Bytes encoded =
+          TransactionEncoder.encodeOpaqueBytes(transaction, EncodingContext.POOLED_TRANSACTION);
+
+      final org.hyperledger.besu.datatypes.Transaction decoded =
+          rlpConverterServiceImpl.buildTransactionFromRlp(encoded);
+
+      assertThat(decoded).isInstanceOf(Transaction.class).isEqualTo(transaction);
+      assertThat(decoded.getHash()).isEqualTo(transaction.getHash());
+    }
+  }
+
+  @Test
+  public void buildTransactionFromRlpWrapsRlpExceptionInIllegalArgumentException() {
+    final RlpConverterServiceImpl rlpConverterServiceImpl =
+        new RlpConverterServiceImpl(ProtocolScheduleFixture.TESTING_NETWORK);
+
+    // an empty RLP list is not a valid legacy transaction
+    assertThatThrownBy(() -> rlpConverterServiceImpl.buildTransactionFromRlp(Bytes.of(0xc0)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasCauseInstanceOf(RLPException.class);
+  }
+
+  @Test
+  public void buildTransactionFromRlpRejectsTruncatedTypedTransaction() {
+    final RlpConverterServiceImpl rlpConverterServiceImpl =
+        new RlpConverterServiceImpl(ProtocolScheduleFixture.TESTING_NETWORK);
+    final Transaction transaction = new BlockDataGenerator().transaction(TransactionType.EIP1559);
+    final Bytes encoded =
+        TransactionEncoder.encodeOpaqueBytes(transaction, EncodingContext.POOLED_TRANSACTION);
+
+    assertThatThrownBy(
+            () ->
+                rlpConverterServiceImpl.buildTransactionFromRlp(
+                    encoded.slice(0, encoded.size() - 1)))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 }

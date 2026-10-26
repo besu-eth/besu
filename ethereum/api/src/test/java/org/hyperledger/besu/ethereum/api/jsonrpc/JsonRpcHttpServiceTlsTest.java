@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter.FilterManager;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethodsFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.NetworkEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.tls.FileBasedPasswordProvider;
 import org.hyperledger.besu.ethereum.api.tls.SelfSignedP12Certificate;
@@ -147,6 +148,7 @@ public class JsonRpcHttpServiceTlsTest {
                 mock(WebSocketConfiguration.class),
                 mock(MetricsConfiguration.class),
                 mock(GraphQLConfiguration.class),
+                new NetworkEndpointServiceImpl(),
                 natService,
                 Collections.emptyMap(),
                 folder,

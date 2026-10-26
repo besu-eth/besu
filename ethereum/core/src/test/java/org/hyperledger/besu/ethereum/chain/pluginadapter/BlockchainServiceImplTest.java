@@ -17,8 +17,10 @@ package org.hyperledger.besu.ethereum.chain.pluginadapter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
@@ -29,22 +31,29 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.PropagatedBlockSource;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.FrontierGasCalculator;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.LogWithMetadata;
 import org.hyperledger.besu.plugin.data.PropagatedBlockContext;
+import org.hyperledger.besu.plugin.data.TransactionLocation;
 import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -251,6 +260,91 @@ class BlockchainServiceImplTest {
     final Block block = appendBlockOnGenesis();
     appendBlockOn(block);
     assertThat(deliveries.get()).isEqualTo(1);
+  }
+
+  @Test
+  void blockHeaderByNumberReturnsCanonicalHeader() {
+    final Block block = appendBlockOnGenesis();
+
+    assertThat(service.getBlockHeaderByNumber(0))
+        .contains(blockchain.getGenesisBlock().getHeader());
+    assertThat(service.getBlockHeaderByNumber(1)).contains(block.getHeader());
+    assertThat(service.getBlockHeaderByNumber(2)).isEmpty();
+  }
+
+  @Test
+  void totalDifficultyIsTheStoredTotalDifficulty() {
+    final Block genesis = blockchain.getGenesisBlock();
+    final Block block = appendBlockOnGenesis();
+    final Difficulty expected =
+        genesis.getHeader().getDifficulty().add(block.getHeader().getDifficulty());
+
+    assertThat(service.getTotalDifficulty(genesis.getHash()))
+        .contains(genesis.getHeader().getDifficulty().toUInt256());
+    final Optional<UInt256> totalDifficulty = service.getTotalDifficulty(block.getHash());
+    assertThat(totalDifficulty).contains(expected.toUInt256());
+    assertThat(totalDifficulty)
+        .contains(blockchain.getChainHead().getTotalDifficulty().toUInt256());
+    assertThat(service.getTotalDifficulty(Hash.ZERO)).isEmpty();
+  }
+
+  @Test
+  void transactionLocationIsTheCanonicalLocation() {
+    final Block block = appendBlockOnGenesis();
+    final List<Transaction> transactions = block.getBody().getTransactions();
+    assertThat(transactions).isNotEmpty();
+
+    for (int i = 0; i < transactions.size(); i++) {
+      final Optional<TransactionLocation> location =
+          service.getTransactionLocation(transactions.get(i).getHash());
+      assertThat(location).isPresent();
+      assertThat(location.get().getBlockHash()).isEqualTo(block.getHash());
+      assertThat(location.get().getTransactionIndex()).isEqualTo(i);
+    }
+    assertThat(service.getTransactionLocation(Hash.ZERO)).isEmpty();
+  }
+
+  @Test
+  void transactionLocationIsEmptyAfterReorgRemovesTransaction() {
+    final Block block = appendBlockOnGenesis();
+    final Hash transactionHash = block.getBody().getTransactions().get(0).getHash();
+    final Block forkBlock =
+        gen.block(
+            new BlockDataGenerator.BlockOptions()
+                .setParentHash(blockchain.getGenesisBlock().getHash())
+                .setDifficulty(block.getHeader().getDifficulty().add(10_000_000))
+                .setBlockNumber(1));
+    blockchain.appendBlock(forkBlock, gen.receipts(forkBlock));
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(forkBlock.getHash());
+
+    assertThat(service.getTransactionLocation(transactionHash)).isEmpty();
+  }
+
+  @Test
+  void blobGasCostUsesTheGasCalculatorOfTheBlockFork() {
+    final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
+    final ProtocolSpec cancunSpec = mock(ProtocolSpec.class);
+    final ProtocolSpec frontierSpec = mock(ProtocolSpec.class);
+    when(cancunSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
+    when(frontierSpec.getGasCalculator()).thenReturn(new FrontierGasCalculator());
+    final Block genesis = blockchain.getGenesisBlock();
+    final Block block = appendBlockOnGenesis();
+    when(protocolSchedule.getByBlockHeader(genesis.getHeader())).thenReturn(frontierSpec);
+    when(protocolSchedule.getByBlockHeader(block.getHeader())).thenReturn(cancunSpec);
+    final BlockchainServiceImpl blobService = new BlockchainServiceImpl();
+    blobService.init(blockchain, protocolSchedule, propagatedBlocks, badBlockManager);
+
+    assertThat(blobService.getBlobGasCost(genesis.getHeader(), 2)).isZero();
+    assertThat(blobService.getBlobGasCost(block.getHeader(), 2))
+        .isEqualTo(2 * new CancunGasCalculator().getBlobGasPerBlob())
+        .isEqualTo(new CancunGasCalculator().blobGasCost(2));
+  }
+
+  @Test
+  void negativeBlobCountIsRejected() {
+    assertThatThrownBy(() -> service.getBlobGasCost(blockchain.getGenesisBlock().getHeader(), -1))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("blobCount");
   }
 
   private Block appendBlockOnGenesis() {

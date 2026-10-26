@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
+import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
@@ -90,6 +91,52 @@ public class TransactionSimulationServiceImpl implements TransactionSimulationSe
             operationTracer,
             maybeBlockHeader.get())
         .map(res -> new TransactionSimulationResult(transaction, res.result()));
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>The block is resolved the same way as in {@link #simulate(Transaction, Optional, Hash,
+   * OperationTracer, EnumSet)}. The call is then processed by {@link
+   * TransactionSimulator#process(org.hyperledger.besu.datatypes.CallParameter, Optional,
+   * TransactionValidationParams, OperationTracer, org.hyperledger.besu.ethereum.core.BlockHeader)},
+   * which runs it on the world state after that block, with that block's header as the execution
+   * environment.
+   *
+   * <p>Returns empty when the block is unknown, and also when its world state is unavailable or the
+   * simulation fails, because the simulator then catches the error and returns empty. The one
+   * exception is an invalid state override, which the simulator rethrows as a {@link
+   * BlockStateCallException}; it is translated to an {@link IllegalArgumentException} so that no
+   * core exception type reaches the plugin. A present result always wraps the transaction actually
+   * executed.
+   */
+  @Override
+  public Optional<TransactionSimulationResult> simulate(
+      final org.hyperledger.besu.datatypes.CallParameter callParameter,
+      final Optional<StateOverrideMap> maybeStateOverrides,
+      final Hash blockHash,
+      final OperationTracer operationTracer,
+      final EnumSet<SimulationParameters> simulationParameters) {
+
+    final var maybeBlockHeader =
+        blockchain.getBlockHeader(blockHash).or(() -> blockchain.getBlockHeaderSafe(blockHash));
+
+    if (maybeBlockHeader.isEmpty()) {
+      return Optional.empty();
+    }
+
+    try {
+      return transactionSimulator
+          .process(
+              callParameter,
+              maybeStateOverrides,
+              simulationParameters2TransactionValidationParams(simulationParameters),
+              operationTracer,
+              maybeBlockHeader.get())
+          .map(res -> new TransactionSimulationResult(res.transaction(), res.result()));
+    } catch (final BlockStateCallException e) {
+      throw new IllegalArgumentException(e.getMessage(), e);
+    }
   }
 
   @Override

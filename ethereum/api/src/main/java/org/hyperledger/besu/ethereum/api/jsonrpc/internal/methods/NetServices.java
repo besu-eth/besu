@@ -24,28 +24,41 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguratio
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.plugin.services.NetworkEndpointService;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.google.common.collect.ImmutableMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class NetServices implements JsonRpcMethod {
+  private static final Logger LOG = LoggerFactory.getLogger(NetServices.class);
 
   private final JsonRpcConfiguration jsonRpcConfiguration;
   private final WebSocketConfiguration webSocketConfiguration;
   private final P2PNetwork p2pNetwork;
   private final MetricsConfiguration metricsConfiguration;
   private final GraphQLConfiguration graphQLConfiguration;
+  private final NetworkEndpointService networkEndpointService;
+  private final Set<String> warnedNameClashes = ConcurrentHashMap.newKeySet();
 
   public NetServices(
       final JsonRpcConfiguration jsonRpcConfiguration,
       final WebSocketConfiguration webSocketConfiguration,
       final P2PNetwork p2pNetwork,
       final MetricsConfiguration metricsConfiguration,
+      final NetworkEndpointService networkEndpointService,
       final GraphQLConfiguration graphQLConfiguration) {
     this.jsonRpcConfiguration = jsonRpcConfiguration;
     this.webSocketConfiguration = webSocketConfiguration;
     this.p2pNetwork = p2pNetwork;
     this.metricsConfiguration = metricsConfiguration;
     this.graphQLConfiguration = graphQLConfiguration;
+    this.networkEndpointService = networkEndpointService;
   }
 
   @Override
@@ -55,16 +68,15 @@ public class NetServices implements JsonRpcMethod {
 
   @Override
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
-    final ImmutableMap.Builder<String, ImmutableMap<String, String>> servicesMapBuilder =
-        ImmutableMap.builder();
+    final Map<String, ImmutableMap<String, String>> servicesMap = new LinkedHashMap<>();
 
     if (jsonRpcConfiguration.isEnabled()) {
-      servicesMapBuilder.put(
+      servicesMap.put(
           "jsonrpc",
           createServiceDetailsMap(jsonRpcConfiguration.getHost(), jsonRpcConfiguration.getPort()));
     }
     if (webSocketConfiguration.isEnabled()) {
-      servicesMapBuilder.put(
+      servicesMap.put(
           "ws",
           createServiceDetailsMap(
               webSocketConfiguration.getHost(), webSocketConfiguration.getPort()));
@@ -75,25 +87,55 @@ public class NetServices implements JsonRpcMethod {
           .filter(EnodeURL::isListening)
           .ifPresent(
               enode ->
-                  servicesMapBuilder.put(
+                  servicesMap.put(
                       "p2p",
                       createServiceDetailsMap(
                           enode.getIpAsString(), enode.getListeningPort().get())));
     }
     if (metricsConfiguration.isEnabled()) {
-      servicesMapBuilder.put(
+      servicesMap.put(
           "metrics",
           createServiceDetailsMap(
               metricsConfiguration.getHost(), metricsConfiguration.getActualPort()));
     }
     if (graphQLConfiguration.isEnabled()) {
-      servicesMapBuilder.put(
+      servicesMap.put(
           "graphQL",
           createServiceDetailsMap(graphQLConfiguration.getHost(), graphQLConfiguration.getPort()));
     }
+    // Listeners owned by plugins come after the built-in services, in registration order; a
+    // built-in entry wins on a name clash. A misbehaving endpoint is skipped so that it cannot
+    // break net_services for every caller.
+    for (final NetworkEndpointService.NetworkEndpoint endpoint :
+        networkEndpointService.getEndpoints()) {
+      try {
+        if (!endpoint.isEnabled()) {
+          continue;
+        }
+        final String serviceName = endpoint.getServiceName();
+        if (servicesMap.containsKey(serviceName)) {
+          if (warnedNameClashes.add(serviceName)) {
+            LOG.warn(
+                "Plugin network endpoint {} clashes with a built-in service of the same name and is"
+                    + " not reported by {}",
+                serviceName,
+                getName());
+          }
+          continue;
+        }
+        final String host = endpoint.getHost();
+        if (host == null) {
+          LOG.warn("Plugin network endpoint {} has no host and is not reported", serviceName);
+          continue;
+        }
+        servicesMap.put(serviceName, createServiceDetailsMap(host, endpoint.getConfiguredPort()));
+      } catch (final RuntimeException e) {
+        LOG.warn("Failed to read plugin network endpoint for {}: {}", getName(), e.toString());
+      }
+    }
 
     return new JsonRpcSuccessResponse(
-        requestContext.getRequest().getId(), servicesMapBuilder.build());
+        requestContext.getRequest().getId(), ImmutableMap.copyOf(servicesMap));
   }
 
   private ImmutableMap<String, String> createServiceDetailsMap(final String host, final int port) {

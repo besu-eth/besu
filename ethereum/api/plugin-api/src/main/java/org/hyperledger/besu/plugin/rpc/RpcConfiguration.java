@@ -17,6 +17,8 @@ package org.hyperledger.besu.plugin.rpc;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.BesuService;
 
+import java.util.List;
+
 /**
  * RPC configuration of the Besu node.
  *
@@ -49,4 +51,43 @@ public interface RpcConfiguration extends BesuService {
    * @return the configured RPC http timeout in seconds.
    */
   long getConfiguredRpcHttpTimeoutSec();
+
+  /**
+   * Get the configured host allowlist (--host-allowlist) that HTTP services check the Host header
+   * against. An entry of "*" allows any host. An empty list allows no host.
+   *
+   * <p>The value reflects the command line from the {@code beforeExternalServices} callback onward.
+   * During the {@code register} callback it is not yet known.
+   *
+   * @return the configured host allowlist, as an immutable list
+   */
+  default List<String> getConfiguredHostAllowlist() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the address that services bind to when no service-specific host is configured. This is the
+   * --p2p-host value, which Besu also uses as the default host of its own listeners.
+   *
+   * <p>The value reflects the command line from the {@code beforeExternalServices} callback onward.
+   * During the {@code register} callback it is not yet known.
+   *
+   * @return the default host address
+   */
+  default String getDefaultHostAddress() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the configured maximum number of addresses in a log filter
+   * (--rpc-max-log-filter-addresses).
+   *
+   * <p>The value reflects the command line from the {@code beforeExternalServices} callback onward.
+   * During the {@code register} callback it is not yet known.
+   *
+   * @return the maximum number of addresses in a log filter
+   */
+  default int getConfiguredMaxLogFilterAddresses() {
+    throw new UnsupportedOperationException();
+  }
 }

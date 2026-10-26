@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethodsFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.api.pluginadapter.NetworkEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.NoopMiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -238,6 +239,7 @@ public class JsonRpcHttpServiceRpcApisTest {
                 mock(WebSocketConfiguration.class),
                 mock(MetricsConfiguration.class),
                 mock(GraphQLConfiguration.class),
+                new NetworkEndpointServiceImpl(),
                 natService,
                 new HashMap<>(),
                 folder,
@@ -373,6 +375,7 @@ public class JsonRpcHttpServiceRpcApisTest {
                 webSocketConfiguration,
                 metricsConfiguration,
                 mock(GraphQLConfiguration.class),
+                new NetworkEndpointServiceImpl(),
                 natService,
                 new HashMap<>(),
                 folder,

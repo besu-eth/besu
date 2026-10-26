@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.transactions.pluginadapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -28,6 +29,8 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedLis
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.RemovalReason;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAddedListener;
 
@@ -101,5 +104,40 @@ class TransactionPoolServiceImplTest {
     subscription.close();
     subscription.close();
     verify(transactionPool, times(1)).unsubscribeDroppedTransactions(3L);
+  }
+
+  @Test
+  void pendingTransactionCountDelegatesToPoolCount() {
+    when(transactionPool.count()).thenReturn(5);
+    assertThat(service.getPendingTransactionCount()).isEqualTo(5);
+  }
+
+  @Test
+  void addTransactionViaApiReturnsEmptyWhenAccepted() {
+    final org.hyperledger.besu.ethereum.core.Transaction tx =
+        mock(org.hyperledger.besu.ethereum.core.Transaction.class);
+    when(transactionPool.addTransactionViaApi(tx)).thenReturn(ValidationResult.valid());
+
+    assertThat(service.addTransactionViaApi(tx)).isEmpty();
+    verify(transactionPool).addTransactionViaApi(tx);
+  }
+
+  @Test
+  void addTransactionViaApiReturnsInvalidReasonName() {
+    final org.hyperledger.besu.ethereum.core.Transaction tx =
+        mock(org.hyperledger.besu.ethereum.core.Transaction.class);
+    when(transactionPool.addTransactionViaApi(tx))
+        .thenReturn(ValidationResult.invalid(TransactionInvalidReason.NONCE_TOO_LOW));
+
+    assertThat(service.addTransactionViaApi(tx)).contains("NONCE_TOO_LOW");
+  }
+
+  @Test
+  void addTransactionViaApiRejectsForeignTransaction() {
+    final Transaction foreign = mock(Transaction.class);
+
+    assertThatThrownBy(() -> service.addTransactionViaApi(foreign))
+        .isInstanceOf(IllegalArgumentException.class);
+    verify(transactionPool, never()).addTransactionViaApi(any());
   }
 }

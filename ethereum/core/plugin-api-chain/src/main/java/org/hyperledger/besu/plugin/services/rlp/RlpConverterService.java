@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services.rlp;
 
+import org.hyperledger.besu.datatypes.Transaction;
+import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.TransactionReceipt;
@@ -71,4 +73,18 @@ public interface RlpConverterService extends BesuService {
    * @return the RLP.
    */
   Bytes buildRlpFromReceipt(final TransactionReceipt receipt);
+
+  /**
+   * Decodes a transaction in the form accepted by {@code eth_sendRawTransaction}: a legacy RLP
+   * transaction or a typed transaction envelope, with blob transactions in their network form that
+   * includes the blob sidecar.
+   *
+   * @param rlp the encoded transaction
+   * @return the transaction
+   * @throws IllegalArgumentException if the bytes are not a valid transaction encoding
+   */
+  @Unstable
+  default Transaction buildTransactionFromRlp(final Bytes rlp) {
+    throw new UnsupportedOperationException();
+  }
 }

@@ -42,6 +42,7 @@ import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockContext;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.PropagatedBlockContext;
+import org.hyperledger.besu.plugin.data.TransactionLocation;
 import org.hyperledger.besu.plugin.data.TransactionReceipt;
 import org.hyperledger.besu.plugin.services.BlockchainService;
 import org.hyperledger.besu.plugin.services.Subscription;
@@ -128,6 +129,30 @@ public class BlockchainServiceImpl implements BlockchainService {
   @Override
   public Optional<BlockHeader> getBlockHeaderByHash(final Hash hash) {
     return blockchain.getBlockHeader(hash).map(BlockHeader.class::cast);
+  }
+
+  @Override
+  public Optional<BlockHeader> getBlockHeaderByNumber(final long number) {
+    return blockchain.getBlockHeader(number).map(BlockHeader.class::cast);
+  }
+
+  @Override
+  public Optional<UInt256> getTotalDifficulty(final Hash blockHash) {
+    return blockchain.getTotalDifficultyByHash(blockHash).map(Difficulty::toUInt256);
+  }
+
+  @Override
+  public Optional<TransactionLocation> getTransactionLocation(final Hash transactionHash) {
+    return blockchain.getTransactionLocation(transactionHash).map(TransactionLocation.class::cast);
+  }
+
+  @Override
+  public long getBlobGasCost(final BlockHeader blockHeader, final long blobCount) {
+    if (blobCount < 0) {
+      throw new IllegalArgumentException("blobCount must be >= 0 but was " + blobCount);
+    }
+    // same expression as BlockchainQueries.getBlobGasUsed
+    return protocolSchedule.getByBlockHeader(blockHeader).getGasCalculator().blobGasCost(blobCount);
   }
 
   @Override

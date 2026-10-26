@@ -24,6 +24,7 @@ import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockContext;
 import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.data.TransactionLocation;
 import org.hyperledger.besu.plugin.data.TransactionReceipt;
 import org.hyperledger.besu.plugin.services.chain.spi.BadBlockListener;
 import org.hyperledger.besu.plugin.services.chain.spi.BlockAddedListener;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * A service for reading the blockchain: blocks, headers, receipts, transactions, the chain id and
@@ -67,6 +69,51 @@ public interface BlockchainService extends BesuService {
    * @return the block header if block exists otherwise empty
    */
   Optional<BlockHeader> getBlockHeaderByHash(final Hash hash);
+
+  /**
+   * Get the canonical block header at the given block number
+   *
+   * @param number the block number
+   * @return the canonical block header at that number, or empty if there is none
+   */
+  default Optional<BlockHeader> getBlockHeaderByNumber(final long number) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the total difficulty stored for the block with the given hash
+   *
+   * @param blockHash the block hash
+   * @return the total difficulty of the chain up to and including the block, or empty if the block
+   *     or its total difficulty is unknown
+   */
+  default Optional<UInt256> getTotalDifficulty(final Hash blockHash) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the location of a transaction on the canonical chain
+   *
+   * @param transactionHash the transaction hash
+   * @return the hash of the canonical block that includes the transaction and its index in that
+   *     block, or empty if the transaction is not included in a canonical block
+   */
+  default Optional<TransactionLocation> getTransactionLocation(final Hash transactionHash) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the blob gas charged for the given number of blobs under the fork rules that apply to the
+   * given block
+   *
+   * @param blockHeader the header of the block whose fork rules apply
+   * @param blobCount the number of blobs; must not be negative
+   * @return the blob gas charged, 0 before blobs are supported
+   * @throws IllegalArgumentException if {@code blobCount} is negative
+   */
+  default long getBlobGasCost(final BlockHeader blockHeader, final long blobCount) {
+    throw new UnsupportedOperationException();
+  }
 
   /**
    * Get the hash of the chain head

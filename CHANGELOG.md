@@ -34,6 +34,7 @@
 - A peer that answers a header, body or sync block body request with malformed RLP is now disconnected for breach of protocol, as it already was for pooled transactions, receipts and block access lists. Previously the decoding failure was logged at ERROR as a server error and the peer stayed connected. [#11451](https://github.com/besu-eth/besu/pull/11451)
 - The layered transaction pool notifies a transaction as added before the evictions that make space for it. Previously, when the pool was full after adding a transaction and the eviction dropped the transaction itself, it was notified as dropped before it was notified as added. [#11688](https://github.com/besu-eth/besu/pull/11688)
 - The sequenced transaction pool notifies transaction added and dropped events in the order they happen. Previously a transaction could be notified as dropped before it was notified as added, when another thread replaced it right after it was added, or when it was evicted because the pool was full after adding it. A transaction removed by the timed eviction after it had already been dropped is no longer notified as dropped a second time. [#11685](https://github.com/besu-eth/besu/pull/11685)
+- Plugin API: `RpcConfiguration.getConfiguredRpcHttpTimeoutSec()` now returns the effective `--Xhttp-timeout-seconds` value. Previously it always returned the default timeout.
 
 ### Additions and Improvements
 - `trace_filter` accepts `mode`: `intersection`, the default, or `union`, which matches a trace in either `fromAddress` or `toAddress`. An unknown value is rejected with `-32602`. [#11436](https://github.com/besu-eth/besu/pull/11436)
@@ -47,6 +48,15 @@
 - Tracers read the stack of a frame through `TracedStack`, which also reads the EVM v2 stack. With `--Xevm-v2`, a plugin tracer that calls `MessageFrame.getStackItem` or `stackSize` throws a `NullPointerException`, as those read only the EVM v1 stack. [#11524](https://github.com/besu-eth/besu/pull/11524)
 - Snap sync checks the flat database ranges of its heal stage in parallel, which shortens that stage on mainnet from about 3 h 40 min to 34 min. [#11495](https://github.com/besu-eth/besu/pull/11495)
 - Update the discovery library to 26.10.1 for faster discv5 secp256k1 verification and ECDH, with Netty, BouncyCastle, Guava, Log4j and Reactor raised to the versions it requires. [#11671](https://github.com/besu-eth/besu/pull/11671)
+- Plugin API
+  - `BlockchainService` adds `getBlockHeaderByNumber`, `getTotalDifficulty`, `getTransactionLocation` (with the new `TransactionLocation` data interface) and `getBlobGasCost`.
+  - `WorldStateService` adds `mapWorldView`, which opens the world state of a block, applies a function to it and closes it.
+  - `TransactionSimulationService` adds `simulate(CallParameter, Optional<StateOverrideMap>, Hash, OperationTracer, EnumSet<SimulationParameters>)`, which runs a call on the state after a given block, as `eth_call` does.
+  - `TransactionPoolService` adds `getPendingTransactionCount` and `addTransactionViaApi`.
+  - `RlpConverterService` adds `buildTransactionFromRlp`, which decodes a transaction as `eth_sendRawTransaction` accepts it.
+  - `RpcConfiguration` adds `getConfiguredHostAllowlist`, `getDefaultHostAddress` and `getConfiguredMaxLogFilterAddresses`.
+  - New `BlockchainQueryService`, with the suggestions of the node's gas price oracle and log queries over a block range or a single block.
+  - New `NetworkEndpointService`, with which a plugin declares a network listener it owns, so that Besu includes it in its port checks, in `net_services` and in the ports file.
 
 ## 26.10.1
 

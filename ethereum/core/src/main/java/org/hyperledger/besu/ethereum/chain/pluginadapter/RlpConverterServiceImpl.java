@@ -14,13 +14,17 @@
  */
 package org.hyperledger.besu.ethereum.chain.pluginadapter;
 
+import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.data.TransactionReceipt;
@@ -83,5 +87,22 @@ public class RlpConverterServiceImpl implements RlpConverterService {
                 (org.hyperledger.besu.ethereum.core.TransactionReceipt) receipt,
                 rlpOutput,
                 TransactionReceiptEncodingConfiguration.DEFAULT));
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Decodes with the same call as {@code eth_sendRawTransaction}, which treats an {@link
+   * IllegalArgumentException} or an {@link RLPException} as invalid params, so an {@link
+   * RLPException} is rethrown as an {@link IllegalArgumentException}; any other exception
+   * propagates unchanged.
+   */
+  @Override
+  public Transaction buildTransactionFromRlp(final Bytes rlp) {
+    try {
+      return TransactionDecoder.decodeOpaqueBytes(rlp, EncodingContext.POOLED_TRANSACTION);
+    } catch (final RLPException e) {
+      throw new IllegalArgumentException(e.getMessage(), e);
+    }
   }
 }

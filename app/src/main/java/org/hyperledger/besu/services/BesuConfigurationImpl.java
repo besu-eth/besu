@@ -16,6 +16,7 @@ package org.hyperledger.besu.services;
 
 import org.hyperledger.besu.cli.options.JsonRpcHttpOptions;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -26,6 +27,8 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /** A concrete implementation of BesuConfiguration which is used in Besu plugin framework. */
 public class BesuConfigurationImpl
@@ -39,6 +42,9 @@ public class BesuConfigurationImpl
   private String rpcHttpHost = JsonRpcConfiguration.DEFAULT_JSON_RPC_HOST;
   private Integer rpcHttpPort = JsonRpcConfiguration.DEFAULT_JSON_RPC_PORT;
   private long rpcHttpTimeoutSec = JsonRpcConfiguration.DEFAULT_HTTP_TIMEOUT_SEC;
+  private List<String> hostsAllowlist = List.of("localhost", "127.0.0.1");
+  private String defaultHostAddress = JsonRpcConfiguration.DEFAULT_JSON_RPC_HOST;
+  private int maxLogFilterAddresses = ApiConfiguration.DEFAULT_MAX_FILTER_ADDRESSES;
 
   /** Default Constructor. */
   public BesuConfigurationImpl() {}
@@ -73,7 +79,8 @@ public class BesuConfigurationImpl
   }
 
   /**
-   * Set the RPC http options
+   * Set the RPC http options. The RPC http timeout is not part of these options, set it with {@link
+   * #withRpcHttpTimeoutSec(long)}.
    *
    * @param rpcHttpOptions configured rpc http options
    * @return BesuConfigurationImpl instance
@@ -81,7 +88,56 @@ public class BesuConfigurationImpl
   public BesuConfigurationImpl withJsonRpcHttpOptions(final JsonRpcHttpOptions rpcHttpOptions) {
     this.rpcHttpHost = rpcHttpOptions.getRpcHttpHost();
     this.rpcHttpPort = rpcHttpOptions.getRpcHttpPort();
-    this.rpcHttpTimeoutSec = rpcHttpOptions.jsonRpcConfiguration().getHttpTimeoutSec();
+    return this;
+  }
+
+  /**
+   * Set the effective RPC http timeout (--Xhttp-timeout-seconds).
+   *
+   * @param rpcHttpTimeoutSec the RPC http timeout in seconds
+   * @return BesuConfigurationImpl instance
+   */
+  public BesuConfigurationImpl withRpcHttpTimeoutSec(final long rpcHttpTimeoutSec) {
+    this.rpcHttpTimeoutSec = rpcHttpTimeoutSec;
+    return this;
+  }
+
+  /**
+   * Set the effective host allowlist (--host-allowlist). The given list is copied by iterating it,
+   * so a list that hides its entries from iteration (as the CLI property does for "none") yields an
+   * empty allowlist.
+   *
+   * @param hostsAllowlist the host allowlist
+   * @return BesuConfigurationImpl instance
+   */
+  public BesuConfigurationImpl withHostsAllowlist(final Iterable<String> hostsAllowlist) {
+    final List<String> copy = new ArrayList<>();
+    for (final String host : hostsAllowlist) {
+      copy.add(host);
+    }
+    this.hostsAllowlist = List.copyOf(copy);
+    return this;
+  }
+
+  /**
+   * Set the address services bind to when no service-specific host is configured (--p2p-host).
+   *
+   * @param defaultHostAddress the default host address
+   * @return BesuConfigurationImpl instance
+   */
+  public BesuConfigurationImpl withDefaultHostAddress(final String defaultHostAddress) {
+    this.defaultHostAddress = defaultHostAddress;
+    return this;
+  }
+
+  /**
+   * Set the maximum number of addresses in a log filter (--rpc-max-log-filter-addresses).
+   *
+   * @param maxLogFilterAddresses the maximum number of addresses in a log filter
+   * @return BesuConfigurationImpl instance
+   */
+  public BesuConfigurationImpl withMaxLogFilterAddresses(final int maxLogFilterAddresses) {
+    this.maxLogFilterAddresses = maxLogFilterAddresses;
     return this;
   }
 
@@ -98,6 +154,21 @@ public class BesuConfigurationImpl
   @Override
   public long getConfiguredRpcHttpTimeoutSec() {
     return rpcHttpTimeoutSec;
+  }
+
+  @Override
+  public List<String> getConfiguredHostAllowlist() {
+    return hostsAllowlist;
+  }
+
+  @Override
+  public String getDefaultHostAddress() {
+    return defaultHostAddress;
+  }
+
+  @Override
+  public int getConfiguredMaxLogFilterAddresses() {
+    return maxLogFilterAddresses;
   }
 
   @Override
