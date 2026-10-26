@@ -16,12 +16,14 @@ package org.hyperledger.besu.ethereum.eth.messages;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.kzg.Cell;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.Collection;
 import java.util.List;
@@ -38,7 +40,7 @@ public final class GetCellsMessage extends AbstractMessageData {
 
   private GetCellsMessage(final Bytes rlp) {
     super(rlp);
-    fieldsSupplier = Suppliers.memoize(this::parse);
+    fieldsSupplier = Suppliers.memoize(this::parseMalformedAsRlpException);
   }
 
   private GetCellsMessage(final Bytes rlp, final MessageFields messageFields) {
@@ -101,6 +103,27 @@ public final class GetCellsMessage extends AbstractMessageData {
 
   public CellMask cellMask() {
     return fieldsSupplier.get().cellMask();
+  }
+
+  /**
+   * Reports anything a peer controls about the body as {@link RLPException}, which is the only
+   * malformed-input exception its callers are expected to handle: {@code EthProtocolManager} turns
+   * it into a malformed-message disconnect, as it does for the wrong cell size {@link
+   * Cell#readFrom} already rejects. The length checks on a cell mask raise {@code
+   * IllegalArgumentException} and a truncated body raises {@code IndexOutOfBoundsException},
+   * neither of which anything on those paths recognises.
+   *
+   * <p>Parsing is memoized and so happens on the first field read rather than in {@code readFrom},
+   * which is why the conversion belongs here rather than in each caller.
+   */
+  private MessageFields parseMalformedAsRlpException() {
+    try {
+      return parse();
+    } catch (final IllegalArgumentException | IndexOutOfBoundsException e) {
+      throw new RLPException(
+          "Malformed %s message: %s: %s"
+              .formatted("GetCells", e.getClass().getSimpleName(), e.getMessage()));
+    }
   }
 
   private MessageFields parse() {

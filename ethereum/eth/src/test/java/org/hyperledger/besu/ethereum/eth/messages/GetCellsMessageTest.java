@@ -25,6 +25,8 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
@@ -100,6 +102,42 @@ class GetCellsMessageTest {
         GetCellsMessage.readFrom(new RawMessage(EthProtocolMessages.GET_CELLS, msg.getData()));
     assertThat(reparsed.pooledTransactions()).isEmpty();
     assertThat(reparsed.cellMask()).isEqualTo(CellMask.EMPTY);
+  }
+
+  @Test
+  void parseRejectsAWrongLengthCellMask() {
+    // A mask is fixed width, and a peer can send any width it likes. CellMask rejects that with
+    // IllegalArgumentException, which nothing on the receiving path treats as a malformed message,
+    // so parsing converts it.
+    final BytesValueRLPOutput hashesOut = new BytesValueRLPOutput();
+    hashesOut.writeList(List.of(Hash.ZERO), (h, w) -> w.writeBytes(h.getBytes()));
+    final BytesValueRLPOutput maskOut = new BytesValueRLPOutput();
+    maskOut.writeBytes(Bytes.repeat((byte) 0xFF, CellMask.BYTE_LENGTH - 1));
+
+    final GetCellsMessage msg =
+        GetCellsMessage.readFrom(
+            new RawMessage(
+                EthProtocolMessages.GET_CELLS,
+                Bytes.concatenate(hashesOut.encoded(), maskOut.encoded())));
+
+    assertThatExceptionOfType(RLPException.class).isThrownBy(msg::cellMask);
+  }
+
+  @Test
+  void parseRejectsATruncatedBody() {
+    // The hash list says how long it is, so a body that ends inside it, or ends before the mask
+    // that should follow it, runs off the end of the data.
+    final GetCellsMessage msg = GetCellsMessage.create(List.of(tx(1)), MASK);
+    final Bytes full = msg.getData();
+
+    for (final int length : new int[] {0, 1, full.size() / 2, full.size() - 1}) {
+      final GetCellsMessage truncated =
+          GetCellsMessage.readFrom(
+              new RawMessage(EthProtocolMessages.GET_CELLS, full.slice(0, length)));
+      assertThatExceptionOfType(RLPException.class)
+          .describedAs("body truncated to %d of %d bytes", length, full.size())
+          .isThrownBy(truncated::cellMask);
+    }
   }
 
   @Test

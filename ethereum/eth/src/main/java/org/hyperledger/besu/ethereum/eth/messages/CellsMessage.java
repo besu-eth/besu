@@ -40,7 +40,7 @@ public final class CellsMessage extends AbstractMessageData {
 
   private CellsMessage(final Bytes rlp) {
     super(rlp);
-    fieldsSupplier = Suppliers.memoize(this::parse);
+    fieldsSupplier = Suppliers.memoize(this::parseMalformedAsRlpException);
   }
 
   private CellsMessage(final Bytes rlp, final MessageFields fields) {
@@ -75,12 +75,11 @@ public final class CellsMessage extends AbstractMessageData {
    * from the transaction body and the cells per blob from {@code cells}; see {@code
    * GetCellsFromPeerTask}.
    *
-   * <p>Note that the devp2p prose currently states the opposite order ("cells are listed by
-   * ascending index, and for each index in the order in which the blobs appear"), but go-ethereum,
-   * the reference implementation, is blob major on both ends: {@code answerGetCells} flattens
-   * {@code for blob { for index }}, {@code sortCells} de-interleaves with {@code
-   * d.Cells[b*n:(b+1)*n]}, and its sidecar storage indexes {@code Cells[blobIdx*cellsPerBlob+pos]}.
-   * Interoperability follows the implementation, so this does too. Worth raising upstream.
+   * <p>The devp2p prose states the opposite order ("cells are listed by ascending index, and for
+   * each index in the order in which the blobs appear"), but go-ethereum is blob major on both
+   * ends: {@code answerGetCells} flattens {@code for blob { for index }} and {@code sortCells}
+   * de-interleaves with {@code d.Cells[b*n:(b+1)*n]}. Interoperability follows the implementation,
+   * so besu matches geth behaviour.
    *
    * @param txHashes the transactions cells are returned for
    * @param cellsPerTx for each transaction, its cells ordered blob major
@@ -132,6 +131,27 @@ public final class CellsMessage extends AbstractMessageData {
 
   public CellMask cellMask() {
     return fieldsSupplier.get().cellMask;
+  }
+
+  /**
+   * Reports anything a peer controls about the body as {@link RLPException}, which is the only
+   * malformed-input exception its callers are expected to handle: {@code EthProtocolManager} turns
+   * it into a malformed-message disconnect, as it does for the wrong cell size {@link
+   * Cell#readFrom} already rejects. The length checks on a cell mask raise {@code
+   * IllegalArgumentException} and a truncated body raises {@code IndexOutOfBoundsException},
+   * neither of which anything on those paths recognises.
+   *
+   * <p>Parsing is memoized and so happens on the first field read rather than in {@code readFrom},
+   * which is why the conversion belongs here rather than in each caller.
+   */
+  private MessageFields parseMalformedAsRlpException() {
+    try {
+      return parse();
+    } catch (final IllegalArgumentException | IndexOutOfBoundsException e) {
+      throw new RLPException(
+          "Malformed %s message: %s: %s"
+              .formatted("Cells", e.getClass().getSimpleName(), e.getMessage()));
+    }
   }
 
   private MessageFields parse() {

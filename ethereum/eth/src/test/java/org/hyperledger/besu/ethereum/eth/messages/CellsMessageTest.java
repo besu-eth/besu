@@ -193,6 +193,42 @@ class CellsMessageTest {
   }
 
   @Test
+  void parseRejectsAWrongLengthCellMask() {
+    // A mask is fixed width, and a peer can send any width it likes. CellMask rejects that with
+    // IllegalArgumentException, which nothing on the receiving path treats as a malformed message,
+    // so parsing converts it.
+    final BytesValueRLPOutput hashesOut = new BytesValueRLPOutput();
+    hashesOut.writeList(List.of(hash(1)), (h, w) -> w.writeBytes(h.getBytes()));
+    final BytesValueRLPOutput cellsOut = new BytesValueRLPOutput();
+    cellsOut.writeList(List.of(cellsForTx(1, 1)), (cells, w) -> w.writeList(cells, Cell::writeTo));
+    final BytesValueRLPOutput maskOut = new BytesValueRLPOutput();
+    maskOut.writeBytes(Bytes.repeat((byte) 0xFF, CellMask.BYTE_LENGTH + 1));
+
+    final CellsMessage msg =
+        CellsMessage.readFrom(
+            new RawMessage(
+                EthProtocolMessages.CELLS,
+                Bytes.concatenate(hashesOut.encoded(), cellsOut.encoded(), maskOut.encoded())));
+
+    assertThatExceptionOfType(RLPException.class).isThrownBy(msg::cellMask);
+  }
+
+  @Test
+  void parseRejectsATruncatedBody() {
+    // Each of the three items says how long it is, so a body that ends inside one of them, or
+    // before the next begins, runs off the end of the data.
+    final Bytes full = encodeRaw(List.of(hash(1)), List.of(cellsForTx(1, 1)), MASK);
+
+    for (final int length : new int[] {0, 1, full.size() / 2, full.size() - 1}) {
+      final CellsMessage truncated =
+          CellsMessage.readFrom(new RawMessage(EthProtocolMessages.CELLS, full.slice(0, length)));
+      assertThatExceptionOfType(RLPException.class)
+          .describedAs("body truncated to %d of %d bytes", length, full.size())
+          .isThrownBy(truncated::cellsList);
+    }
+  }
+
+  @Test
   void readFromMessageWithWrongCodeThrows() {
     final RawMessage rawMsg = new RawMessage(EthProtocolMessages.BLOCK_HEADERS, Bytes.of(0));
     assertThatExceptionOfType(IllegalArgumentException.class)
