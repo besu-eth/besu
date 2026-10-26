@@ -963,4 +963,177 @@ class FrameTransactionProcessorTest {
     assertThat(statuses(result)).containsExactly(1, 1, 1, 1);
     return result.getPartialBlockAccessView();
   }
+
+  // EIP-7906 TXDIFF.
+
+  private static final Address DEAD = Address.fromHexString("0xdead");
+
+  /**
+   * The bogota-devnet-1 probe at 0x207cf3dedd5227fed11517f15fb6646582eb971b, 100 bytes: fifteen
+   * {@code TXTRACE(p, 0); POP}, then {@code TXDIFF(CODEHASH_BEFORE, 0xdead, 0); POP; STOP}.
+   */
+  private static final Bytes LIVE_PROBE_CODE = liveProbeCode();
+
+  private static Bytes liveProbeCode() {
+    final StringBuilder probe = new StringBuilder("0x");
+    for (final int param :
+        List.of(
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x13, 0x14,
+            0x15)) {
+      probe.append(String.format("600060%02xb650", param));
+    }
+    return Bytes.fromHexString(probe.append("600061dead6004b75000").toString());
+  }
+
+  /** PUSH1 in3, PUSH20 address, PUSH1 param, TXDIFF. */
+  private static String txdiffOf(final int param, final Address address, final int in3) {
+    return String.format(
+        "60%02x73%s60%02xb7", in3, address.getBytes().toUnprefixedHexString(), param);
+  }
+
+  /** Code that runs the checks, each leaving 1 when it holds, and reverts unless all of them do. */
+  private static Bytes assertingAll(final String... checks) {
+    final StringBuilder code = new StringBuilder(checks[0]);
+    for (int i = 1; i < checks.length; i++) {
+      // AND
+      code.append(checks[i]).append("16");
+    }
+    // PUSH2 dest; JUMPI; PUSH0; PUSH0; REVERT; JUMPDEST; STOP
+    final int dest = code.length() / 2 + 7;
+    return Bytes.fromHexString("0x" + code + String.format("61%04x575f5ffd5b00", dest));
+  }
+
+  /**
+   * Block 1792 of bogota-devnet-1 (tx 0x5b3e5507…): its POST_TX frame used 4731 gas on chain, the
+   * cold entry, fifteen TXTRACE reads at 108 each, and 111 for TXDIFF(CODEHASH_BEFORE, 0xdead) with
+   * its pushes and POP, 0xdead being warm from the SENDER frame's entry.
+   */
+  @Test
+  void theLiveBlock1792ProbeUses4731Gas() {
+    deploy(ASSERTION, LIVE_PROBE_CODE);
+    final Transaction transaction =
+        signedFrameTransaction(
+            0, List.of(selfVerifyFrame(), senderFrame(DEAD, Wei.ONE), postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(LIVE_PROBE_CODE.size()).isEqualTo(100);
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(statuses(result)).containsExactly(1, 1, 1);
+    assertThat(receipt(result, 1).executionGasUsed()).isEqualTo(3000L);
+    assertThat(receipt(result, 2).executionGasUsed()).isEqualTo(4731L);
+    assertThat(worldState.get(DEAD).getBalance()).isEqualTo(Wei.ONE);
+    // the EIP-7708 transfer log
+    assertThat(result.getLogs()).hasSize(1);
+  }
+
+  /**
+   * Block 1793 of bogota-devnet-1 (tx 0x1efd4dbb…): the first POST_TX frame runs {@code PUSH1 0;
+   * PUSH1 0; REVERT} for 3006 gas, which reverts the body, so the SENDER frame keeps its status and
+   * 3000 gas but loses its log, and the probe after it is skipped.
+   */
+  @Test
+  void theLiveBlock1793ShapeRevertsTheBody() {
+    deploy(ASSERTION, LIVE_PROBE_CODE);
+    deploy(SECOND_ASSERTION, Bytes.fromHexString("0x60006000fd"));
+    final Transaction transaction =
+        signedFrameTransaction(
+            0,
+            List.of(
+                selfVerifyFrame(),
+                senderFrame(DEAD, Wei.ONE),
+                postTxFrame(SECOND_ASSERTION),
+                postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 0, 2);
+    assertThat(receipt(result, 1).executionGasUsed()).isEqualTo(3000L);
+    assertThat(receipt(result, 1).logs()).isEmpty();
+    assertThat(receipt(result, 2).executionGasUsed()).isEqualTo(3006L);
+    assertThat(receipt(result, 3).executionGasUsed()).isZero();
+    assertThat(result.getLogs()).isEmpty();
+    assertThat(worldState.get(DEAD)).isNull();
+    assertThat(worldState.get(sender).getNonce()).isEqualTo(1L);
+  }
+
+  /**
+   * TXDIFF reads "before" values from the transaction prestate and "after" values from the body's
+   * result, through the processor's real updater layers. The payer's balance difference includes
+   * the pre-charge, which TXTRACE(GAS_PRE_CHARGE) reports.
+   */
+  @Test
+  void aPostTxFrameLooksUpValuesBeforeAndAfterTheBody() {
+    deploy(
+        ASSERTION,
+        assertingAll(
+            // contract slot 0: 0 before, 1 after
+            txdiffOf(0x00, contractAddress, 0) + "15",
+            txdiffOf(0x01, contractAddress, 0) + "600114",
+            // the recipient did not exist, and received 1000
+            txdiffOf(0x02, recipient, 0) + "15",
+            txdiffOf(0x03, recipient, 0) + "6103e814",
+            txdiffOf(0x04, recipient, 0)
+                + "7f"
+                + Hash.EMPTY.getBytes().toUnprefixedHexString()
+                + "14",
+            // the contract changed only its storage, and emitted one event
+            txdiffOf(0x0a, contractAddress, 0) + "600414",
+            txdiffOf(0x08, contractAddress, 0) + "600114",
+            txdiffOf(0x07, contractAddress, 0) + "15",
+            // the sender paid the pre-charge and sent 1000: before - after == pre-charge + 1000
+            txdiffOf(0x03, sender, 0)
+                + txdiffOf(0x02, sender, 0)
+                + "03"
+                + "5f6014b6"
+                + "6103e8"
+                + "01"
+                + "14",
+            // the sender's nonce and balance changed
+            txdiffOf(0x0a, sender, 0) + "600314"));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 1);
+    assertThat(worldState.get(recipient).getBalance()).isEqualTo(Wei.of(1000));
+  }
+
+  /**
+   * TXDIFF's state lookups record the slot or the account in the block access list, even for an
+   * account that never existed, while its views record nothing.
+   */
+  @Test
+  void txdiffLookupsRecordTheirAccessesInTheBlockAccessList() {
+    final Address slotOwner = Address.fromHexString("0x7000000000000000000000000000000000000007");
+    final Address account = Address.fromHexString("0x8000000000000000000000000000000000000008");
+    final Address viewed = Address.fromHexString("0x9000000000000000000000000000000000000009");
+    final Optional<PartialBlockAccessView> view =
+        accessViewWithPostTxCode(
+            Bytes.fromHexString(
+                "0x"
+                    + txdiffOf(0x00, slotOwner, 7)
+                    + "50"
+                    + txdiffOf(0x05, account, 0)
+                    + "50"
+                    + txdiffOf(0x06, viewed, 0)
+                    + "50"
+                    + txdiffOf(0x0a, viewed, 0)
+                    + "5000"));
+
+    assertThat(view).isPresent();
+    final List<PartialBlockAccessView.AccountChanges> changes = view.get().accountChanges();
+    final PartialBlockAccessView.AccountChanges slotRead =
+        changes.stream().filter(c -> c.getAddress().equals(slotOwner)).findFirst().orElseThrow();
+    assertThat(slotRead.getStorageReads())
+        .extracting(slot -> slot.getSlotKey().orElseThrow())
+        .containsExactly(UInt256.valueOf(7));
+    assertThat(slotRead.getStorageChanges()).isEmpty();
+    assertThat(slotRead.getPostBalance()).isEmpty();
+    final PartialBlockAccessView.AccountChanges accountRead =
+        changes.stream().filter(c -> c.getAddress().equals(account)).findFirst().orElseThrow();
+    assertThat(accountRead.getStorageReads()).isEmpty();
+    assertThat(accountRead.getPostBalance()).isEmpty();
+    assertThat(changes).noneMatch(c -> c.getAddress().equals(viewed));
+  }
 }
