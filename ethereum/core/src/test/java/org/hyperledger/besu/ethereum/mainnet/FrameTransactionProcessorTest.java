@@ -855,4 +855,67 @@ class FrameTransactionProcessorTest {
     assertThat(result.getEstimateGasUsedByTransaction())
         .isEqualTo(expectedGasUsed(transaction, result));
   }
+
+  /**
+   * The TXTRACE part of the bogota-devnet-1 block 1792 probe: fifteen {@code TXTRACE(p, 0); POP}
+   * reads after a 1 wei transfer, every one of which must find its entry (two balance changes, and
+   * the transfer's EIP-7708 log with three topics). Each read costs 3 + 3 + 100 + 2 after the cold
+   * entry.
+   */
+  @Test
+  void theLiveTxtraceProbeReadsEveryTableEntry() {
+    final StringBuilder probe = new StringBuilder("0x");
+    for (final int param :
+        List.of(
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x13, 0x14,
+            0x15)) {
+      probe.append(String.format("600060%02xb650", param));
+    }
+    deploy(ASSERTION, Bytes.fromHexString(probe.append("00").toString()));
+    final Address dead = Address.fromHexString("0xdead");
+    final Transaction transaction =
+        signedFrameTransaction(
+            0, List.of(selfVerifyFrame(), senderFrame(dead, Wei.ONE), postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(statuses(result)).containsExactly(1, 1, 1);
+    assertThat(receipt(result, 2).executionGasUsed()).isEqualTo(3000L + 15L * 108L);
+    assertThat(worldState.get(dead).getBalance()).isEqualTo(Wei.ONE);
+  }
+
+  @Test
+  void aPostTxFrameReadsTheTransactionDiff() {
+    deploy(contractAddress, WRITE_AND_LOG_CODE);
+    // reverts unless TXTRACE(SLOTS_CHANGED) == 1, TXTRACE(BALANCES_CHANGED) == 2 (the sender's
+    // escrow and the recipient), TXTRACE(EVENTS_COUNT) == 2, and TXTRACE(GAS_PAYER) is the sender
+    final String check =
+        "5f6001b6600114"
+            + "5f5fb6600214"
+            + "16"
+            + "5f600cb6600214"
+            + "16"
+            + "5f6015b673"
+            + sender.getBytes().toUnprefixedHexString()
+            + "14"
+            + "16";
+    final int dest = check.length() / 2 + 6;
+    deploy(
+        ASSERTION, Bytes.fromHexString("0x" + check + String.format("60%02x575f5ffd5b00", dest)));
+    final Transaction transaction =
+        signedFrameTransaction(
+            0,
+            List.of(
+                selfVerifyFrame(),
+                senderFrame(recipient, Wei.of(1000)),
+                bodyFrame(Frame.MODE_SENDER, 0, contractAddress),
+                postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 1);
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.ONE);
+  }
 }

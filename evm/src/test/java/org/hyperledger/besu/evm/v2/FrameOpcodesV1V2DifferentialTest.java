@@ -48,7 +48,16 @@ import org.junit.jupiter.api.Test;
  */
 class FrameOpcodesV1V2DifferentialTest {
 
-  private static final List<Integer> OPCODES = List.of(0xaa, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5);
+  private static final List<Integer> OPCODES =
+      List.of(0xaa, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6);
+
+  /** The EIP-7906 assertion operations, which read the diff only in a POST_TX frame. */
+  private static final List<Integer> POST_TX_OPCODES = List.of(0xb6);
+
+  private static final Bytes TWO_TO_THE_64 =
+      Bytes.concatenate(Bytes.of(1), Bytes.wrap(new byte[8]));
+  private static final Bytes TWO_TO_THE_255 =
+      Bytes.concatenate(Bytes.of(0x80), Bytes.wrap(new byte[31]));
 
   private static final List<Bytes32> SLOTS =
       IntStream.rangeClosed(0, 3).mapToObj(i -> Bytes32.leftPad(Bytes.of(i))).toList();
@@ -162,6 +171,132 @@ class FrameOpcodesV1V2DifferentialTest {
     }
     assertThat(runs).isGreaterThan(10_000);
     assertThat(differences).isEmpty();
+  }
+
+  /** POST_TX contexts for the assertion operations, and a run outside any frame transaction. */
+  private static final Map<String, Supplier<FrameTransactionContext>> POST_TX_CONTEXTS =
+      new LinkedHashMap<>();
+
+  static {
+    POST_TX_CONTEXTS.put("post-tx frame with a diff", () -> PostTxContexts.withDiff(true));
+    POST_TX_CONTEXTS.put(
+        "post-tx frame with a diff, no payer", () -> PostTxContexts.withDiff(false));
+    POST_TX_CONTEXTS.put("post-tx frame with an empty diff", PostTxContexts::withEmptyDiff);
+    POST_TX_CONTEXTS.put(
+        "post-tx frame, nothing installed", () -> PostTxContexts.withoutDiff(true));
+    POST_TX_CONTEXTS.put("no frame transaction", () -> null);
+  }
+
+  /** The stacks the assertion operations run on in a POST_TX frame, top first. */
+  private static final Map<String, List<Bytes>> POST_TX_STACKS = new LinkedHashMap<>();
+
+  static {
+    POST_TX_STACKS.put("empty", List.of());
+    POST_TX_STACKS.put("one item", List.of(Bytes.of(1)));
+    final List<Bytes> indices =
+        List.of(Bytes.EMPTY, Bytes.of(1), Bytes.of(2), Bytes.of(3), TWO_TO_THE_64, TWO_TO_THE_255);
+    final List<Bytes> params = new ArrayList<>();
+    for (int param = 0; param <= 0x16; param++) {
+      params.add(Bytes.of(param));
+    }
+    params.add(TWO_TO_THE_64);
+    params.add(TWO_TO_THE_255);
+    for (final Bytes param : params) {
+      for (final Bytes index : indices) {
+        // TXTRACE: param on top, then in2
+        POST_TX_STACKS.put(
+            String.format("param %s index %s", param.toShortHexString(), index.toShortHexString()),
+            List.of(param, index));
+      }
+    }
+  }
+
+  private static final List<Long> POST_TX_GAS =
+      List.of(
+          0L,
+          1L,
+          2L,
+          3L,
+          99L,
+          100L,
+          101L,
+          2_099L,
+          2_100L,
+          2_101L,
+          2_999L,
+          3_000L,
+          3_001L,
+          1_000_000L);
+
+  /**
+   * EIP-7906: the assertion operations end in the same state on v1 and v2, in POST_TX frames with
+   * and without a diff, and outside frame transactions, at every gas budget around their cost, and
+   * when a POST_TX frame reaches them through a STATICCALL.
+   */
+  @Test
+  void postTxOpcodesEndInTheSameStateOnV1AndV2() {
+    final EVM v1 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V1);
+    final EVM v2 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V2);
+    final List<String> differences = new ArrayList<>();
+    int runs = 0;
+    for (final int opcode : POST_TX_OPCODES) {
+      for (final Map.Entry<String, List<Bytes>> stack : POST_TX_STACKS.entrySet()) {
+        final Bytes pushes = push(stack.getValue());
+        for (final Map.Entry<String, Supplier<FrameTransactionContext>> context :
+            POST_TX_CONTEXTS.entrySet()) {
+          final long beforeOpcode =
+              1_000_000L - postTxRun(v1, pushes, Bytes.EMPTY, 1_000_000L, context).remainingGas();
+          final List<Long> budgets = new ArrayList<>();
+          for (final long gas : POST_TX_GAS) {
+            budgets.add(Math.min(1_000_000L, beforeOpcode + gas));
+          }
+          final Bytes direct = Bytes.concatenate(pushes, Bytes.of(opcode, 0x00));
+          // STATICCALL(all gas, CALLEE, 0, 0, 0, 0), the callee running the operation
+          final Bytes nested = Bytes.fromHexString("0x5f5f5f5f62ca11ee5afa00");
+          for (final long limit : budgets) {
+            for (final boolean viaCall : List.of(false, true)) {
+              if (viaCall && limit != 1_000_000L) {
+                continue;
+              }
+              final Bytes code = viaCall ? nested : direct;
+              final Bytes calleeCode = viaCall ? direct : Bytes.EMPTY;
+              final String onV1 = postTxRun(v1, code, calleeCode, limit, context).toString();
+              final String onV2 = postTxRun(v2, code, calleeCode, limit, context).toString();
+              runs++;
+              if (!onV2.equals(onV1)) {
+                differences.add(
+                    String.format(
+                        "opcode 0x%02x on the %s stack, %s%s, with %d gas:%n  v1 %s%n  v2 %s",
+                        opcode,
+                        stack.getKey(),
+                        context.getKey(),
+                        viaCall ? ", via STATICCALL" : "",
+                        limit,
+                        onV1,
+                        onV2));
+              }
+            }
+          }
+        }
+      }
+    }
+    assertThat(runs).isGreaterThan(5_000);
+    assertThat(differences).isEmpty();
+  }
+
+  private static ProgramRun.Outcome postTxRun(
+      final EVM evm,
+      final Bytes code,
+      final Bytes calleeCode,
+      final long gas,
+      final Map.Entry<String, Supplier<FrameTransactionContext>> context) {
+    final FrameTransactionContext frameContext = context.getValue().get();
+    if (frameContext == null) {
+      return ProgramRun.runTraced(evm, code, calleeCode, Bytes.EMPTY, gas, true, SLOTS);
+    }
+    return ProgramRun.executeTracedInFrameTransaction(
+            evm, code, calleeCode, gas, true, SLOTS, frameContext)
+        .outcome();
   }
 
   /**
