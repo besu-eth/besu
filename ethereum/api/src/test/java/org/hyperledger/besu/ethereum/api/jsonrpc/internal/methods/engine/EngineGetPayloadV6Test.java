@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotRead;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import java.util.List;
 import java.util.Map;
@@ -47,7 +48,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;

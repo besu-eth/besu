@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Request;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import java.util.List;
 import java.util.Optional;
@@ -42,7 +43,6 @@ import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
