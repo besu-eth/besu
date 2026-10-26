@@ -383,6 +383,22 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void invalidExtraDataWithUnknownParentDoesNotStartBackwardSync() {
+    final BlockHeader header =
+        createBlockHeader(
+            getMinSupportedTimestamp(), fixture -> fixture.extraData(Bytes.repeat((byte) 1, 33)));
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
+
+    final PayloadStatusV1 result =
+        fromSuccessResp(resp(requestParams(mockEnginePayloadParam(header, emptyList()))));
+
+    assertThat(result.getStatus()).isEqualTo(INVALID);
+    assertThat(result.getError()).isEqualTo("extra data field larger than 32 bytes");
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any(), any());
+    verify(engineCallListener).executionEngineCalled();
+  }
+
+  @Test
   public void shouldNotAppendToBackwardSyncWhenInitialSyncNotDone() {
     BlockHeader mockHeader = createBlockHeader(getMinSupportedTimestamp());
     when(mergeContext.isInitialSyncDone()).thenReturn(false);

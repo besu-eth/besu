@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.fail;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryWorldStateArchive;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MAX_SCORE;
-import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -83,6 +82,7 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -1554,8 +1554,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     // Simulate world state roll failure (storage error, pruned trie logs, etc.)
     WorldStateArchive failingArchive = mock(WorldStateArchive.class);
-    when(failingArchive.getWorldState(
-            any(org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.class)))
+    when(failingArchive.getWorldState(any(WorldStateQueryParams.class)))
         .thenReturn(Optional.empty());
 
     ProtocolContext failingProtocolContext =
@@ -1605,8 +1604,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     // backward sync may have left the head world state at another block
     final WorldStateArchive movingArchive = mock(WorldStateArchive.class);
-    when(movingArchive.getWorldState(
-            any(org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.class)))
+    when(movingArchive.getWorldState(any(WorldStateQueryParams.class)))
         .thenReturn(Optional.of(mock(MutableWorldState.class)));
     final MergeCoordinator movingCoordinator =
         new MergeCoordinator(
@@ -1627,7 +1625,13 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             block1Header, terminalHeader.getHash(), terminalHeader.getHash());
 
     assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.VALID);
-    verify(movingArchive).getWorldState(withBlockHeaderAndUpdateNodeHead(block1Header));
+    verify(movingArchive)
+        .getWorldState(
+            WorldStateQueryParams.newBuilder()
+                .withBlockHeader(block1Header)
+                .withShouldWorldStateUpdateHead(true)
+                .withFailurePolicy(WorldStateQueryParams.FailurePolicy.PRESERVE_LOCAL_FAILURE)
+                .build());
     assertThat(blockchain.getChainHeadHash()).isEqualTo(block1Header.getHash());
   }
 

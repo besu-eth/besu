@@ -30,10 +30,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
-import org.hyperledger.besu.consensus.merge.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -55,22 +55,32 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.sync.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import io.vertx.core.Vertx;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -113,10 +123,13 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void before() {
     super.before();
     when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
     when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     recoveryCoordinator = new WorldStateRecoveryCoordinator(synchronizer);
+    when(synchronizer.repairWorldState(any(), any(), any()))
+        .thenReturn(CompletableFuture.completedFuture(WorldStateRepairResult.UNSUPPORTED));
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
     createMethod();
@@ -240,6 +253,8 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void shouldReturnSyncingOnHeadBlockNotFound() {
     assertSuccessWithPayloadForForkchoiceResult(
         mockFcuParam, Optional.empty(), mock(ForkchoiceResult.class), SYNCING);
+    verify(synchronizer, never()).repairWorldState(any(), any(), any());
+    verify(synchronizer, never()).resyncWorldState();
   }
 
   @Test
@@ -256,7 +271,10 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
         Optional.empty(),
         mock(ForkchoiceResult.class),
         SYNCING);
-    verify(synchronizer).resyncWorldState();
+    verify(synchronizer)
+        .repairWorldState(eq(mockHeader.getHash()), eq(mockHeader.getStateRoot()), any());
+    verify(synchronizer, never()).resyncWorldState();
+    verify(mergeCoordinator, never()).preparePayload(any());
   }
 
   @Test
@@ -342,6 +360,8 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
         Optional.empty(),
         ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
         VALID);
+    verify(synchronizer, never()).repairWorldState(any(), any(), any());
+    verify(synchronizer, never()).resyncWorldState();
   }
 
   @Test
@@ -548,6 +568,98 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
+  @ParameterizedTest
+  @MethodSource("missingStateFailures")
+  public void shouldReturnSyncingAndRequestRepairWhenForkchoiceStateIsMissing(
+      final RuntimeException failure) {
+    final BlockHeader head = setupValidForkchoiceUpdate();
+    when(mergeCoordinator.updateForkChoice(eq(head), any(), any())).thenThrow(failure);
+
+    final ForkchoiceUpdatedResultV1 result =
+        fromSuccessResp(
+            resp(
+                new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO),
+                Optional.of(validPayloadAttributesForBlock(head))));
+
+    assertThat(result.getPayloadStatus().getStatus()).isEqualTo(SYNCING);
+    assertThat(result.getPayloadStatus().getLatestValidHash()).isNull();
+    assertThat(result.getPayloadStatus().getError()).isNull();
+    assertThat(result.getPayloadId()).isNull();
+    verify(synchronizer).repairWorldState(eq(head.getHash()), eq(head.getStateRoot()), any());
+    verify(synchronizer, never()).resyncWorldState();
+    verify(mergeCoordinator, never()).preparePayload(any());
+    verify(engineCallListener).executionEngineCalled();
+  }
+
+  static Stream<RuntimeException> missingStateFailures() {
+    return Stream.of(
+        new MerkleTrieException("missing storage", Bytes32.ZERO, Bytes.EMPTY),
+        new CompletionException(
+            new MerkleTrieException("missing storage", Bytes32.ZERO, Bytes.EMPTY)),
+        new MissingCodeException(Address.ZERO, Hash.ZERO),
+        new CompletionException(new MissingCodeException(Address.ZERO, Hash.ZERO)));
+  }
+
+  @Test
+  public void ioFailureDoesNotRequestRepair() {
+    final BlockHeader head = setupValidForkchoiceUpdate();
+    final RuntimeException failure = new CompletionException(new StorageException("disk failure"));
+    when(mergeCoordinator.updateForkChoice(eq(head), any(), any())).thenThrow(failure);
+    assertThatThrownBy(
+            () ->
+                method.syncResponse(
+                    new JsonRpcRequestContext(
+                        new JsonRpcRequest(
+                            "2.0",
+                            getMethodName(),
+                            new Object[] {
+                              new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO)
+                            }))))
+        .isSameAs(failure);
+    verify(synchronizer, never()).repairWorldState(any(), any(), any());
+    verify(engineCallListener).executionEngineCalled();
+  }
+
+  @Test
+  public void missingStateDuringInitialSyncDoesNotRequestRepair() {
+    final BlockHeader head = setupValidForkchoiceUpdate();
+    when(mergeContext.isInitialSyncDone()).thenReturn(false);
+    when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(false);
+    final var response =
+        resp(new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO), Optional.empty());
+    assertThat(
+            ((ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult())
+                .getPayloadStatus()
+                .getStatus())
+        .isEqualTo(SYNCING);
+    verify(synchronizer, never()).repairWorldState(any(), any(), any());
+  }
+
+  @Test
+  public void availabilityMetadataDoesNotReleaseQueuedParentRepairBeforeDrain() {
+    final BlockHeader head = setupValidForkchoiceUpdate();
+    final CompletableFuture<WorldStateRepairResult> active = new CompletableFuture<>();
+    final CompletableFuture<WorldStateRepairResult> queued = new CompletableFuture<>();
+    when(synchronizer.repairWorldState(eq(Hash.ZERO), eq(Hash.ZERO), any())).thenReturn(active);
+    when(synchronizer.repairWorldState(eq(head.getHash()), eq(head.getStateRoot()), any()))
+        .thenReturn(queued);
+    recoveryCoordinator.requestRecovery(Hash.ZERO, Hash.ZERO);
+    final var pending = recoveryCoordinator.requestRecovery(head.getHash(), head.getStateRoot());
+    when(mergeCoordinator.updateForkChoice(eq(head), any(), any()))
+        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
+
+    resp(new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO), Optional.empty());
+
+    // This metadata was also available when import discovered missing data at this parent.
+    // A separate FCU must not complete the waiting import's repair future based on it.
+    assertThat(pending).isNotDone();
+    active.complete(WorldStateRepairResult.REPAIRED);
+    verify(synchronizer).repairWorldState(eq(head.getHash()), eq(head.getStateRoot()), any());
+    assertThat(pending).isNotDone();
+    queued.complete(WorldStateRepairResult.REPAIRED);
+    assertThat(pending.join()).isEqualTo(WorldStateRepairResult.REPAIRED);
+  }
+
   @Test
   public void shouldReturnValidWithoutFinalizedWithPayload() {
     final BlockHeader mockHeader =
@@ -623,6 +735,29 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     assertThat(result.getPayloadId()).isNull();
 
     verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
+  }
+
+  @Test
+  public void shouldReturnSyncingWhenFinalizedAncestorStateIsUnavailable() {
+    final BlockHeader finalized = blockHeaderBuilder.number(100L).buildHeader();
+    final BlockHeader head = blockHeaderBuilder.number(50L).buildHeader();
+    setupValidForkchoiceState(head, finalized);
+    when(mergeCoordinator.isAncestorOfFinalized(head)).thenReturn(true);
+    when(worldStateArchive.isWorldStateAvailable(head.getStateRoot(), head.getHash()))
+        .thenReturn(false);
+
+    final ForkchoiceUpdatedResultV1 result =
+        fromSuccessResp(
+            resp(
+                new ForkchoiceStateV1(head.getHash(), finalized.getHash(), finalized.getHash()),
+                Optional.of(validPayloadAttributesForBlock(head))));
+
+    assertThat(result.getPayloadStatus().getStatus()).isEqualTo(SYNCING);
+    assertThat(result.getPayloadStatus().getLatestValidHash()).isNull();
+    assertThat(result.getPayloadId()).isNull();
+    verify(synchronizer).repairWorldState(eq(head.getHash()), eq(head.getStateRoot()), any());
+    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
+    verify(mergeCoordinator, never()).preparePayload(any());
   }
 
   @Test

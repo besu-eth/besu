@@ -20,7 +20,6 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
 
-import org.hyperledger.besu.consensus.merge.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
@@ -43,6 +42,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpda
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateFailure;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -81,7 +82,7 @@ public sealed class EngineForkchoiceUpdatedV1<
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV1.class);
 
   protected final MergeMiningCoordinator mergeCoordinator;
-  protected final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator;
+  protected final WorldStateRepairRequester worldStateRecoveryCoordinator;
 
   @Override
   protected Logger logger() {
@@ -96,14 +97,14 @@ public sealed class EngineForkchoiceUpdatedV1<
         constructorArguments,
         minSupportedFork,
         firstUnsupportedFork,
-        WorldStateRecoveryCoordinator.disabled());
+        WorldStateRepairRequester.DISABLED);
   }
 
   public EngineForkchoiceUpdatedV1(
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork,
-      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
+      final WorldStateRepairRequester worldStateRecoveryCoordinator) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
@@ -188,10 +189,9 @@ public sealed class EngineForkchoiceUpdatedV1<
     if (!protocolContext
         .getWorldStateArchive()
         .isWorldStateAvailable(newHead.getStateRoot(), newHead.getHash())) {
-      worldStateRecoveryCoordinator.requestRecovery(newHead.getHash(), newHead.getStateRoot());
+      requestWorldStateRepair(newHead);
       return syncingResponse(requestId, forkChoice);
     }
-    worldStateRecoveryCoordinator.markAvailable(newHead.getHash(), newHead.getStateRoot());
 
     // 2. Client software MAY skip an update of the forkchoice state and MUST NOT begin a payload
     // build process if there is a known finalizedBlockHash and forkchoiceState.headBlockHash
@@ -235,9 +235,20 @@ public sealed class EngineForkchoiceUpdatedV1<
 
     // 7. Client software MUST update its forkchoice state if payloads referenced by
     // forkchoiceState.headBlockHash and forkchoiceState.finalizedBlockHash are VALID.
-    final MergeMiningCoordinator.ForkchoiceResult forkchoiceResult =
-        mergeCoordinator.updateForkChoice(
-            newHead, forkChoice.getFinalizedBlockHash(), forkChoice.getSafeBlockHash());
+    final MergeMiningCoordinator.ForkchoiceResult forkchoiceResult;
+    try {
+      forkchoiceResult =
+          mergeCoordinator.updateForkChoice(
+              newHead, forkChoice.getFinalizedBlockHash(), forkChoice.getSafeBlockHash());
+    } catch (final RuntimeException missingState) {
+      // Availability metadata is not proof that every dependency exists. Request bounded repair
+      // outside the Engine processing thread and let the caller retry after recovery.
+      if (WorldStateFailure.isMissingState(missingState)) {
+        requestWorldStateRepair(newHead);
+        return syncingResponse(requestId, forkChoice);
+      }
+      throw missingState;
+    }
 
     // 8. Client software MUST process provided payloadAttributes after successfully applying the
     // forkchoiceState and only if the payload referenced by forkchoiceState.headBlockHash is VALID.
@@ -282,6 +293,22 @@ public sealed class EngineForkchoiceUpdatedV1<
         requestId,
         createValidResult(
             forkchoiceResult.getNewHead().map(BlockHeader::getHash).orElse(null), payloadId));
+  }
+
+  private void requestWorldStateRepair(final BlockHeader head) {
+    if (!mergeContext.get().isInitialSyncDone()) {
+      return;
+    }
+    try {
+      worldStateRecoveryCoordinator.requestRecovery(head.getHash(), head.getStateRoot());
+    } catch (final RuntimeException schedulingFailure) {
+      // Repair is best effort. A scheduling fault must not replace the original Engine outcome.
+      logger()
+          .warn(
+              "Could not request bounded world-state repair for {}",
+              head.getHash(),
+              schedulingFailure);
+    }
   }
 
   protected ForkchoiceUpdatedResultV1 createValidResult(

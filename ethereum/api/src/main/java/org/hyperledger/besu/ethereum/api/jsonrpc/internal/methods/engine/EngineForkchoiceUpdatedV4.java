@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import org.hyperledger.besu.consensus.merge.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -27,6 +26,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import java.util.Optional;
 
@@ -76,14 +76,14 @@ public final class EngineForkchoiceUpdatedV4<
       final ConstructorArguments constructorArguments,
       final HardforkId minFork,
       final HardforkId maxFork) {
-    this(constructorArguments, minFork, maxFork, WorldStateRecoveryCoordinator.disabled());
+    this(constructorArguments, minFork, maxFork, WorldStateRepairRequester.DISABLED);
   }
 
   public EngineForkchoiceUpdatedV4(
       final ConstructorArguments constructorArguments,
       final HardforkId minFork,
       final HardforkId maxFork,
-      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
+      final WorldStateRepairRequester worldStateRecoveryCoordinator) {
     super(constructorArguments, minFork, maxFork, worldStateRecoveryCoordinator);
     this.transactionPool = constructorArguments.transactionPool();
   }

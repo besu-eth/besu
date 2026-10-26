@@ -21,7 +21,6 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 
-import org.hyperledger.besu.consensus.merge.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -64,6 +63,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.ArrayList;
@@ -135,8 +135,10 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
             .metricsSystem(metricsSystem)
             .transactionPool(transactionPool)
             .maxRequestBlocks(GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
-    final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator =
-        new WorldStateRecoveryCoordinator(synchronizer);
+    final WorldStateRepairRequester worldStateRecoveryCoordinator =
+        Optional.ofNullable(synchronizer)
+            .map(Synchronizer::getWorldStateRepairRequester)
+            .orElse(WorldStateRepairRequester.DISABLED);
 
     if (mergeCoordinator.isPresent()) {
       final ConstructorArguments constructorArguments =
@@ -188,7 +190,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
   private Collection<? extends JsonRpcMethod> createEngineForkchoiceUpdatedMethods(
       final ConstructorArguments constructorArguments,
-      final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator) {
+      final WorldStateRepairRequester worldStateRecoveryCoordinator) {
 
     // special case at the first hardfork (Shanghai), before it was possible to call either V1 or V2
     // so both versions are scheduled at the beginning, and only V1 must be stopped at Shanghai
