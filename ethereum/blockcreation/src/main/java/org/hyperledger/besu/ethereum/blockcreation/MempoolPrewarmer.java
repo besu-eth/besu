@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.wit
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -34,7 +35,12 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -45,6 +51,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,7 +81,8 @@ import org.slf4j.LoggerFactory;
  * <p>Warming starts when the head moves and runs in passes until a block arrives, block building
  * starts, or the slot after the head is over. Each pass takes the pool's candidates in the order
  * block building takes them and executes the senders it has not warmed yet, each sender's
- * transactions in nonce order on its own throwaway copy of the head state.
+ * transactions in nonce order on its own throwaway copy of the head state. The trie paths of the
+ * state the executions change are preloaded as well, for the next block's state root.
  */
 public class MempoolPrewarmer implements AutoCloseable {
 
@@ -176,7 +184,12 @@ public class MempoolPrewarmer implements AutoCloseable {
       return;
     }
     final Warming next =
-        new Warming(generation.incrementAndGet(), head, ConcurrentHashMap.newKeySet());
+        new Warming(
+            generation.incrementAndGet(),
+            head,
+            ConcurrentHashMap.newKeySet(),
+            ConcurrentHashMap.newKeySet(),
+            ConcurrentHashMap.newKeySet());
     warming = next;
     try {
       coordinator.execute(() -> warm(next));
@@ -213,6 +226,12 @@ public class MempoolPrewarmer implements AutoCloseable {
   Set<Hash> prewarmedTransactions() {
     final Warming current = warming;
     return current == null ? Set.of() : Set.copyOf(current.warmed());
+  }
+
+  @VisibleForTesting
+  Set<Address> preloadedAccounts() {
+    final Warming current = warming;
+    return current == null ? Set.of() : Set.copyOf(current.preloadedAccounts());
   }
 
   private boolean isCurrent(final Warming warming) {
@@ -393,6 +412,7 @@ public class MempoolPrewarmer implements AutoCloseable {
         executedTransactions.inc();
         gasUsed += transaction.getGasLimit() - result.getGasRemaining();
       }
+      preloadChangedPaths(warming, updater);
     } catch (final Exception e) {
       LOG.atTrace()
           .setMessage("Prewarming the transactions of {} failed")
@@ -403,8 +423,68 @@ public class MempoolPrewarmer implements AutoCloseable {
     return gasUsed;
   }
 
+  /**
+   * Preloads the trie paths of the accounts and slots the executions changed, from the head state,
+   * so the next block's state root finds them cached. Each path is preloaded once per head.
+   */
+  private void preloadChangedPaths(final Warming warming, final WorldUpdater updater) {
+    if (!(updater instanceof PathBasedWorldStateUpdateAccumulator<?> accumulator)
+        || !(protocolContext.getWorldStateArchive() instanceof BonsaiWorldStateProvider archive)) {
+      return;
+    }
+    // the world state is thrown away, committing only moves the changes where they can be read
+    accumulator.commit();
+    final BonsaiCachedMerkleTrieLoader loader = archive.getCachedMerkleTrieLoader();
+    final BonsaiWorldStateKeyValueStorage storage = archive.getWorldStateKeyValueStorage();
+    final Set<Address> changedAccounts = new HashSet<>();
+    accumulator
+        .getStorageToUpdate()
+        .forEach(
+            (address, slots) ->
+                slots.forEach(
+                    (slotKey, slot) -> {
+                      if (!slot.isUnchanged()) {
+                        changedAccounts.add(address);
+                        if (warming.preloadedSlots().add(new ChangedSlot(address, slotKey))) {
+                          loader.preLoadStorageSlot(storage, address, slotKey);
+                        }
+                      }
+                    }));
+    accumulator
+        .getAccountsToUpdate()
+        .forEach(
+            (address, value) -> {
+              if (changesTrieValue(value.getPrior(), value.getUpdated())) {
+                changedAccounts.add(address);
+              }
+            });
+    for (final Address address : changedAccounts) {
+      if (warming.preloadedAccounts().add(address)) {
+        loader.preLoadAccount(storage, warming.head().getStateRoot(), address);
+      }
+    }
+  }
+
+  /** Whether the account trie stores a different value for the two versions of an account. */
+  private static boolean changesTrieValue(final BonsaiAccount prior, final BonsaiAccount updated) {
+    if (prior == null || updated == null) {
+      return prior != updated;
+    }
+    return prior.getNonce() != updated.getNonce()
+        || !prior.getBalance().equals(updated.getBalance())
+        || !prior.getStorageRoot().equals(updated.getStorageRoot())
+        || !prior.getCodeHash().equals(updated.getCodeHash());
+  }
+
   private record Execution(
       ProcessableBlockHeader header, ProtocolSpec protocolSpec, Wei blobGasPrice) {}
 
-  private record Warming(long generation, BlockHeader head, Set<Hash> warmed) {}
+  private record ChangedSlot(Address address, StorageSlotKey slotKey) {}
+
+  private record Warming(
+      long generation,
+      BlockHeader head,
+      Set<Hash> warmed,
+      Set<Address> preloadedAccounts,
+      Set<ChangedSlot> preloadedSlots) {}
 }
