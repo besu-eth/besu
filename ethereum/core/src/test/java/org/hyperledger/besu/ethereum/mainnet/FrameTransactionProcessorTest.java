@@ -539,4 +539,320 @@ class FrameTransactionProcessorTest {
     assertThat(result.getValidationResult().getInvalidReason())
         .isEqualTo(TransactionInvalidReason.NONCE_TOO_HIGH);
   }
+
+  // EIP-7906 POST_TX frames.
+
+  private static final Address ASSERTION =
+      Address.fromHexString("0x5000000000000000000000000000000000000005");
+  private static final Address SECOND_ASSERTION =
+      Address.fromHexString("0x6000000000000000000000000000000000000006");
+  // SSTORE(0, 1); LOG0(0, 0); STOP
+  private static final Bytes WRITE_AND_LOG_CODE = Bytes.fromHexString("0x60015f555f5fa000");
+  private static final Bytes STOP_CODE = Bytes.fromHexString("0x00");
+  private static final Bytes INVALID_CODE = Bytes.fromHexString("0xfe");
+
+  private void deploy(final Address address, final Bytes code) {
+    final WorldUpdater setup = worldState.updater();
+    setup.getOrCreate(address).setCode(code);
+    setup.commit();
+  }
+
+  private static Frame postTxFrame(final Address target) {
+    return new Frame(
+        Frame.MODE_POST_TX, 0, Optional.of(target), EXEC_LIMIT, 0L, Wei.ZERO, Bytes.EMPTY);
+  }
+
+  private static Frame bodyFrame(final int mode, final int flags, final Address target) {
+    return new Frame(
+        mode, flags, Optional.of(target), EXEC_LIMIT, STATE_LIMIT, Wei.ZERO, Bytes.EMPTY);
+  }
+
+  /** The body of the POST_TX tests: a 1000 wei transfer to a new account and a write with a log. */
+  private List<Frame> bodyThen(final Frame... postTx) {
+    deploy(contractAddress, WRITE_AND_LOG_CODE);
+    final List<Frame> frames = new java.util.ArrayList<>();
+    frames.add(selfVerifyFrame());
+    frames.add(senderFrame(recipient, Wei.of(1000)));
+    frames.add(bodyFrame(Frame.MODE_SENDER, 0, contractAddress));
+    frames.addAll(List.of(postTx));
+    return frames;
+  }
+
+  private static List<Integer> statuses(final TransactionProcessingResult result) {
+    return result.getFrameTransactionOutcome().orElseThrow().frameReceipts().stream()
+        .map(FrameReceipt::status)
+        .toList();
+  }
+
+  private static FrameReceipt receipt(final TransactionProcessingResult result, final int frame) {
+    return result.getFrameTransactionOutcome().orElseThrow().frameReceipts().get(frame);
+  }
+
+  /** The gas the payer was charged for, from the receipts, as the EIP-8141 settlement takes it. */
+  private static long expectedGasUsed(
+      final Transaction transaction, final TransactionProcessingResult result) {
+    final List<FrameReceipt> receipts =
+        result.getFrameTransactionOutcome().orElseThrow().frameReceipts();
+    final long execution = receipts.stream().mapToLong(FrameReceipt::executionGasUsed).sum();
+    final long state = receipts.stream().mapToLong(FrameReceipt::stateGasUsed).sum();
+    return Math.max(
+            org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(transaction)
+                + execution,
+            org.hyperledger.besu.ethereum.core.FrameTransactionGas.calldataFloorGas(transaction))
+        + state;
+  }
+
+  @Test
+  void passingPostTxFramesKeepTheBody() {
+    deploy(ASSERTION, STOP_CODE);
+    final Transaction transaction =
+        signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION), postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 1, 1);
+    // a cold entry, then a warm one: a passing POST_TX frame keeps its warmth for the next
+    assertThat(receipt(result, 3).executionGasUsed()).isEqualTo(3000L);
+    assertThat(receipt(result, 4).executionGasUsed()).isEqualTo(100L);
+    assertThat(receipt(result, 3).stateGasUsed()).isZero();
+    assertThat(worldState.get(recipient).getBalance()).isEqualTo(Wei.of(1000));
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.ONE);
+    // the EIP-7708 transfer log and the LOG0
+    assertThat(result.getLogs()).hasSize(2);
+    assertThat(result.getStateGasUsed()).isGreaterThan(0L);
+  }
+
+  @Test
+  void aRevertingPostTxFrameRevertsTheBodyAndSkipsTheRest() {
+    deploy(ASSERTION, REVERTING_CODE);
+    deploy(SECOND_ASSERTION, STOP_CODE);
+    final Transaction transaction =
+        signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION), postTxFrame(SECOND_ASSERTION)));
+    final Wei senderBalanceBefore = worldState.get(sender).getBalance();
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 0, 2);
+    // the body keeps its status and execution gas, and loses its logs and state gas
+    assertThat(receipt(result, 1).executionGasUsed()).isEqualTo(3000L);
+    assertThat(receipt(result, 1).logs()).isEmpty();
+    assertThat(receipt(result, 1).stateGasUsed()).isZero();
+    assertThat(receipt(result, 2).logs()).isEmpty();
+    assertThat(receipt(result, 2).stateGasUsed()).isZero();
+    // a cold entry, PUSH0, PUSH0 and a REVERT that keeps the rest of the budget
+    assertThat(receipt(result, 3).executionGasUsed()).isEqualTo(3004L);
+    assertThat(receipt(result, 4).executionGasUsed()).isZero();
+    assertThat(receipt(result, 4).stateGasUsed()).isZero();
+    assertThat(result.getLogs()).isEmpty();
+    assertThat(result.getStateGasUsed()).isZero();
+    // the body's transfer and write are gone; the prefix's nonce and the payment stay
+    assertThat(worldState.get(recipient)).isNull();
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.ZERO);
+    assertThat(worldState.get(sender).getNonce()).isEqualTo(1L);
+    final long gasUsed = result.getEstimateGasUsedByTransaction();
+    assertThat(gasUsed).isEqualTo(expectedGasUsed(transaction, result));
+    assertThat(worldState.get(sender).getBalance())
+        .isEqualTo(senderBalanceBefore.subtract(BASE_FEE.add(PRIORITY_FEE).multiply(gasUsed)));
+  }
+
+  @Test
+  void anExceptionalHaltInAPostTxFrameUsesItsWholeBudget() {
+    deploy(ASSERTION, INVALID_CODE);
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 0);
+    assertThat(receipt(result, 3).executionGasUsed()).isEqualTo(EXEC_LIMIT);
+    assertThat(worldState.get(recipient)).isNull();
+  }
+
+  @Test
+  void anEarlierPassingPostTxFrameKeepsItsReceipt() {
+    deploy(ASSERTION, STOP_CODE);
+    deploy(SECOND_ASSERTION, REVERTING_CODE);
+    final Transaction transaction =
+        signedFrameTransaction(
+            0,
+            bodyThen(
+                postTxFrame(ASSERTION), postTxFrame(SECOND_ASSERTION), postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 1, 0, 2);
+    assertThat(receipt(result, 3).executionGasUsed()).isEqualTo(3000L);
+    assertThat(worldState.get(recipient)).isNull();
+  }
+
+  @Test
+  void aPostTxFrameWithoutAPayerLeavesTheTransactionInvalid() {
+    deploy(ASSERTION, STOP_CODE);
+    final TransactionProcessingResult result =
+        process(signedFrameTransaction(0, List.of(postTxFrame(ASSERTION))));
+
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.FRAME_PAYMENT_NOT_APPROVED);
+    assertThat(result.getValidationResult().getErrorMessage())
+        .isEqualTo("no frame approved payment for the transaction");
+  }
+
+  @Test
+  void aFailingPostTxFrameRevertsACommittedBodyBatch() {
+    deploy(ASSERTION, REVERTING_CODE);
+    deploy(contractAddress, WRITE_AND_LOG_CODE);
+    final Transaction transaction =
+        signedFrameTransaction(
+            0,
+            List.of(
+                selfVerifyFrame(),
+                bodyFrame(Frame.MODE_SENDER, Frame.ATOMIC_BATCH_FLAG, contractAddress),
+                senderFrame(recipient, Wei.of(1000)),
+                postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 0);
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.ZERO);
+    assertThat(worldState.get(recipient)).isNull();
+  }
+
+  @Test
+  void aPostTxFrameObservesAnUnrolledBodyBatch() {
+    deploy(secondContractAddress, REVERTING_CODE);
+    // reverts unless BALANCE(recipient) == 0
+    deploy(
+        ASSERTION,
+        Bytes.fromHexString(
+            "0x73" + recipient.getBytes().toUnprefixedHexString() + "3115601d575f5ffd5b00"));
+    final Transaction transaction =
+        signedFrameTransaction(
+            0,
+            List.of(
+                selfVerifyFrame(),
+                new Frame(
+                    Frame.MODE_SENDER,
+                    Frame.ATOMIC_BATCH_FLAG,
+                    Optional.of(recipient),
+                    EXEC_LIMIT,
+                    STATE_LIMIT,
+                    Wei.of(1000),
+                    Bytes.EMPTY),
+                bodyFrame(Frame.MODE_DEFAULT, 0, secondContractAddress),
+                postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(statuses(result)).containsExactly(1, 1, 0, 1);
+    assertThat(receipt(result, 1).logs()).isEmpty();
+    assertThat(worldState.get(recipient)).isNull();
+  }
+
+  @Test
+  void aPostTxFrameIsStatic() {
+    deploy(ASSERTION, STORE_ONE_CODE);
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 0);
+    assertThat(receipt(result, 3).executionGasUsed()).isEqualTo(EXEC_LIMIT);
+    assertThat(worldState.get(ASSERTION).getStorageValue(UInt256.ZERO)).isEqualTo(UInt256.ZERO);
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.ZERO);
+  }
+
+  @Test
+  void approveHaltsInAPostTxFrameEvenWithApprovalFlags() {
+    // a sponsor whose APPROVE(PAYMENT) would pay, targeted by a POST_TX frame allowed to approve
+    final WorldUpdater setup = worldState.updater();
+    setup.createAccount(ASSERTION, 0, Wei.of(10).pow(18)).setCode(PAYMASTER_CODE);
+    setup.commit();
+    final Frame approvingPostTx =
+        new Frame(
+            Frame.MODE_POST_TX,
+            Frame.FLAG_APPROVE_PAYMENT,
+            Optional.of(ASSERTION),
+            EXEC_LIMIT,
+            0L,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(approvingPostTx));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 0);
+    assertThat(receipt(result, 3).executionGasUsed()).isEqualTo(EXEC_LIMIT);
+    assertThat(result.getFrameTransactionOutcome().orElseThrow().payer()).isEqualTo(sender);
+    assertThat(worldState.get(ASSERTION).getBalance()).isEqualTo(Wei.of(10).pow(18));
+  }
+
+  @Test
+  void approveHaltsInACallFromAPostTxFrame() {
+    deploy(secondContractAddress, PAYMASTER_CODE);
+    // CALL(50000, second contract, 0, 0, 0, 0, 0); reverts unless the call failed; STOP
+    deploy(
+        ASSERTION,
+        Bytes.fromHexString(
+            "0x5f5f5f5f5f73"
+                + secondContractAddress.getBytes().toUnprefixedHexString()
+                + "61c350f1156025575f5ffd5b00"));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 1);
+    // the callee halted and used all 50000 it was given
+    assertThat(receipt(result, 3).executionGasUsed()).isGreaterThan(53_000L);
+  }
+
+  @Test
+  void aPostTxFrameIsCalledFromTheEntryPoint() {
+    // reverts unless CALLER == ORIGIN == 0xaa
+    deploy(ASSERTION, Bytes.fromHexString("0x3360aa143260aa1416600f575f5ffd5b00"));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+
+    assertThat(statuses(process(transaction))).containsExactly(1, 1, 1, 1);
+  }
+
+  @Test
+  void aCodelessPostTxTargetSucceeds() {
+    final Transaction transaction =
+        signedFrameTransaction(0, bodyThen(postTxFrame(secondContractAddress)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 1);
+    assertThat(receipt(result, 3).executionGasUsed()).isEqualTo(3000L);
+  }
+
+  @Test
+  void aFailingPostTxFrameRestoresThePrefixStateCharge() {
+    // toggles slot 0: sets it to 1 when zero, clears it when set
+    deploy(contractAddress, Bytes.fromHexString("0x5f54600114600d5760015f55005b5f5f5500"));
+    deploy(ASSERTION, REVERTING_CODE);
+    final Frame toggle = bodyFrame(Frame.MODE_DEFAULT, 0, contractAddress);
+    final Transaction transaction =
+        signedFrameTransaction(
+            0, List.of(toggle, selfVerifyFrame(), toggle, postTxFrame(ASSERTION)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 0);
+    // the body's clear refilled the prefix frame's charge; the revert restores it
+    assertThat(receipt(result, 0).stateGasUsed()).isGreaterThan(0L);
+    assertThat(receipt(result, 2).stateGasUsed()).isZero();
+    assertThat(result.getStateGasUsed()).isEqualTo(receipt(result, 0).stateGasUsed());
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.ONE);
+    assertThat(result.getEstimateGasUsedByTransaction())
+        .isEqualTo(expectedGasUsed(transaction, result));
+  }
 }
