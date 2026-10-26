@@ -3,11 +3,12 @@
 # Stage: Use Eclipse Temurin JRE
 FROM mirror.gcr.io/library/eclipse-temurin@sha256:1bda4d9e668f44f399abed30636c34e0befb727408fba27b1e6aaefcf9df346b AS java-base
 
-# Stop trusting the eMudhra roots whose intermediate CAs were compromised in October 2026 — emSign
-# Root CA - G1, emSign Root CA - G2 and emSign ECC Root CA - G3 — and AAA Certificate Services,
-# which cross-signs them (https://openjdk.org/emudhra). Roots are matched by SHA-256 fingerprint, so
-# this works whatever their alias, and the build fails if any is still trusted. Remove once the base
-# image drops them.
+# Remove the roots OpenJDK lists after the October 2026 eMudhra CA compromise
+# (https://openjdk.org/emudhra): emSign ECC Root CA - G3, which OpenJDK identifies as related to the
+# compromised intermediate CAs, and emSign Root CA - G1 as a precaution. emSign Root CA - G2 and AAA
+# Certificate Services are also listed but are not in the Temurin store; they are matched anyway, so
+# the step keeps working if a future base adds them. Matched by SHA-256 fingerprint, so this works
+# whatever their alias, and the build fails if any is still trusted. Remove once the base drops them.
 RUN set -eu; \
     DISTRUSTED_ROOTS="40:F6:AF:03:46:A9:9A:A1:CD:1D:55:5A:4E:9C:CE:62:C7:F9:63:46:03:EE:40:66:15:83:3D:C8:C8:D0:03:67|1A:A0:C2:70:9E:83:1B:D6:E3:B5:12:9A:00:BA:41:F7:EE:EF:02:08:72:F1:E6:50:4B:F0:F6:C3:F2:4F:3A:F3|86:A1:EC:BA:08:9C:4A:8D:3B:BE:27:34:C6:12:BA:34:1D:81:3E:04:3C:F9:E8:A8:62:CD:5C:57:A3:6B:BE:6B|D7:A7:A0:FB:5D:7E:27:31:D7:71:E9:48:4E:BC:DE:F7:1D:5F:0C:3E:0A:29:48:78:2B:C8:3E:E0:EA:69:9E:F4"; \
     KEYTOOL="$JAVA_HOME/bin/keytool"; \
@@ -19,7 +20,7 @@ RUN set -eu; \
     if $KEYTOOL -list $STORE | grep -qE "$DISTRUSTED_ROOTS"; then echo "A distrusted root is still in cacerts" >&2; exit 1; fi
 
 # Stage: Final Besu EVMTool image
-FROM mirror.gcr.io/library/ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea
+FROM mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
 ARG VERSION="dev"
 ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0"
 
