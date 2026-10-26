@@ -77,7 +77,7 @@ class BonsaiArchiveStateProofIntegrationTest {
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
     archiveStrategy =
         new ArchiveTrieNodeStrategy(
-            baseStrategy, capture, historyStore, s -> s == storage, () -> false);
+            baseStrategy, capture, historyStore, s -> s == storage, b -> true);
   }
 
   private BlockHeader header(final long block) {

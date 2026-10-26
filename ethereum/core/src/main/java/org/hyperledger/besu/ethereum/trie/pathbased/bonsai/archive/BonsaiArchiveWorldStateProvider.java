@@ -22,13 +22,17 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeWriter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -41,9 +45,12 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,27 +66,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   private final ArchiveNodeHistoryStore archiveHistoryStore;
   private final ArchiveHistoryReader archiveHistoryReader;
-
-  public BonsaiArchiveWorldStateProvider(
-      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final Blockchain blockchain,
-      final DataStorageConfiguration dataStorageConfiguration,
-      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final ServiceManager pluginContext,
-      final EvmConfiguration evmConfiguration,
-      final BonsaiCodeCache codeCache,
-      final MetricsSystem metricsSystem) {
-    this(
-        worldStateKeyValueStorage,
-        blockchain,
-        dataStorageConfiguration,
-        bonsaiCachedMerkleTrieLoader,
-        pluginContext,
-        evmConfiguration,
-        codeCache,
-        metricsSystem,
-        Optional.empty());
-  }
+  private final Optional<ArchiveTrieNodeStrategy> archiveTrieNodeStrategy;
 
   public BonsaiArchiveWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -90,7 +77,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final EvmConfiguration evmConfiguration,
       final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem,
-      final Optional<Long> amsterdamMilestone) {
+      final Optional<Long> amsterdamMilestone,
+      final int trieCaptureParallelism) {
     super(
         worldStateKeyValueStorage,
         blockchain,
@@ -117,6 +105,45 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         worldStateKeyValueStorage.getComposedWorldStateStorage();
     this.archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
     this.archiveHistoryReader = new ArchiveHistoryReader(archiveHistoryStore);
+    final ExtraStorageConfiguration.Unstable unstable =
+        dataStorageConfiguration.getExtraStorageConfiguration().getUnstable();
+    this.archiveTrieNodeStrategy =
+        unstable.getBonsaiArchiveStateProofsEnabled()
+            ? Optional.of(createInlineStrategy(unstable, trieCaptureParallelism))
+            : Optional.empty();
+    archiveTrieNodeStrategy.ifPresent(worldStateKeyValueStorage::setTrieNodeStrategy);
+  }
+
+  private ArchiveTrieNodeStrategy createInlineStrategy(
+      final ExtraStorageConfiguration.Unstable unstable, final int trieCaptureParallelism) {
+    final SegmentedKeyValueStorage liveStorage =
+        worldStateKeyValueStorage.getComposedWorldStateStorage();
+    final ExecutorService trieCapturePool = Executors.newFixedThreadPool(trieCaptureParallelism);
+    return new ArchiveTrieNodeStrategy(
+        new BonsaiTrieNodeStrategy(),
+        new ArchiveTrieNodeWriter(
+            archiveHistoryStore,
+            trieCapturePool,
+            unstable.getBonsaiArchiveShallowCheckpointInterval(),
+            unstable.getBonsaiArchiveDeepCheckpointInterval()),
+        archiveHistoryStore,
+        storage -> storage == liveStorage,
+        this::isFinal);
+  }
+
+  @VisibleForTesting
+  boolean isFinal(final long block) {
+    return blockchain
+        .getFinalized()
+        .flatMap(blockchain::getBlockHeader)
+        .map(finalized -> block <= finalized.getNumber())
+        .orElse(true);
+  }
+
+  @Override
+  public void close() {
+    archiveTrieNodeStrategy.ifPresent(ArchiveTrieNodeStrategy::close);
+    super.close();
   }
 
   @Override

@@ -35,7 +35,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
-import java.util.function.BooleanSupplier;
+import java.util.function.LongPredicate;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -86,12 +86,12 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   private ArchiveTrieNodeStrategy strategy() {
-    return strategy(() -> false);
+    return strategy(b -> true);
   }
 
-  private ArchiveTrieNodeStrategy strategy(final BooleanSupplier hasChainEstimate) {
+  private ArchiveTrieNodeStrategy strategy(final LongPredicate isFinal) {
     return new ArchiveTrieNodeStrategy(
-        new BonsaiTrieNodeStrategy(), capture, historyStore, s -> s == storage, hasChainEstimate);
+        new BonsaiTrieNodeStrategy(), capture, historyStore, s -> s == storage, isFinal);
   }
 
   private static Bytes32 hash(final Bytes value) {
@@ -141,7 +141,7 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
-  void capturesContiguousSingleStepOnLiveStorage() {
+  void capturesContiguousFinalSingleStepOnCanonicalStorage() {
     final ArchiveTrieNodeStrategy strategy = strategy();
     final Bytes location = Bytes.of(0x0e);
 
@@ -212,12 +212,11 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
-  void blockIsNotCapturedWhenGateClosed() {
-    final ArchiveTrieNodeStrategy strategy = strategy();
+  void nonFinalBlockIsNotCaptured() {
+    final ArchiveTrieNodeStrategy strategy = strategy(b -> b <= 0);
     final Bytes location = Bytes.of(0x0e);
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
 
-    strategy.setArchiving(false);
     persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
 
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isEmpty();
@@ -225,60 +224,7 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
-  void genesisIsCapturedWhenGateClosed() {
-    final ArchiveTrieNodeStrategy strategy = strategy();
-    final Bytes location = Bytes.of(0x01);
-
-    strategy.setArchiving(false);
-    persistBlock(strategy, 0, put(location, Bytes.fromHexString("0xaabb")));
-
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 0L)).isPresent();
-    assertThat(coverage()).contains(coverageThrough(0));
-  }
-
-  @Test
-  void peerlessInSyncKeepsCapturing() {
-    final ArchiveTrieNodeStrategy strategy = strategy(() -> false);
-    final Bytes location = Bytes.of(0x0e);
-    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
-
-    strategy.onInSyncStatusChange(true);
-    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
-
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isPresent();
-    assertThat(coverage()).contains(coverageThrough(1));
-  }
-
-  @Test
-  void inSyncWithRemoteEstimateStopsCapturing() {
-    final ArchiveTrieNodeStrategy strategy = strategy(() -> true);
-    final Bytes location = Bytes.of(0x0e);
-    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
-
-    strategy.onInSyncStatusChange(true);
-    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
-
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isEmpty();
-    assertThat(coverage()).contains(coverageThrough(0));
-  }
-
-  @Test
-  void reopenedGateDoesNotCaptureAcrossTheGap() {
-    final ArchiveTrieNodeStrategy strategy = strategy();
-    final Bytes location = Bytes.of(0x0e);
-    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
-    strategy.setArchiving(false);
-    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
-
-    strategy.setArchiving(true);
-    persistBlock(strategy, 2, put(location, Bytes.fromHexString("0xcccc")));
-
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 2L)).isEmpty();
-    assertThat(coverage()).contains(coverageThrough(0));
-  }
-
-  @Test
-  void otherStorageIsNotCaptured() {
+  void nonCanonicalStorageIsNotCaptured() {
     final ArchiveTrieNodeStrategy strategy = strategy();
     final Bytes location = Bytes.of(0x0e);
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
