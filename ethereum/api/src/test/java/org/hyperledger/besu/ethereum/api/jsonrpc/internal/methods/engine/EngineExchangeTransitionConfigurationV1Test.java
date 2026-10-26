@@ -47,6 +47,7 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ParsedExtraData;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -102,6 +103,7 @@ public class EngineExchangeTransitionConfigurationV1Test extends AbstractSchedul
                 .metricsSystem(new NoOpMetricsSystem())
                 .transactionPool(transactionPool)
                 .maxRequestBlocks(0)
+                .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
                 .build(),
             null,
             CANCUN);

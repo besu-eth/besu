@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 
 import java.util.OptionalLong;
 
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -47,6 +48,7 @@ public class EngineGetPayloadV3Test extends EngineGetPayloadV2Test {
             .metricsSystem(metricsSystem)
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
             .build(),
         CANCUN,
         PRAGUE);

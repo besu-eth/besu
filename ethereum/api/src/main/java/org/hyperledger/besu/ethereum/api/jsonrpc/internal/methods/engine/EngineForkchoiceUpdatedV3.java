@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttr
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,15 +45,7 @@ public sealed class EngineForkchoiceUpdatedV3<
       final ConstructorArguments constructorArguments,
       final HardforkId minFork,
       final HardforkId maxFork) {
-    this(constructorArguments, minFork, maxFork, WorldStateRepairRequester.DISABLED);
-  }
-
-  public EngineForkchoiceUpdatedV3(
-      final ConstructorArguments constructorArguments,
-      final HardforkId minFork,
-      final HardforkId maxFork,
-      final WorldStateRepairRequester worldStateRecoveryCoordinator) {
-    super(constructorArguments, minFork, maxFork, worldStateRecoveryCoordinator);
+    super(constructorArguments, minFork, maxFork);
   }
 
   @Override

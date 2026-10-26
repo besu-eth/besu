@@ -148,10 +148,10 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
             .metricsSystem(new NoOpMetricsSystem())
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(recoveryCoordinator)
             .build(),
         null,
-        SHANGHAI,
-        recoveryCoordinator);
+        SHANGHAI);
   }
 
   private void createMethod() {
@@ -170,6 +170,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
             .metricsSystem(new NoOpMetricsSystem())
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(recoveryCoordinator)
             .build();
 
     assertThatThrownBy(() -> new EngineForkchoiceUpdatedV1<>(constructorArguments, null, SHANGHAI))

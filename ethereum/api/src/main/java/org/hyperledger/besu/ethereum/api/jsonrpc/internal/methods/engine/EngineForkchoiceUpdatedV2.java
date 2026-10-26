@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttr
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import java.util.Optional;
 
@@ -51,15 +50,7 @@ public sealed class EngineForkchoiceUpdatedV2<
       final ConstructorArguments constructorArguments,
       final HardforkId minFork,
       final HardforkId maxFork) {
-    this(constructorArguments, minFork, maxFork, WorldStateRepairRequester.DISABLED);
-  }
-
-  public EngineForkchoiceUpdatedV2(
-      final ConstructorArguments constructorArguments,
-      final HardforkId minFork,
-      final HardforkId maxFork,
-      final WorldStateRepairRequester worldStateRecoveryCoordinator) {
-    super(constructorArguments, minFork, maxFork, worldStateRecoveryCoordinator);
+    super(constructorArguments, minFork, maxFork);
     shanghaiTimestamp = protocolSchedule.milestoneFor(HardforkId.MainnetHardforkId.SHANGHAI);
   }
 

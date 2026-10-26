@@ -93,22 +93,10 @@ public sealed class EngineForkchoiceUpdatedV1<
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    this(
-        constructorArguments,
-        minSupportedFork,
-        firstUnsupportedFork,
-        WorldStateRepairRequester.DISABLED);
-  }
-
-  public EngineForkchoiceUpdatedV1(
-      final ConstructorArguments constructorArguments,
-      final HardforkId minSupportedFork,
-      final HardforkId firstUnsupportedFork,
-      final WorldStateRepairRequester worldStateRecoveryCoordinator) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
-    this.worldStateRecoveryCoordinator = worldStateRecoveryCoordinator;
+    this.worldStateRecoveryCoordinator = constructorArguments.worldStateRecoveryCoordinator();
   }
 
   @Override

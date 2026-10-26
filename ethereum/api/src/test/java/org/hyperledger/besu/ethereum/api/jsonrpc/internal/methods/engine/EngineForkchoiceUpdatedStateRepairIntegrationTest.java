@@ -168,10 +168,10 @@ class EngineForkchoiceUpdatedStateRepairIntegrationTest {
                   .metricsSystem(new NoOpMetricsSystem())
                   .transactionPool(pool)
                   .maxRequestBlocks(0)
+                  .worldStateRecoveryCoordinator(recovery)
                   .build(),
               null,
-              null,
-              recovery);
+              null);
       final var request =
           new JsonRpcRequestContext(
               new JsonRpcRequest(

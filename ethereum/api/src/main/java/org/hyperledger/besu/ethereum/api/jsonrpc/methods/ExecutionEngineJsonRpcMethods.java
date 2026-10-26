@@ -139,14 +139,14 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         Optional.ofNullable(synchronizer)
             .map(Synchronizer::getWorldStateRepairRequester)
             .orElse(WorldStateRepairRequester.DISABLED);
+    constructorArgumentsBuilder.worldStateRecoveryCoordinator(worldStateRecoveryCoordinator);
 
     if (mergeCoordinator.isPresent()) {
       final ConstructorArguments constructorArguments =
           constructorArgumentsBuilder.mergeCoordinator(mergeCoordinator.get()).build();
       final List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(
-          createEngineForkchoiceUpdatedMethods(
-              constructorArguments, worldStateRecoveryCoordinator));
+          createEngineForkchoiceUpdatedMethods(constructorArguments));
       executionEngineApisSupported.addAll(createEngineNewPayloadMethods(constructorArguments));
       executionEngineApisSupported.addAll(
           createEngineNewPayloadWithWitnessMethods(constructorArguments));
@@ -189,31 +189,21 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   }
 
   private Collection<? extends JsonRpcMethod> createEngineForkchoiceUpdatedMethods(
-      final ConstructorArguments constructorArguments,
-      final WorldStateRepairRequester worldStateRecoveryCoordinator) {
-
+      final ConstructorArguments constructorArguments) {
     // special case at the first hardfork (Shanghai), before it was possible to call either V1 or V2
     // so both versions are scheduled at the beginning, and only V1 must be stopped at Shanghai
     // timestamp
     return VersionScheduler.startsFromBeginningUntil(
-            (args, minFork, maxFork) ->
-                new EngineForkchoiceUpdatedV1<>(
-                    args, minFork, maxFork, worldStateRecoveryCoordinator),
+            (args, minFork, maxFork) -> new EngineForkchoiceUpdatedV1<>(args, minFork, maxFork),
             SHANGHAI)
         .thenAlsoFromBeginning(
-            (args, minFork, maxFork) ->
-                new EngineForkchoiceUpdatedV2<>(
-                    args, minFork, maxFork, worldStateRecoveryCoordinator))
+            (args, minFork, maxFork) -> new EngineForkchoiceUpdatedV2<>(args, minFork, maxFork))
         .thenFrom(
             CANCUN,
-            (args, minFork, maxFork) ->
-                new EngineForkchoiceUpdatedV3<>(
-                    args, minFork, maxFork, worldStateRecoveryCoordinator))
+            (args, minFork, maxFork) -> new EngineForkchoiceUpdatedV3<>(args, minFork, maxFork))
         .thenFrom(
             AMSTERDAM,
-            (args, minFork, maxFork) ->
-                new EngineForkchoiceUpdatedV4<>(
-                    args, minFork, maxFork, worldStateRecoveryCoordinator))
+            (args, minFork, maxFork) -> new EngineForkchoiceUpdatedV4<>(args, minFork, maxFork))
         .build(constructorArguments);
   }
 

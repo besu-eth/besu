@@ -60,6 +60,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
@@ -157,6 +158,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             .metricsSystem(new NoOpMetricsSystem())
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
             .build(),
         null,
         SHANGHAI);
@@ -178,6 +180,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             .metricsSystem(new NoOpMetricsSystem())
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
             .build();
 
     assertThatThrownBy(() -> new EngineNewPayloadV1<>(constructorArguments, null, SHANGHAI))
