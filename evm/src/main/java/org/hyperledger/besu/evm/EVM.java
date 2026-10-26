@@ -146,6 +146,35 @@ public class EVM {
   protected static final OperationResult UNDERFLOW_RESPONSE =
       new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
 
+  /**
+   * A per-case disguise for the stack top: the loop xors in the opcode's bias and the case xors it
+   * out, so the value doesn't change. It stops the JIT from merging all cases' stack-offset math
+   * into one step before the switch, which made every operation slower.
+   */
+  private static final int[] STACK_TOP_BIASES = new int[256];
+
+  static {
+    // one line per case of the untraced loop's switch, in its order; a case's bias is its first
+    // opcode, the general path's 0
+    biasCase(0x60, 0x60); // PUSH1
+    biasCase(0x61, 0x67); // PUSH2-8
+    biasCase(0x80, 0x8f); // DUP1-16
+    biasCase(0x90, 0x9f); // SWAP1-16
+    biasCase(0x5b, 0x5b); // JUMPDEST
+    biasCase(0x50, 0x50); // POP
+    biasCase(0x57, 0x57); // JUMPI
+    biasCase(0x56, 0x56); // JUMP
+    biasCase(0x01, 0x01); // ADD
+    biasCase(0x15, 0x15); // ISZERO
+    biasCase(0x16, 0x16); // AND
+    biasCase(0x03, 0x03); // SUB
+    biasCase(0x14, 0x14); // EQ
+    biasCase(0x10, 0x10); // LT
+    biasCase(0x1b, 0x1b); // SHL
+    biasCase(0x11, 0x11); // GT
+    biasCase(0x5f, 0x5f); // PUSH0
+  }
+
   private final OperationRegistry operations;
   private final GasCalculator gasCalculator;
   private final Operation endOfScriptStop;
@@ -515,41 +544,12 @@ public class EVM {
     }
   }
 
-  /**
-   * A per-case disguise for the stack top: the loop xors in the opcode's bias and the case xors it
-   * out, so the value doesn't change. It stops the JIT from merging all cases' stack-offset math
-   * into one step before the switch, which made every operation slower.
-   */
-  private static final int[] STACK_TOP_BIASES = new int[256];
-
-  static {
-    // one line per case of the untraced loop's switch, in its order; a case's bias is its first
-    // opcode, the general path's 0
-    biasCase(0x60, 0x60); // PUSH1
-    biasCase(0x61, 0x67); // PUSH2-8
-    biasCase(0x80, 0x8f); // DUP1-16
-    biasCase(0x90, 0x9f); // SWAP1-16
-    biasCase(0x5b, 0x5b); // JUMPDEST
-    biasCase(0x50, 0x50); // POP
-    biasCase(0x57, 0x57); // JUMPI
-    biasCase(0x56, 0x56); // JUMP
-    biasCase(0x01, 0x01); // ADD
-    biasCase(0x15, 0x15); // ISZERO
-    biasCase(0x16, 0x16); // AND
-    biasCase(0x03, 0x03); // SUB
-    biasCase(0x14, 0x14); // EQ
-    biasCase(0x10, 0x10); // LT
-    biasCase(0x1b, 0x1b); // SHL
-    biasCase(0x11, 0x11); // GT
-    biasCase(0x5f, 0x5f); // PUSH0
-  }
-
   private static void biasCase(final int firstOpcode, final int lastOpcode) {
     Arrays.fill(STACK_TOP_BIASES, firstOpcode, lastOpcode + 1, firstOpcode);
   }
 
   /**
-   * The v2 loop for untraced execution, which is block import. The most frequent mainnet operations
+   * The v2 loop for untraced execution, such as block import. The most frequent mainnet operations
    * have their own cases so that C2 inlines them within its 8000-byte budget; everything else goes
    * through {@link #executeOperationV2}. The stack top, pc and gas live in locals so that they stay
    * in CPU registers instead of being read from and written to the frame on every operation.

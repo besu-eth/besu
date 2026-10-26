@@ -165,7 +165,9 @@ public interface OperationTracer {
   }
 
   /**
-   * Check to tell whether tracing enabled/disabled.
+   * Check to tell whether tracing enabled/disabled. The EVM skips {@link #tracePreExecution} and
+   * {@link #tracePostExecution} for a disabled tracer, but the transaction and message processors
+   * still call its transaction and call hooks.
    *
    * @return true if tracing is enabled and false otherwise
    */
