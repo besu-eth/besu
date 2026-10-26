@@ -141,10 +141,12 @@ public class SStoreOperation extends AbstractOperation {
     final long storageSetStateGas = stateGasCalc.storageSetStateGas();
 
     // EIP-8037: Refund state gas for 0→X→0 (storage set then clear), otherwise charge state gas
-    // for a storage set (0 → nonzero). The two transitions are mutually exclusive.
+    // for a storage set (0 → nonzero). The two transitions are mutually exclusive. The slot-aware
+    // variants additionally track the EIP-8141 outstanding charge owner inside frame transactions.
     if (transition.isUnwoundSet()) {
-      frame.refillStateGasReservoir(storageSetStateGas);
-    } else if (transition.isStorageSet() && !frame.consumeStateGas(storageSetStateGas)) {
+      frame.refillStateGasForStorageClear(address, key, storageSetStateGas);
+    } else if (transition.isStorageSet()
+        && !frame.consumeStateGasForStorageSet(address, key, storageSetStateGas)) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 

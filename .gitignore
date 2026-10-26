@@ -13,6 +13,7 @@
 .gradle/
 .vscode/
 .idea/
+.run/
 .loadpath
 .metadata
 .prefs

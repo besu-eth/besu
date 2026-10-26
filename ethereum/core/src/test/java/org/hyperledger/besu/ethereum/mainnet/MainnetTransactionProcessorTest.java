@@ -305,6 +305,8 @@ class MainnetTransactionProcessorTest {
     final TransactionValidationParams expectedValidationParams =
         ImmutableTransactionValidationParams.builder().build();
 
+    when(transaction.getType()).thenReturn(TransactionType.EIP1559);
+
     var transactionProcessor = createTransactionProcessor(false);
 
     transactionProcessor.processTransaction(

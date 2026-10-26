@@ -72,6 +72,17 @@ public class TransactionReceiptEncoder {
       final RLPOutput rlpOutput,
       final TransactionReceiptEncodingConfiguration options) {
 
+    // EIP-8141 frame receipts have their own payload; they are always exchanged and stored in the
+    // typed envelope, including on eth/69 where they travel as opaque typed bytes.
+    if (receipt.getTransactionType().supportsFrames()) {
+      if (options.isWithEth69Receipt() || options.isWithOpaqueBytes()) {
+        rlpOutput.writeBytes(RLP.encode(out -> writeFrameReceipt(receipt, out)));
+      } else {
+        writeFrameReceipt(receipt, rlpOutput);
+      }
+      return;
+    }
+
     // Check if the encoding options require Eth69 receipt format
     if (options.isWithEth69Receipt()) {
       writeEth69Receipt(receipt, rlpOutput, options);
@@ -83,6 +94,35 @@ public class TransactionReceiptEncoder {
       return;
     }
     writeLegacyReceipt(receipt, rlpOutput, options);
+  }
+
+  /**
+   * Writes an EIP-8141 frame transaction receipt: {@code type || rlp([cumulative_gas_used, payer,
+   * [[status, [execution, state], logs], ...]])}. There is no bloom filter and no transaction-level
+   * status in the payload.
+   *
+   * @param receipt the frame transaction receipt
+   * @param rlpOutput the RLP output
+   */
+  private static void writeFrameReceipt(
+      final TransactionReceipt receipt, final RLPOutput rlpOutput) {
+    rlpOutput.writeByte(receipt.getTransactionType().getSerializedType());
+    rlpOutput.startList();
+    rlpOutput.writeLongScalar(receipt.getCumulativeGasUsed());
+    rlpOutput.writeBytes(receipt.getPayer().orElseThrow().getBytes());
+    rlpOutput.writeList(
+        receipt.getFrameReceipts().orElseThrow(),
+        (frameReceipt, out) -> {
+          out.startList();
+          out.writeIntScalar(frameReceipt.status());
+          out.startList();
+          out.writeLongScalar(frameReceipt.executionGasUsed());
+          out.writeLongScalar(frameReceipt.stateGasUsed());
+          out.endList();
+          out.writeList(frameReceipt.logs(), (log, logOut) -> log.writeTo(logOut, false));
+          out.endList();
+        });
+    rlpOutput.endList();
   }
 
   private static boolean shouldEncodeOpaqueBytes(

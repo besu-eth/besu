@@ -50,6 +50,14 @@ public class SyncTransactionReceiptDecoder {
     }
     requireDefinedTransactionType(transactionTypeCode);
 
+    // EIP-8141 frame receipts are exchanged in their canonical typed form, which is already the
+    // trie-root encoding; the bloom is validated against the block header via the full decoder.
+    if (TransactionType.fromOpaque(transactionTypeCode.get(0))
+        .map(TransactionType::supportsFrames)
+        .orElse(false)) {
+      return new SyncTransactionReceipt(rawRlp);
+    }
+
     receiptInput.enterList();
     Bytes statusOrStateRoot = receiptInput.readBytes();
     Bytes cumulativeGasUsed = receiptInput.readBytes();

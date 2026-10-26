@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.evm.v2;
 
+import org.hyperledger.besu.collections.undo.UndoSet;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
@@ -25,7 +26,9 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.Eip7928AccessList;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
+import org.hyperledger.besu.evm.frame.FrameTransactionContext;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.frame.TxValues;
 import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.internal.Words;
@@ -53,6 +56,7 @@ import java.util.function.Function;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Runs a program on an EVM, as the code of a contract that the test accounts can call, and records
@@ -248,6 +252,29 @@ final class ProgramRun {
     return execute(evm, code, calleeCode, secondCalleeCode, gas, isStatic, slots, false);
   }
 
+  /**
+   * As {@link #runTraced}, inside an EIP-8141 frame transaction with the given context.
+   *
+   * @param evm the EVM to run it on
+   * @param code the contract's code
+   * @param calleeCode the code of CALLEE
+   * @param gas the gas the contract is called with
+   * @param isStatic whether the contract is called in a static frame
+   * @param slots the storage and transient storage slots to compare
+   * @param context the frame transaction context, which the run may update
+   * @return the execution, with the recorded steps
+   */
+  static Execution executeTracedInFrameTransaction(
+      final EVM evm,
+      final Bytes code,
+      final Bytes calleeCode,
+      final long gas,
+      final boolean isStatic,
+      final List<Bytes32> slots,
+      final FrameTransactionContext context) {
+    return execute(evm, code, calleeCode, Bytes.EMPTY, gas, isStatic, slots, true, context);
+  }
+
   private static Execution execute(
       final EVM evm,
       final Bytes code,
@@ -257,6 +284,19 @@ final class ProgramRun {
       final boolean isStatic,
       final List<Bytes32> slots,
       final boolean traced) {
+    return execute(evm, code, calleeCode, secondCalleeCode, gas, isStatic, slots, traced, null);
+  }
+
+  private static Execution execute(
+      final EVM evm,
+      final Bytes code,
+      final Bytes calleeCode,
+      final Bytes secondCalleeCode,
+      final long gas,
+      final boolean isStatic,
+      final List<Bytes32> slots,
+      final boolean traced,
+      final @Nullable FrameTransactionContext frameTransactionContext) {
     final StepRecorder recorder = new StepRecorder();
     final OperationTracer tracer = traced ? recorder : OperationTracer.NO_TRACING;
     final ToyWorld world = new ToyWorld();
@@ -275,7 +315,7 @@ final class ProgramRun {
     accesses.addTouchedAccount(CONTRACT);
     // read when the frame completes, as the frame's v2 stack is handed on afterwards
     final List<String> finalStack = new ArrayList<>();
-    final MessageFrame frame =
+    final MessageFrame.Builder builder =
         MessageFrame.builder()
             .enableEvmV2(evm.getEvmConfiguration().enableEvmV2())
             .type(MessageFrame.Type.MESSAGE_CALL)
@@ -296,8 +336,24 @@ final class ProgramRun {
             .miningBeneficiary(Address.ZERO)
             .blockHashLookup((__, number) -> Hash.hash(Words.longBytes(number)))
             .isStatic(isStatic)
-            .eip7928AccessList(accesses)
-            .build();
+            .eip7928AccessList(accesses);
+    if (frameTransactionContext != null) {
+      final TxValues txValues =
+          TxValues.forTransaction(
+              (__, number) -> Hash.hash(Words.longBytes(number)),
+              1024,
+              UndoSet.of(new TreeSet<>(List.of(ORIGINATOR, CONTRACT))),
+              ORIGINATOR,
+              Wei.ONE,
+              Wei.ONE,
+              BLOCK_VALUES,
+              Address.ZERO,
+              Optional.empty(),
+              0L);
+      txValues.setFrameTransactionContext(frameTransactionContext);
+      builder.txValues(txValues);
+    }
+    final MessageFrame frame = builder.build();
     final AbstractMessageProcessor call =
         new MessageCallProcessor(evm, new PrecompileContractRegistry());
     final AbstractMessageProcessor create = new ContractCreationProcessor(evm, true, List.of(), 1);

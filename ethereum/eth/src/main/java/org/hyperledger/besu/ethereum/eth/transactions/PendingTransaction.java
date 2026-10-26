@@ -160,8 +160,17 @@ public abstract class PendingTransaction
           case EIP1559 -> computeEIP1559MemorySize();
           case BLOB -> computeBlobMemorySize();
           case DELEGATE_CODE -> computeDelegateCodeMemorySize();
+          case FRAME -> computeFrameMemorySize();
         }
         + PENDING_TRANSACTION_SHALLOW_SIZE;
+  }
+
+  private int computeFrameMemorySize() {
+    // Approximation: frame transactions are not pooled today; account for the encoded size plus
+    // the base shallow size so the value is safely conservative if they ever are.
+    return EIP1559_AND_EIP4844_SHALLOW_SIZE
+        + computeChainIdMemorySize()
+        + transaction.getSizeForAnnouncement();
   }
 
   private int computeFrontierMemorySize() {
@@ -440,8 +449,8 @@ public abstract class PendingTransaction
    * class changes its structure.
    */
   public interface MemorySize {
-    int FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE = 896;
-    int EIP1559_AND_EIP4844_SHALLOW_SIZE = 1008;
+    int FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE = 912;
+    int EIP1559_AND_EIP4844_SHALLOW_SIZE = 1024;
     int OPTIONAL_TO_SIZE = 104;
     int OPTIONAL_CHAIN_ID_SIZE = 80;
     int PAYLOAD_SHALLOW_SIZE = 32;
