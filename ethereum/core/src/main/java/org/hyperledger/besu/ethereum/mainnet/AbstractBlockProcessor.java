@@ -34,6 +34,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidator;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
@@ -342,6 +344,18 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           nbParallelTx++;
         }
       }
+
+      // EIP-7805: validated against the state after the block txs, before withdrawals
+      final InclusionListValidationResult inclusionListValidationResult =
+          InclusionListValidator.validate(
+              protocolSpec,
+              worldState.updater(),
+              blockHeader,
+              cumulativeExecutionGasUsed,
+              cumulativeStateGasUsed,
+              InclusionListValidator.notIncludedIn(
+                  context.getInclusionListTransactions(), transactions));
+
       final var optionalHeaderBlobGasUsed = blockHeader.getBlobGasUsed();
       if (optionalHeaderBlobGasUsed.isPresent()) {
         final long headerBlobGasUsed = optionalHeaderBlobGasUsed.get();
@@ -514,7 +528,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   maybeRequests,
                   maybeBlockAccessList,
                   gasMetered,
-                  blockHashLookup.getAccessedAncestors())),
+                  blockHashLookup.getAccessedAncestors(),
+                  inclusionListValidationResult)),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } catch (final MerkleTrieException | MissingCodeException e) {
       // the block may be processed again on this world state, without the transactions before

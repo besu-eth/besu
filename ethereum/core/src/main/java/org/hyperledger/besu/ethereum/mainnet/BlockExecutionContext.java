@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
@@ -23,6 +24,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 
 import org.jspecify.annotations.Nullable;
@@ -49,6 +51,7 @@ public class BlockExecutionContext {
   private final MutableWorldState worldState;
   private final Block block;
   @Nullable private final BlockAccessList blockAccessList;
+  private final Set<Transaction> inclusionListTransactions;
   private final boolean sequentialExecutionRequested;
   @Nullable private final BlockAwareOperationTracer blockTracer;
   private final Function<ProtocolSpec, Optional<BlockAccessListFactory>>
@@ -59,6 +62,7 @@ public class BlockExecutionContext {
     this.worldState = builder.worldState;
     this.block = builder.block;
     this.blockAccessList = builder.blockAccessList;
+    this.inclusionListTransactions = builder.inclusionListTransactions;
     this.sequentialExecutionRequested = builder.sequentialExecutionRequested;
     this.blockTracer = builder.blockTracer;
     this.blockAccessListFactoryProvider = builder.blockAccessListFactoryProvider;
@@ -99,6 +103,10 @@ public class BlockExecutionContext {
    */
   public Optional<BlockAccessList> getBlockAccessList() {
     return Optional.ofNullable(blockAccessList);
+  }
+
+  public Set<Transaction> getInclusionListTransactions() {
+    return inclusionListTransactions;
   }
 
   /**
@@ -169,6 +177,7 @@ public class BlockExecutionContext {
     private MutableWorldState worldState;
     private Block block;
     @Nullable private BlockAccessList blockAccessList = null;
+    private Set<Transaction> inclusionListTransactions = Set.of();
     private boolean blockAccessListSet = false;
     private boolean sequentialExecutionRequested = false;
     @Nullable private BlockAwareOperationTracer blockTracer = null;
@@ -219,6 +228,11 @@ public class BlockExecutionContext {
       this.blockAccessList =
           Objects.requireNonNull(blockAccessList, "blockAccessList").orElse(null);
       this.blockAccessListSet = true;
+      return this;
+    }
+
+    public Builder inclusionListTransactions(final Set<Transaction> inclusionListTransactions) {
+      this.inclusionListTransactions = inclusionListTransactions;
       return this;
     }
 

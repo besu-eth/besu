@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 
 import java.util.Optional;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,6 +48,7 @@ class QbftBlockValidatorAdaptorTest {
             HeaderValidationMode.LIGHT,
             HeaderValidationMode.FULL,
             Optional.empty(),
+            Set.of(),
             false))
         .thenReturn(new BlockProcessingResult(Optional.empty()));
 
@@ -67,6 +69,7 @@ class QbftBlockValidatorAdaptorTest {
             HeaderValidationMode.LIGHT,
             HeaderValidationMode.FULL,
             Optional.empty(),
+            Set.of(),
             false))
         .thenReturn(new BlockProcessingResult("failed"));
 

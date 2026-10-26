@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public class MainnetBlockImporter implements BlockImporter {
 
@@ -56,7 +57,13 @@ public class MainnetBlockImporter implements BlockImporter {
 
     final var result =
         blockValidator.validateAndProcessBlock(
-            context, block, headerValidationMode, ommerValidationMode, blockAccessList, false);
+            context,
+            block,
+            headerValidationMode,
+            ommerValidationMode,
+            blockAccessList,
+            Set.of(),
+            false);
 
     if (result.isSuccessful()) {
       result

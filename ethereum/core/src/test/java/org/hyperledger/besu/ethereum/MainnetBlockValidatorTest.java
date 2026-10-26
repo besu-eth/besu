@@ -62,6 +62,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -180,6 +181,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.FULL,
             HeaderValidationMode.FULL,
             Optional.empty(),
+            Set.of(),
             shouldUpdateHead,
             true);
 
@@ -267,6 +269,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             Optional.of(bal),
+            Set.of(),
             true);
 
     assertValidationFailed(result, "Block access list validation failed");
@@ -297,6 +300,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             optionalBal,
+            Set.of(),
             true);
 
     assertThat(result.isSuccessful()).isTrue();
@@ -322,6 +326,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             bal,
+            Set.of(),
             true);
 
     assertValidationFailed(result, "provided gas insufficient");
@@ -524,6 +529,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             Optional.empty(),
+            Set.of(),
             false,
             false);
 
@@ -543,6 +549,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             Optional.empty(),
+            Set.of(),
             false,
             true);
 
@@ -562,6 +569,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             Optional.empty(),
+            Set.of(),
             false);
 
     assertThat(result.isFailed()).isTrue();

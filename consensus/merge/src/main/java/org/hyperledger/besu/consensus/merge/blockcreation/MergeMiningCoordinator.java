@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -32,6 +33,7 @@ import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransact
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -96,8 +98,26 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param blockAccessList optional block access list
    * @return the block processing result
    */
-  BlockProcessingResult rememberBlock(
-      final Block block, final Optional<BlockAccessList> blockAccessList);
+  default BlockProcessingResult rememberBlock(
+      final Block block, final Optional<BlockAccessList> blockAccessList) {
+    return rememberBlock(block, blockAccessList, Set.of(), Runnable::run);
+  }
+
+  /**
+   * Remember block with optional block access list, checking whether it satisfies the inclusion
+   * list (EIP-7805).
+   *
+   * @param block the block
+   * @param blockAccessList optional block access list
+   * @param inclusionListTransactions inclusion list transactions
+   * @return the block processing result
+   */
+  default BlockProcessingResult rememberBlock(
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final Set<Transaction> inclusionListTransactions) {
+    return rememberBlock(block, blockAccessList, inclusionListTransactions, Runnable::run);
+  }
 
   /**
    * Remember a block, handing the writes that store a valid one to the given writer, which may run
@@ -113,8 +133,26 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
       final Executor blockWriter) {
-    return rememberBlock(block, blockAccessList);
+    return rememberBlock(block, blockAccessList, Set.of(), blockWriter);
   }
+
+  /**
+   * Remember a block, checking whether it satisfies the inclusion list (EIP-7805), and handing the
+   * writes that store a valid one to the given writer, which may run them later. They write the
+   * block's trie log ahead of the block, since moving the head to a stored block needs its trie
+   * log.
+   *
+   * @param block the block
+   * @param blockAccessList optional block access list
+   * @param inclusionListTransactions inclusion list transactions
+   * @param blockWriter runs the writes that store the block
+   * @return the block processing result
+   */
+  BlockProcessingResult rememberBlock(
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final Set<Transaction> inclusionListTransactions,
+      final Executor blockWriter);
 
   /**
    * Validate block.

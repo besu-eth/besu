@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Implements {@code debug_getRawExecutionRequests}: returns the EIP-7685 execution requests a block
@@ -106,6 +107,7 @@ public class DebugGetRawExecutionRequests extends AbstractBlockParameterOrBlockH
                 HeaderValidationMode.NONE,
                 HeaderValidationMode.NONE,
                 Optional.empty(),
+                Set.of(),
                 false,
                 false);
     if (!result.isSuccessful()) {

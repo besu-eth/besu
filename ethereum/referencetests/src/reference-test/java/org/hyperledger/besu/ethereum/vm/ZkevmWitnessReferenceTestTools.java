@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -129,7 +130,7 @@ public class ZkevmWitnessReferenceTestTools {
                     validationMode,
                     validationMode,
                     candidateBlock.getBlockAccessList(),
-                    false,
+                        Set.of(), false,
                     false);
 
         final boolean imported = processingResult.isSuccessful();

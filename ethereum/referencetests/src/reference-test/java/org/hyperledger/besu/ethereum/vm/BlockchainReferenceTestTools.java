@@ -66,10 +66,10 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.assertj.core.api.Assertions;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 public class BlockchainReferenceTestTools {
@@ -201,7 +201,7 @@ public class BlockchainReferenceTestTools {
                                     validationMode,
                                     validationMode,
                                     candidateBlock.getBlockAccessList(),
-                                    false);
+                                    Set.of(), false);
 
                     final boolean imported = processingResult.isSuccessful();
                     if (imported) {

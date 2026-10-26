@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.Optional;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -93,6 +94,7 @@ public class DebugReplayBlock extends AbstractBlockParameterMethod {
               HeaderValidationMode.FULL,
               HeaderValidationMode.NONE,
               Optional.empty(),
+              Set.of(),
               true);
     } catch (Exception e) {
       LOG.error(e.getMessage());
