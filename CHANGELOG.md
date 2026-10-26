@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 26.10.2
 
 ### Breaking Changes
 - `eth_getProof` now rejects a request with more than 1024 storage keys with `Invalid storage keys params` (`-32602`), the same limit as geth, Nethermind and Erigon. [#11697](https://github.com/besu-eth/besu/pull/11697)
