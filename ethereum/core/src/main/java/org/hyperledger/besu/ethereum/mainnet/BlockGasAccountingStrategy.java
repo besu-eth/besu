@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+
 import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -85,15 +87,12 @@ public interface BlockGasAccountingStrategy {
       final long blockGasLimit) {
     if (transaction.getType().supportsFrames()) {
       final var frames = transaction.getFrames().orElseThrow();
-      final var signatures = transaction.getFrameSignatures().orElse(java.util.List.of());
-      final var nonceCalldata = FrameTransactionGas.nonceCalldata(transaction);
       final long executionReservation =
           Math.max(
-              FrameTransactionGas.intrinsicGas(
-                      frames, signatures, transaction.getSender(), nonceCalldata)
-                  + FrameTransactionGas.totalExecutionGasLimit(frames),
-              FrameTransactionGas.calldataFloorGas(
-                  frames, signatures, transaction.getSender(), nonceCalldata));
+              clampedAdd(
+                  FrameTransactionGas.intrinsicGas(transaction),
+                  FrameTransactionGas.totalExecutionGasLimit(frames)),
+              FrameTransactionGas.calldataFloorGas(transaction));
       final long stateReservation = FrameTransactionGas.totalStateGasLimit(frames);
       return executionReservation <= Math.max(0L, blockGasLimit - cumulativeRegularGas)
           && stateReservation <= Math.max(0L, blockGasLimit - cumulativeStateGas);

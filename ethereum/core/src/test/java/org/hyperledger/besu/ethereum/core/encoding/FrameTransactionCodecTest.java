@@ -197,7 +197,8 @@ class FrameTransactionCodecTest {
             transaction.getFrames().orElseThrow(),
             transaction.getFrameSignatures().orElseThrow(),
             SENDER,
-            org.hyperledger.besu.ethereum.core.FrameTransactionGas.nonceCalldata(transaction));
+            transaction.getNonceKeys().orElseThrow(),
+            transaction.getNonce());
     assertThat(transaction.getGasLimit()).isEqualTo(expected);
     assertThat(transaction.isContractCreation()).isFalse();
   }
