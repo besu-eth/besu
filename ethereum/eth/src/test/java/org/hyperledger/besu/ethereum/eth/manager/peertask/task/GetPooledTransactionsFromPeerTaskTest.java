@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskRespons
 import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
@@ -103,5 +104,45 @@ public class GetPooledTransactionsFromPeerTaskTest {
     PeerTaskValidationResponse validationResponse = task.validateResult(List.of(transaction));
     Assertions.assertEquals(
         PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY, validationResponse);
+  }
+
+  @Test
+  public void testValidateResultAcceptsOrderedSubset() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final Transaction third = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second, third)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD,
+        task.validateResult(List.of(first, third)));
+  }
+
+  @Test
+  public void testValidateResultRejectsOutOfOrderTransactions() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
+        task.validateResult(List.of(second, first)));
+  }
+
+  @Test
+  public void testValidateResultRejectsDuplicateTransactions() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
+        task.validateResult(List.of(first, first)));
   }
 }
