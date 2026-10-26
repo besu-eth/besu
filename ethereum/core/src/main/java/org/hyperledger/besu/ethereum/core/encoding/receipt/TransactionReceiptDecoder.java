@@ -14,10 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.core.encoding.receipt;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.ethereum.core.FrameReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
@@ -43,6 +45,13 @@ import org.jspecify.annotations.Nullable;
  * ]
  *
  * (eth/69): receipt = [tx-type, post-state-or-status, cumulative-gas, logs]
+ *
+ * EIP-8141 frame receipts replace the legacy-receipt payload with their own:
+ *
+ * (eth/68): typed-receipt = 0x06 || rlp([cumulative-gas, payer, frame-receipts])
+ * (eth/69): receipt = [0x06, cumulative-gas, payer, frame-receipts]
+ *
+ * frame-receipts = [[status, [execution-gas-used, state-gas-used], logs], ...]
  * </pre>
  */
 public class TransactionReceiptDecoder {
@@ -113,10 +122,23 @@ public class TransactionReceiptDecoder {
    */
   private static TransactionReceipt decodeFrameReceipt(final RLPInput input) {
     input.enterList();
+    final TransactionReceipt receipt = decodeFrameReceiptFields(input);
+    input.leaveList();
+    return receipt;
+  }
+
+  /**
+   * Decodes the fields of an EIP-8141 frame receipt payload, {@code cumulative_gas_used, payer,
+   * [[status, [execution, state], logs], ...]}, from the current list. They make up the whole
+   * payload list in the typed form, and follow the type in the eth/69 form.
+   *
+   * @param input the RLP input positioned at the cumulative gas used
+   * @return the frame transaction receipt
+   */
+  private static TransactionReceipt decodeFrameReceiptFields(final RLPInput input) {
     final long cumulativeGas = input.readLongScalar();
-    final org.hyperledger.besu.datatypes.Address payer =
-        org.hyperledger.besu.datatypes.Address.wrap(input.readBytes());
-    final List<org.hyperledger.besu.ethereum.core.FrameReceipt> frameReceipts =
+    final Address payer = Address.wrap(input.readBytes());
+    final List<FrameReceipt> frameReceipts =
         input.readList(
             frameInput -> {
               frameInput.enterList();
@@ -127,11 +149,25 @@ public class TransactionReceiptDecoder {
               frameInput.leaveList();
               final List<Log> logs = frameInput.readList(logInput -> Log.readFrom(logInput, false));
               frameInput.leaveList();
-              return new org.hyperledger.besu.ethereum.core.FrameReceipt(
-                  status, executionGasUsed, stateGasUsed, logs);
+              return new FrameReceipt(status, executionGasUsed, stateGasUsed, logs);
             });
-    input.leaveList();
     return new TransactionReceipt(payer, cumulativeGas, frameReceipts);
+  }
+
+  /**
+   * Whether the first element of a flat receipt is the type of an EIP-8141 frame transaction, which
+   * makes it an eth/69 frame receipt. A legacy receipt cannot start with that value, its first
+   * element being a status of 0 or 1 or a 32-byte state root.
+   *
+   * @param firstElement the first element of the flat receipt
+   * @return true if the receipt is an eth/69 frame receipt
+   */
+  private static boolean isFrameTransactionType(final RLPInput firstElement) {
+    final Bytes encoded = firstElement.raw();
+    return encoded.size() == 1
+        && TransactionType.fromEthSerializedType(encoded.get(0))
+            .map(TransactionType::supportsFrames)
+            .orElse(false);
   }
 
   /**
@@ -170,6 +206,12 @@ public class TransactionReceiptDecoder {
     // used. This is because compacted legacy receipts also lack a bloom filter.
     // The first element can be either the transaction type (eth/69 or stateRootOrStatus (eth/68
     final RLPInput firstElement = rlpInput.readAsRlp();
+    // An eth/69 frame receipt continues with the fields of the frame receipt payload.
+    if (isFrameTransactionType(firstElement)) {
+      final TransactionReceipt receipt = decodeFrameReceiptFields(rlpInput);
+      rlpInput.leaveList();
+      return receipt;
+    }
     // The second element can be either the state root or status (eth/68) or cumulative gas (eth/69)
     final RLPInput secondElement = rlpInput.readAsRlp();
     final boolean isCompacted = isNextNotBloomFilter(rlpInput);

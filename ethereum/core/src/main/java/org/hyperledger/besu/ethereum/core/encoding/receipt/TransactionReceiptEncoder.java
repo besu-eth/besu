@@ -42,6 +42,14 @@ import org.apache.tuweni.bytes.Bytes;
  * transactionType || rlp([status, cumulativeGasUsed, logsBloom?, logs, revertReason?])
  * </pre>
  *
+ * <h3>Frame Transaction Receipt (EIP-8141, Bogota+)</h3>
+ *
+ * <pre>
+ * 0x06 || rlp([cumulativeGasUsed, payer, [[status, [executionGasUsed, stateGasUsed], logs], ...]])
+ * </pre>
+ *
+ * <p>eth/69 and later send it flat, as {@code [0x06, cumulativeGasUsed, payer, [...]]}.
+ *
  * <h3>Field Descriptions</h3>
  *
  * <ul>
@@ -72,10 +80,13 @@ public class TransactionReceiptEncoder {
       final RLPOutput rlpOutput,
       final TransactionReceiptEncodingConfiguration options) {
 
-    // EIP-8141 frame receipts have their own payload; they are always exchanged and stored in the
-    // typed envelope, including on eth/69 where they travel as opaque typed bytes.
+    // EIP-8141 frame receipts have their own payload. eth/69 and later carry it flat after the
+    // type, as the EIP-8141 Networking section defines; otherwise it is stored and exchanged in
+    // the typed envelope, like any other typed receipt.
     if (receipt.getTransactionType().supportsFrames()) {
-      if (options.isWithEth69Receipt() || options.isWithOpaqueBytes()) {
+      if (options.isWithEth69Receipt()) {
+        writeEth69FrameReceipt(receipt, rlpOutput);
+      } else if (options.isWithOpaqueBytes()) {
         rlpOutput.writeBytes(RLP.encode(out -> writeFrameReceipt(receipt, out)));
       } else {
         writeFrameReceipt(receipt, rlpOutput);
@@ -108,6 +119,36 @@ public class TransactionReceiptEncoder {
       final TransactionReceipt receipt, final RLPOutput rlpOutput) {
     rlpOutput.writeByte(receipt.getTransactionType().getSerializedType());
     rlpOutput.startList();
+    writeFrameReceiptFields(receipt, rlpOutput);
+    rlpOutput.endList();
+  }
+
+  /**
+   * Writes an EIP-8141 frame transaction receipt in the eth/69 network form, {@code [type,
+   * cumulative_gas_used, payer, [[status, [execution, state], logs], ...]]}: the fields of the
+   * consensus payload, flattened after the type as for the other eth/69 receipts.
+   *
+   * @param receipt the frame transaction receipt
+   * @param rlpOutput the RLP output
+   */
+  private static void writeEth69FrameReceipt(
+      final TransactionReceipt receipt, final RLPOutput rlpOutput) {
+    rlpOutput.startList();
+    rlpOutput.writeLongScalar(
+        Byte.toUnsignedInt(receipt.getTransactionType().getEthSerializedType()));
+    writeFrameReceiptFields(receipt, rlpOutput);
+    rlpOutput.endList();
+  }
+
+  /**
+   * Writes the fields of an EIP-8141 frame receipt payload, {@code cumulative_gas_used, payer,
+   * [[status, [execution, state], logs], ...]}, into the current list.
+   *
+   * @param receipt the frame transaction receipt
+   * @param rlpOutput the RLP output
+   */
+  private static void writeFrameReceiptFields(
+      final TransactionReceipt receipt, final RLPOutput rlpOutput) {
     rlpOutput.writeLongScalar(receipt.getCumulativeGasUsed());
     rlpOutput.writeBytes(receipt.getPayer().orElseThrow().getBytes());
     rlpOutput.writeList(
@@ -122,7 +163,6 @@ public class TransactionReceiptEncoder {
           out.writeList(frameReceipt.logs(), (log, logOut) -> log.writeTo(logOut, false));
           out.endList();
         });
-    rlpOutput.endList();
   }
 
   private static boolean shouldEncodeOpaqueBytes(
