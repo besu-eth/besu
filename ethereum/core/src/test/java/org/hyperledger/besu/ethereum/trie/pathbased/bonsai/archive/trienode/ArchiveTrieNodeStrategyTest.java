@@ -102,36 +102,27 @@ class ArchiveTrieNodeStrategyTest {
 
   @Test
   void gateDeterminesArchivingPerBlock() {
-    // Gate is checked per-block: open→archives, closed→skips, open again→archives.
+    // Gate is checked per-block: open->archives, closed->skips. Coverage must stay contiguous, so
+    // the gate cannot re-open after a skipped block without a gap.
     final ArchiveTrieNodeStrategy strategy = strategyWithGate(true);
 
     final Bytes locationA = Bytes.of(0x0a);
     final Bytes locationB = Bytes.of(0x0b);
-    final Bytes locationC = Bytes.of(0x0c);
 
-    // Block 1: gate open — archives.
-    setStoredBlockNumber(0L);
+    // Block 0: gate open - archives.
     put(strategy, locationA, Bytes.fromHexString("0xaaaa"));
 
-    // Block 2: gate closes — not archived.
+    // Block 1: gate closes - not archived.
     strategy.setArchiving(false);
-    setStoredBlockNumber(1L);
+    setStoredBlockNumber(0L);
     put(strategy, locationB, Bytes.fromHexString("0xbbbb"));
 
-    // Block 3: gate re-opens — archives again (no latch).
-    strategy.setArchiving(true);
-    setStoredBlockNumber(2L);
-    put(strategy, locationC, Bytes.fromHexString("0xcccc"));
-
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(locationA), 1L))
-        .as("block 1 archived (gate open)")
+        .as("block 0 archived (gate open)")
         .isPresent();
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(locationB), 2L))
-        .as("block 2 not archived (gate closed)")
+    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(locationB), 1L))
+        .as("block 1 not archived (gate closed)")
         .isEmpty();
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(locationC), 3L))
-        .as("block 3 archived (gate reopened)")
-        .isPresent();
   }
 
   @Test
@@ -143,11 +134,12 @@ class ArchiveTrieNodeStrategyTest {
         new ArchiveTrieNodeStrategy(new BonsaiTrieNodeStrategy(), capture, () -> false);
     strategy.onInSyncStatusChange(true); // spurious in-sync caused by having no peers
 
-    setStoredBlockNumber(5L); // current block 6, not genesis
+    put(strategy, Bytes.of(0x01), Bytes.fromHexString("0xbeef")); // genesis, block 0
+    setStoredBlockNumber(0L); // current block 1, not genesis
     final Bytes location = Bytes.of(0x0e);
     put(strategy, location, Bytes.fromHexString("0xcafe"));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 6L))
+    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L))
         .as("peer-less in-sync must keep archiving")
         .isPresent();
   }
@@ -267,19 +259,18 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x07);
     final Bytes node = Bytes.fromHexString("0xfeed");
 
-    // Block 1: real write — archived.
+    // Block 0: real write — archived.
+    put(strategy, location, node);
+
+    // Block 1: identical bytes re-written — no-op, must be skipped (no new entry).
     setStoredBlockNumber(0L);
     put(strategy, location, node);
 
-    // Block 5: identical bytes re-written — no-op, must be skipped (no new entry).
-    setStoredBlockNumber(4L);
-    put(strategy, location, node);
-
-    final var latest = historyStore.getLatestBefore(ArchiveNodeKey.account(location), 5L);
+    final var latest = historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L);
     assertThat(latest).isPresent();
     assertThat(latest.get().block())
-        .as("no entry written at the no-op block; resolves to the block-1 entry")
-        .isEqualTo(1L);
+        .as("no entry written at the no-op block; resolves to the block-0 entry")
+        .isEqualTo(0L);
   }
 
   @Test

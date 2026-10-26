@@ -127,14 +127,30 @@ class ArchiveTrieNodeWriterTest {
   }
 
   @Test
-  void nonContiguousUpdateForcesFullCheckpoint() {
+  void firstCaptureOfFreshWriterForcesFullCheckpoint() {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     enqueueAndCommit(0L, nk, LOCATION, branchNode(0), null);
-    // block 5 does not follow block 0 — chain is not contiguous
-    enqueueAndCommit(5L, nk, LOCATION, branchNode(5), branchNode(4));
+    // Coverage is contiguous (blocks 1-2 touch only another node), but a restarted writer has not
+    // observed the preceding block, so it cannot assume the chain is contiguous.
+    final Bytes otherLocation = Bytes.of(0x02);
+    final Bytes otherNk = ArchiveNodeKey.account(otherLocation);
+    enqueueAndCommit(1L, otherNk, otherLocation, branchNode(1), null);
+    enqueueAndCommit(2L, otherNk, otherLocation, branchNode(2), branchNode(1));
 
-    final var entry = historyStore.getLatestBefore(nk, 5L).orElseThrow();
-    assertThat(entry.block()).isEqualTo(5L);
+    final ArchiveTrieNodeWriter restarted =
+        new ArchiveTrieNodeWriter(
+            historyStore,
+            coverageTracker,
+            Executors.newFixedThreadPool(2),
+            DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    restarted.capture(nk, LOCATION, 3L, branchNode(3), branchNode(0), tx);
+    restarted.onBeforeCommit(tx);
+    tx.commit();
+
+    final var entry = historyStore.getLatestBefore(nk, 3L).orElseThrow();
+    assertThat(entry.block()).isEqualTo(3L);
     assertThat(entry.codecEntry().isFull()).isTrue();
     assertThat(entry.counter()).isZero();
   }
@@ -341,11 +357,16 @@ class ArchiveTrieNodeWriterTest {
   private long replayAndSumStoredBytes(
       final Bytes location, final int blocks, final IntFunction<Bytes> nodeAt) {
     final Bytes nk = ArchiveNodeKey.account(location);
+    // Fresh storage and coverage per replay: coverage must restart contiguously from block 0.
+    final SegmentedKeyValueStorage storage =
+        new SegmentedInMemoryKeyValueStorage(
+            List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
+    final ArchiveNodeHistoryStore historyStore = new ArchiveNodeHistoryStore(storage);
     final ExecutorService pool = Executors.newFixedThreadPool(2);
     final ArchiveTrieNodeWriter localCapture =
         new ArchiveTrieNodeWriter(
             historyStore,
-            coverageTracker,
+            new ArchiveCoverageTracker(storage),
             pool,
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
