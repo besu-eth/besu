@@ -55,8 +55,6 @@ dependencies {
 
   api 'org.slf4j:slf4j-api'
 
-  annotationProcessor "org.immutables:value"
-
   implementation project(':config')
   implementation project(':datatypes')
   implementation project(':ethereum:blockcreation')
@@ -76,7 +74,6 @@ dependencies {
   implementation 'io.vertx:vertx-core'
   implementation 'io.consensys.tuweni:tuweni-bytes'
   implementation 'io.consensys.tuweni:tuweni-units'
-  implementation "org.immutables:value-annotations"
 
   testImplementation project(path: ':consensus:common', configuration: 'testArtifacts')
   testImplementation project(':crypto:algorithms')

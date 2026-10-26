@@ -46,7 +46,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID,
     SYNCING,
     ACCEPTED,
-    INVALID_BLOCK_HASH
+    INVALID_BLOCK_HASH;
   }
 
   @Value.Builder

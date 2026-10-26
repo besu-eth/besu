@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
@@ -91,6 +92,19 @@ class InclusionListValidatorTest {
     when(protocolSpec.getTransactionValidatorFactory()).thenReturn(transactionValidatorFactory);
 
     when(protocolSpec.getTransactionProcessor()).thenReturn(transactionProcessor);
+  }
+
+  @Test
+  void satisfiedWithoutAnyWorkWhenAllInclusionListTransactionsAreInTheBlock() {
+    // the case of every block until an inclusion list is passed by the engine API
+    assertThat(
+            InclusionListValidator.validate(
+                    protocolSpec, worldUpdater, blockHeader, 0, 0, List.of())
+                .isValid())
+        .isTrue();
+
+    verify(protocolSpec, never()).getTransactionValidatorFactory();
+    verifyNoInteractions(worldUpdater);
   }
 
   @Test

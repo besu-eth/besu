@@ -77,6 +77,18 @@ public class InclusionListValidator {
         .toList();
   }
 
+  /**
+   * Validates the inclusion list transactions that are not in the block against the state after the
+   * block transactions (EIP-7805).
+   *
+   * @param protocolSpec the protocol spec of the block
+   * @param worldUpdater the world state after the block transactions, before withdrawals
+   * @param newBlockHeader the header of the block
+   * @param cumulativeExecutionGasUsed the execution gas used by the block transactions
+   * @param cumulativeStateGasUsed the state gas used by the block transactions (EIP-8037)
+   * @param inclusionListTransactions the inclusion list transactions that are not in the block
+   * @return unsatisfied if one of the transactions could have been included, valid otherwise
+   */
   public static InclusionListValidationResult validate(
       final ProtocolSpec protocolSpec,
       final WorldUpdater worldUpdater,
@@ -85,9 +97,14 @@ public class InclusionListValidator {
       final long cumulativeStateGasUsed,
       final Collection<Transaction> inclusionListTransactions) {
 
-    LOG.atInfo()
-        .setMessage("IL validation: {} IL txs")
-        .addArgument(inclusionListTransactions.size())
+    if (inclusionListTransactions.isEmpty()) {
+      return InclusionListValidationResult.valid();
+    }
+
+    LOG.atDebug()
+        .setMessage("Validating {} inclusion list txs not in block {}")
+        .addArgument(inclusionListTransactions::size)
+        .addArgument(newBlockHeader::toLogString)
         .log();
 
     final TransactionValidator transactionValidator =
@@ -97,13 +114,10 @@ public class InclusionListValidator {
     final long transactionExecutionGasLimit =
         protocolSpec.getGasCalculator().stateGasCostCalculator().transactionExecutionGasLimit();
 
-    // Apply the 3-step conditional algorithm for each IL transaction
     for (final Transaction tx : inclusionListTransactions) {
-      LOG.atInfo().setMessage("Checking IL tx not in block {}").addArgument(tx::toTraceLog).log();
-
-      // Skip blob txs
+      // blob txs are not allowed in inclusion lists
       if (tx.getType().supportsBlob()) {
-        LOG.info("Skipping blob tx {}", tx.toTraceLog());
+        LOG.atDebug().setMessage("Skipping IL blob tx {}").addArgument(tx::toTraceLog).log();
         continue;
       }
 
@@ -132,7 +146,11 @@ public class InclusionListValidator {
               Optional.of(Wei.ZERO),
               TransactionValidationParams.processingBlock());
       if (!baseValidationResult.isValid()) {
-        LOG.info("Tx {} not valid reason {}", tx.toTraceLog(), baseValidationResult);
+        LOG.atDebug()
+            .setMessage("Skipping IL tx {}, it is not valid: {}")
+            .addArgument(tx::toTraceLog)
+            .addArgument(baseValidationResult::getErrorMessage)
+            .log();
         continue;
       }
       final Address sender = tx.getSender();
@@ -140,22 +158,22 @@ public class InclusionListValidator {
           transactionValidator.validateForSender(
               tx, worldUpdater.get(sender), TransactionValidationParams.processingBlock());
       if (!senderValidationResult.isValid()) {
-        LOG.info("Tx {} not valid reason {}", tx.toTraceLog(), senderValidationResult);
+        LOG.atDebug()
+            .setMessage("Skipping IL tx {}, it is not valid for its sender: {}")
+            .addArgument(tx::toTraceLog)
+            .addArgument(senderValidationResult::getErrorMessage)
+            .log();
         continue;
       }
 
-      // Transaction passed all the checks — it could have been included but wasn't
-      LOG.warn(
-          "IL unsatisfied: transaction (sender={}, nonce={}) could have been included but wasn't",
-          sender,
-          tx.getNonce());
-      return InclusionListValidationResult.unsatisfied(
-          "Inclusion list not satisfied: transaction "
-              + " (sender="
-              + sender
-              + ", nonce="
-              + tx.getNonce()
-              + ") could have been included but wasn't");
+      // the tx passed all the checks: it could have been included, but it was not
+      final String unsatisfiedReason =
+          String.format(
+              "inclusion list tx %s (sender %s, nonce %d) could have been included but was not",
+              tx.getHash(), sender, tx.getNonce());
+      LOG.debug(
+          "Block {} does not satisfy its {}", newBlockHeader.toLogString(), unsatisfiedReason);
+      return InclusionListValidationResult.unsatisfied(unsatisfiedReason);
     }
 
     return InclusionListValidationResult.valid();

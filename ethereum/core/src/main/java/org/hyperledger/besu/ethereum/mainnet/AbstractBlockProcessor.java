@@ -345,6 +345,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       }
 
+      // EIP-7805: validated against the state after the block txs, before withdrawals
       final InclusionListValidationResult inclusionListValidationResult =
           InclusionListValidator.validate(
               protocolSpec,
