@@ -3067,6 +3067,28 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void bonsaiArchiveStateProofsRejectSnapSync() {
+    parseCommand(
+        "--data-storage-format=X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-enabled",
+        "--sync-mode=SNAP");
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "Cannot enable --Xbonsai-archive-state-proofs-enabled with --sync-mode=SNAP and"
+                + " --data-storage-format=X_BONSAI_ARCHIVE. You must use --sync-mode=FULL");
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsAcceptFullSync() {
+    parseCommand(
+        "--data-storage-format=X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-enabled",
+        "--sync-mode=FULL");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void cacheLastBlocksOptionShouldWork() {
     parseCommand("--cache-last-blocks", "512", "--cache-last-blocks-max-capacity", "1048576");
     verify(mockControllerBuilder).cacheLastBlocks(intArgumentCaptor.capture());
