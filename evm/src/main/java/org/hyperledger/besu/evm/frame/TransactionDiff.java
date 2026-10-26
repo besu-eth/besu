@@ -192,7 +192,9 @@ public final class TransactionDiff {
    * <p>Only {@link WorldView#get} is called, which creates no tracker in any updater and records
    * nothing in the block access list. The prestate view must not see the transaction's writes,
    * which holds for every {@code StackedUpdater} chain (the default updater mode) but not for a
-   * {@code JournaledUpdater}, whose layers share their accounts.
+   * {@code JournaledUpdater}, whose layers share their accounts. The JOURNALED mode cannot reach
+   * this code: ProtocolSpecBuilder rejects it for every fork with a block access list, and every
+   * fork with frame transactions has one (pinned by ProtocolScheduleBuilderTest).
    *
    * @param prestate the transaction prestate
    * @param post the state as of the read, which sees every write layer
