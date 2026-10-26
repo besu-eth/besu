@@ -140,7 +140,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             archiveHistoryStore,
             trieCapturePool,
             unstable.getBonsaiArchiveShallowCheckpointInterval(),
-            unstable.getBonsaiArchiveDeepCheckpointInterval()),
+            unstable.getBonsaiArchiveDeepCheckpointInterval(),
+            Optional.empty()),
         archiveHistoryStore,
         storage -> storage == liveStorage,
         this::isFinal);

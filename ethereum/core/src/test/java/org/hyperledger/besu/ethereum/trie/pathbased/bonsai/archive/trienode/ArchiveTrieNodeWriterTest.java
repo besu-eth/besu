@@ -32,8 +32,14 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntFunction;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -83,7 +89,8 @@ class ArchiveTrieNodeWriterTest {
             historyStore,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            Optional.empty());
   }
 
   private void enqueueAndCommit(
@@ -148,6 +155,91 @@ class ArchiveTrieNodeWriterTest {
         .contains(new ArchiveNodeHistoryStore.ArchivedBlock(1L, header(1L).getBlockHash()));
   }
 
+  private ArchiveTrieNodeWriter ownCommitWriter() {
+    return ownCommitWriter(Executors.newFixedThreadPool(2));
+  }
+
+  private ArchiveTrieNodeWriter ownCommitWriter(final ExecutorService pool) {
+    return new ArchiveTrieNodeWriter(
+        historyStore,
+        pool,
+        DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
+        DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+        Optional.of(storage));
+  }
+
+  @Test
+  void ownCommitStorageReceivesEntriesAndCoverageInsteadOfPersistTransaction() {
+    final ArchiveTrieNodeWriter writer = ownCommitWriter();
+    final SegmentedKeyValueStorage persistStorage =
+        new SegmentedInMemoryKeyValueStorage(
+            List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+
+    final SegmentedKeyValueStorageTransaction tx = persistStorage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
+    writer.onBeforeCommit(tx);
+
+    assertThat(historyStore.getLatestBefore(nk, 0L)).isPresent();
+    assertThat(historyStore.getArchivedBlockNumber()).isZero();
+    tx.commit();
+    assertThat(persistStorage.stream(TRIE_BRANCH_STORAGE_ARCHIVE)).isEmpty();
+  }
+
+  @Test
+  void ownCommitStorageGetsNothingWhenTheBlockFails() {
+    // The second batch's encoding is cancelled, so the block fails after the first is written.
+    final AtomicInteger submitted = new AtomicInteger();
+    final ExecutorService pool =
+        new AbstractExecutorService() {
+          @Override
+          public void execute(final Runnable task) {
+            if (submitted.incrementAndGet() == 1) {
+              task.run();
+            } else {
+              ((Future<?>) task).cancel(false);
+            }
+          }
+
+          @Override
+          public void shutdown() {}
+
+          @Override
+          public List<Runnable> shutdownNow() {
+            return List.of();
+          }
+
+          @Override
+          public boolean isShutdown() {
+            return false;
+          }
+
+          @Override
+          public boolean isTerminated() {
+            return false;
+          }
+
+          @Override
+          public boolean awaitTermination(final long timeout, final TimeUnit unit) {
+            return true;
+          }
+        };
+    final ArchiveTrieNodeWriter writer = ownCommitWriter(pool);
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    for (int i = 0; i <= 64; i++) {
+      final Bytes location = Bytes.of(i);
+      writer.capture(ArchiveNodeKey.account(location), location, 0L, branchNode(0), null, tx);
+    }
+    assertThatThrownBy(() -> writer.onBeforeCommit(tx)).isInstanceOf(CancellationException.class);
+
+    assertThat(historyStore.getLatestBefore(nk, 0L)).isEmpty();
+    assertThat(historyStore.getArchivedBlock()).isEmpty();
+  }
+
   @Test
   void freshWriterDiffsWhenCoverageIsContiguous() {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
@@ -159,7 +251,8 @@ class ArchiveTrieNodeWriterTest {
             historyStore,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            Optional.empty());
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     restarted.beginBlock(tx, header(1L));
     restarted.capture(nk, LOCATION, 1L, branchNode(1), branchNode(0), tx);
@@ -207,7 +300,8 @@ class ArchiveTrieNodeWriterTest {
             spiedStore,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            Optional.empty());
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     writer.beginBlock(tx, header(block));
     writer.capture(nk, LOCATION, block, branchNode((int) block), prior, tx);
@@ -359,7 +453,8 @@ class ArchiveTrieNodeWriterTest {
     final int shallow = 24;
     final int deep = 8;
     final ArchiveTrieNodeWriter writer =
-        new ArchiveTrieNodeWriter(historyStore, Executors.newFixedThreadPool(1), shallow, deep);
+        new ArchiveTrieNodeWriter(
+            historyStore, Executors.newFixedThreadPool(1), shallow, deep, Optional.empty());
     assertThat(writer.checkpointIntervalForDepth(0)).isEqualTo(shallow);
     assertThat(writer.checkpointIntervalForDepth(1)).isEqualTo(shallow);
     assertThat(writer.checkpointIntervalForDepth(2)).isEqualTo(shallow);
@@ -375,7 +470,11 @@ class ArchiveTrieNodeWriterTest {
     final int deepInterval = 4;
     final ArchiveTrieNodeWriter writer =
         new ArchiveTrieNodeWriter(
-            historyStore, Executors.newFixedThreadPool(1), shallowInterval, deepInterval);
+            historyStore,
+            Executors.newFixedThreadPool(1),
+            shallowInterval,
+            deepInterval,
+            Optional.empty());
 
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     Bytes prior = null;
@@ -451,7 +550,8 @@ class ArchiveTrieNodeWriterTest {
             historyStore,
             pool,
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            Optional.empty());
     Bytes prior = null;
     for (int block = 0; block < blocks; block++) {
       final Bytes node = nodeAt.apply(block);

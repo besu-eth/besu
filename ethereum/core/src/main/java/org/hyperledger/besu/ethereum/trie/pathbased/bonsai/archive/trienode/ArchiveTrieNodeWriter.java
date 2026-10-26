@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.io.Closeable;
@@ -70,15 +71,20 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private final ConcurrentHashMap<SegmentedKeyValueStorageTransaction, CaptureBuffer> buffers =
       new ConcurrentHashMap<>();
 
+  // When present, each block's entries and coverage commit in their own transaction on it.
+  private final Optional<SegmentedKeyValueStorage> ownCommitStorage;
+
   public ArchiveTrieNodeWriter(
       final ArchiveNodeHistoryStore historyStore,
       final ExecutorService capturePool,
       final int shallowCheckpointInterval,
-      final int deepCheckpointInterval) {
+      final int deepCheckpointInterval,
+      final Optional<SegmentedKeyValueStorage> ownCommitStorage) {
     this.historyStore = Objects.requireNonNull(historyStore, "historyStore must not be null");
     this.capturePool = Objects.requireNonNull(capturePool, "capturePool must not be null");
     this.shallowCheckpointInterval = shallowCheckpointInterval;
     this.deepCheckpointInterval = deepCheckpointInterval;
+    this.ownCommitStorage = Objects.requireNonNull(ownCommitStorage);
   }
 
   @VisibleForTesting
@@ -189,6 +195,23 @@ public class ArchiveTrieNodeWriter implements Closeable {
     if (buf == null) {
       return;
     }
+    if (ownCommitStorage.isEmpty()) {
+      writeBlock(buf, transaction);
+      return;
+    }
+    final SegmentedKeyValueStorageTransaction ownTx =
+        ownCommitStorage.get().startLowPriorityTransaction();
+    try {
+      writeBlock(buf, ownTx);
+    } catch (final RuntimeException | Error e) {
+      ownTx.rollback();
+      throw e;
+    }
+    ownTx.commit();
+  }
+
+  private void writeBlock(
+      final CaptureBuffer buf, final SegmentedKeyValueStorageTransaction writeTx) {
     synchronized (buf) {
       if (!buf.pendingRequests.isEmpty()) {
         dispatchBatch(buf);
@@ -196,7 +219,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
       try {
         for (final Future<List<EncodedEntry>> future : buf.inFlight) {
           for (final EncodedEntry entry : future.get()) {
-            historyStore.putEncoded(transaction, entry.historyKey(), entry.storedValue());
+            historyStore.putEncoded(writeTx, entry.historyKey(), entry.storedValue());
           }
         }
       } catch (final InterruptedException e) {
@@ -205,7 +228,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
       } catch (final ExecutionException e) {
         throw new RuntimeException("trie-node capture failed", e.getCause());
       }
-      historyStore.saveArchiveProgress(transaction, buf.block, buf.blockHash);
+      historyStore.saveArchiveProgress(writeTx, buf.block, buf.blockHash);
     }
   }
 
