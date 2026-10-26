@@ -147,15 +147,26 @@ public class EVM {
       new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
 
   /**
-   * A per-case disguise for the stack top: the loop xors in the opcode's bias and the case xors it
-   * out, so the value doesn't change. It stops the JIT from merging all cases' stack-offset math
-   * into one step before the switch, which made every operation slower.
+   * Hides from C2, the JVM's optimizing JIT compiler, that every case of the untraced loop ({@link
+   * #runToHaltV2Untraced}) starts from the same stack top.
+   *
+   * <p>Stack items are 4 longs, so the operations compute offsets like {@code (top - 1) << 2}. C2
+   * rewrites that as {@code (top << 2) - 4}, sees {@code top << 2} in most cases, and computes it
+   * and the other shared offsets once before the switch, whichever case then runs. Those values
+   * take up registers, and C2 makes room by keeping the stack top, pc and gas in memory, which
+   * slows down every operation.
+   *
+   * <p>So the loop xors the opcode's entry into the stack top, and each case xors its own constant
+   * back out. C2 can't see that the two cancel, because the entry is loaded from this array, so
+   * each case's offsets stay in the case. It has to be an xor: C2 rewrites {@code (top + c) << 2}
+   * as {@code (top << 2) + 4c}, so with an addition {@code top << 2} is shared again.
    */
   private static final int[] STACK_TOP_BIASES = new int[256];
 
   static {
-    // one line per case of the untraced loop's switch, in its order; a case's bias is its first
-    // opcode, the general path's 0
+    // One line per case of the untraced loop's switch, in the same order. A case's entries must
+    // equal the constant the case xors back out, which is its first opcode. Opcodes without a case
+    // keep 0, so the general path gets the stack top unchanged.
     biasCase(0x60, 0x60); // PUSH1
     biasCase(0x61, 0x67); // PUSH2-8
     biasCase(0x80, 0x8f); // DUP1-16
@@ -529,8 +540,9 @@ public class EVM {
   }
 
   /**
-   * EVM v2 execution loop using long[] stack representation. The opcodes listed in the switches are
-   * executed directly; all others by the v2 versions of the fork's registered operations.
+   * EVM v2 execution loop using long[] stack representation. Traced execution has a loop of its
+   * own, so that the untraced loop, which block import runs, has no tracer calls: they would use up
+   * part of C2's inlining budget, and the first trace would make the JVM recompile the loop.
    */
   // Note: like runToHalt, this is performance-critical code. Benchmark before refactoring.
   private void runToHaltV2(final MessageFrame frame, final OperationTracer operationTracer) {
@@ -549,10 +561,20 @@ public class EVM {
   }
 
   /**
-   * The v2 loop for untraced execution, such as block import. The most frequent mainnet operations
-   * have their own cases so that C2 inlines them within its 8000-byte budget; everything else goes
-   * through {@link #executeOperationV2}. The stack top, pc and gas live in locals so that they stay
-   * in CPU registers instead of being read from and written to the frame on every operation.
+   * The v2 loop for untraced execution, such as block import. It runs once per EVM operation, so it
+   * is shaped around how C2 compiles it:
+   *
+   * <ul>
+   *   <li>C2 copies (inlines) the methods a method calls into it, up to 8000 bytes of bytecode. So
+   *       only the most frequent mainnet operations have a case here, and the rest go through
+   *       {@link #executeOperationV2}.
+   *   <li>The stack top, pc and gas are locals, because C2 can keep a local in a CPU register. The
+   *       frame's fields would be written to and read from memory on every operation.
+   *   <li>Two things make C2 keep a local in memory instead, which in this loop slows down every
+   *       operation: a call that C2 doesn't inline and that the local is still needed after, and
+   *       too many values needing a register at the same time. The comments below show where each
+   *       is avoided.
+   * </ul>
    */
   private void runToHaltV2Untraced(final MessageFrame frame) {
     // the loop checks the state only where an operation can change it
@@ -565,10 +587,17 @@ public class EVM {
     long gas = frame.getRemainingGas();
     while (true) {
       final int opcode = pc < code.length ? code[pc] & 0xff : 0;
-      // see STACK_TOP_BIASES; an xor, because the JIT sees through an addition
+      // the stack top, disguised differently for each case; see STACK_TOP_BIASES
       final int base = sp ^ STACK_TOP_BIASES[opcode];
       final OperationResult result;
-      // on the opcode, so that the most frequent cases take the fewest compares
+      // A switch on the opcode itself lets C2 order its compares by how often each case runs, so
+      // the most frequent operations are found first.
+      //
+      // The operations read and write the stack top, pc and gas in the frame, so each case copies
+      // the locals its operation uses into the frame and reads them back right after the call.
+      // Once the operation is inlined, C2 sees each write next to its read and keeps the value in
+      // the register. The read-back has to be in the case: after the switch, C2 doesn't reliably
+      // pair it with the write.
       switch (opcode) {
         case 0x60 -> { // PUSH1
           frame.setTopV2(base ^ 0x60);
@@ -631,7 +660,8 @@ public class EVM {
           sp = frame.stackTopV2();
         }
         case 0x5b -> { // JUMPDEST
-          // from the base, so that only the base is live across the switch
+          // rebuilt from base, so that only base, not sp as well, needs a register through the
+          // switch
           sp = base ^ 0x5b;
           result = JumpDestOperationV2.JUMPDEST_SUCCESS;
         }
@@ -641,7 +671,8 @@ public class EVM {
           sp = frame.stackTopV2();
         }
         case 0x57 -> { // JUMPI
-          // the gas too, because the destination check can be a call
+          // the gas too: C2 doesn't always inline the jump destination check, and the gas local
+          // must not be needed after a call that isn't inlined
           frame.setTopV2(base ^ 0x57);
           frame.setPC(pc);
           frame.setGasRemaining(gas);
@@ -714,7 +745,10 @@ public class EVM {
           pc = frame.getPC();
         }
         default -> {
-          // completed here, so that no local is live across the call; the general path's bias is 0
+          // executeOperationV2 is too big to inline, so this is a real call, and no local may be
+          // needed after it. That is why this case completes the operation itself, reads all three
+          // back from the frame, and has its own catch blocks. Its bias is 0, so base is the stack
+          // top.
           frame.setTopV2(base);
           frame.setPC(pc);
           frame.setGasRemaining(gas);
