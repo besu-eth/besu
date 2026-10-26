@@ -33,6 +33,8 @@ import org.hyperledger.besu.ethereum.core.FrameSignature;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -917,5 +919,48 @@ class FrameTransactionProcessorTest {
     assertThat(statuses(result)).containsExactly(1, 1, 1, 1);
     assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
         .isEqualTo(UInt256.ONE);
+  }
+
+  /**
+   * The block access list is built from the transaction updater, so computing the diff, which only
+   * reads, must not change it: a POST_TX frame that reads the diff leaves the same partial view as
+   * one that does not.
+   */
+  @Test
+  void readingTheDiffRecordsNothingInTheBlockAccessList() {
+    // TXTRACE(BALANCES_CHANGED, 0); POP; STOP, against code that burns the same 106 gas without
+    // reading the diff, so the payer and the coinbase settle the same amounts
+    final Optional<PartialBlockAccessView> reading =
+        accessViewWithPostTxCode(Bytes.fromHexString("0x5f5fb65000"));
+    setUp();
+    final Optional<PartialBlockAccessView> notReading =
+        accessViewWithPostTxCode(Bytes.fromHexString("0x5f5f5050" + "5f50".repeat(24) + "5b5b00"));
+
+    assertThat(reading).isPresent();
+    assertThat(notReading).isPresent();
+    // the account change entries have no value equality, so the views are compared as text
+    assertThat(reading.get().toString()).isEqualTo(notReading.get().toString());
+  }
+
+  private Optional<PartialBlockAccessView> accessViewWithPostTxCode(final Bytes postTxCode) {
+    deploy(ASSERTION, postTxCode);
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+    // the tracker reads the transaction updater, a stacked updater as in block processing
+    final WorldUpdater transactionUpdater = worldState.updater().updater();
+    final TransactionProcessingResult result =
+        processor()
+            .processTransaction(
+                transactionUpdater,
+                blockHeader,
+                transaction,
+                coinbase,
+                OperationTracer.NO_TRACING,
+                blockHashLookup,
+                TransactionValidationParams.processingBlock(),
+                Wei.ZERO,
+                Optional.of(new AccessLocationTracker(1, false)));
+    assertThat(result.isInvalid() ? result.getValidationResult().getErrorMessage() : "").isEmpty();
+    assertThat(statuses(result)).containsExactly(1, 1, 1, 1);
+    return result.getPartialBlockAccessView();
   }
 }
