@@ -20,9 +20,10 @@ import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.Nullable;
 
 /**
- * What an EIP-7906 assertion operation reads: a value of at most 32 bytes, or the reason it halts
- * exceptionally. The v1 operations and their EVM v2 twins share the semantics that produce it, and
- * differ only in how they read their operands and write the value.
+ * What an EIP-7906 assertion operation reads: a stack value of at most 32 bytes, or the event data
+ * EVENTDATACOPY copies from, or the reason it halts exceptionally. The v1 operations and their EVM
+ * v2 twins share the semantics that produce it, and differ only in how they read their operands and
+ * write the value.
  *
  * @param value the value, null when the operation halts
  * @param halt the halt reason, null when the operation produces a value
@@ -40,7 +41,7 @@ public record AssertionResult(@Nullable Bytes value, @Nullable ExceptionalHaltRe
   /**
    * A value.
    *
-   * @param value the value, at most 32 bytes
+   * @param value the value: a stack value of at most 32 bytes, or event data
    * @return the result
    */
   public static AssertionResult of(final Bytes value) {

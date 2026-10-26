@@ -53,6 +53,7 @@ import org.hyperledger.besu.evm.operation.DivOperationOptimized;
 import org.hyperledger.besu.evm.operation.DupNOperation;
 import org.hyperledger.besu.evm.operation.DupOperation;
 import org.hyperledger.besu.evm.operation.EqOperation;
+import org.hyperledger.besu.evm.operation.EventDataCopyOperation;
 import org.hyperledger.besu.evm.operation.ExchangeOperation;
 import org.hyperledger.besu.evm.operation.ExpOperation;
 import org.hyperledger.besu.evm.operation.ExtCodeCopyOperation;
@@ -304,6 +305,7 @@ public final class OperationsV2 {
       case SigParamOperation ignored -> new SigParamOperationV2(gasCalculator);
       case SigDataCopyOperation ignored -> new SigDataCopyOperationV2(gasCalculator);
       case TxTraceOperation ignored -> new TxTraceOperationV2(gasCalculator);
+      case EventDataCopyOperation ignored -> new EventDataCopyOperationV2(gasCalculator);
       // the v1 operation does not expose its settings, so they follow the forks that introduced
       // them
       case SelfDestructOperation ignored ->
