@@ -49,10 +49,7 @@ import org.junit.jupiter.api.Test;
 class FrameOpcodesV1V2DifferentialTest {
 
   private static final List<Integer> OPCODES =
-      List.of(0xaa, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6);
-
-  /** The EIP-7906 assertion operations, which read the diff only in a POST_TX frame. */
-  private static final List<Integer> POST_TX_OPCODES = List.of(0xb6);
+      List.of(0xaa, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb8);
 
   private static final Bytes TWO_TO_THE_64 =
       Bytes.concatenate(Bytes.of(1), Bytes.wrap(new byte[8]));
@@ -187,12 +184,17 @@ class FrameOpcodesV1V2DifferentialTest {
     POST_TX_CONTEXTS.put("no frame transaction", () -> null);
   }
 
-  /** The stacks the assertion operations run on in a POST_TX frame, top first. */
-  private static final Map<String, List<Bytes>> POST_TX_STACKS = new LinkedHashMap<>();
+  /**
+   * The EIP-7906 assertion operations, which read the diff only in a POST_TX frame, with the stacks
+   * each runs on there, top first.
+   */
+  private static final Map<Integer, Map<String, List<Bytes>>> POST_TX_STACKS =
+      new LinkedHashMap<>();
 
   static {
-    POST_TX_STACKS.put("empty", List.of());
-    POST_TX_STACKS.put("one item", List.of(Bytes.of(1)));
+    final Map<String, List<Bytes>> txtrace = new LinkedHashMap<>();
+    txtrace.put("empty", List.of());
+    txtrace.put("one item", List.of(Bytes.of(1)));
     final List<Bytes> indices =
         List.of(Bytes.EMPTY, Bytes.of(1), Bytes.of(2), Bytes.of(3), TWO_TO_THE_64, TWO_TO_THE_255);
     final List<Bytes> params = new ArrayList<>();
@@ -203,12 +205,46 @@ class FrameOpcodesV1V2DifferentialTest {
     params.add(TWO_TO_THE_255);
     for (final Bytes param : params) {
       for (final Bytes index : indices) {
-        // TXTRACE: param on top, then in2
-        POST_TX_STACKS.put(
+        // param on top, then in2
+        txtrace.put(
             String.format("param %s index %s", param.toShortHexString(), index.toShortHexString()),
             List.of(param, index));
       }
     }
+    POST_TX_STACKS.put(0xb6, txtrace);
+
+    // event index on top, then memory offset, data offset and length; the first sample event has
+    // 40 bytes of data, the second none
+    final Map<String, List<Bytes>> eventDataCopy = new LinkedHashMap<>();
+    eventDataCopy.put("empty", List.of());
+    eventDataCopy.put("three items", List.of(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
+    final Bytes allOnes = Bytes32.ZERO.not();
+    final Bytes twoToThe64MinusOne = Bytes.repeat((byte) 0xff, 8);
+    final Object[][] copies = {
+      {"whole data", 0, Bytes.EMPTY, Bytes.EMPTY, Bytes.of(40)},
+      {"across a word boundary", 0, Bytes.of(1), Bytes.EMPTY, Bytes.of(40)},
+      {"from an offset", 0, Bytes.of(0x20), Bytes.of(8), Bytes.of(32)},
+      {"zero length at the end", 0, Bytes.EMPTY, Bytes.of(40), Bytes.EMPTY},
+      {"zero length past the end", 0, Bytes.EMPTY, Bytes.of(41), Bytes.EMPTY},
+      {"one byte past the end", 0, Bytes.EMPTY, Bytes.of(32), Bytes.of(9)},
+      {"empty data", 1, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY},
+      {"one byte of empty data", 1, Bytes.EMPTY, Bytes.EMPTY, Bytes.of(1)},
+      {"offset 2^64-1", 0, Bytes.EMPTY, twoToThe64MinusOne, Bytes.of(1)},
+      {"offset 2^256-1", 0, Bytes.EMPTY, allOnes, Bytes.of(1)},
+      {"zero length at memory 2^256-1", 0, allOnes, Bytes.EMPTY, Bytes.EMPTY},
+      {"one byte at memory 2^64", 0, TWO_TO_THE_64, Bytes.EMPTY, Bytes.of(1)},
+      {"event past the end", 3, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY},
+      {"last event", 2, Bytes.EMPTY, Bytes.EMPTY, Bytes.of(1)},
+    };
+    for (final Object[] copy : copies) {
+      eventDataCopy.put(
+          (String) copy[0],
+          List.of(Bytes.of((Integer) copy[1]), (Bytes) copy[2], (Bytes) copy[3], (Bytes) copy[4]));
+    }
+    eventDataCopy.put("event 2^64", List.of(TWO_TO_THE_64, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
+    eventDataCopy.put(
+        "event 2^255", List.of(TWO_TO_THE_255, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
+    POST_TX_STACKS.put(0xb8, eventDataCopy);
   }
 
   private static final List<Long> POST_TX_GAS =
@@ -239,8 +275,9 @@ class FrameOpcodesV1V2DifferentialTest {
     final EVM v2 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V2);
     final List<String> differences = new ArrayList<>();
     int runs = 0;
-    for (final int opcode : POST_TX_OPCODES) {
-      for (final Map.Entry<String, List<Bytes>> stack : POST_TX_STACKS.entrySet()) {
+    for (final Map.Entry<Integer, Map<String, List<Bytes>>> stacks : POST_TX_STACKS.entrySet()) {
+      final int opcode = stacks.getKey();
+      for (final Map.Entry<String, List<Bytes>> stack : stacks.getValue().entrySet()) {
         final Bytes pushes = push(stack.getValue());
         for (final Map.Entry<String, Supplier<FrameTransactionContext>> context :
             POST_TX_CONTEXTS.entrySet()) {

@@ -306,4 +306,163 @@ class TransactionAssertionOpcodesTest {
             .outcome();
     assertThat(oneShort.haltReason()).isEqualTo("INSUFFICIENT_GAS");
   }
+
+  /** PUSH32 length, PUSH32 dataOffset, PUSH32 memOffset, PUSH32 eventIndex, EVENTDATACOPY, STOP. */
+  private static Bytes eventDataCopy(
+      final Bytes eventIndex, final Bytes memOffset, final Bytes dataOffset, final Bytes length) {
+    return Bytes.concatenate(
+        Bytes.of(0x7f),
+        Bytes32.leftPad(length),
+        Bytes.of(0x7f),
+        Bytes32.leftPad(dataOffset),
+        Bytes.of(0x7f),
+        Bytes32.leftPad(memOffset),
+        Bytes.of(0x7f),
+        Bytes32.leftPad(eventIndex),
+        Bytes.of(0xb8, 0x00));
+  }
+
+  static Stream<Arguments> eventDataCopies() {
+    final Bytes data = PostTxContexts.EVENT_DATA;
+    return Stream.of(
+            // name, event, memory offset, data offset, length, expected memory, copy gas
+            new Object[] {
+              "whole data",
+              0,
+              0,
+              0,
+              40,
+              Bytes.concatenate(data, Bytes.wrap(new byte[24])),
+              3 + 6 + 6
+            },
+            new Object[] {
+              "across a word boundary",
+              0,
+              1,
+              0,
+              40,
+              Bytes.concatenate(Bytes.of(0), data, Bytes.wrap(new byte[23])),
+              3 + 6 + 6
+            },
+            new Object[] {"from an offset", 0, 0, 8, 32, data.slice(8, 32), 3 + 3 + 3},
+            new Object[] {"zero length at the end", 0, 0, 40, 0, Bytes.EMPTY, 3},
+            new Object[] {"zero length of empty data", 1, 0, 0, 0, Bytes.EMPTY, 3},
+            new Object[] {
+              "last event",
+              2,
+              0,
+              0,
+              1,
+              Bytes.concatenate(Bytes.of(0x42), Bytes.wrap(new byte[31])),
+              3 + 3 + 3
+            })
+        .flatMap(
+            c ->
+                Stream.of(ProgramRun.V1, ProgramRun.V2)
+                    .map(
+                        v ->
+                            Arguments.of(
+                                v.enableEvmV2() ? "v2" : "v1",
+                                c[0],
+                                v,
+                                c[1],
+                                c[2],
+                                c[3],
+                                c[4],
+                                c[5],
+                                c[6])));
+  }
+
+  @ParameterizedTest(name = "{0} {1}")
+  @MethodSource("eventDataCopies")
+  void eventDataCopyCopiesTheEventData(
+      final String evmName,
+      final String name,
+      final EvmConfiguration configuration,
+      final int event,
+      final int memOffset,
+      final int dataOffset,
+      final int length,
+      final Bytes expectedMemory,
+      final int copyGas) {
+    final ProgramRun.Outcome outcome =
+        run(
+            configuration,
+            eventDataCopy(
+                Bytes.of(event), Bytes.of(memOffset), Bytes.of(dataOffset), Bytes.of(length)),
+            PostTxContexts.withDiff(true));
+
+    assertThat(outcome.haltReason()).isEmpty();
+    assertThat(outcome.memory()).isEqualTo(expectedMemory.toHexString());
+    // four PUSH32, then 3, 3 per word copied and the memory expansion
+    assertThat(outcome.remainingGas()).isEqualTo(GAS - 4 * 3 - copyGas);
+  }
+
+  static Stream<Arguments> eventDataCopyHalts() {
+    final Bytes allOnes = Bytes32.ZERO.not();
+    return Stream.of(
+            new Object[] {"event past the end", Bytes.of(3), Bytes.EMPTY, Bytes.EMPTY},
+            new Object[] {"event 2^64", TWO_TO_THE_64, Bytes.EMPTY, Bytes.EMPTY},
+            new Object[] {"range past the end", Bytes.EMPTY, Bytes.of(32), Bytes.of(9)},
+            new Object[] {"offset at the end", Bytes.EMPTY, Bytes.of(40), Bytes.of(1)},
+            new Object[] {"zero length past the end", Bytes.EMPTY, Bytes.of(41), Bytes.EMPTY},
+            new Object[] {"one byte of empty data", Bytes.of(1), Bytes.EMPTY, Bytes.of(1)},
+            new Object[] {"offset 2^64-1", Bytes.EMPTY, Bytes.repeat((byte) 0xff, 8), Bytes.of(1)},
+            new Object[] {"offset 2^256-1, which would wrap", Bytes.EMPTY, allOnes, Bytes.of(1)})
+        .flatMap(
+            c ->
+                Stream.of(ProgramRun.V1, ProgramRun.V2)
+                    .map(
+                        v ->
+                            Arguments.of(
+                                v.enableEvmV2() ? "v2" : "v1", c[0], v, c[1], c[2], c[3])));
+  }
+
+  @ParameterizedTest(name = "{0} {1}")
+  @MethodSource("eventDataCopyHalts")
+  void eventDataCopyHaltsOnARangePastTheData(
+      final String evmName,
+      final String name,
+      final EvmConfiguration configuration,
+      final Bytes event,
+      final Bytes dataOffset,
+      final Bytes length) {
+    final ProgramRun.Outcome outcome =
+        run(
+            configuration,
+            eventDataCopy(event, Bytes.EMPTY, dataOffset, length),
+            PostTxContexts.withDiff(true));
+
+    assertThat(outcome.haltReason()).isEqualTo("OUT_OF_BOUNDS");
+    assertThat(outcome.remainingGas()).isZero();
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("evms")
+  void eventDataCopyOfNothingAtAHugeMemoryOffsetExpandsNothing(
+      final String evmName, final EvmConfiguration configuration) {
+    final ProgramRun.Outcome outcome =
+        run(
+            configuration,
+            eventDataCopy(Bytes.EMPTY, Bytes32.ZERO.not(), Bytes.EMPTY, Bytes.EMPTY),
+            PostTxContexts.withDiff(true));
+
+    assertThat(outcome.haltReason()).isEmpty();
+    assertThat(outcome.memory()).isEqualTo("0x");
+    assertThat(outcome.remainingGas()).isEqualTo(GAS - 4 * 3 - 3);
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("evms")
+  void eventDataCopyHaltsOutsideAPostTxFrame(
+      final String evmName, final EvmConfiguration configuration) {
+    final FrameTransactionContext senderFrame = PostTxContexts.withDiff(true);
+    senderFrame.setCurrentFrameIndex(1);
+    final Bytes code = eventDataCopy(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY, Bytes.of(1));
+
+    assertThat(run(configuration, code, senderFrame).haltReason()).isEqualTo("INVALID_OPERATION");
+    assertThat(run(configuration, code, null).haltReason()).isEqualTo("INVALID_OPERATION");
+    assertThat(run(configuration, code, PostTxContexts.withoutDiff(true)).haltReason())
+        .isEqualTo("INVALID_OPERATION");
+  }
 }
