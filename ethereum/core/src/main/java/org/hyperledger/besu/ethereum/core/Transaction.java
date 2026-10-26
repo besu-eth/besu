@@ -1660,10 +1660,7 @@ public class Transaction
         if (gasLimit == -1L && frames.isPresent() && sender != null) {
           gasLimit =
               FrameTransactionGas.maxGas(
-                  frames.get(),
-                  frameSignatures.orElse(List.of()),
-                  sender,
-                  FrameTransactionGas.nonceCalldata(nonceKeys.get(), nonce));
+                  frames.get(), frameSignatures.orElse(List.of()), sender, nonceKeys.get(), nonce);
         }
         if (value == null) {
           value = Wei.ZERO;

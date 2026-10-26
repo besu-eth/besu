@@ -389,19 +389,13 @@ public class MainnetTransactionValidator implements TransactionValidator {
     if (transaction.getType().supportsFrames()) {
       // EIP-8141: the EIP-7825 cap binds max(intrinsic + total frame execution gas, calldata
       // floor); the declared state gas is exempt.
-      final var frames = transaction.getFrames().orElseThrow();
-      final var signatures = transaction.getFrameSignatures().orElse(java.util.List.of());
-      final var nonceCalldata =
-          org.hyperledger.besu.ethereum.core.FrameTransactionGas.nonceCalldata(transaction);
       intrinsicGasCostOrFloor =
           Math.max(
               clampedAdd(
-                  org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(
-                      frames, signatures, transaction.getSender(), nonceCalldata),
+                  org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(transaction),
                   org.hyperledger.besu.ethereum.core.FrameTransactionGas.totalExecutionGasLimit(
-                      frames)),
-              org.hyperledger.besu.ethereum.core.FrameTransactionGas.calldataFloorGas(
-                  frames, signatures, transaction.getSender(), nonceCalldata));
+                      transaction.getFrames().orElseThrow())),
+              org.hyperledger.besu.ethereum.core.FrameTransactionGas.calldataFloorGas(transaction));
     } else {
       final long baselineGas =
           clampedAdd(

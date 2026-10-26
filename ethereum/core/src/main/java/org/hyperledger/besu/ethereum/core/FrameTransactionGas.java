@@ -20,6 +20,7 @@ import static org.hyperledger.besu.evm.internal.Words.clampedMultiply;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.evm.frame.KeyedNonces;
+import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 
 import java.util.List;
 
@@ -48,6 +49,14 @@ public final class FrameTransactionGas {
   /** Intrinsic cost of an ARBITRARY signature entry. */
   public static final long ARBITRARY_SIGNATURE_GAS = 100L;
 
+  /**
+   * EIP-8250 intrinsic cost of each key of a non-legacy key set: the cold read and the write of its
+   * nonce manager slot, which the protocol performs outside the access lists and {@code SSTORE}
+   * pricing.
+   */
+  public static final long KEYED_NONCE_ACCESS_COST =
+      AmsterdamGasCalculator.COLD_STORAGE_ACCESS + AmsterdamGasCalculator.STORAGE_WRITE;
+
   /** EIP-7976 weighted token cost applied to intrinsic calldata. */
   private static final long STANDARD_TOKEN_COST = 4L;
 
@@ -72,6 +81,20 @@ public final class FrameTransactionGas {
       case FrameSignature.SCHEME_P256 -> P256_SIGNATURE_GAS;
       default -> -1L;
     };
+  }
+
+  /**
+   * The EIP-8250 keyed nonce access cost of a key set: {@link #KEYED_NONCE_ACCESS_COST} per key,
+   * except for the legacy set, which reads and writes the account nonce instead.
+   *
+   * @param nonceKeys the transaction's nonce keys
+   * @return the keyed nonce access gas (saturating)
+   */
+  public static long keyedNonceAccessGas(final List<UInt256> nonceKeys) {
+    if (KeyedNonces.isLegacy(nonceKeys)) {
+      return 0L;
+    }
+    return clampedMultiply(nonceKeys.size(), KEYED_NONCE_ACCESS_COST);
   }
 
   private static long tokensIn(final Bytes data) {
@@ -117,14 +140,26 @@ public final class FrameTransactionGas {
   }
 
   /**
-   * The EIP-8250 encoding of a frame transaction's nonce fields.
-   *
-   * @param transaction the frame transaction
-   * @return the encoded nonce fields
+   * The costs a frame transaction pays regardless of execution, anchoring both the intrinsic gas
+   * and the calldata floor: the base cost, the per-frame cost, the value transfer cost of each
+   * value-bearing frame with an explicit target other than the sender, the signature verification
+   * cost and the EIP-8250 keyed nonce access cost.
    */
-  public static Bytes nonceCalldata(final Transaction transaction) {
-    return nonceCalldata(
-        transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS), transaction.getNonce());
+  private static long mandatoryGas(
+      final List<Frame> frames,
+      final List<FrameSignature> signatures,
+      final Address sender,
+      final List<UInt256> nonceKeys) {
+    long gas = FRAME_TX_INTRINSIC_COST;
+    gas = clampedAdd(gas, clampedMultiply(frames.size(), FRAME_TX_PER_FRAME_COST));
+    for (final Frame frame : frames) {
+      gas = clampedAdd(gas, valueCost(frame, sender));
+    }
+    for (final FrameSignature sig : signatures) {
+      final long sigGas = signatureGas(sig.scheme());
+      gas = clampedAdd(gas, sigGas < 0 ? Long.MAX_VALUE : sigGas);
+    }
+    return clampedAdd(gas, keyedNonceAccessGas(nonceKeys));
   }
 
   /**
@@ -134,28 +169,43 @@ public final class FrameTransactionGas {
    * @param frames the transaction frames
    * @param signatures the transaction signature entries
    * @param sender the declared transaction sender
-   * @param nonceCalldata the encoded nonce fields, see {@link #nonceCalldata(List, long)}
+   * @param nonceKeys the transaction's nonce keys
+   * @param nonceSeq the transaction's nonce sequence
    * @return the intrinsic gas (saturating)
    */
   public static long intrinsicGas(
       final List<Frame> frames,
       final List<FrameSignature> signatures,
       final Address sender,
-      final Bytes nonceCalldata) {
-    long gas = clampedAdd(FRAME_TX_INTRINSIC_COST, calldataCost(nonceCalldata));
-    gas = clampedAdd(gas, clampedMultiply(frames.size(), FRAME_TX_PER_FRAME_COST));
+      final List<UInt256> nonceKeys,
+      final long nonceSeq) {
+    long gas = mandatoryGas(frames, signatures, sender, nonceKeys);
+    gas = clampedAdd(gas, calldataCost(nonceCalldata(nonceKeys, nonceSeq)));
     for (final Frame frame : frames) {
       gas = clampedAdd(gas, calldataCost(frame.data()));
-      gas = clampedAdd(gas, valueCost(frame, sender));
     }
     for (final FrameSignature sig : signatures) {
       gas = clampedAdd(gas, calldataCost(sig.signer()));
       gas = clampedAdd(gas, calldataCost(sig.msg()));
       gas = clampedAdd(gas, calldataCost(sig.signature()));
-      final long sigGas = signatureGas(sig.scheme());
-      gas = clampedAdd(gas, sigGas < 0 ? Long.MAX_VALUE : sigGas);
     }
     return gas;
+  }
+
+  /**
+   * The intrinsic gas of a frame transaction, see {@link #intrinsicGas(List, List, Address, List,
+   * long)}.
+   *
+   * @param transaction the frame transaction
+   * @return the intrinsic gas (saturating)
+   */
+  public static long intrinsicGas(final Transaction transaction) {
+    return intrinsicGas(
+        transaction.getFrames().orElseThrow(),
+        transaction.getFrameSignatures().orElse(List.of()),
+        transaction.getSender(),
+        transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS),
+        transaction.getNonce());
   }
 
   /**
@@ -164,31 +214,44 @@ public final class FrameTransactionGas {
    * @param frames the transaction frames
    * @param signatures the transaction signature entries
    * @param sender the declared transaction sender
-   * @param nonceCalldata the encoded nonce fields, see {@link #nonceCalldata(List, long)}
+   * @param nonceKeys the transaction's nonce keys
+   * @param nonceSeq the transaction's nonce sequence
    * @return the calldata floor gas (saturating)
    */
   public static long calldataFloorGas(
       final List<Frame> frames,
       final List<FrameSignature> signatures,
       final Address sender,
-      final Bytes nonceCalldata) {
-    long floorTokens = floorTokensIn(nonceCalldata);
+      final List<UInt256> nonceKeys,
+      final long nonceSeq) {
+    long floorTokens = floorTokensIn(nonceCalldata(nonceKeys, nonceSeq));
     for (final Frame frame : frames) {
       floorTokens = clampedAdd(floorTokens, floorTokensIn(frame.data()));
-    }
-    long gas = FRAME_TX_INTRINSIC_COST;
-    gas = clampedAdd(gas, clampedMultiply(frames.size(), FRAME_TX_PER_FRAME_COST));
-    for (final Frame frame : frames) {
-      gas = clampedAdd(gas, valueCost(frame, sender));
     }
     for (final FrameSignature sig : signatures) {
       floorTokens = clampedAdd(floorTokens, floorTokensIn(sig.signer()));
       floorTokens = clampedAdd(floorTokens, floorTokensIn(sig.msg()));
       floorTokens = clampedAdd(floorTokens, floorTokensIn(sig.signature()));
-      final long sigGas = signatureGas(sig.scheme());
-      gas = clampedAdd(gas, sigGas < 0 ? Long.MAX_VALUE : sigGas);
     }
-    return clampedAdd(gas, clampedMultiply(TOTAL_COST_FLOOR_PER_TOKEN, floorTokens));
+    return clampedAdd(
+        mandatoryGas(frames, signatures, sender, nonceKeys),
+        clampedMultiply(TOTAL_COST_FLOOR_PER_TOKEN, floorTokens));
+  }
+
+  /**
+   * The calldata floor of a frame transaction, see {@link #calldataFloorGas(List, List, Address,
+   * List, long)}.
+   *
+   * @param transaction the frame transaction
+   * @return the calldata floor gas (saturating)
+   */
+  public static long calldataFloorGas(final Transaction transaction) {
+    return calldataFloorGas(
+        transaction.getFrames().orElseThrow(),
+        transaction.getFrameSignatures().orElse(List.of()),
+        transaction.getSender(),
+        transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS),
+        transaction.getNonce());
   }
 
   /**
@@ -226,23 +289,26 @@ public final class FrameTransactionGas {
    * @param frames the transaction frames
    * @param signatures the transaction signature entries
    * @param sender the declared transaction sender
-   * @param nonceCalldata the encoded nonce fields, see {@link #nonceCalldata(List, long)}
+   * @param nonceKeys the transaction's nonce keys
+   * @param nonceSeq the transaction's nonce sequence
    * @return the transaction's max gas (saturating)
    */
   public static long maxGas(
       final List<Frame> frames,
       final List<FrameSignature> signatures,
       final Address sender,
-      final Bytes nonceCalldata) {
+      final List<UInt256> nonceKeys,
+      final long nonceSeq) {
     final long totalStateGas = totalStateGasLimit(frames);
     final long standardGasLimit =
         clampedAdd(
             clampedAdd(
-                intrinsicGas(frames, signatures, sender, nonceCalldata),
+                intrinsicGas(frames, signatures, sender, nonceKeys, nonceSeq),
                 totalExecutionGasLimit(frames)),
             totalStateGas);
     final long floorWithStateGas =
-        clampedAdd(calldataFloorGas(frames, signatures, sender, nonceCalldata), totalStateGas);
+        clampedAdd(
+            calldataFloorGas(frames, signatures, sender, nonceKeys, nonceSeq), totalStateGas);
     return Math.max(standardGasLimit, floorWithStateGas);
   }
 }

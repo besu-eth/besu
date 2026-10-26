@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.ethereum.core.KeyedNonceGasCapVectors;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 
@@ -216,5 +217,31 @@ public class BlockGasAccountingStrategyTest {
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
                 50_000L, 40_000L, 60_000L, 0L, blockGasLimit))
         .isTrue();
+  }
+
+  @Test
+  public void frameTransactionCapacityReservesTheKeyedNonceAccessCost() {
+    // max(intrinsic + execution gas, calldata floor) of this frame transaction is 2^24, 193,600 of
+    // it the keyed nonce access cost of its 16 nonce keys; its state gas fits either way.
+    final Transaction transaction = KeyedNonceGasCapVectors.atCapStandard();
+    final long blockGasLimit = 60_000_000L;
+    final long executionReservation = KeyedNonceGasCapVectors.CAP;
+
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                transaction,
+                Long.MAX_VALUE,
+                blockGasLimit - executionReservation,
+                0L,
+                blockGasLimit))
+        .isTrue();
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                transaction,
+                Long.MAX_VALUE,
+                blockGasLimit - executionReservation + 1,
+                0L,
+                blockGasLimit))
+        .isFalse();
   }
 }

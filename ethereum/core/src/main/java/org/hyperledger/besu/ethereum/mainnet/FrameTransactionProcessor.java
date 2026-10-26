@@ -183,11 +183,12 @@ public class FrameTransactionProcessor {
     }
 
     // Gas anchors.
-    final Bytes nonceCalldata = FrameTransactionGas.nonceCalldata(transaction);
     final long intrinsicGas =
-        FrameTransactionGas.intrinsicGas(frames, signatures, senderAddress, nonceCalldata);
+        FrameTransactionGas.intrinsicGas(
+            frames, signatures, senderAddress, nonceKeys, transaction.getNonce());
     final long calldataFloorGas =
-        FrameTransactionGas.calldataFloorGas(frames, signatures, senderAddress, nonceCalldata);
+        FrameTransactionGas.calldataFloorGas(
+            frames, signatures, senderAddress, nonceKeys, transaction.getNonce());
     final long totalExecutionGas = FrameTransactionGas.totalExecutionGasLimit(frames);
     final long totalStateGas = FrameTransactionGas.totalStateGasLimit(frames);
     final long standardGasLimit = intrinsicGas + totalExecutionGas + totalStateGas;

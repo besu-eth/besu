@@ -229,17 +229,9 @@ class FrameTransactionProcessorTest {
 
     // Fee accounting: gasUsed = intrinsic + frame gas at the effective price of baseFee+priority.
     final long intrinsicGas =
-        org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(
-            transaction.getFrames().orElseThrow(),
-            transaction.getFrameSignatures().orElseThrow(),
-            sender,
-            org.hyperledger.besu.ethereum.core.FrameTransactionGas.nonceCalldata(transaction));
+        org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(transaction);
     final long calldataFloorGas =
-        org.hyperledger.besu.ethereum.core.FrameTransactionGas.calldataFloorGas(
-            transaction.getFrames().orElseThrow(),
-            transaction.getFrameSignatures().orElseThrow(),
-            sender,
-            org.hyperledger.besu.ethereum.core.FrameTransactionGas.nonceCalldata(transaction));
+        org.hyperledger.besu.ethereum.core.FrameTransactionGas.calldataFloorGas(transaction);
     // The EIP-7623/7976 calldata floor binds the execution dimension when it exceeds the actual
     // execution gas (the 65 signature bytes price higher on the floor).
     final long expectedGasUsed =

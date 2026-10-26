@@ -42,6 +42,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.KeyedNonceGasCapVectors;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
@@ -1149,6 +1150,49 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         stateGasLimit,
         Wei.ZERO,
         Bytes.EMPTY);
+  }
+
+  /**
+   * EIP-8250: the keyed nonce access cost of a frame transaction counts towards the EIP-7825 cap.
+   * The vectors are the spec's 16-key cap tests, whose 193,600 of keyed nonce access gas is what
+   * takes the above-cap ones over.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("keyedNonceCapVectors")
+  void shouldCountKeyedNonceAccessTowardsTheFrameTransactionGasCap(
+      final String name, final Transaction transaction, final boolean withinCap) {
+    final var feeMarket = FeeMarket.london(0L);
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            new AmsterdamTargetingGasLimitCalculator(
+                0L, feeMarket, gasCalculator, 6, 3, OptionalInt.of(6), OptionalInt.empty()),
+            feeMarket,
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.FRAME),
+            Integer.MAX_VALUE);
+
+    final ValidationResult<TransactionInvalidReason> result =
+        validator.validate(
+            transaction, Optional.of(Wei.of(7)), Optional.empty(), processingBlockParams);
+
+    if (withinCap) {
+      assertThat(result).isEqualTo(ValidationResult.valid());
+    } else {
+      assertThat(result.getInvalidReason())
+          .isEqualTo(TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT);
+      assertThat(result.getErrorMessage())
+          .isEqualTo("Transaction gas limit must be at most " + KeyedNonceGasCapVectors.CAP);
+    }
+  }
+
+  private static Stream<Arguments> keyedNonceCapVectors() {
+    return Stream.of(
+        Arguments.of("at_cap-standard", KeyedNonceGasCapVectors.atCapStandard(), true),
+        Arguments.of("above_cap-standard", KeyedNonceGasCapVectors.aboveCapStandard(), false),
+        Arguments.of("at_cap-floor", KeyedNonceGasCapVectors.atCapFloor(), true),
+        Arguments.of("above_cap-floor", KeyedNonceGasCapVectors.aboveCapFloor(), false));
   }
 
   private Account accountWithNonce(final long nonce) {
