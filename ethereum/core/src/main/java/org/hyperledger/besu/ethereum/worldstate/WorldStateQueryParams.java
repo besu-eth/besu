@@ -24,6 +24,13 @@ import java.util.Optional;
 /** Parameters for querying the world state. */
 public class WorldStateQueryParams {
 
+  /** Controls whether asynchronous local failures remain visible to recovery callers. */
+  public enum FailurePolicy {
+    LEGACY,
+    PRESERVE_LOCAL_FAILURE
+  }
+
+  private final FailurePolicy failurePolicy;
   private final BlockHeader blockHeader;
   private final boolean shouldWorldStateUpdateHead;
   private final Hash blockHash;
@@ -36,11 +43,17 @@ public class WorldStateQueryParams {
    * @param builder the builder to create an instance of WorldStateQueryParams
    */
   private WorldStateQueryParams(final Builder builder) {
+    this.failurePolicy = builder.failurePolicy;
     this.blockHeader = builder.blockHeader;
     this.shouldWorldStateUpdateHead = builder.shouldWorldStateUpdateHead;
     this.blockHash = builder.blockHash;
     this.stateRoot = builder.stateRoot;
     this.blockAccessListOverlay = builder.blockAccessListOverlay;
+  }
+
+  /** Returns the failure policy; all existing factories use {@link FailurePolicy#LEGACY}. */
+  public FailurePolicy getFailurePolicy() {
+    return failurePolicy;
   }
 
   /**
@@ -162,7 +175,8 @@ public class WorldStateQueryParams {
   public boolean equals(final Object o) {
     if (o == null || getClass() != o.getClass()) return false;
     WorldStateQueryParams that = (WorldStateQueryParams) o;
-    return shouldWorldStateUpdateHead == that.shouldWorldStateUpdateHead
+    return failurePolicy == that.failurePolicy
+        && shouldWorldStateUpdateHead == that.shouldWorldStateUpdateHead
         && Objects.equals(blockHeader, that.blockHeader)
         && Objects.equals(blockHash, that.blockHash)
         && Objects.equals(stateRoot, that.stateRoot)
@@ -172,10 +186,16 @@ public class WorldStateQueryParams {
   @Override
   public int hashCode() {
     return Objects.hash(
-        blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot, blockAccessListOverlay);
+        blockHeader,
+        shouldWorldStateUpdateHead,
+        blockHash,
+        stateRoot,
+        blockAccessListOverlay,
+        failurePolicy);
   }
 
   public static class Builder {
+    private FailurePolicy failurePolicy = FailurePolicy.LEGACY;
     private BlockHeader blockHeader;
     private boolean shouldWorldStateUpdateHead = false;
     private Hash blockHash;
@@ -183,6 +203,17 @@ public class WorldStateQueryParams {
     private Optional<BlockAccessListOverlay> blockAccessListOverlay = Optional.empty();
 
     private Builder() {}
+
+    /**
+     * Selects local failure propagation independently of whether the query updates the head.
+     *
+     * @param failurePolicy failure handling for this query
+     * @return the builder
+     */
+    public Builder withFailurePolicy(final FailurePolicy failurePolicy) {
+      this.failurePolicy = Objects.requireNonNull(failurePolicy);
+      return this;
+    }
 
     /**
      * Sets the block header.

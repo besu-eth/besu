@@ -35,6 +35,23 @@ public interface WorldStateArchive extends Closeable {
   boolean isWorldStateAvailable(Hash rootHash, Hash blockHash);
 
   /**
+   * Repairs identified dependencies needed to reconstruct a known state within a shared budget.
+   *
+   * <p>This operation must not replace the head, clear storage, or initiate state synchronization.
+   * Callers execute it off the Engine request thread. A successful result does not adopt
+   * forkchoice.
+   *
+   * @param blockHash the known target block
+   * @param stateRoot its committed state root
+   * @param budget cumulative repair limits and cancellation
+   * @return the terminal repair outcome
+   */
+  default WorldStateRepairResult repairWorldState(
+      final Hash blockHash, final Hash stateRoot, final WorldStateRepairBudget budget) {
+    return WorldStateRepairResult.UNSUPPORTED;
+  }
+
+  /**
    * Hook for archive implementations to adjust world-state behaviour before block processing (e.g.
    * disable trie preload after a configured fork).
    *
