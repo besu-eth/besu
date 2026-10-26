@@ -245,6 +245,10 @@ public abstract class PathBasedWorldState
     try {
       final StateRootComputation computation = committer.compute(this, blockHeader, accumulator);
       if (!isStorageFrozen()) {
+        // A trie-disabled persist writes no trie nodes, so it must not open an archived block.
+        if (blockHeader != null && !isTrieDisabled()) {
+          stateUpdater.beginBlockPersist(blockHeader);
+        }
         computation.applyTo(stateUpdater);
       }
       final Hash calculatedRootHash = computation.root();

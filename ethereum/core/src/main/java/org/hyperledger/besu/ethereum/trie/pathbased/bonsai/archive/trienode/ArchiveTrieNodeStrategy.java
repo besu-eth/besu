@@ -72,6 +72,10 @@ public class ArchiveTrieNodeStrategy
   private final Cache<SegmentedKeyValueStorageTransaction, Long> txBlockNumberCache =
       Caffeine.newBuilder().weakKeys().build();
 
+  // Transactions whose block has been begun on the writer; begun lazily on the first capture.
+  private final Cache<SegmentedKeyValueStorageTransaction, Boolean> begunTransactions =
+      Caffeine.newBuilder().weakKeys().build();
+
   /**
    * Builds an archiving strategy over {@code liveStorage}, owning a worker pool for async
    * history-entry computation.
@@ -203,6 +207,9 @@ public class ArchiveTrieNodeStrategy
       final Bytes node,
       final Bytes prior,
       final SegmentedKeyValueStorageTransaction transaction) {
+    if (begunTransactions.asMap().putIfAbsent(transaction, Boolean.TRUE) == null) {
+      trieNodeWriter.beginBlock(transaction, block);
+    }
     trieNodeWriter.capture(
         ArchiveNodeKey.of(key), TrieNodeKey.location(key), block, node, prior, transaction);
   }
@@ -212,12 +219,14 @@ public class ArchiveTrieNodeStrategy
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction) {
     txBlockNumberCache.invalidate(transaction);
+    begunTransactions.invalidate(transaction);
     trieNodeWriter.onBeforeCommit(transaction);
   }
 
   @Override
   public void onRollback(final SegmentedKeyValueStorageTransaction transaction) {
     txBlockNumberCache.invalidate(transaction);
+    begunTransactions.invalidate(transaction);
     trieNodeWriter.onRollback(transaction);
   }
 

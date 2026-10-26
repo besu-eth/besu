@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
+import static com.google.common.base.Preconditions.checkState;
+
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.io.Closeable;
@@ -64,7 +66,6 @@ public class ArchiveTrieNodeWriter implements Closeable {
   // One buffer per open transaction, keyed by identity; removed on commit or rollback.
   private final ConcurrentHashMap<SegmentedKeyValueStorageTransaction, CaptureBuffer> buffers =
       new ConcurrentHashMap<>();
-  private volatile long lastArchivedBlock = -1L;
 
   public ArchiveTrieNodeWriter(
       final ArchiveNodeHistoryStore historyStore,
@@ -86,6 +87,22 @@ public class ArchiveTrieNodeWriter implements Closeable {
   }
 
   /**
+   * Opens {@code transaction}'s capture buffer for {@code block}. Entries diff against prior
+   * history only when coverage ends at {@code block - 1}; otherwise every entry is written FULL.
+   *
+   * @param transaction the open transaction that will commit this block's writes
+   * @param block the block number being imported
+   * @throws IllegalStateException if {@code transaction} already has a begun block
+   */
+  public void beginBlock(final SegmentedKeyValueStorageTransaction transaction, final long block) {
+    final boolean chainContiguous =
+        coverageTracker.getCoverage().map(c -> c.lastBlock() == block - 1).orElse(false);
+    checkState(
+        buffers.putIfAbsent(transaction, new CaptureBuffer(block, chainContiguous)) == null,
+        "Block already begun on this transaction");
+  }
+
+  /**
    * Captures a trie-node write for async history-entry computation.
    *
    * @param naturalKey the archive key for this node (account or storage form)
@@ -94,6 +111,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
    * @param newNode the new RLP-encoded node value, or {@code null} if the node is being deleted
    * @param priorNode the previous RLP-encoded node value, or {@code null} if this is a creation
    * @param transaction the open transaction that will commit this block's writes
+   * @throws IllegalStateException if {@link #beginBlock} was not called for {@code transaction}
    */
   void capture(
       final Bytes naturalKey,
@@ -102,9 +120,11 @@ public class ArchiveTrieNodeWriter implements Closeable {
       final Bytes newNode,
       final Bytes priorNode,
       final SegmentedKeyValueStorageTransaction transaction) {
-    final CaptureBuffer buf =
-        buffers.computeIfAbsent(
-            transaction, tx -> new CaptureBuffer(block, block == lastArchivedBlock + 1L));
+    final CaptureBuffer buf = buffers.get(transaction);
+    if (buf == null) {
+      throw new IllegalStateException(
+          "trie-node capture for block " + block + " on a transaction with no begun block");
+    }
     synchronized (buf) {
       if (buf.block != block) {
         throw new IllegalStateException(
@@ -182,7 +202,6 @@ public class ArchiveTrieNodeWriter implements Closeable {
         throw new RuntimeException("trie-node capture failed", e.getCause());
       }
       coverageTracker.record(transaction, buf.block);
-      lastArchivedBlock = buf.block;
     }
   }
 

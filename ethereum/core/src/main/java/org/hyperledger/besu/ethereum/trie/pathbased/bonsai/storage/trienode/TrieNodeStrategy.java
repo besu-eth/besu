@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
+import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -41,6 +42,11 @@ public interface TrieNodeStrategy {
 
   void removeTrieNode(
       SegmentedKeyValueStorage storage, SegmentedKeyValueStorageTransaction transaction, Bytes key);
+
+  default void onBlockPersist(
+      final SegmentedKeyValueStorage storage,
+      final SegmentedKeyValueStorageTransaction transaction,
+      final BlockHeader blockHeader) {}
 
   default void onBeforeCommit(
       final SegmentedKeyValueStorage storage,
