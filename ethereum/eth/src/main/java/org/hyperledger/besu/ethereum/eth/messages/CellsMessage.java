@@ -79,7 +79,8 @@ public final class CellsMessage extends AbstractMessageData {
    * each index in the order in which the blobs appear"), but go-ethereum is blob major on both
    * ends: {@code answerGetCells} flattens {@code for blob { for index }} and {@code sortCells}
    * de-interleaves with {@code d.Cells[b*n:(b+1)*n]}. Interoperability follows the implementation,
-   * so besu matches geth behaviour.
+   * so besu matches geth behaviour. Raised upstream as <a
+   * href="https://github.com/ethereum/devp2p/issues/290">ethereum/devp2p#290</a>.
    *
    * @param txHashes the transactions cells are returned for
    * @param cellsPerTx for each transaction, its cells ordered blob major
