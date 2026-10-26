@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -85,7 +85,10 @@ public class MissingTrieNodeFetcher
         peers =
             availablePeers
                 .map(EthPeerImmutableAttributes::ethPeer)
-                .filter(peer -> peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1))
+                .filter(
+                    peer ->
+                        peer.getAgreedCapabilities()
+                            .contains(SnapProtocolVersion.V1.getCapability()))
                 .limit(MAX_PEERS)
                 .toList();
       }

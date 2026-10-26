@@ -24,7 +24,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -72,7 +72,7 @@ class MissingTrieNodeFetcherTest {
   void setUp() throws Exception {
     when(context.getEthPeers()).thenReturn(peers);
     when(peers.streamAvailablePeers()).thenAnswer(invocation -> Stream.of(attributes(peer)));
-    when(peer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP1));
+    when(peer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(peer.getSnapTrieNode(any(), any())).thenReturn(responseStream);
   }
 
@@ -151,7 +151,7 @@ class MissingTrieNodeFetcherTest {
 
   @Test
   void skipsSnap2OnlyPeer() throws Exception {
-    when(peer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP2));
+    when(peer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocolVersion.V2.getCapability()));
 
     assertThat(fetch(Optional.empty())).isEmpty();
     verify(peer, never()).getSnapTrieNode(any(), any());
@@ -238,7 +238,8 @@ class MissingTrieNodeFetcherTest {
   void closesSilentStreamAndUsesSecondPeerWithinTotalTimeout() throws Exception {
     final EthPeer silentPeer = mock(EthPeer.class);
     final ResponseStream silentStream = mock(ResponseStream.class);
-    when(silentPeer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP1));
+    when(silentPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(silentPeer.getSnapTrieNode(any(), any())).thenReturn(silentStream);
     when(peers.streamAvailablePeers())
         .thenAnswer(invocation -> Stream.of(attributes(silentPeer), attributes(peer)));
@@ -266,7 +267,8 @@ class MissingTrieNodeFetcherTest {
     final EthPeer secondPeer = mock(EthPeer.class);
     final ResponseStream secondStream = mock(ResponseStream.class);
     final EthPeer thirdPeer = mock(EthPeer.class);
-    when(secondPeer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP1));
+    when(secondPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(secondPeer.getSnapTrieNode(any(), any())).thenReturn(secondStream);
     when(peers.streamAvailablePeers())
         .thenAnswer(
@@ -286,7 +288,8 @@ class MissingTrieNodeFetcherTest {
   void sharesReceivedByteBudgetAcrossInvalidAndValidPeerResponses() throws Exception {
     final EthPeer secondPeer = mock(EthPeer.class);
     final ResponseStream secondStream = mock(ResponseStream.class);
-    when(secondPeer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP1));
+    when(secondPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(secondPeer.getSnapTrieNode(any(), any())).thenReturn(secondStream);
     when(peers.streamAvailablePeers())
         .thenAnswer(invocation -> Stream.of(attributes(peer), attributes(secondPeer)));

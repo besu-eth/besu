@@ -148,6 +148,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /** The Sync config. */
   protected SynchronizerConfiguration syncConfig;
 
+  /** The requester used to initiate repair of unavailable world state. */
   protected WorldStateRepairRequester worldStateRepairRequester =
       WorldStateRepairRequester.DISABLED;
 
