@@ -144,7 +144,7 @@ public abstract class BonsaiFlatDbStrategy extends FlatDbStrategy {
     return storage
         .streamFromKey(
             ACCOUNT_STORAGE_STORAGE,
-            Bytes.concatenate(accountHash.getBytes(), startKeyHash).toArrayUnsafe())
+            TrieBytes.concat(accountHash.getBytes(), startKeyHash).toArrayUnsafe())
         .takeWhile(
             pair -> Bytes.wrap(pair.getKey()).slice(0, Bytes32.SIZE).equals(accountHash.getBytes()))
         .map(
@@ -165,8 +165,8 @@ public abstract class BonsaiFlatDbStrategy extends FlatDbStrategy {
     return storage
         .streamFromKey(
             ACCOUNT_STORAGE_STORAGE,
-            Bytes.concatenate(accountHash.getBytes(), startKeyHash).toArrayUnsafe(),
-            Bytes.concatenate(accountHash.getBytes(), endKeyHash).toArrayUnsafe())
+            TrieBytes.concat(accountHash.getBytes(), startKeyHash).toArrayUnsafe(),
+            TrieBytes.concat(accountHash.getBytes(), endKeyHash).toArrayUnsafe())
         .map(
             pair ->
                 new Pair<>(
