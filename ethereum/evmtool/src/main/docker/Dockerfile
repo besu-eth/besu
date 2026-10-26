@@ -8,7 +8,9 @@ FROM mirror.gcr.io/library/eclipse-temurin@sha256:1bda4d9e668f44f399abed30636c34
 # (https://openjdk.org/emudhra): emSign ECC Root CA - G3, which OpenJDK identifies as related to the
 # compromised intermediate CAs, and emSign Root CA - G1 as a precaution. emSign Root CA - G2 and AAA
 # Certificate Services are also listed but are not in the Temurin store; they are matched anyway, so
-# the step keeps working if a future base adds them. Matched by SHA-256 fingerprint, so this works
+# the step keeps working if a future base adds them. The emSign ECC Root CA - C3 and emSign Root CA -
+# C1 roots (eMudhra Inc, US) are deliberately left trusted: OpenJDK does not list them, and the
+# compromised intermediates chain to G3, not the C series. Matched by SHA-256 fingerprint, so this works
 # whatever their alias; the build then re-checks by subject name, so a wrong fingerprint cannot ship
 # a trusted root. Remove once the base drops them.
 RUN set -eu; \
