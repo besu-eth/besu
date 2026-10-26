@@ -84,6 +84,7 @@
 - The transaction pools process the result of a transaction that is still executing when the block selection time runs out once its execution completes, so the layered pool penalises a transaction that took too long, and both pools remove it if invalid, instead of missing its result. Selection results are processed asynchronously in both pools.
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
+- The Engine API runs on its own Vert.x instance, so a JSON-RPC load such as `eth_sendRawTransaction` no longer takes the worker threads that Engine API calls need. Its pool metrics are labelled with an `engine-api-` prefix, e.g. `poolName="engine-api-vert.x-worker-thread"`. Hidden options size the pools: `--Xengine-rpc-vertx-worker-pool-size` (default 8) and `--Xengine-rpc-vertx-event-loop-pool-size` (default 2) for the Engine API, and `--Xrpc-vertx-worker-pool-size` (default 20, unchanged) for JSON-RPC. [#11764](https://github.com/besu-eth/besu/pull/11764)
 
 ## 26.11.0
 
