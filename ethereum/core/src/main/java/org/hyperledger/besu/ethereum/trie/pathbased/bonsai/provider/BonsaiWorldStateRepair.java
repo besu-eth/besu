@@ -64,11 +64,15 @@ import java.util.stream.Stream;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Repairs only dependencies proved to belong to an unchanged live base, never adopts a snapshot.
  */
 final class BonsaiWorldStateRepair {
+  private static final Logger LOG = LoggerFactory.getLogger(BonsaiWorldStateRepair.class);
+
   private static final int MAX_TRANSITIONS = 64;
   private static final StateRootCommitter SERIAL_COMMITTER =
       new DefaultStateRootCommitter((worldState, address) -> address.addressHash(), Runnable::run);
@@ -110,12 +114,15 @@ final class BonsaiWorldStateRepair {
         }
       }
     } catch (final Refused refused) {
+      LOG.error("Failed to repair world state", refused);
       return refused.result;
     } catch (final MissingCodeException missingCode) {
       // The normal block-processing code healer remains authoritative. It writes live storage,
       // so it must not be called as a side effect of a private trie-node repair trial.
+      LOG.error("Missing code while trying to repair world state", missingCode);
       return WorldStateRepairResult.UNSUPPORTED;
     } catch (final RuntimeException failure) {
+      LOG.error("Unexpected error while trying to repair world state", failure);
       return WorldStateRepairResult.FAILED;
     }
   }
