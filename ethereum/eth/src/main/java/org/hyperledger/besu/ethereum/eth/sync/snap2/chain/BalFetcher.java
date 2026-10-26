@@ -19,7 +19,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessageData;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
@@ -296,7 +296,7 @@ public final class BalFetcher {
     // snap/2 when the peer has it, otherwise eth/71
     @Override
     public Protocol protocolFor(final EthPeer peer) {
-      return peer.getAgreedCapabilities().contains(SnapProtocol.SNAP2)
+      return peer.getAgreedCapabilities().contains(SnapProtocolVersion.V2.getCapability())
           ? Protocol.SNAP2
           : Protocol.ETH;
     }
@@ -308,7 +308,7 @@ public final class BalFetcher {
 
     @Override
     public boolean canServe(final EthPeer peer) {
-      return peer.getAgreedCapabilities().contains(SnapProtocol.SNAP2)
+      return peer.getAgreedCapabilities().contains(SnapProtocolVersion.V2.getCapability())
           || peer.getAgreedCapabilities().stream().anyMatch(EthProtocol::isEth71Compatible);
     }
 

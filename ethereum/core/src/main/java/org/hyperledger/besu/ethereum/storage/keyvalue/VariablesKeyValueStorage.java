@@ -73,6 +73,11 @@ public class VariablesKeyValueStorage implements VariablesStorage {
   }
 
   @Override
+  public Optional<Long> getBodiesFrom() {
+    return getVariable(Keys.BODIES_FROM).map(Bytes::toLong);
+  }
+
+  @Override
   public Updater updater() {
     return new Updater(variables.startTransaction());
   }
@@ -124,6 +129,11 @@ public class VariablesKeyValueStorage implements VariablesStorage {
     @Override
     public void setGenesisStateHash(final Hash genesisStateHash) {
       setVariable(Keys.GENESIS_STATE_HASH, genesisStateHash.getBytes());
+    }
+
+    @Override
+    public void setBodiesFrom(final long blockNumber) {
+      setVariable(Keys.BODIES_FROM, Bytes.ofUnsignedLong(blockNumber));
     }
 
     @Override

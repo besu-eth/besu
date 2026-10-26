@@ -140,9 +140,13 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
 
   @Override
   public PeerTaskValidationResponse validateResult(final List<Transaction> result) {
-    if (!result.stream().allMatch((t) -> hashes.contains(t.getHash()))) {
-      return PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
-    }
-    return PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD;
+    // Unavailable transactions may be omitted, but responses must preserve request order.
+    final List<Hash> responseHashes = result.stream().map(Transaction::getHash).toList();
+    final Set<Hash> responseHashSet = Set.copyOf(responseHashes);
+    final List<Hash> requestedHashesInResponse =
+        hashes.stream().filter(responseHashSet::contains).toList();
+    return requestedHashesInResponse.equals(responseHashes)
+        ? PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD
+        : PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
   }
 }

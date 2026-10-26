@@ -141,6 +141,11 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   }
 
   @Override
+  public Optional<Long> getBodiesFrom() {
+    return variablesStorage.getBodiesFrom();
+  }
+
+  @Override
   public Optional<BlockHeader> getBlockHeader(final Hash blockHash) {
     return get(BLOCK_HEADER_PREFIX, blockHash.getBytes())
         .map(b -> BlockHeader.readFrom(RLP.input(b), blockHeaderFunctions, blockHash));
@@ -194,6 +199,12 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   public Updater updater() {
     return new Updater(
         blockchainStorage.startTransaction(), variablesStorage.updater(), receiptCompaction);
+  }
+
+  @Override
+  public Updater batchUpdater() {
+    return new Updater(
+        blockchainStorage.startBatchTransaction(), variablesStorage.updater(), receiptCompaction);
   }
 
   private List<TransactionReceipt> rlpDecodeTransactionReceipts(final Bytes bytes) {
@@ -417,6 +428,11 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     @Override
     public void setSafeBlock(final Hash blockHash) {
       variablesUpdater.setSafeBlock(blockHash);
+    }
+
+    @Override
+    public void setBodiesFrom(final long blockNumber) {
+      variablesUpdater.setBodiesFrom(blockNumber);
     }
 
     @Override

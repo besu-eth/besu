@@ -26,7 +26,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessageData;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
@@ -65,11 +65,11 @@ import org.junit.jupiter.api.Test;
 class BalFetcherTest {
 
   private final EthPeer snap2Eth71 =
-      peer(SnapProtocol.SNAP2, EthProtocolVersion.V71.getCapability());
+      peer(SnapProtocolVersion.V2.getCapability(), EthProtocolVersion.V71.getCapability());
   private final EthPeer snap1Eth71 =
-      peer(SnapProtocol.SNAP1, EthProtocolVersion.V71.getCapability());
+      peer(SnapProtocolVersion.V1.getCapability(), EthProtocolVersion.V71.getCapability());
   private final EthPeer snap2Eth68 =
-      peer(SnapProtocol.SNAP2, EthProtocolVersion.V68.getCapability());
+      peer(SnapProtocolVersion.V2.getCapability(), EthProtocolVersion.V68.getCapability());
   private final FakeSender sender = new FakeSender();
   private final List<BlockHeader> headers = headersWithLists(12);
   private final List<Duration> pauses = new ArrayList<>();
@@ -220,7 +220,11 @@ class BalFetcherTest {
 
     assertThat(request.canServe(snap2Eth68)).isTrue();
     assertThat(request.canServe(snap1Eth71)).isTrue();
-    assertThat(request.canServe(peer(SnapProtocol.SNAP1, EthProtocolVersion.V68.getCapability())))
+    assertThat(
+            request.canServe(
+                peer(
+                    SnapProtocolVersion.V1.getCapability(),
+                    EthProtocolVersion.V68.getCapability())))
         .isFalse();
   }
 
@@ -308,7 +312,7 @@ class BalFetcherTest {
   private static boolean agreed(final EthPeer peer, final Protocol protocol) {
     final Set<Capability> capabilities = peer.getAgreedCapabilities();
     return protocol == Protocol.SNAP2
-        ? capabilities.contains(SnapProtocol.SNAP2)
+        ? capabilities.contains(SnapProtocolVersion.V2.getCapability())
         : capabilities.stream().anyMatch(EthProtocol::isEth71Compatible);
   }
 
