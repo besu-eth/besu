@@ -128,6 +128,17 @@ class MempoolPrewarmerTest {
   }
 
   @Test
+  void preloadsTheTriePathsOfTheAccountsTheTransactionsChange() {
+    candidates.add(new PendingTransaction.Remote(transfer(0)));
+
+    prewarmer.start(head());
+
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(10))
+        .until(() -> prewarmer.preloadedAccounts().containsAll(List.of(SENDER_ADDRESS, RECIPIENT)));
+  }
+
+  @Test
   void leavesTheHeadStateAsItIs() {
     final MutableWorldState headState = fixture.getStateArchive().getWorldState();
     final Hash rootHash = headState.rootHash();
