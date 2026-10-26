@@ -516,42 +516,43 @@ public class EVM {
   }
 
   /**
-   * Per opcode, the bias of its case in the untraced loop: the first opcode the case handles, and 0
-   * for the general path.
+   * A per-case disguise for the stack top: the loop xors in the opcode's bias and the case xors it
+   * out, so the value doesn't change. It stops the JIT from merging all cases' stack-offset math
+   * into one step before the switch, which made every operation slower.
    */
   private static final int[] STACK_TOP_BIASES = new int[256];
 
   static {
-    // PUSH2-8, DUP1-16 and SWAP1-16 share a case each, so they share its bias
-    Arrays.fill(STACK_TOP_BIASES, 0x61, 0x68, 0x61);
-    Arrays.fill(STACK_TOP_BIASES, 0x80, 0x90, 0x80);
-    Arrays.fill(STACK_TOP_BIASES, 0x90, 0xa0, 0x90);
-    for (final int opcode :
-        new int[] {
-          0x60, 0x5b, 0x50, 0x57, 0x56, 0x01, 0x15, 0x16, 0x03, 0x14, 0x10, 0x1b, 0x11, 0x5f
-        }) {
-      STACK_TOP_BIASES[opcode] = opcode;
-    }
+    // one line per case of the untraced loop's switch, in its order; a case's bias is its first
+    // opcode, the general path's 0
+    biasCase(0x60, 0x60); // PUSH1
+    biasCase(0x61, 0x67); // PUSH2-8
+    biasCase(0x80, 0x8f); // DUP1-16
+    biasCase(0x90, 0x9f); // SWAP1-16
+    biasCase(0x5b, 0x5b); // JUMPDEST
+    biasCase(0x50, 0x50); // POP
+    biasCase(0x57, 0x57); // JUMPI
+    biasCase(0x56, 0x56); // JUMP
+    biasCase(0x01, 0x01); // ADD
+    biasCase(0x15, 0x15); // ISZERO
+    biasCase(0x16, 0x16); // AND
+    biasCase(0x03, 0x03); // SUB
+    biasCase(0x14, 0x14); // EQ
+    biasCase(0x10, 0x10); // LT
+    biasCase(0x1b, 0x1b); // SHL
+    biasCase(0x11, 0x11); // GT
+    biasCase(0x5f, 0x5f); // PUSH0
+  }
+
+  private static void biasCase(final int firstOpcode, final int lastOpcode) {
+    Arrays.fill(STACK_TOP_BIASES, firstOpcode, lastOpcode + 1, firstOpcode);
   }
 
   /**
-   * The v2 interpreter loop for untraced execution, which is every block import. Only the most
-   * frequent operations are dispatched here, in order of mainnet frequency, and everything else
-   * goes through {@link #executeOperationV2}, so that C2 can inline them into it. C2 inlines into
-   * one budget of 8000 bytes of bytecode for the loop and everything inlined into it
-   * (EvmV2LoopCompilationTest). PUSH9-32, MSTORE, MLOAD and CALLDATALOAD stay on the general path:
-   * each inlines to more bytecode than any operation here.
-   *
-   * <p>The stack top, pc and gas live in locals, which C2 keeps in registers, where fields of the
-   * frame would cost a store and a load on every operation. The operations work on the frame, so
-   * each case writes what its operation reads and reads back what it writes, right around the call:
-   * once C2 inlines the operation, both are the register. The read has to be in the case, because
-   * in a method this size C2 does not carry the operation's store through the switch's merge.
-   *
-   * <p>No local may be live across a call that C2 does not inline, or across its exception handler:
-   * C2 would then keep the local in memory for the whole loop. So the general path hands all of
-   * them to the frame, calls the operation and completes it within its case, and the jumps hand
-   * over the gas too.
+   * The v2 loop for untraced execution, which is block import. The most frequent mainnet operations
+   * have their own cases so that C2 inlines them within its 8000-byte budget; everything else goes
+   * through {@link #executeOperationV2}. The stack top, pc and gas live in locals so that they stay
+   * in CPU registers instead of being read from and written to the frame on every operation.
    */
   private void runToHaltV2Untraced(final MessageFrame frame) {
     // the loop checks the state only where an operation can change it
@@ -564,15 +565,10 @@ public class EVM {
     long gas = frame.getRemainingGas();
     while (true) {
       final int opcode = pc < code.length ? code[pc] & 0xff : 0;
-      // Each case xors its own bias back in, so that no two cases compute the same stack index: C2
-      // would compute the shared ones for every operation before the dispatch, and the registers
-      // they take make it spill the locals. Not an addition, because C2 rewrites (x + c) << 2 as
-      // (x << 2) + 4c, which is shared again. Not the pc, whose next value would then wait for the
-      // table's load.
+      // see STACK_TOP_BIASES; an xor, because the JIT sees through an addition
       final int base = sp ^ STACK_TOP_BIASES[opcode];
       final OperationResult result;
-      // on the opcode, so that C2 compiles a tree of compares that reaches the most frequent cases
-      // with the fewest, where a jump table would cost every case the same
+      // on the opcode, so that the most frequent cases take the fewest compares
       switch (opcode) {
         case 0x60 -> { // PUSH1
           frame.setTopV2(base ^ 0x60);
@@ -635,7 +631,7 @@ public class EVM {
           sp = frame.stackTopV2();
         }
         case 0x5b -> { // JUMPDEST
-          // from the base, so that the stack top is not live across the dispatch besides it
+          // from the base, so that only the base is live across the switch
           sp = base ^ 0x5b;
           result = JumpDestOperationV2.JUMPDEST_SUCCESS;
         }
@@ -645,7 +641,7 @@ public class EVM {
           sp = frame.stackTopV2();
         }
         case 0x57 -> { // JUMPI
-          // the destination check is a call where C2 does not inline it
+          // the gas too, because the destination check can be a call
           frame.setTopV2(base ^ 0x57);
           frame.setPC(pc);
           frame.setGasRemaining(gas);
@@ -718,7 +714,7 @@ public class EVM {
           pc = frame.getPC();
         }
         default -> {
-          // the general path's bias is 0
+          // completed here, so that no local is live across the call; the general path's bias is 0
           frame.setTopV2(base);
           frame.setPC(pc);
           frame.setGasRemaining(gas);

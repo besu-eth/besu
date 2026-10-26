@@ -28,10 +28,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
-/**
- * The sizes of the v2 loop's methods that decide how C2 compiles it. {@link
- * EvmV2LoopCompilationTest} checks the result in C2's own report.
- */
+/** The sizes of the v2 loop's methods that decide how C2 compiles it. */
 class EvmV2LoopMethodSizeTest {
 
   /** HotSpot's HugeMethodLimit. A method above this is never compiled and never OSR-compiled. */
@@ -42,8 +39,7 @@ class EvmV2LoopMethodSizeTest {
 
   /**
    * The loop's own bytecode counts against the 8000 bytes C2 inlines into it, so it is held well
-   * under that. Raising this is a decision about the room left for the operations, not a formality:
-   * handing the stack top, pc and gas between the loop's locals and the frame takes about 500.
+   * under that. Raising this is a decision about the room left for the operations, not a formality.
    */
   private static final int LOOP_BUDGET = 1500;
 
@@ -59,7 +55,7 @@ class EvmV2LoopMethodSizeTest {
         .isLessThan(HUGE_METHOD_LIMIT);
   }
 
-  static Map<String, Integer> methodSizes() {
+  private static Map<String, Integer> methodSizes() {
     final ClassModel model;
     try (InputStream in = EVM.class.getResourceAsStream("EVM.class")) {
       assertThat(in).as("EVM.class must be readable from the classpath").isNotNull();
