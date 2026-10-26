@@ -64,6 +64,10 @@ public class ApproveOperationV2 extends AbstractOperationV2 {
     if (frame.getRemainingGas() < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
+    // EIP-7906: a POST_TX frame is static, and APPROVE gets no exception there.
+    if (context.isCurrentFramePostTx()) {
+      return new OperationResult(cost, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE);
+    }
     if ((scope & ~FrameTransactionContext.APPROVE_SCOPE_MASK) != 0) {
       return revert(frame, cost);
     }
