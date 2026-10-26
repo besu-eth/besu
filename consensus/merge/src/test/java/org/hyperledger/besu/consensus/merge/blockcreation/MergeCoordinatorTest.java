@@ -1081,7 +1081,27 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     final InOrder inOrder = inOrder(prewarmer);
     inOrder.verify(prewarmer).stop(Optional.of(terminal));
     inOrder.verify(prewarmer).start(terminalHeader);
-    inOrder.verify(prewarmer).stop(Optional.empty());
+    inOrder.verify(prewarmer).stopForBlockBuilding();
+  }
+
+  @Test
+  public void closesThePrewarmerOnceMiningHasStopped() throws InterruptedException {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+
+    coordinator.stop();
+    verify(prewarmer, never()).close();
+    coordinator.awaitStop();
+
+    verify(prewarmer).close();
   }
 
   @Test

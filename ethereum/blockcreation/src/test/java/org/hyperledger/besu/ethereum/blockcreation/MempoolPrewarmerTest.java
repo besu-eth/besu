@@ -27,6 +27,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -44,11 +45,18 @@ import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.awaitility.Awaitility;
@@ -68,6 +76,13 @@ class MempoolPrewarmerTest {
                   "ECDSA"));
   private static final Address SENDER_ADDRESS =
       Address.fromHexString("0xfe3b557e8fb62b89f4916b721be55ceb828dbd73");
+  private static final KeyPair OTHER_SENDER =
+      SignatureAlgorithmFactory.getInstance()
+          .createKeyPair(
+              SECPPrivateKey.create(
+                  Bytes32.fromHexString(
+                      "c87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3"),
+                  "ECDSA"));
   private static final Address RECIPIENT =
       Address.fromHexString("0x00000000000000000000000000000000000000aa");
 
@@ -76,15 +91,29 @@ class MempoolPrewarmerTest {
   private final List<Map<PendingTransaction, TransactionSelectionResult>> selectionResults =
       new CopyOnWriteArrayList<>();
   private final StubMetricsSystem metricsSystem = new StubMetricsSystem();
+  private final AtomicLong now = new AtomicLong(System.currentTimeMillis());
+  private final Clock clock =
+      new Clock() {
+        @Override
+        public ZoneId getZone() {
+          return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(final ZoneId zone) {
+          return this;
+        }
+
+        @Override
+        public Instant instant() {
+          return Instant.ofEpochMilli(now.get());
+        }
+      };
   private ExecutionContextTestFixture fixture;
   private MempoolPrewarmer prewarmer;
 
   @BeforeEach
   void setUp() {
-    fixture =
-        ExecutionContextTestFixture.builder(GenesisConfig.fromResource("/dev.json"))
-            .dataStorageFormat(DataStorageFormat.BONSAI)
-            .build();
     when(transactionPool.isEnabled()).thenReturn(true);
     doAnswer(
             invocation -> {
@@ -95,6 +124,17 @@ class MempoolPrewarmerTest {
             })
         .when(transactionPool)
         .selectTransactions(any());
+    useGenesis(GenesisConfig.fromResource("/dev.json"), 4);
+  }
+
+  private void useGenesis(final GenesisConfig genesis, final int gasLimitMultiplier) {
+    if (prewarmer != null) {
+      prewarmer.close();
+    }
+    fixture =
+        ExecutionContextTestFixture.builder(genesis)
+            .dataStorageFormat(DataStorageFormat.BONSAI)
+            .build();
     prewarmer =
         new MempoolPrewarmer(
             fixture.getProtocolContext(),
@@ -102,8 +142,22 @@ class MempoolPrewarmerTest {
             transactionPool,
             MiningConfiguration.newDefault(),
             2,
-            4,
-            metricsSystem);
+            gasLimitMultiplier,
+            metricsSystem,
+            clock);
+  }
+
+  private void useDevGenesisWith(final String gasLimit, final String baseFee, final int multiplier)
+      throws IOException {
+    final String json =
+        new String(
+            GenesisConfig.class.getResourceAsStream("/dev.json").readAllBytes(),
+            StandardCharsets.UTF_8);
+    useGenesis(
+        GenesisConfig.fromConfig(
+            json.replace("\"gasLimit\": \"0x1fffffffffffff\"", "\"gasLimit\": \"" + gasLimit + "\"")
+                .replace("\"baseFeePerGas\":\"0x0\"", "\"baseFeePerGas\":\"" + baseFee + "\"")),
+        multiplier);
   }
 
   @AfterEach
@@ -174,10 +228,118 @@ class MempoolPrewarmerTest {
     prewarmer.start(head());
     awaitExecuted(1);
 
-    prewarmer.stop(Optional.of(childBlock(prewarmed, transfer(1))));
+    final Block block = childBlock(prewarmed, transfer(1));
+    prewarmer.stop(Optional.of(block));
+    prewarmer.stop(Optional.of(block));
 
     assertThat(blockTransactions("true")).isEqualTo(1);
     assertThat(blockTransactions("false")).isEqualTo(1);
+  }
+
+  @Test
+  void countsNothingForABlockArrivingAfterBlockBuilding() {
+    candidates.add(new PendingTransaction.Remote(transfer(0)));
+    prewarmer.start(head());
+    awaitExecuted(1);
+    prewarmer.stopForBlockBuilding();
+
+    prewarmer.stop(Optional.of(childBlock(transfer(0))));
+
+    assertThat(blockTransactions("true")).isZero();
+    assertThat(blockTransactions("false")).isZero();
+  }
+
+  @Test
+  void countsOnlyTheTransactionsThatRan() {
+    final Transaction invalid = transfer(OTHER_SENDER, 0, 20_000, Wei.of(1_000_000_000_000L));
+    candidates.add(new PendingTransaction.Remote(invalid));
+    prewarmer.start(head());
+    Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> invalid() == 1);
+
+    prewarmer.stop(Optional.of(childBlock(invalid)));
+
+    assertThat(blockTransactions("true")).isZero();
+    assertThat(blockTransactions("false")).isEqualTo(1);
+  }
+
+  @Test
+  void doesNotStartAgainForTheHeadABlockIsBuiltOn() {
+    prewarmer.start(head());
+    prewarmer.stopForBlockBuilding();
+    candidates.add(new PendingTransaction.Remote(transfer(0)));
+
+    prewarmer.start(head());
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 0);
+  }
+
+  @Test
+  void startsAgainForTheSameHeadOnceTheNextSlotIsOver() {
+    prewarmer.start(head());
+    now.addAndGet(Duration.ofMinutes(1).toMillis());
+    candidates.add(new PendingTransaction.Remote(transfer(0)));
+
+    prewarmer.start(head());
+
+    awaitExecuted(1);
+  }
+
+  @Test
+  void stopsWithinAPassOnceTheGasBudgetIsUsed() throws IOException {
+    // a budget of three transfers and a bit
+    useDevGenesisWith("0x10000", "0x0", 1);
+    for (int nonce = 0; nonce < 5; nonce++) {
+      candidates.add(new PendingTransaction.Remote(transfer(nonce)));
+    }
+
+    prewarmer.start(head());
+
+    awaitExecuted(4);
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 4);
+  }
+
+  @Test
+  void leavesOutBlobTransactionsAndTransactionsBelowTheBaseFeeWithTheSendersLaterOnes()
+      throws IOException {
+    useDevGenesisWith("0x1fffffffffffff", "0x3B9ACA00", 4);
+    final Transaction blob =
+        new TransactionTestFixture()
+            .type(TransactionType.BLOB)
+            .nonce(0)
+            .to(Optional.of(RECIPIENT))
+            .maxFeePerGas(Optional.of(Wei.of(1_000_000_000_000L)))
+            .maxPriorityFeePerGas(Optional.of(Wei.ONE))
+            .versionedHashes(
+                Optional.of(List.of(new VersionedHash(VersionedHash.SHA256_VERSION_ID, Hash.ZERO))))
+            .createTransaction(SENDER);
+    final Transaction underpriced = transfer(OTHER_SENDER, 0, 21_000, Wei.ONE);
+    final Transaction warmable = transfer(OTHER_SENDER, 0, 21_000, Wei.of(1_000_000_000_000L));
+    candidates.add(new PendingTransaction.Remote(blob));
+    candidates.add(new PendingTransaction.Remote(transfer(1)));
+    candidates.add(new PendingTransaction.Remote(underpriced));
+    candidates.add(
+        new PendingTransaction.Remote(
+            transfer(OTHER_SENDER, 1, 21_000, Wei.of(1_000_000_000_000L))));
+
+    prewarmer.start(head());
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 0);
+    candidates.clear();
+    candidates.add(new PendingTransaction.Remote(warmable));
+    awaitExecuted(1);
+
+    assertThat(prewarmer.prewarmedTransactions()).containsExactly(warmable.getHash());
+    assertThat(invalid()).isZero();
   }
 
   @Test
@@ -215,19 +377,28 @@ class MempoolPrewarmerTest {
   }
 
   private static Transaction transfer(final long nonce) {
+    return transfer(SENDER, nonce, 21_000, Wei.of(1_000_000_000_000L));
+  }
+
+  private static Transaction transfer(
+      final KeyPair sender, final long nonce, final long gasLimit, final Wei maxFeePerGas) {
     return new TransactionTestFixture()
         .type(TransactionType.EIP1559)
         .nonce(nonce)
         .to(Optional.of(RECIPIENT))
         .value(Wei.ONE)
-        .gasLimit(21_000)
-        .maxFeePerGas(Optional.of(Wei.of(1_000_000_000_000L)))
+        .gasLimit(gasLimit)
+        .maxFeePerGas(Optional.of(maxFeePerGas))
         .maxPriorityFeePerGas(Optional.of(Wei.ONE))
-        .createTransaction(SENDER);
+        .createTransaction(sender);
   }
 
   private long executed() {
     return metricsSystem.getCounterValue("mempool_prewarm_transactions_total", "executed");
+  }
+
+  private long invalid() {
+    return metricsSystem.getCounterValue("mempool_prewarm_transactions_total", "invalid");
   }
 
   private long blockTransactions(final String prewarmed) {
