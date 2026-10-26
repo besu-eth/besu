@@ -15,15 +15,18 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -50,6 +53,7 @@ public class BonsaiArchiveWorldStateProviderTest {
   private Blockchain blockchain;
   private BlockHeader chainHeadHeader;
   private BonsaiArchiveWorldStateProvider provider;
+  private Long seededProgress;
 
   @BeforeEach
   void setup() {
@@ -197,6 +201,7 @@ public class BonsaiArchiveWorldStateProviderTest {
 
   @Test
   void installsInlineStrategyWhenProofsEnabled() {
+    seededProgress = 4L;
     final BonsaiArchiveWorldStateProvider proofsProvider = createProvider(true, true);
 
     assertThat(proofsProvider.getWorldStateKeyValueStorage().getTrieNodeStrategy())
@@ -225,6 +230,37 @@ public class BonsaiArchiveWorldStateProviderTest {
 
     assertThat(provider.isFinal(3)).isTrue();
     assertThat(provider.isFinal(4)).isFalse();
+  }
+
+  @Test
+  void startupFailsWhenProofsEnabledPastGenesisWithoutCoverage() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
+
+    assertThatThrownBy(() -> createProvider(true, true))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("no proof history");
+  }
+
+  @Test
+  void startupSucceedsOnFreshChain() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(0L);
+
+    createProvider(true, true).close();
+  }
+
+  @Test
+  void startupSucceedsWithCoverageFromGenesis() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
+    seededProgress = 4L;
+
+    createProvider(true, true).close();
+  }
+
+  @Test
+  void startupIgnoresCoverageWhenProofsDisabled() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
+
+    createProvider(true, false);
   }
 
   private BonsaiArchiveWorldStateProvider createProvider(final boolean archiveModeReady) {
@@ -259,6 +295,10 @@ public class BonsaiArchiveWorldStateProviderTest {
         TRIE_BRANCH_STORAGE,
         WORLD_BLOCK_HASH_KEY,
         chainHeadHeader.getHash().getBytes().toArrayUnsafe());
+    if (seededProgress != null) {
+      new ArchiveNodeHistoryStore(worldStateStorage.getComposedWorldStateStorage())
+          .saveArchiveProgress(tx, seededProgress, Hash.ZERO);
+    }
     tx.commit();
 
     return new BonsaiArchiveWorldStateProvider(
