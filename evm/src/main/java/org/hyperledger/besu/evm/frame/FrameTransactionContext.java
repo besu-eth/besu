@@ -18,9 +18,13 @@ import org.hyperledger.besu.collections.undo.UndoScalar;
 import org.hyperledger.besu.collections.undo.UndoTable;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.worldstate.WorldView;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Supplier;
 
+import com.google.common.base.Suppliers;
 import com.google.common.collect.TreeBasedTable;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -138,6 +142,11 @@ public class FrameTransactionContext {
   // The frame that owns the outstanding SSTORE state charge per (address, slot). EIP-8037 refill
   // reattribution needs the owner so a cross-frame refill reduces the right receipt.
   private final UndoTable<Address, Bytes32, Integer> slotChargeOwners;
+
+  // EIP-7906: what the assertion operations of the POST_TX frames read. Installed once, before the
+  // first POST_TX frame, and not journaled: nothing a POST_TX frame does can change the diff.
+  private WorldView transactionPrestate;
+  private Supplier<TransactionDiff> transactionDiff;
 
   /**
    * Creates the context.
@@ -326,6 +335,38 @@ public class FrameTransactionContext {
    */
   public FrameInfo currentFrame() {
     return frames.get(currentFrameIndex);
+  }
+
+  /**
+   * Installs what the EIP-7906 assertion operations read. The processor calls this once, before the
+   * first POST_TX frame runs; the diff cannot change across the POST_TX suffix, so it is computed
+   * on the first read and then reused.
+   *
+   * @param prestate the transaction prestate, which the TXDIFF lookups read "before" values from
+   * @param diff computes the transaction diff
+   */
+  public void installTransactionDiff(
+      final WorldView prestate, final Supplier<TransactionDiff> diff) {
+    this.transactionPrestate = prestate;
+    this.transactionDiff = Suppliers.memoize(diff::get);
+  }
+
+  /**
+   * The transaction prestate, for the TXDIFF lookups of "before" values.
+   *
+   * @return the prestate, or empty when no POST_TX frame has started
+   */
+  public Optional<WorldView> transactionPrestate() {
+    return Optional.ofNullable(transactionPrestate);
+  }
+
+  /**
+   * The transaction diff, computed on the first call.
+   *
+   * @return the diff, or empty when no POST_TX frame has started
+   */
+  public Optional<TransactionDiff> transactionDiff() {
+    return transactionDiff == null ? Optional.empty() : Optional.of(transactionDiff.get());
   }
 
   /**
