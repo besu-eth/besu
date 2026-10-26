@@ -38,6 +38,7 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
   private static final Logger LOG = getLogger(BackwardSyncAlgorithm.class);
 
   private final BackwardSyncContext context;
+  private final long recoveryGeneration;
   private final FinalBlockConfirmation finalBlockConfirmation;
   private final AtomicReference<CountDownLatch> latch =
       new AtomicReference<>(new CountDownLatch(1));
@@ -46,6 +47,7 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
   public BackwardSyncAlgorithm(
       final BackwardSyncContext context, final FinalBlockConfirmation finalBlockConfirmation) {
     this.context = context;
+    this.recoveryGeneration = context.recoveryGeneration();
     this.finalBlockConfirmation = finalBlockConfirmation;
   }
 
@@ -58,6 +60,7 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
   }
 
   public CompletableFuture<Void> pickNextStep() {
+    context.ensureCurrentGeneration(recoveryGeneration);
     final Optional<Hash> firstHash = context.getBackwardChain().getFirstHashToAppend();
     if (!context.isReady()) {
       return waitForReady();
@@ -121,6 +124,12 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
       LOG.atWarn().setMessage("Unexpected null result in for hash {}").addArgument(firstHash).log();
       syncStep.completeExceptionally(new BackwardSyncException("Unexpected null result", true));
     } else {
+      try {
+        context.ensureCurrentGeneration(recoveryGeneration);
+      } catch (final BackwardSyncException stopped) {
+        syncStep.completeExceptionally(stopped);
+        return;
+      }
       LOG.atDebug()
           .setMessage("Backward sync target block is {}")
           .addArgument(result::toLogString)

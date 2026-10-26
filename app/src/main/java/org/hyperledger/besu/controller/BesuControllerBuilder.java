@@ -63,6 +63,7 @@ import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.MissingCodeFetcher;
+import org.hyperledger.besu.ethereum.eth.sync.MissingTrieNodeFetcher;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
@@ -100,6 +101,7 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
@@ -145,6 +147,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
   /** The Sync config. */
   protected SynchronizerConfiguration syncConfig;
+
+  protected WorldStateRepairRequester worldStateRepairRequester =
+      WorldStateRepairRequester.DISABLED;
 
   /** The Ethereum wire protocol configuration. */
   protected EthProtocolConfiguration ethereumWireProtocolConfiguration;
@@ -903,6 +908,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             pivotBlockSelector,
             chainDataPruner);
 
+    worldStateRepairRequester = synchronizer.getWorldStateRepairRequester();
     ethPeers.setTrailingPeerRequirementsSupplier(synchronizer::calculateTrailingPeerRequirements);
 
     if (archiveTrieNodeStrategy != null) {
@@ -923,6 +929,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     // a stored account missing its code is healed by fetching the code by hash from peers
     if (protocolContext.getWorldStateArchive() instanceof BonsaiWorldStateProvider bonsaiArchive) {
       bonsaiArchive.setCodeFetcher(new MissingCodeFetcher(ethContext, blockchain));
+      bonsaiArchive.setMissingTrieNodeFetcher(new MissingTrieNodeFetcher(ethContext));
     }
 
     final Optional<SnapProtocolManager> maybeSnapProtocolManager =

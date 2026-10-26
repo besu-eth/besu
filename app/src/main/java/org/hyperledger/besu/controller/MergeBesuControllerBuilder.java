@@ -81,15 +81,16 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
         miningConfiguration,
         syncState,
         new BackwardSyncContext(
-            protocolContext,
-            protocolSchedule,
-            syncConfig,
-            metricsSystem,
-            ethProtocolManager.ethContext(),
-            syncState,
-            BackwardChain.from(
-                storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)),
-            new BackwardSyncAlgorithmFactory()),
+                protocolContext,
+                protocolSchedule,
+                syncConfig,
+                metricsSystem,
+                ethProtocolManager.ethContext(),
+                syncState,
+                BackwardChain.from(
+                    storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)),
+                new BackwardSyncAlgorithmFactory())
+            .withWorldStateRepairRequester(worldStateRepairRequester),
         ethProtocolManager.ethContext().getScheduler());
   }
 

@@ -37,10 +37,12 @@ public class SyncStepStep {
   private static final Logger LOG = getLogger(SyncStepStep.class);
 
   private final BackwardSyncContext context;
+  private final long recoveryGeneration;
   private final BackwardChain backwardChain;
 
   public SyncStepStep(final BackwardSyncContext context, final BackwardChain backwardChain) {
     this.context = context;
+    this.recoveryGeneration = context.recoveryGeneration();
     this.backwardChain = backwardChain;
   }
 
@@ -92,6 +94,7 @@ public class SyncStepStep {
   }
 
   private Block saveBlock(final Block block) {
+    context.ensureCurrentGeneration(recoveryGeneration);
     LOG.atDebug().setMessage("Appending fetched block {}").addArgument(block::toLogString).log();
     backwardChain.appendTrustedBlock(block);
     return block;
