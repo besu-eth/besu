@@ -25,13 +25,20 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.sync.state.SyncTarget;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
@@ -94,5 +101,63 @@ public class AbstractSyncTargetManagerTest {
     Awaitility.await()
         .atMost(20, TimeUnit.SECONDS)
         .untilAsserted(() -> assertThat(selectionAttempts.get()).isGreaterThanOrEqualTo(2));
+  }
+
+  // Regression test for besu-eth/besu#11659. Each retry used to chain its future onto the previous
+  // attempt's, so a caught-up node kept every attempt and its scheduled task reachable until a
+  // sync target was found.
+  @Test
+  public void retriesDoNotKeepEarlierAttemptsPending() {
+    final List<CompletableFuture<?>> scheduledRetries = new ArrayList<>();
+    final DeterministicEthScheduler deterministicScheduler =
+        new DeterministicEthScheduler() {
+          @Override
+          public <T> CompletableFuture<T> scheduleFutureTask(
+              final Supplier<CompletableFuture<T>> future, final Duration duration) {
+            final CompletableFuture<T> retry = super.scheduleFutureTask(future, duration);
+            scheduledRetries.add(retry);
+            return retry;
+          }
+        };
+    deterministicScheduler.disableAutoRun();
+    ethScheduler = deterministicScheduler;
+    final EthPeers ethPeers = mock(EthPeers.class);
+    when(ethPeers.waitForPeer(any()))
+        .thenAnswer(invocation -> CompletableFuture.failedFuture(new TimeoutException()));
+
+    final EthContext ethContext = mock(EthContext.class);
+    when(ethContext.getScheduler()).thenReturn(ethScheduler);
+    when(ethContext.getEthPeers()).thenReturn(ethPeers);
+
+    final AbstractSyncTargetManager syncTargetManager =
+        new AbstractSyncTargetManager(
+            mock(SynchronizerConfiguration.class),
+            mock(ProtocolSchedule.class),
+            mock(ProtocolContext.class),
+            ethContext,
+            new NoOpMetricsSystem()) {
+          @Override
+          protected CompletableFuture<Optional<EthPeer>> selectBestAvailableSyncTarget() {
+            return completedFuture(Optional.empty());
+          }
+
+          @Override
+          public boolean shouldContinueDownloading() {
+            return true;
+          }
+        };
+
+    final CompletableFuture<SyncTarget> syncTarget = syncTargetManager.findSyncTarget();
+    for (int i = 0; i < 10; i++) {
+      deterministicScheduler.runPendingFutures();
+    }
+
+    assertThat(syncTarget).isNotDone();
+    assertThat(scheduledRetries).hasSize(11);
+    assertThat(scheduledRetries).filteredOn(retry -> !retry.isDone()).hasSize(1);
+
+    syncTargetManager.cancel();
+    deterministicScheduler.runPendingFutures();
+    assertThat(syncTarget).isCompletedWithValue(null);
   }
 }

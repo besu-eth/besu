@@ -59,9 +59,30 @@ public abstract class AbstractSyncTargetManager {
   }
 
   public CompletableFuture<SyncTarget> findSyncTarget() {
+    final CompletableFuture<SyncTarget> promise = new CompletableFuture<>();
+    findSyncTarget(promise);
+    return promise;
+  }
+
+  // One promise per search: chaining each retry onto the last would keep every attempt reachable.
+  private void findSyncTarget(final CompletableFuture<SyncTarget> promise) {
     if (isCancelled()) {
-      return completedFuture(null);
+      promise.complete(null);
+      return;
     }
+    selectSyncTarget()
+        .thenAccept(
+            maybeSyncTarget ->
+                maybeSyncTarget.ifPresentOrElse(
+                    promise::complete, () -> waitForPeerAndThenSetSyncTarget(promise)))
+        .exceptionally(
+            error -> {
+              promise.completeExceptionally(error);
+              return null;
+            });
+  }
+
+  private CompletableFuture<Optional<SyncTarget>> selectSyncTarget() {
     return selectBestAvailableSyncTarget()
         .thenCompose(
             maybeBestPeer -> {
@@ -82,25 +103,20 @@ public abstract class AbstractSyncTargetManager {
                           }
                           return result;
                         })
-                    .thenCompose(
+                    .thenApply(
                         (target) -> {
                           if (target == null) {
-                            return waitForPeerAndThenSetSyncTarget();
+                            return Optional.<SyncTarget>empty();
                           }
                           final SyncTarget syncTarget = new SyncTarget(bestPeer, target);
                           LOG.debug(
                               "Found common ancestor with peer {} at block {}",
                               bestPeer,
                               target.getNumber());
-                          return completedFuture(syncTarget);
-                        })
-                    .thenCompose(
-                        syncTarget ->
-                            finalizeSelectedSyncTarget(syncTarget)
-                                .map(CompletableFuture::completedFuture)
-                                .orElseGet(this::waitForPeerAndThenSetSyncTarget));
+                          return finalizeSelectedSyncTarget(syncTarget);
+                        });
               } else {
-                return waitForPeerAndThenSetSyncTarget();
+                return completedFuture(Optional.<SyncTarget>empty());
               }
             });
   }
@@ -115,8 +131,8 @@ public abstract class AbstractSyncTargetManager {
 
   protected abstract CompletableFuture<Optional<EthPeer>> selectBestAvailableSyncTarget();
 
-  private CompletableFuture<SyncTarget> waitForPeerAndThenSetSyncTarget() {
-    return ethContext
+  private void waitForPeerAndThenSetSyncTarget(final CompletableFuture<SyncTarget> promise) {
+    ethContext
         .getScheduler()
         .scheduleFutureTask(
             () ->
@@ -125,8 +141,13 @@ public abstract class AbstractSyncTargetManager {
                     .waitForPeer((peer) -> true)
                     .orTimeout(5, TimeUnit.SECONDS)
                     .handle((ignored, ignored2) -> null)
-                    .thenCompose((r) -> findSyncTarget()),
-            Duration.ofSeconds(5));
+                    .thenRun(() -> findSyncTarget(promise)),
+            Duration.ofSeconds(5))
+        .exceptionally(
+            error -> {
+              promise.completeExceptionally(error);
+              return null;
+            });
   }
 
   private boolean isCancelled() {
