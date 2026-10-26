@@ -166,9 +166,13 @@ public class TransactionDecoder {
   }
 
   /**
-   * Gets the decoder for a given transaction type and encoding context. If the context is
-   * POOLED_TRANSACTION, it uses the network decoder for the type. Otherwise, it uses the typed
-   * decoder.
+   * Gets the decoder for a given transaction type and encoding context. Any pool context uses the
+   * network decoder for the type; a block body context uses the typed decoder.
+   *
+   * <p>Tested against {@link EncodingContext#encodeForBlock()} rather than against a specific
+   * constant, so that every pool context is covered. An equality test on {@code POOLED_TRANSACTION}
+   * alone would silently route {@code POOLED_TRANSACTION_ETH_72} to the block body decoder, which
+   * knows nothing of the blob wrapper, mirroring what {@link TransactionEncoder} already does.
    *
    * @param transactionType the transaction type
    * @param encodingContext the encoding context
@@ -176,7 +180,7 @@ public class TransactionDecoder {
    */
   private static Decoder getDecoder(
       final TransactionType transactionType, final EncodingContext encodingContext) {
-    if (encodingContext.equals(EncodingContext.POOLED_TRANSACTION)) {
+    if (!encodingContext.encodeForBlock()) {
       if (POOLED_TRANSACTION_DECODERS.containsKey(transactionType)) {
         return POOLED_TRANSACTION_DECODERS.get(transactionType);
       }
