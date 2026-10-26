@@ -256,7 +256,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
-  public void awaitStop() throws InterruptedException {}
+  public void awaitStop() throws InterruptedException {
+    // only the node's shutdown waits for mining to stop, before it closes the storage
+    mempoolPrewarmer.ifPresent(MempoolPrewarmer::close);
+  }
 
   @Override
   public boolean enable() {
@@ -311,8 +314,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     // are sequential, if this assumption changes then more synchronization should be added to
     // shared data structures
 
-    // building executes the pool's transactions itself
-    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.empty()));
+    mempoolPrewarmer.ifPresent(MempoolPrewarmer::stopForBlockBuilding);
 
     final PayloadIdentifier payloadIdentifier =
         PayloadIdentifier.forPayloadParams(preparePayloadArgs);

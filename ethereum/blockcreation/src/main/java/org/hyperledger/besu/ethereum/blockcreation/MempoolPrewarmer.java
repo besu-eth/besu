@@ -49,6 +49,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -64,6 +65,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -79,10 +81,10 @@ import org.slf4j.LoggerFactory;
  * only their reads matter.
  *
  * <p>Warming starts when the head moves and runs in passes until a block arrives, block building
- * starts, or the slot after the head is over. Each pass takes the pool's candidates in the order
- * block building takes them and executes the senders it has not warmed yet, each sender's
- * transactions in nonce order on its own throwaway copy of the head state. The trie paths of the
- * state the executions change are preloaded as well, for the next block's state root.
+ * starts, the gas budget is used up, or the next slot is over. Each pass takes the pool's
+ * candidates in the order block building takes them and executes the senders it has not warmed yet,
+ * each sender's transactions in nonce order on its own throwaway copy of the head state. The trie
+ * paths of the state the executions change are preloaded as well, for the next block's state root.
  */
 public class MempoolPrewarmer implements AutoCloseable {
 
@@ -94,6 +96,7 @@ public class MempoolPrewarmer implements AutoCloseable {
   private static final long DEADLINE_AFTER_SLOT_MILLIS = 1_000;
   // a sender with a long queue would otherwise take the whole budget of a pass
   private static final int MAX_TRANSACTIONS_PER_SENDER = 16;
+  private static final long CLOSE_TIMEOUT_SECONDS = 5;
   private static final TransactionValidationParams VALIDATION_PARAMS =
       TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce();
 
@@ -102,10 +105,12 @@ public class MempoolPrewarmer implements AutoCloseable {
   private final TransactionPool transactionPool;
   private final MiningConfiguration miningConfiguration;
   private final int gasLimitMultiplier;
+  private final Clock clock;
   private final ExecutorService coordinator;
   private final ExecutorService executors;
   private final AtomicLong generation = new AtomicLong();
   @Nullable private volatile Warming warming;
+  private volatile boolean closed;
 
   private final Counter executedTransactions;
   private final Counter invalidTransactions;
@@ -131,11 +136,33 @@ public class MempoolPrewarmer implements AutoCloseable {
       final int threads,
       final int gasLimitMultiplier,
       final MetricsSystem metricsSystem) {
+    this(
+        protocolContext,
+        protocolSchedule,
+        transactionPool,
+        miningConfiguration,
+        threads,
+        gasLimitMultiplier,
+        metricsSystem,
+        Clock.systemUTC());
+  }
+
+  @VisibleForTesting
+  MempoolPrewarmer(
+      final ProtocolContext protocolContext,
+      final ProtocolSchedule protocolSchedule,
+      final TransactionPool transactionPool,
+      final MiningConfiguration miningConfiguration,
+      final int threads,
+      final int gasLimitMultiplier,
+      final MetricsSystem metricsSystem,
+      final Clock clock) {
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
     this.transactionPool = transactionPool;
     this.miningConfiguration = miningConfiguration;
     this.gasLimitMultiplier = gasLimitMultiplier;
+    this.clock = clock;
     this.coordinator =
         Executors.newSingleThreadExecutor(
             new ThreadFactoryBuilder()
@@ -180,16 +207,28 @@ public class MempoolPrewarmer implements AutoCloseable {
       return;
     }
     final Warming current = warming;
-    if (current != null && isCurrent(current) && current.head().getHash().equals(head.getHash())) {
+    if (current != null
+        && current.head().getHash().equals(head.getHash())
+        && (isCurrent(current) || current.building().get())
+        && clock.millis() < current.deadline()) {
       return;
     }
+    final long deadline;
+    try {
+      deadline = deadline(head);
+    } catch (final RuntimeException e) {
+      LOG.debug("Cannot prewarm for head {}", head.toLogString(), e);
+      return;
+    }
+    final long gasLimit = head.getGasLimit();
     final Warming next =
         new Warming(
             generation.incrementAndGet(),
             head,
-            ConcurrentHashMap.newKeySet(),
-            ConcurrentHashMap.newKeySet(),
-            ConcurrentHashMap.newKeySet());
+            deadline,
+            gasLimit > Long.MAX_VALUE / gasLimitMultiplier
+                ? Long.MAX_VALUE
+                : gasLimit * gasLimitMultiplier);
     warming = next;
     try {
       coordinator.execute(() -> warm(next));
@@ -199,15 +238,16 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
-   * Stops prewarming, as a block arrived or block building starts. Executions already running
-   * finish their current transaction.
+   * Stops prewarming, as a block arrived or mining stops. Executions already running finish their
+   * current transaction.
    *
    * @param arrivingBlock the block that arrived, if one did
    */
   public void stop(final Optional<Block> arrivingBlock) {
-    generation.incrementAndGet();
     final Warming stopped = warming;
-    if (stopped == null) {
+    final long running = generation.getAndIncrement();
+    // a block counts once, and only against prewarming that ran until it arrived
+    if (stopped == null || stopped.generation() != running) {
       return;
     }
     arrivingBlock
@@ -215,11 +255,35 @@ public class MempoolPrewarmer implements AutoCloseable {
         .ifPresent(block -> countPrewarmed(stopped, block));
   }
 
+  /**
+   * Stops prewarming, as block building starts on the head and executes the pool's transactions
+   * itself. Prewarming does not start again for the same head before the next slot is over.
+   */
+  public void stopForBlockBuilding() {
+    final Warming current = warming;
+    if (current != null) {
+      current.building().set(true);
+    }
+    generation.incrementAndGet();
+  }
+
+  /**
+   * Stops prewarming for good and waits until the running executions have finished their current
+   * transaction, so that none of them reads the state after its storage is closed.
+   */
   @Override
   public void close() {
+    closed = true;
     generation.incrementAndGet();
     coordinator.shutdownNow();
-    executors.shutdownNow();
+    executors.shutdown();
+    try {
+      if (!executors.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        LOG.debug("Prewarming executions still running after {} s", CLOSE_TIMEOUT_SECONDS);
+      }
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   @VisibleForTesting
@@ -236,6 +300,24 @@ public class MempoolPrewarmer implements AutoCloseable {
 
   private boolean isCurrent(final Warming warming) {
     return warming.generation() == generation.get();
+  }
+
+  private boolean isWarming(final Warming warming) {
+    return isCurrent(warming)
+        && warming.gasBudget().get() > 0
+        && clock.millis() < warming.deadline();
+  }
+
+  /**
+   * A second after the start of the first slot after the head that has not started yet, so that a
+   * head kept through a missed slot is warmed for the slot after it as well.
+   */
+  private long deadline(final BlockHeader head) {
+    final long slotMillis =
+        Math.max(1, protocolSchedule.getByBlockHeader(head).getSlotDuration().toMillis());
+    final long headMillis = TimeUnit.SECONDS.toMillis(head.getTimestamp());
+    final long slots = Math.max(1, Math.ceilDiv(clock.millis() - headMillis, slotMillis));
+    return headMillis + slots * slotMillis + DEADLINE_AFTER_SLOT_MILLIS;
   }
 
   private void countPrewarmed(final Warming stopped, final Block block) {
@@ -261,28 +343,21 @@ public class MempoolPrewarmer implements AutoCloseable {
       LOG.debug("Cannot prewarm for head {}", warming.head().toLogString(), e);
       return;
     }
-    // a head that arrived late still gets the time a late block takes
-    final long deadline =
-        Math.max(
-                TimeUnit.SECONDS.toMillis(execution.header().getTimestamp()),
-                System.currentTimeMillis())
-            + DEADLINE_AFTER_SLOT_MILLIS;
-    final long gasLimit = warming.head().getGasLimit();
-    long gasBudget =
-        gasLimit > Long.MAX_VALUE / gasLimitMultiplier
-            ? Long.MAX_VALUE
-            : gasLimit * gasLimitMultiplier;
     // until the pool has caught up with the head, it still offers what the head included
     final Set<Hash> included = transactionsOf(warming.head());
-    while (isCurrent(warming) && gasBudget > 0 && System.currentTimeMillis() < deadline) {
-      final List<Future<Long>> executions = new ArrayList<>();
-      for (final List<Transaction> transactions : sendersToWarm(warming, included)) {
-        executions.add(executors.submit(() -> execute(warming, execution, transactions)));
+    while (isWarming(warming)) {
+      final List<Future<?>> executions = new ArrayList<>();
+      try {
+        for (final List<Transaction> transactions : sendersToWarm(warming, execution, included)) {
+          executions.add(executors.submit(() -> execute(warming, execution, transactions)));
+        }
+      } catch (final RejectedExecutionException e) {
+        return;
       }
       // a pass ends before the next one starts, so a slow pass cannot pile up work
-      for (final Future<Long> future : executions) {
+      for (final Future<?> future : executions) {
         try {
-          gasBudget -= future.get();
+          future.get();
         } catch (final ExecutionException e) {
           LOG.trace("Prewarming failed", e);
         } catch (final InterruptedException e) {
@@ -332,7 +407,8 @@ public class MempoolPrewarmer implements AutoCloseable {
         .orElse(Set.of());
   }
 
-  private List<List<Transaction>> sendersToWarm(final Warming warming, final Set<Hash> included) {
+  private List<List<Transaction>> sendersToWarm(
+      final Warming warming, final Execution execution, final Set<Hash> included) {
     final List<PendingTransaction> candidates = new ArrayList<>();
     // returning no results leaves the pool as it is
     transactionPool.selectTransactions(
@@ -349,33 +425,45 @@ public class MempoolPrewarmer implements AutoCloseable {
           .computeIfAbsent(candidate.getSender(), sender -> new ArrayList<>())
           .add(candidate.getTransaction());
     }
+    final Optional<Wei> baseFee = execution.header().getBaseFee();
     final List<List<Transaction>> senders = new ArrayList<>();
     for (final List<Transaction> transactions : bySender.values()) {
       transactions.sort(Comparator.comparingLong(Transaction::getNonce));
-      final List<Transaction> warmable =
-          transactions.subList(0, Math.min(transactions.size(), MAX_TRANSACTIONS_PER_SENDER));
+      final List<Transaction> warmable = new ArrayList<>();
+      for (final Transaction transaction : transactions) {
+        // the next block takes neither a transaction below its base fee nor the sender's later
+        // ones, and executing a blob transaction verifies its KZG proofs again
+        if (warmable.size() == MAX_TRANSACTIONS_PER_SENDER
+            || transaction.getType().supportsBlob()
+            || baseFee.filter(fee -> transaction.getMaxGasPrice().compareTo(fee) < 0).isPresent()) {
+          break;
+        }
+        warmable.add(transaction);
+      }
       // a sender with new transactions is warmed again from its first one, whose writes they read
-      if (!warming.warmed().containsAll(warmable.stream().map(Transaction::getHash).toList())) {
+      if (!warmable.isEmpty()
+          && !warming
+              .attempted()
+              .containsAll(warmable.stream().map(Transaction::getHash).toList())) {
         senders.add(warmable);
       }
     }
     return senders;
   }
 
-  private long execute(
+  private void execute(
       final Warming warming, final Execution execution, final List<Transaction> transactions) {
-    if (!isCurrent(warming)) {
-      return 0L;
+    if (!isWarming(warming)) {
+      return;
     }
-    transactions.forEach(transaction -> warming.warmed().add(transaction.getHash()));
+    transactions.forEach(transaction -> warming.attempted().add(transaction.getHash()));
     final Optional<MutableWorldState> maybeWorldState =
         protocolContext
             .getWorldStateArchive()
             .getWorldState(withBlockHeaderAndNoUpdateNodeHead(warming.head()));
     if (maybeWorldState.isEmpty()) {
-      return 0L;
+      return;
     }
-    long gasUsed = 0L;
     try (final MutableWorldState worldState = maybeWorldState.get()) {
       if (worldState instanceof BonsaiWorldState bonsaiWorldState) {
         // the state root of these executions is never computed
@@ -390,7 +478,7 @@ public class MempoolPrewarmer implements AutoCloseable {
               .createBlockHashLookup(protocolContext.getBlockchain(), execution.header());
       final WorldUpdater updater = worldState.updater();
       for (final Transaction transaction : transactions) {
-        if (!isCurrent(warming)) {
+        if (!isWarming(warming)) {
           break;
         }
         final WorldUpdater transactionUpdater = updater.updater();
@@ -410,9 +498,13 @@ public class MempoolPrewarmer implements AutoCloseable {
         // the sender's next transaction reads what this one wrote
         transactionUpdater.commit();
         executedTransactions.inc();
-        gasUsed += transaction.getGasLimit() - result.getGasRemaining();
+        warming.warmed().add(transaction.getHash());
+        warming.gasBudget().addAndGet(result.getGasRemaining() - transaction.getGasLimit());
       }
-      preloadChangedPaths(warming, updater);
+      // closing waits only for the executions, not for preloads they start
+      if (!closed) {
+        preloadChangedPaths(warming, updater);
+      }
     } catch (final Exception e) {
       LOG.atTrace()
           .setMessage("Prewarming the transactions of {} failed")
@@ -420,7 +512,6 @@ public class MempoolPrewarmer implements AutoCloseable {
           .setCause(e)
           .log();
     }
-    return gasUsed;
   }
 
   /**
@@ -481,10 +572,33 @@ public class MempoolPrewarmer implements AutoCloseable {
 
   private record ChangedSlot(Address address, StorageSlotKey slotKey) {}
 
+  /**
+   * Prewarming for one head. The transactions of a sender that were tried are in {@code attempted},
+   * those that ran in {@code warmed}.
+   */
   private record Warming(
       long generation,
       BlockHeader head,
+      long deadline,
+      AtomicLong gasBudget,
+      AtomicBoolean building,
+      Set<Hash> attempted,
       Set<Hash> warmed,
       Set<Address> preloadedAccounts,
-      Set<ChangedSlot> preloadedSlots) {}
+      Set<ChangedSlot> preloadedSlots) {
+
+    private Warming(
+        final long generation, final BlockHeader head, final long deadline, final long gasBudget) {
+      this(
+          generation,
+          head,
+          deadline,
+          new AtomicLong(gasBudget),
+          new AtomicBoolean(),
+          ConcurrentHashMap.newKeySet(),
+          ConcurrentHashMap.newKeySet(),
+          ConcurrentHashMap.newKeySet(),
+          ConcurrentHashMap.newKeySet());
+    }
+  }
 }

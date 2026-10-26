@@ -76,11 +76,13 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   @Override
   public void stop() {
     miningCoordinator.stop();
+    mergeCoordinator.stop();
   }
 
   @Override
   public void awaitStop() throws InterruptedException {
     miningCoordinator.awaitStop();
+    mergeCoordinator.awaitStop();
   }
 
   @Override
