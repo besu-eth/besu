@@ -49,7 +49,7 @@ import org.junit.jupiter.api.Test;
 class FrameOpcodesV1V2DifferentialTest {
 
   private static final List<Integer> OPCODES =
-      List.of(0xaa, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb8);
+      List.of(0xaa, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8);
 
   private static final Bytes TWO_TO_THE_64 =
       Bytes.concatenate(Bytes.of(1), Bytes.wrap(new byte[8]));
@@ -245,6 +245,42 @@ class FrameOpcodesV1V2DifferentialTest {
     eventDataCopy.put(
         "event 2^255", List.of(TWO_TO_THE_255, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
     POST_TX_STACKS.put(0xb8, eventDataCopy);
+
+    // param on top, then in2 (an address or a topic) and in3 (a slot key, an index or zero); every
+    // lookup runs twice, so that the second shows what the first warmed
+    final Map<String, List<Bytes>> txdiff = new LinkedHashMap<>();
+    txdiff.put("empty", List.of());
+    txdiff.put("two items", List.of(Bytes.EMPTY, CONTRACT.getBytes()));
+    final List<Bytes> diffParams = new ArrayList<>();
+    for (int param = 0; param <= 0x0d; param++) {
+      diffParams.add(Bytes.of(param));
+    }
+    // 2^64 + 1 must not read as SLOT_AFTER
+    diffParams.add(Bytes.of(1, 0, 0, 0, 0, 0, 0, 0, 1));
+    diffParams.add(TWO_TO_THE_255);
+    final Map<String, Bytes> keys = new LinkedHashMap<>();
+    keys.put("contract (warm)", CONTRACT.getBytes());
+    keys.put("sender (cold)", SENDER.getBytes());
+    keys.put("precompile", Bytes.of(1));
+    keys.put("delegated", PostTxContexts.DELEGATED.getBytes());
+    keys.put("never existed", PostTxContexts.NEVER_EXISTED.getBytes());
+    keys.put(
+        "callee with high bits",
+        Bytes.concatenate(Bytes.repeat((byte) 0xff, 12), CALLEE.getBytes()));
+    keys.put("topic T3", PostTxContexts.T3);
+    final List<Bytes> in3s = List.of(Bytes.EMPTY, Bytes.of(1), Bytes.of(2), TWO_TO_THE_255);
+    for (final Bytes param : diffParams) {
+      for (final Map.Entry<String, Bytes> key : keys.entrySet()) {
+        for (final Bytes in3 : in3s) {
+          txdiff.put(
+              String.format(
+                  "param %s %s in3 %s",
+                  param.toShortHexString(), key.getKey(), in3.toShortHexString()),
+              List.of(param, key.getValue(), in3));
+        }
+      }
+    }
+    POST_TX_STACKS.put(0xb7, txdiff);
   }
 
   private static final List<Long> POST_TX_GAS =
@@ -287,7 +323,10 @@ class FrameOpcodesV1V2DifferentialTest {
           for (final long gas : POST_TX_GAS) {
             budgets.add(Math.min(1_000_000L, beforeOpcode + gas));
           }
-          final Bytes direct = Bytes.concatenate(pushes, Bytes.of(opcode, 0x00));
+          final Bytes direct =
+              opcode == 0xb7
+                  ? Bytes.concatenate(pushes, Bytes.of(opcode), pushes, Bytes.of(opcode, 0x00))
+                  : Bytes.concatenate(pushes, Bytes.of(opcode, 0x00));
           // STATICCALL(all gas, CALLEE, 0, 0, 0, 0), the callee running the operation
           final Bytes nested = Bytes.fromHexString("0x5f5f5f5f62ca11ee5afa00");
           for (final long limit : budgets) {
@@ -317,7 +356,8 @@ class FrameOpcodesV1V2DifferentialTest {
         }
       }
     }
-    assertThat(runs).isGreaterThan(5_000);
+    // TXTRACE, EVENTDATACOPY and, most of them, TXDIFF
+    assertThat(runs).isGreaterThan(40_000);
     assertThat(differences).isEmpty();
   }
 
