@@ -69,6 +69,9 @@ class FrameOpcodesV1V2DifferentialTest {
         "contract is the sender, keyed nonces",
         () -> context(CONTRACT, List.of(UInt256.valueOf(5), UInt256.valueOf(7)), 0));
     CONTEXTS.put("second frame", () -> context(SENDER, List.of(UInt256.ZERO), 1));
+    // EIP-7906: APPROVE halts in a POST_TX frame, which FRAMEPARAM reports as mode 3
+    CONTEXTS.put("post-tx frame", () -> PostTxContexts.withoutDiff(true));
+    CONTEXTS.put("post-tx frame, no payer", () -> PostTxContexts.withoutDiff(false));
   }
 
   /** The stacks each opcode runs on, top first. */
@@ -159,6 +162,60 @@ class FrameOpcodesV1V2DifferentialTest {
     }
     assertThat(runs).isGreaterThan(10_000);
     assertThat(differences).isEmpty();
+  }
+
+  /**
+   * EIP-7906: APPROVE halts exceptionally anywhere in a POST_TX frame, before the checks that would
+   * revert it: the scope beyond the mask and, in a nested call, the target mismatch.
+   */
+  @Test
+  void approveHaltsInAPostTxFrameOnV1AndV2() {
+    final EVM v1 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V1);
+    final EVM v2 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V2);
+    for (final int scope : List.of(1, 2, 3, 4)) {
+      // APPROVE(offset 0, length 0, scope)
+      final Bytes approve = Bytes.of(0x60, scope, 0x60, 0x00, 0x60, 0x00, 0xaa);
+      for (final EVM evm : List.of(v1, v2)) {
+        final Execution direct =
+            ProgramRun.executeTracedInFrameTransaction(
+                evm, approve, Bytes.EMPTY, 100_000L, true, SLOTS, PostTxContexts.withoutDiff(true));
+        assertThat(direct.outcome().haltReason()).isEqualTo("ILLEGAL_STATE_CHANGE");
+        assertThat(direct.outcome().remainingGas()).isZero();
+
+        // CALL(100000, CALLEE, 0, 0, 0, 0, 0), where the callee runs APPROVE
+        final Bytes call =
+            Bytes.fromHexString("0x600060006000600060006" + "2ca11ee" + "620186a0f100");
+        final Execution nested =
+            ProgramRun.executeTracedInFrameTransaction(
+                evm, call, approve, 200_000L, true, SLOTS, PostTxContexts.withoutDiff(true));
+        assertThat(nested.outcome().haltReason()).isEmpty();
+        assertThat(nested.outcome().stack()).containsExactly("00".repeat(32));
+        assertThat(nested.outcome().steps())
+            .anyMatch(step -> step.contains("APPROVE") && step.contains("ILLEGAL_STATE_CHANGE"));
+        // the callee consumed all of the 100000 it was given
+        assertThat(nested.outcome().remainingGas()).isLessThan(100_000L);
+      }
+      assertThat(
+              describe(
+                  ProgramRun.executeTracedInFrameTransaction(
+                      v1,
+                      approve,
+                      Bytes.EMPTY,
+                      100_000L,
+                      true,
+                      SLOTS,
+                      PostTxContexts.withoutDiff(true))))
+          .isEqualTo(
+              describe(
+                  ProgramRun.executeTracedInFrameTransaction(
+                      v2,
+                      approve,
+                      Bytes.EMPTY,
+                      100_000L,
+                      true,
+                      SLOTS,
+                      PostTxContexts.withoutDiff(true))));
+    }
   }
 
   private static Execution run(

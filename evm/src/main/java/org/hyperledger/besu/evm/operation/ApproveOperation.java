@@ -38,7 +38,9 @@ import org.apache.tuweni.units.bigints.UInt256;
  *
  * <p>Exits the current call frame successfully (like RETURN, with the designated memory region as
  * return data) and updates the transaction-scoped approval context. It is the only operation
- * allowed to modify state inside a VERIFY frame, so it deliberately performs no static check.
+ * allowed to modify state inside a VERIFY frame, so it deliberately performs no static check. An
+ * EIP-7906 POST_TX frame has no such exception: there APPROVE halts exceptionally, at any call
+ * depth, before either of the checks that revert.
  */
 public class ApproveOperation extends AbstractOperation {
 
@@ -83,6 +85,11 @@ public class ApproveOperation extends AbstractOperation {
     final long cost = gasCalculator().memoryExpansionGasCost(frame, offset, length);
     if (frame.getRemainingGas() < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    // EIP-7906: a POST_TX frame is static, and APPROVE gets no exception there.
+    if (context.isCurrentFramePostTx()) {
+      return new OperationResult(cost, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE);
     }
 
     // Any scope bits beyond the approval mask revert the requesting call frame.

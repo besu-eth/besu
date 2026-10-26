@@ -359,7 +359,8 @@ public class FrameTransactionProcessor {
                                   delegated,
                                   Optional.empty())
                               .code()))
-              .isStatic(frame.mode() == Frame.MODE_VERIFY)
+              // EIP-7906: POST_TX frames assert the outcome read-only, as VERIFY frames validate.
+              .isStatic(frame.mode() == Frame.MODE_VERIFY || frame.mode() == Frame.MODE_POST_TX)
               .maxStackSize(maxStackSize)
               .originator(caller)
               .gasPrice(effectiveGasPrice)
