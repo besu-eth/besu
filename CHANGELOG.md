@@ -100,6 +100,7 @@
 - Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
 - The sequenced transaction pool penalises a transaction whose selection result asks for it, for example one that took longer than the block selection time to execute, as the layered pool does. A penalised transaction is selected after the others, so it cannot monopolise the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)
 - Update besu-native to 2.2.0 and recover secp256k1 public keys, such as transaction senders, in a single native call. A recovery id outside 0 to 3 recovers nothing, where it used to abort a node running native secp256k1. [#11921](https://github.com/besu-eth/besu/pull/11921)
+- The Engine API runs on its own Vert.x instance, so a JSON-RPC load such as `eth_sendRawTransaction` no longer takes the worker threads that Engine API calls need. Its pool metrics are labelled with an `engine-api-` prefix, e.g. `poolName="engine-api-vert.x-worker-thread"`. Hidden options size the pools: `--Xengine-rpc-vertx-worker-pool-size` (default 8) and `--Xengine-rpc-vertx-event-loop-pool-size` (default 2) for the Engine API, and `--Xrpc-vertx-worker-pool-size` (default 20, unchanged) for JSON-RPC. [#11764](https://github.com/besu-eth/besu/pull/11764)
 
 ## 26.11.1
 
