@@ -44,6 +44,7 @@ import org.apache.tuweni.bytes.Bytes;
   "hash",
   "input",
   "nonce",
+  "nonceKeys",
   "to",
   "transactionIndex",
   "type",
@@ -52,7 +53,9 @@ import org.apache.tuweni.bytes.Bytes;
   "v",
   "r",
   "s",
-  "blobVersionedHashes"
+  "blobVersionedHashes",
+  "frames",
+  "signatures"
 })
 public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
 
@@ -92,6 +95,16 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   private final List<CodeDelegationResult> authorizationList;
 
+  // EIP-8141 / EIP-8250 frame transaction fields; absent for every other type.
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  private final List<String> nonceKeys;
+
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  private final List<FrameResult> frames;
+
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  private final List<FrameSignatureResult> signatures;
+
   public TransactionBaseResult(final Transaction transaction) {
     this(transaction, Optional.empty());
   }
@@ -125,6 +138,11 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
       this.type = Quantity.create(0);
       this.yParity = null;
       this.v = Quantity.create(transaction.getV());
+    } else if (transactionType.supportsFrames()) {
+      // EIP-8141 frame transactions have no outer signature.
+      this.type = Quantity.create(transactionType.getSerializedType());
+      this.yParity = null;
+      this.v = null;
     } else {
       this.type = Quantity.create(transactionType.getSerializedType());
       this.yParity = Quantity.create(transaction.getYParity());
@@ -137,8 +155,8 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
               : null;
     }
     this.value = Quantity.create(transaction.getValue());
-    this.r = Quantity.create(transaction.getR());
-    this.s = Quantity.create(transaction.getS());
+    this.r = transaction.getR() == null ? null : Quantity.create(transaction.getR());
+    this.s = transaction.getS() == null ? null : Quantity.create(transaction.getS());
     this.versionedHashes =
         transaction
             .getVersionedHashes()
@@ -151,6 +169,33 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
             .getCodeDelegationList()
             .map(cds -> cds.stream().map(CodeDelegationResult::new).toList())
             .orElse(null);
+    this.nonceKeys =
+        transaction
+            .getNonceKeys()
+            .map(keys -> keys.stream().map(Quantity::create).toList())
+            .orElse(null);
+    this.frames =
+        transaction.getFrames().map(fs -> fs.stream().map(FrameResult::of).toList()).orElse(null);
+    this.signatures =
+        transaction
+            .getFrameSignatures()
+            .map(sigs -> sigs.stream().map(FrameSignatureResult::of).toList())
+            .orElse(null);
+  }
+
+  @JsonGetter(value = "nonceKeys")
+  public List<String> getNonceKeys() {
+    return nonceKeys;
+  }
+
+  @JsonGetter(value = "frames")
+  public List<FrameResult> getFrames() {
+    return frames;
+  }
+
+  @JsonGetter(value = "signatures")
+  public List<FrameSignatureResult> getSignatures() {
+    return signatures;
   }
 
   @JsonGetter(value = "accessList")

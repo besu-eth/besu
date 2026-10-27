@@ -140,6 +140,8 @@ public enum RpcErrorType implements RpcMethodError {
       "The method eth_sendTransaction is not supported. Use eth_sendRawTransaction to send a signed transaction to Besu."),
   ETH_SEND_TX_ALREADY_KNOWN(-32000, "Known transaction"),
   ETH_SEND_TX_REPLACEMENT_UNDERPRICED(-32000, "Replacement transaction underpriced"),
+  // EIP-8141 frame transactions
+  FRAME_VALIDATION_FAILED(-32000, "Frame transaction validation failed"),
   // P2P related errors
   P2P_DISABLED(-32000, "P2P has been disabled. This functionality is not available"),
   DISCOVERY_DISABLED(-32000, "Discovery has been disabled. This functionality is not available"),

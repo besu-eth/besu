@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.api.query.TransactionReceiptWithMetadata;
+import org.hyperledger.besu.ethereum.core.FrameReceipt;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 
@@ -49,7 +50,9 @@ import org.apache.tuweni.bytes.Bytes;
   "revertReason",
   "type",
   "blobGasUsed",
-  "blobGasPrice"
+  "blobGasPrice",
+  "payer",
+  "frameReceipts"
 })
 public abstract class TransactionReceiptResult {
 
@@ -72,6 +75,10 @@ public abstract class TransactionReceiptResult {
 
   private final String blobGasUsed;
   private final String blobGasPrice;
+
+  // EIP-8141: the fee payer and per-frame receipts of a frame transaction.
+  private final String payer;
+  private final List<FrameReceiptResult> frameReceipts;
 
   protected TransactionReceiptResult(final TransactionReceiptWithMetadata receiptWithMetadata) {
     final Transaction txn = receiptWithMetadata.getTransaction();
@@ -106,6 +113,53 @@ public abstract class TransactionReceiptResult {
         txn.getType().equals(TransactionType.FRONTIER)
             ? Quantity.create(0)
             : Quantity.create(txn.getType().getSerializedType());
+    this.payer = receipt.getPayer().map(Address::toString).orElse(null);
+    this.frameReceipts =
+        receipt
+            .getFrameReceipts()
+            .map(frames -> frameReceipts(frames, receiptWithMetadata))
+            .orElse(null);
+  }
+
+  /**
+   * Frame logs are numbered as part of the transaction's logs, which are the frames' logs in frame
+   * order, so each frame continues the index from the frames before it.
+   */
+  private List<FrameReceiptResult> frameReceipts(
+      final List<FrameReceipt> frames, final TransactionReceiptWithMetadata metadata) {
+    final List<FrameReceiptResult> results = new ArrayList<>(frames.size());
+    int logIndex = metadata.getLogIndexOffset();
+    for (final FrameReceipt frame : frames) {
+      results.add(
+          new FrameReceiptResult(
+              Quantity.create(frame.status()),
+              Quantity.create(frame.executionGasUsed() + frame.stateGasUsed()),
+              Quantity.create(frame.executionGasUsed()),
+              Quantity.create(frame.stateGasUsed()),
+              logReceipts(
+                  frame.logs(),
+                  metadata.getBlockNumber(),
+                  metadata.getTransaction().getHash(),
+                  metadata.getBlockHash(),
+                  metadata.getBlockTimestamp(),
+                  metadata.getTransactionIndex(),
+                  logIndex,
+                  metadata.isRemoved())));
+      logIndex += frame.logs().size();
+    }
+    return results;
+  }
+
+  @JsonGetter(value = "payer")
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public String getPayer() {
+    return payer;
+  }
+
+  @JsonGetter(value = "frameReceipts")
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public List<FrameReceiptResult> getFrameReceipts() {
+    return frameReceipts;
   }
 
   @JsonGetter(value = "blockHash")

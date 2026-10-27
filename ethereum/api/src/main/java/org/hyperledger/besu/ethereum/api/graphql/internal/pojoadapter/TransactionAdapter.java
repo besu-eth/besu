@@ -117,10 +117,15 @@ public class TransactionAdapter extends AdapterBase {
   /**
    * Returns the type of the transaction.
    *
+   * <p>This is the EIP-2718 type byte, 0 for legacy transactions. It is not the enum ordinal, which
+   * differs from the type byte for EIP-8141 frame transactions (ordinal 5, type 6).
+   *
    * @return the type of the transaction.
    */
   public Optional<Integer> getType() {
-    return Optional.of(transactionWithMetadata.getTransaction().getType().ordinal());
+    return Optional.of(
+        Byte.toUnsignedInt(
+            transactionWithMetadata.getTransaction().getType().getEthSerializedType()));
   }
 
   /**
@@ -481,19 +486,31 @@ public class TransactionAdapter extends AdapterBase {
   /**
    * Retrieves the R component of the transaction's signature.
    *
-   * @return a BigInteger object representing the R component of the transaction's signature.
+   * <p>The schema declares {@code r} non-null. An EIP-8141 frame transaction has no outer
+   * signature, so it reports zero, which no ECDSA signature can have.
+   *
+   * @return a BigInteger object representing the R component of the transaction's signature, or
+   *     zero if the transaction has no outer signature.
    */
   public BigInteger getR() {
-    return transactionWithMetadata.getTransaction().getR();
+    return signatureComponentOrZero(transactionWithMetadata.getTransaction().getR());
   }
 
   /**
    * Retrieves the S component of the transaction's signature.
    *
-   * @return a BigInteger object representing the S component of the transaction's signature.
+   * <p>The schema declares {@code s} non-null. An EIP-8141 frame transaction has no outer
+   * signature, so it reports zero, which no ECDSA signature can have.
+   *
+   * @return a BigInteger object representing the S component of the transaction's signature, or
+   *     zero if the transaction has no outer signature.
    */
   public BigInteger getS() {
-    return transactionWithMetadata.getTransaction().getS();
+    return signatureComponentOrZero(transactionWithMetadata.getTransaction().getS());
+  }
+
+  private static BigInteger signatureComponentOrZero(final BigInteger component) {
+    return component == null ? BigInteger.ZERO : component;
   }
 
   /**
