@@ -200,6 +200,8 @@ public class TestNode implements Closeable {
             ethProtocolConfiguration,
             new BlobCache(),
             MiningConfiguration.newDefault());
+    // with no initial sync phase the node enables the pool once its plugins have started
+    transactionPool.setEnabled();
 
     final EthProtocolManager ethProtocolManager =
         new EthProtocolManager(

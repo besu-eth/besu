@@ -20,13 +20,17 @@ import org.hyperledger.besu.datatypes.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.plugin.services.Subscription;
 import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
+import org.hyperledger.besu.plugin.services.transactionpool.TxPoolEventService;
 import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAddedListener;
 import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionDroppedListener;
 
 import java.util.Collection;
 
-/** The Transaction pool service implementation. */
-public class TransactionPoolServiceImpl implements TransactionPoolService {
+/**
+ * The transaction pool service implementation: the running-tier {@link TransactionPoolService} and
+ * the start-tier {@link TxPoolEventService}, over the same pool.
+ */
+public class TransactionPoolServiceImpl implements TransactionPoolService, TxPoolEventService {
 
   private final TransactionPool transactionPool;
 

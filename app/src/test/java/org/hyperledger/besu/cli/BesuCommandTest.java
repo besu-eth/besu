@@ -396,6 +396,16 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void transactionPoolIsEnabledAfterPluginsStartAndBeforeThePortsOpen() {
+    parseCommand();
+
+    final InOrder inOrder = inOrder(mockRunner, getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).startPlugins();
+    inOrder.verify(mockRunner).enableTransactionPool();
+    inOrder.verify(mockRunner).startExternalServices();
+  }
+
+  @Test
   public void readinessGetsTheRunningServicesBeforeThirdPartyPlugins() {
     parseCommand();
 

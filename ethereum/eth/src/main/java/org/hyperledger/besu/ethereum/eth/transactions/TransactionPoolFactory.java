@@ -171,10 +171,11 @@ public class TransactionPoolFactory {
         pooledTransactionsMessageHandler);
 
     if (syncState.isInitialSyncPhaseDone()) {
-      LOG.info("Enabling transaction pool");
+      // the pool itself is enabled by the node once its plugins have started, so a saved pool is
+      // restored through validators and permissioning that are in place
+      LOG.info("Enabling transaction message handling");
       pooledTransactionsMessageHandler.setEnabled();
       transactionsMessageHandler.setEnabled();
-      transactionPool.setEnabled();
     } else {
       LOG.info("Transaction pool disabled while initial sync in progress");
     }

@@ -126,7 +126,9 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
     'org.hyperledger.besu.plugin.services.sync.SynchronizationService#subscribeInitialSyncCompletion(org.hyperledger.besu.plugin.services.sync.spi.InitialSyncCompletionListener)',
     'org.hyperledger.besu.plugin.services.p2p.P2PService#subscribeConnect(org.hyperledger.besu.plugin.services.p2p.P2PService$ConnectionListener)',
     'org.hyperledger.besu.plugin.services.p2p.P2PService#subscribeDisconnect(org.hyperledger.besu.plugin.services.p2p.P2PService$DisconnectionListener)',
-    'org.hyperledger.besu.plugin.services.p2p.P2PService#subscribeMessage(org.hyperledger.besu.plugin.data.p2p.Capability,org.hyperledger.besu.plugin.services.p2p.P2PService$MessageListener)'
+    'org.hyperledger.besu.plugin.services.p2p.P2PService#subscribeMessage(org.hyperledger.besu.plugin.data.p2p.Capability,org.hyperledger.besu.plugin.services.p2p.P2PService$MessageListener)',
+    'org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService#subscribeTransactionAdded(org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAddedListener)',
+    'org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService#subscribeTransactionDropped(org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionDroppedListener)'
   ]
 
   txtOutputFile = layout.buildDirectory.file('reports/japicmp/plugin-api-compatibility.txt')
