@@ -33,7 +33,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Keeps the trie-node archive growing with the chain by archiving blocks a fixed distance behind
  * the head, where they can no longer be reorged out: {@code maxLayersToLoad} behind on chains with
- * finality, and up to the head itself on chains without it, where every imported block is final.
+ * finality, and one block behind the head on chains without it, where every imported block is
+ * final; staying one behind means it never archives the block being imported.
  */
 public final class TrailingTrieNodeArchiver implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(TrailingTrieNodeArchiver.class);
@@ -78,7 +79,7 @@ public final class TrailingTrieNodeArchiver implements Closeable {
 
   @VisibleForTesting
   static long targetFor(final long head, final boolean hasFinality, final long maxLayersToLoad) {
-    return hasFinality ? Math.max(0, head - maxLayersToLoad) : head;
+    return hasFinality ? Math.max(0, head - maxLayersToLoad) : Math.max(0, head - 1);
   }
 
   @VisibleForTesting

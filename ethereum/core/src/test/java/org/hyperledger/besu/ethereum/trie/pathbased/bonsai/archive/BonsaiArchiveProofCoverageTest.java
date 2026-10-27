@@ -27,7 +27,6 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.AbstractBlockCreator;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -47,7 +46,8 @@ import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
+import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
+import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
@@ -187,7 +187,7 @@ class BonsaiArchiveProofCoverageTest {
   }
 
   @Test
-  void archiverHealsInlineMissAndInlineResumes() {
+  void archiverHealsInlineMissAndStaysOneBlockBehind() {
     for (int i = 0; i < 4; i++) {
       importTransferBlock();
     }
@@ -195,11 +195,16 @@ class BonsaiArchiveProofCoverageTest {
     rewindCoverageTo(3);
 
     importTransferBlock();
-    await().atMost(10, SECONDS).until(() -> lastCovered() == 5);
+    await().atMost(10, SECONDS).until(() -> lastCovered() == 4);
 
-    importTransferBlock();
-    assertArchivedThrough(6);
-    assertProofsCorrect(1, 6);
+    for (int i = 0; i < 3; i++) {
+      importTransferBlock();
+      final long head = blockchain.getChainHeadBlockNumber();
+      await().atMost(10, SECONDS).until(() -> lastCovered() == head - 1);
+    }
+    final long head = blockchain.getChainHeadBlockNumber();
+    assertArchivedThrough(head - 1);
+    assertProofsCorrect(1, head - 1);
   }
 
   @Test
@@ -262,23 +267,20 @@ class BonsaiArchiveProofCoverageTest {
                 System.currentTimeMillis(),
                 blockchain.getChainHeadHeader())
             .getBlock();
-    final MutableWorldState ws = provider.getWorldState();
-    final BlockProcessingResult result =
+    // the production path: process on the parent state, append the block (firing the block-added
+    // event the archiver reacts to), then roll the head world state to it
+    final BlockImportResult result =
         protocolSchedule
-            .getByBlockHeader(blockchain.getChainHeadHeader())
-            .getBlockProcessor()
-            .processBlock(
-                BlockExecutionContext.builder()
-                    .protocolContext(protocolContext)
-                    .worldState(ws)
-                    .block(block)
-                    .blockAccessList(Optional.empty())
-                    .build());
-    assertThat(result.isSuccessful()).isTrue();
+            .getByBlockHeader(block.getHeader())
+            .getBlockImporter()
+            .importBlock(
+                protocolContext, block, HeaderValidationMode.NONE, HeaderValidationMode.NONE);
+    assertThat(result.isImported()).isTrue();
+    final MutableWorldState head = provider.getWorldState();
+    assertThat(head.rootHash()).isEqualTo(block.getHeader().getStateRoot());
     recipientBalanceAt.put(
         block.getHeader().getNumber(),
-        Optional.ofNullable(ws.get(RECIPIENT)).map(Account::getBalance).orElse(Wei.ZERO));
-    blockchain.appendBlock(block, result.getReceipts());
+        Optional.ofNullable(head.get(RECIPIENT)).map(Account::getBalance).orElse(Wei.ZERO));
   }
 
   private Transaction transfer() {
