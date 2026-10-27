@@ -1085,6 +1085,25 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
+  public void stopsPrewarmingForAPayloadThatGoesToBackwardSync() {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+
+    coordinator.appendNewPayloadToSync(
+        new Block(terminalPowBlock(), BlockBody.empty()), Optional.empty());
+
+    verify(prewarmer).stop(Optional.empty());
+  }
+
+  @Test
   public void closesThePrewarmerOnceMiningHasStopped() throws InterruptedException {
     final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
     coordinator =
