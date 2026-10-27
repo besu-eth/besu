@@ -51,7 +51,7 @@
 - Update the discovery library to 26.10.1 for faster discv5 secp256k1 verification and ECDH, with Netty, BouncyCastle, Guava, Log4j and Reactor raised to the versions it requires. [#11671](https://github.com/besu-eth/besu/pull/11671)
 - With `--Xevm-v2`, `MessageFrame.getMaybeUpdatedMemory` and `getMaybeUpdatedStorage` are recorded only while a tracer that traces operations runs. [#11690](https://github.com/besu-eth/besu/pull/11690)
 - Update besu-native to 2.1.0 and compute the secp256k1 ECDH key agreements of RLPx handshakes and DiscV5 natively, which removes about 2 MB of allocation per agreement. [#11648](https://github.com/besu-eth/besu/pull/11648)
-- Upgrade Vert.x from 5.1.6 to 5.2.2, which fixes the Vert.x advisories published in October 2026, including HTTP/1.x request smuggling through canonicalized headers, unbounded allocation for compressed WebSocket frames, and an incomplete HTTP client SSL context cache key. [#PR](https://github.com/besu-eth/besu/pull/PR)
+- Upgrade Vert.x from 5.1.6 to 5.2.2, which fixes the Vert.x advisories published in October 2026, including HTTP/1.x request smuggling through canonicalized headers, unbounded allocation for compressed WebSocket frames, and an incomplete HTTP client SSL context cache key. [#11770](https://github.com/besu-eth/besu/pull/11770)
 
 ## 26.10.1
 
