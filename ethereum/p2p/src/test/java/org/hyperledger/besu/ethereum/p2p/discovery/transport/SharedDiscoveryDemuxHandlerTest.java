@@ -34,6 +34,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.channel.socket.DatagramPacket;
 import org.apache.tuweni.bytes.Bytes;
+import org.ethereum.beacon.discovery.pipeline.handler.IncomingDataPacker;
 import org.junit.jupiter.api.Test;
 
 public class SharedDiscoveryDemuxHandlerTest {
@@ -132,6 +133,34 @@ public class SharedDiscoveryDemuxHandlerTest {
 
     assertThat(v5Received).hasSize(1);
     assertThat(v4Received).isEmpty();
+  }
+
+  @Test
+  public void routesV5PacketAtMaximumSize() throws Exception {
+    final EmbeddedChannel channel = newChannel(true, true);
+    channel.writeInbound(buildV5Packet(IncomingDataPacker.MAX_PACKET_SIZE));
+
+    assertThat(v5Received).hasSize(1);
+    assertThat(v4Received).isEmpty();
+  }
+
+  @Test
+  public void dropsOversizedV5PacketBeforeDispatch() throws Exception {
+    final EmbeddedChannel channel = newChannel(true, true);
+    channel.writeInbound(buildV5Packet(IncomingDataPacker.MAX_PACKET_SIZE + 1));
+
+    assertThat(v5Received).isEmpty();
+    assertThat(v4Received).isEmpty();
+  }
+
+  @Test
+  public void incrementsV5CounterEvenWhenOversized() throws Exception {
+    final EmbeddedChannel channel = newChannel(true, true);
+    channel.writeInbound(buildV5Packet(IncomingDataPacker.MAX_PACKET_SIZE + 1));
+
+    assertThat(v5Count.get()).isEqualTo(1);
+    assertThat(v4Count.get()).isZero();
+    assertThat(droppedCount.get()).isZero();
   }
 
   @Test

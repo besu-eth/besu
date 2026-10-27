@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
 import java.util.Set;
@@ -72,13 +73,32 @@ public class GetPooledTransactionsFromPeerTaskTest {
     PooledTransactionsMessage pooledTransactionsMessage =
         PooledTransactionsMessage.create(List.of(GENERATOR.transaction(), GENERATOR.transaction()));
 
-    InvalidPeerTaskResponseException exception =
+    // More transactions than requested hashes is rejected while counting, before decoding
+    final MalformedRlpFromPeerException exception =
         Assertions.assertThrows(
-            InvalidPeerTaskResponseException.class,
+            MalformedRlpFromPeerException.class,
             () -> task.processResponse(pooledTransactionsMessage, AGREED_CAPABILITIES));
 
-    Assertions.assertEquals(
-        "Response transaction count does not match request hash count", exception.getMessage());
+    Assertions.assertInstanceOf(RLPException.class, exception.getCause());
+    Assertions.assertTrue(
+        exception.getCause().getMessage().contains("exceeds the maximum permitted size"),
+        exception.getCause().getMessage());
+    Assertions.assertEquals(pooledTransactionsMessage.getData(), exception.getMessageData());
+  }
+
+  @Test
+  public void testProcessResponseWithFewerTransactionsThanRequested()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    // A peer may legitimately not have every requested transaction any more
+    final List<Hash> hashes = List.of(Hash.EMPTY, Hash.EMPTY_TRIE_HASH);
+    final GetPooledTransactionsFromPeerTask task = new GetPooledTransactionsFromPeerTask(hashes);
+    final Transaction transaction = GENERATOR.transaction();
+
+    final List<Transaction> result =
+        task.processResponse(
+            PooledTransactionsMessage.create(List.of(transaction)), AGREED_CAPABILITIES);
+
+    Assertions.assertEquals(List.of(transaction), result);
   }
 
   @Test

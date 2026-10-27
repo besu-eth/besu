@@ -31,10 +31,12 @@ jobs:
           set -euo pipefail
           run_id=
           # Look past the newest run: its artifact may already have aged out of the retention
-          # window. Restricting to push events on main keeps pull request runs, and therefore
-          # forks, out of the candidate set.
+          # window, and a run for a commit pushed without a pull request succeeds without
+          # publishing one. The loop stops at the first run that has it, so a wide window costs
+          # nothing when the newest run does. Restricting to push events on main keeps pull
+          # request runs, and therefore forks, out of the candidate set.
           for candidate in $(gh api \
-                "repos/$GH_REPO/actions/workflows/acceptance-tests-timing-reports-update.yml/runs?branch=main&event=push&status=success&per_page=10" \
+                "repos/$GH_REPO/actions/workflows/acceptance-tests-timing-reports-update.yml/runs?branch=main&event=push&status=success&per_page=100" \
                 --jq ".workflow_runs[] | select(.head_repository.full_name == \"$GH_REPO\") | .id")
           do
             if gh api "repos/$GH_REPO/actions/runs/$candidate/artifacts" \
