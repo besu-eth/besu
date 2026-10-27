@@ -17,7 +17,10 @@ package org.hyperledger.besu.ethereum.mainnet.headervalidationrules;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.mainnet.headervalidationrules.EIP1559Helper.blockHeader;
 
+import org.hyperledger.besu.config.BlobSchedule;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
@@ -151,5 +154,49 @@ public class BaseFeeMarketBlockHeaderGasPriceValidationRuleTest {
                 blockHeader(FORK_BLOCK, 0, Optional.of(londonFeeMarketBaseFee)),
                 blockHeader(FORK_BLOCK - 1, 0, Optional.of(londonFeeMarketBaseFee))))
         .isTrue();
+  }
+
+  @Test
+  public void shouldDeriveTheExpectedBaseFeeFromTheBlockSpacingWithBogotaFeeMarket() {
+    final var validationRule =
+        new BaseFeeMarketBlockHeaderGasPriceValidationRule(
+            FeeMarket.bogota(0L, Optional.empty(), BlobSchedule.CANCUN_DEFAULT));
+    // a full parent block with 10-second slots: the max change is 5/48
+    final BlockHeader parent = bogotaHeader(FORK_BLOCK + 1, 1_000L, 50L, Wei.of(960_000L));
+
+    assertThat(
+            validationRule.validate(
+                bogotaHeader(FORK_BLOCK + 2, 1_010L, 51L, Wei.of(1_060_000L)), parent))
+        .isTrue();
+    // the max change of London
+    assertThat(
+            validationRule.validate(
+                bogotaHeader(FORK_BLOCK + 2, 1_010L, 51L, Wei.of(1_080_000L)), parent))
+        .isFalse();
+  }
+
+  @Test
+  public void shouldReturnFalseIfSlotNumberDoesNotIncreaseWithBogotaFeeMarket() {
+    final var validationRule =
+        new BaseFeeMarketBlockHeaderGasPriceValidationRule(
+            FeeMarket.bogota(0L, Optional.empty(), BlobSchedule.CANCUN_DEFAULT));
+    final BlockHeader parent = bogotaHeader(FORK_BLOCK + 1, 1_000L, 50L, Wei.of(960_000L));
+
+    assertThat(
+            validationRule.validate(
+                bogotaHeader(FORK_BLOCK + 2, 1_010L, 50L, Wei.of(1_060_000L)), parent))
+        .isFalse();
+  }
+
+  private static BlockHeader bogotaHeader(
+      final long number, final long timestamp, final long slotNumber, final Wei baseFee) {
+    return new BlockHeaderTestFixture()
+        .number(number)
+        .timestamp(timestamp)
+        .slotNumber(slotNumber)
+        .baseFeePerGas(baseFee)
+        .gasLimit(30_000_000L)
+        .gasUsed(30_000_000L)
+        .buildHeader();
   }
 }

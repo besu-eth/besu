@@ -69,7 +69,8 @@ public class BaseFeeMarketBlockHeaderGasPriceValidationRule
       }
 
       return true;
-    } catch (final FeeMarketException e) {
+    } catch (final FeeMarketException | IllegalArgumentException e) {
+      // IllegalArgumentException: the block cannot follow the parent for the fee market
       LOG.info("Invalid block header: " + e.getMessage());
       return false;
     }

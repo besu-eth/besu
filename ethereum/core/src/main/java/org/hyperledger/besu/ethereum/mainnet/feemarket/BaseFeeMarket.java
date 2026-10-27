@@ -58,6 +58,8 @@ public interface BaseFeeMarket extends FeeMarket {
    * @param slotNumber the slot number of the block, 0 if the block has none.
    * @param parentBlockHeader the header of the parent block.
    * @return the base fee of the block.
+   * @throws IllegalArgumentException if the block cannot follow the parent for the fee market, like
+   *     with a slot number not greater than the parent one when the base fee depends on it.
    */
   Wei computeBaseFee(
       final long blockNumber,

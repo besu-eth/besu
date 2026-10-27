@@ -1322,6 +1322,8 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
+    final long londonForkBlockNumber = genesisConfigOptions.getLondonBlockNumber().orElse(0L);
+
     return bpo5Definition(
             chainId,
             enableRevertReason,
@@ -1335,6 +1337,22 @@ public abstract class MainnetProtocolSpecs {
             (gasCalculator, __) ->
                 MainnetEVMs.bogota(
                     gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+        // EIP-8198: the max change of the base fee per block derives from the block spacing
+        .feeMarketBuilder(
+            createFeeMarket(
+                londonForkBlockNumber,
+                genesisConfigOptions.isZeroBaseFee(),
+                genesisConfigOptions.isFixedBaseFee(),
+                true,
+                miningConfiguration.getMinTransactionGasPrice(),
+                (blobSchedule) ->
+                    FeeMarket.bogota(
+                        londonForkBlockNumber,
+                        genesisConfigOptions.getBaseFeePerGas(),
+                        blobSchedule)))
+        // EIP-8198: the slot number must increase, since the base fee derives from it
+        .blockHeaderValidatorBuilder(
+            MainnetBlockHeaderValidator::slotNumberIncreasingBlockHeaderValidator)
         .hardforkId(BOGOTA);
   }
 

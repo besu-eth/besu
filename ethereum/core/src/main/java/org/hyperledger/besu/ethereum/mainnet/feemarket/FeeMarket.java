@@ -134,6 +134,23 @@ public interface FeeMarket {
   }
 
   /**
+   * Creates the EIP-8198 fee market, where the max change of the base fee per block derives from
+   * the spacing between the block and its parent, with the specified blob schedule parameters.
+   *
+   * @param londonForkBlockNumber the block number at which the London fork activates.
+   * @param baseFeePerGasOverride an optional override for the base fee per gas.
+   * @param blobSchedule the {@link BlobSchedule} defining blob-related parameters.
+   * @return a {@link BaseFeeMarket} instance for the Bogota fork.
+   */
+  static BaseFeeMarket bogota(
+      final long londonForkBlockNumber,
+      final Optional<Wei> baseFeePerGasOverride,
+      final BlobSchedule blobSchedule) {
+    return new BogotaFeeMarket(
+        londonForkBlockNumber, baseFeePerGasOverride, blobSchedule.getBaseFeeUpdateFraction());
+  }
+
+  /**
    * Creates a fee market with a zero base fee.
    *
    * @param londonForkBlockNumber the block number at which the London fork activates.

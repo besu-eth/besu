@@ -55,6 +55,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MilestoneStreamingProtocolSchedule;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.feemarket.BogotaFeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.feemarket.ZeroBlobFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -105,12 +107,7 @@ class ProtocolScheduleBuilderTest {
             new NoOpMetricsSystem());
   }
 
-  @Test
-  void createProtocolScheduleInOrder() {
-    when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(1L));
-    when(configOptions.getDaoForkBlock()).thenReturn(OptionalLong.of(2L));
-    when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(13L));
-    when(configOptions.getMergeNetSplitBlockNumber()).thenReturn(OptionalLong.of(15L));
+  private void stubTimestampForks() {
     when(configOptions.getShanghaiTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 1));
     when(configOptions.getCancunTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 3));
     when(configOptions.getPragueTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 5));
@@ -126,6 +123,47 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getConsolidationRequestContractAddress())
         .thenReturn(Optional.of(Address.ZERO));
     when(configOptions.getWithdrawalRequestContractAddress()).thenReturn(Optional.of(Address.ZERO));
+  }
+
+  @Test
+  void onlyBogotaDerivesTheBaseFeeFromTheBlockSpacing() {
+    when(configOptions.getMergeNetSplitBlockNumber()).thenReturn(OptionalLong.of(15L));
+    stubTimestampForks();
+    final ProtocolSchedule protocolSchedule = builder.createProtocolSchedule();
+
+    assertThat(
+            protocolSchedule
+                .getByBlockHeader(blockHeader(61, PRE_SHANGHAI_TIMESTAMP + 19))
+                .getFeeMarket())
+        .isNotInstanceOf(BogotaFeeMarket.class);
+    assertThat(
+            protocolSchedule
+                .getByBlockHeader(blockHeader(63, PRE_SHANGHAI_TIMESTAMP + 21))
+                .getFeeMarket())
+        .isInstanceOf(BogotaFeeMarket.class);
+  }
+
+  @Test
+  void bogotaKeepsTheZeroBaseFee() {
+    when(configOptions.getMergeNetSplitBlockNumber()).thenReturn(OptionalLong.of(15L));
+    when(configOptions.isZeroBaseFee()).thenReturn(true);
+    stubTimestampForks();
+    final ProtocolSchedule protocolSchedule = builder.createProtocolSchedule();
+
+    assertThat(
+            protocolSchedule
+                .getByBlockHeader(blockHeader(63, PRE_SHANGHAI_TIMESTAMP + 21))
+                .getFeeMarket())
+        .isInstanceOf(ZeroBlobFeeMarket.class);
+  }
+
+  @Test
+  void createProtocolScheduleInOrder() {
+    when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(1L));
+    when(configOptions.getDaoForkBlock()).thenReturn(OptionalLong.of(2L));
+    when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(13L));
+    when(configOptions.getMergeNetSplitBlockNumber()).thenReturn(OptionalLong.of(15L));
+    stubTimestampForks();
     final ProtocolSchedule protocolSchedule = builder.createProtocolSchedule();
 
     assertThat(protocolSchedule.getChainId()).contains(CHAIN_ID);

@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.feemarket.TransactionPriceCalculator;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import org.apache.tuweni.units.bigints.UInt256;
 import org.apache.tuweni.units.bigints.UInt256s;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,6 +105,28 @@ public class LondonFeeMarket implements BaseFeeMarket {
   }
 
   private Wei computeBaseFee(final long blockNumber, final BlockHeader parentBlockHeader) {
+    return computeBaseFee(
+        blockNumber,
+        parentBlockHeader,
+        UInt256.ONE,
+        UInt256.valueOf(getBasefeeMaxChangeDenominator()));
+  }
+
+  /**
+   * Compute the base fee of a block from its parent, given the max change of the base fee per
+   * block, which applies when the gas used by the parent is zero or twice the gas target.
+   *
+   * @param blockNumber the number of the block to compute the base fee of.
+   * @param parentBlockHeader the header of the parent block.
+   * @param maxChangeNumerator the numerator of the max change of the base fee per block.
+   * @param maxChangeDenominator the denominator of the max change of the base fee per block.
+   * @return the base fee of the block.
+   */
+  protected Wei computeBaseFee(
+      final long blockNumber,
+      final BlockHeader parentBlockHeader,
+      final UInt256 maxChangeNumerator,
+      final UInt256 maxChangeDenominator) {
     if (londonForkBlockNumber == blockNumber) {
       return getInitialBasefee();
     }
@@ -118,25 +141,43 @@ public class LondonFeeMarket implements BaseFeeMarket {
       return parentBaseFee;
     } else if (parentBlockGasUsed > targetGasUsed) {
       gasDelta = parentBlockGasUsed - targetGasUsed;
-      final long denominator = getBasefeeMaxChangeDenominator();
       feeDelta =
           UInt256s.max(
-              parentBaseFee.multiply(gasDelta).divide(targetGasUsed).divide(denominator), Wei.ONE);
+              feeDelta(
+                  parentBaseFee, gasDelta, targetGasUsed, maxChangeNumerator, maxChangeDenominator),
+              Wei.ONE);
       baseFee = parentBaseFee.add(feeDelta);
     } else {
       gasDelta = targetGasUsed - parentBlockGasUsed;
-      final long denominator = getBasefeeMaxChangeDenominator();
-      feeDelta = parentBaseFee.multiply(gasDelta).divide(targetGasUsed).divide(denominator);
+      feeDelta =
+          feeDelta(
+              parentBaseFee, gasDelta, targetGasUsed, maxChangeNumerator, maxChangeDenominator);
       baseFee = parentBaseFee.subtract(feeDelta);
     }
     LOG.trace(
-        "block #{} parentBaseFee: {} parentGasUsed: {} parentGasTarget: {} baseFee: {}",
+        "block #{} parentBaseFee: {} parentGasUsed: {} parentGasTarget: {} maxChange: {}/{}"
+            + " baseFee: {}",
         blockNumber,
         parentBaseFee,
         parentBlockGasUsed,
         targetGasUsed,
+        maxChangeNumerator,
+        maxChangeDenominator,
         baseFee);
     return baseFee;
+  }
+
+  private static Wei feeDelta(
+      final Wei parentBaseFee,
+      final long gasDelta,
+      final long targetGasUsed,
+      final UInt256 maxChangeNumerator,
+      final UInt256 maxChangeDenominator) {
+    return parentBaseFee
+        .multiply(gasDelta)
+        .divide(targetGasUsed)
+        .multiply(maxChangeNumerator)
+        .divide(maxChangeDenominator);
   }
 
   @Override
