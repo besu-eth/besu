@@ -24,6 +24,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.Arch
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeWriter;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.RollingTrieNodeArchiveStep;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.TrailingTrieNodeArchiver;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -54,6 +56,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
@@ -67,6 +70,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final ArchiveNodeHistoryStore archiveHistoryStore;
   private final ArchiveHistoryReader archiveHistoryReader;
   private final Optional<ArchiveTrieNodeStrategy> archiveTrieNodeStrategy;
+  private final Optional<TrailingTrieNodeArchiver> trailingArchiver;
 
   public BonsaiArchiveWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -105,16 +109,20 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         worldStateKeyValueStorage.getComposedWorldStateStorage();
     this.archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
     this.archiveHistoryReader = new ArchiveHistoryReader(archiveHistoryStore);
-    final ExtraStorageConfiguration.Unstable unstable =
-        dataStorageConfiguration.getExtraStorageConfiguration().getUnstable();
+    final ExtraStorageConfiguration extraStorage =
+        dataStorageConfiguration.getExtraStorageConfiguration();
+    final ExtraStorageConfiguration.Unstable unstable = extraStorage.getUnstable();
     if (unstable.getBonsaiArchiveStateProofsEnabled()) {
       requireCoverageFromGenesis(blockchain);
-      this.archiveTrieNodeStrategy =
-          Optional.of(createInlineStrategy(unstable, trieCaptureParallelism));
+      final ExecutorService capturePool = Executors.newFixedThreadPool(trieCaptureParallelism);
+      final ArchiveTrieNodeStrategy strategy = createInlineStrategy(unstable, capturePool);
+      worldStateKeyValueStorage.setTrieNodeStrategy(strategy);
+      this.archiveTrieNodeStrategy = Optional.of(strategy);
+      this.trailingArchiver = Optional.of(startTrailingArchiver(extraStorage, capturePool));
     } else {
       this.archiveTrieNodeStrategy = Optional.empty();
+      this.trailingArchiver = Optional.empty();
     }
-    archiveTrieNodeStrategy.ifPresent(worldStateKeyValueStorage::setTrieNodeStrategy);
   }
 
   private void requireCoverageFromGenesis(final Blockchain blockchain) {
@@ -130,21 +138,63 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   }
 
   private ArchiveTrieNodeStrategy createInlineStrategy(
-      final ExtraStorageConfiguration.Unstable unstable, final int trieCaptureParallelism) {
+      final ExtraStorageConfiguration.Unstable unstable, final ExecutorService capturePool) {
     final SegmentedKeyValueStorage liveStorage =
         worldStateKeyValueStorage.getComposedWorldStateStorage();
-    final ExecutorService trieCapturePool = Executors.newFixedThreadPool(trieCaptureParallelism);
     return new ArchiveTrieNodeStrategy(
         new BonsaiTrieNodeStrategy(),
-        new ArchiveTrieNodeWriter(
-            archiveHistoryStore,
-            trieCapturePool,
-            unstable.getBonsaiArchiveShallowCheckpointInterval(),
-            unstable.getBonsaiArchiveDeepCheckpointInterval(),
-            Optional.empty()),
+        newWriter(unstable, capturePool, Optional.empty()),
         archiveHistoryStore,
         storage -> storage == liveStorage,
         this::isFinal);
+  }
+
+  private TrailingTrieNodeArchiver startTrailingArchiver(
+      final ExtraStorageConfiguration extraStorage, final ExecutorService capturePool) {
+    final ExtraStorageConfiguration.Unstable unstable = extraStorage.getUnstable();
+    final Optional<SegmentedKeyValueStorage> liveStorage =
+        Optional.of(worldStateKeyValueStorage.getComposedWorldStateStorage());
+    final RollingTrieNodeArchiveStep step =
+        new RollingTrieNodeArchiveStep(
+            this::openHeadWorldState,
+            this::rollTo,
+            blockchain,
+            trieLogManager,
+            archiveHistoryStore,
+            () -> newWriter(unstable, capturePool, liveStorage));
+    final TrailingTrieNodeArchiver archiver =
+        new TrailingTrieNodeArchiver(
+            blockchain,
+            archiveHistoryStore,
+            step,
+            extraStorage.getMaxLayersToLoad(),
+            Executors.newSingleThreadExecutor());
+    archiver.start();
+    return archiver;
+  }
+
+  private PathBasedWorldState openHeadWorldState() {
+    return getWorldStateCacheManager()
+        .getHeadWorldState(hash -> blockchain.getBlockHeader(hash).map(BlockHeader.class::cast))
+        .orElseThrow(() -> new IllegalStateException("No head world state to roll"));
+  }
+
+  private void rollTo(final PathBasedWorldState state, final Hash blockHash) {
+    if (rollFullWorldStateToBlockHash(state, blockHash, Level.WARN).isEmpty()) {
+      throw new IllegalStateException("Could not roll to " + blockHash);
+    }
+  }
+
+  private ArchiveTrieNodeWriter newWriter(
+      final ExtraStorageConfiguration.Unstable unstable,
+      final ExecutorService capturePool,
+      final Optional<SegmentedKeyValueStorage> ownCommitStorage) {
+    return new ArchiveTrieNodeWriter(
+        archiveHistoryStore,
+        capturePool,
+        unstable.getBonsaiArchiveShallowCheckpointInterval(),
+        unstable.getBonsaiArchiveDeepCheckpointInterval(),
+        ownCommitStorage);
   }
 
   @VisibleForTesting
@@ -158,8 +208,12 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   @Override
   public void close() {
-    archiveTrieNodeStrategy.ifPresent(ArchiveTrieNodeStrategy::close);
-    super.close();
+    try {
+      trailingArchiver.ifPresent(TrailingTrieNodeArchiver::close);
+      archiveTrieNodeStrategy.ifPresent(ArchiveTrieNodeStrategy::close);
+    } finally {
+      super.close();
+    }
   }
 
   @Override
