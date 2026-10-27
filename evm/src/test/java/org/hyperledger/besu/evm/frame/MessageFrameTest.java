@@ -16,12 +16,17 @@ package org.hyperledger.besu.evm.frame;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.collections.undo.UndoSet;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.toy.ToyBlockValues;
 import org.hyperledger.besu.evm.toy.ToyWorld;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -35,6 +40,8 @@ class MessageFrameTest {
 
   private static final Bytes32 WORD1 = Bytes32.fromHexString(Long.toString(1).repeat(64));
   private static final Bytes32 WORD2 = Bytes32.fromHexString(Long.toString(2).repeat(64));
+  private static final Address TARGET = Address.fromHexString("0x7a46");
+  private static final Address CALLER = Address.fromHexString("0xca11");
 
   private MessageFrame.Builder messageFrameBuilder;
 
@@ -102,5 +109,68 @@ class MessageFrameTest {
     assertThat(messageFrame.runsOnEvmV2()).isTrue();
     assertThat(StacksV2.take(0, stack.length)).isSameAs(stack);
     assertThat(StacksV2.take(0, stack.length)).isNotSameAs(stack);
+  }
+
+  @Test
+  void injectedTxValuesAreSharedByTopLevelFrames() {
+    final TxValues txValues = sharedTxValues();
+
+    final MessageFrame first = messageFrameBuilder.txValues(txValues).build();
+    assertThat(txValues.messageFrameStack()).containsExactly(first);
+    txValues.messageFrameStack().clear();
+    final MessageFrame second = messageFrameBuilder.txValues(txValues).build();
+
+    assertThat(txValues.messageFrameStack()).containsExactly(second);
+    assertThat(first.getMessageFrameStack()).isSameAs(second.getMessageFrameStack());
+    assertThat(first.getDepth()).isZero();
+    assertThat(second.getDepth()).isZero();
+    // state written through one frame is visible through the other
+    first.addCreate(TARGET);
+    assertThat(second.getCreates()).containsExactly(TARGET);
+  }
+
+  @Test
+  void injectedTopLevelFrameDoesNotWarmItsContractOrSender() {
+    final TxValues txValues = sharedTxValues();
+
+    final MessageFrame frame =
+        messageFrameBuilder.txValues(txValues).contract(TARGET).sender(CALLER).build();
+
+    assertThat(frame.isAddressWarm(TARGET)).isFalse();
+    assertThat(frame.isAddressWarm(CALLER)).isFalse();
+    assertThat(txValues.warmedUpAddresses()).isEmpty();
+  }
+
+  @Test
+  void topLevelFrameWithoutInjectionStillWarmsItsContractAndSender() {
+    final MessageFrame frame = messageFrameBuilder.contract(TARGET).sender(CALLER).build();
+
+    assertThat(frame.isAddressWarm(TARGET)).isTrue();
+    assertThat(frame.isAddressWarm(CALLER)).isTrue();
+    assertThat(frame.getFrameTransactionContext()).isEmpty();
+  }
+
+  @Test
+  void reboundOriginatorIsVisibleToTheFrame() {
+    final TxValues txValues = sharedTxValues();
+    final MessageFrame frame = messageFrameBuilder.txValues(txValues).build();
+
+    txValues.setOriginator(CALLER);
+
+    assertThat(frame.getOriginatorAddress()).isEqualTo(CALLER);
+  }
+
+  private static TxValues sharedTxValues() {
+    return TxValues.forTransaction(
+        (__, ___) -> Hash.ZERO,
+        1024,
+        UndoSet.of(new HashSet<>()),
+        Address.ZERO,
+        Wei.ONE,
+        Wei.ONE,
+        new ToyBlockValues(),
+        Address.ZERO,
+        Optional.of(List.of()),
+        0L);
   }
 }
