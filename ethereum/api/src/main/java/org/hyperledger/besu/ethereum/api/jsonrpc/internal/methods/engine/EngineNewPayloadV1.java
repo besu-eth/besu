@@ -519,6 +519,16 @@ public sealed class EngineNewPayloadV1<
       return ValidationResult.invalid(
           RpcErrorType.INVALID_TIMESTAMP_PARAMS, "block timestamp not greater than parent");
     }
+    // EIP-8198: checked here too, to report it before the header validation, whose base fee rule
+    // also depends on the slot number
+    if (protocolSpec.isSlotNumberIncreaseRequired()
+        && maybeParentHeader.isPresent()
+        && Long.compareUnsigned(
+                maybeParentHeader.get().getSlotNumber(), newBlockHeader.getSlotNumber())
+            >= 0) {
+      return ValidationResult.invalid(
+          RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "block slot number not greater than parent");
+    }
     return ValidationResult.valid();
   }
 

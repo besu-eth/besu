@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_BLOCK_ACCESS_LIST_PARAMS;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
@@ -176,6 +177,42 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
 
     final JsonRpcResponse resp =
         respV5(mockEnginePayloadParam(header, emptyList(), BLOCK_ACCESS_LIST, 0L));
+
+    assertValidResponse(header, resp);
+  }
+
+  @Test
+  public void shouldReturnInvalidIfSlotNumberIsNotGreaterThanParentWhenRequired() {
+    // EIP-8198, the parent has slot number 0
+    when(protocolSpec.isSlotNumberIncreaseRequired()).thenReturn(true);
+    final BlockHeader header =
+        setupPayloadV5(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(Optional.empty()),
+            BLOCK_ACCESS_LIST,
+            0L);
+
+    final var resp =
+        fromSuccessResp(respV5(mockEnginePayloadParam(header, emptyList(), BLOCK_ACCESS_LIST, 0L)));
+
+    assertThat(resp.getStatus()).isEqualTo(INVALID);
+    assertThat(resp.getError()).isEqualTo("block slot number not greater than parent");
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReturnValidIfSlotNumberIsGreaterThanParentWhenRequired() {
+    // EIP-8198, the parent has slot number 0
+    when(protocolSpec.isSlotNumberIncreaseRequired()).thenReturn(true);
+    final BlockHeader header =
+        setupPayloadV5(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(Optional.empty()),
+            BLOCK_ACCESS_LIST,
+            1L);
+
+    final JsonRpcResponse resp =
+        respV5(mockEnginePayloadParam(header, emptyList(), BLOCK_ACCESS_LIST, 1L));
 
     assertValidResponse(header, resp);
   }

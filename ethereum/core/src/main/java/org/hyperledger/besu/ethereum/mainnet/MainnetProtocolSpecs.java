@@ -1353,6 +1353,7 @@ public abstract class MainnetProtocolSpecs {
         // EIP-8198: the slot number must increase, since the base fee derives from it
         .blockHeaderValidatorBuilder(
             MainnetBlockHeaderValidator::slotNumberIncreasingBlockHeaderValidator)
+        .slotNumberIncreaseRequired(true)
         .hardforkId(BOGOTA);
   }
 

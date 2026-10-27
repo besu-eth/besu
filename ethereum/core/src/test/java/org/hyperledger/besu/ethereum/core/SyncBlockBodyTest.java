@@ -220,6 +220,7 @@ public class SyncBlockBodyTest {
         null,
         true,
         false,
+        false,
         Duration.ofSeconds(12),
         true,
         Optional.empty(),

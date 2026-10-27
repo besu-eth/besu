@@ -81,6 +81,7 @@ public class ProtocolSpec {
   private final PreExecutionProcessor preExecutionProcessor;
   private final boolean isPoS;
   private final boolean slotNumberRequired;
+  private final boolean slotNumberIncreaseRequired;
   private final Duration slotDuration;
   private final boolean isReplayProtectionSupported;
   private final Optional<TransactionPoolPreProcessor> transactionPoolPreProcessor;
@@ -120,6 +121,8 @@ public class ProtocolSpec {
    * @param isPoS indicates whether the current spec is PoS
    * @param slotNumberRequired whether block headers of this fork must carry the EIP-7843 slot
    *     number
+   * @param slotNumberIncreaseRequired whether the slot number of a block of this fork must be
+   *     greater than the parent one (EIP-8198)
    * @param slotDuration the slot duration
    * @param isReplayProtectionSupported indicates whether the current spec supports replay
    *     protection
@@ -154,6 +157,7 @@ public class ProtocolSpec {
       final PreExecutionProcessor preExecutionProcessor,
       final boolean isPoS,
       final boolean slotNumberRequired,
+      final boolean slotNumberIncreaseRequired,
       final Duration slotDuration,
       final boolean isReplayProtectionSupported,
       final Optional<TransactionPoolPreProcessor> transactionPoolPreProcessor,
@@ -188,6 +192,7 @@ public class ProtocolSpec {
     this.preExecutionProcessor = preExecutionProcessor;
     this.isPoS = isPoS;
     this.slotNumberRequired = slotNumberRequired;
+    this.slotNumberIncreaseRequired = slotNumberIncreaseRequired;
     this.slotDuration = slotDuration;
     this.isReplayProtectionSupported = isReplayProtectionSupported;
     this.transactionPoolPreProcessor = transactionPoolPreProcessor;
@@ -400,6 +405,17 @@ public class ProtocolSpec {
    */
   public boolean isSlotNumberRequired() {
     return slotNumberRequired;
+  }
+
+  /**
+   * Whether the slot number of a block of this fork must be greater than the parent one (EIP-8198).
+   * The header validation of the fork enforces it, and the Engine API consults it to report the
+   * specific error.
+   *
+   * @return true from Bogota onwards
+   */
+  public boolean isSlotNumberIncreaseRequired() {
+    return slotNumberIncreaseRequired;
   }
 
   public Duration getSlotDuration() {
