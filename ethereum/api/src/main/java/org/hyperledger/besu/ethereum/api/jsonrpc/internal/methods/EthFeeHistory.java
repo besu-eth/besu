@@ -270,18 +270,16 @@ public class EthFeeHistory implements JsonRpcMethod {
     // For "latest" (the common case) nextBlockNumber > chainHead, so the block doesn't exist yet:
     // compute directly and skip the storage read. Only historical-block queries need the lookup.
     if (nextBlockNumber > chainHeadHeader.getNumber()) {
-      return computeNextBaseFee(nextBlockNumber, chainHeadHeader, blockHeaders);
+      return computeNextBaseFee(chainHeadHeader, blockHeaders);
     }
     return blockchain
         .getBlockHeader(nextBlockNumber)
         .map(blockHeader -> blockHeader.getBaseFee().orElse(Wei.ZERO))
-        .orElseGet(() -> computeNextBaseFee(nextBlockNumber, chainHeadHeader, blockHeaders));
+        .orElseGet(() -> computeNextBaseFee(chainHeadHeader, blockHeaders));
   }
 
   private Wei computeNextBaseFee(
-      final long nextBlockNumber,
-      final BlockHeader chainHeadHeader,
-      final List<BlockHeader> blockHeaders) {
+      final BlockHeader chainHeadHeader, final List<BlockHeader> blockHeaders) {
 
     // Note: We are able to use the chain head timestamp for next block header as
     // the base fee market can only be pre or post London. If another fee
@@ -299,10 +297,13 @@ public class EthFeeHistory implements JsonRpcMethod {
         .filter(FeeMarket::implementsBaseFee)
         .map(BaseFeeMarket.class::cast)
         .map(
-            feeMarket ->
-                // Compute the next base fee from the last block header
-                feeMarket.computeBaseFee(
-                    nextBlockNumber, blockHeaders.get(blockHeaders.size() - 1)))
+            feeMarket -> {
+              // Predict the next base fee from the last block header
+              final BlockHeader lastBlockHeader = blockHeaders.get(blockHeaders.size() - 1);
+              return feeMarket.predictNextBaseFee(
+                  lastBlockHeader,
+                  () -> blockchain.getBlockHeader(lastBlockHeader.getParentHash()));
+            })
         .orElse(Wei.ZERO); // If the fee market does not implement base fee, return zero
   }
 

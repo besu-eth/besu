@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.Inclu
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.AddReason.MOVE;
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.LayerMoveReason.DEMOTED;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -42,11 +44,13 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
 
   private static final Logger LOG = LoggerFactory.getLogger(BaseFeePrioritizedTransactions.class);
   private final SenderBalanceChecker senderBalanceChecker;
+  private final Function<Hash, Optional<BlockHeader>> blockHeaderByHash;
   private Optional<Wei> nextBlockBaseFee;
 
   public BaseFeePrioritizedTransactions(
       final TransactionPoolConfiguration poolConfig,
       final Supplier<BlockHeader> chainHeadHeaderSupplier,
+      final Function<Hash, Optional<BlockHeader>> blockHeaderByHash,
       final TransactionsLayer nextLayer,
       final TransactionPoolMetrics metrics,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
@@ -64,6 +68,7 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
         blobCache,
         miningConfiguration,
         eventEmitter);
+    this.blockHeaderByHash = blockHeaderByHash;
     this.nextBlockBaseFee =
         Optional.of(calculateNextBlockBaseFee(feeMarket, chainHeadHeaderSupplier.get()));
     this.senderBalanceChecker = senderBalanceChecker;
@@ -164,7 +169,8 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
   private Wei calculateNextBlockBaseFee(final FeeMarket feeMarket, final BlockHeader blockHeader) {
     if (feeMarket.implementsBaseFee()) {
       final var baseFeeMarket = (BaseFeeMarket) feeMarket;
-      return baseFeeMarket.computeBaseFee(blockHeader.getNumber() + 1, blockHeader);
+      return baseFeeMarket.predictNextBaseFee(
+          blockHeader, () -> blockHeaderByHash.apply(blockHeader.getParentHash()));
     }
     return Wei.ZERO;
   }

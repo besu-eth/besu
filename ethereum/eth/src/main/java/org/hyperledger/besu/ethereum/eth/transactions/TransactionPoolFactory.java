@@ -379,6 +379,7 @@ public class TransactionPoolFactory {
           new BaseFeePrioritizedTransactions(
               transactionPoolConfiguration,
               protocolContext.getBlockchain()::getChainHeadHeader,
+              protocolContext.getBlockchain()::getBlockHeader,
               readyTransactions,
               metrics,
               transactionReplacementTester,

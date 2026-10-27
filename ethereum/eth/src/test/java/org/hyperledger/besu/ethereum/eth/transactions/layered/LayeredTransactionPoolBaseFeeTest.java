@@ -43,6 +43,7 @@ public class LayeredTransactionPoolBaseFeeTest extends AbstractLayeredTransactio
     return new BaseFeePrioritizedTransactions(
         poolConfig,
         protocolContext.getBlockchain()::getChainHeadHeader,
+        protocolContext.getBlockchain()::getBlockHeader,
         nextLayer,
         txPoolMetrics,
         transactionReplacementTester,

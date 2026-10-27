@@ -686,6 +686,7 @@ public class BlockSimulator {
       final boolean enforceConsensusGasLimit) {
     long timestamp = blockOverrides.getTimestamp().orElseThrow();
     long blockNumber = blockOverrides.getBlockNumber().orElseThrow();
+    final Long slotNumber = header.getOptionalSlotNumber().map(slot -> slot + 1).orElse(null);
 
     // The fee recipient is stored in the header coinbase field. Precedence:
     // (1) an explicit feeRecipient in blockOverrides, otherwise
@@ -709,7 +710,7 @@ public class BlockSimulator {
                                 : header.getGasLimit()))
             .extraData(blockOverrides.getExtraData().orElse(Bytes.EMPTY))
             .prevRandao(blockOverrides.getMixHashOrPrevRandao().orElse(Bytes32.ZERO))
-            .slotNumber(header.getOptionalSlotNumber().map(slot -> slot + 1).orElse(null));
+            .slotNumber(slotNumber);
 
     // London+: baseFee
     if (newProtocolSpec.getFeeMarket().implementsBaseFee()) {
@@ -719,7 +720,12 @@ public class BlockSimulator {
               .orElseGet(
                   () ->
                       shouldValidate
-                          ? getNextBaseFee(newProtocolSpec, header, blockNumber)
+                          ? getNextBaseFee(
+                              newProtocolSpec,
+                              header,
+                              blockNumber,
+                              timestamp,
+                              slotNumber == null ? 0L : slotNumber)
                           : Wei.ZERO));
     }
 
@@ -773,11 +779,16 @@ public class BlockSimulator {
   }
 
   private Wei getNextBaseFee(
-      final ProtocolSpec protocolSpec, final BlockHeader parentHeader, final long blockNumber) {
+      final ProtocolSpec protocolSpec,
+      final BlockHeader parentHeader,
+      final long blockNumber,
+      final long timestamp,
+      final long slotNumber) {
     return Optional.of(protocolSpec.getFeeMarket())
         .filter(FeeMarket::implementsBaseFee)
         .map(BaseFeeMarket.class::cast)
-        .map(feeMarket -> feeMarket.computeBaseFee(blockNumber, parentHeader))
+        .map(
+            feeMarket -> feeMarket.computeBaseFee(blockNumber, timestamp, slotNumber, parentHeader))
         .orElse(null);
   }
 

@@ -169,6 +169,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
         new BaseFeePrioritizedTransactions(
             poolConfig,
             LayeredPendingTransactionsTest::mockBlockHeader,
+            hash -> Optional.empty(),
             readyTransactions,
             txPoolMetrics,
             transactionReplacementTester,

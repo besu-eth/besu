@@ -517,7 +517,8 @@ public class MergeBesuControllerBuilderTest {
         .parentHash(magicHash)
         .number(blockNumber)
         .baseFeePerGas(
-            feeMarket.computeBaseFee(blockNumber, parentHeaderWithBaseFee(Wei.of(0x3b9aca00))))
+            feeMarket.predictNextBaseFee(
+                parentHeaderWithBaseFee(Wei.of(0x3b9aca00)), Optional::empty))
         .gasLimit(30000000l)
         .stateRoot(magicHash)
         .buildHeader();

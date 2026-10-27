@@ -1482,10 +1482,10 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .parentHash(genesisState.getBlock().getHash())
         .number(genesisState.getBlock().getHeader().getNumber() + 1)
         .baseFeePerGas(
-            feeMarket.computeBaseFee(
-                genesisState.getBlock().getHeader().getNumber() + 1,
+            feeMarket.predictNextBaseFee(
                 parentHeaderWithBaseFee(
-                    genesisState.getBlock().getHeader().getBaseFee().orElse(Wei.of(0x3b9aca00)))))
+                    genesisState.getBlock().getHeader().getBaseFee().orElse(Wei.of(0x3b9aca00))),
+                Optional::empty))
         .timestamp(1)
         .gasLimit(genesisState.getBlock().getHeader().getGasLimit())
         .stateRoot(genesisState.getBlock().getHeader().getStateRoot())
@@ -1504,9 +1504,9 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .timestamp(
             optionalTimestamp.length > 0 ? optionalTimestamp[0] : parentHeader.getTimestamp() + 12)
         .baseFeePerGas(
-            feeMarket.computeBaseFee(
-                genesisState.getBlock().getHeader().getNumber() + 1,
-                parentHeaderWithBaseFee(parentHeader.getBaseFee().orElse(Wei.of(0x3b9aca00)))))
+            feeMarket.predictNextBaseFee(
+                parentHeaderWithBaseFee(parentHeader.getBaseFee().orElse(Wei.of(0x3b9aca00))),
+                Optional::empty))
         .buildHeader();
   }
 

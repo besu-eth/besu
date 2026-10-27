@@ -49,6 +49,7 @@ import org.hyperledger.besu.util.LogConfigurator;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -189,9 +190,9 @@ public class MergeReorgTest implements MergeGenesisConfigHelper {
           .parentHash(newParent.getHash())
           .number(newParent.getNumber() + 1)
           .baseFeePerGas(
-              feeMarket.computeBaseFee(
-                  genesisState.getBlock().getHeader().getNumber() + 1,
-                  parentHeaderWithBaseFee(newParent.getBaseFee().orElse(Wei.of(0x3b9aca00)))))
+              feeMarket.predictNextBaseFee(
+                  parentHeaderWithBaseFee(newParent.getBaseFee().orElse(Wei.of(0x3b9aca00))),
+                  Optional::empty))
           .gasLimit(newParent.getGasLimit())
           .timestamp(newParent.getTimestamp() + 1)
           .stateRoot(newParent.getStateRoot());
@@ -213,9 +214,9 @@ public class MergeReorgTest implements MergeGenesisConfigHelper {
             .parentHash(parent.getHash())
             .number(parent.getNumber() + 1)
             .baseFeePerGas(
-                feeMarket.computeBaseFee(
-                    genesisState.getBlock().getHeader().getNumber() + 1,
-                    parentHeaderWithBaseFee(parent.getBaseFee().orElse(Wei.of(0x3b9aca00)))))
+                feeMarket.predictNextBaseFee(
+                    parentHeaderWithBaseFee(parent.getBaseFee().orElse(Wei.of(0x3b9aca00))),
+                    Optional::empty))
             .gasLimit(parent.getGasLimit())
             .timestamp(parent.getTimestamp() + 1)
             .stateRoot(parent.getStateRoot())

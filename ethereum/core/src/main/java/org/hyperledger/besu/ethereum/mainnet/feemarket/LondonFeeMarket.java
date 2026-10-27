@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.feemarket.TransactionPriceCalculator;
 
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.units.bigints.UInt256s;
 import org.slf4j.Logger;
@@ -85,7 +86,24 @@ public class LondonFeeMarket implements BaseFeeMarket {
   }
 
   @Override
-  public Wei computeBaseFee(final long blockNumber, final BlockHeader parentBlockHeader) {
+  public Wei computeBaseFee(
+      final long blockNumber,
+      final long timestamp,
+      final long slotNumber,
+      final BlockHeader parentBlockHeader) {
+    return computeBaseFee(blockNumber, parentBlockHeader);
+  }
+
+  @Override
+  public Wei predictNextBaseFee(
+      final BlockHeader headBlockHeader,
+      final Supplier<Optional<BlockHeader>> headParentBlockHeaderSupplier) {
+    // the base fee does not depend on the spacing of the blocks, so the parent of the head is not
+    // needed
+    return computeBaseFee(headBlockHeader.getNumber() + 1, headBlockHeader);
+  }
+
+  private Wei computeBaseFee(final long blockNumber, final BlockHeader parentBlockHeader) {
     if (londonForkBlockNumber == blockNumber) {
       return getInitialBasefee();
     }

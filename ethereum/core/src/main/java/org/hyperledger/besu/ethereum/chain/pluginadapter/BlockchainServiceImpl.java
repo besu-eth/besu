@@ -150,7 +150,9 @@ public class BlockchainServiceImpl implements BlockchainService {
         .map(BaseFeeMarket.class::cast)
         .map(
             feeMarket ->
-                feeMarket.computeBaseFee(chainHeadHeader.getNumber() + 1, chainHeadHeader));
+                feeMarket.predictNextBaseFee(
+                    chainHeadHeader,
+                    () -> blockchain.getBlockHeader(chainHeadHeader.getParentHash())));
   }
 
   @Override

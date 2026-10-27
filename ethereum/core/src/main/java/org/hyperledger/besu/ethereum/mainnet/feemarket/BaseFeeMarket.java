@@ -17,6 +17,9 @@ package org.hyperledger.besu.ethereum.mainnet.feemarket;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
+import java.util.Optional;
+import java.util.function.Supplier;
+
 public interface BaseFeeMarket extends FeeMarket {
 
   enum ValidationMode {
@@ -51,10 +54,29 @@ public interface BaseFeeMarket extends FeeMarket {
    * Compute the base fee of a block from its parent.
    *
    * @param blockNumber the number of the block to compute the base fee of.
+   * @param timestamp the timestamp of the block.
+   * @param slotNumber the slot number of the block, 0 if the block has none.
    * @param parentBlockHeader the header of the parent block.
    * @return the base fee of the block.
    */
-  Wei computeBaseFee(final long blockNumber, final BlockHeader parentBlockHeader);
+  Wei computeBaseFee(
+      final long blockNumber,
+      final long timestamp,
+      final long slotNumber,
+      final BlockHeader parentBlockHeader);
+
+  /**
+   * Predict the base fee of the block following the head, whose timestamp and slot number are not
+   * known yet.
+   *
+   * @param headBlockHeader the header of the head block, the parent of the next block.
+   * @param headParentBlockHeaderSupplier supplies the header of the parent of the head, if
+   *     available, only invoked when the prediction depends on it.
+   * @return the predicted base fee of the next block.
+   */
+  Wei predictNextBaseFee(
+      final BlockHeader headBlockHeader,
+      final Supplier<Optional<BlockHeader>> headParentBlockHeaderSupplier);
 
   ValidationMode baseFeeValidationMode(final long blockNumber);
 

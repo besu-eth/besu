@@ -217,7 +217,8 @@ public class ReferenceTestEnv extends BlockHeader {
               .gasLimit(gasLimit)
               .buildBlockHeader();
       builder.baseFee(
-          ((BaseFeeMarket) protocolSpec.getFeeMarket()).computeBaseFee(number, parentHeader));
+          ((BaseFeeMarket) protocolSpec.getFeeMarket())
+              .computeBaseFee(number, timestamp, getSlotNumber(), parentHeader));
     }
     if (difficulty == null && parentDifficulty != null) {
       builder.difficulty(

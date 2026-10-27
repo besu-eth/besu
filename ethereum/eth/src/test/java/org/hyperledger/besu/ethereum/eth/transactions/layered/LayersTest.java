@@ -1586,6 +1586,7 @@ public class LayersTest extends BaseTransactionPoolTest {
           new BaseFeePrioritizedTransactions(
               poolConfig,
               LayersTest::mockBlockHeader,
+              hash -> Optional.empty(),
               this.ready,
               txPoolMetrics,
               (pt1, pt2) -> transactionReplacementTester(poolConfig, pt1, pt2),

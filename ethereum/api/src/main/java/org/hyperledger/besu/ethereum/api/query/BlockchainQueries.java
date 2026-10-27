@@ -1262,7 +1262,8 @@ public class BlockchainQueries {
 
   private Wei getNextBlockBaseFee(
       final BlockHeader chainHeadHeader, final BaseFeeMarket nextBlockFeeMarket) {
-    return nextBlockFeeMarket.computeBaseFee(chainHeadHeader.getNumber() + 1, chainHeadHeader);
+    return nextBlockFeeMarket.predictNextBaseFee(
+        chainHeadHeader, () -> blockchain.getBlockHeader(chainHeadHeader.getParentHash()));
   }
 
   private <T> Optional<T> fromAccount(

@@ -101,7 +101,9 @@ public class ZeroBlobFeeMarketTest {
 
   @Test
   public void computeBaseFeeReturnsZero() {
-    assertThat(zeroBlobFeeMarket.computeBaseFee(1L, new BlockHeaderTestFixture().buildHeader()))
+    assertThat(
+            zeroBlobFeeMarket.computeBaseFee(
+                1L, 12L, 1L, new BlockHeaderTestFixture().buildHeader()))
         .isEqualTo(Wei.ZERO);
   }
 

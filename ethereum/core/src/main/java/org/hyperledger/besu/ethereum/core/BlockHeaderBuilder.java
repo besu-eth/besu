@@ -242,10 +242,18 @@ public class BlockHeaderBuilder {
     final var difficulty =
         Difficulty.of(difficultyCalculator.nextDifficulty(timestamp, parentHeader));
 
+    // From Amsterdam (EIP-7843) an absent slot number fails our own header validation, so
+    // callers with no beacon slot to supply get 0. Before Amsterdam it must stay absent, or
+    // the block hash changes.
+    final Long slotNumber =
+        maybeSlotNumber.orElseGet(() -> protocolSpec.isSlotNumberRequired() ? 0L : null);
+
     final Wei baseFee;
     if (protocolSpec.getFeeMarket().implementsBaseFee()) {
       final var baseFeeMarket = (BaseFeeMarket) protocolSpec.getFeeMarket();
-      baseFee = baseFeeMarket.computeBaseFee(newBlockNumber, parentHeader);
+      baseFee =
+          baseFeeMarket.computeBaseFee(
+              newBlockNumber, timestamp, slotNumber == null ? 0L : slotNumber, parentHeader);
     } else {
       baseFee = null;
     }
@@ -267,11 +275,7 @@ public class BlockHeaderBuilder {
         .baseFee(baseFee)
         .prevRandao(prevRandao)
         .parentBeaconBlockRoot(parentBeaconBlockRoot)
-        // From Amsterdam (EIP-7843) an absent slot number fails our own header validation, so
-        // callers with no beacon slot to supply get 0. Before Amsterdam it must stay absent, or
-        // the block hash changes.
-        .slotNumber(
-            maybeSlotNumber.orElseGet(() -> protocolSpec.isSlotNumberRequired() ? 0L : null));
+        .slotNumber(slotNumber);
   }
 
   public BlockHeader buildBlockHeader() {

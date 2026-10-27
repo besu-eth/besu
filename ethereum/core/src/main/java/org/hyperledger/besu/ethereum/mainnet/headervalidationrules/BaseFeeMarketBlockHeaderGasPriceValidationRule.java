@@ -57,7 +57,9 @@ public class BaseFeeMarketBlockHeaderGasPriceValidationRule
       final Wei currentBaseFee =
           header.getBaseFee().orElseThrow(() -> MissingBaseFeeFromBlockHeader());
 
-      final Wei expectedBaseFee = baseFeeMarket.computeBaseFee(header.getNumber(), parent);
+      final Wei expectedBaseFee =
+          baseFeeMarket.computeBaseFee(
+              header.getNumber(), header.getTimestamp(), header.getSlotNumber(), parent);
       if (!expectedBaseFee.equals(currentBaseFee)) {
         LOG.info(
             "Invalid block header: basefee {} does not equal expected basefee {}",

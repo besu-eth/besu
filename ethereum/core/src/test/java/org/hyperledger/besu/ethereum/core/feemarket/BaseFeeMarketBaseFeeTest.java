@@ -78,7 +78,7 @@ public class BaseFeeMarketBaseFeeTest {
             .gasUsed(parentGasUsed)
             .gasLimit(parentTargetGasUsed * baseFeeMarket.getSlackCoefficient())
             .buildHeader();
-    assertThat(baseFeeMarket.computeBaseFee(0L, parentHeader)).isEqualTo(expectedBaseFee);
+    assertThat(baseFeeMarket.computeBaseFee(0L, 12L, 0L, parentHeader)).isEqualTo(expectedBaseFee);
   }
 
   @SuppressWarnings("unused")

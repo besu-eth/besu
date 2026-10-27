@@ -301,6 +301,7 @@ public class ReplayTest {
     return new BaseFeePrioritizedTransactions(
         poolConfig,
         () -> currBlockHeader,
+        hash -> Optional.empty(),
         readyTransactions,
         txPoolMetrics,
         txReplacementTester,

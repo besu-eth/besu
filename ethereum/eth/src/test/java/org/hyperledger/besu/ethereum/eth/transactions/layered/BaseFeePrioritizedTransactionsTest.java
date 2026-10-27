@@ -67,6 +67,7 @@ public class BaseFeePrioritizedTransactionsTest extends AbstractPrioritizedTrans
     return new BaseFeePrioritizedTransactions(
         poolConfig,
         this::mockBlockHeader,
+        hash -> Optional.empty(),
         nextLayer,
         txPoolMetrics,
         transactionReplacementTester,

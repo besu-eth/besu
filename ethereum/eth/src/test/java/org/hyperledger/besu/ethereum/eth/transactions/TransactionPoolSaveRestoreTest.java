@@ -109,6 +109,7 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
         new BaseFeePrioritizedTransactions(
             poolConfig,
             protocolContext.getBlockchain()::getChainHeadHeader,
+            protocolContext.getBlockchain()::getBlockHeader,
             readyLayer,
             txPoolMetrics,
             transactionReplacementTester,

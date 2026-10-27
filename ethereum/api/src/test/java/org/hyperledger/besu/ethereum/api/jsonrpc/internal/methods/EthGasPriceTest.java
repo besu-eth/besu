@@ -392,7 +392,7 @@ public class EthGasPriceTest {
     var baseFee = genesisBaseFee;
     for (long i = 1; i <= chainHeadBlockNumber; i++) {
       final var parentHeader = blocksByNumber.get(i - 1).getHeader();
-      baseFee = baseFeeMarket.computeBaseFee(i, parentHeader);
+      baseFee = baseFeeMarket.computeBaseFee(i, 0L, 0L, parentHeader);
       final var block = createFakeBlock(i, txsNum, baseFee);
       blocksByNumber.put(i, block);
       blocksByHash.put(block.getHash(), block);

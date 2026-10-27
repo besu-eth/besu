@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 import java.util.Optional;
+import java.util.function.Supplier;
 
 public class FixedBaseFeeMarket extends LondonFeeMarket {
 
@@ -26,7 +27,18 @@ public class FixedBaseFeeMarket extends LondonFeeMarket {
   }
 
   @Override
-  public Wei computeBaseFee(final long blockNumber, final BlockHeader parentBlockHeader) {
+  public Wei computeBaseFee(
+      final long blockNumber,
+      final long timestamp,
+      final long slotNumber,
+      final BlockHeader parentBlockHeader) {
+    return baseFeeInitialValue;
+  }
+
+  @Override
+  public Wei predictNextBaseFee(
+      final BlockHeader headBlockHeader,
+      final Supplier<Optional<BlockHeader>> headParentBlockHeaderSupplier) {
     return baseFeeInitialValue;
   }
 

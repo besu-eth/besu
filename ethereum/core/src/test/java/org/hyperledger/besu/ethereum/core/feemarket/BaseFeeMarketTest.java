@@ -34,7 +34,7 @@ public class BaseFeeMarketTest {
   public void assertThatBaseFeeDecreasesWhenBelowTargetGasUsed() {
     assertThat(
             baseFeeMarket.computeBaseFee(
-                FORK_BLOCK + 1, parentHeaderWithGasUsed(TARGET_GAS_USED - 1000000L)))
+                FORK_BLOCK + 1, 12L, 0L, parentHeaderWithGasUsed(TARGET_GAS_USED - 1000000L)))
         .isLessThan(baseFeeMarket.getInitialBasefee())
         .isEqualTo(Wei.of(987500000L));
   }
@@ -43,8 +43,22 @@ public class BaseFeeMarketTest {
   public void assertThatBaseFeeIncreasesWhenAboveTargetGasUsed() {
     assertThat(
             baseFeeMarket.computeBaseFee(
-                FORK_BLOCK + 1, parentHeaderWithGasUsed(TARGET_GAS_USED + 1000000L)))
+                FORK_BLOCK + 1, 12L, 0L, parentHeaderWithGasUsed(TARGET_GAS_USED + 1000000L)))
         .isGreaterThan(baseFeeMarket.getInitialBasefee())
+        .isEqualTo(Wei.of(1012500000L));
+  }
+
+  @Test
+  public void predictedNextBaseFeeEqualsTheComputedOne() {
+    final BlockHeader headHeader = parentHeaderWithGasUsed(TARGET_GAS_USED + 1000000L);
+
+    assertThat(
+            baseFeeMarket.predictNextBaseFee(
+                headHeader,
+                () -> {
+                  throw new AssertionError("the parent of the head is not needed");
+                }))
+        .isEqualTo(baseFeeMarket.computeBaseFee(FORK_BLOCK + 1, 12L, 0L, headHeader))
         .isEqualTo(Wei.of(1012500000L));
   }
 

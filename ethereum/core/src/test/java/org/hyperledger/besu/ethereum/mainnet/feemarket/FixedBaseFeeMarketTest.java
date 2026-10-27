@@ -101,7 +101,17 @@ public class FixedBaseFeeMarketTest {
 
   @Test
   public void computeBaseFeeReturnsFixedValue() {
-    assertThat(fixedBaseFeeMarket.computeBaseFee(1L, new BlockHeaderTestFixture().buildHeader()))
+    assertThat(
+            fixedBaseFeeMarket.computeBaseFee(
+                1L, 12L, 1L, new BlockHeaderTestFixture().buildHeader()))
+        .isEqualTo(Wei.ONE);
+  }
+
+  @Test
+  public void predictNextBaseFeeReturnsFixedValue() {
+    assertThat(
+            fixedBaseFeeMarket.predictNextBaseFee(
+                new BlockHeaderTestFixture().buildHeader(), Optional::empty))
         .isEqualTo(Wei.ONE);
   }
 
