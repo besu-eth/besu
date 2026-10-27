@@ -4,20 +4,32 @@
 
 ### Breaking Changes
 - `engine_getPayload` no longer waits for the in-progress block build when only the empty block has been built, as [execution-apis#958](https://github.com/ethereum/execution-apis/pull/958) requires. The default of `--Xpos-block-finalization-timeout-ms` changes from 800 to 0 and the option now accepts 0; set it to a positive value to restore the previous wait. [#11774](https://github.com/besu-eth/besu/pull/11774)
-- `eth_getProof` now rejects a request with more than 1024 storage keys with `Invalid storage keys params` (`-32602`), the same limit as geth, Nethermind and Erigon. [#11697](https://github.com/besu-eth/besu/pull/11697)
-- `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `trace_call` and `trace_callMany` now reject a call that sets `maxFeePerBlobGas` without blob versioned hashes, or that sets an empty `blobVersionedHashes` list, with `Invalid blob count` (`-32602`) at every fork. Previously a `maxFeePerBlobGas` without hashes was accepted and the call ran without blobs, and a `maxFeePerBlobGas` of 0 also set the blob base fee the call saw to 0. An empty list failed with `Internal error` (`-32603`). Each call in a `trace_callMany` bundle gets the same rule. `debug_traceCall` and `eth_simulateV1` reject only an empty `blobVersionedHashes` list, and still accept a `maxFeePerBlobGas` without hashes. [#11556](https://github.com/besu-eth/besu/pull/11556)
-- `trace_filter` now matches a block reward's author against `toAddress` in range queries, as it already did for a single block, so a filter on an author's address returns its reward traces. [#11436](https://github.com/besu-eth/besu/pull/11436)
 - `eth_simulateV1` now rejects unknown account overrides [#11695](https://github.com/besu-eth/besu/pull/11695)
 
 ### Bug fixes
-- Docker images no longer trust the eMudhra roots listed in [OpenJDK's guidance](https://openjdk.org/emudhra) after the October 2026 CA compromise — emSign ECC Root CA - G3 (related to the compromised intermediate certificate authorities) and emSign Root CA - G1 (a precaution), along with emSign Root CA - G2 and AAA Certificate Services, which are listed but not present in the Eclipse Temurin base image. The Temurin base image does not include this fix yet. This removal applies only to the Docker images; if you run the Besu archive (tar/zip) on your own distribution or vendor JDK, that JDK may still trust these roots — see the [eMudhra incident report](https://github.com/besu-eth/besu/wiki/Incident-Report-2026-10-26-eMudhra-CA-Compromise) to check and remediate it. [#11756](https://github.com/besu-eth/besu/pull/11756)
 - Block propagation now retries a block that peers do not serve with a delay that grows from 250 ms to 30 s and stops after 10 retries, releasing the block number for a later announcement. Previously it rescheduled the retrieval immediately and without a limit for as long as the number stayed in the propagation range. Block propagation stops once a finalized forkchoice is received, so this only affects networks that do not send one (Clique/PoA) and tests, not mainnet. [#11674](https://github.com/besu-eth/besu/pull/11674)
 - `eth_call`, `eth_estimateGas`, `eth_createAccessList` and `debug_traceCall` now reject an invalid state override with the error declared for it instead of `Internal error` (`-32603`). An account override that sets both `state` and `stateDiff` returns `Invalid call params` (`-32602`) and is no longer logged at `ERROR`, and `movePrecompileToAddress` on an address that is not a precompile returns `-32000`, as `eth_simulateV1` does. [#11590](https://github.com/besu-eth/besu/issues/11590)
+- eth_simulateV1 call errors now match the execution-apis schema: reverts return execution reverted[: <reason>], out of gas returns out of gas, and a failing precompile returns -32015 instead of 3. [#11635](https://github.com/besu-eth/besu/pull/11635)
+- `eth_call`, `eth_estimateGas` and `callTracer` now decode `Panic(uint256)` revert data into a reason, such as `arithmetic underflow or overflow`, as geth does. [#11635](https://github.com/besu-eth/besu/pull/11635)
+- Discovery no longer buffers unbounded memory for inbound DiscV5 packets: over-sized datagrams are dropped before they are copied for dispatch, and the dispatch queue is bounded. [#11672](https://github.com/besu-eth/besu/pull/11672)
+- On OpenTelemetry, a supplied metric created again, as by the world state download after a resync, now replaces the old one, as on Prometheus. Previously a labelled supplied gauge or counter threw `IllegalStateException` and a gauge kept reporting its first supplier. `debug_metrics` no longer fails on OpenTelemetry once a supplied counter is registered. [#11773](https://github.com/besu-eth/besu/pull/11773)
+
+### Additions and Improvements
+- With `--Xevm-v2`, `MessageFrame.getMaybeUpdatedMemory` and `getMaybeUpdatedStorage` are recorded only while a tracer that traces operations runs. [#11690](https://github.com/besu-eth/besu/pull/11690)
+- Update besu-native to 2.1.0 and compute the secp256k1 ECDH key agreements of RLPx handshakes and DiscV5 natively, which removes about 2 MB of allocation per agreement. [#11648](https://github.com/besu-eth/besu/pull/11648)
+
+## 26.10.2
+
+### Breaking Changes
+- `eth_getProof` now rejects a request with more than 1024 storage keys with `Invalid storage keys params` (`-32602`), the same limit as geth, Nethermind and Erigon. [#11697](https://github.com/besu-eth/besu/pull/11697)
+- `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `trace_call` and `trace_callMany` now reject a call that sets `maxFeePerBlobGas` without blob versioned hashes, or that sets an empty `blobVersionedHashes` list, with `Invalid blob count` (`-32602`) at every fork. Previously a `maxFeePerBlobGas` without hashes was accepted and the call ran without blobs, and a `maxFeePerBlobGas` of 0 also set the blob base fee the call saw to 0. An empty list failed with `Internal error` (`-32603`). Each call in a `trace_callMany` bundle gets the same rule. `debug_traceCall` and `eth_simulateV1` reject only an empty `blobVersionedHashes` list, and still accept a `maxFeePerBlobGas` without hashes. [#11556](https://github.com/besu-eth/besu/pull/11556)
+- `trace_filter` now matches a block reward's author against `toAddress` in range queries, as it already did for a single block, so a filter on an author's address returns its reward traces. [#11436](https://github.com/besu-eth/besu/pull/11436)
+
+### Bug fixes
+- Docker images no longer trust the eMudhra roots listed in [OpenJDK's guidance](https://openjdk.org/emudhra) after the October 2026 CA compromise — emSign ECC Root CA - G3 (related to the compromised intermediate certificate authorities) and emSign Root CA - G1 (a precaution), along with emSign Root CA - G2 and AAA Certificate Services, which are listed but not present in the Eclipse Temurin base image. The Temurin base image does not include this fix yet. This removal applies only to the Docker images; if you run the Besu archive (tar/zip) on your own distribution or vendor JDK, that JDK may still trust these roots — see the [eMudhra incident report](https://github.com/besu-eth/besu/wiki/Incident-Report-2026-10-26-eMudhra-CA-Compromise) to check and remediate it. [#11756](https://github.com/besu-eth/besu/pull/11756)
 - The Osaka (EIP-7883) MODEXP gas cost now saturates for declared base or modulus lengths of 2^34 - 7 bytes and above, matching go-ethereum and reth. The multiplication complexity overflowed and the price fell to the 500 gas floor. Mainnet is unaffected because EIP-7823 caps those lengths at 1024 bytes. [#11596](https://github.com/besu-eth/besu/issues/11596)
 - The layered transaction pool no longer logs an `IndexOutOfBoundsException` when a sender's pending transactions are reconciled against an account nonce that leaves them `--tx-pool-max-future-by-sender` or more nonces ahead, as on a node that has fallen behind the chain head. Those transactions are now dropped during the reconciliation, as a new transaction that far ahead would be. [#11501](https://github.com/besu-eth/besu/issues/11501)
 - `eth_simulateV1` now numbers `logIndex` over the logs that the calls of a block return, starting at `0`, as execution-apis specifies. Previously each call that returned no logs, such as a failed call, still used one index. [#11584](https://github.com/besu-eth/besu/pull/11584)
-- eth_simulateV1 call errors now match the execution-apis schema: reverts return execution reverted[: <reason>], out of gas returns out of gas, and a failing precompile returns -32015 instead of 3. [#11635](https://github.com/besu-eth/besu/pull/11635)
-- `eth_call`, `eth_estimateGas` and `callTracer` now decode `Panic(uint256)` revert data into a reason, such as `arithmetic underflow or overflow`, as geth does. [#11635](https://github.com/besu-eth/besu/pull/11635)
 - Fix incorrect sync status reporting. `eth_syncing` now reports progress during snap sync (previously it reported "not syncing" for the whole snap sync), with `highestBlock` taken from the best-chain height (the latest `engine_newPayload` head under PoS). The ethstats `syncing` field and `BackwardSyncContext.isSyncing()` no longer report the inverse of the actual state. `/readiness` no longer reports ready while the world state download, trie heal or flat database heal is still in progress. A backward sync session that completed synchronously is no longer reused by later calls. [#11260](https://github.com/besu-eth/besu/issues/11260)
 - `eth_simulateV1` with `validation` disabled now returns `-32603` for a call whose sender nonce is `2^64-1`, as EIP-2681 requires. Previously the nonce wrapped to 0 and the call succeeded. A call whose nonce is below the sender nonce now runs instead of failing with `-38010`, because disabled validation skips the check that the call nonce equals the sender nonce. [#11578](https://github.com/besu-eth/besu/pull/11578)
 - `eth_simulateV1` with `validation` disabled no longer caps the execution gas of a call after Amsterdam at `TX_MAX_GAS_LIMIT` (EIP-8037). The whole gas limit of the call is execution gas, and the default gas limit is the block gas limit minus the larger of the execution gas and the state gas that the block has used. With `validation` enabled, a call whose intrinsic or calldata floor cost exceeds `TX_MAX_GAS_LIMIT` is now rejected with `-38013`, because EIP-8037 caps that cost. Geth rejects the same call with `-32603`. [#11579](https://github.com/besu-eth/besu/pull/11579)
@@ -36,8 +48,6 @@
 - A peer that answers a header, body or sync block body request with malformed RLP is now disconnected for breach of protocol, as it already was for pooled transactions, receipts and block access lists. Previously the decoding failure was logged at ERROR as a server error and the peer stayed connected. [#11451](https://github.com/besu-eth/besu/pull/11451)
 - The layered transaction pool notifies a transaction as added before the evictions that make space for it. Previously, when the pool was full after adding a transaction and the eviction dropped the transaction itself, it was notified as dropped before it was notified as added. [#11688](https://github.com/besu-eth/besu/pull/11688)
 - The sequenced transaction pool notifies transaction added and dropped events in the order they happen. Previously a transaction could be notified as dropped before it was notified as added, when another thread replaced it right after it was added, or when it was evicted because the pool was full after adding it. A transaction removed by the timed eviction after it had already been dropped is no longer notified as dropped a second time. [#11685](https://github.com/besu-eth/besu/pull/11685)
-- Discovery no longer buffers unbounded memory for inbound DiscV5 packets: over-sized datagrams are dropped before they are copied for dispatch, and the dispatch queue is bounded. [#11672](https://github.com/besu-eth/besu/pull/11672)
-- On OpenTelemetry, a supplied metric created again, as by the world state download after a resync, now replaces the old one, as on Prometheus. Previously a labelled supplied gauge or counter threw `IllegalStateException` and a gauge kept reporting its first supplier. `debug_metrics` no longer fails on OpenTelemetry once a supplied counter is registered. [#11773](https://github.com/besu-eth/besu/pull/11773)
 
 ### Additions and Improvements
 - `trace_filter` accepts `mode`: `intersection`, the default, or `union`, which matches a trace in either `fromAddress` or `toAddress`. An unknown value is rejected with `-32602`. [#11436](https://github.com/besu-eth/besu/pull/11436)
@@ -51,8 +61,6 @@
 - Tracers read the stack of a frame through `TracedStack`, which also reads the EVM v2 stack. With `--Xevm-v2`, a plugin tracer that calls `MessageFrame.getStackItem` or `stackSize` throws a `NullPointerException`, as those read only the EVM v1 stack. [#11524](https://github.com/besu-eth/besu/pull/11524)
 - Snap sync checks the flat database ranges of its heal stage in parallel, which shortens that stage on mainnet from about 3 h 40 min to 34 min. [#11495](https://github.com/besu-eth/besu/pull/11495)
 - Update the discovery library to 26.10.1 for faster discv5 secp256k1 verification and ECDH, with Netty, BouncyCastle, Guava, Log4j and Reactor raised to the versions it requires. [#11671](https://github.com/besu-eth/besu/pull/11671)
-- With `--Xevm-v2`, `MessageFrame.getMaybeUpdatedMemory` and `getMaybeUpdatedStorage` are recorded only while a tracer that traces operations runs. [#11690](https://github.com/besu-eth/besu/pull/11690)
-- Update besu-native to 2.1.0 and compute the secp256k1 ECDH key agreements of RLPx handshakes and DiscV5 natively, which removes about 2 MB of allocation per agreement. [#11648](https://github.com/besu-eth/besu/pull/11648)
 
 ## 26.10.1
 
@@ -1138,7 +1146,6 @@ Affects users of eth_subscribe (WebSocket) eg SSV, and ethstats integration
 - Remove the deprecated `--Xsnapsync-synchronizer-flat-db-healing-enabled`, use `--Xbonsai-full-flat-db-enabled` instead. [#8415](https://github.com/hyperledger/besu/issues/8415)
 - Change in behavior, the non-standard `strict` parameter of the `eth_estimateGas` method changed its default from `false` to `true`, for more accurate estimations. It is still possible to force the previous behavior, explicitly passing the `strict` parameter in the request, set to `false` [#8629](https://github.com/hyperledger/besu/pull/8629)
 
-
 ### Upcoming Breaking Changes
 - `--Xbonsai-limit-trie-logs-enabled` is deprecated, use `--bonsai-limit-trie-logs-enabled` instead.
 - `--Xbonsai-trie-log-pruning-enabled` is deprecated, use `--bonsai-limit-trie-logs-enabled` instead.
@@ -1364,7 +1371,6 @@ have support in besu-native can run mainnet ethereum configurations.  Windows su
 ### Additions and Improvements
 - Add a tx selector to skip txs from the same sender after the first not selected [#8216](https://github.com/hyperledger/besu/pull/8216)
 - `rpc-gas-cap` default value has changed from 0 (unlimited) to 50M [#8251](https://github.com/hyperledger/besu/issues/8251)
-
 
 #### Prague
 - Add timestamps to enable Prague hardfork on Sepolia and Holesky test networks [#8163](https://github.com/hyperledger/besu/pull/8163)
@@ -1667,8 +1673,6 @@ https://github.com/hyperledger/besu/releases/tag/24.7.0
 https://github.com/hyperledger/besu/releases/download/24.7.0/besu-24.7.0.tar.gz / sha256 96cf47defd1d8c10bfc22634e53e3d640eaa81ef58cb0808e5f4265998979530
 https://github.com/hyperledger/besu/releases/download/24.7.0/besu-24.7.0.zip / sha256 7e92e2eb469be197af8c8ca7ac494e7a2e7ee91cbdb02d99ff87fb5209e0c2a0
 
-
-
 ## 24.6.0
 
 ### Breaking Changes
@@ -1907,7 +1911,6 @@ https://hyperledger.jfrog.io/artifactory/besu-binaries/besu/24.1.1/besu-24.1.1.t
 Note, due to a CI race with the release job, the initial published version of 24.1.1 were overwritten by artifacts generated from the same sources, but differ in their embedded timestamps. The initial SHAs are noted here but are deprecated:
 ~~https://hyperledger.jfrog.io/artifactory/besu-binaries/besu/24.1.1/besu-24.1.1.zip / sha256 b6b64f939e0bb4937ce90fc647e0a7073ce3e359c10352b502059955070a60c6
 https://hyperledger.jfrog.io/artifactory/besu-binaries/besu/24.1.1/besu-24.1.1.tar.gz / sha256 cfcae04c30769bf338b0740ac65870f9346d3469931bb46cdba3b2f65d311e7a~~
-
 
 ## 24.1.0
 
