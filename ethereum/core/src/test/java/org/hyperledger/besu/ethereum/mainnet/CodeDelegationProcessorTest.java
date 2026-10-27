@@ -26,6 +26,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.CodeDelegationResult.AuthorityAccess;
@@ -78,6 +79,35 @@ class CodeDelegationProcessorTest {
     lenient().when(transaction.getSender()).thenReturn(TX_SENDER);
     lenient().when(transaction.getValue()).thenReturn(Wei.ZERO);
     lenient().when(transaction.getTo()).thenReturn(Optional.of(TX_TO));
+    lenient().when(authority.getCodeHash()).thenReturn(Hash.EMPTY);
+  }
+
+  @Test
+  void shouldRecordAuthorityCodeHashBeforeAndAfterDelegation() {
+    // Arrange: an already-delegated authority redelegated to a new target.
+    final Hash before = Hash.hash(Bytes.of(1));
+    final Hash after = Hash.hash(Bytes.of(2));
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 1L);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(authority);
+    when(worldUpdater.getAccount(any())).thenReturn(authority);
+    when(authority.getNonce()).thenReturn(1L);
+    when(authority.getCode()).thenReturn(delegationCode());
+    when(authority.getCodeHash()).thenReturn(before).thenReturn(after);
+    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
+
+    // Assert: the EIP-8025 authorization read sees the designator it replaces, and the write is
+    // the designator it sets.
+    assertThat(result.authorityAccesses())
+        .singleElement()
+        .satisfies(
+            access -> {
+              assertThat(access.codeHashBefore()).isEqualTo(before);
+              assertThat(access.codeHashAfter()).isEqualTo(after);
+            });
   }
 
   @Test
@@ -415,7 +445,7 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.authorityAccesses())
-        .containsExactly(AuthorityAccess.touchOnly(authorityOf(codeDelegation)));
+        .containsExactly(AuthorityAccess.touchOnly(authorityOf(codeDelegation), Hash.EMPTY));
     verify(worldUpdater, never()).createAccount(any());
   }
 
@@ -475,8 +505,8 @@ class CodeDelegationProcessorTest {
     // designator its predecessor wrote, so it owes neither ACCOUNT_WRITE nor a second AUTH_BASE.
     assertThat(result.authorityAccesses())
         .containsExactly(
-            new AuthorityAccess(AUTHORITY, true, true, true),
-            new AuthorityAccess(AUTHORITY, false, false, false));
+            new AuthorityAccess(AUTHORITY, true, true, true, Hash.EMPTY, Hash.EMPTY),
+            new AuthorityAccess(AUTHORITY, false, false, false, Hash.EMPTY, Hash.EMPTY));
     assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
     verify(authority, times(2)).incrementNonce();
   }
@@ -501,8 +531,8 @@ class CodeDelegationProcessorTest {
     // indicator bytes, but refunds nothing either.
     assertThat(result.authorityAccesses())
         .containsExactly(
-            new AuthorityAccess(AUTHORITY, true, true, true),
-            new AuthorityAccess(AUTHORITY, false, false, false));
+            new AuthorityAccess(AUTHORITY, true, true, true, Hash.EMPTY, Hash.EMPTY),
+            new AuthorityAccess(AUTHORITY, false, false, false, Hash.EMPTY, Hash.EMPTY));
     verify(authority, times(2)).incrementNonce();
   }
 
@@ -522,7 +552,8 @@ class CodeDelegationProcessorTest {
 
     // Assert: the leaf exists and no indicator is written, so only ACCOUNT_WRITE is owed.
     assertThat(result.authorityAccesses())
-        .containsExactly(new AuthorityAccess(AUTHORITY, false, true, false));
+        .containsExactly(
+            new AuthorityAccess(AUTHORITY, false, true, false, Hash.EMPTY, Hash.EMPTY));
     assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
     verify(authority).incrementNonce();
   }
@@ -555,7 +586,8 @@ class CodeDelegationProcessorTest {
       final boolean newAccount,
       final boolean accountWrite,
       final boolean authBase) {
-    return new AuthorityAccess(authorityOf(codeDelegation), newAccount, accountWrite, authBase);
+    return new AuthorityAccess(
+        authorityOf(codeDelegation), newAccount, accountWrite, authBase, Hash.EMPTY, Hash.EMPTY);
   }
 
   private CodeDelegation createCodeDelegation(final BigInteger chainId, final long nonce) {

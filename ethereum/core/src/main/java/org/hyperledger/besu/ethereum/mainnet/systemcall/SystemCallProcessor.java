@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.CodeAccessTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
@@ -154,6 +155,15 @@ public class SystemCallProcessor {
       return Optional.empty();
     }
 
+    // System calls are untraced by default. A tracer is only passed when it is block-aware,
+    // enabled, and opts into system-call tracing. Otherwise, OperationTracer.NO_TRACING is used.
+    final OperationTracer tracer =
+        context.getOperationTracer() instanceof BlockAwareOperationTracer blockAwareTracer
+                && blockAwareTracer.isEnabled()
+                && blockAwareTracer.isSystemCallTracingEnabled()
+            ? blockAwareTracer
+            : OperationTracer.NO_TRACING;
+
     // The frame runs in a child updater, committed into systemCallUpdater on success, so the
     // accounts systemCallUpdater wraps still hold the pre-call state the access list diffs against.
     final MessageFrame frame =
@@ -163,16 +173,8 @@ public class SystemCallProcessor {
             context.getBlockHeader(),
             context.getBlockHashLookup(),
             inputData,
-            accessLocationTracker);
-
-    // System calls are untraced by default. A tracer is only passed when it is block-aware,
-    // enabled, and opts into system-call tracing. Otherwise, OperationTracer.NO_TRACING is used.
-    final OperationTracer tracer =
-        context.getOperationTracer() instanceof BlockAwareOperationTracer blockAwareTracer
-                && blockAwareTracer.isEnabled()
-                && blockAwareTracer.isSystemCallTracingEnabled()
-            ? blockAwareTracer
-            : OperationTracer.NO_TRACING;
+            accessLocationTracker,
+            tracer);
     Deque<MessageFrame> stack = frame.getMessageFrameStack();
     while (!stack.isEmpty()) {
       final MessageFrame current = stack.peekFirst();
@@ -205,7 +207,8 @@ public class SystemCallProcessor {
       final ProcessableBlockHeader blockHeader,
       final BlockHashLookup blockHashLookup,
       final Bytes inputData,
-      final Optional<AccessLocationTracker> maybeAccessLocationTracker) {
+      final Optional<AccessLocationTracker> maybeAccessLocationTracker,
+      final OperationTracer operationTracer) {
 
     final AbstractMessageProcessor processor =
         mainnetTransactionProcessor.getMessageProcessor(MessageFrame.Type.MESSAGE_CALL);
@@ -236,7 +239,8 @@ public class SystemCallProcessor {
             // Pre-Amsterdam storageSetStateGas() is 0, so this seeds an empty reservoir (no
             // effect).
             .initialStateGasReservoir(systemCallStateGasReservoir())
-            .code(getCode(worldUpdater.get(callAddress), processor));
+            .code(getCode(worldUpdater.get(callAddress), processor, operationTracer))
+            .codeAccessTracer(operationTracer);
 
     maybeAccessLocationTracker.ifPresent(
         tracker -> {
@@ -253,17 +257,27 @@ public class SystemCallProcessor {
     return stateGasCalc.storageSetStateGas() * SYSTEM_MAX_SSTORES_PER_CALL;
   }
 
-  private Code getCode(final Account contract, final AbstractMessageProcessor processor) {
+  private Code getCode(
+      final Account contract,
+      final AbstractMessageProcessor processor,
+      final CodeAccessTracer codeAccessTracer) {
     if (contract == null) {
       return Code.EMPTY_CODE;
     }
 
+    final Code code;
     // Bonsai accounts may have a fully cached code, so we use that one
     if (contract.getCodeCache() != null) {
-      return contract.getOrCreateCachedCode();
+      code = contract.getOrCreateCachedCode();
     }
-
     // Any other account can only use the cached jump dest analysis if available
-    return processor.getOrCreateCachedJumpDest(contract.getCodeHash(), contract.getCode());
+    else {
+      code = processor.getOrCreateCachedJumpDest(contract.getCodeHash(), contract.getCode());
+    }
+    // The system contract's code was just loaded to execute the system call.
+    if (codeAccessTracer.isCodeAccessTracing()) {
+      codeAccessTracer.traceCodeRead(contract.getAddress(), contract.getCodeHash());
+    }
+    return code;
   }
 }

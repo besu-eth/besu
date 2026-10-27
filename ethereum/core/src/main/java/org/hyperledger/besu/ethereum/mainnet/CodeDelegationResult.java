@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -38,13 +39,28 @@ public class CodeDelegationResult {
    * @param newAccount whether the authority's account leaf had to be created
    * @param accountWrite whether this is the transaction's first write to the authority's leaf
    * @param authBase whether a net-new delegation indicator is written for the authority
+   * @param codeHashBefore the authority's code hash when this authorization read it, after any
+   *     earlier authorization in the transaction; the EIP-8025 authorization code read
+   * @param codeHashAfter the authority's code hash after this authorization (equal to {@code
+   *     codeHashBefore} when it failed validation); the EIP-8025 code write when it differs
    */
   public record AuthorityAccess(
-      Address authority, boolean newAccount, boolean accountWrite, boolean authBase) {
+      Address authority,
+      boolean newAccount,
+      boolean accountWrite,
+      boolean authBase,
+      Hash codeHashBefore,
+      Hash codeHashAfter) {
 
-    /** An authorization that was touched during validation but failed it, so is never charged. */
-    public static AuthorityAccess touchOnly(final Address authority) {
-      return new AuthorityAccess(authority, false, false, false);
+    /**
+     * An authorization that was touched during validation but failed it, so is never charged.
+     *
+     * @param authority the recovered authority address
+     * @param codeHash the authority's code hash, which the failed validation still read
+     * @return the access
+     */
+    public static AuthorityAccess touchOnly(final Address authority, final Hash codeHash) {
+      return new AuthorityAccess(authority, false, false, false, codeHash, codeHash);
     }
   }
 

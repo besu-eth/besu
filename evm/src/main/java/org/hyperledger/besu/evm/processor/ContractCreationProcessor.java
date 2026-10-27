@@ -20,6 +20,7 @@ import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.contractvalidation.ContractValidationRule;
+import org.hyperledger.besu.evm.frame.CodeAccessTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
@@ -230,6 +231,10 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
 
     final MutableAccount contract = frame.getWorldUpdater().getOrCreate(frame.getContractAddress());
     contract.setCode(contractCode);
+    final CodeAccessTracer codeAccessTracer = frame.getCodeAccessTracer();
+    if (codeAccessTracer.isCodeAccessTracing()) {
+      codeAccessTracer.traceCodeWrite(contract.getAddress(), contract.getCodeHash());
+    }
     LOG.atTrace()
         .setMessage("EIP-8037 REC_CODE_DEPOSIT depth={} addr={} len={}")
         .addArgument(frame.getDepth())

@@ -187,6 +187,21 @@ public class MainnetBlockContextProcessorTest {
     assertThat(tracerCaptor.getValue()).isSameAs(tracer);
   }
 
+  @Test
+  void systemCallReportsTheSystemContractCodeRead() {
+    BlockAwareOperationTracer tracer = mock(BlockAwareOperationTracer.class);
+    when(tracer.isEnabled()).thenReturn(true);
+    when(tracer.isSystemCallTracingEnabled()).thenReturn(true);
+    when(tracer.isCodeAccessTracing()).thenReturn(true);
+    successfulProcess();
+    final Bytes code = Bytes.fromHexString("0x00");
+    final MutableWorldState worldState = createWorldState(CALL_ADDRESS, code);
+
+    processSystemCallWithTracer(worldState, tracer);
+
+    verify(tracer).traceCodeRead(CALL_ADDRESS, Hash.hash(code));
+  }
+
   @ParameterizedTest
   @ValueSource(
       strings = {

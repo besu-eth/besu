@@ -37,6 +37,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.account.MutableAccount.BalanceUnderflowException;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.CodeAccessTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -237,6 +238,10 @@ public class MainnetTransactionProcessor {
       }
 
       operationTracer.tracePrepareTransaction(worldState, transaction);
+      // validateForSender read the sender's code above.
+      if (operationTracer.isCodeAccessTracing()) {
+        operationTracer.traceCodeRead(senderAddress, sender.getCodeHash());
+      }
 
       final Set<Address> eip2930WarmAddressList = new HashSet<>(Address.SIZE);
 
@@ -339,6 +344,16 @@ public class MainnetTransactionProcessor {
                   codeDelegationResult
                       .authorityAccesses()
                       .forEach(access -> tracker.addTouchedAccount(access.authority())));
+          // Likewise, report each authorization's code read and the delegation it wrote now.
+          if (operationTracer.isCodeAccessTracing()) {
+            for (final CodeDelegationResult.AuthorityAccess access :
+                codeDelegationResult.authorityAccesses()) {
+              operationTracer.traceCodeRead(access.authority(), access.codeHashBefore());
+              if (!access.codeHashAfter().equals(access.codeHashBefore())) {
+                operationTracer.traceCodeWrite(access.authority(), access.codeHashAfter());
+              }
+            }
+          }
           // The intrinsic already validated the charge, so there is nothing left to fail.
           codeDelegationRefund =
               gasCalculator.calculateDelegateCodeGasRefund(
@@ -391,7 +406,8 @@ public class MainnetTransactionProcessor {
               .miningBeneficiary(miningBeneficiary)
               .blockHashLookup(blockHashLookup)
               .eip2930AccessListWarmStorage(eip2930StorageList)
-              .enableEvmV2(messageCallProcessor.runsOnEvmV2());
+              .enableEvmV2(messageCallProcessor.runsOnEvmV2())
+              .codeAccessTracer(operationTracer);
 
       accessLocationTracker.ifPresent(commonMessageFrameBuilder::eip7928AccessList);
 
@@ -435,7 +451,8 @@ public class MainnetTransactionProcessor {
                 frameWorldState,
                 eip2930WarmAddressList,
                 frameWorldState.get(to),
-                accessLocationTracker);
+                accessLocationTracker,
+                operationTracer);
 
         initialFrame =
             commonMessageFrameBuilder
@@ -458,6 +475,10 @@ public class MainnetTransactionProcessor {
               stateGasCalc,
               createTargetAlreadyAlive,
               delegationAccesses);
+      if (prepCharges.halted()) {
+        // The delegations the preparation applied are discarded with it.
+        operationTracer.traceStartTransactionFailed(worldUpdater, transaction);
+      }
 
       // Transaction-level state-gas charges persist regardless of the execution outcome, so put
       // them out of reach of a rollback.
@@ -880,6 +901,13 @@ public class MainnetTransactionProcessor {
         // entry charge runs out of gas — but an authorization out-of-gas, which comes first,
         // leaves it out.
         initialFrame.getEip7928AccessList().ifPresent(bal -> bal.addTouchedAccount(to));
+        final CodeAccessTracer codeAccessTracer = initialFrame.getCodeAccessTracer();
+        if (codeAccessTracer.isCodeAccessTracing()) {
+          final Account toAccount = frameWorldState.get(to);
+          if (toAccount != null) {
+            codeAccessTracer.traceCodeRead(to, toAccount.getCodeHash());
+          }
+        }
         if (stateGasActive) {
           // Measured because the leaf it pays for rolls back with a failed transaction, unlike a
           // delegation, which survives one.
@@ -910,11 +938,18 @@ public class MainnetTransactionProcessor {
       final MessageFrame initialFrame,
       final StateGasCostCalculator stateGasCalc,
       final List<CodeDelegationResult.AuthorityAccess> delegationAccesses) {
+    final CodeAccessTracer codeAccessTracer = initialFrame.getCodeAccessTracer();
     final long accountWriteCost = gasCalculator.getAccountWriteGasCost();
     for (final CodeDelegationResult.AuthorityAccess access : delegationAccesses) {
       initialFrame
           .getEip7928AccessList()
           .ifPresent(bal -> bal.addTouchedAccount(access.authority()));
+      // Validating the authorization read the authority's code, before its charge: the read stays
+      // even if that charge runs out of gas, so an out-of-gas that stops the replay leaves exactly
+      // the authorities reached, up to and including the one being charged.
+      if (codeAccessTracer.isCodeAccessTracing()) {
+        codeAccessTracer.traceCodeRead(access.authority(), access.codeHashBefore());
+      }
       if (access.newAccount()
           && !initialFrame.consumeStateGas(stateGasCalc.emptyAccountDelegationStateGas())) {
         return false;
@@ -927,6 +962,12 @@ public class MainnetTransactionProcessor {
       }
       if (access.authBase() && !initialFrame.consumeStateGas(stateGasCalc.authBaseStateGas())) {
         return false;
+      }
+      // The authorization's delegation is written once its charge clears. Rewriting the code
+      // already read changes nothing, since that read is kept.
+      if (codeAccessTracer.isCodeAccessTracing()
+          && !access.codeHashAfter().equals(access.codeHashBefore())) {
+        codeAccessTracer.traceCodeWrite(access.authority(), access.codeHashAfter());
       }
     }
     return true;
@@ -971,6 +1012,13 @@ public class MainnetTransactionProcessor {
       // EIP-7928: the target is loaded only once its access is paid for, so an access charge that
       // runs out of gas has to leave it out of the list entirely.
       initialFrame.getEip7928AccessList().ifPresent(bal -> bal.addTouchedAccount(target));
+      final CodeAccessTracer codeAccessTracer = initialFrame.getCodeAccessTracer();
+      if (codeAccessTracer.isCodeAccessTracing()) {
+        final Account targetAccount = worldState.get(target);
+        if (targetAccount != null) {
+          codeAccessTracer.traceCodeRead(target, targetAccount.getCodeHash());
+        }
+      }
     }
     return true;
   }
@@ -1015,7 +1063,8 @@ public class MainnetTransactionProcessor {
       final WorldUpdater worldUpdater,
       final Set<Address> warmAddressList,
       final Account contract,
-      final Optional<AccessLocationTracker> accessLocationTracker) {
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final CodeAccessTracer codeAccessTracer) {
     if (contract == null) {
       return Code.EMPTY_CODE;
     }
@@ -1026,7 +1075,8 @@ public class MainnetTransactionProcessor {
     }
 
     if (hasCodeDelegation(contract.getCode())) {
-      return delegationTargetCode(worldUpdater, warmAddressList, contract, accessLocationTracker);
+      return delegationTargetCode(
+          worldUpdater, warmAddressList, contract, accessLocationTracker, codeAccessTracer);
     }
 
     // Bonsai accounts may have a fully cached code, so we use that one
@@ -1043,7 +1093,8 @@ public class MainnetTransactionProcessor {
       final WorldUpdater worldUpdater,
       final Set<Address> warmAddressList,
       final Account contract,
-      final Optional<AccessLocationTracker> accessLocationTracker) {
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final CodeAccessTracer codeAccessTracer) {
     // Besu resolves the delegation target eagerly to build the frame, but EIP-7928 only lists it
     // once its access charge is paid, so recording is left to chargeTransactionEntry. Pre-Amsterdam
     // forks charge no such access and so still record it here.
@@ -1061,6 +1112,10 @@ public class MainnetTransactionProcessor {
     // still warm it here.
     if (!stateGasActive) {
       warmAddressList.add(target.address());
+      // Same for its code read: from Amsterdam, chargeTransactionEntry reports it.
+      if (codeAccessTracer.isCodeAccessTracing()) {
+        codeAccessTracer.traceCodeRead(target.address(), target.code().getCodeHash());
+      }
     }
 
     return target.code();

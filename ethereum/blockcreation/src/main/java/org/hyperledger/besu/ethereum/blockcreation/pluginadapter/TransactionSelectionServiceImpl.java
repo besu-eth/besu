@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.blockcreation.pluginadapter;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.PendingTransaction;
 import org.hyperledger.besu.datatypes.Transaction;
@@ -232,6 +233,39 @@ public class TransactionSelectionServiceImpl implements TransactionSelectionServ
       blockAwareOperationTracers.forEach(
           blockAwareOperationTracer ->
               blockAwareOperationTracer.traceStartTransaction(worldView, transaction));
+    }
+
+    @Override
+    public void traceStartTransactionFailed(
+        final WorldView worldView, final Transaction transaction) {
+      blockAwareOperationTracers.forEach(
+          blockAwareOperationTracer ->
+              blockAwareOperationTracer.traceStartTransactionFailed(worldView, transaction));
+    }
+
+    @Override
+    public boolean isCodeAccessTracing() {
+      return blockAwareOperationTracers.stream()
+          .anyMatch(BlockAwareOperationTracer::isCodeAccessTracing);
+    }
+
+    // Code access events only go to the tracers that opted in, as when each is used on its own.
+    @Override
+    public void traceCodeRead(final Address address, final Hash codeHash) {
+      blockAwareOperationTracers.stream()
+          .filter(BlockAwareOperationTracer::isCodeAccessTracing)
+          .forEach(
+              blockAwareOperationTracer ->
+                  blockAwareOperationTracer.traceCodeRead(address, codeHash));
+    }
+
+    @Override
+    public void traceCodeWrite(final Address address, final Hash codeHash) {
+      blockAwareOperationTracers.stream()
+          .filter(BlockAwareOperationTracer::isCodeAccessTracing)
+          .forEach(
+              blockAwareOperationTracer ->
+                  blockAwareOperationTracer.traceCodeWrite(address, codeHash));
     }
 
     @Override

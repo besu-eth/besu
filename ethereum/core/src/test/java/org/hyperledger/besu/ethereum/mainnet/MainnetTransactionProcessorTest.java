@@ -22,6 +22,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -263,9 +264,10 @@ class MainnetTransactionProcessorTest {
 
     final CodeDelegationResult delegationResult = new CodeDelegationResult();
     delegationResult.addAuthorityAccess(
-        new CodeDelegationResult.AuthorityAccess(appliedAuthority, false, true, false));
+        new CodeDelegationResult.AuthorityAccess(
+            appliedAuthority, false, true, false, Hash.EMPTY, Hash.EMPTY));
     delegationResult.addAuthorityAccess(
-        CodeDelegationResult.AuthorityAccess.touchOnly(skippedAuthority));
+        CodeDelegationResult.AuthorityAccess.touchOnly(skippedAuthority, Hash.EMPTY));
     final CodeDelegationProcessor codeDelegationProcessor = mock(CodeDelegationProcessor.class);
     when(codeDelegationProcessor.process(any(), any())).thenReturn(delegationResult);
     final AccessLocationTracker accessLocationTracker = mock(AccessLocationTracker.class);

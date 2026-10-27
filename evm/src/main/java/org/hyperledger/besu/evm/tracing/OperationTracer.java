@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.frame.CodeAccessTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
@@ -30,7 +31,7 @@ import java.util.Set;
 import org.apache.tuweni.bytes.Bytes;
 
 /** The interface Operation tracer. */
-public interface OperationTracer {
+public interface OperationTracer extends CodeAccessTracer {
 
   /** The constant NO_TRACING. */
   OperationTracer NO_TRACING =
@@ -91,6 +92,19 @@ public interface OperationTracer {
    * @param transaction the transaction which will be processed
    */
   default void traceStartTransaction(final WorldView worldView, final Transaction transaction) {}
+
+  /**
+   * Trace the failure of a transaction's top-frame charges after {@link #traceStartTransaction},
+   * e.g. an out-of-gas while charging its EIP-7702 authorizations. What those charges applied, such
+   * as delegation designators, is discarded, and the top frame runs no code: it is never entered
+   * ({@link #traceContextEnter}), only re-entered ({@link #traceContextReEnter}) to exit as failed
+   * ({@link #traceContextExit}).
+   *
+   * @param worldView an immutable view of the execution context
+   * @param transaction the transaction whose top-frame charges failed
+   */
+  default void traceStartTransactionFailed(
+      final WorldView worldView, final Transaction transaction) {}
 
   /**
    * Trace the end of a transaction just before mining reward.

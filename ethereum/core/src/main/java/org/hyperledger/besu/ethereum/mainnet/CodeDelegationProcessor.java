@@ -19,6 +19,7 @@ import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDe
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -122,11 +123,15 @@ public class CodeDelegationProcessor {
     // deleted by clearAccountsThatAreEmpty() even when authorization is invalid/skipped.
     final Optional<Account> maybeExistingAccount =
         Optional.ofNullable(worldUpdater.get(authorizer));
+    // EIP-8025: the code this authorization's validation reads, including any designator an
+    // earlier authorization in this transaction wrote.
+    final Hash codeHashBefore = maybeExistingAccount.map(Account::getCodeHash).orElse(Hash.EMPTY);
     // EIP-2929 warms the authority as soon as its signature recovers, ahead of the nonce/code
     // checks, so every path from here records an access. The block-access-list touch waits for the
     // runtime charge to replay them, so an out-of-gas leaves the authorities after it untouched.
     if (!canSetCodeDelegation(codeDelegation, maybeExistingAccount)) {
-      result.addAuthorityAccess(CodeDelegationResult.AuthorityAccess.touchOnly(authorizer));
+      result.addAuthorityAccess(
+          CodeDelegationResult.AuthorityAccess.touchOnly(authorizer, codeHashBefore));
       return;
     }
 
@@ -157,12 +162,17 @@ public class CodeDelegationProcessor {
     final boolean authBase =
         !codeDelegation.address().equals(Address.ZERO) && authBaseSettled.add(authorizer);
 
-    result.addAuthorityAccess(
-        new CodeDelegationResult.AuthorityAccess(
-            authorizer, !authorityAlreadyExists, accountWrite, authBase));
-
     codeDelegationService.processCodeDelegation(authority, codeDelegation.address());
     authority.incrementNonce();
+
+    result.addAuthorityAccess(
+        new CodeDelegationResult.AuthorityAccess(
+            authorizer,
+            !authorityAlreadyExists,
+            accountWrite,
+            authBase,
+            codeHashBefore,
+            authority.getCodeHash()));
   }
 
   private boolean isCodeDelegationValid(final CodeDelegation codeDelegation) {
