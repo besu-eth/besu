@@ -658,10 +658,10 @@ public class DefaultBlockchain implements MutableBlockchain {
     updater.putBlockHeader(blockHeader.getHash(), blockHeader);
     updater.putBlockHash(blockHeader.getNumber(), blockHeader.getBlockHash());
     updater.putTotalDifficulty(blockHeader.getHash(), totalDifficulty);
-    this.chainHeader = blockHeader;
-    this.totalDifficulty = totalDifficulty;
     updater.setChainHead(blockHeader.getBlockHash());
     updater.commit();
+    this.totalDifficulty = totalDifficulty;
+    this.chainHeader = blockHeader;
   }
 
   private void cacheBlockData(
@@ -805,10 +805,10 @@ public class DefaultBlockchain implements MutableBlockchain {
   public synchronized void unsafeSetChainHead(
       final BlockHeader blockHeader, final Difficulty totalDifficulty) {
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
-    this.chainHeader = blockHeader;
-    this.totalDifficulty = totalDifficulty;
     updater.setChainHead(blockHeader.getBlockHash());
     updater.commit();
+    this.totalDifficulty = totalDifficulty;
+    this.chainHeader = blockHeader;
   }
 
   @Override
