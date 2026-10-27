@@ -101,6 +101,44 @@ class JsonRpcErrorConverterTest {
                     .isNotEqualTo(RpcErrorType.FRAME_VALIDATION_FAILED));
   }
 
+  @Test
+  void framePolicyViolationMapsToItsOwnErrorType() {
+    assertThat(
+            JsonRpcErrorConverter.convertTransactionInvalidReason(
+                TransactionInvalidReason.FRAME_MEMPOOL_POLICY_VIOLATION))
+        .isEqualTo(RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION);
+    assertThat(RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION.getCode()).isEqualTo(-32000);
+    assertThat(RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION.getMessage())
+        .isEqualTo("Frame transaction violates the public mempool policy");
+  }
+
+  @Test
+  void framePolicyViolationKeepsItsDetailAndResolvesByPrefix() {
+    final JsonRpcError error =
+        JsonRpcError.from(
+            ValidationResult.invalid(
+                TransactionInvalidReason.FRAME_MEMPOOL_POLICY_VIOLATION,
+                "frame 0: GAS not immediately followed by a call"));
+
+    assertThat(error.getCode()).isEqualTo(-32000);
+    assertThat(error.getMessage())
+        .isEqualTo(
+            "Frame transaction violates the public mempool policy"
+                + " (frame 0: GAS not immediately followed by a call)");
+    assertThat(errorTypeOf(error)).isEqualTo(RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION);
+  }
+
+  @Test
+  void framePolicyViolationDoesNotCaptureExistingErrorMessages() {
+    Arrays.stream(RpcErrorType.values())
+        .filter(type -> type != RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION)
+        .forEach(
+            type ->
+                assertThat(errorTypeOf(new JsonRpcError(type)))
+                    .as("error type resolved for %s", type)
+                    .isNotEqualTo(RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION));
+  }
+
   private static RpcErrorType errorTypeOf(final JsonRpcError error) {
     return new JsonRpcErrorResponse(null, error).getErrorType();
   }
