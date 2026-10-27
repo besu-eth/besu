@@ -32,6 +32,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionContext;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
@@ -41,10 +42,13 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
+import java.math.BigInteger;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
 import com.google.common.base.Supplier;
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -424,6 +428,72 @@ class BlockSizeTransactionSelectorTest {
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx2, null, null, null, NEVER_CANCELLED);
     assertThat(selector.evaluateTransactionPreProcessing(ctx2)).isEqualTo(BLOCK_FULL);
+  }
+
+  /**
+   * EIP-8141: a frame transaction declares its execution and state gas separately, so the selector
+   * reserves each in its own dimension instead of reserving the derived max_gas in both.
+   */
+  @Test
+  void frameTransactionIsCheckedAgainstItsPerDimensionReservations() {
+    when(blockSelectionContext.protocolSpec().getBlockGasAccountingStrategy())
+        .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
+    selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
+    selectorsStateManager.blockSelectionStarted();
+
+    // Each dimension fits the block, although max_gas, which adds them, does not.
+    final Transaction fits = createFrameTransaction(600_000L, 600_000L);
+    assertThat(fits.getGasLimit()).isGreaterThan(BLOCK_GAS_LIMIT);
+    assertThat(selector.evaluateTransactionPreProcessing(evaluationContext(fits)))
+        .isEqualTo(SELECTED);
+    // A non-frame transaction with the same gas limit does not fit.
+    assertThat(
+            selector.evaluateTransactionPreProcessing(
+                evaluationContext(createTransaction(TransactionType.EIP1559, fits.getGasLimit()))))
+        .isEqualTo(TX_TOO_LARGE_FOR_REMAINING_GAS);
+
+    // One dimension over the block is enough to reject it.
+    assertThat(
+            selector.evaluateTransactionPreProcessing(
+                evaluationContext(createFrameTransaction(50_000L, BLOCK_GAS_LIMIT + 1))))
+        .isEqualTo(TX_TOO_LARGE_FOR_REMAINING_GAS);
+    assertThat(
+            selector.evaluateTransactionPreProcessing(
+                evaluationContext(createFrameTransaction(BLOCK_GAS_LIMIT, 0L))))
+        .isEqualTo(TX_TOO_LARGE_FOR_REMAINING_GAS);
+  }
+
+  private TransactionEvaluationContext evaluationContext(final Transaction transaction) {
+    return new TransactionEvaluationContext(
+        blockSelectionContext.pendingBlockHeader(),
+        PendingTransaction.newPendingTransaction(transaction, false, false, MAX_SCORE),
+        null,
+        null,
+        null,
+        NEVER_CANCELLED);
+  }
+
+  private static Transaction createFrameTransaction(
+      final long executionGasLimit, final long stateGasLimit) {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_SENDER,
+                    Frame.APPROVE_SCOPE_MASK,
+                    Optional.empty(),
+                    executionGasLimit,
+                    stateGasLimit,
+                    Wei.ZERO,
+                    Bytes.EMPTY)))
+        .frameSignatures(List.of())
+        .maxPriorityFeePerGas(Wei.of(100))
+        .maxFeePerGas(Wei.of(1000))
+        .build();
   }
 
   private void evaluateAndAssertSelected(

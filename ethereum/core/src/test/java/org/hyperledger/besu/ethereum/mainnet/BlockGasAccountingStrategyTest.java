@@ -18,9 +18,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
+import org.hyperledger.besu.ethereum.core.KeyedNonceGasCapVectors;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -216,5 +228,180 @@ public class BlockGasAccountingStrategyTest {
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
                 50_000L, 40_000L, 60_000L, 0L, blockGasLimit))
         .isTrue();
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Transaction-aware capacity (EIP-8141 frame transactions)
+  // ---------------------------------------------------------------------------------------------
+
+  private static final Address FRAME_SENDER =
+      Address.fromHexString("0x1111111111111111111111111111111111111111");
+
+  @Test
+  public void frameTransactionReservesItsDeclaredGasExactlyPerDimension() {
+    final long blockGasLimit = 1_000_000L;
+    final List<Frame> frames =
+        List.of(
+            frame(Frame.MODE_VERIFY, Frame.APPROVE_SCOPE_MASK, 40_000L, 0L),
+            frame(Frame.MODE_SENDER, 0, 30_000L, 20_000L));
+    final Transaction tx = frameTransaction(frames);
+    final long executionReservation = FrameTransactionGas.intrinsicGas(tx) + 70_000L;
+    final long stateReservation = 20_000L;
+
+    // The frame branch is shared by every strategy: it does not depend on the scalar overload.
+    for (final BlockGasAccountingStrategy strategy :
+        List.of(BlockGasAccountingStrategy.FRONTIER, BlockGasAccountingStrategy.AMSTERDAM)) {
+      // Execution dimension: an exact fit, then one gas short.
+      assertThat(
+              strategy.hasBlockCapacity(
+                  tx, Long.MAX_VALUE, blockGasLimit - executionReservation, 0L, blockGasLimit))
+          .isTrue();
+      assertThat(
+              strategy.hasBlockCapacity(
+                  tx, Long.MAX_VALUE, blockGasLimit - executionReservation + 1, 0L, blockGasLimit))
+          .isFalse();
+      // State dimension: an exact fit, then one gas short.
+      assertThat(
+              strategy.hasBlockCapacity(
+                  tx, Long.MAX_VALUE, 0L, blockGasLimit - stateReservation, blockGasLimit))
+          .isTrue();
+      assertThat(
+              strategy.hasBlockCapacity(
+                  tx, Long.MAX_VALUE, 0L, blockGasLimit - stateReservation + 1, blockGasLimit))
+          .isFalse();
+      // An over-committed dimension leaves no room, never negative room.
+      assertThat(
+              strategy.hasBlockCapacity(tx, Long.MAX_VALUE, 0L, 2 * blockGasLimit, blockGasLimit))
+          .isFalse();
+    }
+  }
+
+  @Test
+  public void frameTransactionCapacityReservesTheKeyedNonceAccessCost() {
+    // max(intrinsic + execution gas, calldata floor) of this frame transaction is 2^24, 193,600 of
+    // it the keyed nonce access cost of its 16 nonce keys; its state gas fits either way.
+    final Transaction transaction = KeyedNonceGasCapVectors.atCapStandard();
+    final long blockGasLimit = 60_000_000L;
+    final long executionReservation = KeyedNonceGasCapVectors.CAP;
+
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                transaction,
+                Long.MAX_VALUE,
+                blockGasLimit - executionReservation,
+                0L,
+                blockGasLimit))
+        .isTrue();
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                transaction,
+                Long.MAX_VALUE,
+                blockGasLimit - executionReservation + 1,
+                0L,
+                blockGasLimit))
+        .isFalse();
+  }
+
+  @Test
+  public void frameTransactionIsNotBoundByItsDerivedGasLimit() {
+    final long blockGasLimit = 1_000_000L;
+    final Transaction tx =
+        frameTransaction(List.of(frame(Frame.MODE_SENDER, 0, 600_000L, 600_000L)));
+
+    // max_gas adds both dimensions, so it exceeds the block; each reservation alone fits.
+    assertThat(tx.getGasLimit()).isGreaterThan(blockGasLimit);
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                tx.getGasLimit(), Long.MAX_VALUE, 0L, 0L, blockGasLimit))
+        .isFalse();
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                tx, Long.MAX_VALUE, 0L, 0L, blockGasLimit))
+        .isTrue();
+  }
+
+  @Test
+  public void frameExecutionReservationSaturatesInsteadOfWrapping() {
+    // Intrinsic gas plus an execution limit just below 2^63 overflows a long. A wrapped, negative
+    // sum would leave the calldata floor as the reservation, and the transaction would fit.
+    final Transaction tx =
+        frameTransaction(List.of(frame(Frame.MODE_SENDER, 0, Long.MAX_VALUE - 1, 0L)));
+
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                tx, Long.MAX_VALUE, 0L, 0L, 60_000_000L))
+        .isFalse();
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                tx, Long.MAX_VALUE, 0L, 0L, Long.MAX_VALUE))
+        .isTrue();
+  }
+
+  @Test
+  public void nonFrameTransactionDelegatesToTheScalarOverload() {
+    final Transaction tx = mock(Transaction.class);
+    when(tx.getType()).thenReturn(TransactionType.EIP1559);
+    when(tx.getGasLimit()).thenReturn(40_000L);
+
+    // A strategy that overrides only the scalar overload still decides for non-frame transactions.
+    final List<Long> seen = new ArrayList<>();
+    final BlockGasAccountingStrategy recording =
+        new BlockGasAccountingStrategy() {
+          @Override
+          public long calculateTransactionExecutionGas(
+              final Transaction transaction, final TransactionProcessingResult result) {
+            return 0L;
+          }
+
+          @Override
+          public boolean hasBlockCapacity(
+              final long txGasLimit,
+              final long txMaxGasLimit,
+              final long cumulativeExecutionGas,
+              final long cumulativeStateGas,
+              final long blockGasLimit) {
+            seen.addAll(
+                List.of(
+                    txGasLimit,
+                    txMaxGasLimit,
+                    cumulativeExecutionGas,
+                    cumulativeStateGas,
+                    blockGasLimit));
+            return false;
+          }
+        };
+    assertThat(recording.hasBlockCapacity(tx, 1L, 2L, 3L, 4L)).isFalse();
+    assertThat(seen).containsExactly(40_000L, 1L, 2L, 3L, 4L);
+
+    // The built-in strategies answer the same through either overload.
+    final long blockGasLimit = 100_000L;
+    for (final BlockGasAccountingStrategy strategy :
+        List.of(BlockGasAccountingStrategy.FRONTIER, BlockGasAccountingStrategy.AMSTERDAM)) {
+      for (final long[] used :
+          new long[][] {{0L, 0L}, {60_000L, 0L}, {60_001L, 0L}, {0L, 60_001L}, {120_000L, 0L}}) {
+        assertThat(strategy.hasBlockCapacity(tx, 50_000L, used[0], used[1], blockGasLimit))
+            .isEqualTo(
+                strategy.hasBlockCapacity(40_000L, 50_000L, used[0], used[1], blockGasLimit));
+      }
+    }
+  }
+
+  private static Frame frame(
+      final int mode, final int flags, final long executionGasLimit, final long stateGasLimit) {
+    return new Frame(
+        mode, flags, Optional.empty(), executionGasLimit, stateGasLimit, Wei.ZERO, Bytes.EMPTY);
+  }
+
+  private static Transaction frameTransaction(final List<Frame> frames) {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .sender(FRAME_SENDER)
+        .frames(frames)
+        .frameSignatures(List.of())
+        .maxPriorityFeePerGas(Wei.ZERO)
+        .maxFeePerGas(Wei.ZERO)
+        .build();
   }
 }

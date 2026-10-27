@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -308,6 +309,9 @@ public class MainnetBlockValidatorTest {
   public void validateAndProcessBlock_whenTransactionExceedsBlockGasLimit() {
     final Transaction oversizedTransaction = mock(Transaction.class);
     when(oversizedTransaction.getGasLimit()).thenReturn(block.getHeader().getGasLimit() + 1);
+    // The check consults the type to exempt EIP-8141 frame transactions, whose gas limit is a
+    // derived max_gas rather than what they occupy in a block.
+    when(oversizedTransaction.getType()).thenReturn(TransactionType.FRONTIER);
     final Block blockWithOversizedTransaction =
         new Block(
             block.getHeader(),
@@ -328,6 +332,60 @@ public class MainnetBlockValidatorTest {
     verify(blockAccessListValidator, never()).validate(any(), any(), anyInt());
     verify(blockProcessor, never()).processBlock(any(BlockExecutionContext.class));
     assertThat(badBlockManager.getBadBlocks()).containsExactly(blockWithOversizedTransaction);
+  }
+
+  @Test
+  public void validateAndProcessBlock_frameTransactionIsNotCheckedAgainstTheBlockGasLimit() {
+    // EIP-8141: a frame transaction's gas limit is its derived max_gas, which adds both gas
+    // dimensions. Its per-dimension reservations are checked during processing instead.
+    final Transaction frameTransaction = mock(Transaction.class);
+    when(frameTransaction.getType()).thenReturn(TransactionType.FRAME);
+    when(frameTransaction.getGasLimit()).thenReturn(block.getHeader().getGasLimit() + 1);
+    final Block blockWithFrameTransaction =
+        new Block(
+            block.getHeader(),
+            new BlockBody(List.of(frameTransaction), block.getBody().getOmmers()));
+    final Optional<BlockAccessList> bal = Optional.of(new BlockAccessList(List.of()));
+    // Fail the next check, so the result shows which check stopped the block.
+    when(blockAccessListValidator.validate(any(), any(), anyInt())).thenReturn(false);
+
+    final BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            blockWithFrameTransaction,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY,
+            bal,
+            true);
+
+    assertValidationFailed(result, "Block access list validation failed");
+    verify(blockAccessListValidator).validate(any(), any(), anyInt());
+  }
+
+  @Test
+  public void validateAndProcessBlock_frameTransactionDoesNotExemptTheOtherTransactions() {
+    final Transaction frameTransaction = mock(Transaction.class);
+    when(frameTransaction.getType()).thenReturn(TransactionType.FRAME);
+    final Transaction oversizedTransaction = mock(Transaction.class);
+    when(oversizedTransaction.getType()).thenReturn(TransactionType.EIP1559);
+    when(oversizedTransaction.getGasLimit()).thenReturn(block.getHeader().getGasLimit() + 1);
+    final Block blockWithOversizedTransaction =
+        new Block(
+            block.getHeader(),
+            new BlockBody(
+                List.of(frameTransaction, oversizedTransaction), block.getBody().getOmmers()));
+
+    final BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            blockWithOversizedTransaction,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY,
+            Optional.of(new BlockAccessList(List.of())),
+            true);
+
+    assertValidationFailed(result, "provided gas insufficient");
+    verify(blockProcessor, never()).processBlock(any(BlockExecutionContext.class));
   }
 
   @Test
