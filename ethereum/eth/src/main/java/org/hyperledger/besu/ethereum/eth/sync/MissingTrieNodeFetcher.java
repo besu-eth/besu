@@ -29,11 +29,14 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.TrieNodeRequ
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
@@ -52,6 +55,8 @@ public class MissingTrieNodeFetcher
 
   private final EthContext ethContext;
   private final Duration timeout;
+  private final AtomicLong peerCursor = new AtomicLong();
+  private final AtomicLong snapServerCursor = new AtomicLong();
 
   public MissingTrieNodeFetcher(final EthContext ethContext) {
     this(ethContext, MAX_TIMEOUT);
@@ -82,15 +87,18 @@ public class MissingTrieNodeFetcher
                   .orElseGet(() -> List.of(encodedLocation)));
       final List<EthPeer> peers;
       try (var availablePeers = ethContext.getEthPeers().streamAvailablePeers()) {
-        peers =
+        final List<EthPeerImmutableAttributes> candidates =
             availablePeers
-                .map(EthPeerImmutableAttributes::ethPeer)
+                .filter(EthPeerImmutableAttributes::isFullyValidated)
+                .filter(EthPeerImmutableAttributes::hasAvailableRequestCapacity)
                 .filter(
-                    peer ->
-                        peer.getAgreedCapabilities()
+                    a ->
+                        a.ethPeer()
+                            .getAgreedCapabilities()
                             .contains(SnapProtocolVersion.V1.getCapability()))
-                .limit(MAX_PEERS)
+                .sorted(Comparator.comparing(a -> a.ethPeer().getId()))
                 .toList();
+        peers = selectPeers(candidates);
       }
       for (int i = 0; i < peers.size(); i++) {
         final long remaining = remainingNanos(startedAt, totalNanos, budget);
@@ -116,6 +124,30 @@ public class MissingTrieNodeFetcher
       LOG.debug("Unable to fetch trie node {}", request.expectedNodeHash(), e);
     }
     return Optional.empty();
+  }
+
+  private List<EthPeer> selectPeers(final List<EthPeerImmutableAttributes> candidates) {
+    if (candidates.isEmpty()) {
+      return List.of();
+    }
+    final List<EthPeerImmutableAttributes> servers =
+        candidates.stream().filter(EthPeerImmutableAttributes::isServingSnap).toList();
+    final List<EthPeerImmutableAttributes> selected = new ArrayList<>(MAX_PEERS);
+    if (!servers.isEmpty()) {
+      selected.add(servers.get(Math.floorMod(snapServerCursor.getAndIncrement(), servers.size())));
+      final List<EthPeerImmutableAttributes> others =
+          candidates.stream().filter(candidate -> !candidate.equals(selected.get(0))).toList();
+      if (!others.isEmpty()) {
+        selected.add(others.get(Math.floorMod(peerCursor.getAndIncrement(), others.size())));
+      }
+    } else {
+      final int start = Math.floorMod(peerCursor.getAndIncrement(), candidates.size());
+      selected.add(candidates.get(start));
+      if (candidates.size() > 1) {
+        selected.add(candidates.get((start + 1) % candidates.size()));
+      }
+    }
+    return selected.stream().map(EthPeerImmutableAttributes::ethPeer).toList();
   }
 
   private Optional<Bytes> fetchFrom(

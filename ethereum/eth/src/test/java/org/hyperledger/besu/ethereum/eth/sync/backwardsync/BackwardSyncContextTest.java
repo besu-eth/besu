@@ -70,6 +70,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -253,10 +254,15 @@ public class BackwardSyncContextTest {
     final Block target = getRemoteBlockByNumber(REMOTE_HEIGHT);
     final Block first = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
     final AtomicBoolean missing = new AtomicBoolean(true);
+    final MerkleTrieException failure =
+        new MerkleTrieException(
+            "missing parent node",
+            org.apache.tuweni.bytes.Bytes32.ZERO,
+            org.apache.tuweni.bytes.Bytes.of(1));
     doAnswer(
             invocation ->
                 missing.get()
-                    ? BlockProcessingResult.worldStateUnavailable("incomplete parent")
+                    ? new BlockProcessingResult(Optional.empty(), failure)
                     : new BlockProcessingResult(
                         Optional.of(
                             new BlockProcessingOutputs(
@@ -271,7 +277,7 @@ public class BackwardSyncContextTest {
             ignored -> new BackwardSyncAlgorithmFactory().createBackwardSyncAlgorithm(context));
     final Synchronizer synchronizer = Mockito.mock(Synchronizer.class);
     final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(any(), any(), any())).thenReturn(worker);
+    when(synchronizer.repairWorldState(any(), any())).thenReturn(worker);
     context.withWorldStateRepairRequester(new WorldStateRecoveryCoordinator(synchronizer));
 
     final CompletableFuture<Void> session =
@@ -284,8 +290,11 @@ public class BackwardSyncContextTest {
             () ->
                 verify(synchronizer)
                     .repairWorldState(
-                        eq(first.getHeader().getParentHash()),
-                        eq(localBlockchain.getChainHeadHeader().getStateRoot()),
+                        eq(
+                            WorldStateRepairRequest.fromFailure(
+                                first.getHeader().getParentHash(),
+                                localBlockchain.getChainHeadHeader().getStateRoot(),
+                                failure)),
                         any()));
     assertThat(session).isNotDone();
     assertThat(context.isSyncing()).isTrue();
@@ -294,7 +303,7 @@ public class BackwardSyncContextTest {
     session.get(20, TimeUnit.SECONDS);
 
     assertThat(localBlockchain.contains(target.getHash())).isTrue();
-    verify(synchronizer).repairWorldState(any(), any(), any());
+    verify(synchronizer).repairWorldState(any(), any());
     verify(synchronizer, never()).resyncWorldState();
     assertThat(badBlockManager.isBadBlock(target.getHash())).isFalse();
   }
@@ -310,7 +319,7 @@ public class BackwardSyncContextTest {
         .thenAnswer(
             ignored -> new BackwardSyncAlgorithmFactory().createBackwardSyncAlgorithm(context));
     final Synchronizer synchronizer = Mockito.mock(Synchronizer.class);
-    when(synchronizer.repairWorldState(any(), any(), any()))
+    when(synchronizer.repairWorldState(any(), any()))
         .thenReturn(CompletableFuture.completedFuture(WorldStateRepairResult.REPAIRED));
     final var requester = new WorldStateRecoveryCoordinator(synchronizer);
     context.withWorldStateRepairRequester(requester);
@@ -320,7 +329,7 @@ public class BackwardSyncContextTest {
         .hasCauseInstanceOf(BackwardSyncException.class);
     assertThat(requester.requestRecovery(block.getHash(), block.getHeader().getStateRoot()).join())
         .isEqualTo(WorldStateRepairResult.UNAVAILABLE);
-    verify(synchronizer).repairWorldState(any(), any(), any());
+    verify(synchronizer).repairWorldState(any(), any());
     assertThat(localBlockchain.contains(block.getHash())).isFalse();
     assertThat(badBlockManager.isBadBlock(block.getHash())).isFalse();
   }
@@ -337,13 +346,13 @@ public class BackwardSyncContextTest {
             ignored -> new BackwardSyncAlgorithmFactory().createBackwardSyncAlgorithm(context));
     final Synchronizer synchronizer = Mockito.mock(Synchronizer.class);
     final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(any(), any(), any())).thenReturn(worker);
+    when(synchronizer.repairWorldState(any(), any())).thenReturn(worker);
     final var requester = new WorldStateRecoveryCoordinator(synchronizer);
     context.withWorldStateRepairRequester(requester);
     final var session = context.syncBackwardsUntil(block);
     Awaitility.await()
         .atMost(Duration.ofSeconds(10))
-        .untilAsserted(() -> verify(synchronizer).repairWorldState(any(), any(), any()));
+        .untilAsserted(() -> verify(synchronizer).repairWorldState(any(), any()));
     requester.stop();
     requester.start();
     worker.complete(WorldStateRepairResult.REPAIRED);

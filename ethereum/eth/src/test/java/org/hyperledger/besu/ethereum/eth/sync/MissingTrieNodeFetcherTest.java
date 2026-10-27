@@ -71,6 +71,7 @@ class MissingTrieNodeFetcherTest {
   @BeforeEach
   void setUp() throws Exception {
     when(context.getEthPeers()).thenReturn(peers);
+    when(peer.getId()).thenReturn(Bytes.of((byte) 1));
     when(peers.streamAvailablePeers()).thenAnswer(invocation -> Stream.of(attributes(peer)));
     when(peer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(peer.getSnapTrieNode(any(), any())).thenReturn(responseStream);
@@ -158,6 +159,82 @@ class MissingTrieNodeFetcherTest {
   }
 
   @Test
+  void prefersKnownSnapServerEvenWhenItAppearsLater() throws Exception {
+    final EthPeer servingPeer = mock(EthPeer.class);
+    when(servingPeer.getId()).thenReturn(Bytes.of((byte) 3));
+    final ResponseStream servingStream = mock(ResponseStream.class);
+    when(servingPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
+    when(servingPeer.getSnapTrieNode(any(), any())).thenReturn(servingStream);
+    when(peers.streamAvailablePeers())
+        .thenAnswer(invocation -> Stream.of(attributes(peer), attributes(servingPeer, true)));
+    answerWith(
+        servingStream,
+        servingPeer,
+        TrieNodesMessage.create(List.of(NODE)).wrapMessageData(BigInteger.ONE));
+
+    assertThat(fetch(Optional.empty())).contains(NODE);
+    verify(servingPeer).getSnapTrieNode(any(), any());
+    verify(peer, never()).getSnapTrieNode(any(), any());
+  }
+
+  @Test
+  void rotatesFallbackCandidatesAcrossFetches() throws Exception {
+    final EthPeer secondPeer = mock(EthPeer.class);
+    final EthPeer thirdPeer = mock(EthPeer.class);
+    when(secondPeer.getId()).thenReturn(Bytes.of((byte) 2));
+    when(thirdPeer.getId()).thenReturn(Bytes.of((byte) 3));
+    final ResponseStream secondStream = mock(ResponseStream.class);
+    final ResponseStream thirdStream = mock(ResponseStream.class);
+    when(secondPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
+    when(thirdPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
+    when(secondPeer.getSnapTrieNode(any(), any())).thenReturn(secondStream);
+    when(thirdPeer.getSnapTrieNode(any(), any())).thenReturn(thirdStream);
+    when(peers.streamAvailablePeers())
+        .thenAnswer(
+            invocation ->
+                Stream.of(attributes(peer), attributes(secondPeer), attributes(thirdPeer)));
+    final MessageData empty = TrieNodesMessage.create(List.of()).wrapMessageData(BigInteger.ONE);
+    answerWith(empty);
+    answerWith(secondStream, secondPeer, empty);
+    answerWith(thirdStream, thirdPeer, empty);
+
+    fetch(Optional.empty());
+    fetch(Optional.empty());
+
+    verify(peer, org.mockito.Mockito.atLeastOnce()).getSnapTrieNode(any(), any());
+    verify(secondPeer, org.mockito.Mockito.atLeastOnce()).getSnapTrieNode(any(), any());
+    verify(thirdPeer, org.mockito.Mockito.atLeastOnce()).getSnapTrieNode(any(), any());
+  }
+
+  @Test
+  void skipsUnvalidatedOrUnavailablePeers() throws Exception {
+    final EthPeer ineligiblePeer = mock(EthPeer.class);
+    final EthPeer busyPeer = mock(EthPeer.class);
+    when(ineligiblePeer.getId()).thenReturn(Bytes.of((byte) 0));
+    when(busyPeer.getId()).thenReturn(Bytes.of((byte) 2));
+    when(ineligiblePeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
+    when(busyPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
+    when(peers.streamAvailablePeers())
+        .thenAnswer(
+            invocation ->
+                Stream.of(
+                    attributes(ineligiblePeer, false, false),
+                    attributes(busyPeer, false, true, false),
+                    attributes(peer)));
+    answerWith(TrieNodesMessage.create(List.of(NODE)).wrapMessageData(BigInteger.ONE));
+
+    assertThat(fetch(Optional.empty())).contains(NODE);
+    verify(peer).getSnapTrieNode(any(), any());
+    verify(ineligiblePeer, never()).getSnapTrieNode(any(), any());
+    verify(busyPeer, never()).getSnapTrieNode(any(), any());
+  }
+
+  @Test
   void closesStreamWhenBudgetIsCancelledDuringRequest() {
     when(responseStream.then(any()))
         .thenAnswer(
@@ -237,6 +314,7 @@ class MissingTrieNodeFetcherTest {
   @Test
   void closesSilentStreamAndUsesSecondPeerWithinTotalTimeout() throws Exception {
     final EthPeer silentPeer = mock(EthPeer.class);
+    when(silentPeer.getId()).thenReturn(Bytes.of((byte) 0));
     final ResponseStream silentStream = mock(ResponseStream.class);
     when(silentPeer.getAgreedCapabilities())
         .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
@@ -267,6 +345,8 @@ class MissingTrieNodeFetcherTest {
     final EthPeer secondPeer = mock(EthPeer.class);
     final ResponseStream secondStream = mock(ResponseStream.class);
     final EthPeer thirdPeer = mock(EthPeer.class);
+    when(secondPeer.getId()).thenReturn(Bytes.of((byte) 2));
+    when(thirdPeer.getId()).thenReturn(Bytes.of((byte) 3));
     when(secondPeer.getAgreedCapabilities())
         .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(secondPeer.getSnapTrieNode(any(), any())).thenReturn(secondStream);
@@ -288,6 +368,7 @@ class MissingTrieNodeFetcherTest {
   void sharesReceivedByteBudgetAcrossInvalidAndValidPeerResponses() throws Exception {
     final EthPeer secondPeer = mock(EthPeer.class);
     final ResponseStream secondStream = mock(ResponseStream.class);
+    when(secondPeer.getId()).thenReturn(Bytes.of((byte) 2));
     when(secondPeer.getAgreedCapabilities())
         .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(secondPeer.getSnapTrieNode(any(), any())).thenReturn(secondStream);
@@ -336,7 +417,24 @@ class MissingTrieNodeFetcherTest {
   }
 
   private static EthPeerImmutableAttributes attributes(final EthPeer peer) {
+    return attributes(peer, false, true);
+  }
+
+  private static EthPeerImmutableAttributes attributes(final EthPeer peer, final boolean serving) {
+    return attributes(peer, serving, true);
+  }
+
+  private static EthPeerImmutableAttributes attributes(
+      final EthPeer peer, final boolean serving, final boolean validated) {
+    return attributes(peer, serving, validated, true);
+  }
+
+  private static EthPeerImmutableAttributes attributes(
+      final EthPeer peer,
+      final boolean serving,
+      final boolean validated,
+      final boolean requestCapacity) {
     return new EthPeerImmutableAttributes(
-        UInt256.ZERO, false, 0, 0, 0, 0, false, true, false, true, false, peer);
+        UInt256.ZERO, false, 0, 0, 0, 0, false, validated, serving, requestCapacity, false, peer);
   }
 }

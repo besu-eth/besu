@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
@@ -161,18 +162,25 @@ public class DefaultSynchronizerTest {
   public void targetedRepairRunsOffTheCallerWithoutRestartingSynchronization() {
     final WorldStateArchive archive = mock(WorldStateArchive.class);
     final WorldStateRepairBudget budget = WorldStateRepairBudget.defaults();
+    final var request =
+        new WorldStateRepairRequest(
+            Hash.ZERO,
+            Hash.EMPTY_TRIE_HASH,
+            Optional.of(
+                new WorldStateRepairRequest.MissingTrieNode(
+                    Hash.ZERO, org.apache.tuweni.bytes.Bytes.of(1), Optional.empty())));
     when(protocolContext.getWorldStateArchive()).thenReturn(archive);
-    when(archive.repairWorldState(Hash.ZERO, Hash.EMPTY_TRIE_HASH, budget))
-        .thenReturn(WorldStateRepairResult.REPAIRED);
+    when(archive.repairWorldState(request, budget)).thenReturn(WorldStateRepairResult.REPAIRED);
     final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.SNAP);
 
     final CompletableFuture<WorldStateRepairResult> repair =
-        synchronizer.repairWorldState(Hash.ZERO, Hash.EMPTY_TRIE_HASH, budget);
+        synchronizer.repairWorldState(request, budget);
 
     assertThat(repair).isNotDone();
-    verify(archive, never()).repairWorldState(any(), any(), any());
+    verify(archive, never()).repairWorldState(any(), any());
     queuedRepair.get().run();
     assertThat(repair.join()).isEqualTo(WorldStateRepairResult.REPAIRED);
+    verify(archive).repairWorldState(request, budget);
     assertThat(syncState.syncStatus()).isEmpty();
     verify(snapSyncController, never()).stop();
     verify(snapSyncController, never()).start();
@@ -194,7 +202,7 @@ public class DefaultSynchronizerTest {
     assertThat(repair).isNotDone();
     queuedRepair.get().run();
     assertThat(repair.join()).isEqualTo(WorldStateRepairResult.CANCELLED);
-    verify(archive, never()).repairWorldState(any(), any(), any());
+    verify(archive, never()).repairWorldState(any(), any());
   }
 
   @Test
@@ -226,7 +234,7 @@ public class DefaultSynchronizerTest {
     final double inSync = metrics.getGaugeValue("in_sync");
     final WorldStateArchive archive = mock(WorldStateArchive.class);
     when(protocolContext.getWorldStateArchive()).thenReturn(archive);
-    when(archive.repairWorldState(any(), any(), any())).thenReturn(WorldStateRepairResult.REPAIRED);
+    when(archive.repairWorldState(any(), any())).thenReturn(WorldStateRepairResult.REPAIRED);
 
     final var result =
         synchronizer.repairWorldState(
@@ -257,7 +265,7 @@ public class DefaultSynchronizerTest {
     synchronizer.start();
     final WorldStateArchive archive = mock(WorldStateArchive.class);
     when(protocolContext.getWorldStateArchive()).thenReturn(archive);
-    when(archive.repairWorldState(any(), any(), any())).thenReturn(WorldStateRepairResult.REPAIRED);
+    when(archive.repairWorldState(any(), any())).thenReturn(WorldStateRepairResult.REPAIRED);
     synchronizer.getWorldStateRepairRequester().requestRecovery(Hash.ZERO, Hash.EMPTY_TRIE_HASH);
     queuedRepair.get().run();
 

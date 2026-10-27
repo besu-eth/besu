@@ -27,6 +27,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
@@ -36,6 +37,7 @@ import org.hyperledger.besu.plugin.services.metrics.MetricCategory;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -46,6 +48,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,7 +85,7 @@ class WorldStateRecoveryCoordinatorTest {
   void suppressesDuplicateAndConcurrentRecoveryWhileTargetIsActive() throws Exception {
     final CountDownLatch initiated = new CountDownLatch(1);
     final CountDownLatch releaseInitiation = new CountDownLatch(1);
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
         .thenAnswer(
             ignored -> {
               initiated.countDown();
@@ -106,34 +109,37 @@ class WorldStateRecoveryCoordinatorTest {
     }
     coordinator.requestRecovery(BLOCK_A, STATE_A);
 
-    verify(synchronizer).repairWorldState(eq(BLOCK_A), eq(STATE_A), any());
+    verify(synchronizer).repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any());
   }
 
   @Test
   void newerHeadsJoinBoundedQueueAndStartAfterSuccessfulDrain() {
     final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any())).thenReturn(worker);
-    when(synchronizer.repairWorldState(eq(BLOCK_B), eq(STATE_B), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
+        .thenReturn(worker);
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any()))
         .thenReturn(new CompletableFuture<>());
 
     coordinator.requestRecovery(BLOCK_A, STATE_A);
     final ArgumentCaptor<WorldStateRepairBudget> budget =
         ArgumentCaptor.forClass(WorldStateRepairBudget.class);
-    verify(synchronizer).repairWorldState(eq(BLOCK_A), eq(STATE_A), budget.capture());
+    verify(synchronizer)
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), budget.capture());
     coordinator.requestRecovery(BLOCK_B, STATE_B);
     assertThat(budget.getValue().isCancelled()).isFalse();
 
     worker.complete(WorldStateRepairResult.REPAIRED);
-    verify(synchronizer).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer).repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
     coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer).repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
   }
 
   @Test
   void failureCooldownStartsAtDrainAndRequiresALaterForkchoice() {
     final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any())).thenReturn(worker);
-    when(synchronizer.repairWorldState(eq(BLOCK_B), eq(STATE_B), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
+        .thenReturn(worker);
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any()))
         .thenReturn(new CompletableFuture<>());
     coordinator.requestRecovery(BLOCK_A, STATE_A);
     advance(Duration.ofSeconds(5));
@@ -142,23 +148,27 @@ class WorldStateRecoveryCoordinatorTest {
     coordinator.requestRecovery(BLOCK_B, STATE_B);
     advance(Duration.ofSeconds(59));
     coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
     advance(Duration.ofSeconds(1));
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
     coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer).repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
   }
 
   @Test
   void deadlineCancelsBudgetButRetainsWorkerUntilDrain() {
     final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any())).thenReturn(worker);
-    when(synchronizer.repairWorldState(eq(BLOCK_B), eq(STATE_B), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
+        .thenReturn(worker);
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any()))
         .thenReturn(new CompletableFuture<>());
     coordinator.requestRecovery(BLOCK_A, STATE_A);
     final ArgumentCaptor<WorldStateRepairBudget> budget =
         ArgumentCaptor.forClass(WorldStateRepairBudget.class);
-    verify(synchronizer).repairWorldState(eq(BLOCK_A), eq(STATE_A), budget.capture());
+    verify(synchronizer)
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), budget.capture());
 
     advance(Duration.ofSeconds(10));
     assertThat(budget.getValue().isCancelled()).isTrue();
@@ -166,22 +176,26 @@ class WorldStateRecoveryCoordinatorTest {
     coordinator.markAvailable(BLOCK_A, STATE_A);
     coordinator.requestRecovery(BLOCK_B, STATE_B);
     advance(Duration.ofSeconds(60));
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
 
     worker.complete(WorldStateRepairResult.CANCELLED);
     coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
     advance(Duration.ofSeconds(60));
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
     coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer).repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
   }
 
   @Test
   void staleDeadlineCannotCancelANewerGeneration() {
     final CompletableFuture<WorldStateRepairResult> first = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any())).thenReturn(first);
-    when(synchronizer.repairWorldState(eq(BLOCK_B), eq(STATE_B), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
+        .thenReturn(first);
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any()))
         .thenReturn(new CompletableFuture<>());
     coordinator.requestRecovery(BLOCK_A, STATE_A);
     advance(Duration.ofSeconds(1));
@@ -189,7 +203,8 @@ class WorldStateRecoveryCoordinatorTest {
     coordinator.requestRecovery(BLOCK_B, STATE_B);
     final ArgumentCaptor<WorldStateRepairBudget> budget =
         ArgumentCaptor.forClass(WorldStateRepairBudget.class);
-    verify(synchronizer).repairWorldState(eq(BLOCK_B), eq(STATE_B), budget.capture());
+    verify(synchronizer)
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), budget.capture());
 
     advance(Duration.ofSeconds(9));
     assertThat(budget.getValue().isCancelled()).isFalse();
@@ -198,30 +213,33 @@ class WorldStateRecoveryCoordinatorTest {
   @Test
   void asynchronousFailureReleasesOwnershipButDoesNotRetry() {
     final CompletableFuture<WorldStateRepairResult> first = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any())).thenReturn(first);
-    when(synchronizer.repairWorldState(eq(BLOCK_B), eq(STATE_B), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
+        .thenReturn(first);
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any()))
         .thenReturn(new CompletableFuture<>());
     coordinator.requestRecovery(BLOCK_A, STATE_A);
     first.completeExceptionally(new IllegalStateException("repair failed"));
     coordinator.requestRecovery(BLOCK_B, STATE_B);
     advance(Duration.ofSeconds(60));
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
     coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer).repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
   }
 
   @Test
   void initiationExceptionAlsoRequiresCooldownAndANewForkchoice() {
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
         .thenThrow(new IllegalStateException("cannot start repair"));
-    when(synchronizer.repairWorldState(eq(BLOCK_B), eq(STATE_B), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any()))
         .thenReturn(new CompletableFuture<>());
     coordinator.requestRecovery(BLOCK_A, STATE_A);
     coordinator.requestRecovery(BLOCK_B, STATE_B);
     advance(Duration.ofSeconds(60));
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
     coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer).repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
   }
 
   @Test
@@ -253,10 +271,10 @@ class WorldStateRecoveryCoordinatorTest {
     coordinator.requestRecovery(BLOCK_B, STATE_B);
     advance(Duration.ofSeconds(60));
     verifyNoInteractions(synchronizer);
-    when(synchronizer.repairWorldState(eq(BLOCK_B), eq(STATE_B), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any()))
         .thenReturn(new CompletableFuture<>());
     coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer).repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
   }
 
   @Test
@@ -277,7 +295,8 @@ class WorldStateRecoveryCoordinatorTest {
             (task, delay) ->
                 scheduledTasks.add(new ScheduledTask(nanoTime.get() + delay.toNanos(), task)));
     final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any())).thenReturn(worker);
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
+        .thenReturn(worker);
     coordinator.requestRecovery(BLOCK_A, STATE_A);
     advance(Duration.ofSeconds(10));
     assertThat(metrics.getGaugeValue("world_state_repair_active")).isEqualTo(1);
@@ -293,7 +312,8 @@ class WorldStateRecoveryCoordinatorTest {
   @Test
   void identicalRequestsShareDrainFutureAndPendingReplacementCompletesExplicitly() {
     final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any())).thenReturn(worker);
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
+        .thenReturn(worker);
     final var first = coordinator.requestRecovery(BLOCK_A, STATE_A);
     assertThat(coordinator.requestRecovery(BLOCK_A, STATE_A)).isSameAs(first);
     final var pending = coordinator.requestRecovery(BLOCK_B, STATE_B);
@@ -308,10 +328,66 @@ class WorldStateRecoveryCoordinatorTest {
   }
 
   @Test
+  void sameBlockWithDifferentDependenciesRequiresSeparateVerification() {
+    final var plain = new WorldStateRepairRequest(BLOCK_A, STATE_A);
+    final var node =
+        new WorldStateRepairRequest.MissingTrieNode(STATE_B, Bytes.EMPTY, Optional.empty());
+    final var hinted = new WorldStateRepairRequest(BLOCK_A, STATE_A, Optional.of(node));
+    final CompletableFuture<WorldStateRepairResult> plainWorker = new CompletableFuture<>();
+    final CompletableFuture<WorldStateRepairResult> hintedWorker = new CompletableFuture<>();
+    when(synchronizer.repairWorldState(eq(plain), any())).thenReturn(plainWorker);
+    when(synchronizer.repairWorldState(eq(hinted), any())).thenReturn(hintedWorker);
+
+    final var first = coordinator.requestRecovery(plain);
+    final var second = coordinator.requestRecovery(hinted);
+    assertThat(second).isNotSameAs(first).isNotDone();
+    assertThat(coordinator.requestRecovery(hinted)).isSameAs(second);
+    coordinator.markAvailable(BLOCK_A, STATE_A);
+    assertThat(second).isNotDone();
+    verify(synchronizer, never()).repairWorldState(eq(hinted), any());
+
+    plainWorker.complete(WorldStateRepairResult.ALREADY_AVAILABLE);
+    verify(synchronizer).repairWorldState(eq(hinted), any());
+    assertThat(second).isNotDone();
+    hintedWorker.complete(WorldStateRepairResult.REPAIRED);
+    assertThat(first.join()).isEqualTo(WorldStateRepairResult.ALREADY_AVAILABLE);
+    assertThat(second.join()).isEqualTo(WorldStateRepairResult.REPAIRED);
+  }
+
+  @Test
+  void differentMissingNodesAtSameBlockDoNotJoinActiveRepair() {
+    final var firstRequest =
+        new WorldStateRepairRequest(
+            BLOCK_A,
+            STATE_A,
+            Optional.of(
+                new WorldStateRepairRequest.MissingTrieNode(
+                    STATE_A, Bytes.EMPTY, Optional.empty())));
+    final var secondRequest =
+        new WorldStateRepairRequest(
+            BLOCK_A,
+            STATE_A,
+            Optional.of(
+                new WorldStateRepairRequest.MissingTrieNode(
+                    STATE_B, Bytes.of(1), Optional.empty())));
+    final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
+    when(synchronizer.repairWorldState(eq(firstRequest), any())).thenReturn(worker);
+    when(synchronizer.repairWorldState(eq(secondRequest), any()))
+        .thenReturn(CompletableFuture.completedFuture(WorldStateRepairResult.UNAVAILABLE));
+    final var first = coordinator.requestRecovery(firstRequest);
+    final var second = coordinator.requestRecovery(secondRequest);
+    assertThat(first).isNotSameAs(second);
+    worker.complete(WorldStateRepairResult.REPAIRED);
+    assertThat(first.join()).isEqualTo(WorldStateRepairResult.REPAIRED);
+    assertThat(second.join()).isEqualTo(WorldStateRepairResult.UNAVAILABLE);
+  }
+
+  @Test
   void stopRetainsDrainOwnershipAndReopenCannotReviveOldRequests() {
     final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any())).thenReturn(worker);
-    when(synchronizer.repairWorldState(eq(BLOCK_B), eq(STATE_B), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
+        .thenReturn(worker);
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any()))
         .thenReturn(CompletableFuture.completedFuture(WorldStateRepairResult.REPAIRED));
     final long generation = coordinator.generation();
     final var active = coordinator.requestRecovery(BLOCK_A, STATE_A);
@@ -324,7 +400,8 @@ class WorldStateRecoveryCoordinatorTest {
         .isEqualTo(WorldStateRepairResult.CANCELLED);
     coordinator.start();
     final var reopened = coordinator.requestRecovery(BLOCK_B, STATE_B);
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
     worker.complete(WorldStateRepairResult.REPAIRED);
     assertThat(active.join()).isEqualTo(WorldStateRepairResult.CANCELLED);
     assertThat(reopened.join()).isEqualTo(WorldStateRepairResult.REPAIRED);
@@ -332,14 +409,15 @@ class WorldStateRecoveryCoordinatorTest {
 
   @Test
   void repeatedBlockageActivatesCooldownWithoutAnotherAttempt() {
-    when(synchronizer.repairWorldState(eq(BLOCK_A), eq(STATE_A), any()))
+    when(synchronizer.repairWorldState(eq(new WorldStateRepairRequest(BLOCK_A, STATE_A)), any()))
         .thenReturn(CompletableFuture.completedFuture(WorldStateRepairResult.REPAIRED));
     assertThat(coordinator.requestRecovery(BLOCK_A, STATE_A).join())
         .isEqualTo(WorldStateRepairResult.REPAIRED);
     coordinator.onRepeatedMissingState();
     assertThat(coordinator.requestRecovery(BLOCK_B, STATE_B).join())
         .isEqualTo(WorldStateRepairResult.UNAVAILABLE);
-    verify(synchronizer, never()).repairWorldState(eq(BLOCK_B), eq(STATE_B), any());
+    verify(synchronizer, never())
+        .repairWorldState(eq(new WorldStateRepairRequest(BLOCK_B, STATE_B)), any());
   }
 
   @Test

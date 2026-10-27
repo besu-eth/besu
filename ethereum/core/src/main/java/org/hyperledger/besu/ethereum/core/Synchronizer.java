@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.core;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.plugin.data.SyncStatus;
@@ -82,6 +83,12 @@ public interface Synchronizer {
    */
   default CompletableFuture<WorldStateRepairResult> repairWorldState(
       final Hash blockHash, final Hash stateRoot, final WorldStateRepairBudget budget) {
+    return repairWorldState(new WorldStateRepairRequest(blockHash, stateRoot), budget);
+  }
+
+  /** Repairs a target and verifies its explicitly identified missing dependency, if present. */
+  default CompletableFuture<WorldStateRepairResult> repairWorldState(
+      final WorldStateRepairRequest request, final WorldStateRepairBudget budget) {
     return CompletableFuture.completedFuture(WorldStateRepairResult.UNSUPPORTED);
   }
 

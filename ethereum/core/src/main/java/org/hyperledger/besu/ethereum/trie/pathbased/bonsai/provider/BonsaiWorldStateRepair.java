@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider;
 
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.TrieNodeDecoder;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
@@ -69,6 +71,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Repairs only dependencies proved to belong to an unchanged live base, never adopts a snapshot.
+ * Requires retained trie logs for a route of at most 64 transitions; missing historical state
+ * outside that route is declined rather than triggering a full resync.
  */
 final class BonsaiWorldStateRepair {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiWorldStateRepair.class);
@@ -90,7 +94,9 @@ final class BonsaiWorldStateRepair {
     this.budget = budget;
   }
 
-  WorldStateRepairResult repair(final Hash blockHash, final Hash stateRoot) {
+  WorldStateRepairResult repair(final WorldStateRepairRequest request) {
+    final Hash blockHash = request.blockHash();
+    final Hash stateRoot = request.stateRoot();
     try {
       checkBudget();
       if (!archive.getWorldStateSharedSpec().isStateful()
@@ -103,26 +109,62 @@ final class BonsaiWorldStateRepair {
       }
       try (Base base = archive.withHeadWorldStateLock(this::capture)) {
         final Map<Hash, TrieLog> route = route(base.header, target, base.finalized);
+        final WorldStateRepairRequest repairRequest = inferStorageAddress(base, request, route);
         while (true) {
           checkBudget();
           try {
             trial(base, target, route);
+            repairRequest.missingNode().ifPresent(missing -> verifyDependency(base, missing));
             return archive.withHeadWorldStateLock(() -> publish(base));
           } catch (final MerkleTrieException missing) {
-            stage(base, missing);
+            if (missing.getHash() == null
+                || missing.getLocation() == null
+                || missing.getMaybeAddress() == null) {
+              final WorldStateRepairRequest.MissingTrieNode hinted =
+                  repairRequest
+                      .missingNode()
+                      .orElseThrow(() -> new Refused(WorldStateRepairResult.UNAVAILABLE));
+              stage(
+                  base,
+                  new MerkleTrieException(
+                      missing.getMessage(),
+                      hinted.address(),
+                      Bytes32.wrap(hinted.expectedHash().getBytes()),
+                      hinted.location()));
+            } else {
+              stage(base, missing);
+            }
           }
         }
       }
     } catch (final Refused refused) {
-      LOG.error("Failed to repair world state", refused);
+      if (refused.getCause() != null || refused.getSuppressed().length > 0) {
+        LOG.error(
+            "World state repair failed for block {} with state root {}",
+            blockHash,
+            stateRoot,
+            refused);
+      }
+      LOG.debug(
+          "World state repair for block {} with state root {} ended with {}",
+          blockHash,
+          stateRoot,
+          refused.result);
       return refused.result;
     } catch (final MissingCodeException missingCode) {
       // The normal block-processing code healer remains authoritative. It writes live storage,
       // so it must not be called as a side effect of a private trie-node repair trial.
-      LOG.error("Missing code while trying to repair world state", missingCode);
+      LOG.debug(
+          "World state repair for block {} with state root {} cannot repair missing code",
+          blockHash,
+          stateRoot);
       return WorldStateRepairResult.UNSUPPORTED;
     } catch (final RuntimeException failure) {
-      LOG.error("Unexpected error while trying to repair world state", failure);
+      LOG.error(
+          "Unexpected error while repairing world state for block {} with state root {}",
+          blockHash,
+          stateRoot,
+          failure);
       return WorldStateRepairResult.FAILED;
     }
   }
@@ -298,7 +340,7 @@ final class BonsaiWorldStateRepair {
     } catch (final RuntimeException failure) {
       throw failure;
     } catch (final Exception closeFailure) {
-      throw new Refused(WorldStateRepairResult.FAILED);
+      throw new Refused(WorldStateRepairResult.FAILED, closeFailure);
     }
   }
 
@@ -328,6 +370,91 @@ final class BonsaiWorldStateRepair {
     }
   }
 
+  private void verifyDependency(
+      final Base base, final WorldStateRepairRequest.MissingTrieNode missing) {
+    checkBudget();
+    final Optional<Hash> account = proveDependency(base, missing);
+    final Optional<Bytes> data =
+        read(base.storage, account, missing.location(), missing.expectedHash());
+    if (data.isEmpty() || !Hash.hash(data.get()).equals(missing.expectedHash())) {
+      throw new MerkleTrieException(
+          "Missing requested dependency",
+          missing.address(),
+          Bytes32.wrap(missing.expectedHash().getBytes()),
+          missing.location());
+    }
+    TrieNodeDecoder.decode(missing.location(), data.get());
+  }
+
+  /**
+   * Uses retained transition logs only to disambiguate a storage node omitted from an exception.
+   */
+  private WorldStateRepairRequest inferStorageAddress(
+      final Base base, final WorldStateRepairRequest request, final Map<Hash, TrieLog> route) {
+    if (request.missingNode().isEmpty()
+        || request.missingNode().orElseThrow().address().isPresent()) {
+      return request;
+    }
+    final WorldStateRepairRequest.MissingTrieNode missing = request.missingNode().orElseThrow();
+    if (proves(
+        base.storage,
+        base.header.getStateRoot(),
+        Optional.empty(),
+        missing.location(),
+        missing.expectedHash())) {
+      return request;
+    }
+    final java.util.List<Address> matchingAddresses =
+        route.values().stream()
+            .flatMap(log -> log.getStorageChanges().keySet().stream())
+            .distinct()
+            .filter(
+                candidate ->
+                    proves(
+                        base.storage,
+                        base.header.getStateRoot(),
+                        Optional.of(candidate.addressHash()),
+                        missing.location(),
+                        missing.expectedHash()))
+            .sorted(java.util.Comparator.comparing(Address::toString))
+            .limit(2)
+            .toList();
+    if (matchingAddresses.size() != 1) {
+      return request;
+    }
+    final Optional<Address> address = Optional.of(matchingAddresses.get(0));
+    return new WorldStateRepairRequest(
+        request.blockHash(),
+        request.stateRoot(),
+        Optional.of(
+            new WorldStateRepairRequest.MissingTrieNode(
+                missing.expectedHash(), missing.location(), address)));
+  }
+
+  private Optional<Hash> proveDependency(
+      final Base base, final WorldStateRepairRequest.MissingTrieNode missing) {
+    // Exception addresses decorate account-trie failures too; establish the trie by proof.
+    if (proves(
+        base.storage,
+        base.header.getStateRoot(),
+        Optional.empty(),
+        missing.location(),
+        missing.expectedHash())) {
+      return Optional.empty();
+    }
+    final Optional<Hash> account = missing.address().map(address -> address.addressHash());
+    if (account.isEmpty()
+        || !proves(
+            base.storage,
+            base.header.getStateRoot(),
+            account,
+            missing.location(),
+            missing.expectedHash())) {
+      throw new Refused(WorldStateRepairResult.UNAVAILABLE);
+    }
+    return account;
+  }
+
   private void stage(final Base base, final MerkleTrieException missing) {
     checkBudget();
     if (missing.getHash() == null
@@ -337,18 +464,11 @@ final class BonsaiWorldStateRepair {
     }
     final Bytes location = missing.getLocation();
     final Hash expected = Hash.wrap(missing.getHash());
-    // Account-trie failures also carry the address being updated. Classify by proof, not by
-    // exception decoration: prefer the account trie, then try that account's storage trie.
-    final Optional<Hash> account;
-    if (proves(base.storage, base.header.getStateRoot(), Optional.empty(), location, expected)) {
-      account = Optional.empty();
-    } else {
-      account = missing.getMaybeAddress().map(address -> address.addressHash());
-      if (account.isEmpty()
-          || !proves(base.storage, base.header.getStateRoot(), account, location, expected)) {
-        throw new Refused(WorldStateRepairResult.UNAVAILABLE);
-      }
-    }
+    final Optional<Hash> account =
+        proveDependency(
+            base,
+            new WorldStateRepairRequest.MissingTrieNode(
+                expected, location, missing.getMaybeAddress()));
     final Bytes key = key(account, location);
     if (patches.containsKey(key)) {
       throw new Refused(WorldStateRepairResult.UNAVAILABLE);
@@ -587,7 +707,7 @@ final class BonsaiWorldStateRepair {
       try {
         storage.close();
       } catch (final Exception failure) {
-        throw new Refused(WorldStateRepairResult.FAILED);
+        throw new Refused(WorldStateRepairResult.FAILED, failure);
       }
     }
   }
@@ -596,6 +716,11 @@ final class BonsaiWorldStateRepair {
     private final WorldStateRepairResult result;
 
     private Refused(final WorldStateRepairResult result) {
+      this.result = result;
+    }
+
+    private Refused(final WorldStateRepairResult result, final Throwable cause) {
+      super(cause);
       this.result = result;
     }
   }

@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.BonsaiWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -149,9 +150,8 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
 
   @Override
   public WorldStateRepairResult repairWorldState(
-      final Hash blockHash, final Hash stateRoot, final WorldStateRepairBudget budget) {
-    return new BonsaiWorldStateRepair(this, missingTrieNodeFetcher, budget)
-        .repair(blockHash, stateRoot);
+      final WorldStateRepairRequest request, final WorldStateRepairBudget budget) {
+    return new BonsaiWorldStateRepair(this, missingTrieNodeFetcher, budget).repair(request);
   }
 
   @Override

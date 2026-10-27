@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateFailure;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.FailurePolicy;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -279,7 +280,9 @@ public class BackwardSyncContext {
             status.repairAttempted = true;
             final BlockHeader parent = missing.parent;
             return repairRequester
-                .requestRecovery(parent.getHash(), parent.getStateRoot())
+                .requestRecovery(
+                    WorldStateRepairRequest.fromFailure(
+                        parent.getHash(), parent.getStateRoot(), missing.getCause()))
                 .thenCompose(
                     outcome -> {
                       if (!isCurrent(status)) {

@@ -43,6 +43,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateFailure;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import java.util.Optional;
@@ -177,7 +178,8 @@ public sealed class EngineForkchoiceUpdatedV1<
     if (!protocolContext
         .getWorldStateArchive()
         .isWorldStateAvailable(newHead.getStateRoot(), newHead.getHash())) {
-      requestWorldStateRepair(newHead);
+      requestWorldStateRepair(
+          new WorldStateRepairRequest(newHead.getHash(), newHead.getStateRoot()));
       return syncingResponse(requestId, forkChoice);
     }
 
@@ -232,7 +234,9 @@ public sealed class EngineForkchoiceUpdatedV1<
       // Availability metadata is not proof that every dependency exists. Request bounded repair
       // outside the Engine processing thread and let the caller retry after recovery.
       if (WorldStateFailure.isMissingState(missingState)) {
-        requestWorldStateRepair(newHead);
+        requestWorldStateRepair(
+            WorldStateRepairRequest.fromFailure(
+                newHead.getHash(), newHead.getStateRoot(), missingState));
         return syncingResponse(requestId, forkChoice);
       }
       throw missingState;
@@ -283,18 +287,18 @@ public sealed class EngineForkchoiceUpdatedV1<
             forkchoiceResult.getNewHead().map(BlockHeader::getHash).orElse(null), payloadId));
   }
 
-  private void requestWorldStateRepair(final BlockHeader head) {
+  private void requestWorldStateRepair(final WorldStateRepairRequest request) {
     if (!mergeContext.get().isInitialSyncDone()) {
       return;
     }
     try {
-      worldStateRecoveryCoordinator.requestRecovery(head.getHash(), head.getStateRoot());
+      worldStateRecoveryCoordinator.requestRecovery(request);
     } catch (final RuntimeException schedulingFailure) {
       // Repair is best effort. A scheduling fault must not replace the original Engine outcome.
       logger()
           .warn(
               "Could not request bounded world-state repair for {}",
-              head.getHash(),
+              request.blockHash(),
               schedulingFailure);
     }
   }

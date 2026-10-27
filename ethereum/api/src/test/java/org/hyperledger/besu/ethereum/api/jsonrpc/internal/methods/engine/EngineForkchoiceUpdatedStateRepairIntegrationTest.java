@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -139,16 +140,14 @@ class EngineForkchoiceUpdatedStateRepairIntegrationTest {
     final CompletableFuture<Void> allowRepair = new CompletableFuture<>();
     final AtomicReference<CompletableFuture<WorldStateRepairResult>> worker =
         new AtomicReference<>();
-    when(synchronizer.repairWorldState(any(), any(), any()))
+    when(synchronizer.repairWorldState(any(), any()))
         .thenAnswer(
             invocation -> {
               final CompletableFuture<WorldStateRepairResult> repair =
                   allowRepair.thenApplyAsync(
                       ignored ->
                           archive.repairWorldState(
-                              invocation.getArgument(0),
-                              invocation.getArgument(1),
-                              invocation.getArgument(2)));
+                              invocation.getArgument(0), invocation.getArgument(1)));
               worker.set(repair);
               return repair;
             });
@@ -184,16 +183,23 @@ class EngineForkchoiceUpdatedStateRepairIntegrationTest {
       assertThat(syncingResult.getPayloadStatus().getStatus()).isEqualTo(SYNCING);
       assertThat(syncingResult.getPayloadStatus().getLatestValidHash()).isNull();
       assertThat(syncingResult.getPayloadId()).isNull();
-      verify(synchronizer).repairWorldState(any(), any(), any());
+      final var requestCaptor = org.mockito.ArgumentCaptor.forClass(WorldStateRepairRequest.class);
+      verify(synchronizer).repairWorldState(requestCaptor.capture(), any());
+      assertThat(requestCaptor.getValue().missingNode()).isPresent();
+      assertThat(requestCaptor.getValue().missingNode().orElseThrow().expectedHash())
+          .isEqualTo(storageRoot);
       assertThat(fixture.getBlockchain().getChainHeadHash()).isEqualTo(child.getHash());
       allowRepair.complete(null);
-      assertThat(worker.get().get(10, TimeUnit.SECONDS)).isEqualTo(WorldStateRepairResult.REPAIRED);
+      final WorldStateRepairResult outcome = worker.get().get(10, TimeUnit.SECONDS);
+      assertThat(outcome)
+          .withFailMessage("repair request was %s", requestCaptor.getValue())
+          .isEqualTo(WorldStateRepairResult.REPAIRED);
       final var response = (JsonRpcSuccessResponse) method.syncResponse(request);
       assertThat(((ForkchoiceUpdatedResultV1) response.getResult()).getPayloadStatus().getStatus())
           .isEqualTo(VALID);
       assertThat(fixture.getBlockchain().getChainHeadHash()).isEqualTo(genesis.getHash());
       verify(listener, times(2)).executionEngineCalled();
-      verify(synchronizer).repairWorldState(any(), any(), any());
+      verify(synchronizer).repairWorldState(any(WorldStateRepairRequest.class), any());
       verify(synchronizer, never()).resyncWorldState();
     } finally {
       allowRepair.complete(null);

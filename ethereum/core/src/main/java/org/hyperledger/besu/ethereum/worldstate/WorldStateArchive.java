@@ -48,6 +48,12 @@ public interface WorldStateArchive extends Closeable {
    */
   default WorldStateRepairResult repairWorldState(
       final Hash blockHash, final Hash stateRoot, final WorldStateRepairBudget budget) {
+    return repairWorldState(new WorldStateRepairRequest(blockHash, stateRoot), budget);
+  }
+
+  /** Repairs a target and verifies its explicitly identified missing dependency, if present. */
+  default WorldStateRepairResult repairWorldState(
+      final WorldStateRepairRequest request, final WorldStateRepairBudget budget) {
     return WorldStateRepairResult.UNSUPPORTED;
   }
 

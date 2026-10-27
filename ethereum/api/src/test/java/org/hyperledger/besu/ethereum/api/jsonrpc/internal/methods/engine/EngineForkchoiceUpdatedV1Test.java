@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -128,7 +129,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     recoveryCoordinator = new WorldStateRecoveryCoordinator(synchronizer);
-    when(synchronizer.repairWorldState(any(), any(), any()))
+    when(synchronizer.repairWorldState(any(), any()))
         .thenReturn(CompletableFuture.completedFuture(WorldStateRepairResult.UNSUPPORTED));
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
@@ -254,7 +255,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void shouldReturnSyncingOnHeadBlockNotFound() {
     assertSuccessWithPayloadForForkchoiceResult(
         mockFcuParam, Optional.empty(), mock(ForkchoiceResult.class), SYNCING);
-    verify(synchronizer, never()).repairWorldState(any(), any(), any());
+    verify(synchronizer, never()).repairWorldState(any(), any());
     verify(synchronizer, never()).resyncWorldState();
   }
 
@@ -273,7 +274,9 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
         mock(ForkchoiceResult.class),
         SYNCING);
     verify(synchronizer)
-        .repairWorldState(eq(mockHeader.getHash()), eq(mockHeader.getStateRoot()), any());
+        .repairWorldState(
+            eq(new WorldStateRepairRequest(mockHeader.getHash(), mockHeader.getStateRoot())),
+            any());
     verify(synchronizer, never()).resyncWorldState();
     verify(mergeCoordinator, never()).preparePayload(any());
   }
@@ -361,7 +364,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
         Optional.empty(),
         ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
         VALID);
-    verify(synchronizer, never()).repairWorldState(any(), any(), any());
+    verify(synchronizer, never()).repairWorldState(any(), any());
     verify(synchronizer, never()).resyncWorldState();
   }
 
@@ -586,7 +589,10 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     assertThat(result.getPayloadStatus().getLatestValidHash()).isNull();
     assertThat(result.getPayloadStatus().getError()).isNull();
     assertThat(result.getPayloadId()).isNull();
-    verify(synchronizer).repairWorldState(eq(head.getHash()), eq(head.getStateRoot()), any());
+    verify(synchronizer)
+        .repairWorldState(
+            eq(WorldStateRepairRequest.fromFailure(head.getHash(), head.getStateRoot(), failure)),
+            any());
     verify(synchronizer, never()).resyncWorldState();
     verify(mergeCoordinator, never()).preparePayload(any());
     verify(engineCallListener).executionEngineCalled();
@@ -617,7 +623,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
                               new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO)
                             }))))
         .isSameAs(failure);
-    verify(synchronizer, never()).repairWorldState(any(), any(), any());
+    verify(synchronizer, never()).repairWorldState(any(), any());
     verify(engineCallListener).executionEngineCalled();
   }
 
@@ -633,7 +639,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
                 .getPayloadStatus()
                 .getStatus())
         .isEqualTo(SYNCING);
-    verify(synchronizer, never()).repairWorldState(any(), any(), any());
+    verify(synchronizer, never()).repairWorldState(any(), any());
   }
 
   @Test
@@ -641,8 +647,11 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     final BlockHeader head = setupValidForkchoiceUpdate();
     final CompletableFuture<WorldStateRepairResult> active = new CompletableFuture<>();
     final CompletableFuture<WorldStateRepairResult> queued = new CompletableFuture<>();
-    when(synchronizer.repairWorldState(eq(Hash.ZERO), eq(Hash.ZERO), any())).thenReturn(active);
-    when(synchronizer.repairWorldState(eq(head.getHash()), eq(head.getStateRoot()), any()))
+    when(synchronizer.repairWorldState(
+            eq(new WorldStateRepairRequest(Hash.ZERO, Hash.ZERO)), any()))
+        .thenReturn(active);
+    when(synchronizer.repairWorldState(
+            eq(new WorldStateRepairRequest(head.getHash(), head.getStateRoot())), any()))
         .thenReturn(queued);
     recoveryCoordinator.requestRecovery(Hash.ZERO, Hash.ZERO);
     final var pending = recoveryCoordinator.requestRecovery(head.getHash(), head.getStateRoot());
@@ -655,7 +664,9 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     // A separate FCU must not complete the waiting import's repair future based on it.
     assertThat(pending).isNotDone();
     active.complete(WorldStateRepairResult.REPAIRED);
-    verify(synchronizer).repairWorldState(eq(head.getHash()), eq(head.getStateRoot()), any());
+    verify(synchronizer)
+        .repairWorldState(
+            eq(new WorldStateRepairRequest(head.getHash(), head.getStateRoot())), any());
     assertThat(pending).isNotDone();
     queued.complete(WorldStateRepairResult.REPAIRED);
     assertThat(pending.join()).isEqualTo(WorldStateRepairResult.REPAIRED);
@@ -756,7 +767,9 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     assertThat(result.getPayloadStatus().getStatus()).isEqualTo(SYNCING);
     assertThat(result.getPayloadStatus().getLatestValidHash()).isNull();
     assertThat(result.getPayloadId()).isNull();
-    verify(synchronizer).repairWorldState(eq(head.getHash()), eq(head.getStateRoot()), any());
+    verify(synchronizer)
+        .repairWorldState(
+            eq(new WorldStateRepairRequest(head.getHash(), head.getStateRoot())), any());
     verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
     verify(mergeCoordinator, never()).preparePayload(any());
   }

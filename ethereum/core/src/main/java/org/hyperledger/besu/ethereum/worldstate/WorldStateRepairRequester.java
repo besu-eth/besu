@@ -22,8 +22,7 @@ import java.util.concurrent.CompletableFuture;
 @FunctionalInterface
 public interface WorldStateRepairRequester {
   WorldStateRepairRequester DISABLED =
-      (blockHash, stateRoot) ->
-          CompletableFuture.completedFuture(WorldStateRepairResult.UNSUPPORTED);
+      request -> CompletableFuture.completedFuture(WorldStateRepairResult.UNSUPPORTED);
 
   /**
    * Joins an identical target or requests bounded repair of a locally resolved committed root.
@@ -32,7 +31,13 @@ public interface WorldStateRepairRequester {
    * @param stateRoot its committed root
    * @return completion after the repair worker drains, or an explicit admission refusal
    */
-  CompletableFuture<WorldStateRepairResult> requestRecovery(Hash blockHash, Hash stateRoot);
+  default CompletableFuture<WorldStateRepairResult> requestRecovery(
+      final Hash blockHash, final Hash stateRoot) {
+    return requestRecovery(new WorldStateRepairRequest(blockHash, stateRoot));
+  }
+
+  /** Requests repair including the dependency that must be verified before reporting success. */
+  CompletableFuture<WorldStateRepairResult> requestRecovery(WorldStateRepairRequest request);
 
   /** Releases a queued target that has become available. */
   default void markAvailable(final Hash blockHash, final Hash stateRoot) {}

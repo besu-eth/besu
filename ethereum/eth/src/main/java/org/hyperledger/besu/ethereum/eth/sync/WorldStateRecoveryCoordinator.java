@@ -19,6 +19,7 @@ import static java.util.Objects.requireNonNull;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -103,7 +104,8 @@ public final class WorldStateRecoveryCoordinator implements WorldStateRepairRequ
     final Request available;
     synchronized (this) {
       available =
-          pending != null && pending.target.equals(new Target(blockHash, stateRoot))
+          pending != null
+                  && pending.target.equals(new WorldStateRepairRequest(blockHash, stateRoot))
               ? pending
               : null;
       if (available != null) {
@@ -117,8 +119,8 @@ public final class WorldStateRecoveryCoordinator implements WorldStateRepairRequ
 
   @Override
   public CompletableFuture<WorldStateRepairResult> requestRecovery(
-      final Hash blockHash, final Hash stateRoot) {
-    final Target target = new Target(requireNonNull(blockHash), requireNonNull(stateRoot));
+      final WorldStateRepairRequest target) {
+    requireNonNull(target);
     final Request request;
     final Request superseded;
     synchronized (this) {
@@ -242,9 +244,7 @@ public final class WorldStateRecoveryCoordinator implements WorldStateRepairRequ
     }
     try {
       final CompletableFuture<WorldStateRepairResult> worker =
-          requireNonNull(
-              repairSynchronizer.repairWorldState(
-                  attempt.target.blockHash(), attempt.target.stateRoot(), attempt.budget));
+          requireNonNull(repairSynchronizer.repairWorldState(attempt.target, attempt.budget));
       // This is the worker's drain future, not a timeout wrapper. Never cancel or complete it here.
       worker.whenComplete((result, error) -> complete(attempt, result, error));
     } catch (final RuntimeException error) {
@@ -330,19 +330,17 @@ public final class WorldStateRecoveryCoordinator implements WorldStateRepairRequ
         () -> cooldownRemainingNanos() / 1_000_000_000.0);
   }
 
-  private record Target(Hash blockHash, Hash stateRoot) {}
-
   private static final class Request {
-    private final Target target;
+    private final WorldStateRepairRequest target;
     private final CompletableFuture<WorldStateRepairResult> completion = new CompletableFuture<>();
 
-    private Request(final Target target) {
+    private Request(final WorldStateRepairRequest target) {
       this.target = target;
     }
   }
 
   private static final class Attempt {
-    private final Target target;
+    private final WorldStateRepairRequest target;
     private final WorldStateRepairBudget budget;
     private final long lifecycleGeneration;
     private final CompletableFuture<WorldStateRepairResult> completion;

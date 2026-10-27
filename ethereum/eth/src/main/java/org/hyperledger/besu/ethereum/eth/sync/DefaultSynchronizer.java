@@ -18,7 +18,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -38,6 +37,7 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -354,7 +354,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
   @Override
   public CompletableFuture<WorldStateRepairResult> repairWorldState(
-      final Hash blockHash, final Hash stateRoot, final WorldStateRepairBudget budget) {
+      final WorldStateRepairRequest request, final WorldStateRepairBudget budget) {
     if (!activeRepair.compareAndSet(null, budget)) {
       return CompletableFuture.completedFuture(WorldStateRepairResult.SUPERSEDED);
     }
@@ -372,9 +372,9 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                               ? WorldStateRepairResult.CANCELLED
                               : protocolContext
                                   .getWorldStateArchive()
-                                  .repairWorldState(blockHash, stateRoot, budget);
+                                  .repairWorldState(request, budget);
                     } catch (final RuntimeException e) {
-                      LOG.warn("Bounded world-state repair failed for {}", blockHash, e);
+                      LOG.warn("Bounded world-state repair failed for {}", request.blockHash(), e);
                       result = WorldStateRepairResult.FAILED;
                     } finally {
                       activeRepair.compareAndSet(budget, null);
