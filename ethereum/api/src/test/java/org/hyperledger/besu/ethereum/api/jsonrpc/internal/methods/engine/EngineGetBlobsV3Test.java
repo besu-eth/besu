@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -92,6 +93,7 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
                 .ethPeers(mock(EthPeers.class))
                 .metricsSystem(metricsSystem)
                 .maxRequestBlocks(0)
+                .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
                 .build(),
             OSAKA,
             null);

@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.methods.ExecutionEngineJsonRpcM
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
@@ -55,6 +56,7 @@ class VersionSchedulerTest {
           .metricsSystem(new NoOpMetricsSystem())
           .transactionPool(mock(TransactionPool.class))
           .maxRequestBlocks(0)
+          .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
           .build();
 
   private final RecordingFactory v1 = new RecordingFactory();

@@ -63,6 +63,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.referencetests.EngineTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
@@ -490,7 +491,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
             // Only read by engine_forkchoiceUpdatedV4 when the call carries custodyColumns, which
             // the fixtures never do — there is no transaction pool behind this runner.
             null,
-            GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
+            GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE,
+            WorldStateRecoveryCoordinator.DISABLED);
 
     final Map<Integer, ExecutionEngineJsonRpcMethod> newPayloadMethods = new HashMap<>();
     final Map<Integer, ExecutionEngineJsonRpcMethod> fcuMethods = new HashMap<>();

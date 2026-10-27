@@ -51,9 +51,11 @@ public class BackwardSyncBalImporter {
   static final Duration BAL_WAIT_TIMEOUT = Duration.ofSeconds(2);
 
   private final BackwardSyncContext context;
+  private final long recoveryGeneration;
 
   public BackwardSyncBalImporter(final BackwardSyncContext context) {
     this.context = context;
+    this.recoveryGeneration = context.recoveryGeneration();
   }
 
   /**
@@ -107,6 +109,7 @@ public class BackwardSyncBalImporter {
         final Map<Hash, BlockAccessList> bals = awaitBals(currentBals);
         for (int i = start; i < end; i++) {
           final Block block = blocks.get(i);
+          context.ensureCurrentGeneration(recoveryGeneration);
           if (!saveBlock(block, Optional.ofNullable(bals.get(block.getHash())))) {
             return;
           }

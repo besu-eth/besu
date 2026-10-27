@@ -34,10 +34,12 @@ public class BackwardSyncStep {
   private static final Logger LOG = LoggerFactory.getLogger(BackwardSyncStep.class);
   private static final int RESTORE_BATCH_SIZE = 1_000;
   private final BackwardSyncContext context;
+  private final long recoveryGeneration;
   private final BackwardChain backwardChain;
 
   public BackwardSyncStep(final BackwardSyncContext context, final BackwardChain backwardChain) {
     this.context = context;
+    this.recoveryGeneration = context.recoveryGeneration();
     this.backwardChain = backwardChain;
   }
 
@@ -50,10 +52,12 @@ public class BackwardSyncStep {
 
   @VisibleForTesting
   protected Hash possibleRestoreOldNodes(final BlockHeader firstAncestor) {
+    context.ensureCurrentGeneration(recoveryGeneration);
     Hash lastHash = firstAncestor.getParentHash();
     Optional<BlockHeader> iterator = backwardChain.getHeader(lastHash);
     final List<BlockHeader> batch = new ArrayList<>(RESTORE_BATCH_SIZE);
     while (iterator.isPresent()) {
+      context.ensureCurrentGeneration(recoveryGeneration);
       batch.add(iterator.get());
       lastHash = iterator.get().getParentHash();
       iterator = backwardChain.getHeader(lastHash);
@@ -117,6 +121,7 @@ public class BackwardSyncStep {
 
   @VisibleForTesting
   protected Void saveHeader(final BlockHeader blockHeader) {
+    context.ensureCurrentGeneration(recoveryGeneration);
     backwardChain.prependAncestorsHeader(blockHeader);
     // linked first, so the descendants this session already holds are marked along with it
     context.failIfBadBlock(blockHeader);
