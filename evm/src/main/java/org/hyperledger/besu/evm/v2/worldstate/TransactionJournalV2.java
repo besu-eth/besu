@@ -64,6 +64,10 @@ final class TransactionJournalV2 {
 
   private final WorldUpdater parent;
   private final HashMap<Address, JournalAccountV2> accounts = new HashMap<>();
+  // SLOAD, SSTORE and SELFBALANCE look up their frame's account with the same Address instance on
+  // every execution, and comparing the instance is cheaper than hashing and comparing the address
+  @Nullable private Address lastAddress;
+  @Nullable private JournalAccountV2 lastAccount;
   // never reused, so a slot value of a reverted epoch cannot pass for one of a later epoch
   private int lastStorageEpoch;
 
@@ -94,12 +98,19 @@ final class TransactionJournalV2 {
     return ++lastStorageEpoch;
   }
 
+  @SuppressWarnings("ReferenceEquality") // an address keeps its account for the whole transaction
   JournalAccountV2 lookup(final Address address) {
+    final JournalAccountV2 last = lastAccount;
+    if (address == lastAddress && last != null) {
+      return last;
+    }
     JournalAccountV2 account = accounts.get(address);
     if (account == null) {
       account = new JournalAccountV2(this, address, parent.get(address));
       accounts.put(address, account);
     }
+    lastAddress = address;
+    lastAccount = account;
     return account;
   }
 
