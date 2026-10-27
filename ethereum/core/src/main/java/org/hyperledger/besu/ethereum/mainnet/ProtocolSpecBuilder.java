@@ -154,6 +154,16 @@ public class ProtocolSpecBuilder {
     return this;
   }
 
+  /**
+   * Gets the current transaction validator factory builder, so that a fork can derive its own from
+   * its parent's.
+   *
+   * @return the transaction validator factory builder
+   */
+  public TransactionValidatorFactoryBuilder getTransactionValidatorFactoryBuilder() {
+    return transactionValidatorFactoryBuilder;
+  }
+
   public ProtocolSpecBuilder blockHeaderValidatorBuilder(
       final BlockHeaderValidatorBuilder blockHeaderValidatorBuilder) {
     this.blockHeaderValidatorBuilder = blockHeaderValidatorBuilder;
@@ -207,6 +217,16 @@ public class ProtocolSpecBuilder {
       final TransactionProcessorBuilder transactionProcessorBuilder) {
     this.transactionProcessorBuilder = transactionProcessorBuilder;
     return this;
+  }
+
+  /**
+   * Gets the current transaction processor builder, so that a fork can derive its own from its
+   * parent's.
+   *
+   * @return the transaction processor builder
+   */
+  public TransactionProcessorBuilder getTransactionProcessorBuilder() {
+    return transactionProcessorBuilder;
   }
 
   public ProtocolSpecBuilder blockProcessorBuilder(

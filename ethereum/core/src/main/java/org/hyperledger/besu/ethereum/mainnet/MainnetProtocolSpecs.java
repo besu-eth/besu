@@ -1322,7 +1322,8 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return bpo5Definition(
+    final ProtocolSpecBuilder bogotaSpecBuilder =
+        bpo5Definition(
             chainId,
             enableRevertReason,
             genesisConfigOptions,
@@ -1330,11 +1331,42 @@ public abstract class MainnetProtocolSpecs {
             miningConfiguration,
             isParallelTxProcessingEnabled,
             balConfiguration,
-            metricsSystem)
+            metricsSystem);
+    // EIP-8141: the transaction validator and processor are the parent fork's plus frame
+    // transactions, derived rather than copied so that they follow any change to the parent.
+    final ProtocolSpecBuilder.TransactionValidatorFactoryBuilder parentTransactionValidatorFactory =
+        bogotaSpecBuilder.getTransactionValidatorFactoryBuilder();
+    final ProtocolSpecBuilder.TransactionProcessorBuilder parentTransactionProcessor =
+        bogotaSpecBuilder.getTransactionProcessorBuilder();
+    return bogotaSpecBuilder
+        // EIP-8141: frame transaction opcodes (APPROVE and introspection)
         .evmBuilder(
             (gasCalculator, __) ->
                 MainnetEVMs.bogota(
                     gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+        // EIP-8141: accept the frame transaction type
+        .transactionValidatorFactoryBuilder(
+            (evm, gasLimitCalculator, feeMarket) ->
+                parentTransactionValidatorFactory
+                    .apply(evm, gasLimitCalculator, feeMarket)
+                    .withAcceptedTransactionType(TransactionType.FRAME))
+        // EIP-8141: frame transaction execution
+        .transactionProcessorBuilder(
+            (gasCalculator,
+                feeMarket,
+                transactionValidatorFactory,
+                contractCreationProcessor,
+                messageCallProcessor) ->
+                MainnetTransactionProcessor.builder()
+                    .populateFrom(
+                        parentTransactionProcessor.apply(
+                            gasCalculator,
+                            feeMarket,
+                            transactionValidatorFactory,
+                            contractCreationProcessor,
+                            messageCallProcessor))
+                    .supportsFrameTransactions(true)
+                    .build())
         // EIP-8141: frame transaction receipts
         .transactionReceiptFactory(new BogotaTransactionReceiptFactory(enableRevertReason))
         .hardforkId(BOGOTA);

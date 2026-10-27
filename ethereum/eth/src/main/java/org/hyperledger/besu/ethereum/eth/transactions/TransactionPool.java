@@ -553,6 +553,13 @@ public class TransactionPool implements BlockAddedObserver {
         && transaction.getBlobsWithCommitments().isEmpty()) {
       return ValidationResultAndAccount.invalid(
           TransactionInvalidReason.INVALID_BLOBS, "Blob transaction must have at least one blob");
+    } else if (transaction.getType().supportsFrames()
+        && !pendingTransactions.supportsFrameTransactions()) {
+      // EIP-8141 frame transactions need a pending transactions implementation that applies the
+      // frame mempool rules; every other implementation never sees them.
+      return ValidationResultAndAccount.invalid(
+          TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+          "Frame transactions are not supported by the configured transaction pool");
     }
 
     // Call the transaction validator plugin

@@ -89,6 +89,8 @@ public class MainnetTransactionProcessor {
 
   private final TopLevelTransactionSupport topLevelSupport;
 
+  private final Optional<FrameTransactionProcessor> maybeFrameTransactionProcessor;
+
   private MainnetTransactionProcessor(
       final GasCalculator gasCalculator,
       final TransactionValidatorFactory transactionValidatorFactory,
@@ -100,7 +102,8 @@ public class MainnetTransactionProcessor {
       final FeeMarket feeMarket,
       final CoinbaseFeePriceCalculator coinbaseFeePriceCalculator,
       final CodeDelegationProcessor maybeCodeDelegationProcessor,
-      final TransferLogEmitter transferLogEmitter) {
+      final TransferLogEmitter transferLogEmitter,
+      final boolean supportsFrameTransactions) {
     this.gasCalculator = gasCalculator;
     this.transactionValidatorFactory = transactionValidatorFactory;
     this.contractCreationProcessor = contractCreationProcessor;
@@ -115,6 +118,19 @@ public class MainnetTransactionProcessor {
     this.topLevelSupport =
         new TopLevelTransactionSupport(
             gasCalculator, messageCallProcessor, coinbaseFeePriceCalculator);
+    this.maybeFrameTransactionProcessor =
+        supportsFrameTransactions
+            ? Optional.of(
+                new FrameTransactionProcessor(
+                    gasCalculator,
+                    transactionValidatorFactory,
+                    messageCallProcessor,
+                    contractCreationProcessor,
+                    topLevelSupport,
+                    clearEmptyAccounts,
+                    maxStackSize,
+                    feeMarket))
+            : Optional.empty();
   }
 
   /**
@@ -212,6 +228,28 @@ public class MainnetTransactionProcessor {
       final Wei blobGasPrice,
       final Optional<AccessLocationTracker> accessLocationTracker) {
     try {
+      // EIP-8141 frame transactions follow their own execution and payment model.
+      if (transaction.getType().supportsFrames()) {
+        if (maybeFrameTransactionProcessor.isEmpty()) {
+          return TransactionProcessingResult.invalid(
+              ValidationResult.invalid(
+                  TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+                  "frame transactions are not supported at the current fork"));
+        }
+        return maybeFrameTransactionProcessor
+            .get()
+            .processTransaction(
+                worldState,
+                blockHeader,
+                transaction,
+                miningBeneficiary,
+                operationTracer,
+                blockHashLookup,
+                transactionValidationParams,
+                blobGasPrice,
+                accessLocationTracker);
+      }
+
       final var transactionValidator = transactionValidatorFactory.get();
       LOG.trace("Starting execution of {}", transaction);
       ValidationResult<TransactionInvalidReason> validationResult =
@@ -982,6 +1020,7 @@ public class MainnetTransactionProcessor {
     private CoinbaseFeePriceCalculator coinbaseFeePriceCalculator;
     private CodeDelegationProcessor codeDelegationProcessor;
     private TransferLogEmitter transferLogEmitter = TransferLogEmitter.NOOP;
+    private boolean supportsFrameTransactions = false;
 
     public Builder gasCalculator(final GasCalculator gasCalculator) {
       this.gasCalculator = gasCalculator;
@@ -1042,6 +1081,11 @@ public class MainnetTransactionProcessor {
       return this;
     }
 
+    public Builder supportsFrameTransactions(final boolean supportsFrameTransactions) {
+      this.supportsFrameTransactions = supportsFrameTransactions;
+      return this;
+    }
+
     public Builder populateFrom(final MainnetTransactionProcessor processor) {
       this.gasCalculator = processor.gasCalculator;
       this.transactionValidatorFactory = processor.transactionValidatorFactory;
@@ -1054,6 +1098,7 @@ public class MainnetTransactionProcessor {
       this.coinbaseFeePriceCalculator = processor.coinbaseFeePriceCalculator;
       this.codeDelegationProcessor = processor.maybeCodeDelegationProcessor.orElse(null);
       this.transferLogEmitter = processor.transferLogEmitter;
+      this.supportsFrameTransactions = processor.maybeFrameTransactionProcessor.isPresent();
       return this;
     }
 
@@ -1069,7 +1114,8 @@ public class MainnetTransactionProcessor {
           feeMarket,
           coinbaseFeePriceCalculator,
           codeDelegationProcessor,
-          transferLogEmitter);
+          transferLogEmitter,
+          supportsFrameTransactions);
     }
   }
 }

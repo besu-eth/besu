@@ -1,0 +1,834 @@
+/*
+ * Copyright contributors to Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.ethereum.mainnet;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import org.hyperledger.besu.config.StubGenesisConfigOptions;
+import org.hyperledger.besu.crypto.KeyPair;
+import org.hyperledger.besu.crypto.SECPSignature;
+import org.hyperledger.besu.crypto.SignatureAlgorithm;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameReceipt;
+import org.hyperledger.besu.ethereum.core.FrameSignature;
+import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
+import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
+import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+
+import java.math.BigInteger;
+import java.util.List;
+import java.util.Optional;
+
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+/** End-to-end EIP-8141 frame transaction execution against a real Bogota protocol spec. */
+class FrameTransactionProcessorTest {
+
+  private static final SignatureAlgorithm ALGO = SignatureAlgorithmFactory.getInstance();
+  private static final BigInteger CHAIN_ID = BigInteger.ONE;
+  private static final Wei BASE_FEE = Wei.of(7);
+  private static final Wei MAX_FEE = Wei.of(100);
+  private static final Wei PRIORITY_FEE = Wei.of(1);
+  private static final long EXEC_LIMIT = 100_000L;
+  private static final long STATE_LIMIT = 200_000L;
+  private static final long NEW_ACCOUNT_STATE_GAS = 120L * 1530L;
+
+  private static final Bytes REVERTING_CODE = Bytes.fromHexString("0x5f5ffd");
+  // SSTORE(0, 1); STOP
+  private static final Bytes STORE_ONE_CODE = Bytes.fromHexString("0x60015f5500");
+  // APPROVE(offset=0, length=0, scope=APPROVE_PAYMENT)
+  private static final Bytes PAYMASTER_CODE = Bytes.fromHexString("0x60015f5faa");
+
+  private final KeyPair senderKeys = ALGO.generateKeyPair();
+  private final Address sender =
+      Address.extract(
+          Bytes32.wrap(Hash.hash(senderKeys.getPublicKey().getEncodedBytes()).getBytes()));
+  private final Address recipient =
+      Address.fromHexString("0x1000000000000000000000000000000000000001");
+  private final Address contractAddress =
+      Address.fromHexString("0x2000000000000000000000000000000000000002");
+  private final Address secondContractAddress =
+      Address.fromHexString("0x3000000000000000000000000000000000000003");
+  private final Address coinbase =
+      Address.fromHexString("0x4200000000000000000000000000000000000042");
+
+  private ProtocolSchedule protocolSchedule;
+  private BlockHeader blockHeader;
+  private MutableWorldState worldState;
+
+  @SuppressWarnings("UnnecessaryLambda")
+  private final BlockHashLookup blockHashLookup = (frame, number) -> Hash.ZERO;
+
+  @BeforeEach
+  void setUp() {
+    protocolSchedule =
+        MainnetProtocolSchedule.fromConfig(
+            new StubGenesisConfigOptions().bogotaTime(0).chainId(CHAIN_ID),
+            Optional.of(false),
+            Optional.of(EvmConfiguration.DEFAULT),
+            MiningConfiguration.newDefault(),
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem());
+    blockHeader =
+        new BlockHeaderTestFixture()
+            .number(10)
+            .timestamp(1000)
+            .gasLimit(30_000_000L)
+            .baseFeePerGas(BASE_FEE)
+            .buildHeader();
+    worldState = InMemoryKeyValueStorageProvider.createInMemoryWorldState();
+    final WorldUpdater setup = worldState.updater();
+    setup.createAccount(sender, 0, Wei.of(10).multiply(Wei.of(10).pow(18)));
+    setup.commit();
+  }
+
+  private MainnetTransactionProcessor processor() {
+    return protocolSchedule.getByBlockHeader(blockHeader).getTransactionProcessor();
+  }
+
+  private TransactionProcessingResult process(final Transaction transaction) {
+    return process(transaction, TransactionValidationParams.processingBlock());
+  }
+
+  private TransactionProcessingResult process(
+      final Transaction transaction, final TransactionValidationParams validationParams) {
+    final WorldUpdater updater = worldState.updater();
+    final TransactionProcessingResult result =
+        processor()
+            .processTransaction(
+                updater,
+                blockHeader,
+                transaction,
+                coinbase,
+                OperationTracer.NO_TRACING,
+                blockHashLookup,
+                validationParams,
+                Wei.ZERO,
+                Optional.empty());
+    if (result.isSuccessful()) {
+      updater.commit();
+    }
+    return result;
+  }
+
+  private Transaction buildFrameTransaction(
+      final long nonce, final List<Frame> frames, final List<FrameSignature> signatures) {
+    return buildFrameTransaction(nonce, Optional.empty(), frames, signatures);
+  }
+
+  private Transaction buildFrameTransaction(
+      final long nonce,
+      final Optional<List<UInt256>> nonceKeys,
+      final List<Frame> frames,
+      final List<FrameSignature> signatures) {
+    final Transaction.Builder builder =
+        Transaction.builder()
+            .type(TransactionType.FRAME)
+            .chainId(CHAIN_ID)
+            .nonce(nonce)
+            .sender(sender)
+            .frames(frames)
+            .frameSignatures(signatures)
+            .maxPriorityFeePerGas(PRIORITY_FEE)
+            .maxFeePerGas(MAX_FEE)
+            .maxFeePerBlobGas(Wei.ZERO);
+    nonceKeys.ifPresent(builder::nonceKeys);
+    return builder.build();
+  }
+
+  /** Builds and canonically signs a frame transaction with a single SECP256K1 entry. */
+  private Transaction signedFrameTransaction(final long nonce, final List<Frame> frames) {
+    return signedFrameTransaction(nonce, Optional.empty(), frames);
+  }
+
+  /**
+   * Builds and canonically signs a frame transaction with a single SECP256K1 entry, selecting the
+   * given EIP-8250 nonce keys.
+   */
+  private Transaction signedFrameTransaction(
+      final long nonce, final Optional<List<UInt256>> nonceKeys, final List<Frame> frames) {
+    final FrameSignature placeholder =
+        new FrameSignature(
+            FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, Bytes.repeat((byte) 0, 65));
+    final Transaction unsigned =
+        buildFrameTransaction(nonce, nonceKeys, frames, List.of(placeholder));
+    final SECPSignature signature =
+        ALGO.sign(Bytes32.wrap(unsigned.getFrameSignatureHash().getBytes()), senderKeys);
+    final Bytes rawSignature =
+        Bytes.concatenate(
+            Bytes.of(signature.getRecId()),
+            UInt256.valueOf(signature.getR()),
+            UInt256.valueOf(signature.getS()));
+    return buildFrameTransaction(
+        nonce,
+        nonceKeys,
+        frames,
+        List.of(
+            new FrameSignature(
+                FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, rawSignature)));
+  }
+
+  private static Frame selfVerifyFrame() {
+    return new Frame(
+        Frame.MODE_VERIFY,
+        Frame.APPROVE_SCOPE_MASK,
+        Optional.empty(),
+        EXEC_LIMIT,
+        STATE_LIMIT,
+        Wei.ZERO,
+        Bytes.EMPTY);
+  }
+
+  private static Frame senderFrame(final Address target, final Wei value) {
+    return new Frame(
+        Frame.MODE_SENDER, 0, Optional.of(target), EXEC_LIMIT, STATE_LIMIT, value, Bytes.EMPTY);
+  }
+
+  @Test
+  void transferWithDefaultCodePaysFromSenderAndCreatesRecipient() {
+    final Wei transferValue = Wei.of(123_456);
+    final Transaction transaction =
+        signedFrameTransaction(
+            0, List.of(selfVerifyFrame(), senderFrame(recipient, transferValue)));
+
+    final Wei senderBalanceBefore = worldState.get(sender).getBalance();
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    final var outcome = result.getFrameTransactionOutcome().orElseThrow();
+    assertThat(outcome.payer().getBytes()).isEqualTo(sender.getBytes());
+    assertThat(outcome.frameReceipts()).hasSize(2);
+
+    final FrameReceipt verifyReceipt = outcome.frameReceipts().get(0);
+    assertThat(verifyReceipt.status()).isEqualTo(FrameReceipt.STATUS_SUCCESS);
+    // The sender is pre-warmed, so the default code's only charge is a warm entry access.
+    assertThat(verifyReceipt.executionGasUsed()).isEqualTo(100L);
+    assertThat(verifyReceipt.stateGasUsed()).isZero();
+
+    final FrameReceipt senderReceipt = outcome.frameReceipts().get(1);
+    assertThat(senderReceipt.status()).isEqualTo(FrameReceipt.STATUS_SUCCESS);
+    // Cold entry access for the recipient.
+    assertThat(senderReceipt.executionGasUsed()).isEqualTo(3000L);
+    // The value transfer materialised the recipient account.
+    assertThat(senderReceipt.stateGasUsed()).isEqualTo(NEW_ACCOUNT_STATE_GAS);
+
+    assertThat(worldState.get(recipient).getBalance()).isEqualTo(transferValue);
+    assertThat(worldState.get(sender).getNonce()).isEqualTo(1L);
+
+    // Fee accounting: gasUsed = intrinsic + frame gas at the effective price of baseFee+priority.
+    final long intrinsicGas = FrameTransactionGas.intrinsicGas(transaction);
+    final long calldataFloorGas = FrameTransactionGas.calldataFloorGas(transaction);
+    // The EIP-7623/7976 calldata floor binds the execution dimension when it exceeds the actual
+    // execution gas (the 65 signature bytes price higher on the floor).
+    final long expectedGasUsed =
+        Math.max(intrinsicGas + 100L + 3000L, calldataFloorGas) + NEW_ACCOUNT_STATE_GAS;
+    assertThat(result.getEstimateGasUsedByTransaction()).isEqualTo(expectedGasUsed);
+    assertThat(result.getStateGasUsed()).isEqualTo(NEW_ACCOUNT_STATE_GAS);
+
+    final Wei effectivePrice = BASE_FEE.add(PRIORITY_FEE);
+    final Wei expectedFee = effectivePrice.multiply(expectedGasUsed);
+    assertThat(worldState.get(sender).getBalance())
+        .isEqualTo(senderBalanceBefore.subtract(transferValue).subtract(expectedFee));
+    assertThat(worldState.get(coinbase).getBalance())
+        .isEqualTo(PRIORITY_FEE.multiply(expectedGasUsed));
+  }
+
+  @Test
+  void paymasterContractPaysForTheTransaction() {
+    final WorldUpdater setup = worldState.updater();
+    final MutableAccount paymaster =
+        setup.createAccount(contractAddress, 0, Wei.of(10).multiply(Wei.of(10).pow(18)));
+    paymaster.setCode(PAYMASTER_CODE);
+    setup.commit();
+    final Wei paymasterBalanceBefore = worldState.get(contractAddress).getBalance();
+    final Wei senderBalanceBefore = worldState.get(sender).getBalance();
+
+    final Frame onlyVerify =
+        new Frame(
+            Frame.MODE_VERIFY,
+            Frame.FLAG_APPROVE_EXECUTION,
+            Optional.empty(),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Frame payFrame =
+        new Frame(
+            Frame.MODE_VERIFY,
+            Frame.FLAG_APPROVE_PAYMENT,
+            Optional.of(contractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Frame userOp = senderFrame(recipient, Wei.of(1000));
+    final Transaction transaction =
+        signedFrameTransaction(0, List.of(onlyVerify, payFrame, userOp));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    final var outcome = result.getFrameTransactionOutcome().orElseThrow();
+    assertThat(outcome.payer().getBytes()).isEqualTo(contractAddress.getBytes());
+    assertThat(outcome.frameReceipts())
+        .allMatch(receipt -> receipt.status() == FrameReceipt.STATUS_SUCCESS);
+
+    // The paymaster covered the fees; the sender only paid the transferred value.
+    assertThat(worldState.get(sender).getBalance())
+        .isEqualTo(senderBalanceBefore.subtract(Wei.of(1000)));
+    assertThat(worldState.get(contractAddress).getBalance()).isLessThan(paymasterBalanceBefore);
+    assertThat(worldState.get(sender).getNonce()).isEqualTo(1L);
+  }
+
+  @Test
+  void atomicBatchFailureRollsBackExecutedFramesAndSkipsRemaining() {
+    final WorldUpdater setup = worldState.updater();
+    final MutableAccount store = setup.createAccount(contractAddress, 0, Wei.ZERO);
+    store.setCode(STORE_ONE_CODE);
+    final MutableAccount reverter = setup.createAccount(secondContractAddress, 0, Wei.ZERO);
+    reverter.setCode(REVERTING_CODE);
+    setup.commit();
+
+    final Frame batchedStore =
+        new Frame(
+            Frame.MODE_DEFAULT,
+            Frame.ATOMIC_BATCH_FLAG,
+            Optional.of(contractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Frame batchedRevert =
+        new Frame(
+            Frame.MODE_DEFAULT,
+            0,
+            Optional.of(secondContractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction =
+        signedFrameTransaction(0, List.of(selfVerifyFrame(), batchedStore, batchedRevert));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    final var outcome = result.getFrameTransactionOutcome().orElseThrow();
+    assertThat(outcome.frameReceipts().get(1).status()).isEqualTo(FrameReceipt.STATUS_SUCCESS);
+    // The unrolled frame retains its execution gas but its state gas and logs are discarded.
+    assertThat(outcome.frameReceipts().get(1).executionGasUsed()).isGreaterThan(0L);
+    assertThat(outcome.frameReceipts().get(1).stateGasUsed()).isZero();
+    assertThat(outcome.frameReceipts().get(2).status()).isEqualTo(FrameReceipt.STATUS_FAILURE);
+
+    // The batched store was rolled back.
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.ZERO);
+  }
+
+  @Test
+  void crossFrameStorageRefillReattributesStateGasToTheChargingFrame() {
+    // One contract whose code toggles slot 0: sets it to 1 when zero, clears it when set. Frame 1
+    // therefore charges the SSTORE state gas and frame 2 triggers the refill of frame 1's charge.
+    final Bytes toggleCode = Bytes.fromHexString("0x5f54600114600d5760015f55005b5f5f5500");
+    final WorldUpdater setup = worldState.updater();
+    final MutableAccount toggle = setup.createAccount(contractAddress, 0, Wei.ZERO);
+    toggle.setCode(toggleCode);
+    setup.commit();
+
+    final Frame setFrame =
+        new Frame(
+            Frame.MODE_DEFAULT,
+            0,
+            Optional.of(contractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Frame clearFrame =
+        new Frame(
+            Frame.MODE_DEFAULT,
+            0,
+            Optional.of(contractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction =
+        signedFrameTransaction(0, List.of(selfVerifyFrame(), setFrame, clearFrame));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    final var outcome = result.getFrameTransactionOutcome().orElseThrow();
+    assertThat(outcome.frameReceipts().get(1).status()).isEqualTo(FrameReceipt.STATUS_SUCCESS);
+    assertThat(outcome.frameReceipts().get(2).status()).isEqualTo(FrameReceipt.STATUS_SUCCESS);
+    // The cross-frame refill removed the outstanding SSTORE charge from frame 1's receipt without
+    // crediting frame 2's pool.
+    assertThat(outcome.frameReceipts().get(1).stateGasUsed()).isZero();
+    assertThat(outcome.frameReceipts().get(2).stateGasUsed()).isZero();
+    assertThat(result.getStateGasUsed()).isZero();
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.ZERO);
+  }
+
+  @Test
+  void introspectionOpcodesExposeTransactionAndFrameContext() {
+    // SSTORE(0, TXPARAM(0x00)); SSTORE(1, FRAMEPARAM(frameIndex=0, param=0x02 mode)); STOP
+    final Bytes introspectingCode = Bytes.fromHexString("0x5fb05f5560025fb360015500");
+    final WorldUpdater setup = worldState.updater();
+    final MutableAccount introspector = setup.createAccount(contractAddress, 0, Wei.ZERO);
+    introspector.setCode(introspectingCode);
+    setup.commit();
+
+    final Frame introspectingFrame =
+        new Frame(
+            Frame.MODE_DEFAULT,
+            0,
+            Optional.of(contractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction =
+        signedFrameTransaction(0, List.of(selfVerifyFrame(), introspectingFrame));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    // TXPARAM(0x00) returns the frame transaction type.
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.valueOf(6));
+    // FRAMEPARAM(0, 0x02) returns frame 0's mode (VERIFY).
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ONE))
+        .isEqualTo(UInt256.valueOf(Frame.MODE_VERIFY));
+  }
+
+  @Test
+  void expiryVerifierFrameAcceptsFutureDeadlineAndRejectsPastDeadline() {
+    // The canonical EIP-8141 expiry verifier, as it appears in genesis.
+    final Address expiryVerifier = MainnetTransactionValidator.EXPIRY_VERIFIER;
+    final Bytes expiryVerifierCode =
+        Bytes.fromHexString("0x60083614600a575f5ffd5b5f3560c01c4211601657005b5f5ffd");
+    final WorldUpdater setup = worldState.updater();
+    final MutableAccount verifier = setup.createAccount(expiryVerifier, 1, Wei.ZERO);
+    verifier.setCode(expiryVerifierCode);
+    setup.commit();
+
+    // Block timestamp is 1000; a deadline of 2000 passes, a deadline of 500 fails.
+    final Transaction valid =
+        signedFrameTransaction(
+            0,
+            List.of(
+                expiryFrame(expiryVerifier, 2000L),
+                selfVerifyFrame(),
+                senderFrame(recipient, Wei.ZERO)));
+    assertThat(process(valid).isSuccessful()).isTrue();
+
+    final Transaction expired =
+        signedFrameTransaction(
+            1,
+            List.of(
+                expiryFrame(expiryVerifier, 500L),
+                selfVerifyFrame(),
+                senderFrame(recipient, Wei.ZERO)));
+    final TransactionProcessingResult result = process(expired);
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.FRAME_VERIFICATION_FAILED);
+  }
+
+  private static Frame expiryFrame(final Address expiryVerifier, final long deadline) {
+    return new Frame(
+        Frame.MODE_VERIFY,
+        0,
+        Optional.of(expiryVerifier),
+        EXEC_LIMIT,
+        0L,
+        Wei.ZERO,
+        Bytes.ofUnsignedLong(deadline));
+  }
+
+  @Test
+  void senderFrameWithoutApprovalInvalidatesTheTransaction() {
+    final Transaction transaction =
+        signedFrameTransaction(0, List.of(senderFrame(recipient, Wei.ZERO)));
+    final TransactionProcessingResult result = process(transaction);
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.FRAME_SENDER_NOT_APPROVED);
+  }
+
+  @Test
+  void missingPaymentApprovalInvalidatesTheTransaction() {
+    final Frame defaultFrame =
+        new Frame(
+            Frame.MODE_DEFAULT,
+            0,
+            Optional.of(recipient),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction = signedFrameTransaction(0, List.of(defaultFrame));
+    final TransactionProcessingResult result = process(transaction);
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.FRAME_PAYMENT_NOT_APPROVED);
+  }
+
+  @Test
+  void failingVerifyFrameInvalidatesTheTransaction() {
+    final WorldUpdater setup = worldState.updater();
+    final MutableAccount reverter = setup.createAccount(secondContractAddress, 0, Wei.ZERO);
+    reverter.setCode(REVERTING_CODE);
+    setup.commit();
+
+    final Frame failingVerify =
+        new Frame(
+            Frame.MODE_VERIFY,
+            0,
+            Optional.of(secondContractAddress),
+            EXEC_LIMIT,
+            STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction =
+        signedFrameTransaction(0, List.of(selfVerifyFrame(), failingVerify));
+    final TransactionProcessingResult result = process(transaction);
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.FRAME_VERIFICATION_FAILED);
+  }
+
+  @Test
+  void malformedSignatureEntryInvalidatesTheTransaction() {
+    final FrameSignature badSignature =
+        new FrameSignature(
+            FrameSignature.SCHEME_SECP256K1,
+            Bytes.EMPTY,
+            Bytes.EMPTY,
+            Bytes.concatenate(Bytes.of(0), UInt256.valueOf(1), UInt256.valueOf(1)));
+    final Transaction transaction =
+        buildFrameTransaction(0, List.of(selfVerifyFrame()), List.of(badSignature));
+    final TransactionProcessingResult result = process(transaction);
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INVALID_TRANSACTION_FORMAT);
+  }
+
+  @Test
+  void wrongNonceInvalidatesTheTransaction() {
+    final Transaction transaction =
+        signedFrameTransaction(5, List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)));
+    final TransactionProcessingResult result = process(transaction);
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_HIGH);
+  }
+
+  @Test
+  void createInSenderFrameDeploysContract() {
+    // PUSH8 <initcode>; PUSH0; MSTORE; CREATE(value 0, offset 24, size 8); PUSH0; SSTORE; STOP.
+    // The initcode stores 0xfe at memory[0] and returns it as the one-byte runtime code.
+    final Bytes initCode = Bytes.fromHexString("0x60fe5f5360015ff3");
+    final Bytes factoryCode =
+        Bytes.concatenate(
+            Bytes.of(0x67), initCode, Bytes.fromHexString("0x5f52600860185ff05f5500"));
+    final WorldUpdater setup = worldState.updater();
+    setup.createAccount(contractAddress, 1, Wei.ZERO).setCode(factoryCode);
+    setup.commit();
+
+    // The creation's state gas exceeds the default frame budget, so this frame declares more.
+    final Frame createFrame =
+        new Frame(
+            Frame.MODE_SENDER,
+            0,
+            Optional.of(contractAddress),
+            EXEC_LIMIT,
+            2 * STATE_LIMIT,
+            Wei.ZERO,
+            Bytes.EMPTY);
+    final Transaction transaction =
+        signedFrameTransaction(0, List.of(selfVerifyFrame(), createFrame));
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    final FrameReceipt createReceipt =
+        result.getFrameTransactionOutcome().orElseThrow().frameReceipts().get(1);
+    assertThat(createReceipt.status()).isEqualTo(FrameReceipt.STATUS_SUCCESS);
+
+    // The creation ran through the contract creation processor: the new contract starts at nonce
+    // 1 (EIP-161) and its runtime code is deposited.
+    final Address created = Address.contractAddress(contractAddress, 1);
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.fromBytes(Bytes32.leftPad(created.getBytes())));
+    final Account createdAccount = worldState.get(created);
+    assertThat(createdAccount).isNotNull();
+    assertThat(createdAccount.getNonce()).isEqualTo(1L);
+    assertThat(createdAccount.getCode()).isEqualTo(Bytes.fromHexString("0xfe"));
+    assertThat(worldState.get(contractAddress).getNonce()).isEqualTo(2L);
+    // The frame paid the creation's state gas: the new contract, the deposit of its one byte of
+    // code, and the factory's new storage slot.
+    final StateGasCostCalculator stateGas = stateGas();
+    assertThat(createReceipt.stateGasUsed())
+        .isEqualTo(
+            stateGas.newContractStateGas()
+                + stateGas.codeDepositStateGas(1)
+                + stateGas.storageSetStateGas());
+  }
+
+  @Test
+  void keyedNonceMatchingItsSequenceIsConsumed() {
+    final UInt256 key = UInt256.valueOf(5);
+    deployNonceManager();
+    setKeyedSequence(key, 3L);
+
+    final Transaction transaction =
+        signedFrameTransaction(
+            3,
+            Optional.of(List.of(key)),
+            List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)));
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(keyedSequence(key)).isEqualTo(UInt256.valueOf(4));
+    // A keyed set leaves the account nonce alone.
+    assertThat(worldState.get(sender).getNonce()).isZero();
+    // The slot already held a sequence, so consuming it costs no state gas.
+    assertThat(
+            result.getFrameTransactionOutcome().orElseThrow().frameReceipts().get(0).stateGasUsed())
+        .isZero();
+  }
+
+  @Test
+  void keyedNonceMismatchNamesTheKey() {
+    final UInt256 key = UInt256.valueOf(5);
+    deployNonceManager();
+    setKeyedSequence(key, 3L);
+    final List<Frame> frames = List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO));
+
+    final TransactionProcessingResult above =
+        process(signedFrameTransaction(4, Optional.of(List.of(key)), frames));
+    assertThat(above.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_HIGH);
+    assertThat(above.getValidationResult().getErrorMessage())
+        .isEqualTo("transaction nonce 4 above nonce key 0x5 sequence 3");
+
+    final TransactionProcessingResult below =
+        process(signedFrameTransaction(2, Optional.of(List.of(key)), frames));
+    assertThat(below.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_LOW);
+    assertThat(below.getValidationResult().getErrorMessage())
+        .isEqualTo("transaction nonce 2 below nonce key 0x5 sequence 3");
+    assertThat(keyedSequence(key)).isEqualTo(UInt256.valueOf(3));
+  }
+
+  @Test
+  void multiKeyNonceSetAdvancesEveryKeyAndChargesFirstUses() {
+    final UInt256 used = UInt256.valueOf(1);
+    final UInt256 fresh = UInt256.valueOf(2);
+    deployNonceManager();
+    setKeyedSequence(used, 0L);
+    final List<Frame> frames = List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO));
+
+    final TransactionProcessingResult result =
+        process(signedFrameTransaction(0, Optional.of(List.of(used, fresh)), frames));
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(keyedSequence(used)).isEqualTo(UInt256.ONE);
+    assertThat(keyedSequence(fresh)).isEqualTo(UInt256.ONE);
+    // Both slots were zero, so each key's first use is charged a storage slot of state gas, from
+    // the pool of the frame that approved payment.
+    assertThat(
+            result.getFrameTransactionOutcome().orElseThrow().frameReceipts().get(0).stateGasUsed())
+        .isEqualTo(2 * stateGas().storageSetStateGas());
+
+    // Every key must hold the sequence: one key behind the other invalidates the whole set.
+    setKeyedSequence(fresh, 5L);
+    final TransactionProcessingResult mismatched =
+        process(signedFrameTransaction(1, Optional.of(List.of(used, fresh)), frames));
+    assertThat(mismatched.getValidationResult().getErrorMessage())
+        .isEqualTo("transaction nonce 1 below nonce key 0x2 sequence 5");
+  }
+
+  @Test
+  void explicitLegacyKeyAliasesTheAccountNonce() {
+    final Transaction transaction =
+        signedFrameTransaction(
+            0,
+            Optional.of(KeyedNonces.LEGACY_NONCE_KEYS),
+            List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)));
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(worldState.get(sender).getNonce()).isEqualTo(1L);
+    assertThat(worldState.get(KeyedNonces.NONCE_MANAGER)).isNull();
+
+    final TransactionProcessingResult reused = process(transaction);
+    assertThat(reused.getValidationResult().getErrorMessage())
+        .isEqualTo("transaction nonce 0 below nonce key 0x0 sequence 1");
+  }
+
+  @Test
+  void allowFutureNonceAcceptsALegacyNonceAboveTheAccountNonce() {
+    final Transaction transaction =
+        signedFrameTransaction(5, List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)));
+
+    assertThat(process(transaction).getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_HIGH);
+
+    final TransactionProcessingResult result =
+        process(
+            transaction,
+            ImmutableTransactionValidationParams.builder()
+                .from(TransactionValidationParams.processingBlock())
+                .isAllowFutureNonce(true)
+                .build());
+
+    assertThat(result.isSuccessful()).isTrue();
+    // APPROVE increments the account nonce, as a non-frame transaction does.
+    assertThat(worldState.get(sender).getNonce()).isEqualTo(1L);
+  }
+
+  @Test
+  void allowPastNonceAcceptsALegacyNonceBelowTheAccountNonce() {
+    final WorldUpdater setup = worldState.updater();
+    setup.getAccount(sender).setNonce(5L);
+    setup.commit();
+    final Transaction transaction =
+        signedFrameTransaction(2, List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)));
+
+    assertThat(process(transaction).getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_LOW);
+    // Each flag relaxes only its own direction.
+    assertThat(
+            process(
+                    transaction,
+                    ImmutableTransactionValidationParams.builder()
+                        .from(TransactionValidationParams.processingBlock())
+                        .isAllowFutureNonce(true)
+                        .build())
+                .getValidationResult()
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_LOW);
+
+    final TransactionProcessingResult result =
+        process(
+            transaction,
+            ImmutableTransactionValidationParams.builder()
+                .from(TransactionValidationParams.processingBlock())
+                .isAllowPastNonce(true)
+                .build());
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(worldState.get(sender).getNonce()).isEqualTo(6L);
+  }
+
+  @Test
+  void simulationParamsAcceptAFutureLegacyNonce() {
+    // eth_call and eth_estimateGas run with the simulator's parameters.
+    final Transaction transaction =
+        signedFrameTransaction(5, List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)));
+
+    assertThat(
+            process(transaction, TransactionValidationParams.transactionSimulatorAllowFutureNonce())
+                .isSuccessful())
+        .isTrue();
+  }
+
+  @Test
+  void nonceFlagsDoNotRelaxAKeyedNonceSet() {
+    final UInt256 key = UInt256.valueOf(5);
+    deployNonceManager();
+    setKeyedSequence(key, 3L);
+    final List<Frame> frames = List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO));
+    final TransactionValidationParams relaxed =
+        ImmutableTransactionValidationParams.builder()
+            .from(TransactionValidationParams.processingBlock())
+            .isAllowFutureNonce(true)
+            .isAllowPastNonce(true)
+            .build();
+
+    assertThat(
+            process(signedFrameTransaction(4, Optional.of(List.of(key)), frames), relaxed)
+                .getValidationResult()
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_HIGH);
+    assertThat(
+            process(signedFrameTransaction(2, Optional.of(List.of(key)), frames), relaxed)
+                .getValidationResult()
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_LOW);
+    assertThat(keyedSequence(key)).isEqualTo(UInt256.valueOf(3));
+  }
+
+  private StateGasCostCalculator stateGas() {
+    return protocolSchedule
+        .getByBlockHeader(blockHeader)
+        .getGasCalculator()
+        .stateGasCostCalculator();
+  }
+
+  /** The EIP-8250 nonce manager, as genesis deploys it: an ordinary contract. */
+  private void deployNonceManager() {
+    final WorldUpdater setup = worldState.updater();
+    setup
+        .createAccount(KeyedNonces.NONCE_MANAGER, 1, Wei.ZERO)
+        .setCode(Bytes.fromHexString("0x00"));
+    setup.commit();
+  }
+
+  private void setKeyedSequence(final UInt256 key, final long sequence) {
+    final WorldUpdater setup = worldState.updater();
+    setup
+        .getAccount(KeyedNonces.NONCE_MANAGER)
+        .setStorageValue(KeyedNonces.nonceSlot(sender, key), UInt256.valueOf(sequence));
+    setup.commit();
+  }
+
+  private UInt256 keyedSequence(final UInt256 key) {
+    return worldState
+        .get(KeyedNonces.NONCE_MANAGER)
+        .getStorageValue(KeyedNonces.nonceSlot(sender, key));
+  }
+}

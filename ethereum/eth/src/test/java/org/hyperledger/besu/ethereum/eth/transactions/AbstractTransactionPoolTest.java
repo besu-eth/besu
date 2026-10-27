@@ -37,6 +37,7 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -50,6 +51,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
@@ -430,6 +432,52 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
         .validate(eq(transaction1), any(Optional.class), any(Optional.class), any());
     verify(transactionValidatorFactory.get()).validateForSender(eq(transaction1), any(), any());
     verifyNoMoreInteractions(transactionValidatorFactory.get());
+  }
+
+  @Test
+  // The gas price variants run on the mainnet genesis, whose 5000 gas block limit is below the
+  // intrinsic gas of any frame transaction, which the pool checks first.
+  @EnabledIf("isBaseFeeMarket")
+  public void shouldRejectFrameTransactionsWhenThePendingTransactionsDoNotHoldThem() {
+    // EIP-8141: even on a fork whose validator accepts frame transactions, only a pending
+    // transactions implementation that holds them may receive them.
+    final Transaction frameTransaction =
+        Transaction.builder()
+            .type(TransactionType.FRAME)
+            .chainId(BigInteger.ONE)
+            .nonce(0)
+            .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+            .frames(
+                List.of(
+                    new Frame(
+                        Frame.MODE_VERIFY,
+                        Frame.APPROVE_SCOPE_MASK,
+                        Optional.empty(),
+                        50_000L,
+                        0L,
+                        Wei.ZERO,
+                        Bytes.EMPTY)))
+            .frameSignatures(List.of())
+            .maxPriorityFeePerGas(Wei.of(5000))
+            .maxFeePerGas(Wei.of(5000))
+            .build();
+    givenTransactionIsValid(frameTransaction);
+    assertThat(lastCreatedPendingTransactions.supportsFrameTransactions()).isFalse();
+
+    final ValidationResult<TransactionInvalidReason> result =
+        transactionPool.addTransactionViaApi(frameTransaction);
+
+    assertThat(result.isValid()).isFalse();
+    assertThat(result.getInvalidReason()).isEqualTo(INVALID_TRANSACTION_FORMAT);
+    assertThat(result.getErrorMessage())
+        .isEqualTo("Frame transactions are not supported by the configured transaction pool");
+    assertTransactionNotPending(frameTransaction);
+    verify(transactionBroadcaster, never()).onTransactionsAdded(any());
+
+    addAndAssertRemoteTransactionInvalid(frameTransaction);
+    // Rejected after the stateless checks, before any state is read for the sender.
+    verify(transactionValidatorFactory.get(), never())
+        .validateForSender(eq(frameTransaction), any(), any(TransactionValidationParams.class));
   }
 
   @ParameterizedTest
