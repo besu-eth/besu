@@ -63,6 +63,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
@@ -393,6 +394,8 @@ public class MainnetBlockValidatorTest {
         .thenAnswer(
             invocation -> {
               WorldStateQueryParams capturedParams = captor.getValue();
+              assertThat(capturedParams.getFailurePolicy())
+                  .isEqualTo(WorldStateQueryParams.FailurePolicy.LEGACY);
               if (capturedParams.getBlockHeader().equals(blockParent.getHeader())) {
                 return Optional.empty();
               }
@@ -682,6 +685,36 @@ public class MainnetBlockValidatorTest {
 
     assertThat(result.isSuccessful()).isTrue();
     verify(worldStateArchive).healMissingCode(Address.ZERO, Hash.ZERO);
+    assertNoBadBlocks();
+  }
+
+  @Test
+  public void recoveryPolicyStillHealsMissingCodeWhileAcquiringParentState() {
+    final MissingCodeException missingCode = new MissingCodeException(Address.ZERO, Hash.ZERO);
+    when(worldStateArchive.getWorldState(any()))
+        .thenThrow(new CompletionException(missingCode))
+        .thenReturn(Optional.of(worldState));
+    when(worldStateArchive.healMissingCode(Address.ZERO, Hash.ZERO)).thenReturn(true);
+
+    final var result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY,
+            Optional.empty(),
+            true,
+            true,
+            WorldStateQueryParams.FailurePolicy.PRESERVE_LOCAL_FAILURE);
+
+    assertThat(result.isSuccessful()).isTrue();
+    verify(worldStateArchive).healMissingCode(Address.ZERO, Hash.ZERO);
+    verify(worldStateArchive, times(2))
+        .getWorldState(
+            argThat(
+                query ->
+                    query.getFailurePolicy()
+                        == WorldStateQueryParams.FailurePolicy.PRESERVE_LOCAL_FAILURE));
     assertNoBadBlocks();
   }
 
