@@ -143,6 +143,11 @@ public enum RpcErrorType implements RpcMethodError {
   // EIP-8141 frame transactions
   FRAME_VALIDATION_FAILED(-32000, "Frame transaction validation failed"),
   FRAME_MEMPOOL_POLICY_VIOLATION(-32000, "Frame transaction violates the public mempool policy"),
+  FRAME_PAYER_EXPOSURE_EXCEEDED(
+      -32000, "Pending frame transactions would exceed the payer's balance"),
+  FRAME_PAYMASTER_PENDING_LIMIT(-32000, "Paymaster already has a pending frame transaction"),
+  FRAME_SENDER_ALREADY_PENDING(
+      -32000, "Sender already has a pending frame transaction with a different nonce"),
   // P2P related errors
   P2P_DISABLED(-32000, "P2P has been disabled. This functionality is not available"),
   DISCOVERY_DISABLED(-32000, "Discovery has been disabled. This functionality is not available"),

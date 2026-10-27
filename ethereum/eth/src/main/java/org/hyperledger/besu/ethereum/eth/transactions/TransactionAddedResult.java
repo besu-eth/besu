@@ -91,6 +91,16 @@ public final class TransactionAddedResult {
     return replacedTransaction;
   }
 
+  /**
+   * A rejection for the given reason.
+   *
+   * @param reason why the transaction was rejected
+   * @return the rejected result
+   */
+  public static TransactionAddedResult rejected(final TransactionInvalidReason reason) {
+    return new TransactionAddedResult(reason);
+  }
+
   public static TransactionAddedResult createForReplacement(
       final PendingTransaction replacedTransaction) {
     return new TransactionAddedResult(replacedTransaction);

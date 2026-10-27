@@ -290,17 +290,27 @@ public class LayeredPendingTransactions implements PendingTransactions {
 
   @Override
   public void selectTransactions(final PendingTransactionsSelector selector) {
-    final List<PendingTransaction> candidateTxsByScore;
-    synchronized (this) {
-      // since selecting transactions for block creation is a potential long operation
-      // we want to avoid to keep the lock for all the process, but we just lock to get
-      // the candidate transactions
-      candidateTxsByScore = prioritizedTransactions.getByScore();
-    }
+    applySelectionResults(
+        selector.evaluatePendingTransactions(Collections.unmodifiableList(selectionCandidates())));
+  }
 
-    final var evaluationResults =
-        selector.evaluatePendingTransactions(Collections.unmodifiableList(candidateTxsByScore));
+  /**
+   * The candidates offered to block building, by score. Selecting transactions for block creation
+   * is potentially long, so the lock is held only to collect them.
+   *
+   * @return the candidate transactions
+   */
+  public synchronized List<PendingTransaction> selectionCandidates() {
+    return prioritizedTransactions.getByScore();
+  }
 
+  /**
+   * Applies block-building results to this pool's candidates.
+   *
+   * @param evaluationResults the selection result per candidate
+   */
+  public void applySelectionResults(
+      final Map<PendingTransaction, TransactionSelectionResult> evaluationResults) {
     for (final var evaluationResult : evaluationResults.entrySet()) {
       final var evaluatedPendingTx = evaluationResult.getKey();
       final var result = evaluationResult.getValue();
