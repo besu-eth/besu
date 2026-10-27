@@ -32,12 +32,15 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Keeps the trie-node archive growing with the chain by archiving blocks a fixed distance behind
- * the head, where they can no longer be reorged out: {@code maxLayersToLoad} behind on chains with
- * finality, and one block behind the head on chains without it, where every imported block is
- * final; staying one behind means it never archives the block being imported.
+ * the head. On chains with finality it archives in batches of 32 blocks (at most half of {@code
+ * maxLayersToLoad}), targeting a batch plus some slack inside the {@code maxLayersToLoad} window
+ * the live path serves, so the archive overlaps that window. On chains without finality, where
+ * every imported block is final, it stays one block behind the head, so it never archives the block
+ * being imported.
  */
 public final class TrailingTrieNodeArchiver implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(TrailingTrieNodeArchiver.class);
+  private static final long FINALITY_BATCH = 32;
 
   private final Blockchain blockchain;
   private final ArchiveNodeHistoryStore historyStore;
@@ -71,15 +74,23 @@ public final class TrailingTrieNodeArchiver implements Closeable {
             blockchain.observeBlockAdded(
                 event -> {
                   if (event.isNewCanonicalHead()) {
-                    scheduleCatchUpIfBehind();
+                    scheduleIfBatchReady();
                   }
                 }));
-    scheduleCatchUpIfBehind();
+    scheduleIfBatchReady();
   }
 
   @VisibleForTesting
-  static long targetFor(final long head, final boolean hasFinality, final long maxLayersToLoad) {
-    return hasFinality ? Math.max(0, head - maxLayersToLoad) : Math.max(0, head - 1);
+  long targetFor(final long head, final boolean hasFinality) {
+    final long batch = minBatchFor(hasFinality);
+    final long lag = hasFinality ? Math.max(1, maxLayersToLoad - batch - batch / 4) : 1;
+    return Math.max(0, head - lag);
+  }
+
+  @VisibleForTesting
+  long minBatchFor(final boolean hasFinality) {
+    // capped so the target stays at least half the live window behind the head
+    return hasFinality ? Math.max(1, Math.min(FINALITY_BATCH, maxLayersToLoad / 2)) : 1;
   }
 
   @VisibleForTesting
@@ -88,14 +99,16 @@ public final class TrailingTrieNodeArchiver implements Closeable {
   }
 
   private long target() {
-    return targetFor(
-        blockchain.getChainHeadBlockNumber(),
-        blockchain.getFinalized().isPresent(),
-        maxLayersToLoad);
+    return targetFor(blockchain.getChainHeadBlockNumber(), blockchain.getFinalized().isPresent());
   }
 
-  private void scheduleCatchUpIfBehind() {
-    if (halted || closed || lastCovered().map(last -> last >= target()).orElse(true)) {
+  private boolean hasBatchToArchive() {
+    final long minBatch = minBatchFor(blockchain.getFinalized().isPresent());
+    return lastCovered().map(last -> target() - last >= minBatch).orElse(false);
+  }
+
+  private void scheduleIfBatchReady() {
+    if (halted || closed || !hasBatchToArchive()) {
       return;
     }
     if (!running.compareAndSet(false, true)) {
@@ -114,8 +127,7 @@ public final class TrailingTrieNodeArchiver implements Closeable {
     try {
       progressed = archiveToTarget();
     } catch (final ArchiveGapException e) {
-      halted = true;
-      LOG.error("Trie-node archiver halted until restart: {}", e.getMessage());
+      halt(e.getMessage());
     } catch (final RuntimeException e) {
       if (!closed) {
         LOG.error("Trie-node archiver failed; retrying on the next block", e);
@@ -123,23 +135,45 @@ public final class TrailingTrieNodeArchiver implements Closeable {
     } finally {
       running.set(false);
     }
-    if (progressed || blockchain.getChainHeadBlockNumber() > headAtStart) {
-      scheduleCatchUpIfBehind();
+    if ((progressed || blockchain.getChainHeadBlockNumber() > headAtStart) && hasBatchToArchive()) {
+      scheduleIfBatchReady();
     }
   }
 
   private boolean archiveToTarget() {
-    final Optional<Long> from = lastCovered();
-    if (from.isEmpty()) {
+    final ArchivedBlock tip = historyStore.getArchivedBlock().orElseThrow();
+    if (haltIfCannotContinue(tip)) {
       return false;
     }
-    step.archiveRange(from.get(), target(), () -> !closed);
-    final long after = lastCovered().orElse(from.get());
-    if (after > from.get()) {
-      LOG.debug("Trie-node archiver archived blocks {}..{}", from.get() + 1, after);
+    step.archiveRange(tip.number(), target(), () -> !closed);
+    return lastCovered().orElse(tip.number()) > tip.number();
+  }
+
+  private boolean haltIfCannotContinue(final ArchivedBlock tip) {
+    if (blockchain.getBlockHashByNumber(tip.number()).filter(tip.hash()::equals).isEmpty()) {
+      halt(
+          String.format(
+              "the archived proof history includes block %d, which is no longer canonical or "
+                  + "its header is missing, so capture cannot continue and proof history needs a "
+                  + "resync",
+              tip.number()));
+      return true;
+    }
+    final long depth = blockchain.getChainHeadBlockNumber() - tip.number();
+    if (depth > 2 * maxLayersToLoad) {
+      halt(
+          String.format(
+              "the proof archive is %d blocks behind the head, more than the supported 2 x %d "
+                  + "rollback, so it cannot catch up and proof history needs a resync",
+              depth, maxLayersToLoad));
       return true;
     }
     return false;
+  }
+
+  private void halt(final String reason) {
+    halted = true;
+    LOG.error("Trie-node archiver halted until restart: {}", reason);
   }
 
   private Optional<Long> lastCovered() {
@@ -153,8 +187,8 @@ public final class TrailingTrieNodeArchiver implements Closeable {
     observerId = OptionalLong.empty();
     executor.shutdownNow();
     try {
-      if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
-        LOG.warn("Trie-node archiver did not terminate within 10 seconds");
+      if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+        LOG.warn("Trie-node archiver did not terminate within 30 seconds and may still be running");
       }
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();

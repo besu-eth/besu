@@ -166,7 +166,7 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
         names = {STATE_PROOFS_ENABLED},
         fallbackValue = "true",
         description =
-            "Enables eth_getProof for historical blocks backed by the bonsai archive trie-node store. Requires --data-storage-format=X_BONSAI_ARCHIVE and trie-node capture during initial sync. (default: ${DEFAULT-VALUE})")
+            "Enables eth_getProof for historical blocks backed by the bonsai archive trie-node store. Requires --data-storage-format=X_BONSAI_ARCHIVE and a full sync from genesis (--sync-mode=FULL). (default: ${DEFAULT-VALUE})")
     private Boolean bonsaiArchiveStateProofsEnabled = DEFAULT_BONSAI_ARCHIVE_STATE_PROOFS_ENABLED;
 
     @Option(

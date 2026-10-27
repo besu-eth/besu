@@ -172,39 +172,39 @@ class BonsaiArchiveProofCoverageTest {
     blockchain.setFinalized(blockchain.getBlockHeader(3).orElseThrow().getHash());
     assertArchivedThrough(3);
 
-    for (int i = 0; i < 4; i++) {
+    // no pass is due yet, and inline capture stops at the finalized block
+    for (int i = 0; i < 3; i++) {
       importTransferBlock();
-      // head <= 7 puts the archiver's target (head - 4) at or below 3
       assertArchivedThrough(3);
     }
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 20; i++) {
       importTransferBlock();
+      // a pass is due once coverage reaches head - 4, the oldest block the live path serves
+      final long oldestLive = blockchain.getChainHeadBlockNumber() - 4;
+      await().atMost(10, SECONDS).until(() -> lastCovered() >= oldestLive);
     }
 
-    final long head = blockchain.getChainHeadBlockNumber();
-    await().atMost(10, SECONDS).until(() -> lastCovered() >= head - 4);
-    assertProofsCorrect(1, head - 4);
+    // archive and live window overlap: every block has a proof
+    assertProofsCorrect(1, blockchain.getChainHeadBlockNumber());
   }
 
   @Test
-  void archiverHealsInlineMissAndStaysOneBlockBehind() {
+  void archiverHealsInlineMissAndKeepsCoverageWithinOneBlockOfHead() {
     for (int i = 0; i < 4; i++) {
       importTransferBlock();
     }
     assertArchivedThrough(4);
     rewindCoverageTo(3);
 
-    importTransferBlock();
-    await().atMost(10, SECONDS).until(() -> lastCovered() == 4);
-
-    for (int i = 0; i < 3; i++) {
+    // block 5 misses inline capture; the archiver heals up to head - 1, or head if inline resumes
+    for (int i = 0; i < 4; i++) {
       importTransferBlock();
       final long head = blockchain.getChainHeadBlockNumber();
-      await().atMost(10, SECONDS).until(() -> lastCovered() == head - 1);
+      await().atMost(10, SECONDS).until(() -> lastCovered() >= head - 1 && lastCovered() <= head);
     }
     final long head = blockchain.getChainHeadBlockNumber();
-    assertArchivedThrough(head - 1);
-    assertProofsCorrect(1, head - 1);
+    assertThat(lastCovered()).isBetween(head - 1, head);
+    assertProofsCorrect(1, head);
   }
 
   @Test
@@ -214,7 +214,7 @@ class BonsaiArchiveProofCoverageTest {
     }
     provider.close();
 
-    // restart over the same underlying storages; in-memory close() keeps their data
+    // in-memory close() keeps the data, so reopen over the same storages
     final BonsaiFlatDbStrategyProvider flatDbStrategyProvider =
         new BonsaiFlatDbStrategyProvider(new NoOpMetricsSystem(), config);
     flatDbStrategyProvider.loadFlatDbStrategy(worldStateStorage.getComposedWorldStateStorage());
@@ -267,8 +267,7 @@ class BonsaiArchiveProofCoverageTest {
                 System.currentTimeMillis(),
                 blockchain.getChainHeadHeader())
             .getBlock();
-    // the production path: process on the parent state, append the block (firing the block-added
-    // event the archiver reacts to), then roll the head world state to it
+    // production order: process on the parent state, append (fires block-added), roll the head
     final BlockImportResult result =
         protocolSchedule
             .getByBlockHeader(block.getHeader())

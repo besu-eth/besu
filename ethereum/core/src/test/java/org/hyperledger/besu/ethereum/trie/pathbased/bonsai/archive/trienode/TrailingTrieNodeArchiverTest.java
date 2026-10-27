@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -64,16 +65,135 @@ class TrailingTrieNodeArchiverTest {
   }
 
   @Test
-  void targetWithFinalityTrailsByMaxLayers() {
-    assertThat(TrailingTrieNodeArchiver.targetFor(1000, true, 512)).isEqualTo(488);
-    assertThat(TrailingTrieNodeArchiver.targetFor(100, true, 512)).isEqualTo(0);
+  void targetWithFinalitySitsOneBatchInsideLiveWindow() {
+    assertThat(archiverWith(512).targetFor(1000, true)).isEqualTo(528);
+    assertThat(archiverWith(512).targetFor(100, true)).isEqualTo(0);
+    assertThat(archiverWith(4).targetFor(10, true)).isEqualTo(8);
   }
 
   @Test
   void targetWithoutFinalityIsOneBehindHead() {
-    assertThat(TrailingTrieNodeArchiver.targetFor(1000, false, 512)).isEqualTo(999);
-    assertThat(TrailingTrieNodeArchiver.targetFor(1, false, 512)).isEqualTo(0);
-    assertThat(TrailingTrieNodeArchiver.targetFor(0, false, 512)).isEqualTo(0);
+    assertThat(archiverWith(512).targetFor(1000, false)).isEqualTo(999);
+    assertThat(archiverWith(512).targetFor(1, false)).isEqualTo(0);
+    assertThat(archiverWith(512).targetFor(0, false)).isEqualTo(0);
+  }
+
+  @Test
+  void minBatchIsThirtyTwoWithFinalityCappedAtHalfMaxLayers() {
+    assertThat(archiverWith(512).minBatchFor(true)).isEqualTo(32);
+    assertThat(archiverWith(64).minBatchFor(true)).isEqualTo(32);
+    assertThat(archiverWith(4).minBatchFor(true)).isEqualTo(2);
+    assertThat(archiverWith(1).minBatchFor(true)).isEqualTo(1);
+  }
+
+  @Test
+  void minBatchIsOneWithoutFinality() {
+    assertThat(archiverWith(512).minBatchFor(false)).isEqualTo(1);
+    assertThat(archiverWith(4).minBatchFor(false)).isEqualTo(1);
+  }
+
+  @Test
+  void finalityWaitsForAFullBatch() {
+    recordCoverage(0);
+    blockchain.setFinalized(blockchain.getGenesisBlock().getHash());
+    start(64);
+
+    appendBlocks(55);
+    assertThat(step.calls).isEmpty();
+
+    appendBlocks(1);
+    assertThat(step.calls).containsExactly(new Call(0, 32));
+
+    appendBlocks(31);
+    assertThat(step.calls).hasSize(1);
+
+    appendBlocks(1);
+    assertThat(step.calls).containsExactly(new Call(0, 32), new Call(32, 64));
+    assertThat(lastCovered()).isEqualTo(64);
+  }
+
+  @Test
+  void noHoleWithSynchronousPasses() {
+    assertThat(holesWithPassLatency(64, 0)).isEmpty();
+  }
+
+  @Test
+  void noHoleWithSynchronousPassesAndSmallWindow() {
+    assertThat(holesWithPassLatency(4, 0)).isEmpty();
+  }
+
+  @Test
+  void noHoleWhileBlocksArriveDuringAPassWithinSlack() {
+    // maxLayers 64: batch 32, slack 8
+    assertThat(holesWithPassLatency(64, 8)).isEmpty();
+  }
+
+  @Test
+  void blocksArrivingBeyondSlackDuringAPassLeaveAHole() {
+    assertThat(holesWithPassLatency(64, 9)).isNotEmpty();
+  }
+
+  /**
+   * Runs heads up to 200 with finality, where each pass sees {@code latency} more blocks arrive
+   * before it records coverage, and returns the heads at which the block that just left the live
+   * window (blocks less than {@code maxLayers} behind the head) was not archived.
+   */
+  private List<Long> holesWithPassLatency(final long maxLayers, final int latency) {
+    recordCoverage(0);
+    blockchain.setFinalized(blockchain.getGenesisBlock().getHash());
+    final List<Long> holes = new ArrayList<>();
+    blockchain.observeBlockAdded(
+        event -> {
+          final long head = event.getHeader().getNumber();
+          if (lastCovered() < head - maxLayers) {
+            holes.add(head);
+          }
+        });
+    step.onCall = () -> appendBlocks(latency);
+    start(maxLayers);
+
+    while (blockchain.getChainHeadBlockNumber() < 200) {
+      appendBlocks(1);
+    }
+    assertThat(archiver.isHalted()).isFalse();
+    assertThat(step.calls).isNotEmpty();
+    return holes;
+  }
+
+  @Test
+  void nonCanonicalCoverageTipHalts() {
+    appendBlocks(3);
+    recordCoverage(0);
+    recordCoverage(1, Hash.ZERO);
+
+    start(MAX_LAYERS);
+    appendBlocks(1);
+
+    assertThat(archiver.isHalted()).isTrue();
+    assertThat(step.calls).isEmpty();
+  }
+
+  @Test
+  void depthBeyondTwiceMaxLayersHalts() {
+    recordCoverage(0);
+    appendBlocks(9);
+
+    start(4);
+    appendBlocks(1);
+
+    assertThat(archiver.isHalted()).isTrue();
+    assertThat(step.calls).isEmpty();
+  }
+
+  @Test
+  void depthOfTwiceMaxLayersStillArchives() {
+    recordCoverage(0);
+    appendBlocks(8);
+
+    start(4);
+
+    assertThat(archiver.isHalted()).isFalse();
+    assertThat(step.calls).containsExactly(new Call(0, 7));
   }
 
   @Test
@@ -107,8 +227,9 @@ class TrailingTrieNodeArchiverTest {
 
     appendBlocks(5);
 
-    assertThat(step.calls.getLast().toInclusive()).isEqualTo(3);
-    assertThat(lastCovered()).isEqualTo(3);
+    // maxLayers 2 gives a batch of 1, so the target is head - 2 + 1
+    assertThat(step.calls.getLast().toInclusive()).isEqualTo(4);
+    assertThat(lastCovered()).isEqualTo(4);
   }
 
   @Test
@@ -213,8 +334,12 @@ class TrailingTrieNodeArchiverTest {
   }
 
   private void start(final long maxLayers) {
-    archiver = new TrailingTrieNodeArchiver(blockchain, historyStore, step, maxLayers, executor);
+    archiver = archiverWith(maxLayers);
     archiver.start();
+  }
+
+  private TrailingTrieNodeArchiver archiverWith(final long maxLayers) {
+    return new TrailingTrieNodeArchiver(blockchain, historyStore, step, maxLayers, executor);
   }
 
   private void appendBlocks(final int count) {
@@ -225,9 +350,12 @@ class TrailingTrieNodeArchiverTest {
   }
 
   private void recordCoverage(final long block) {
+    recordCoverage(block, blockchain.getBlockHeader(block).orElseThrow().getHash());
+  }
+
+  private void recordCoverage(final long block, final Hash hash) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    historyStore.saveArchiveProgress(
-        tx, block, blockchain.getBlockHeader(block).orElseThrow().getHash());
+    historyStore.saveArchiveProgress(tx, block, hash);
     tx.commit();
   }
 

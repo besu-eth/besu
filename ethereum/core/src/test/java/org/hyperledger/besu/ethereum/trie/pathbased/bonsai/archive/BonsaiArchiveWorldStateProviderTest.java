@@ -54,6 +54,7 @@ public class BonsaiArchiveWorldStateProviderTest {
   private BlockHeader chainHeadHeader;
   private BonsaiArchiveWorldStateProvider provider;
   private Long seededProgress;
+  private boolean seedWorldStateBlockHash = true;
 
   @BeforeEach
   void setup() {
@@ -242,8 +243,18 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void startupFailsWhenGenesisWasPersistedWithoutProofs() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(0L);
+
+    assertThatThrownBy(() -> createProvider(true, true))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("no proof history");
+  }
+
+  @Test
   void startupSucceedsOnFreshChain() {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(0L);
+    seedWorldStateBlockHash = false;
 
     createProvider(true, true).close();
   }
@@ -291,10 +302,12 @@ public class BonsaiArchiveWorldStateProviderTest {
     // Seed the chain head block hash so the head world state is cached under it,
     // allowing non-historical queries to find it via worldStateCacheManager.
     final var tx = worldStateStorage.getComposedWorldStateStorage().startTransaction();
-    tx.put(
-        TRIE_BRANCH_STORAGE,
-        WORLD_BLOCK_HASH_KEY,
-        chainHeadHeader.getHash().getBytes().toArrayUnsafe());
+    if (seedWorldStateBlockHash) {
+      tx.put(
+          TRIE_BRANCH_STORAGE,
+          WORLD_BLOCK_HASH_KEY,
+          chainHeadHeader.getHash().getBytes().toArrayUnsafe());
+    }
     if (seededProgress != null) {
       new ArchiveNodeHistoryStore(worldStateStorage.getComposedWorldStateStorage())
           .saveArchiveProgress(tx, seededProgress, Hash.ZERO);
