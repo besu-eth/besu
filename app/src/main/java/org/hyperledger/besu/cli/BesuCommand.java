@@ -895,9 +895,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private IExecutionStrategy createOptionsDefinitionTask(final IExecutionStrategy nextStep) {
     return parseResult -> {
-      if (isHelpOrVersionRequested(parseResult)) {
+      if (isHelpOrVersionRequested(parseResult)
+          || (printPathsAndExit && !parseResult.hasSubcommand())) {
         // suppressing the info log to avoid that plugin loading logs are printed
-        // before the help or the version information
+        // before the help, the version information or the printed paths
         suppressInfoLog();
       }
       besuPluginContext.initialize(PluginsConfigurationOptions.fromCommandLine(commandLine));
