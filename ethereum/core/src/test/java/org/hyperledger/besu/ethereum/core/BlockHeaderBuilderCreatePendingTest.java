@@ -154,6 +154,59 @@ public class BlockHeaderBuilderCreatePendingTest {
     assertThat(result.buildProcessableBlockHeader().getGasLimit()).isEqualTo(expectedGasLimit);
   }
 
+  @Test
+  public void usesTheGivenSlotNumber() {
+    final ProtocolSpec protocolSpec = realCalculatorProtocolSpec();
+    when(protocolSpec.isSlotNumberRequired()).thenReturn(true);
+    final BlockHeader parent = new BlockHeaderTestFixture().slotNumber(41L).buildHeader();
+
+    assertThat(createPendingWithSlotNumber(protocolSpec, parent, Optional.of(50L))).contains(50L);
+  }
+
+  @Test
+  public void slotNumberFollowsTheParentOneWhenRequiredAndNotGiven() {
+    final ProtocolSpec protocolSpec = realCalculatorProtocolSpec();
+    when(protocolSpec.isSlotNumberRequired()).thenReturn(true);
+    final BlockHeader parent = new BlockHeaderTestFixture().slotNumber(41L).buildHeader();
+
+    assertThat(createPendingWithSlotNumber(protocolSpec, parent, Optional.empty())).contains(42L);
+  }
+
+  @Test
+  public void slotNumberIsOneWhenRequiredAndNotGivenAndTheParentHasNone() {
+    // the first block of the fork introducing the slot number
+    final ProtocolSpec protocolSpec = realCalculatorProtocolSpec();
+    when(protocolSpec.isSlotNumberRequired()).thenReturn(true);
+
+    assertThat(createPendingWithSlotNumber(protocolSpec, parentHeader(), Optional.empty()))
+        .contains(1L);
+  }
+
+  @Test
+  public void slotNumberIsAbsentWhenNotRequiredAndNotGiven() {
+    final ProtocolSpec protocolSpec = realCalculatorProtocolSpec();
+    final BlockHeader parent = new BlockHeaderTestFixture().slotNumber(41L).buildHeader();
+
+    assertThat(createPendingWithSlotNumber(protocolSpec, parent, Optional.empty())).isEmpty();
+  }
+
+  private static Optional<Long> createPendingWithSlotNumber(
+      final ProtocolSpec protocolSpec,
+      final BlockHeader parent,
+      final Optional<Long> maybeSlotNumber) {
+    return BlockHeaderBuilder.createPending(
+            protocolSpec,
+            parent,
+            MiningConfiguration.newDefault(),
+            parent.getTimestamp() + 1,
+            Optional.empty(),
+            Optional.empty(),
+            maybeSlotNumber,
+            Optional.empty())
+        .buildProcessableBlockHeader()
+        .getOptionalSlotNumber();
+  }
+
   private static ProtocolSpec realCalculatorProtocolSpec() {
     final GasLimitCalculator gasLimitCalculator = new FrontierTargetingGasLimitCalculator();
     final DifficultyCalculator difficultyCalculator = (time, parent) -> BigInteger.ZERO;

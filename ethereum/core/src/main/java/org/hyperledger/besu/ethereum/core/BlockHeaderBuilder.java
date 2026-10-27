@@ -243,10 +243,12 @@ public class BlockHeaderBuilder {
         Difficulty.of(difficultyCalculator.nextDifficulty(timestamp, parentHeader));
 
     // From Amsterdam (EIP-7843) an absent slot number fails our own header validation, so
-    // callers with no beacon slot to supply get 0. Before Amsterdam it must stay absent, or
+    // callers with no beacon slot to supply, like PoA block creation or the pending block
+    // simulation, get the slot following the parent one. Before Amsterdam it must stay absent, or
     // the block hash changes.
     final Long slotNumber =
-        maybeSlotNumber.orElseGet(() -> protocolSpec.isSlotNumberRequired() ? 0L : null);
+        maybeSlotNumber.orElseGet(
+            () -> protocolSpec.isSlotNumberRequired() ? parentHeader.getSlotNumber() + 1 : null);
 
     final Wei baseFee;
     if (protocolSpec.getFeeMarket().implementsBaseFee()) {
