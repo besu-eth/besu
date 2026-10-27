@@ -214,10 +214,17 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     long totalFrameGas = 0L;
     int expiryFrames = 0;
+    boolean seenPostTx = false;
     for (int i = 0; i < frames.size(); i++) {
       final var frame = frames.get(i);
-      if (frame.mode() < 0 || frame.mode() > Frame.MODE_SENDER) {
+      if (frame.mode() < 0 || frame.mode() > Frame.MODE_POST_TX) {
         return frameInvalid("unknown frame mode " + frame.mode());
+      }
+      // EIP-7906: POST_TX frames form a contiguous trailing suffix of the frames.
+      if (frame.mode() == Frame.MODE_POST_TX) {
+        seenPostTx = true;
+      } else if (seenPostTx) {
+        return frameInvalid("frame " + i + " follows a POST_TX frame");
       }
       if (frame.flags() < 0 || frame.flags() > 7) {
         return frameInvalid("reserved frame flag bits set: " + frame.flags());
@@ -252,11 +259,18 @@ public class MainnetTransactionValidator implements TransactionValidator {
         if (frame.mode() == Frame.MODE_VERIFY) {
           return frameInvalid("frame " + i + " is a batched VERIFY frame");
         }
+        // EIP-7906: an unrolled batch must never skip an assertion.
+        if (frame.mode() == Frame.MODE_POST_TX) {
+          return frameInvalid("POST_TX frame " + i + " carries the atomic batch flag");
+        }
         if (i + 1 >= frames.size()) {
           return frameInvalid("last frame cannot carry the atomic batch flag");
         }
         if (frames.get(i + 1).mode() == Frame.MODE_VERIFY) {
           return frameInvalid("frame " + (i + 1) + " is a batched VERIFY frame");
+        }
+        if (frames.get(i + 1).mode() == Frame.MODE_POST_TX) {
+          return frameInvalid("atomic batch cannot end on POST_TX frame " + (i + 1));
         }
       }
       final boolean inBatch = frame.isAtomicBatch() || (i > 0 && frames.get(i - 1).isAtomicBatch());

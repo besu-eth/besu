@@ -82,6 +82,11 @@ class FrameTransactionAdmissionTest {
   private static final String CREATE2_CALLDATA = "365f5f37" + "5f365f5ff550";
   // CREATE(value 0, the calldata already in memory) POP
   private static final String CREATE_CALLDATA = "365f5ff050";
+  // EIP-7906 wallet pattern: reverts unless the last frame is a POST_TX frame, that is unless
+  // FRAMEPARAM(mode, TXPARAM(frame count) - 1) == 3; then JUMPDEST, where the approval follows.
+  private static final String REQUIRE_TRAILING_POST_TX =
+      "6002" + "6001" + "6009" + "b0" + "03" + "b3" + "6003" + "14" + "6012" + "57" + "5f5ffd"
+          + "5b";
 
   private final KeyPair senderKeys = ALGO.generateKeyPair();
   private final Address sender = Address.extract(senderKeys.getPublicKey());
@@ -93,6 +98,8 @@ class FrameTransactionAdmissionTest {
       Address.fromHexString("0x00000000000000000000000000000000000000bb");
   private final Address factory =
       Address.fromHexString("0x00000000000000000000000000000000000000ee");
+  private final Address assertion =
+      Address.fromHexString("0x00000000000000000000000000000000000000ab");
 
   ProtocolSchedule protocolSchedule;
   BlockHeader head;
@@ -215,14 +222,26 @@ class FrameTransactionAdmissionTest {
     setup.commit();
   }
 
-  /** A smart account whose code runs {@code body} and then approves execution and payment. */
-  private Transaction smartAccountRunning(final String body) {
+  /**
+   * A smart account whose code runs {@code body} and then approves execution and payment, in a
+   * self-verify frame followed by {@code after}.
+   */
+  private Transaction smartAccountRunning(final String body, final Frame... after) {
     final WorldUpdater setup = worldState.updater();
     setup
         .createAccount(smartAccount, 0, Wei.of(10).multiply(ONE_ETHER))
         .setCode(Bytes.fromHexString(body + APPROVE_BOTH));
     setup.commit();
-    return build(smartAccount, 0, List.of(selfVerify()), List.of());
+    final List<Frame> frames = new ArrayList<>();
+    frames.add(selfVerify());
+    frames.addAll(List.of(after));
+    return build(smartAccount, 0, frames, List.of());
+  }
+
+  /** An EIP-7906 POST_TX frame asserting with the code at {@code target}. */
+  private static Frame postTx(final Address target) {
+    return new Frame(
+        Frame.MODE_POST_TX, 0, Optional.of(target), 50_000L, 0L, Wei.ZERO, Bytes.EMPTY);
   }
 
   /**
@@ -484,5 +503,63 @@ class FrameTransactionAdmissionTest {
 
     assertThat(result.rejection())
         .isEqualTo(TransactionInvalidReason.CHAIN_HEAD_WORLD_STATE_NOT_AVAILABLE);
+  }
+
+  @Test
+  void admitsATransactionWhosePostTxFrameWouldFail() {
+    // geth TestPostTxAdmission: only the validation prefix is simulated, so an assertion that can
+    // never pass does not stop admission. A failing POST_TX frame leaves the transaction valid and
+    // its payment collected.
+    deployCode(assertion, Bytes.fromHexString("0xfe")); // INVALID
+    final Transaction transaction = signed(0, List.of(selfVerify(), userOp(), postTx(assertion)));
+
+    final FrameTransactionAdmission.Result result = admission.admit(transaction, head);
+
+    assertThat(result.isAdmitted()).as(String.valueOf(result.message())).isTrue();
+    final FrameTransactionAdmission.Admitted admitted = result.admitted().get();
+    assertThat(admitted.prefix().length()).isEqualTo(1);
+    assertThat(admitted.payer()).isEqualTo(sender);
+    // The payer's exposure covers the assertion's budget: max_cost counts every frame.
+    assertThat(admitted.maxCost()).isEqualTo(MAX_FEE.multiply(Wei.of(transaction.getGasLimit())));
+    assertThat(transaction.getGasLimit())
+        .isGreaterThanOrEqualTo(signed(0, List.of(selfVerify(), userOp())).getGasLimit() + 50_000L);
+    // Simulation must not leak into the head state.
+    assertThat(worldState.get(sender).getNonce()).isZero();
+    assertThat(worldState.get(recipient)).isNull();
+  }
+
+  @Test
+  void rejectsAFrameAfterAPostTxFrameWithTheValidatorsReason() {
+    // Classification looks only at the prefix; the simulation validates the whole transaction
+    // first, so the EIP-7906 suffix rule rejects the transaction before any frame runs.
+    deployCode(assertion, Bytes.fromHexString("0x00"));
+
+    final FrameTransactionAdmission.Result result =
+        admission.admit(signed(0, List.of(selfVerify(), postTx(assertion), userOp())), head);
+
+    assertThat(result.isAdmitted()).isFalse();
+    assertThat(result.rejection()).isEqualTo(TransactionInvalidReason.INVALID_FRAMES);
+    assertThat(result.message()).isEqualTo("frame 2 follows a POST_TX frame");
+    assertThat(worldState.get(sender).getNonce()).isZero();
+  }
+
+  @Test
+  void admitsASmartAccountThatRequiresATrailingPostTxFrame() {
+    // EIP-7906 wallet pattern: the account's VERIFY code reads the frame list and approves only
+    // with an assertion at the end. TXPARAM and FRAMEPARAM read transaction fields, which the
+    // validation trace rules allow.
+    deployCode(assertion, Bytes.fromHexString("0x00"));
+
+    final FrameTransactionAdmission.Result withAssertion =
+        admission.admit(
+            smartAccountRunning(REQUIRE_TRAILING_POST_TX, userOp(), postTx(assertion)), head);
+    assertThat(withAssertion.isAdmitted()).as(String.valueOf(withAssertion.message())).isTrue();
+    assertThat(withAssertion.admitted().get().payer()).isEqualTo(smartAccount);
+
+    final FrameTransactionAdmission.Result withoutAssertion =
+        admission.admit(build(smartAccount, 0, List.of(selfVerify(), userOp()), List.of()), head);
+    assertThat(withoutAssertion.isAdmitted()).isFalse();
+    assertThat(withoutAssertion.rejection())
+        .isEqualTo(TransactionInvalidReason.FRAME_VERIFICATION_FAILED);
   }
 }

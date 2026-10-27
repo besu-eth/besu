@@ -21,7 +21,8 @@ import java.util.List;
 /**
  * The receipt of a single EIP-8141 frame.
  *
- * @param status the frame status: 0 failure, 1 success, 2 skipped by a failed atomic batch
+ * @param status the frame status: 0 failure, 1 success, 2 skipped by a failed atomic batch or a
+ *     failed POST_TX frame
  * @param executionGasUsed the execution gas used by the frame, not accounting for refunds
  * @param stateGasUsed the final state gas attributed to the frame
  * @param logs the logs emitted by the frame
@@ -34,6 +35,6 @@ public record FrameReceipt(int status, long executionGasUsed, long stateGasUsed,
   /** Frame status: success. */
   public static final int STATUS_SUCCESS = 1;
 
-  /** Frame status: skipped due to a failed atomic batch. */
+  /** Frame status: skipped due to a failed atomic batch or a failed POST_TX frame (EIP-7906). */
   public static final int STATUS_SKIPPED = 2;
 }

@@ -32,6 +32,11 @@ import java.util.OptionalLong;
  * frame: {@code [self_verify]}, {@code [deploy, self_verify]}, {@code [only_verify, pay]} and
  * {@code [deploy, only_verify, pay]}.
  *
+ * <p>The frames after the prefix are outside public-mempool validation: only a VERIFY frame there
+ * is rejected. Trailing EIP-7906 POST_TX frames are therefore accepted, and their gas counts toward
+ * neither {@link #MAX_VERIFY_GAS} nor {@link #MAX_VERIFY_STATE_GAS}. Their placement is a static
+ * validity rule, which the transaction pool checks with the fork's validator before admission.
+ *
  * @param length the number of frames in the prefix, including any expiry verifier frame
  * @param deployFrame the index of the deploy frame, or -1
  * @param payFrame the index of the frame that must approve payment

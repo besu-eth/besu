@@ -163,4 +163,56 @@ class ValidationPrefixTest {
     assertThatThrownBy(() -> ValidationPrefix.classify(tx(heavy)))
         .hasMessageContaining("validation work");
   }
+
+  static Frame postTx(final long executionGas, final long stateGas) {
+    return new Frame(
+        Frame.MODE_POST_TX,
+        0,
+        Optional.of(PAYMASTER),
+        executionGas,
+        stateGas,
+        Wei.ZERO,
+        Bytes.EMPTY);
+  }
+
+  @Test
+  void acceptsTrailingPostTxFramesOutsideThePrefixAndItsBudgets() throws Exception {
+    // EIP-7906 assertions follow the prefix. Their budgets are far above MAX_VERIFY_GAS and
+    // MAX_VERIFY_STATE_GAS, and count toward neither (geth ClassifyPrefix, i <= prefix.End).
+    final Frame heavyPostTx =
+        postTx(ValidationPrefix.MAX_VERIFY_GAS * 100, ValidationPrefix.MAX_VERIFY_STATE_GAS * 10);
+
+    final ValidationPrefix selfRelay =
+        ValidationPrefix.classify(tx(selfVerify(), userOp(), heavyPostTx, heavyPostTx));
+    assertThat(selfRelay.length()).isEqualTo(1);
+    assertThat(selfRelay.payFrame()).isZero();
+
+    final ValidationPrefix paymaster =
+        ValidationPrefix.classify(
+            tx(
+                verify(Frame.FLAG_APPROVE_EXECUTION, SENDER),
+                verify(Frame.FLAG_APPROVE_PAYMENT, PAYMASTER),
+                userOp(),
+                heavyPostTx));
+    assertThat(paymaster.length()).isEqualTo(2);
+    assertThat(paymaster.payFrame()).isEqualTo(1);
+    assertThat(paymaster.paymaster()).isTrue();
+
+    // Nothing but the prefix is required: the assertion may follow it directly.
+    assertThat(ValidationPrefix.classify(tx(selfVerify(), heavyPostTx)).length()).isEqualTo(1);
+  }
+
+  @Test
+  void rejectsAPostTxFrameInsideThePrefix() {
+    assertThatThrownBy(() -> ValidationPrefix.classify(tx(postTx(10_000L, 0L), selfVerify())))
+        .hasMessageContaining("no recognized shape");
+    assertThatThrownBy(
+            () ->
+                ValidationPrefix.classify(
+                    tx(
+                        verify(Frame.FLAG_APPROVE_EXECUTION, SENDER),
+                        postTx(10_000L, 0L),
+                        verify(Frame.FLAG_APPROVE_PAYMENT, PAYMASTER))))
+        .hasMessageContaining("no recognized shape");
+  }
 }

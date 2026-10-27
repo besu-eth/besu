@@ -66,6 +66,7 @@ import org.hyperledger.besu.evm.operation.DivOperationOptimized;
 import org.hyperledger.besu.evm.operation.DupNOperation;
 import org.hyperledger.besu.evm.operation.DupOperation;
 import org.hyperledger.besu.evm.operation.EqOperation;
+import org.hyperledger.besu.evm.operation.EventDataCopyOperation;
 import org.hyperledger.besu.evm.operation.ExchangeOperation;
 import org.hyperledger.besu.evm.operation.ExpOperation;
 import org.hyperledger.besu.evm.operation.ExtCodeCopyOperation;
@@ -141,7 +142,9 @@ import org.hyperledger.besu.evm.operation.SwapOperation;
 import org.hyperledger.besu.evm.operation.TLoadOperation;
 import org.hyperledger.besu.evm.operation.TStoreOperation;
 import org.hyperledger.besu.evm.operation.TimestampOperation;
+import org.hyperledger.besu.evm.operation.TxDiffOperation;
 import org.hyperledger.besu.evm.operation.TxParamOperation;
+import org.hyperledger.besu.evm.operation.TxTraceOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
 
@@ -1244,6 +1247,11 @@ public class MainnetEVMs {
     registry.put(new FrameParamOperation(gasCalculator));
     registry.put(new SigParamOperation(gasCalculator));
     registry.put(new SigDataCopyOperation(gasCalculator));
+
+    // EIP-7906: transaction assertions, valid only in a POST_TX frame
+    registry.put(new TxTraceOperation(gasCalculator));
+    registry.put(new TxDiffOperation(gasCalculator));
+    registry.put(new EventDataCopyOperation(gasCalculator));
   }
 
   /**

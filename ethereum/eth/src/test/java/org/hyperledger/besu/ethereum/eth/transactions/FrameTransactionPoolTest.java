@@ -80,6 +80,9 @@ class FrameTransactionPoolTest {
   private static final BigInteger CHAIN_ID = BigInteger.ONE;
   private static final Address RECIPIENT =
       Address.fromHexString("0x00000000000000000000000000000000000000cc");
+  // EIP-7906 assertion code that always fails: INVALID
+  private static final Address FAILING_ASSERTION =
+      Address.fromHexString("0x00000000000000000000000000000000000000ab");
 
   private static final String GENESIS =
       """
@@ -110,7 +113,8 @@ class FrameTransactionPoolTest {
         "coinbase": "0x0000000000000000000000000000000000000000",
         "slotnumber": "0x42",
         "alloc": {
-          "%s": { "balance": "0x8ac7230489e80000" }
+          "%s": { "balance": "0x8ac7230489e80000" },
+          "0x00000000000000000000000000000000000000ab": { "balance": "0x0", "code": "0xfe" }
         }
       }
       """;
@@ -172,31 +176,38 @@ class FrameTransactionPoolTest {
     return transactionPool;
   }
 
+  private static final Frame SELF_VERIFY =
+      new Frame(
+          Frame.MODE_VERIFY,
+          Frame.APPROVE_SCOPE_MASK,
+          Optional.empty(),
+          50_000L,
+          0L,
+          Wei.ZERO,
+          Bytes.EMPTY);
+  private static final Frame TRANSFER_ONE_WEI =
+      new Frame(Frame.MODE_SENDER, 0, Optional.of(RECIPIENT), 50_000L, 0L, Wei.ONE, Bytes.EMPTY);
+  private static final Frame FAILING_POST_TX =
+      new Frame(
+          Frame.MODE_POST_TX,
+          0,
+          Optional.of(FAILING_ASSERTION),
+          50_000L,
+          0L,
+          Wei.ZERO,
+          Bytes.EMPTY);
+
   private Transaction buildFrameTransaction(
-      final long nonce, final long priorityFee, final List<FrameSignature> signatures) {
+      final long nonce,
+      final long priorityFee,
+      final List<Frame> frames,
+      final List<FrameSignature> signatures) {
     return Transaction.builder()
         .type(TransactionType.FRAME)
         .chainId(CHAIN_ID)
         .nonce(nonce)
         .sender(sender)
-        .frames(
-            List.of(
-                new Frame(
-                    Frame.MODE_VERIFY,
-                    Frame.APPROVE_SCOPE_MASK,
-                    Optional.empty(),
-                    50_000L,
-                    0L,
-                    Wei.ZERO,
-                    Bytes.EMPTY),
-                new Frame(
-                    Frame.MODE_SENDER,
-                    0,
-                    Optional.of(RECIPIENT),
-                    50_000L,
-                    0L,
-                    Wei.ONE,
-                    Bytes.EMPTY)))
+        .frames(frames)
         .frameSignatures(signatures)
         .maxPriorityFeePerGas(Wei.of(priorityFee))
         .maxFeePerGas(Wei.of(priorityFee + 1_000))
@@ -206,10 +217,17 @@ class FrameTransactionPoolTest {
 
   /** A self-relayed transfer: the sender verifies itself and pays, with one secp256k1 entry. */
   private Transaction selfRelay(final long nonce, final long priorityFee) {
+    return selfRelay(nonce, priorityFee, List.of(SELF_VERIFY, TRANSFER_ONE_WEI));
+  }
+
+  /** The given frames from the sender, canonically signed with one secp256k1 entry. */
+  private Transaction selfRelay(
+      final long nonce, final long priorityFee, final List<Frame> frames) {
     final FrameSignature placeholder =
         new FrameSignature(
             FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, Bytes.repeat((byte) 0, 65));
-    final Transaction unsigned = buildFrameTransaction(nonce, priorityFee, List.of(placeholder));
+    final Transaction unsigned =
+        buildFrameTransaction(nonce, priorityFee, frames, List.of(placeholder));
     final SECPSignature signature =
         ALGO.sign(Bytes32.wrap(unsigned.getFrameSignatureHash().getBytes()), senderKeys);
     final Bytes raw =
@@ -220,6 +238,7 @@ class FrameTransactionPoolTest {
     return buildFrameTransaction(
         nonce,
         priorityFee,
+        frames,
         List.of(
             new FrameSignature(FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, raw)));
   }
@@ -334,6 +353,42 @@ class FrameTransactionPoolTest {
         .isEqualTo(TransactionInvalidReason.INVALID_TRANSACTION_FORMAT);
     assertThat(result.getErrorMessage())
         .isEqualTo("Frame transactions are not supported by the configured transaction pool");
+    assertThat(transactionPool.count()).isZero();
+  }
+
+  @Test
+  void admitsAFrameTransactionWhoseAssertionWouldFail() {
+    final TransactionPool transactionPool = createTransactionPool(LAYERED);
+    // geth TestPostTxAdmission: the pool simulates only the validation prefix, so the INVALID
+    // assertion never runs. In a block it would fail, revert the transfer and leave the
+    // transaction valid and paid.
+    final Transaction frameTransaction =
+        selfRelay(0, 2_000, List.of(SELF_VERIFY, TRANSFER_ONE_WEI, FAILING_POST_TX));
+
+    final ValidationResult<TransactionInvalidReason> result =
+        transactionPool.addTransactionViaApi(frameTransaction);
+
+    assertThat(result.isValid()).as(result.toString()).isTrue();
+    assertThat(transactionPool.getPendingTransactionsFor(sender).pendingTransactions())
+        .map(PendingTransaction::getTransaction)
+        .containsExactly(frameTransaction);
+    assertThat(transactionPool.logStats()).endsWith(" | Frame 1/1024");
+    assertThat(executionContext.getStateArchive().getWorldState().get(sender).getNonce()).isZero();
+  }
+
+  @Test
+  void rejectsAFrameAfterAPostTxFrameBeforeAdmission() {
+    final TransactionPool transactionPool = createTransactionPool(LAYERED);
+
+    // The fork's validator applies the EIP-7906 static rules before the pool classifies the
+    // prefix, and JSON-RPC reports INVALID_FRAMES as FRAME_VALIDATION_FAILED.
+    final ValidationResult<TransactionInvalidReason> result =
+        transactionPool.addTransactionViaApi(
+            selfRelay(0, 2_000, List.of(SELF_VERIFY, FAILING_POST_TX, TRANSFER_ONE_WEI)));
+
+    assertThat(result.isValid()).isFalse();
+    assertThat(result.getInvalidReason()).isEqualTo(TransactionInvalidReason.INVALID_FRAMES);
+    assertThat(result.getErrorMessage()).isEqualTo("frame 2 follows a POST_TX frame");
     assertThat(transactionPool.count()).isZero();
   }
 }

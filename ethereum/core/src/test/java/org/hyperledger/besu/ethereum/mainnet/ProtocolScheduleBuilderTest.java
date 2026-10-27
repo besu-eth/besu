@@ -444,6 +444,55 @@ class ProtocolScheduleBuilderTest {
   }
 
   @Test
+  void bogotaRejectsJournaledWorldUpdaterMode() {
+    // EIP-7906 reads the transaction prestate through the processor's world state while the
+    // transaction's writes sit in updaters above it. Only StackedUpdater chains keep that view
+    // isolated. JournaledUpdater layers share their accounts, so the transaction diff would come
+    // out empty and POST_TX frames would diverge from the network without an error. The block
+    // access list check in ProtocolSpecBuilder, which Bogota inherits from Amsterdam, is what
+    // rules JOURNALED out. Amsterdam is left unscheduled, so the Bogota spec is the one rejected.
+    when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getConstantinopleBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getPetersburgBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getIstanbulBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBerlinBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getLondonBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getShanghaiTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getCancunTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getPragueTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getOsakaTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo1Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo2Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBogotaTime()).thenReturn(OptionalLong.of(1));
+    stubSystemContractAddresses();
+
+    final ProtocolSpec bogotaSpec =
+        builder.createProtocolSchedule().getByBlockHeader(blockHeader(1, 1));
+    assertThat(bogotaSpec.getHardforkId()).isEqualTo(BOGOTA);
+    assertThat(bogotaSpec.getBlockAccessListFactory()).isPresent();
+
+    final ProtocolScheduleBuilder journaledBuilder =
+        new ProtocolScheduleBuilder(
+            configOptions,
+            Optional.of(CHAIN_ID),
+            ProtocolSpecAdapters.create(0, Function.identity()),
+            false,
+            new EvmConfiguration(
+                EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
+                EvmConfiguration.WorldUpdaterMode.JOURNALED,
+                EvmConfiguration.DEFAULT.enableOptimizedOpcodes()),
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem());
+    assertThatThrownBy(journaledBuilder::createProtocolSchedule)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("BAL requires STACKED world updater mode");
+  }
+
+  @Test
   void amsterdamOnPoaWarnsWhenBuilderRequestAddressesAreDefaulted() {
     stubAllForksAtGenesis();
     stubSystemContractAddresses();

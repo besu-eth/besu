@@ -48,7 +48,13 @@ import org.junit.jupiter.api.Test;
  */
 class FrameOpcodesV1V2DifferentialTest {
 
-  private static final List<Integer> OPCODES = List.of(0xaa, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5);
+  private static final List<Integer> OPCODES =
+      List.of(0xaa, 0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8);
+
+  private static final Bytes TWO_TO_THE_64 =
+      Bytes.concatenate(Bytes.of(1), Bytes.wrap(new byte[8]));
+  private static final Bytes TWO_TO_THE_255 =
+      Bytes.concatenate(Bytes.of(0x80), Bytes.wrap(new byte[31]));
 
   private static final List<Bytes32> SLOTS =
       IntStream.rangeClosed(0, 3).mapToObj(i -> Bytes32.leftPad(Bytes.of(i))).toList();
@@ -69,6 +75,9 @@ class FrameOpcodesV1V2DifferentialTest {
         "contract is the sender, keyed nonces",
         () -> context(CONTRACT, List.of(UInt256.valueOf(5), UInt256.valueOf(7)), 0));
     CONTEXTS.put("second frame", () -> context(SENDER, List.of(UInt256.ZERO), 1));
+    // EIP-7906: APPROVE halts in a POST_TX frame, which FRAMEPARAM reports as mode 3
+    CONTEXTS.put("post-tx frame", () -> PostTxContexts.withoutDiff(true));
+    CONTEXTS.put("post-tx frame, no payer", () -> PostTxContexts.withoutDiff(false));
   }
 
   /** The stacks each opcode runs on, top first. */
@@ -159,6 +168,266 @@ class FrameOpcodesV1V2DifferentialTest {
     }
     assertThat(runs).isGreaterThan(10_000);
     assertThat(differences).isEmpty();
+  }
+
+  /** POST_TX contexts for the assertion operations, and a run outside any frame transaction. */
+  private static final Map<String, Supplier<FrameTransactionContext>> POST_TX_CONTEXTS =
+      new LinkedHashMap<>();
+
+  static {
+    POST_TX_CONTEXTS.put("post-tx frame with a diff", () -> PostTxContexts.withDiff(true));
+    POST_TX_CONTEXTS.put(
+        "post-tx frame with a diff, no payer", () -> PostTxContexts.withDiff(false));
+    POST_TX_CONTEXTS.put("post-tx frame with an empty diff", PostTxContexts::withEmptyDiff);
+    POST_TX_CONTEXTS.put(
+        "post-tx frame, nothing installed", () -> PostTxContexts.withoutDiff(true));
+    POST_TX_CONTEXTS.put("no frame transaction", () -> null);
+  }
+
+  /**
+   * The EIP-7906 assertion operations, which read the diff only in a POST_TX frame, with the stacks
+   * each runs on there, top first.
+   */
+  private static final Map<Integer, Map<String, List<Bytes>>> POST_TX_STACKS =
+      new LinkedHashMap<>();
+
+  static {
+    final Map<String, List<Bytes>> txtrace = new LinkedHashMap<>();
+    txtrace.put("empty", List.of());
+    txtrace.put("one item", List.of(Bytes.of(1)));
+    final List<Bytes> indices =
+        List.of(Bytes.EMPTY, Bytes.of(1), Bytes.of(2), Bytes.of(3), TWO_TO_THE_64, TWO_TO_THE_255);
+    final List<Bytes> params = new ArrayList<>();
+    for (int param = 0; param <= 0x16; param++) {
+      params.add(Bytes.of(param));
+    }
+    params.add(TWO_TO_THE_64);
+    params.add(TWO_TO_THE_255);
+    for (final Bytes param : params) {
+      for (final Bytes index : indices) {
+        // param on top, then in2
+        txtrace.put(
+            String.format("param %s index %s", param.toShortHexString(), index.toShortHexString()),
+            List.of(param, index));
+      }
+    }
+    POST_TX_STACKS.put(0xb6, txtrace);
+
+    // event index on top, then memory offset, data offset and length; the first sample event has
+    // 40 bytes of data, the second none
+    final Map<String, List<Bytes>> eventDataCopy = new LinkedHashMap<>();
+    eventDataCopy.put("empty", List.of());
+    eventDataCopy.put("three items", List.of(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
+    final Bytes allOnes = Bytes32.ZERO.not();
+    final Bytes twoToThe64MinusOne = Bytes.repeat((byte) 0xff, 8);
+    final Object[][] copies = {
+      {"whole data", 0, Bytes.EMPTY, Bytes.EMPTY, Bytes.of(40)},
+      {"across a word boundary", 0, Bytes.of(1), Bytes.EMPTY, Bytes.of(40)},
+      {"from an offset", 0, Bytes.of(0x20), Bytes.of(8), Bytes.of(32)},
+      {"zero length at the end", 0, Bytes.EMPTY, Bytes.of(40), Bytes.EMPTY},
+      {"zero length past the end", 0, Bytes.EMPTY, Bytes.of(41), Bytes.EMPTY},
+      {"one byte past the end", 0, Bytes.EMPTY, Bytes.of(32), Bytes.of(9)},
+      {"empty data", 1, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY},
+      {"one byte of empty data", 1, Bytes.EMPTY, Bytes.EMPTY, Bytes.of(1)},
+      {"offset 2^64-1", 0, Bytes.EMPTY, twoToThe64MinusOne, Bytes.of(1)},
+      {"offset 2^256-1", 0, Bytes.EMPTY, allOnes, Bytes.of(1)},
+      {"zero length at memory 2^256-1", 0, allOnes, Bytes.EMPTY, Bytes.EMPTY},
+      {"one byte at memory 2^64", 0, TWO_TO_THE_64, Bytes.EMPTY, Bytes.of(1)},
+      {"event past the end", 3, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY},
+      {"last event", 2, Bytes.EMPTY, Bytes.EMPTY, Bytes.of(1)},
+    };
+    for (final Object[] copy : copies) {
+      eventDataCopy.put(
+          (String) copy[0],
+          List.of(Bytes.of((Integer) copy[1]), (Bytes) copy[2], (Bytes) copy[3], (Bytes) copy[4]));
+    }
+    eventDataCopy.put("event 2^64", List.of(TWO_TO_THE_64, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
+    eventDataCopy.put(
+        "event 2^255", List.of(TWO_TO_THE_255, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
+    POST_TX_STACKS.put(0xb8, eventDataCopy);
+
+    // param on top, then in2 (an address or a topic) and in3 (a slot key, an index or zero); every
+    // lookup runs twice, so that the second shows what the first warmed
+    final Map<String, List<Bytes>> txdiff = new LinkedHashMap<>();
+    txdiff.put("empty", List.of());
+    txdiff.put("two items", List.of(Bytes.EMPTY, CONTRACT.getBytes()));
+    final List<Bytes> diffParams = new ArrayList<>();
+    for (int param = 0; param <= 0x0d; param++) {
+      diffParams.add(Bytes.of(param));
+    }
+    // 2^64 + 1 must not read as SLOT_AFTER
+    diffParams.add(Bytes.of(1, 0, 0, 0, 0, 0, 0, 0, 1));
+    diffParams.add(TWO_TO_THE_255);
+    final Map<String, Bytes> keys = new LinkedHashMap<>();
+    keys.put("contract (warm)", CONTRACT.getBytes());
+    keys.put("sender (cold)", SENDER.getBytes());
+    keys.put("precompile", Bytes.of(1));
+    keys.put("delegated", PostTxContexts.DELEGATED.getBytes());
+    keys.put("never existed", PostTxContexts.NEVER_EXISTED.getBytes());
+    keys.put(
+        "callee with high bits",
+        Bytes.concatenate(Bytes.repeat((byte) 0xff, 12), CALLEE.getBytes()));
+    keys.put("topic T3", PostTxContexts.T3);
+    final List<Bytes> in3s = List.of(Bytes.EMPTY, Bytes.of(1), Bytes.of(2), TWO_TO_THE_255);
+    for (final Bytes param : diffParams) {
+      for (final Map.Entry<String, Bytes> key : keys.entrySet()) {
+        for (final Bytes in3 : in3s) {
+          txdiff.put(
+              String.format(
+                  "param %s %s in3 %s",
+                  param.toShortHexString(), key.getKey(), in3.toShortHexString()),
+              List.of(param, key.getValue(), in3));
+        }
+      }
+    }
+    POST_TX_STACKS.put(0xb7, txdiff);
+  }
+
+  private static final List<Long> POST_TX_GAS =
+      List.of(
+          0L,
+          1L,
+          2L,
+          3L,
+          99L,
+          100L,
+          101L,
+          2_099L,
+          2_100L,
+          2_101L,
+          2_999L,
+          3_000L,
+          3_001L,
+          1_000_000L);
+
+  /**
+   * EIP-7906: the assertion operations end in the same state on v1 and v2, in POST_TX frames with
+   * and without a diff, and outside frame transactions, at every gas budget around their cost, and
+   * when a POST_TX frame reaches them through a STATICCALL.
+   */
+  @Test
+  void postTxOpcodesEndInTheSameStateOnV1AndV2() {
+    final EVM v1 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V1);
+    final EVM v2 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V2);
+    final List<String> differences = new ArrayList<>();
+    int runs = 0;
+    for (final Map.Entry<Integer, Map<String, List<Bytes>>> stacks : POST_TX_STACKS.entrySet()) {
+      final int opcode = stacks.getKey();
+      for (final Map.Entry<String, List<Bytes>> stack : stacks.getValue().entrySet()) {
+        final Bytes pushes = push(stack.getValue());
+        for (final Map.Entry<String, Supplier<FrameTransactionContext>> context :
+            POST_TX_CONTEXTS.entrySet()) {
+          final long beforeOpcode =
+              1_000_000L - postTxRun(v1, pushes, Bytes.EMPTY, 1_000_000L, context).remainingGas();
+          final List<Long> budgets = new ArrayList<>();
+          for (final long gas : POST_TX_GAS) {
+            budgets.add(Math.min(1_000_000L, beforeOpcode + gas));
+          }
+          final Bytes direct =
+              opcode == 0xb7
+                  ? Bytes.concatenate(pushes, Bytes.of(opcode), pushes, Bytes.of(opcode, 0x00))
+                  : Bytes.concatenate(pushes, Bytes.of(opcode, 0x00));
+          // STATICCALL(all gas, CALLEE, 0, 0, 0, 0), the callee running the operation
+          final Bytes nested = Bytes.fromHexString("0x5f5f5f5f62ca11ee5afa00");
+          for (final long limit : budgets) {
+            for (final boolean viaCall : List.of(false, true)) {
+              if (viaCall && limit != 1_000_000L) {
+                continue;
+              }
+              final Bytes code = viaCall ? nested : direct;
+              final Bytes calleeCode = viaCall ? direct : Bytes.EMPTY;
+              final String onV1 = postTxRun(v1, code, calleeCode, limit, context).toString();
+              final String onV2 = postTxRun(v2, code, calleeCode, limit, context).toString();
+              runs++;
+              if (!onV2.equals(onV1)) {
+                differences.add(
+                    String.format(
+                        "opcode 0x%02x on the %s stack, %s%s, with %d gas:%n  v1 %s%n  v2 %s",
+                        opcode,
+                        stack.getKey(),
+                        context.getKey(),
+                        viaCall ? ", via STATICCALL" : "",
+                        limit,
+                        onV1,
+                        onV2));
+              }
+            }
+          }
+        }
+      }
+    }
+    // TXTRACE, EVENTDATACOPY and, most of them, TXDIFF
+    assertThat(runs).isGreaterThan(40_000);
+    assertThat(differences).isEmpty();
+  }
+
+  private static ProgramRun.Outcome postTxRun(
+      final EVM evm,
+      final Bytes code,
+      final Bytes calleeCode,
+      final long gas,
+      final Map.Entry<String, Supplier<FrameTransactionContext>> context) {
+    final FrameTransactionContext frameContext = context.getValue().get();
+    if (frameContext == null) {
+      return ProgramRun.runTraced(evm, code, calleeCode, Bytes.EMPTY, gas, true, SLOTS);
+    }
+    return ProgramRun.executeTracedInFrameTransaction(
+            evm, code, calleeCode, gas, true, SLOTS, frameContext)
+        .outcome();
+  }
+
+  /**
+   * EIP-7906: APPROVE halts exceptionally anywhere in a POST_TX frame, before the checks that would
+   * revert it: the scope beyond the mask and, in a nested call, the target mismatch.
+   */
+  @Test
+  void approveHaltsInAPostTxFrameOnV1AndV2() {
+    final EVM v1 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V1);
+    final EVM v2 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V2);
+    for (final int scope : List.of(1, 2, 3, 4)) {
+      // APPROVE(offset 0, length 0, scope)
+      final Bytes approve = Bytes.of(0x60, scope, 0x60, 0x00, 0x60, 0x00, 0xaa);
+      for (final EVM evm : List.of(v1, v2)) {
+        final Execution direct =
+            ProgramRun.executeTracedInFrameTransaction(
+                evm, approve, Bytes.EMPTY, 100_000L, true, SLOTS, PostTxContexts.withoutDiff(true));
+        assertThat(direct.outcome().haltReason()).isEqualTo("ILLEGAL_STATE_CHANGE");
+        assertThat(direct.outcome().remainingGas()).isZero();
+
+        // CALL(100000, CALLEE, 0, 0, 0, 0, 0), where the callee runs APPROVE
+        final Bytes call =
+            Bytes.fromHexString("0x600060006000600060006" + "2ca11ee" + "620186a0f100");
+        final Execution nested =
+            ProgramRun.executeTracedInFrameTransaction(
+                evm, call, approve, 200_000L, true, SLOTS, PostTxContexts.withoutDiff(true));
+        assertThat(nested.outcome().haltReason()).isEmpty();
+        assertThat(nested.outcome().stack()).containsExactly("00".repeat(32));
+        assertThat(nested.outcome().steps())
+            .anyMatch(step -> step.contains("APPROVE") && step.contains("ILLEGAL_STATE_CHANGE"));
+        // the callee consumed all of the 100000 it was given
+        assertThat(nested.outcome().remainingGas()).isLessThan(100_000L);
+      }
+      assertThat(
+              describe(
+                  ProgramRun.executeTracedInFrameTransaction(
+                      v1,
+                      approve,
+                      Bytes.EMPTY,
+                      100_000L,
+                      true,
+                      SLOTS,
+                      PostTxContexts.withoutDiff(true))))
+          .isEqualTo(
+              describe(
+                  ProgramRun.executeTracedInFrameTransaction(
+                      v2,
+                      approve,
+                      Bytes.EMPTY,
+                      100_000L,
+                      true,
+                      SLOTS,
+                      PostTxContexts.withoutDiff(true))));
+    }
   }
 
   private static Execution run(
