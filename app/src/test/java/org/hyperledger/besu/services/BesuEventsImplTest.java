@@ -166,7 +166,7 @@ public class BesuEventsImplTest {
     lenient().when(mockWorldState.get(any())).thenReturn(mockSenderAccount);
     lenient().when(mockSenderAccount.getBalance()).thenReturn(Wei.of(10_000_000_000_000_000L));
 
-    blockBroadcaster = new BlockBroadcaster(mockEthContext, 10 * ByteUnits.MEGABYTE);
+    blockBroadcaster = new BlockBroadcaster(mockEthContext, 10 * ByteUnits.MEBIBYTE);
     syncState = new SyncState(blockchain, mockEthPeers);
     TransactionPoolConfiguration txPoolConfig =
         ImmutableTransactionPoolConfiguration.builder()

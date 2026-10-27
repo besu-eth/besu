@@ -28,6 +28,32 @@ import org.apache.tuweni.bytes.Bytes;
 
 public class TransactionAnnouncementEncoder {
 
+  /**
+   * Upper bound of the bytes one announcement adds to an eth/68 message: its type byte, its size as
+   * an RLP scalar of at most 4 bytes plus a 1-byte prefix, and its 32-byte hash plus a 1-byte
+   * prefix.
+   */
+  public static final int MAX_ENCODED_ANNOUNCEMENT_SIZE = 1 + (1 + 4) + (1 + 32);
+
+  /**
+   * Upper bound of the RLP prefixes framing an eth/68 message: the outer list, the types string,
+   * and the sizes and hashes lists, each at most 1 + 4 bytes for any length that fits an int.
+   */
+  public static final int MAX_ENCODED_MESSAGE_OVERHEAD = 4 * (1 + 4);
+
+  /**
+   * Returns the largest size an eth/68 message carrying {@code maxAnnouncements} announcements can
+   * have, whatever their types and sizes.
+   *
+   * @param maxAnnouncements the maximum number of announcements in a message
+   * @return the maximum encoded message size in bytes, capped at {@link Integer#MAX_VALUE}
+   */
+  public static int maxMessageSize(final int maxAnnouncements) {
+    final long maxSize =
+        MAX_ENCODED_MESSAGE_OVERHEAD + (long) maxAnnouncements * MAX_ENCODED_ANNOUNCEMENT_SIZE;
+    return (int) Math.min(maxSize, Integer.MAX_VALUE);
+  }
+
   @FunctionalInterface
   public interface Encoder {
     Bytes encode(List<Transaction> transaction);

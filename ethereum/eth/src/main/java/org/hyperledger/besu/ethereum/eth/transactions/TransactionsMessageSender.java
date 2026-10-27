@@ -32,18 +32,23 @@ class TransactionsMessageSender {
 
   private final PeerTransactionTracker transactionTracker;
   private final int maxTransactionsMessageSize;
+  private final int maxTransactionsPerMessage;
 
   public TransactionsMessageSender(
-      final PeerTransactionTracker transactionTracker, final int maxTransactionsMessageSize) {
+      final PeerTransactionTracker transactionTracker,
+      final int maxTransactionsMessageSize,
+      final int maxTransactionsPerMessage) {
     this.transactionTracker = transactionTracker;
     this.maxTransactionsMessageSize = maxTransactionsMessageSize;
+    this.maxTransactionsPerMessage = maxTransactionsPerMessage;
   }
 
   void sendTransactionsToPeer(final EthPeer peer) {
     final List<Transaction> transactionsBatch = new ArrayList<>();
 
-    TransactionsMessage.SizeLimitedBuilder limitedTransactionsMessageBuilder =
-        new TransactionsMessage.SizeLimitedBuilder(maxTransactionsMessageSize);
+    TransactionsMessage.SizeAndCountLimitedBuilder limitedTransactionsMessageBuilder =
+        new TransactionsMessage.SizeAndCountLimitedBuilder(
+            maxTransactionsMessageSize, maxTransactionsPerMessage);
 
     Transaction txToSend = transactionTracker.claimTransactionToSendToPeer(peer);
     while (txToSend != null) {
@@ -62,7 +67,8 @@ class TransactionsMessageSender {
           // prepare the next batch
           transactionsBatch.clear();
           limitedTransactionsMessageBuilder =
-              new TransactionsMessage.SizeLimitedBuilder(maxTransactionsMessageSize);
+              new TransactionsMessage.SizeAndCountLimitedBuilder(
+                  maxTransactionsMessageSize, maxTransactionsPerMessage);
           if (limitedTransactionsMessageBuilder.add(txToSend)) {
             transactionsBatch.add(txToSend);
           } else {
