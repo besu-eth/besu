@@ -37,6 +37,7 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.FrameTransactionContext;
 import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.frame.TransactionDiff;
 import org.hyperledger.besu.evm.frame.TxValues;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.ApproveOperation;
@@ -173,6 +174,11 @@ public class FrameTransactionProcessor {
    * <p>The transaction is validated with the transaction pool's parameters, except that the nonce
    * must match exactly: the simulation decides whether the transaction can run at the next block,
    * so a future nonce must not pass.
+   *
+   * <p>EIP-7906 POST_TX frames form a trailing suffix and cannot approve payment, so a prefix that
+   * approves payment ends before the first of them: the simulation runs no assertion and never
+   * builds the transaction diff. If no frame before the suffix approves payment, the POST_TX frames
+   * run as in block processing, and the result is {@code FRAME_PAYMENT_NOT_APPROVED}.
    *
    * @param worldState a disposable updater over the state to simulate against
    * @param blockHeader the block context to simulate in
@@ -399,6 +405,16 @@ public class FrameTransactionProcessor {
     long batchMark = 0L;
     int skipUntil = -1; // inclusive index up to which frames are skipped by a failed batch
 
+    // EIP-7906 state. POST_TX frames form a trailing suffix, so the transaction has assertions
+    // exactly when its last frame is one; every other frame transaction runs as before. Once the
+    // validation prefix ends, the execution body runs in its own layer above the transaction
+    // updater, so a failing POST_TX frame can revert it as an atomic batch unroll does.
+    final boolean hasPostTx = frames.get(frames.size() - 1).mode() == Frame.MODE_POST_TX;
+    WorldUpdater bodyUpdater = null;
+    long bodyMark = 0L;
+    int bodyStart = -1; // the first frame of the execution body, once the prefix has ended
+    boolean postTxStarted = false;
+
     for (int i = 0; i < frames.size(); i++) {
       final Frame frame = frames.get(i);
       final FrameExecution execution = new FrameExecution();
@@ -412,13 +428,20 @@ public class FrameTransactionProcessor {
         continue;
       }
 
-      // Open an atomic batch at its first frame.
+      // EIP-7906: what the assertions observe is final once the POST_TX suffix starts.
+      if (frame.mode() == Frame.MODE_POST_TX && !postTxStarted) {
+        postTxStarted = true;
+        installTransactionDiff(context, worldState, worldUpdater, bodyUpdater, executions, i);
+      }
+
+      // Open an atomic batch at its first frame. Body frames and their batches nest in the body.
+      final WorldUpdater frameParent = bodyUpdater != null ? bodyUpdater : worldUpdater;
       final boolean batchOpen = batchUpdater != null;
       if (!batchOpen && frame.isAtomicBatch()) {
-        batchUpdater = worldUpdater.updater();
+        batchUpdater = frameParent.updater();
         batchMark = txValues.transientStorage().mark();
       }
-      final WorldUpdater activeUpdater = batchUpdater != null ? batchUpdater : worldUpdater;
+      final WorldUpdater activeUpdater = batchUpdater != null ? batchUpdater : frameParent;
 
       // SENDER frames require prior execution approval; otherwise the transaction is invalid.
       if (frame.mode() == Frame.MODE_SENDER && !context.senderApproved()) {
@@ -469,7 +492,8 @@ public class FrameTransactionProcessor {
                                   delegated,
                                   Optional.empty())
                               .code()))
-              .isStatic(frame.mode() == Frame.MODE_VERIFY)
+              // EIP-7906: POST_TX frames assert the outcome read-only, as VERIFY frames validate.
+              .isStatic(frame.mode() == Frame.MODE_VERIFY || frame.mode() == Frame.MODE_POST_TX)
               .maxStackSize(maxStackSize)
               .originator(caller)
               .gasPrice(effectiveGasPrice)
@@ -588,6 +612,33 @@ public class FrameTransactionProcessor {
             List.of(), 0L, 0L, 0L, 0L, Bytes.EMPTY, Optional.empty(), ValidationResult.valid());
       }
 
+      // EIP-7906: a failed assertion reverts the execution body, whatever batches it held, and
+      // skips the remaining frames. The transaction stays valid, and the payer still pays the
+      // execution gas of every frame that ran.
+      if (frame.mode() == Frame.MODE_POST_TX && execution.status == FrameReceipt.STATUS_FAILURE) {
+        if (bodyUpdater != null) {
+          // Rolls back refunds, self-destructs, creations, warmth, transient storage, the
+          // approval context and the state gas of every receipt to the end of the prefix.
+          txValues.undoChanges(bodyMark);
+          bodyUpdater.revert();
+          bodyUpdater = null;
+          // The executed frames keep their status and execution gas, and lose their logs.
+          for (int j = bodyStart; j <= i; j++) {
+            executions[j].logs = List.of();
+          }
+        }
+        // Without a validation prefix nothing is reverted, and the transaction is invalid below
+        // because no frame approved payment.
+        for (int j = i + 1; j < frames.size(); j++) {
+          final FrameExecution skipped = new FrameExecution();
+          skipped.skipped = true;
+          skipped.status = FrameReceipt.STATUS_SKIPPED;
+          executions[j] = skipped;
+          context.recordFrameSkipped(j);
+        }
+        break;
+      }
+
       // Atomic batch bookkeeping.
       if (batchUpdater != null) {
         if (execution.status == FrameReceipt.STATUS_FAILURE) {
@@ -615,6 +666,20 @@ public class FrameTransactionProcessor {
           batchUpdater = null;
         }
       }
+
+      // EIP-7906: the validation prefix ends with the first frame that leaves the payer set.
+      // Approval scope is banned on batched frames, so no batch is open here.
+      if (hasPostTx && bodyStart < 0 && context.payer() != null) {
+        bodyUpdater = worldUpdater.updater();
+        bodyMark = txValues.transientStorage().mark();
+        bodyStart = i + 1;
+      }
+    }
+
+    // Every POST_TX frame held: the body is part of the outcome. Committed before anything else
+    // writes the transaction updater.
+    if (bodyUpdater != null) {
+      bodyUpdater.commit();
     }
 
     context.setCurrentFrameIndex(frames.size());
@@ -703,6 +768,33 @@ public class FrameTransactionProcessor {
     result.setFrameTransactionOutcome(
         new TransactionProcessingResult.FrameTransactionOutcome(payer, frameReceipts));
     return result;
+  }
+
+  /**
+   * Installs what the EIP-7906 assertion operations read, at the first POST_TX frame: the
+   * transaction prestate, and the diff of the writes in the transaction updater and the body layer
+   * against it, with the logs of the frames completed so far. The diff is computed on its first
+   * read. It cannot change across the POST_TX suffix: POST_TX frames neither write values nor emit
+   * logs, and the loop stops at the first one that fails.
+   */
+  private static void installTransactionDiff(
+      final FrameTransactionContext context,
+      final WorldUpdater transactionPrestate,
+      final WorldUpdater worldUpdater,
+      final WorldUpdater bodyUpdater,
+      final FrameExecution[] executions,
+      final int firstPostTx) {
+    final List<Log> events = new ArrayList<>();
+    for (int j = 0; j < firstPostTx; j++) {
+      events.addAll(executions[j].logs);
+    }
+    final List<Log> frozenEvents = List.copyOf(events);
+    final List<WorldUpdater> writeLayers =
+        bodyUpdater == null ? List.of(worldUpdater) : List.of(worldUpdater, bodyUpdater);
+    final WorldUpdater post = bodyUpdater == null ? worldUpdater : bodyUpdater;
+    context.installTransactionDiff(
+        transactionPrestate,
+        () -> TransactionDiff.compute(transactionPrestate, post, writeLayers, frozenEvents));
   }
 
   /** Whether frame {@code j} belongs to the batch that frame {@code failedIndex} failed in. */

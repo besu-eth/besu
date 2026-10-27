@@ -27,6 +27,7 @@ import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class JsonRpcErrorConverterTest {
 
@@ -99,6 +100,25 @@ class JsonRpcErrorConverterTest {
                 assertThat(errorTypeOf(new JsonRpcError(type)))
                     .as("error type resolved for %s", type)
                     .isNotEqualTo(RpcErrorType.FRAME_VALIDATION_FAILED));
+  }
+
+  /** EIP-7906 adds static rules, and so messages, under the existing INVALID_FRAMES reason. */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "frame 2 follows a POST_TX frame",
+        "POST_TX frame 1 carries the atomic batch flag",
+        "atomic batch cannot end on POST_TX frame 2"
+      })
+  void postTxStaticRulesReportAsFrameValidationFailed(final String detail) {
+    final JsonRpcError error =
+        JsonRpcError.from(
+            ValidationResult.invalid(TransactionInvalidReason.INVALID_FRAMES, detail));
+
+    assertThat(error.getCode()).isEqualTo(-32000);
+    assertThat(error.getMessage())
+        .isEqualTo("Frame transaction validation failed (" + detail + ")");
+    assertThat(errorTypeOf(error)).isEqualTo(RpcErrorType.FRAME_VALIDATION_FAILED);
   }
 
   @Test
