@@ -51,15 +51,13 @@ public class BaseFeeMarketBlockHeaderGasPriceValidationRule
         return true;
       }
 
-      final Wei parentBaseFee =
-          parent.getBaseFee().orElseThrow(() -> MissingBaseFeeFromBlockHeader());
+      if (parent.getBaseFee().isEmpty()) {
+        throw MissingBaseFeeFromBlockHeader();
+      }
       final Wei currentBaseFee =
           header.getBaseFee().orElseThrow(() -> MissingBaseFeeFromBlockHeader());
 
-      final long targetGasUsed = baseFeeMarket.targetGasUsed(parent);
-      final Wei expectedBaseFee =
-          baseFeeMarket.computeBaseFee(
-              header.getNumber(), parentBaseFee, parent.getGasUsed(), targetGasUsed);
+      final Wei expectedBaseFee = baseFeeMarket.computeBaseFee(header.getNumber(), parent);
       if (!expectedBaseFee.equals(currentBaseFee)) {
         LOG.info(
             "Invalid block header: basefee {} does not equal expected basefee {}",

@@ -1484,9 +1484,8 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .baseFeePerGas(
             feeMarket.computeBaseFee(
                 genesisState.getBlock().getHeader().getNumber() + 1,
-                genesisState.getBlock().getHeader().getBaseFee().orElse(Wei.of(0x3b9aca00)),
-                0,
-                15000000L))
+                parentHeaderWithBaseFee(
+                    genesisState.getBlock().getHeader().getBaseFee().orElse(Wei.of(0x3b9aca00)))))
         .timestamp(1)
         .gasLimit(genesisState.getBlock().getHeader().getGasLimit())
         .stateRoot(genesisState.getBlock().getHeader().getStateRoot())
@@ -1507,9 +1506,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .baseFeePerGas(
             feeMarket.computeBaseFee(
                 genesisState.getBlock().getHeader().getNumber() + 1,
-                parentHeader.getBaseFee().orElse(Wei.of(0x3b9aca00)),
-                0,
-                15000000L))
+                parentHeaderWithBaseFee(parentHeader.getBaseFee().orElse(Wei.of(0x3b9aca00)))))
         .buildHeader();
   }
 
@@ -1637,5 +1634,14 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     final BlockHeader blockHeader = mock(BlockHeader.class);
     when(blockHeader.getBaseFee()).thenReturn(Optional.of(Wei.ONE));
     return blockHeader;
+  }
+
+  private static BlockHeader parentHeaderWithBaseFee(final Wei baseFee) {
+    // a parent with no gas used, so the base fee decreases
+    return new BlockHeaderTestFixture()
+        .baseFeePerGas(baseFee)
+        .gasUsed(0)
+        .gasLimit(30_000_000L)
+        .buildHeader();
   }
 }

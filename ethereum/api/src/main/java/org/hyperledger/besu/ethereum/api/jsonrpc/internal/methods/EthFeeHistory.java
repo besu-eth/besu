@@ -205,8 +205,7 @@ public class EthFeeHistory implements JsonRpcMethod {
     final List<Wei> requestedBaseFees = getBaseFees(blockHeaderRange);
     final List<Wei> requestedBlobBaseFees =
         getBlobBaseFees(blockHeaderRange, nextBlockProtocolSpec);
-    final Wei nextBaseFee =
-        getNextBaseFee(highestBlockNumber, chainHeadHeader, requestedBaseFees, blockHeaderRange);
+    final Wei nextBaseFee = getNextBaseFee(highestBlockNumber, chainHeadHeader, blockHeaderRange);
     final List<Double> gasUsedRatios = getGasUsedRatios(blockHeaderRange);
     final List<Double> blobGasUsedRatios = getBlobGasUsedRatios(blockHeaderRange);
     final Optional<List<List<Wei>>> maybeRewards =
@@ -266,28 +265,22 @@ public class EthFeeHistory implements JsonRpcMethod {
   private Wei getNextBaseFee(
       final long resolvedHighestBlockNumber,
       final BlockHeader chainHeadHeader,
-      final List<Wei> explicitlyRequestedBaseFees,
       final List<BlockHeader> blockHeaders) {
     final long nextBlockNumber = resolvedHighestBlockNumber + 1;
     // For "latest" (the common case) nextBlockNumber > chainHead, so the block doesn't exist yet:
     // compute directly and skip the storage read. Only historical-block queries need the lookup.
     if (nextBlockNumber > chainHeadHeader.getNumber()) {
-      return computeNextBaseFee(
-          nextBlockNumber, chainHeadHeader, explicitlyRequestedBaseFees, blockHeaders);
+      return computeNextBaseFee(nextBlockNumber, chainHeadHeader, blockHeaders);
     }
     return blockchain
         .getBlockHeader(nextBlockNumber)
         .map(blockHeader -> blockHeader.getBaseFee().orElse(Wei.ZERO))
-        .orElseGet(
-            () ->
-                computeNextBaseFee(
-                    nextBlockNumber, chainHeadHeader, explicitlyRequestedBaseFees, blockHeaders));
+        .orElseGet(() -> computeNextBaseFee(nextBlockNumber, chainHeadHeader, blockHeaders));
   }
 
   private Wei computeNextBaseFee(
       final long nextBlockNumber,
       final BlockHeader chainHeadHeader,
-      final List<Wei> explicitlyRequestedBaseFees,
       final List<BlockHeader> blockHeaders) {
 
     // Note: We are able to use the chain head timestamp for next block header as
@@ -306,19 +299,10 @@ public class EthFeeHistory implements JsonRpcMethod {
         .filter(FeeMarket::implementsBaseFee)
         .map(BaseFeeMarket.class::cast)
         .map(
-            feeMarket -> {
-              // Get the last block header and the last explicitly requested base fee
-              final BlockHeader lastBlockHeader = blockHeaders.get(blockHeaders.size() - 1);
-              final Wei lastExplicitlyRequestedBaseFee =
-                  explicitlyRequestedBaseFees.get(explicitlyRequestedBaseFees.size() - 1);
-
-              // Compute the next base fee
-              return feeMarket.computeBaseFee(
-                  nextBlockNumber,
-                  lastExplicitlyRequestedBaseFee,
-                  lastBlockHeader.getGasUsed(),
-                  feeMarket.targetGasUsed(lastBlockHeader));
-            })
+            feeMarket ->
+                // Compute the next base fee from the last block header
+                feeMarket.computeBaseFee(
+                    nextBlockNumber, blockHeaders.get(blockHeaders.size() - 1)))
         .orElse(Wei.ZERO); // If the fee market does not implement base fee, return zero
   }
 

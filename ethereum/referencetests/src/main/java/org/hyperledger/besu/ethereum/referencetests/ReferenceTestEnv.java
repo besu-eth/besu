@@ -209,13 +209,15 @@ public class ReferenceTestEnv extends BlockHeader {
     }
     if ((maybeBaseFee.isEmpty() || maybeBaseFee.get().isEmpty())
         && protocolSpec.getFeeMarket().implementsBaseFee()) {
+      // the gas target is computed from the current block gas limit
+      final BlockHeader parentHeader =
+          BlockHeaderBuilder.createDefault()
+              .baseFee(Wei.fromHexString(parentBaseFee))
+              .gasUsed(Long.decode(parentGasUsed))
+              .gasLimit(gasLimit)
+              .buildBlockHeader();
       builder.baseFee(
-          ((BaseFeeMarket) protocolSpec.getFeeMarket())
-              .computeBaseFee(
-                  number,
-                  Wei.fromHexString(parentBaseFee),
-                  Long.decode(parentGasUsed),
-                  gasLimit / 2));
+          ((BaseFeeMarket) protocolSpec.getFeeMarket()).computeBaseFee(number, parentHeader));
     }
     if (difficulty == null && parentDifficulty != null) {
       builder.difficulty(

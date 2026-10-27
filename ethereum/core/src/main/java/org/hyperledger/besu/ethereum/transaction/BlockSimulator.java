@@ -777,13 +777,7 @@ public class BlockSimulator {
     return Optional.of(protocolSpec.getFeeMarket())
         .filter(FeeMarket::implementsBaseFee)
         .map(BaseFeeMarket.class::cast)
-        .map(
-            feeMarket ->
-                feeMarket.computeBaseFee(
-                    blockNumber,
-                    parentHeader.getBaseFee().orElse(Wei.ZERO),
-                    parentHeader.getGasUsed(),
-                    feeMarket.targetGasUsed(parentHeader)))
+        .map(feeMarket -> feeMarket.computeBaseFee(blockNumber, parentHeader))
         .orElse(null);
   }
 

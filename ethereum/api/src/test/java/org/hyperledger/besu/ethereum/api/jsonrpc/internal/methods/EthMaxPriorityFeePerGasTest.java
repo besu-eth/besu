@@ -191,12 +191,7 @@ public class EthMaxPriorityFeePerGasTest {
     var baseFee = genesisBaseFee;
     for (long i = 1; i <= chainHeadBlockNumber; i++) {
       final var parentHeader = blocksByNumber.get(i - 1).getHeader();
-      baseFee =
-          baseFeeMarket.computeBaseFee(
-              i,
-              parentHeader.getBaseFee().get(),
-              parentHeader.getGasUsed(),
-              parentHeader.getGasLimit());
+      baseFee = baseFeeMarket.computeBaseFee(i, parentHeader);
       final var block = createFakeBlock(i, txsNum, baseFee);
       blocksByNumber.put(i, block);
       blocksByHash.put(block.getHash(), block);

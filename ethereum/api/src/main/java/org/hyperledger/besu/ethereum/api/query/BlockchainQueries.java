@@ -1262,11 +1262,7 @@ public class BlockchainQueries {
 
   private Wei getNextBlockBaseFee(
       final BlockHeader chainHeadHeader, final BaseFeeMarket nextBlockFeeMarket) {
-    return nextBlockFeeMarket.computeBaseFee(
-        chainHeadHeader.getNumber() + 1,
-        chainHeadHeader.getBaseFee().orElse(Wei.ZERO),
-        chainHeadHeader.getGasUsed(),
-        nextBlockFeeMarket.targetGasUsed(chainHeadHeader));
+    return nextBlockFeeMarket.computeBaseFee(chainHeadHeader.getNumber() + 1, chainHeadHeader);
   }
 
   private <T> Optional<T> fromAccount(

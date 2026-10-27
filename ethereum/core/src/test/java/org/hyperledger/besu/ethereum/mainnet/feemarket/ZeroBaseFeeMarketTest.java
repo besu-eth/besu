@@ -21,6 +21,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 
@@ -100,7 +101,8 @@ public class ZeroBaseFeeMarketTest {
 
   @Test
   public void computeBaseFeeReturnsZero() {
-    assertThat(zeroBaseFeeMarket.computeBaseFee(1L, Wei.of(8), 1L, 2L)).isEqualTo(Wei.ZERO);
+    assertThat(zeroBaseFeeMarket.computeBaseFee(1L, new BlockHeaderTestFixture().buildHeader()))
+        .isEqualTo(Wei.ZERO);
   }
 
   @Test

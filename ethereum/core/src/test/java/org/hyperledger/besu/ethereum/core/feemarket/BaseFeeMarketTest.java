@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.core.feemarket;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
@@ -32,10 +34,7 @@ public class BaseFeeMarketTest {
   public void assertThatBaseFeeDecreasesWhenBelowTargetGasUsed() {
     assertThat(
             baseFeeMarket.computeBaseFee(
-                FORK_BLOCK + 1,
-                baseFeeMarket.getInitialBasefee(),
-                TARGET_GAS_USED - 1000000L,
-                TARGET_GAS_USED))
+                FORK_BLOCK + 1, parentHeaderWithGasUsed(TARGET_GAS_USED - 1000000L)))
         .isLessThan(baseFeeMarket.getInitialBasefee())
         .isEqualTo(Wei.of(987500000L));
   }
@@ -44,10 +43,7 @@ public class BaseFeeMarketTest {
   public void assertThatBaseFeeIncreasesWhenAboveTargetGasUsed() {
     assertThat(
             baseFeeMarket.computeBaseFee(
-                FORK_BLOCK + 1,
-                baseFeeMarket.getInitialBasefee(),
-                TARGET_GAS_USED + 1000000L,
-                TARGET_GAS_USED))
+                FORK_BLOCK + 1, parentHeaderWithGasUsed(TARGET_GAS_USED + 1000000L)))
         .isGreaterThan(baseFeeMarket.getInitialBasefee())
         .isEqualTo(Wei.of(1012500000L));
   }
@@ -74,5 +70,14 @@ public class BaseFeeMarketTest {
   public void givenNotForkBlock_whenGasLimitValidationMode_thenReturnsOngoing() {
     assertThat(baseFeeMarket.gasLimitValidationMode(FORK_BLOCK + 1))
         .isEqualTo(BaseFeeMarket.ValidationMode.ONGOING);
+  }
+
+  private BlockHeader parentHeaderWithGasUsed(final long gasUsed) {
+    return new BlockHeaderTestFixture()
+        .number(FORK_BLOCK)
+        .baseFeePerGas(baseFeeMarket.getInitialBasefee())
+        .gasUsed(gasUsed)
+        .gasLimit(TARGET_GAS_USED * baseFeeMarket.getSlackCoefficient())
+        .buildHeader();
   }
 }

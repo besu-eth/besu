@@ -47,11 +47,14 @@ public interface BaseFeeMarket extends FeeMarket {
     return blockHeader.getGasLimit() / getSlackCoefficient();
   }
 
-  Wei computeBaseFee(
-      final long blockNumber,
-      final Wei parentBaseFee,
-      final long parentBlockGasUsed,
-      final long targetGasUsed);
+  /**
+   * Compute the base fee of a block from its parent.
+   *
+   * @param blockNumber the number of the block to compute the base fee of.
+   * @param parentBlockHeader the header of the parent block.
+   * @return the base fee of the block.
+   */
+  Wei computeBaseFee(final long blockNumber, final BlockHeader parentBlockHeader);
 
   ValidationMode baseFeeValidationMode(final long blockNumber);
 

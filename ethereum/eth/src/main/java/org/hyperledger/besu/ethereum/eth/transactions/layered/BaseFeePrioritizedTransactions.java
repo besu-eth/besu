@@ -164,11 +164,7 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
   private Wei calculateNextBlockBaseFee(final FeeMarket feeMarket, final BlockHeader blockHeader) {
     if (feeMarket.implementsBaseFee()) {
       final var baseFeeMarket = (BaseFeeMarket) feeMarket;
-      return baseFeeMarket.computeBaseFee(
-          blockHeader.getNumber() + 1,
-          blockHeader.getBaseFee().orElse(Wei.ZERO),
-          blockHeader.getGasUsed(),
-          baseFeeMarket.targetGasUsed(blockHeader));
+      return baseFeeMarket.computeBaseFee(blockHeader.getNumber() + 1, blockHeader);
     }
     return Wei.ZERO;
   }

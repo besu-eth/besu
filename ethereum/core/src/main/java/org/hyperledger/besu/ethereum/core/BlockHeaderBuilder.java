@@ -245,12 +245,7 @@ public class BlockHeaderBuilder {
     final Wei baseFee;
     if (protocolSpec.getFeeMarket().implementsBaseFee()) {
       final var baseFeeMarket = (BaseFeeMarket) protocolSpec.getFeeMarket();
-      baseFee =
-          baseFeeMarket.computeBaseFee(
-              newBlockNumber,
-              parentHeader.getBaseFee().orElse(Wei.ZERO),
-              parentHeader.getGasUsed(),
-              baseFeeMarket.targetGasUsed(parentHeader));
+      baseFee = baseFeeMarket.computeBaseFee(newBlockNumber, parentHeader);
     } else {
       baseFee = null;
     }

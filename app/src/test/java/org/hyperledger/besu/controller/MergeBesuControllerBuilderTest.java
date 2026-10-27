@@ -516,9 +516,19 @@ public class MergeBesuControllerBuilderTest {
         .difficulty(Difficulty.MAX_VALUE)
         .parentHash(magicHash)
         .number(blockNumber)
-        .baseFeePerGas(feeMarket.computeBaseFee(blockNumber, Wei.of(0x3b9aca00), 0, 15000000l))
+        .baseFeePerGas(
+            feeMarket.computeBaseFee(blockNumber, parentHeaderWithBaseFee(Wei.of(0x3b9aca00))))
         .gasLimit(30000000l)
         .stateRoot(magicHash)
+        .buildHeader();
+  }
+
+  private static BlockHeader parentHeaderWithBaseFee(final Wei baseFee) {
+    // a parent with no gas used, so the base fee decreases
+    return new BlockHeaderTestFixture()
+        .baseFeePerGas(baseFee)
+        .gasUsed(0)
+        .gasLimit(30_000_000L)
         .buildHeader();
   }
 }

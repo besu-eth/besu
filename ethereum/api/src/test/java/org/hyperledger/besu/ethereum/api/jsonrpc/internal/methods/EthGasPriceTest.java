@@ -198,7 +198,7 @@ public class EthGasPriceTest {
    */
   @Test
   public void shouldReturnLimitedPriceWhenLowerBoundIsPresent() {
-    long expectedGasPrice = 31_841 * 2;
+    long expectedGasPrice = 41_228 * 2;
     long lowerBoundCoefficient = 200;
     verifyGasPriceLimit(lowerBoundCoefficient, null, expectedGasPrice);
   }
@@ -209,8 +209,8 @@ public class EthGasPriceTest {
    */
   @Test
   public void shouldReturnLimitedPriceWhenUpperBoundIsPresent() {
-    long expectedGasPrice = (long) (31_841 * 1.5);
-    long upperBoundCoefficient = 150;
+    long expectedGasPrice = 41_228 * 120 / 100;
+    long upperBoundCoefficient = 120;
     verifyGasPriceLimit(null, upperBoundCoefficient, expectedGasPrice);
   }
 
@@ -392,12 +392,7 @@ public class EthGasPriceTest {
     var baseFee = genesisBaseFee;
     for (long i = 1; i <= chainHeadBlockNumber; i++) {
       final var parentHeader = blocksByNumber.get(i - 1).getHeader();
-      baseFee =
-          baseFeeMarket.computeBaseFee(
-              i,
-              parentHeader.getBaseFee().get(),
-              parentHeader.getGasUsed(),
-              parentHeader.getGasLimit());
+      baseFee = baseFeeMarket.computeBaseFee(i, parentHeader);
       final var block = createFakeBlock(i, txsNum, baseFee);
       blocksByNumber.put(i, block);
       blocksByHash.put(block.getHash(), block);

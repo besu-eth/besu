@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
@@ -71,8 +72,13 @@ public class BaseFeeMarketBaseFeeTest {
       final long parentGasUsed,
       final long parentTargetGasUsed,
       final Wei expectedBaseFee) {
-    assertThat(baseFeeMarket.computeBaseFee(0L, parentBaseFee, parentGasUsed, parentTargetGasUsed))
-        .isEqualTo(expectedBaseFee);
+    final var parentHeader =
+        new BlockHeaderTestFixture()
+            .baseFeePerGas(parentBaseFee)
+            .gasUsed(parentGasUsed)
+            .gasLimit(parentTargetGasUsed * baseFeeMarket.getSlackCoefficient())
+            .buildHeader();
+    assertThat(baseFeeMarket.computeBaseFee(0L, parentHeader)).isEqualTo(expectedBaseFee);
   }
 
   @SuppressWarnings("unused")

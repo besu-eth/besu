@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.feemarket;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.feemarket.TransactionPriceCalculator;
 
@@ -84,14 +85,14 @@ public class LondonFeeMarket implements BaseFeeMarket {
   }
 
   @Override
-  public Wei computeBaseFee(
-      final long blockNumber,
-      final Wei parentBaseFee,
-      final long parentBlockGasUsed,
-      final long targetGasUsed) {
+  public Wei computeBaseFee(final long blockNumber, final BlockHeader parentBlockHeader) {
     if (londonForkBlockNumber == blockNumber) {
       return getInitialBasefee();
     }
+
+    final Wei parentBaseFee = parentBlockHeader.getBaseFee().orElse(Wei.ZERO);
+    final long parentBlockGasUsed = parentBlockHeader.getGasUsed();
+    final long targetGasUsed = targetGasUsed(parentBlockHeader);
 
     long gasDelta;
     Wei feeDelta, baseFee;

@@ -191,9 +191,7 @@ public class MergeReorgTest implements MergeGenesisConfigHelper {
           .baseFeePerGas(
               feeMarket.computeBaseFee(
                   genesisState.getBlock().getHeader().getNumber() + 1,
-                  newParent.getBaseFee().orElse(Wei.of(0x3b9aca00)),
-                  0,
-                  15000000))
+                  parentHeaderWithBaseFee(newParent.getBaseFee().orElse(Wei.of(0x3b9aca00)))))
           .gasLimit(newParent.getGasLimit())
           .timestamp(newParent.getTimestamp() + 1)
           .stateRoot(newParent.getStateRoot());
@@ -217,13 +215,20 @@ public class MergeReorgTest implements MergeGenesisConfigHelper {
             .baseFeePerGas(
                 feeMarket.computeBaseFee(
                     genesisState.getBlock().getHeader().getNumber() + 1,
-                    parent.getBaseFee().orElse(Wei.of(0x3b9aca00)),
-                    0,
-                    15000000l))
+                    parentHeaderWithBaseFee(parent.getBaseFee().orElse(Wei.of(0x3b9aca00)))))
             .gasLimit(parent.getGasLimit())
             .timestamp(parent.getTimestamp() + 1)
             .stateRoot(parent.getStateRoot())
             .buildHeader();
     return terminal;
+  }
+
+  private static BlockHeader parentHeaderWithBaseFee(final Wei baseFee) {
+    // a parent with no gas used, so the base fee decreases
+    return new BlockHeaderTestFixture()
+        .baseFeePerGas(baseFee)
+        .gasUsed(0)
+        .gasLimit(30_000_000L)
+        .buildHeader();
   }
 }
