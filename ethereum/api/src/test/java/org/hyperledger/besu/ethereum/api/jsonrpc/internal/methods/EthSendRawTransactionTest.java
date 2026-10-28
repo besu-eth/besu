@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -159,8 +160,49 @@ public class EthSendRawTransactionTest {
 
   @Test
   public void transactionWithNonceBelowAccountNonceIsRejected() {
-    verifyErrorForInvalidTransaction(
-        TransactionInvalidReason.NONCE_TOO_LOW, RpcErrorType.NONCE_TOO_LOW);
+    final String validationErrorMessage =
+        "transaction nonce 4 below sender account nonce 5 for sender 0x1234";
+    when(transactionPool.addTransactionViaApi(any(Transaction.class)))
+        .thenReturn(
+            ValidationResult.invalid(
+                TransactionInvalidReason.NONCE_TOO_LOW, validationErrorMessage));
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_sendRawTransaction", new String[] {VALID_TRANSACTION}));
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(
+            request.getRequest().getId(),
+            new JsonRpcError(
+                RpcErrorType.NONCE_TOO_LOW.getCode(),
+                "nonce too low (" + validationErrorMessage + ")",
+                null));
+
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(transactionPool).addTransactionViaApi(any(Transaction.class));
+  }
+
+  @Test
+  public void transactionWithNonceBelowAccountNonceAndNoDetailsIsRejected() {
+    when(transactionPool.addTransactionViaApi(any(Transaction.class)))
+        .thenReturn(ValidationResult.invalid(TransactionInvalidReason.NONCE_TOO_LOW));
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_sendRawTransaction", new String[] {VALID_TRANSACTION}));
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(
+            request.getRequest().getId(),
+            new JsonRpcError(RpcErrorType.NONCE_TOO_LOW.getCode(), "nonce too low", null));
+
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(transactionPool).addTransactionViaApi(any(Transaction.class));
   }
 
   @Test
