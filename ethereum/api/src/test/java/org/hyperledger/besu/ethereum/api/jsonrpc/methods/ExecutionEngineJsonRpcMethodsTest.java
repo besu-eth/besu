@@ -17,6 +17,10 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.methods;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
@@ -28,12 +32,14 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
+import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.Arrays;
@@ -93,6 +99,30 @@ class ExecutionEngineJsonRpcMethodsTest {
         .containsExactlyInAnyOrderElementsOf(registeredMethods);
   }
 
+  @Test
+  void repeatedEngineMapsReuseSynchronizerRepairWithoutRegisteringRepairMetrics() {
+    final MetricsSystem metrics = mock(MetricsSystem.class);
+    final var synchronizer = mock(Synchronizer.class);
+    final var requester = mock(WorldStateRepairRequester.class);
+    when(synchronizer.getWorldStateRepairRequester()).thenReturn(requester);
+    final var group =
+        createEngineGroup(
+            Optional.empty(), mock(PathBasedWorldStateProvider.class), metrics, synchronizer);
+
+    assertThat(group.create().keySet()).isEqualTo(group.create().keySet());
+
+    verify(synchronizer, times(2)).getWorldStateRepairRequester();
+    assertThat(
+            mockingDetails(metrics).getInvocations().stream()
+                .filter(invocation -> invocation.getArguments().length > 1)
+                .map(invocation -> invocation.getArguments()[1])
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .filter(name -> name.startsWith("world_state_repair_")))
+        .isEmpty();
+    verifyNoInteractions(requester);
+  }
+
   @SuppressWarnings("unchecked")
   private List<String> advertisedCapabilities(final Map<String, JsonRpcMethod> engineMethods) {
     final String exchangeCapabilities = RpcMethod.ENGINE_EXCHANGE_CAPABILITIES.getMethodName();
@@ -113,24 +143,32 @@ class ExecutionEngineJsonRpcMethodsTest {
 
   private Map<String, JsonRpcMethod> createEngineMethods(
       final Optional<Long> forkMilestone, final WorldStateArchive worldStateArchive) {
+    return createEngineGroup(
+            forkMilestone, worldStateArchive, mock(MetricsSystem.class), mock(Synchronizer.class))
+        .create();
+  }
+
+  private ExecutionEngineJsonRpcMethods createEngineGroup(
+      final Optional<Long> forkMilestone,
+      final WorldStateArchive worldStateArchive,
+      final MetricsSystem metrics,
+      final Synchronizer synchronizer) {
     MiningCoordinator miningCoordinator = mock(MergeMiningCoordinator.class);
     when(miningCoordinator.isCompatibleWithEngineApi()).thenReturn(true);
     ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
     when(protocolSchedule.milestoneFor(any())).thenReturn(forkMilestone);
     ProtocolContext protocolContext = mock(ProtocolContext.class);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
-    ExecutionEngineJsonRpcMethods methods =
-        new ExecutionEngineJsonRpcMethods(
-            miningCoordinator,
-            protocolSchedule,
-            protocolContext,
-            mock(EthPeers.class),
-            mock(Vertx.class),
-            "testClient",
-            "testCommit",
-            mock(TransactionPool.class),
-            mock(MetricsSystem.class));
-
-    return methods.create();
+    return new ExecutionEngineJsonRpcMethods(
+        miningCoordinator,
+        protocolSchedule,
+        protocolContext,
+        mock(EthPeers.class),
+        mock(Vertx.class),
+        "testClient",
+        "testCommit",
+        mock(TransactionPool.class),
+        metrics,
+        synchronizer);
   }
 }

@@ -203,16 +203,6 @@ public sealed class EngineNewPayloadV1<
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
     final boolean needsSync = maybeParentHeader.isEmpty();
-    // Only start backward sync when the initial sync is done
-    if (needsSync && mergeContext.get().isInitialSyncDone()) {
-      logger()
-          .atDebug()
-          .setMessage("Parent of block {} is not present, append it to backward sync")
-          .addArgument(unvalidatedBlock::toLogString)
-          .log();
-      appendNewPayloadToSync(unvalidatedBlock, blockParam);
-    }
-
     final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(newBlockHeader);
 
     // 4. Client software MUST validate the payload if it extends the canonical chain, and requisite
@@ -229,6 +219,16 @@ public sealed class EngineNewPayloadV1<
           mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
           INVALID,
           versionSpecificBlockValidationResult.getErrorMessage());
+    }
+
+    // Only start backward sync when the initial sync is done
+    if (needsSync && mergeContext.get().isInitialSyncDone()) {
+      logger()
+          .atDebug()
+          .setMessage("Parent of block {} is not present, append it to backward sync")
+          .addArgument(unvalidatedBlock::toLogString)
+          .log();
+      appendNewPayloadToSync(unvalidatedBlock, blockParam);
     }
 
     // block is now valid and can be processed

@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.Optional;
@@ -61,7 +62,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       EthPeers ethPeers,
       MetricsSystem metricsSystem,
       TransactionPool transactionPool,
-      int maxRequestBlocks) {}
+      int maxRequestBlocks,
+      WorldStateRepairRequester worldStateRecoveryCoordinator) {}
 
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;

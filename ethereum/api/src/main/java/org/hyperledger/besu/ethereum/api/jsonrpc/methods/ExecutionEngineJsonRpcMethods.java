@@ -58,10 +58,12 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineN
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadWithWitnessV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineQosTimer;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
+import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.ArrayList;
@@ -87,6 +89,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   private final String commit;
   private final TransactionPool transactionPool;
   private final MetricsSystem metricsSystem;
+  private final Synchronizer synchronizer;
 
   ExecutionEngineJsonRpcMethods(
       final MiningCoordinator miningCoordinator,
@@ -97,7 +100,8 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final String clientVersion,
       final String commit,
       final TransactionPool transactionPool,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final Synchronizer synchronizer) {
     this.mergeCoordinator =
         Optional.ofNullable(miningCoordinator)
             .filter(MiningCoordinator::isCompatibleWithEngineApi)
@@ -110,6 +114,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     this.commit = commit;
     this.transactionPool = transactionPool;
     this.metricsSystem = metricsSystem;
+    this.synchronizer = synchronizer;
   }
 
   @Override
@@ -130,6 +135,11 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
             .metricsSystem(metricsSystem)
             .transactionPool(transactionPool)
             .maxRequestBlocks(GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE);
+    final WorldStateRepairRequester worldStateRecoveryCoordinator =
+        Optional.ofNullable(synchronizer)
+            .map(Synchronizer::getWorldStateRepairRequester)
+            .orElse(WorldStateRepairRequester.DISABLED);
+    constructorArgumentsBuilder.worldStateRecoveryCoordinator(worldStateRecoveryCoordinator);
 
     if (mergeCoordinator.isPresent()) {
       final ConstructorArguments constructorArguments =
@@ -180,14 +190,20 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
   private Collection<? extends JsonRpcMethod> createEngineForkchoiceUpdatedMethods(
       final ConstructorArguments constructorArguments) {
-
     // special case at the first hardfork (Shanghai), before it was possible to call either V1 or V2
     // so both versions are scheduled at the beginning, and only V1 must be stopped at Shanghai
     // timestamp
-    return VersionScheduler.startsFromBeginningUntil(EngineForkchoiceUpdatedV1::new, SHANGHAI)
-        .thenAlsoFromBeginning(EngineForkchoiceUpdatedV2::new)
-        .thenFrom(CANCUN, EngineForkchoiceUpdatedV3::new)
-        .thenFrom(AMSTERDAM, EngineForkchoiceUpdatedV4::new)
+    return VersionScheduler.startsFromBeginningUntil(
+            (args, minFork, maxFork) -> new EngineForkchoiceUpdatedV1<>(args, minFork, maxFork),
+            SHANGHAI)
+        .thenAlsoFromBeginning(
+            (args, minFork, maxFork) -> new EngineForkchoiceUpdatedV2<>(args, minFork, maxFork))
+        .thenFrom(
+            CANCUN,
+            (args, minFork, maxFork) -> new EngineForkchoiceUpdatedV3<>(args, minFork, maxFork))
+        .thenFrom(
+            AMSTERDAM,
+            (args, minFork, maxFork) -> new EngineForkchoiceUpdatedV4<>(args, minFork, maxFork))
         .build(constructorArguments);
   }
 

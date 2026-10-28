@@ -44,6 +44,8 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -194,19 +196,22 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * retrieves the full world state from the cache.
    *
    * <p>The method follows these steps: 1. Check if the query parameters indicate that the world
-   * state should update the head. 2. If true, call {@link #getFullWorldStateFromHead(Hash)} with
-   * the block hash from the query parameters. 3. If false, call {@link
-   * #getFullWorldStateFromCache(BlockHeader, Optional)} with the block header and optional BAL
-   * overlay from the query parameters.
+   * state should update the head. 2. If true, call {@link #getFullWorldStateFromHead(Hash,
+   * WorldStateQueryParams.FailurePolicy)} with the block hash from the query parameters. 3. If
+   * false, call {@link #getFullWorldStateFromCache(BlockHeader, Optional,
+   * WorldStateQueryParams.FailurePolicy)} with the block header and optional BAL overlay from the
+   * query parameters.
    *
    * @param queryParams the query parameters
    * @return the stateful world state, if available
    */
   protected Optional<MutableWorldState> getFullWorldState(final WorldStateQueryParams queryParams) {
     return queryParams.shouldWorldStateUpdateHead()
-        ? getFullWorldStateFromHead(queryParams.getBlockHash())
+        ? getFullWorldStateFromHead(queryParams.getBlockHash(), queryParams.getFailurePolicy())
         : getFullWorldStateFromCache(
-            queryParams.getBlockHeader(), queryParams.getBlockAccessListOverlay());
+            queryParams.getBlockHeader(),
+            queryParams.getBlockAccessListOverlay(),
+            queryParams.getFailurePolicy());
   }
 
   /**
@@ -223,11 +228,12 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * @param blockHash the block hash
    * @return the full world state, if available
    */
-  private Optional<MutableWorldState> getFullWorldStateFromHead(final Hash blockHash) {
+  private Optional<MutableWorldState> getFullWorldStateFromHead(
+      final Hash blockHash, final WorldStateQueryParams.FailurePolicy failurePolicy) {
     // a failure here keeps the chain head from moving, so it must be visible at the default level
     return withHeadWorldStateLock(
         () ->
-            rollFullWorldStateToBlockHash(headWorldState, blockHash, Level.WARN)
+            rollFullWorldStateToBlockHash(headWorldState, blockHash, Level.WARN, failurePolicy)
                 .map(MutableWorldState.class::cast));
   }
 
@@ -249,7 +255,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    */
   private Optional<MutableWorldState> getFullWorldStateFromCache(
       final BlockHeader blockHeader,
-      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay,
+      final WorldStateQueryParams.FailurePolicy failurePolicy) {
     final BlockHeader chainHeadBlockHeader = blockchain.getChainHeadHeader();
     if (chainHeadBlockHeader.getNumber() - blockHeader.getNumber()
         >= trieLogManager.getMaxLayersToLoad()) {
@@ -268,7 +275,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                         blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
             worldState ->
-                rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash(), Level.DEBUG))
+                rollFullWorldStateToBlockHash(
+                    worldState, blockHeader.getBlockHash(), Level.DEBUG, failurePolicy))
         .map(
             worldState -> {
               // the BAL overlay is attached only once the world state has been rolled to the
@@ -296,7 +304,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   private Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
       final PathBasedWorldState mutableState,
       final Hash blockHash,
-      final Level rollingFailureLogLevel) {
+      final Level rollingFailureLogLevel,
+      final WorldStateQueryParams.FailurePolicy failurePolicy) {
     if (blockHash.equals(mutableState.blockHash())) {
       return Optional.of(mutableState);
     } else {
@@ -373,6 +382,9 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         } catch (final Exception e) {
           // if we fail we must clean up the updater
           pathBasedUpdater.reset();
+          if (failurePolicy == WorldStateQueryParams.FailurePolicy.PRESERVE_LOCAL_FAILURE) {
+            throw propagateLocalFailure(e);
+          }
           LOG.atLevel(rollingFailureLogLevel)
               .setMessage("State rolling failed on {} for block hash {}")
               .addArgument(mutableState.getWorldStateStorage().getClass().getSimpleName())
@@ -384,6 +396,9 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         }
       } catch (final RuntimeException re) {
         LOG.warn("Archive rolling failed for block hash " + blockHash, re);
+        if (failurePolicy == WorldStateQueryParams.FailurePolicy.PRESERVE_LOCAL_FAILURE) {
+          throw propagateLocalFailure(re);
+        }
         if (re instanceof MerkleTrieException || re instanceof MissingCodeException) {
           // need to throw to trigger the heal
           throw re;
@@ -392,6 +407,15 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             "invalid", Optional.of(Address.ZERO), Bytes32.wrap(Hash.EMPTY.getBytes()), Bytes.EMPTY);
       }
     }
+  }
+
+  private static RuntimeException propagateLocalFailure(final Exception failure) {
+    Throwable cause = failure;
+    while ((cause instanceof CompletionException || cause instanceof ExecutionException)
+        && cause.getCause() != null) {
+      cause = cause.getCause();
+    }
+    return cause instanceof RuntimeException runtime ? runtime : new RuntimeException(cause);
   }
 
   public WorldStateConfig getWorldStateSharedSpec() {
