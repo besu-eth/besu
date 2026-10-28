@@ -60,6 +60,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
@@ -157,6 +158,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             .metricsSystem(new NoOpMetricsSystem())
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
             .build(),
         null,
         SHANGHAI);
@@ -178,6 +180,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
             .metricsSystem(new NoOpMetricsSystem())
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
             .build();
 
     assertThatThrownBy(() -> new EngineNewPayloadV1<>(constructorArguments, null, SHANGHAI))
@@ -380,6 +383,22 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     assertThat(res.getError()).isNull();
     verify(mergeCoordinator).appendNewPayloadToSync(any(), any());
     verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void invalidExtraDataWithUnknownParentDoesNotStartBackwardSync() {
+    final BlockHeader header =
+        createBlockHeader(
+            getMinSupportedTimestamp(), fixture -> fixture.extraData(Bytes.repeat((byte) 1, 33)));
+    when(mergeContext.isInitialSyncDone()).thenReturn(true);
+
+    final PayloadStatusV1 result =
+        fromSuccessResp(resp(requestParams(mockEnginePayloadParam(header, emptyList()))));
+
+    assertThat(result.getStatus()).isEqualTo(INVALID);
+    assertThat(result.getError()).isEqualTo("extra data field larger than 32 bytes");
+    verify(mergeCoordinator, never()).appendNewPayloadToSync(any(), any());
+    verify(engineCallListener).executionEngineCalled();
   }
 
   @Test

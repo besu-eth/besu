@@ -53,6 +53,7 @@ import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -187,6 +188,7 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
                 .ethPeers(mock(EthPeers.class))
                 .metricsSystem(metricsSystem)
                 .maxRequestBlocks(0)
+                .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
                 .build(),
             OSAKA,
             null);

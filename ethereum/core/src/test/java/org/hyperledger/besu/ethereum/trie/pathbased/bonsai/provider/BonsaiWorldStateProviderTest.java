@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
@@ -41,6 +42,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.BonsaiWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
@@ -51,6 +55,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -320,6 +325,75 @@ class BonsaiWorldStateProviderTest {
             ws ->
                 assertThat(((BonsaiWorldState) ws).getWorldStateBlockHash())
                     .isEqualTo(genesis.getBlockHash()));
+  }
+
+  @Test
+  void cancelledRepairPreservesWorkingWorldState() {
+    final BonsaiWorldStateProvider archive = createBonsaiWorldStateProvider();
+    final Hash originalBlockHash = ((BonsaiWorldState) archive.getWorldState()).blockHash();
+    final Hash originalRootHash = archive.getWorldState().rootHash();
+    final WorldStateRepairBudget budget = WorldStateRepairBudget.defaults();
+    budget.cancel();
+
+    assertThat(archive.repairWorldState(Hash.ZERO, Hash.EMPTY_TRIE_HASH, budget))
+        .isEqualTo(WorldStateRepairResult.CANCELLED);
+    assertThat(((BonsaiWorldState) archive.getWorldState()).blockHash())
+        .isEqualTo(originalBlockHash);
+    assertThat(archive.getWorldState().rootHash()).isEqualTo(originalRootHash);
+  }
+
+  @Test
+  void legacyQueriesKeepWrappedRollingFailureBehavior() {
+    final BonsaiWorldStateProvider archive = createBonsaiWorldStateProvider();
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    final BlockHeader child = blockBuilder.number(1).parentHash(genesis.getHash()).buildHeader();
+    archive.getWorldState().persist(genesis);
+    when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis));
+    when(blockchain.getBlockHeader(child.getHash())).thenReturn(Optional.of(child));
+    final TrieLogLayer log = mockTrieLogLayer(child.getHash());
+    when(trieLogManager.getTrieLogLayer(child.getHash())).thenReturn(Optional.of(log));
+    when(log.getAccountChanges())
+        .thenThrow(new CompletionException(new MerkleTrieException("missing storage")));
+
+    // Both builders and convenience factories used by import/debug/plugin callers stay legacy.
+    assertThat(archive.getWorldState(withBlockHeaderAndUpdateNodeHead(child))).isEmpty();
+    assertThat(
+            archive.getWorldState(
+                WorldStateQueryParams.newBuilder()
+                    .withBlockHeader(child)
+                    .withShouldWorldStateUpdateHead(true)
+                    .build()))
+        .isEmpty();
+    when(blockchain.getChainHeadHeader()).thenReturn(child);
+    when(worldStateCacheManager.getWorldState(child.getHash()))
+        .thenReturn(Optional.of((BonsaiWorldState) archive.getWorldState()));
+    assertThat(archive.getWorldState(withBlockHeaderAndNoUpdateNodeHead(child))).isEmpty();
+  }
+
+  @Test
+  void recoveryQueryPreservesWrappedLocalFailureAndResetsUpdater() {
+    final BonsaiWorldStateProvider archive = createBonsaiWorldStateProvider();
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    final BlockHeader child = blockBuilder.number(1).parentHash(genesis.getHash()).buildHeader();
+    archive.getWorldState().persist(genesis);
+    when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis));
+    when(blockchain.getBlockHeader(child.getHash())).thenReturn(Optional.of(child));
+    final TrieLogLayer log = mockTrieLogLayer(child.getHash());
+    when(trieLogManager.getTrieLogLayer(child.getHash())).thenReturn(Optional.of(log));
+    final var missing = new MerkleTrieException("missing storage");
+    when(log.getAccountChanges()).thenThrow(new CompletionException(missing));
+    final var query =
+        WorldStateQueryParams.newBuilder()
+            .withBlockHeader(child)
+            .withShouldWorldStateUpdateHead(true)
+            .withFailurePolicy(WorldStateQueryParams.FailurePolicy.PRESERVE_LOCAL_FAILURE)
+            .build();
+
+    assertThatThrownBy(() -> archive.getWorldState(query)).isSameAs(missing);
+    assertThat(((BonsaiWorldState) archive.getWorldState()).blockHash())
+        .isEqualTo(genesis.getHash());
+    assertThat(((BonsaiWorldState) archive.getWorldState()).updater().getTouchedAccounts())
+        .isEmpty();
   }
 
   // Helper methods

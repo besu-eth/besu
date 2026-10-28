@@ -61,6 +61,7 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
             .metricsSystem(new NoOpMetricsSystem())
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(recoveryCoordinator)
             .build(),
         CANCUN,
         AMSTERDAM);

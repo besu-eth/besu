@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -29,12 +30,18 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateFailure;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.FailurePolicy;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -61,6 +68,7 @@ public class BackwardSyncContext {
   private final AtomicReference<Status> currentBackwardSyncStatus = new AtomicReference<>();
   private final BackwardChain backwardChain;
   private final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory;
+  private WorldStateRepairRequester repairRequester = WorldStateRepairRequester.DISABLED;
   private int batchSize = BATCH_SIZE;
   private final int maxRetries;
   private final int maxBadChainEventEntries;
@@ -112,6 +120,32 @@ public class BackwardSyncContext {
     this.backwardSyncAlgorithmFactory = backwardSyncAlgorithmFactory;
     this.maxRetries = maxRetries;
     this.maxBadChainEventEntries = maxBadChainEventEntries;
+  }
+
+  /** Connects both backward-sync entrypoints to the synchronizer-owned repair module. */
+  public BackwardSyncContext withWorldStateRepairRequester(
+      final WorldStateRepairRequester requester) {
+    this.repairRequester = Objects.requireNonNull(requester);
+    return this;
+  }
+
+  /** Captures the synchronization lifecycle for asynchronous import continuations. */
+  public long recoveryGeneration() {
+    return repairRequester.generation();
+  }
+
+  /** Rejects callbacks from before shutdown or manual resync. */
+  public void ensureCurrentGeneration(final long generation) {
+    if (!repairRequester.isOpen() || generation != repairRequester.generation()) {
+      throw new BackwardSyncException("Sync session stopped");
+    }
+  }
+
+  private boolean isCurrent(final Status status) {
+    return currentBackwardSyncStatus.get() == status
+        && !status.currentFuture.isDone()
+        && repairRequester.isOpen()
+        && status.repairGeneration == repairRequester.generation();
   }
 
   /**
@@ -180,24 +214,33 @@ public class BackwardSyncContext {
   }
 
   private Status getOrStartSyncSession() {
-    // A completed session is not reused, otherwise every later call would get a completed future.
-    Optional<Status> maybeCurrentStatus =
-        Optional.ofNullable(this.currentBackwardSyncStatus.get())
-            .filter(status -> !status.currentFuture.isDone());
-    return maybeCurrentStatus.orElseGet(
-        () -> {
-          LOG.info("Starting a new backward sync session");
-          Status newStatus = new Status(prepareBackwardSyncFutureWithRetry());
-          // Don't publish a session that already completed synchronously.
-          if (!newStatus.currentFuture.isDone()) {
-            this.currentBackwardSyncStatus.set(newStatus);
-            // It may have completed in the meantime; retract it without touching a newer session.
-            if (newStatus.currentFuture.isDone()) {
-              this.currentBackwardSyncStatus.compareAndSet(newStatus, null);
-            }
-          }
-          return newStatus;
-        });
+    final Status existing = currentBackwardSyncStatus.get();
+    if (existing != null && !existing.currentFuture.isDone() && isCurrent(existing)) {
+      return existing;
+    }
+    if (existing != null) {
+      existing.currentFuture.completeExceptionally(
+          new BackwardSyncException("Sync session superseded"));
+    }
+    LOG.info("Starting a new backward sync session");
+    final Status status = new Status(new CompletableFuture<>());
+    currentBackwardSyncStatus.set(status);
+    prepareBackwardSyncFutureWithRetry(maxRetries, status)
+        .whenComplete(
+            (unused, error) -> {
+              final boolean current = isCurrent(status);
+              currentBackwardSyncStatus.compareAndSet(status, null);
+              if (error == null && current) {
+                status.currentFuture.complete(null);
+              } else if (error == null) {
+                status.currentFuture.completeExceptionally(
+                    new BackwardSyncException("Sync session stopped before completion"));
+              } else {
+                status.currentFuture.completeExceptionally(
+                    extractBackwardSyncException(error).orElse(new BackwardSyncException(error)));
+              }
+            });
+    return status;
   }
 
   private boolean isTrusted(final Hash hash) {
@@ -212,34 +255,53 @@ public class BackwardSyncContext {
     return false;
   }
 
-  private CompletableFuture<Void> prepareBackwardSyncFutureWithRetry() {
-    return prepareBackwardSyncFutureWithRetry(maxRetries)
-        .handle(
-            (unused, throwable) -> {
-              this.currentBackwardSyncStatus.set(null);
-              if (throwable != null) {
-                LOG.info("Current backward sync session failed, it will be restarted");
-                throw extractBackwardSyncException(throwable)
-                    .orElse(new BackwardSyncException(throwable));
-              }
-              return null;
-            });
-  }
-
-  private CompletableFuture<Void> prepareBackwardSyncFutureWithRetry(final int retries) {
+  private CompletableFuture<Void> prepareBackwardSyncFutureWithRetry(
+      final int retries, final Status status) {
+    if (!isCurrent(status)) {
+      return CompletableFuture.failedFuture(new BackwardSyncException("Sync session stopped"));
+    }
     if (retries == 0) {
       return CompletableFuture.failedFuture(
           new BackwardSyncException("Max number of retries " + maxRetries + " reached"));
     }
-
     return exceptionallyCompose(
         backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(this).executeBackwardsSync(null),
         throwable -> {
+          if (!isCurrent(status)) {
+            return CompletableFuture.failedFuture(
+                new BackwardSyncException("Sync session stopped"));
+          }
+          final Optional<BackwardSyncException> failure = extractBackwardSyncException(throwable);
+          if (failure.orElse(null) instanceof MissingParentState missing) {
+            if (status.repairAttempted) {
+              repairRequester.onRepeatedMissingState();
+              return CompletableFuture.failedFuture(missing);
+            }
+            status.repairAttempted = true;
+            final BlockHeader parent = missing.parent;
+            return repairRequester
+                .requestRecovery(
+                    WorldStateRepairRequest.fromFailure(
+                        parent.getHash(), parent.getStateRoot(), missing.getCause()))
+                .thenCompose(
+                    outcome -> {
+                      if (!isCurrent(status)) {
+                        return CompletableFuture.failedFuture(
+                            new BackwardSyncException("Sync session stopped during repair"));
+                      }
+                      if (outcome != WorldStateRepairResult.REPAIRED
+                          && outcome != WorldStateRepairResult.ALREADY_AVAILABLE) {
+                        return CompletableFuture.failedFuture(missing);
+                      }
+                      // Keep the original logical future and retry budget; repair is allowed once.
+                      return prepareBackwardSyncFutureWithRetry(retries, status);
+                    });
+          }
           processException(throwable);
           return ethContext
               .getScheduler()
               .scheduleFutureTask(
-                  () -> prepareBackwardSyncFutureWithRetry(retries - 1),
+                  () -> prepareBackwardSyncFutureWithRetry(retries - 1, status),
                   Duration.ofMillis(millisBetweenRetries));
         });
   }
@@ -343,15 +405,25 @@ public class BackwardSyncContext {
   protected Void saveBlock(final Block block, final Optional<BlockAccessList> blockAccessList) {
     failIfBadBlock(block.getHeader());
     LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
-    var optResult =
-        this.getBlockValidatorForBlock(block)
-            .validateAndProcessBlock(
-                this.getProtocolContext(),
-                block,
-                HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE,
-                blockAccessList,
-                true);
+    final BlockProcessingResult optResult;
+    try {
+      optResult =
+          this.getBlockValidatorForBlock(block)
+              .validateAndProcessBlock(
+                  this.getProtocolContext(),
+                  block,
+                  HeaderValidationMode.FULL,
+                  HeaderValidationMode.NONE,
+                  blockAccessList,
+                  true,
+                  true,
+                  FailurePolicy.PRESERVE_LOCAL_FAILURE);
+    } catch (final RuntimeException failure) {
+      if (WorldStateFailure.isMissingState(failure)) {
+        throw missingParentState(block, failure);
+      }
+      throw new BackwardSyncException(failure, false);
+    }
     if (optResult.isSuccessful()) {
       LOG.atTrace()
           .setMessage("Block {} was validated, going to move the head")
@@ -368,7 +440,8 @@ public class BackwardSyncContext {
           block, optResult.getNbParallelizedTransactions(), blockAccessList.isPresent());
       logBlockImportProgress(block.getHeader().getNumber());
     } else {
-      if (optResult.isWorldStateUnavailable()) {
+      if (optResult.isWorldStateUnavailable()
+          || optResult.causedBy().map(WorldStateFailure::isMissingState).orElse(false)) {
         // every new sync session hits the same block again, warn once per block
         final boolean firstAttemptAtBlock =
             !block.getHash().equals(lastBlockWithUnavailableWorldState.getAndSet(block.getHash()));
@@ -376,14 +449,10 @@ public class BackwardSyncContext {
             .setMessage(
                 "Backward sync halted: parent world state is unavailable while validating block {}. "
                     + "This may indicate snap sync completed with an incomplete world state. "
-                    + "Call debug_resyncWorldState to repair the world state and resume syncing.")
+                    + "Requesting bounded repair of the locally known parent state.")
             .addArgument(block::toLogString)
             .log();
-        throw new BackwardSyncException(
-            "Parent world state unavailable for block "
-                + block.toLogString()
-                + " backward sync halted. Run debug_resyncWorldState to recover.",
-            false);
+        throw missingParentState(block, optResult.causedBy().orElse(null));
       }
       // the validator records the block only when the failure condemns the block itself
       if (getProtocolContext().getBadBlockManager().isBadBlock(block.getHash())) {
@@ -397,6 +466,29 @@ public class BackwardSyncContext {
     }
 
     return null;
+  }
+
+  private BackwardSyncException missingParentState(final Block block, final Throwable failure) {
+    return getProtocolContext()
+        .getBlockchain()
+        .getBlockHeader(block.getHeader().getParentHash())
+        .<BackwardSyncException>map(parent -> new MissingParentState(parent, failure))
+        .orElseGet(
+            () ->
+                new BackwardSyncException(
+                    "Parent header is unavailable for " + block.toLogString(), false));
+  }
+
+  private static final class MissingParentState extends BackwardSyncException {
+    private final BlockHeader parent;
+
+    private MissingParentState(final BlockHeader parent, final Throwable failure) {
+      super("Parent world state unavailable at " + parent.getHash(), false);
+      this.parent = parent;
+      if (failure != null) {
+        initCause(failure);
+      }
+    }
   }
 
   /**
@@ -555,6 +647,8 @@ public class BackwardSyncContext {
 
   class Status {
     private final CompletableFuture<Void> currentFuture;
+    private final long repairGeneration = repairRequester.generation();
+    private boolean repairAttempted;
     private final long initialChainHeight;
     private long targetChainHeight;
 

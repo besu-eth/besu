@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetClien
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
@@ -60,6 +61,7 @@ class EngineGetClientVersionV1Test {
                 .metricsSystem(new NoOpMetricsSystem())
                 .transactionPool(mock(TransactionPool.class))
                 .maxRequestBlocks(0)
+                .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
                 .build(),
             CLIENT_VERSION,
             COMMIT);

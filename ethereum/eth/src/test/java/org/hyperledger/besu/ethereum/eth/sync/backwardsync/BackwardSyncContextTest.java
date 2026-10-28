@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
@@ -56,6 +57,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeer
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTaskExecutorAnswer;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.WorldStateRecoveryCoordinator;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
@@ -68,18 +70,22 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import jakarta.validation.constraints.NotNull;
 import org.apache.logging.log4j.Level;
@@ -89,9 +95,12 @@ import org.apache.logging.log4j.core.Logger;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Property;
 import org.apache.tuweni.bytes.Bytes;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -189,7 +198,8 @@ public class BackwardSyncContextTest {
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager);
     EthContext ethContext = ethProtocolManager.ethContext();
 
-    when(blockValidator.validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean()))
+    when(blockValidator.validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any()))
         .thenAnswer(
             invocation -> {
               final Object[] arguments = invocation.getArguments();
@@ -237,6 +247,142 @@ public class BackwardSyncContextTest {
             new GetBodiesFromPeerTaskExecutorAnswer(remoteBlockchain, ethContext.getEthPeers()));
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void oneRequestRepairsAndResumesRealBackwardImport(final boolean hashEntrypoint)
+      throws Exception {
+    final Block target = getRemoteBlockByNumber(REMOTE_HEIGHT);
+    final Block first = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
+    final AtomicBoolean missing = new AtomicBoolean(true);
+    final MerkleTrieException failure =
+        new MerkleTrieException(
+            "missing parent node",
+            org.apache.tuweni.bytes.Bytes32.ZERO,
+            org.apache.tuweni.bytes.Bytes.of(1));
+    doAnswer(
+            invocation ->
+                missing.get()
+                    ? new BlockProcessingResult(Optional.empty(), failure)
+                    : new BlockProcessingResult(
+                        Optional.of(
+                            new BlockProcessingOutputs(
+                                ForestReferenceTestWorldState.create(Collections.emptyMap()),
+                                blockDataGenerator.receipts(invocation.getArgument(1)),
+                                Optional.empty()))))
+        .when(blockValidator)
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenAnswer(
+            ignored -> new BackwardSyncAlgorithmFactory().createBackwardSyncAlgorithm(context));
+    final Synchronizer synchronizer = Mockito.mock(Synchronizer.class);
+    final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
+    when(synchronizer.repairWorldState(any(), any())).thenReturn(worker);
+    context.withWorldStateRepairRequester(new WorldStateRecoveryCoordinator(synchronizer));
+
+    final CompletableFuture<Void> session =
+        hashEntrypoint
+            ? context.syncBackwardsUntil(target.getHash())
+            : context.syncBackwardsUntil(target);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(
+            () ->
+                verify(synchronizer)
+                    .repairWorldState(
+                        eq(
+                            WorldStateRepairRequest.fromFailure(
+                                first.getHeader().getParentHash(),
+                                localBlockchain.getChainHeadHeader().getStateRoot(),
+                                failure)),
+                        any()));
+    assertThat(session).isNotDone();
+    assertThat(context.isSyncing()).isTrue();
+    missing.set(false);
+    worker.complete(WorldStateRepairResult.REPAIRED);
+    session.get(20, TimeUnit.SECONDS);
+
+    assertThat(localBlockchain.contains(target.getHash())).isTrue();
+    verify(synchronizer).repairWorldState(any(), any());
+    verify(synchronizer, never()).resyncWorldState();
+    assertThat(badBlockManager.isBadBlock(target.getHash())).isFalse();
+  }
+
+  @Test
+  public void repeatedMissingStateEndsLogicalSessionAndStartsCooldown() throws Exception {
+    final Block block = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
+    doReturn(BlockProcessingResult.worldStateUnavailable("incomplete parent"))
+        .when(blockValidator)
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenAnswer(
+            ignored -> new BackwardSyncAlgorithmFactory().createBackwardSyncAlgorithm(context));
+    final Synchronizer synchronizer = Mockito.mock(Synchronizer.class);
+    when(synchronizer.repairWorldState(any(), any()))
+        .thenReturn(CompletableFuture.completedFuture(WorldStateRepairResult.REPAIRED));
+    final var requester = new WorldStateRecoveryCoordinator(synchronizer);
+    context.withWorldStateRepairRequester(requester);
+    final var session = context.syncBackwardsUntil(block);
+
+    assertThatThrownBy(() -> session.get(10, TimeUnit.SECONDS))
+        .hasCauseInstanceOf(BackwardSyncException.class);
+    assertThat(requester.requestRecovery(block.getHash(), block.getHeader().getStateRoot()).join())
+        .isEqualTo(WorldStateRepairResult.UNAVAILABLE);
+    verify(synchronizer).repairWorldState(any(), any());
+    assertThat(localBlockchain.contains(block.getHash())).isFalse();
+    assertThat(badBlockManager.isBadBlock(block.getHash())).isFalse();
+  }
+
+  @Test
+  public void stopAndReopenDuringRepairCannotResumeOldImport() throws Exception {
+    final Block block = getRemoteBlockByNumber(LOCAL_HEIGHT + 1);
+    doReturn(BlockProcessingResult.worldStateUnavailable("incomplete parent"))
+        .when(blockValidator)
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenAnswer(
+            ignored -> new BackwardSyncAlgorithmFactory().createBackwardSyncAlgorithm(context));
+    final Synchronizer synchronizer = Mockito.mock(Synchronizer.class);
+    final CompletableFuture<WorldStateRepairResult> worker = new CompletableFuture<>();
+    when(synchronizer.repairWorldState(any(), any())).thenReturn(worker);
+    final var requester = new WorldStateRecoveryCoordinator(synchronizer);
+    context.withWorldStateRepairRequester(requester);
+    final var session = context.syncBackwardsUntil(block);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(() -> verify(synchronizer).repairWorldState(any(), any()));
+    requester.stop();
+    requester.start();
+    worker.complete(WorldStateRepairResult.REPAIRED);
+
+    assertThatThrownBy(() -> session.get(10, TimeUnit.SECONDS))
+        .hasCauseInstanceOf(BackwardSyncException.class);
+    assertThat(localBlockchain.contains(block.getHash())).isFalse();
+  }
+
+  @Test
+  public void lateSuccessfulCompletionCannotReviveSessionFromBeforeManualResync() {
+    final CompletableFuture<Void> execution = new CompletableFuture<>();
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(execution);
+    final var requester = new WorldStateRecoveryCoordinator(Mockito.mock(Synchronizer.class));
+    context.withWorldStateRepairRequester(requester);
+    final var session = context.syncBackwardsUntil(getRemoteBlockByNumber(REMOTE_HEIGHT));
+    final var finalizedUpdate = Mockito.mock(Runnable.class);
+    session.thenRun(finalizedUpdate);
+
+    requester.stop();
+    requester.start();
+    execution.complete(null);
+
+    assertThat(session).isCompletedExceptionally();
+    verify(finalizedUpdate, never()).run();
+    assertThat(context.isSyncing()).isFalse();
+  }
+
   @Test
   public void shouldWarnOncePerBlockWhenParentWorldStateIsUnavailable() {
     final Block block = remoteBlockchain.getBlockByNumber(LOCAL_HEIGHT + 1).orElseThrow();
@@ -244,7 +390,8 @@ public class BackwardSyncContextTest {
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     doReturn(BlockProcessingResult.worldStateUnavailable("parent world state is not available"))
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
 
     final List<LogEvent> events =
         withLogCapture(
@@ -622,7 +769,8 @@ public class BackwardSyncContextTest {
         new BlockProcessingResult(Optional.empty(), new StorageException("database bedlam"));
     doReturn(result)
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
         .isInstanceOf(BackwardSyncException.class);
@@ -646,7 +794,8 @@ public class BackwardSyncContextTest {
         new BlockProcessingResult(Optional.empty(), new MerkleTrieException("missing node"));
     doReturn(result)
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
         .isInstanceOf(BackwardSyncException.class);
@@ -701,7 +850,8 @@ public class BackwardSyncContextTest {
     BlockProcessingResult result = new BlockProcessingResult("Parent block not present");
     doReturn(result)
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
         .isInstanceOf(BackwardSyncException.class);
@@ -729,7 +879,8 @@ public class BackwardSyncContextTest {
         .hasMessageContaining("known bad block");
 
     verify(blockValidator, never())
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
     verify(badChainListener)
         .onBadChain(block.getHeader(), Collections.emptyList(), List.of(childBlockHeader));
   }
@@ -848,7 +999,8 @@ public class BackwardSyncContextTest {
               return result;
             })
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
   }
 
   private Block mockBlockWithParentOnChain() {

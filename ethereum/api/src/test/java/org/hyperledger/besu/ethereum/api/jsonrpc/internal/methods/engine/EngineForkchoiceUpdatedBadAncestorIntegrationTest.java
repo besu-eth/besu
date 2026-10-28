@@ -47,6 +47,7 @@ import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
@@ -144,6 +145,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
                 .metricsSystem(new NoOpMetricsSystem())
                 .transactionPool(transactionPool)
                 .maxRequestBlocks(0)
+                .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
                 .build(),
             CANCUN,
             AMSTERDAM);

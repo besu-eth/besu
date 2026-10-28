@@ -36,6 +36,10 @@ import org.hyperledger.besu.ethereum.eth.sync.state.PendingBlocksManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -49,6 +53,7 @@ import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -68,6 +73,9 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   private final ProtocolContext protocolContext;
   private final PivotBlockSelector pivotBlockSelector;
   private final SyncTerminationCondition terminationCondition;
+  private final EthContext ethContext;
+  private final WorldStateRecoveryCoordinator worldStateRecoveryCoordinator;
+  private final AtomicReference<WorldStateRepairBudget> activeRepair = new AtomicReference<>();
 
   public DefaultSynchronizer(
       final SynchronizerConfiguration syncConfig,
@@ -85,10 +93,12 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
       final SyncTerminationCondition terminationCondition,
       final PivotBlockSelector pivotBlockSelector,
       final Optional<ChainDataPruner> chainDataPruner) {
+    this.worldStateRecoveryCoordinator = new WorldStateRecoveryCoordinator(this, metricsSystem);
     this.syncState = syncState;
     this.pivotBlockSelector = pivotBlockSelector;
     this.protocolContext = protocolContext;
     this.terminationCondition = terminationCondition;
+    this.ethContext = ethContext;
 
     ChainHeadTracker.trackChainHeadForPeers(
         ethContext,
@@ -179,6 +189,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   @Override
   public CompletableFuture<Void> start() {
     if (running.compareAndSet(false, true)) {
+      worldStateRecoveryCoordinator.start();
       LOG.info("Starting synchronizer.");
 
       syncDurationMetrics.startTimer(SyncDurationMetrics.Labels.TOTAL_SYNC_DURATION);
@@ -209,6 +220,11 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
   @Override
   public void stop() {
+    worldStateRecoveryCoordinator.stop();
+    final WorldStateRepairBudget repair = activeRepair.get();
+    if (repair != null) {
+      repair.cancel();
+    }
     if (running.compareAndSet(true, false)) {
       LOG.info("Stopping synchronizer");
       fastSyncDownloader.ifPresent(SnapSyncController::stop);
@@ -317,6 +333,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
   @Override
   public boolean resyncWorldState() {
+    worldStateRecoveryCoordinator.stop();
     // if sync is running currently, stop it and delete the fast sync state
     if (fastSyncDownloader.isPresent() && running.get()) {
       stop();
@@ -328,6 +345,47 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     this.fastSyncDownloader = this.fastSyncFactory.get();
     start();
     return true;
+  }
+
+  @Override
+  public WorldStateRepairRequester getWorldStateRepairRequester() {
+    return worldStateRecoveryCoordinator;
+  }
+
+  @Override
+  public CompletableFuture<WorldStateRepairResult> repairWorldState(
+      final WorldStateRepairRequest request, final WorldStateRepairBudget budget) {
+    if (!activeRepair.compareAndSet(null, budget)) {
+      return CompletableFuture.completedFuture(WorldStateRepairResult.SUPERSEDED);
+    }
+    final CompletableFuture<WorldStateRepairResult> completion = new CompletableFuture<>();
+    try {
+      ethContext
+          .getScheduler()
+          .scheduleSyncWorkerTask(
+              (Runnable)
+                  () -> {
+                    WorldStateRepairResult result;
+                    try {
+                      result =
+                          budget.isCancelled()
+                              ? WorldStateRepairResult.CANCELLED
+                              : protocolContext
+                                  .getWorldStateArchive()
+                                  .repairWorldState(request, budget);
+                    } catch (final RuntimeException e) {
+                      LOG.warn("Bounded world-state repair failed for {}", request.blockHash(), e);
+                      result = WorldStateRepairResult.FAILED;
+                    } finally {
+                      activeRepair.compareAndSet(budget, null);
+                    }
+                    completion.complete(result);
+                  });
+    } catch (final RuntimeException e) {
+      activeRepair.compareAndSet(budget, null);
+      completion.completeExceptionally(e);
+    }
+    return completion;
   }
 
   @Override
