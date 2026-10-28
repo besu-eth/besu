@@ -16,6 +16,9 @@ package org.hyperledger.besu.ethereum.eth.sync.snap2.net;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -44,6 +47,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -143,6 +148,89 @@ class RequestSchedulerPeersTest {
     assertThat(scheduler.capacity(Protocol.SNAP)).isEqualTo(2);
   }
 
+  @Test
+  void ignoresThePeersWithoutAKnownHeight() {
+    connectAt(1_000);
+    connect(List.of(), EthProtocol.LATEST);
+
+    assertThat(scheduler.bestPeerHeight()).isEqualTo(1_000);
+  }
+
+  @Test
+  void takesTheLowerHeightOfTwoPeers() {
+    connectAt(900);
+    connectAt(1_000);
+
+    assertThat(scheduler.bestPeerHeight()).isEqualTo(900);
+  }
+
+  @Test
+  void knowsNoHeightWithoutPeers() {
+    assertThat(scheduler.bestPeerHeight()).isZero();
+  }
+
+  @Test
+  void prefersThePeersAtTheBestHeight() {
+    runTheLoopOnTheTestThread();
+    final EthPeer behind = connectAt(900);
+    final EthPeer first = connectAt(1_000);
+    final EthPeer second = connectAt(1_000);
+    assertThat(scheduler.bestPeerHeight()).isEqualTo(1_000);
+
+    // the two peers at the tip take the lookups as long as they have free slots
+    for (int i = 0; i < 4; i++) {
+      scheduler.submit(pivotHeader(scheduler.bestPeerHeight()));
+    }
+
+    assertThat(sent(first)).hasSize(2);
+    assertThat(sent(second)).hasSize(2);
+    assertThat(sent(behind)).isEmpty();
+  }
+
+  @Test
+  void ignoresAHeightNoOtherPeerReaches() {
+    runTheLoopOnTheTestThread();
+    final EthPeer first = connectAt(1_000);
+    final EthPeer second = connectAt(1_000);
+    final EthPeer outlier = connectAt(1_000_000_000);
+    // the highest height two peers reach
+    assertThat(scheduler.bestPeerHeight()).isEqualTo(1_000);
+
+    // no peer looks behind: the lookups spread over the three
+    for (int i = 0; i < 3; i++) {
+      scheduler.submit(pivotHeader(scheduler.bestPeerHeight()));
+    }
+
+    assertThat(sent(first)).hasSize(1);
+    assertThat(sent(second)).hasSize(1);
+    assertThat(sent(outlier)).hasSize(1);
+  }
+
+  // replaces the scheduler with one whose loop runs on the test thread and skips delayed tasks
+  private void runTheLoopOnTheTestThread() {
+    final ScheduledExecutorService loop = mock(ScheduledExecutorService.class);
+    doAnswer(
+            invocation -> {
+              invocation.getArgument(0, Runnable.class).run();
+              return null;
+            })
+        .when(loop)
+        .execute(any());
+    when(loop.schedule(any(Runnable.class), anyLong(), any()))
+        .thenAnswer(invocation -> mock(ScheduledFuture.class));
+    scheduler.stop();
+    scheduler =
+        new RequestScheduler(
+            ethPeers, new NoOpMetricsSystem(), Duration.ofSeconds(10), 4, 4, 1, loop, () -> 0);
+  }
+
+  // a validated eth peer that announced the given height
+  private EthPeer connectAt(final long height) {
+    final EthPeer peer = connect(List.of(), EthProtocol.LATEST);
+    peer.chainState().updateHeightEstimate(height);
+    return peer;
+  }
+
   private EthPeer connect(final List<PeerValidator> validators, final Capability... capabilities) {
     final List<MessageData> messages = new CopyOnWriteArrayList<>();
     final EthPeer peer =
@@ -191,9 +279,24 @@ class RequestSchedulerPeersTest {
         Protocol.ETH, Priority.HEADERS, GetBlockHeadersMessage.create(1, 1, 0, false));
   }
 
+  // the header of a new head, asked first to the peers that reach the given height
+  private static SyncRequest<Void> pivotHeader(final long minimumPeerHeight) {
+    return new TestRequest(
+        Protocol.ETH,
+        Priority.PIVOT,
+        GetBlockHeadersMessage.create(1, 1, 0, false),
+        minimumPeerHeight);
+  }
+
   /** A request whose answers do not matter. */
-  private record TestRequest(Protocol protocol, Priority priority, MessageData request)
+  private record TestRequest(
+      Protocol protocol, Priority priority, MessageData request, long minimumPeerHeight)
       implements SyncRequest<Void> {
+
+    private TestRequest(
+        final Protocol protocol, final Priority priority, final MessageData request) {
+      this(protocol, priority, request, 0);
+    }
 
     @Override
     public String name() {

@@ -58,7 +58,8 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
   private long nonce;
   private Wei balance;
 
-  private final Code oldCode;
+  private final Hash oldCodeHash;
+  @Nullable private Code oldCode;
   @Nullable private Code updatedCode; // Null if the underlying code has not been updated.
 
   // Only contains updated storage entries, but may contain entry with a value of 0 to signify
@@ -83,6 +84,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
 
     this.updatedCode = Code.EMPTY_CODE;
     this.oldCode = Code.EMPTY_CODE;
+    this.oldCodeHash = Hash.EMPTY;
     this.updatedStorage = new TreeMap<>();
   }
 
@@ -103,6 +105,13 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
 
     this.nonce = account.getNonce();
     this.balance = account.getBalance();
+    this.oldCodeHash = account.getCodeHash();
+    if (Hash.EMPTY.equals(this.oldCodeHash)) {
+      this.oldCode = Code.EMPTY_CODE;
+    } else if (account instanceof UpdateTrackingAccount<?> parent && parent.codeWasUpdated()) {
+      // the parent may set its code again, so the code it has now is kept
+      this.oldCode = parent.getOrCreateCachedCode();
+    }
 
     this.updatedStorage = new TreeMap<>();
 
@@ -110,12 +119,6 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     final CodeCache codeCache = account.getCodeCache();
     if (codeCache != null) {
       this.codeCache = codeCache;
-      // The wrapped account keeps its code with the jump destination analysis done on it, which a
-      // new instance would repeat each time the shared cache has evicted the code.
-      this.oldCode = account.getOrCreateCachedCode();
-    } else {
-      // Without a cache the wrapped account may read its code from storage again on each request.
-      this.oldCode = new Code(account.getCode(), account.getCodeHash());
     }
   }
 
@@ -212,12 +215,13 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
   @Override
   public Hash getCodeHash() {
     // Code computes the hash of updated code only once, so requesting it repeatedly is cheap.
-    return currentCode().getCodeHash();
+    return updatedCode == null ? oldCodeHash : updatedCode.getCodeHash();
   }
 
   @Override
   public boolean hasCode() {
-    return currentCode().getSize() > 0;
+    // checks the size of updated code, as the default would hash it
+    return updatedCode == null ? !Hash.EMPTY.equals(oldCodeHash) : updatedCode.getSize() > 0;
   }
 
   @Override
@@ -236,7 +240,7 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
   @Override
   public Code getOrCreateCachedCode() {
     if (updatedCode == null) {
-      return oldCode;
+      return resolveOldCode();
     }
     if (codeCache == null || updatedCode.getSize() == 0) {
       return updatedCode;
@@ -253,8 +257,25 @@ public class UpdateTrackingAccount<A extends Account> implements MutableAccount 
     return updatedCode;
   }
 
+  private Code resolveOldCode() {
+    if (oldCode != null) {
+      return oldCode;
+    }
+    if (account == null) {
+      oldCode = Code.EMPTY_CODE;
+    } else if (account instanceof UpdateTrackingAccount<?> parentTracker) {
+      oldCode = parentTracker.resolveOldCode();
+    } else if (codeCache != null) {
+      oldCode = account.getOrCreateCachedCode();
+    } else {
+      final Bytes code = account.getCode();
+      oldCode = code.isEmpty() ? Code.EMPTY_CODE : new Code(code, oldCodeHash);
+    }
+    return oldCode;
+  }
+
   private Code currentCode() {
-    return updatedCode == null ? oldCode : updatedCode;
+    return updatedCode == null ? resolveOldCode() : updatedCode;
   }
 
   /** Mark transaction boundary. */

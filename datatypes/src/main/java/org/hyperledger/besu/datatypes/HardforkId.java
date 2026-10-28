@@ -88,7 +88,7 @@ public interface HardforkId {
     /** BPO2 fork. */
     BPO2(true, "BPO2"),
     /** Amsterdam fork. */
-    AMSTERDAM(false, "Amsterdam"),
+    AMSTERDAM(true, "Amsterdam"),
     /** BPO3 fork. */
     BPO3(false, "BPO3"),
     /** BPO4 fork. */

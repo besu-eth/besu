@@ -11,6 +11,10 @@ name: acceptance-tests-timing-reports-update
 # happens inside the contributor's fork. Promoting them here is bounded by the fact that the PR is
 # already merged, so the code that produced them has been reviewed; the file names themselves have
 # not, which is why they are filtered below before becoming a main branch artifact.
+#
+# A commit pushed to main directly, not merged through a pull request, has no PR to take reports
+# from: the run then publishes nothing and succeeds, and the previous baseline stays in use, since
+# acceptance-tests.yml takes the newest successful run that has the artifact.
 
 on:
   push:
@@ -38,7 +42,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pr=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0].number // empty')
+          # GitHub can take a moment to associate a just-merged commit with its PR, so an empty
+          # answer is retried before the commit is taken for one pushed without a PR
+          pr=
+          for attempt in 1 2 3; do
+            pr=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '.[0].number // empty')
+            [ -z "$pr" ] || break
+            [ "$attempt" = 3 ] || sleep 15
+          done
+          if [ -z "$pr" ]; then
+            echo "::notice::${{ github.sha }} was pushed without a pull request: no reports to publish, the previous timing baseline stays in use"
+            exit 0
+          fi
           if [[ ! $pr =~ ^[0-9]+$ ]]; then
             echo "::error::could not resolve a merged pull request for ${{ github.sha }}"
             exit 1
@@ -47,6 +62,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Get acceptance test reports from latest merged PR
+        if: steps.latest_merged_pr_number.outputs.PULL_REQUEST_NUMBER != ''
         uses: dawidd6/action-download-artifact@7f871e041ed7fe12467d2d4196da8a466c5311ff # v22
         with:
           workflow: ci.yml
@@ -69,6 +85,7 @@ jobs:
       # consumer passes them to xmlstarlet as arguments rather than to a shell, so this is defence
       # in depth; losing one report's timing only means that test is placed round-robin instead.
       - name: Drop reports with unexpected names
+        if: steps.latest_merged_pr_number.outputs.PULL_REQUEST_NUMBER != ''
         shell: bash
         run: |
           set -euo pipefail
@@ -103,6 +120,7 @@ jobs:
             exit 1
           fi
       - name: Upload acceptance test results
+        if: steps.latest_merged_pr_number.outputs.PULL_REQUEST_NUMBER != ''
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: acceptance-tests-timing-reports

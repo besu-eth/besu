@@ -211,10 +211,10 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
           commandLine, "--Xpos-block-creation-repetition-min-duration must be positive and ≤ 2000");
     }
 
-    if (unstableOptions.posBlockFinalizationTimeoutMs <= 0
+    if (unstableOptions.posBlockFinalizationTimeoutMs < 0
         || unstableOptions.posBlockFinalizationTimeoutMs > 12000) {
       throw new ParameterException(
-          commandLine, "--Xpos-block-finalization-timeout-ms must be positive and ≤ 12000");
+          commandLine, "--Xpos-block-finalization-timeout-ms must be non-negative and ≤ 12000");
     }
 
     CommandLineUtils.failIfOptionDoesntMeetRequirement(

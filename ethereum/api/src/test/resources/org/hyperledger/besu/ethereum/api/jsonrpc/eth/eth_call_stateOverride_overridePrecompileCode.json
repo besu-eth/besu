@@ -16,7 +16,6 @@
           "balance": "0xde0b6b3a7640000"
         },
         "0x0000000000000000000000000000000000000001": {
-          "comment": "The code below adds one to input",
           "code": "0x60003560010160005260206000f3",
           "movePrecompileToAddress": "0x0000000000000000000000000000000000123456"
         }
