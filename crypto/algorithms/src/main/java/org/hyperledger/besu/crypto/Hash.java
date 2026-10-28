@@ -75,8 +75,14 @@ public abstract class Hash {
    */
   public static Bytes32 sha256(final Bytes input) {
     final MessageDigest digest = SHA256_DIGEST.get();
-    input.update(digest);
-    return Bytes32.wrap(digest.digest());
+    try {
+      input.update(digest);
+      return Bytes32.wrap(digest.digest());
+    } catch (final Throwable t) {
+      // A digest left half-updated would corrupt every later hash on this thread.
+      SHA256_DIGEST.remove();
+      throw t;
+    }
   }
 
   /**

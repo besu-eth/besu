@@ -114,6 +114,15 @@ public class HashTest {
     assertThat(resultCow).isEqualTo(Bytes.fromHexString(cowSha256));
   }
 
+  @Test
+  public void sha256HashIsCorrectAfterAnInputFailsHalfway() {
+    final Bytes failing = new FailingHalfwayBytes(Bytes.wrap("horse".getBytes(UTF_8)));
+    assertThatThrownBy(() -> Hash.sha256(failing)).isInstanceOf(IllegalStateException.class);
+
+    assertThat(Hash.sha256(Bytes.wrap("cow".getBytes(UTF_8))))
+        .isEqualTo(Bytes.fromHexString(cowSha256));
+  }
+
   /** Validate ripemd160 hash. */
   @Test
   public void ripemd160Hash() {
