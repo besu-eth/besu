@@ -38,19 +38,16 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulationParameter;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulator;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
-import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,8 +76,6 @@ public class EthSimulateV1Test {
   @Mock private Blockchain blockchain;
   @Mock private BlockHeader blockHeader;
   @Mock private org.hyperledger.besu.ethereum.chain.ChainHead chainHead;
-  @Mock private ProtocolSpec protocolSpec;
-  @Mock private PrecompileContractRegistry precompileContractRegistry;
 
   @BeforeEach
   public void setUp() {
@@ -292,16 +287,13 @@ public class EthSimulateV1Test {
   }
 
   private void setupMethodWithMockSimulator() {
-    method = new EthSimulateV1(blockchainQueries, protocolSchedule, blockSimulator);
+    method = new EthSimulateV1(blockchainQueries, blockSimulator);
   }
 
   private void setupBlockchainForLatest() {
     when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
     when(blockchain.getChainHead()).thenReturn(chainHead);
     when(chainHead.getBlockHeader()).thenReturn(blockHeader);
-    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
-    when(protocolSpec.getPrecompileContractRegistry()).thenReturn(precompileContractRegistry);
-    when(precompileContractRegistry.getPrecompileAddresses()).thenReturn(Set.of());
   }
 
   private SimulateV1Parameter simulateParameter(final boolean validation) {

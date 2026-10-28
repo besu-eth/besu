@@ -109,7 +109,7 @@ public class SimulationTransactionProcessorFactory {
         (oldAddress, newAddress) -> {
           if (!originalAddresses.contains(oldAddress)) {
             throw new BlockStateCallException(
-                "Address " + oldAddress + " is not a precompile.",
+                "account " + oldAddress + " is not a precompile",
                 BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
           }
           newRegistry.put(newAddress, originalRegistry.get(oldAddress));

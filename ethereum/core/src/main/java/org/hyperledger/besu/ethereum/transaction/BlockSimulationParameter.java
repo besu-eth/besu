@@ -16,19 +16,15 @@ package org.hyperledger.besu.ethereum.transaction;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.BLOCK_NUMBERS_NOT_ASCENDING;
-import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.INVALID_PRECOMPILE_ADDRESS;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.TIMESTAMPS_NOT_ASCENDING;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.TOO_MANY_BLOCK_CALLS;
 
 import org.hyperledger.besu.crypto.SECPSignature;
-import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 public class BlockSimulationParameter {
   private static final int MAX_BLOCK_CALL_SIZE = 256;
@@ -112,7 +108,7 @@ public class BlockSimulationParameter {
     return fakeSignature;
   }
 
-  public Optional<BlockStateCallError> validate(final Set<Address> validPrecompileAddresses) {
+  public Optional<BlockStateCallError> validate() {
     if (blockStateCalls.size() > MAX_BLOCK_CALL_SIZE) {
       return Optional.of(TOO_MANY_BLOCK_CALLS);
     }
@@ -122,12 +118,7 @@ public class BlockSimulationParameter {
       return blockNumberError;
     }
 
-    Optional<BlockStateCallError> timestampError = validateTimestamps();
-    if (timestampError.isPresent()) {
-      return timestampError;
-    }
-
-    return validateStateOverrides(validPrecompileAddresses);
+    return validateTimestamps();
   }
 
   private Optional<BlockStateCallError> validateBlockNumbers() {
@@ -155,24 +146,6 @@ public class BlockSimulationParameter {
           return Optional.of(TIMESTAMPS_NOT_ASCENDING);
         }
         previousTimestamp = blockTimestamp;
-      }
-    }
-    return Optional.empty();
-  }
-
-  private Optional<BlockStateCallError> validateStateOverrides(
-      final Set<Address> validPrecompileAddresses) {
-    for (BlockStateCall call : blockStateCalls) {
-      if (call.getStateOverrideMap().isPresent()) {
-        var stateOverrideMap = call.getStateOverrideMap().get();
-        for (Address stateOverride : stateOverrideMap.keySet()) {
-          final StateOverride override = stateOverrideMap.get(stateOverride);
-          if (override.getMovePrecompileToAddress().isPresent()) {
-            if (!validPrecompileAddresses.contains(stateOverride)) {
-              return Optional.of(INVALID_PRECOMPILE_ADDRESS);
-            }
-          }
-        }
       }
     }
     return Optional.empty();

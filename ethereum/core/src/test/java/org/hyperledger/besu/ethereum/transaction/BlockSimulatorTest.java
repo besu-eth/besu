@@ -75,7 +75,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -409,45 +408,6 @@ public class BlockSimulatorTest {
         blockSimulator.overrideBlockHeader(parent, protocolSpec, overrides, false, false);
 
     assertEquals(parentGasLimit, result.getGasLimit());
-  }
-
-  @Test
-  public void shouldDetectInvalidPrecompile() {
-    var stateOverrideMap = new StateOverrideMap();
-    var targetAddress = Address.fromHexString("0x3");
-    var precompileAddress = Address.fromHexString("0x1");
-
-    var stateOverride =
-        new StateOverride.Builder().withMovePrecompileToAddress(targetAddress).build();
-
-    stateOverrideMap.put(precompileAddress, stateOverride);
-
-    var validationResult = buildParameterWithOverrides(stateOverrideMap).validate(Set.of());
-
-    assertThat(validationResult).isPresent();
-    assertThat(validationResult.orElseThrow())
-        .isEqualTo(BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
-  }
-
-  @Test
-  public void shouldAllowDuplicatePrecompileTargetAddresses() {
-    var stateOverrideMap = new StateOverrideMap();
-    var targetAddress = Address.fromHexString("0x3");
-    var precompileAddress1 = Address.fromHexString("0x1");
-    var precompileAddress2 = Address.fromHexString("0x2");
-
-    var stateOverride =
-        new StateOverride.Builder().withMovePrecompileToAddress(targetAddress).build();
-
-    // Map two precompile addresses to the same target address - should be allowed
-    stateOverrideMap.put(precompileAddress1, stateOverride);
-    stateOverrideMap.put(precompileAddress2, stateOverride);
-
-    var validationResult =
-        buildParameterWithOverrides(stateOverrideMap)
-            .validate(Set.of(precompileAddress1, precompileAddress2));
-
-    assertThat(validationResult).isEmpty();
   }
 
   @Test
@@ -836,15 +796,5 @@ public class BlockSimulatorTest {
 
     assertThat(tracerCaptor.getValue()).isNotInstanceOf(EthTransferLogOperationTracer.class);
     assertThat(tracerCaptor.getValue()).isEqualTo(OperationTracer.NO_TRACING);
-  }
-
-  private BlockSimulationParameter buildParameterWithOverrides(
-      final StateOverrideMap stateOverrideMap) {
-    var blockStateCall = new BlockStateCall(List.of(), null, stateOverrideMap);
-    var parameter =
-        new BlockSimulationParameter.BlockSimulationParameterBuilder()
-            .blockStateCalls(List.of(blockStateCall))
-            .build();
-    return new BlockSimulationParameter(parameter.getBlockStateCalls(), false, false, false);
   }
 }

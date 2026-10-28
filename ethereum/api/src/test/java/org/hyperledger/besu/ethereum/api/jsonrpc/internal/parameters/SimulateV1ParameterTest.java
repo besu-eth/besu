@@ -28,23 +28,17 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
 public class SimulateV1ParameterTest {
-
-  private static final Set<Address> VALID_PRECOMPILE_ADDRESSES =
-      Set.of(Address.fromHexString("0x0A"));
-  private static final Address INVALID_PRECOMPILE_ADDRESS = Address.fromHexString("0x0B");
 
   private void validateSimulateV1Parameter(
       final List<JsonBlockStateCallParameter> blockStateCalls,
       final BlockStateCallError expectedError) {
     SimulateV1Parameter simulateV1Parameter =
         new SimulateV1Parameter(blockStateCalls, false, false, false, false, false);
-    Optional<BlockStateCallError> maybeValidationError =
-        simulateV1Parameter.validate(VALID_PRECOMPILE_ADDRESSES);
+    Optional<BlockStateCallError> maybeValidationError = simulateV1Parameter.validate();
     assertThat(maybeValidationError).isPresent();
     assertThat(maybeValidationError.get()).isEqualTo(expectedError);
   }
@@ -68,17 +62,19 @@ public class SimulateV1ParameterTest {
   }
 
   @Test
-  public void shouldFailWhenPrecompileAddressIsInvalid() {
+  public void shouldNotPrevalidatePrecompileMoves() {
+    // Each simulated block checks the moves against the precompiles of its own fork
     StateOverride stateOverride =
         StateOverride.builder().withMovePrecompileToAddress(Address.ZERO).build();
     StateOverrideMap stateOverrideMap = new StateOverrideMap();
-    stateOverrideMap.put(INVALID_PRECOMPILE_ADDRESS, stateOverride);
+    stateOverrideMap.put(Address.fromHexString("0x0B"), stateOverride);
 
     JsonBlockStateCallParameter blockStateCall =
         createBlockStateCallParameter(1L, 1000L, stateOverrideMap);
+    SimulateV1Parameter simulateV1Parameter =
+        new SimulateV1Parameter(List.of(blockStateCall), false, false, false, false, false);
 
-    validateSimulateV1Parameter(
-        List.of(blockStateCall), BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
+    assertThat(simulateV1Parameter.validate()).isEmpty();
   }
 
   @Test
@@ -94,7 +90,7 @@ public class SimulateV1ParameterTest {
     final SimulateV1Parameter simulateV1Parameter =
         new SimulateV1Parameter(List.of(blockStateCall), true, false, false, false, false);
 
-    assertThat(simulateV1Parameter.validate(VALID_PRECOMPILE_ADDRESSES)).isEmpty();
+    assertThat(simulateV1Parameter.validate()).isEmpty();
   }
 
   @Test

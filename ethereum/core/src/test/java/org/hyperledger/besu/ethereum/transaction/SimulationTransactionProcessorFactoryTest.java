@@ -177,7 +177,7 @@ public class SimulationTransactionProcessorFactoryTest {
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
     Assertions.assertThat(exception.getMessage())
-        .contains("Address " + NON_EXISTENT_ADDRESS + " is not a precompile.");
+        .contains("account " + NON_EXISTENT_ADDRESS + " is not a precompile");
   }
 
   @Test
