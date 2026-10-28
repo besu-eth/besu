@@ -12,7 +12,6 @@
       {
         "stateOverrides": {
           "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
-            "comment": "Always returns one",
             "code": "0x60016000f3"
           },
           "0xcccccccccccccccccccccccccccccccccccccccc": {

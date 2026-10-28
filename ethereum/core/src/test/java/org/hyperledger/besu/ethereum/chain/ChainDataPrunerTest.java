@@ -1613,6 +1613,73 @@ public class ChainDataPrunerTest {
   }
 
   @Test
+  public void keepsTheBackfillFloorReadAPruningRunAgo() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final BlockchainStorage blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            new InMemoryKeyValueStorage(),
+            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
+            new MainnetBlockHeaderFunctions(),
+            false);
+    final ChainDataPruner chainDataPruner =
+        backfillPruner(
+            blockchainStorage,
+            ChainDataPruner.PruningMode.CHAIN_PRUNING,
+            ChainDataPruner.ChainPruningStrategy.ALL);
+    final Block genesisBlock = gen.genesisBlock();
+    final MutableBlockchain blockchain =
+        DefaultBlockchain.createMutable(
+            genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
+    blockchain.observeBlockAdded(chainDataPruner);
+
+    gen.blockSequence(genesisBlock, 40)
+        .forEach(
+            blk -> {
+              blockchain.appendBlock(blk, gen.receipts(blk));
+              // a back-fill that read its floor a run ago, 4 blocks, stores that block now
+              final long floor = chainDataPruner.lowestToBackfill(blk.getHeader().getNumber() - 4);
+              assertThat(blockchain.getBlockHeader(floor)).isPresent();
+            });
+    // a run later, the pruner keeps the blocks from 44 - 10 + 1
+    assertThat(chainDataPruner.lowestToBackfill(40)).isEqualTo(35);
+  }
+
+  @Test
+  public void leavesNoMarginWhenTheLowestRetainedBlockDoesNotMove() {
+    final BlockchainStorage blockchainStorage = Mockito.mock(BlockchainStorage.class);
+    final ChainDataPruner preMergePruner =
+        backfillPruner(
+            blockchainStorage,
+            ChainDataPruner.PruningMode.PRE_MERGE_PRUNING,
+            ChainDataPruner.ChainPruningStrategy.ALL);
+    final ChainDataPruner balPruner =
+        backfillPruner(
+            blockchainStorage,
+            ChainDataPruner.PruningMode.CHAIN_PRUNING,
+            ChainDataPruner.ChainPruningStrategy.BAL);
+
+    // pre-merge pruning keeps every block from the merge block
+    assertThat(preMergePruner.lowestToBackfill(1_000)).isEqualTo(11);
+    // pruning the block access lists only keeps every body
+    assertThat(balPruner.lowestToBackfill(1_000)).isZero();
+  }
+
+  // keeps 10 blocks, runs every 4 blocks, the merge at block 11
+  private static ChainDataPruner backfillPruner(
+      final BlockchainStorage blockchainStorage,
+      final ChainDataPruner.PruningMode mode,
+      final ChainDataPruner.ChainPruningStrategy strategy) {
+    return new ChainDataPruner(
+        blockchainStorage,
+        () -> {},
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
+        11,
+        mode,
+        new ChainPrunerConfiguration(strategy, 10, 10, 10, 4, 0),
+        new BlockingExecutor());
+  }
+
+  @Test
   public void prunesBlocksImportedWithoutBlockAddedEvents() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final BlockchainStorage blockchainStorage =

@@ -78,6 +78,14 @@ public class PayloadIdentifier implements Quantity {
 
     final long targetGasLimitPart = preparePayloadArgs.targetGasLimit().orElse(-1L);
 
+    // absent or empty defaults to 0 so that payload ids for pre-FOCIL payloads are not affected
+    final long inclusionListTxsPart =
+        preparePayloadArgs
+            .inclusionListTransactions()
+            .filter(inclusionList -> !inclusionList.isEmpty())
+            .map(inclusionList -> inclusionList.getChecksum().getLong(0))
+            .orElse(0L);
+
     // we finally spread all the values over 64bit, rotating only values where the shift could lose
     // bits
     return new PayloadIdentifier(
@@ -91,7 +99,8 @@ public class PayloadIdentifier implements Quantity {
             ^ withdrawalPart << 48
             ^ withdrawalPart >> 16
             ^ targetGasLimitPart << 56
-            ^ targetGasLimitPart >> 8);
+            ^ targetGasLimitPart >> 8
+            ^ inclusionListTxsPart);
   }
 
   @Override

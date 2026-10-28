@@ -64,4 +64,7 @@ abstract class OpenTelemetryLabelledSuppliedMetric implements LabelledSuppliedMe
     observationsMap.forEach(
         (labels, valueSupplier) -> measurement.record(valueSupplier.getAsDouble(), labels));
   }
+
+  /** Stops reporting the metric, as when it is created again. */
+  abstract void close();
 }

@@ -72,6 +72,17 @@ import org.slf4j.LoggerFactory;
  * left. A peer has one lane per protocol whose capacity grows with answers and halves on timeouts;
  * a timed out request keeps its slot until its late answer or one more timeout. One request of each
  * peer is always left to the other downloads.
+ *
+ * <p>The SNAP2 downloads go through it rather than the {@code PeerTaskExecutor}, and a merge of the
+ * two must keep what it does that the executor does not:
+ *
+ * <ul>
+ *   <li>an empty answer means the peer lacks the data, as pruned bodies, so the peer is not
+ *       punished, where the executor counts a useless response and five in a minute disconnect it;
+ *   <li>a request that failed on a peer goes to another peer, not to the best one again;
+ *   <li>a request waits for a peer with capacity instead of failing at once;
+ *   <li>peers are rated per kind of request, and the requests of a sync are served by priority.
+ * </ul>
  */
 public final class RequestScheduler implements RequestSender {
 

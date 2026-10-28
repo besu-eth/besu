@@ -104,6 +104,24 @@ public interface MutableBlockchain extends Blockchain {
   void unsafeImportSyncBodiesAndReceipts(
       List<SyncBlockWithReceipts> blocksAndReceipts, boolean indexTransactions);
 
+  /**
+   * Stores the bodies and receipts of blocks whose headers are stored, in any order and from any
+   * thread, without updating the chain state.
+   *
+   * @param blocksAndReceipts The blocks and receipts to store
+   * @param indexTransactions Boolean whether to index transactions
+   */
+  void unsafeStoreSyncBodiesAndReceipts(
+      List<SyncBlockWithReceipts> blocksAndReceipts, boolean indexTransactions);
+
+  /**
+   * Records that every block from {@code blockNumber} up to the chain head has its body and
+   * receipts stored.
+   *
+   * @param blockNumber the lowest block whose body and receipts are stored
+   */
+  void unsafeSetBodiesFrom(long blockNumber);
+
   void unsafeSetChainHead(final BlockHeader blockHeader, final Difficulty totalDifficulty);
 
   /**
@@ -112,6 +130,15 @@ public interface MutableBlockchain extends Blockchain {
    * @param blockHeaders The block headers to store.
    */
   void storeBlockHeaders(List<BlockHeader> blockHeaders);
+
+  /**
+   * Stores the headers of proof-of-stake blocks with their total difficulty, the same for all of
+   * them since their difficulty is zero, without updating the chain state.
+   *
+   * @param blockHeaders The block headers to store.
+   * @param totalDifficulty The total difficulty of every one of them.
+   */
+  void storeBlockHeaders(List<BlockHeader> blockHeaders, Difficulty totalDifficulty);
 
   /**
    * Removes the canonical blockNumber→blockHash index entries for the given block number range,

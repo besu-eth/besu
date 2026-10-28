@@ -222,6 +222,9 @@ public class MessageFrame {
   // Tracer view of the v2 stack: the item last handed out per slot, reused while the slot is
   // unchanged so that tracers snapshotting the stack every step share objects, as on v1
   private Bytes32[] stackViewV2;
+  // Only a tracer that traces operations reads the memory and storage updates operations record,
+  // so the v2 write methods record them only for one
+  private boolean recordsUpdatesForTracerV2 = true;
   private Bytes output = Bytes.EMPTY;
   private Bytes returnData = Bytes.EMPTY;
   private Code createdCode = null;
@@ -601,6 +604,101 @@ public class MessageFrame {
     if (stackDataV2 != null) {
       StacksV2.release(stackDepthV2, stackDataV2);
       stackDataV2 = null;
+    }
+  }
+
+  /**
+   * Sets whether the v2 write methods record their memory and storage updates, read through {@link
+   * #getMaybeUpdatedMemory} and {@link #getMaybeUpdatedStorage}.
+   *
+   * @param recordsUpdates true if the frame runs for a tracer that traces operations
+   */
+  public void setRecordsUpdatesForTracerV2(final boolean recordsUpdates) {
+    this.recordsUpdatesForTracerV2 = recordsUpdates;
+  }
+
+  /**
+   * As {@link #readMutableMemory(long, long, boolean)} for a memory opcode, recording the read only
+   * for a tracer that traces operations.
+   *
+   * @param offset The offset in memory
+   * @param length The length of the bytes to read
+   * @return The bytes in the specified range
+   */
+  public MutableBytes readMutableMemoryV2(final long offset, final long length) {
+    return readMutableMemory(offset, length, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #writeMemory(long, byte, boolean)} for a memory opcode, recording the update only for
+   * a tracer that traces operations.
+   *
+   * @param offset The offset in memory
+   * @param value The value to set in memory
+   */
+  public void writeMemoryV2(final long offset, final byte value) {
+    writeMemory(offset, value, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #writeMemory(long, long, Bytes, boolean)} for a memory opcode, recording the update
+   * only for a tracer that traces operations.
+   *
+   * @param offset The offset in memory
+   * @param length The length of the bytes to write
+   * @param value The value to write
+   */
+  public void writeMemoryV2(final long offset, final long length, final Bytes value) {
+    writeMemory(offset, length, value, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #writeMemoryRightAligned(long, long, Bytes, boolean)} for a memory opcode, recording
+   * the update only for a tracer that traces operations.
+   *
+   * @param offset The offset in memory
+   * @param length The length of the bytes to write
+   * @param value The value to write
+   */
+  public void writeMemoryRightAlignedV2(final long offset, final long length, final Bytes value) {
+    writeMemoryRightAligned(offset, length, value, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #writeMemory(long, long, long, Bytes, boolean)} for a memory opcode, recording the
+   * update only for a tracer that traces operations.
+   *
+   * @param offset The offset in memory to start writing
+   * @param sourceOffset The offset in the source value to start writing
+   * @param length The length of the bytes to write
+   * @param value The value to write
+   */
+  public void writeMemoryV2(
+      final long offset, final long sourceOffset, final long length, final Bytes value) {
+    writeMemory(offset, sourceOffset, length, value, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #copyMemory(long, long, long, boolean)} for a memory opcode, recording the update
+   * only for a tracer that traces operations.
+   *
+   * @param dst The destination address
+   * @param src The source address
+   * @param length the number of bytes to copy
+   */
+  public void copyMemoryV2(final long dst, final long src, final long length) {
+    copyMemory(dst, src, length, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #storageWasUpdated}, recording the update only for a tracer that traces operations.
+   *
+   * @param storageAddress the storage address
+   * @param value the value
+   */
+  public void storageWasUpdatedV2(final UInt256 storageAddress, final Bytes value) {
+    if (recordsUpdatesForTracerV2) {
+      maybeUpdatedStorage = Optional.of(new StorageEntry(storageAddress, value));
     }
   }
 
@@ -1525,7 +1623,9 @@ public class MessageFrame {
   }
 
   /**
-   * Gets maybe updated memory.
+   * Gets the memory update recorded for tracers since the last {@link #reset}. On EVM v2 it is
+   * recorded only for a tracer that traces operations, so there an empty value can also mean that
+   * nothing was recorded.
    *
    * @return the maybe updated memory
    */
@@ -1534,7 +1634,9 @@ public class MessageFrame {
   }
 
   /**
-   * Gets maybe updated storage.
+   * Gets the storage update recorded for tracers since the last {@link #reset}. On EVM v2 it is
+   * recorded only for a tracer that traces operations, so there an empty value can also mean that
+   * nothing was recorded.
    *
    * @return the maybe updated storage
    */
