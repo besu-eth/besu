@@ -95,33 +95,6 @@ public final class JournalAccountV2 implements MutableAccount {
     }
   }
 
-  /**
-   * Whether the transaction created this account rather than finding it in the parent updater.
-   *
-   * @return true if the account was created by the transaction
-   */
-  public boolean isFresh() {
-    return fresh;
-  }
-
-  /**
-   * Whether the transaction set the code of this account.
-   *
-   * @return true if the code was updated
-   */
-  public boolean codeWasUpdated() {
-    return code != null;
-  }
-
-  /**
-   * Whether the transaction cleared the storage of this account.
-   *
-   * @return true if the storage was cleared
-   */
-  public boolean getStorageWasCleared() {
-    return storageCleared;
-  }
-
   @Override
   public Address getAddress() {
     return address;
