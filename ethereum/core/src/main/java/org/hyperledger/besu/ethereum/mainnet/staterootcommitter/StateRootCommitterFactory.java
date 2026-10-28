@@ -18,10 +18,13 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.DefaultPatriciaStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.PatriciaBalEngine;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
 import java.util.Optional;
 
@@ -32,7 +35,7 @@ import java.util.Optional;
  *   <li>{@link ForestStateRootCommitter} — Forest archive
  *   <li>{@link BalStateRootCommitter} — Bonsai + BAL background root
  *   <li>{@link TrieDisabledStateRootCommitter} — Bonsai flat (trie-disabled) mode
- *   <li>{@link DefaultStateRootCommitter} — Bonsai accumulator at persist
+ *   <li>{@link DefaultPatriciaStateRootCommitter} — Bonsai accumulator at persist
  * </ul>
  */
 public final class StateRootCommitterFactory {
@@ -55,17 +58,37 @@ public final class StateRootCommitterFactory {
       final BlockHeader blockHeader,
       final Optional<BlockAccessList> maybeBal,
       final boolean storageFrozen) {
+    // Patricia is the only trie branch until the binary trie lands.
+    final TrieBranchType trieBranchType = TrieBranchType.PATRICIA;
     return switch (resolveMode(protocolContext, maybeBal)) {
       case BAL ->
           new BalStateRootCommitter(
                   protocolContext,
                   blockHeader,
                   BlockAccessListAccountLookup.of(maybeBal.get()),
-                  storageFrozen)
+                  storageFrozen,
+                  balEngine(trieBranchType))
               .start();
-      case DEFAULT -> new DefaultStateRootCommitter();
+      case DEFAULT -> defaultCommitter(trieBranchType);
       case FOREST -> ForestStateRootCommitter.INSTANCE;
       case TRIE_DISABLED -> TrieDisabledStateRootCommitter.INSTANCE;
+    };
+  }
+
+  private static BalStateRootCommitter.Engine balEngine(final TrieBranchType trieBranchType) {
+    return switch (trieBranchType) {
+      case PATRICIA -> PatriciaBalEngine.INSTANCE;
+      case BINARY ->
+          throw new UnsupportedOperationException("The binary trie branch has no BAL engine yet");
+    };
+  }
+
+  private static StateRootCommitter defaultCommitter(final TrieBranchType trieBranchType) {
+    return switch (trieBranchType) {
+      case PATRICIA -> new DefaultPatriciaStateRootCommitter();
+      case BINARY ->
+          throw new UnsupportedOperationException(
+              "The binary trie branch has no state root committer yet");
     };
   }
 

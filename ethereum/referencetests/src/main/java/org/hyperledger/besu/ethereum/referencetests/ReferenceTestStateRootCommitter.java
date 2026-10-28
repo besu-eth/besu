@@ -14,13 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.referencetests;
 
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.DefaultPatriciaStateRootCommitter;
 
 /**
  * State root committer for reference tests that persists address pre-images via {@link
  * org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState#hashAndSavePreImage}.
  */
-public final class ReferenceTestStateRootCommitter extends DefaultStateRootCommitter {
+public final class ReferenceTestStateRootCommitter extends DefaultPatriciaStateRootCommitter {
 
   public ReferenceTestStateRootCommitter() {
     super((bonsai, address) -> bonsai.hashAndSavePreImage(address.getBytes()));

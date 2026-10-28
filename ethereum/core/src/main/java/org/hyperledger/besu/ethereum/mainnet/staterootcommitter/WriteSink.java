@@ -31,7 +31,14 @@ import org.apache.tuweni.units.bigints.UInt256;
  * (!storageFrozen)} optimization where frozen mode does no per-write work at all. The
  * persist-vs-frozen decision lives in one place (strategy selection) rather than scattered guards.
  */
-sealed interface WriteSink permits PersistingSink, FrozenSink {
+public sealed interface WriteSink permits PersistingSink, FrozenSink {
+
+  /** Drops the writes when storage is frozen, otherwise queues them into {@code writes}. */
+  static WriteSink of(
+      final boolean storageFrozen,
+      final ConcurrentLinkedQueue<StateRootComputations.UpdaterWrite> writes) {
+    return storageFrozen ? new FrozenSink() : new PersistingSink(writes);
+  }
 
   void removeAccountInfoState(Hash addressHash);
 
@@ -54,12 +61,12 @@ sealed interface WriteSink permits PersistingSink, FrozenSink {
 
   /** Whether this sink discards writes (i.e. storage is frozen). */
   boolean isFrozen();
-}
 
-/** Maps a committed trie node to the deferred write that persists it. */
-@FunctionalInterface
-interface TrieWriteOf {
-  StateRootComputations.UpdaterWrite apply(Bytes location, Bytes32 hash, Bytes value);
+  /** Maps a committed trie node to the deferred write that persists it. */
+  @FunctionalInterface
+  interface TrieWriteOf {
+    StateRootComputations.UpdaterWrite apply(Bytes location, Bytes32 hash, Bytes value);
+  }
 }
 
 /** Persisting strategy: routes writes to a lock-free queue. */

@@ -14,21 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
-import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView.encodeTrieValue;
-
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
-import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
@@ -37,42 +29,63 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.units.bigints.UInt256;
-
+/** Computes the state root from the BAL in the background; an {@link Engine} builds the tries. */
 public final class BalStateRootCommitter implements StateRootCommitter {
+
+  /** Computes the BAL state root on the tries of one trie branch. */
+  public interface Engine {
+
+    TrieBranchType getTrieBranchType();
+
+    Result compute(
+        BonsaiWorldState parent, BlockAccessListAccountLookup accountLookup, boolean storageFrozen);
+  }
+
+  /**
+   * Result of the background trie computation.
+   *
+   * @param computation computed root and deferred KV writes (empty when storage is frozen)
+   * @param storageRoots new per-account storage roots, patched into the EVM accumulator by {@link
+   *     #compute}
+   */
+  public record Result(StateRootComputation computation, Map<Address, Hash> storageRoots) {
+
+    static Result empty(final Hash root) {
+      return new Result(StateRootComputations.pathBased(root, List.of()), Map.of());
+    }
+  }
 
   private final ProtocolContext protocolContext;
   private final BlockHeader blockHeader;
   private final BlockAccessListAccountLookup accountLookup;
   private final boolean storageFrozen;
+  private final Engine engine;
 
   private final AtomicBoolean cancelled = new AtomicBoolean(false);
   // Assigned by start(); null until then. start() must be called before compute()/cancel().
-  private CompletableFuture<BackgroundResult> backgroundComputation;
+  private CompletableFuture<Result> backgroundComputation;
 
   public BalStateRootCommitter(
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
       final BlockAccessListAccountLookup accountLookup,
-      final boolean storageFrozen) {
+      final boolean storageFrozen,
+      final Engine engine) {
     this.protocolContext = protocolContext;
     this.blockHeader = blockHeader;
     this.accountLookup = accountLookup;
     this.storageFrozen = storageFrozen;
+    this.engine = engine;
   }
 
   /**
@@ -96,6 +109,11 @@ public final class BalStateRootCommitter implements StateRootCommitter {
     return this;
   }
 
+  @Override
+  public TrieBranchType getTrieBranchType() {
+    return engine.getTrieBranchType();
+  }
+
   /** Cancels the background computation; {@link #compute} will throw if called afterwards. */
   @Override
   public void cancel() {
@@ -115,7 +133,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       final MutableWorldState worldState,
       final BlockHeader blockHeader,
       final WorldUpdater worldUpdater) {
-    final BackgroundResult result = awaitBackgroundComputation(backgroundComputation);
+    final Result result = awaitBackgroundComputation(backgroundComputation);
     final BonsaiWorldStateUpdateAccumulator accumulator =
         (BonsaiWorldStateUpdateAccumulator)
             Objects.requireNonNull(
@@ -130,27 +148,27 @@ public final class BalStateRootCommitter implements StateRootCommitter {
               }
             });
 
-    if (blockHeader != null && !result.root().equals(blockHeader.getStateRoot())) {
-      throw new StateRootMismatchException(blockHeader.getStateRoot(), result.root());
+    final Hash root = result.computation().root();
+    if (blockHeader != null && !root.equals(blockHeader.getStateRoot())) {
+      throw new StateRootMismatchException(blockHeader.getStateRoot(), root);
     }
-    return StateRootComputations.pathBased(result.root(), result.writes());
+    return result.computation();
   }
 
-  private BackgroundResult runComputation(
+  private Result runComputation(
       final BonsaiWorldState worldState,
       final BlockAccessListAccountLookup accountLookup,
       final boolean storageFrozen) {
     if (accountLookup.isEmpty()) {
-      return new BackgroundResult(worldState.getWorldStateRootHash(), List.of(), Map.of());
+      return Result.empty(worldState.getWorldStateRootHash());
     }
-    return new BalComputation(worldState, accountLookup, storageFrozen).execute();
+    return engine.compute(worldState, accountLookup, storageFrozen);
   }
 
-  private BackgroundResult awaitBackgroundComputation(
-      final CompletableFuture<BackgroundResult> future) {
+  private Result awaitBackgroundComputation(final CompletableFuture<Result> future) {
     // a cancelled computation says nothing about the block, the type keeps it from being recorded
     // as bad
-    final BackgroundResult result;
+    final Result result;
     try {
       result = future.get();
     } catch (final CancellationException e) {
@@ -192,7 +210,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
             .withShouldWorldStateUpdateHead(false)
             // The BAL overlay is attached for consistency with other BAL world-state callers, but
             // this computation path does not read through the world-state accumulator: it replays
-            // the BAL directly onto tries/storage (see BalComputation), so the overlay is not
+            // the BAL directly onto tries/storage (see Engine), so the overlay is not
             // consumed here. Kept so the parent is opened the same way as for EVM execution.
             .withBalOverlay(new BlockAccessListOverlay(accountLookup, Long.MAX_VALUE))
             .build();
@@ -201,210 +219,5 @@ public final class BalStateRootCommitter implements StateRootCommitter {
             protocolContext.getWorldStateArchive().getWorldState(queryParams).orElseThrow();
     worldState.disableCacheMerkleTrieLoader();
     return worldState;
-  }
-
-  /**
-   * Result of the background trie computation.
-   *
-   * @param root computed state root hash
-   * @param writes deferred KV writes to apply at persist time (empty when storage is frozen)
-   * @param storageRoots new per-account storage roots, patched into the EVM accumulator by {@link
-   *     #compute}
-   */
-  private record BackgroundResult(
-      Hash root,
-      List<StateRootComputations.UpdaterWrite> writes,
-      Map<Address, Hash> storageRoots) {}
-
-  private static final class BalComputation {
-
-    private final BonsaiWorldState worldState;
-    private final BlockAccessListAccountLookup accountLookup;
-
-    /** Strategy that persists deferred writes, or drops them when storage is frozen. */
-    private final WriteSink sink;
-
-    /** Lock-free queue; storage futures and account resolution may append concurrently. */
-    private final ConcurrentLinkedQueue<StateRootComputations.UpdaterWrite> writes =
-        new ConcurrentLinkedQueue<>();
-
-    /** Populated during account resolution once storage futures complete. */
-    private final Map<Address, Hash> storageRoots = new ConcurrentHashMap<>();
-
-    /**
-     * Futures for storage-trie updates, keyed by address. Launched eagerly so storage I/O overlaps
-     * with the sequential account resolution loop.
-     */
-    private final Map<Address, CompletableFuture<Hash>> storageFutures = new ConcurrentHashMap<>();
-
-    BalComputation(
-        final BonsaiWorldState worldState,
-        final BlockAccessListAccountLookup accountLookup,
-        final boolean storageFrozen) {
-      this.worldState = worldState;
-      this.accountLookup = accountLookup;
-      this.sink = storageFrozen ? new FrozenSink() : new PersistingSink(writes);
-    }
-
-    /**
-     * Runs the three-phase BAL commit:
-     *
-     * <ol>
-     *   <li>Launch storage-trie updates concurrently for accounts with storage changes.
-     *   <li>Resolve each changed account in the account trie via {@code putDeferred}.
-     *   <li>Commit the account trie; deferred writes are collected unless storage is frozen.
-     * </ol>
-     */
-    BackgroundResult execute() {
-      final MerkleTrie<Bytes, Bytes> accountTrie = worldState.createAccountStateTrie();
-
-      // Step 1: for every account with storage changes, launch a storage future eagerly so
-      // storage I/O overlaps with step 2.
-      for (final BlockAccessList.AccountChanges changes : accountLookup.accountChanges()) {
-        if (!changes.storageChanges().isEmpty()) {
-          final Address address = changes.address();
-          final Hash accountHash = address.addressHash();
-          storageFutures.put(
-              address,
-              CompletableFuture.supplyAsync(
-                  () -> updateStorageTrie(address, accountHash, changes),
-                  BlockProcessingExecutors.storageTrieExecutor()));
-        }
-      }
-
-      // Step 2: for each changed account, stage a deferred update — the trie passes the existing
-      // leaf RLP.
-      for (final BlockAccessList.AccountChanges changes : accountLookup.accountChanges()) {
-        if (changes.hasAnyChange()) {
-          final Address address = changes.address();
-          final Hash accountHash = address.addressHash();
-          accountTrie.putDeferred(
-              accountHash.getBytes(),
-              existingRlp -> resolveAccount(accountHash, address, changes, existingRlp));
-        }
-      }
-
-      // Step 3: commit the account trie.
-      sink.commitTrie(
-          accountTrie, (location, hash, value) -> u -> u.putTrieNode(location, hash, value));
-      return new BackgroundResult(
-          Hash.wrap(accountTrie.getRootHash()), new ArrayList<>(writes), storageRoots);
-    }
-
-    private Optional<Bytes> resolveAccount(
-        final Hash accountHash,
-        final Address address,
-        final BlockAccessList.AccountChanges changes,
-        final Optional<Bytes> maybeRlp) {
-
-      final PatriciaTrieAccountValue priorAccount =
-          maybeRlp.map(rlp -> PatriciaTrieAccountValue.readFrom(RLP.input(rlp))).orElse(null);
-
-      final long newNonce;
-      if (changes.nonceChanges().isEmpty()) {
-        newNonce = priorAccount != null ? priorAccount.getNonce() : 0L;
-      } else {
-        newNonce = changes.nonceChanges().getLast().newNonce();
-      }
-
-      final Wei newBalance;
-      if (changes.balanceChanges().isEmpty()) {
-        newBalance = priorAccount != null ? priorAccount.getBalance() : Wei.ZERO;
-      } else {
-        newBalance = changes.balanceChanges().getLast().postBalance();
-      }
-
-      final Hash newCodeHash;
-      if (changes.codeChanges().isEmpty()) {
-        newCodeHash = priorAccount != null ? priorAccount.getCodeHash() : Hash.EMPTY;
-      } else {
-        final BlockAccessList.CodeChange codeChange = changes.codeChanges().getLast();
-        newCodeHash = Hash.hash(codeChange.newCode());
-        if (!sink.isFrozen()) {
-          if (codeChange.newCode().isEmpty()) {
-            // Code was cleared: load the parent account to find the prior code hash.
-            if (priorAccount != null && !Hash.EMPTY.equals(priorAccount.getCodeHash())) {
-              final Hash priorCodeHash = priorAccount.getCodeHash();
-              sink.removeCode(accountHash, priorCodeHash);
-            }
-          } else {
-            sink.putCode(accountHash, newCodeHash, codeChange.newCode());
-          }
-        }
-      }
-
-      // Storage root: if there are no storage changes, parse the prior root from the existing
-      // account RLP passed in by putDeferred (no separate KV lookup needed).
-      final Hash newStorageRoot;
-      if (changes.storageChanges().isEmpty()) {
-        newStorageRoot =
-            priorAccount != null ? priorAccount.getStorageRoot() : Hash.EMPTY_TRIE_HASH;
-      } else {
-        // Join the pre-launched storage future; by now it is likely already complete.
-        newStorageRoot = storageFutures.get(address).join();
-      }
-      storageRoots.put(address, newStorageRoot);
-
-      final PatriciaTrieAccountValue updatedAccount =
-          new PatriciaTrieAccountValue(newNonce, newBalance, newStorageRoot, newCodeHash);
-      if (isAccountEmpty(updatedAccount)) {
-        sink.removeAccountInfoState(accountHash);
-        return Optional.empty();
-      } else {
-        final Bytes encoded = RLP.encode(updatedAccount::writeTo);
-        sink.putAccountInfoState(accountHash, encoded);
-        return Optional.of(encoded);
-      }
-    }
-
-    /**
-     * Replays storage slot changes from the BAL on the parent storage trie and returns the new
-     * storage root. When storage is frozen, the trie is updated in memory only and slot/trie-node
-     * KV writes are not recorded.
-     */
-    private Hash updateStorageTrie(
-        final Address address,
-        final Hash accountHash,
-        final BlockAccessList.AccountChanges accountChanges) {
-
-      final Hash priorStorageRoot = priorStorageRoot(address);
-
-      final MerkleTrie<Bytes, Bytes> storageTrie =
-          worldState.createStorageTrie(accountHash, priorStorageRoot);
-
-      for (final BlockAccessList.SlotChanges slotChanges : accountChanges.storageChanges()) {
-        final Hash slotHash = slotChanges.slot().getSlotHash();
-        final UInt256 rawValue = slotChanges.changes().getLast().newValue();
-        final UInt256 value = rawValue == null ? UInt256.ZERO : rawValue;
-        if (value.equals(UInt256.ZERO)) {
-          sink.removeStorageValueBySlotHash(accountHash, slotHash);
-          storageTrie.remove(slotHash.getBytes());
-        } else {
-          sink.putStorageValueBySlotHash(accountHash, slotHash, value);
-          storageTrie.put(slotHash.getBytes(), encodeTrieValue(value));
-        }
-      }
-
-      sink.commitTrie(
-          storageTrie,
-          (location, nodeHash, value) ->
-              u -> u.putTrieNode(TrieNodeKey.of(accountHash, location), nodeHash, value));
-      return Hash.wrap(storageTrie.getRootHash());
-    }
-
-    private Hash priorStorageRoot(final Address address) {
-      return worldState
-          .getWorldStateStorage()
-          .getAccount(address.addressHash())
-          .map(rlp -> PatriciaTrieAccountValue.readFrom(RLP.input(rlp)).getStorageRoot())
-          .orElse(Hash.EMPTY_TRIE_HASH);
-    }
-
-    private boolean isAccountEmpty(final PatriciaTrieAccountValue account) {
-      return account.getNonce() == 0
-          && account.getBalance().isZero()
-          && Hash.EMPTY_TRIE_HASH.equals(account.getStorageRoot())
-          && Hash.EMPTY.equals(account.getCodeHash());
-    }
   }
 }

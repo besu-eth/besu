@@ -22,7 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.DefaultPatriciaStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -336,6 +336,8 @@ class BonsaiFrontierRootHashTest {
   private static Hash fullRecalculatedRoot(final BonsaiWorldState worldState) {
     final BonsaiWorldStateUpdateAccumulator accumulatorCopy =
         (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator().copy();
-    return new DefaultStateRootCommitter().compute(worldState, null, accumulatorCopy).root();
+    return new DefaultPatriciaStateRootCommitter()
+        .compute(worldState, null, accumulatorCopy)
+        .root();
   }
 }

@@ -15,7 +15,14 @@
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
+import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.DefaultPatriciaStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.PatriciaBalEngine;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -24,14 +31,52 @@ import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 
 class StateRootCommitterTest {
 
   @Test
   void committersUseThePatriciaBranchByDefault() {
-    assertThat(new DefaultStateRootCommitter().getTrieBranchType())
+    assertThat(ForestStateRootCommitter.INSTANCE.getTrieBranchType())
         .isEqualTo(TrieBranchType.PATRICIA);
+  }
+
+  @Test
+  void patriciaCommittersUseThePatriciaBranch() {
+    assertThat(new DefaultPatriciaStateRootCommitter().getTrieBranchType())
+        .isEqualTo(TrieBranchType.PATRICIA);
+    assertThat(PatriciaBalEngine.INSTANCE.getTrieBranchType()).isEqualTo(TrieBranchType.PATRICIA);
+  }
+
+  @Test
+  void balCommitterUsesTheBranchOfItsEngine() {
+    final BalStateRootCommitter.Engine binaryEngine =
+        new BalStateRootCommitter.Engine() {
+          @Override
+          public TrieBranchType getTrieBranchType() {
+            return TrieBranchType.BINARY;
+          }
+
+          @Override
+          public BalStateRootCommitter.Result compute(
+              final BonsaiWorldState parent,
+              final BlockAccessListAccountLookup accountLookup,
+              final boolean storageFrozen) {
+            throw new UnsupportedOperationException();
+          }
+        };
+
+    final BalStateRootCommitter committer =
+        new BalStateRootCommitter(
+            mock(ProtocolContext.class),
+            mock(BlockHeader.class),
+            BlockAccessListAccountLookup.of(new BlockAccessList(List.of())),
+            false,
+            binaryEngine);
+
+    assertThat(committer.getTrieBranchType()).isEqualTo(TrieBranchType.BINARY);
   }
 
   @Test

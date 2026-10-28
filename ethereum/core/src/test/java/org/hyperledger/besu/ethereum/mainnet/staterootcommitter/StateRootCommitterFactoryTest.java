@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.DefaultPatriciaStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
 import java.util.List;
 import java.util.Optional;
@@ -90,7 +92,7 @@ class StateRootCommitterFactoryTest {
             factory.forBlock(
                 protocolContext, blockHeader, Optional.empty(), worldState.isStorageFrozen());
 
-        assertThat(committer).isInstanceOf(DefaultStateRootCommitter.class);
+        assertThat(committer).isInstanceOf(DefaultPatriciaStateRootCommitter.class);
       }
     }
 
@@ -117,7 +119,7 @@ class StateRootCommitterFactoryTest {
             disabledFactory.forBlock(
                 protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
 
-        assertThat(committer).isInstanceOf(DefaultStateRootCommitter.class);
+        assertThat(committer).isInstanceOf(DefaultPatriciaStateRootCommitter.class);
       }
     }
 
@@ -132,6 +134,7 @@ class StateRootCommitterFactoryTest {
                 protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
 
         assertThat(committer).isInstanceOf(BalStateRootCommitter.class);
+        assertThat(committer.getTrieBranchType()).isEqualTo(TrieBranchType.PATRICIA);
       }
     }
 
@@ -194,7 +197,7 @@ class StateRootCommitterFactoryTest {
       final Hash defaultRoot;
       try (BonsaiWorldState worldState = getWorldState(false)) {
         applyBalanceAndNonce(worldState, address, newBalance, newNonce);
-        worldState.persist(blockHeader, new DefaultStateRootCommitter());
+        worldState.persist(blockHeader, new DefaultPatriciaStateRootCommitter());
         defaultRoot = worldState.rootHash();
       }
 

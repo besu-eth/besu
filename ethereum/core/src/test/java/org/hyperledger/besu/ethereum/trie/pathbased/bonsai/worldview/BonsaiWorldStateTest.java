@@ -15,16 +15,13 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
-import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.DefaultPatriciaStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
@@ -51,23 +48,23 @@ class BonsaiWorldStateTest {
   @Mock BonsaiWorldState bonsaiWorldState;
   @Mock BonsaiWorldStateUpdateAccumulator bonsaiWorldStateUpdateAccumulator;
   @Mock BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater;
-  @Mock MerkleTrie<Bytes, Bytes> accountTrie;
 
   private static final Bytes CODE = Bytes.of(10);
   private static final Hash CODE_HASH = Hash.hash(CODE);
   private static final Hash ACCOUNT_HASH = Address.ZERO.addressHash();
   private static final Address ACCOUNT = Address.ZERO;
 
-  private final DefaultStateRootCommitter committer = new DefaultStateRootCommitter();
+  private final DefaultPatriciaStateRootCommitter committer =
+      new DefaultPatriciaStateRootCommitter();
 
   private void applyCodeUpdate(final BonsaiWorldStateUpdateAccumulator accumulator) {
     when(accumulator.getAccountsToUpdate()).thenReturn(Map.of());
     when(accumulator.getStorageToUpdate()).thenReturn(Map.of());
     when(accumulator.getStorageToClear()).thenReturn(Set.of());
     when(bonsaiWorldState.isStorageFrozen()).thenReturn(false);
-    when(bonsaiWorldState.createAccountStateTrie()).thenReturn(accountTrie);
-    when(accountTrie.getRootHash()).thenReturn(Bytes32.ZERO);
-    doAnswer(invocation -> null).when(accountTrie).commit(any());
+    // a disabled trie is a no-op trie, so only the code writes reach the updater
+    when(bonsaiWorldState.getWorldStateRootHash()).thenReturn(Hash.wrap(Bytes32.ZERO));
+    when(bonsaiWorldState.isTrieDisabled()).thenReturn(true);
 
     committer.compute(bonsaiWorldState, null, accumulator).applyTo(bonsaiUpdater);
   }

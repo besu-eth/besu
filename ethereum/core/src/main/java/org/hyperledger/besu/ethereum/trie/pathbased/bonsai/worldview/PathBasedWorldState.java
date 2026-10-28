@@ -22,8 +22,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.TrieDisabledStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.patricia.DefaultPatriciaStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapshotWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -61,8 +61,8 @@ public abstract class PathBasedWorldState
 
   private static final Logger LOG = LoggerFactory.getLogger(PathBasedWorldState.class);
 
-  protected static final DefaultStateRootCommitter DEFAULT_STATE_ROOT_COMMITTER =
-      new DefaultStateRootCommitter();
+  protected static final DefaultPatriciaStateRootCommitter DEFAULT_STATE_ROOT_COMMITTER =
+      new DefaultPatriciaStateRootCommitter();
 
   /**
    * Resolves the committer used by the no-arg {@link #persist(BlockHeader)} and the frozen {@link
@@ -185,6 +185,10 @@ public abstract class PathBasedWorldState
 
   public PathBasedWorldStateUpdateAccumulator<?> getAccumulator() {
     return accumulator;
+  }
+
+  public boolean isParallelStateRootComputationEnabled() {
+    return worldStateConfig.isParallelStateRootComputationEnabled();
   }
 
   public boolean isTrieDisabled() {
