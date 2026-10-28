@@ -592,17 +592,20 @@ public class MainnetTransactionProcessor {
             final Optional<PartialBlockAccessView> partialBlockAccessView =
                 accessLocationTracker.map(
                     tracker -> tracker.createPartialBlockAccessView(worldState));
-            return TransactionProcessingResult.failed(
-                gasUsedByTransaction,
-                refundedGas,
-                usedGas,
-                stateGasUsed,
-                ValidationResult.invalid(
-                    TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
-                    "transaction price must be greater than base fee"),
-                Optional.empty(),
-                Optional.empty(),
-                partialBlockAccessView);
+            final TransactionProcessingResult underpricedResult =
+                TransactionProcessingResult.failed(
+                    gasUsedByTransaction,
+                    refundedGas,
+                    usedGas,
+                    stateGasUsed,
+                    ValidationResult.invalid(
+                        TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
+                        "transaction price must be greater than base fee"),
+                    Optional.empty(),
+                    Optional.empty(),
+                    partialBlockAccessView);
+            underpricedResult.setExecutionGasUsedForBlock(gasResult.executionGas());
+            return underpricedResult;
           }
           coinbaseCalculator = coinbaseFeePriceCalculator;
         }
