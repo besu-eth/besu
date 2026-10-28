@@ -36,6 +36,7 @@ public class BlockProcessingOutputs {
   private final long cumulativeBlockGasUsed;
   private final Map<Long, Hash> accessedAncestors;
   private final InclusionListValidationResult inclusionListValidationResult;
+  private final Runnable trieLogWrite;
 
   /**
    * Creates a new instance.
@@ -124,6 +125,40 @@ public class BlockProcessingOutputs {
       final long cumulativeBlockGasUsed,
       final Map<Long, Hash> accessedAncestors,
       final InclusionListValidationResult inclusionListValidationResult) {
+    this(
+        worldState,
+        receipts,
+        maybeRequests,
+        blockAccessList,
+        cumulativeBlockGasUsed,
+        accessedAncestors,
+        inclusionListValidationResult,
+        () -> {});
+  }
+
+  /**
+   * Creates a new instance for a block whose trie log is left for the caller to write.
+   *
+   * @param worldState the world state after processing the block
+   * @param receipts the receipts produced by processing the block
+   * @param maybeRequests the requests produced by processing the block
+   * @param blockAccessList the block-level access list produced by processing the block
+   * @param cumulativeBlockGasUsed the cumulative block gas used (pre-refund for EIP-7778)
+   * @param accessedAncestors the ancestor blocks resolved via BLOCKHASH during processing, keyed by
+   *     block number; always at least the parent
+   * @param inclusionListValidationResult whether the block satisfies the inclusion list it was
+   *     processed with (EIP-7805), valid if it was processed without one
+   * @param trieLogWrite writes the block's trie log
+   */
+  public BlockProcessingOutputs(
+      final MutableWorldState worldState,
+      final List<TransactionReceipt> receipts,
+      final Optional<List<Request>> maybeRequests,
+      final Optional<BlockAccessList> blockAccessList,
+      final long cumulativeBlockGasUsed,
+      final Map<Long, Hash> accessedAncestors,
+      final InclusionListValidationResult inclusionListValidationResult,
+      final Runnable trieLogWrite) {
     this.worldState = worldState;
     this.receipts = receipts;
     this.maybeRequests = maybeRequests;
@@ -133,6 +168,16 @@ public class BlockProcessingOutputs {
     this.inclusionListValidationResult =
         Objects.requireNonNull(
             inclusionListValidationResult, "inclusionListValidationResult must not be null");
+    this.trieLogWrite = trieLogWrite;
+  }
+
+  /**
+   * Returns the write of the block's trie log, if processing left it to the caller.
+   *
+   * @return the write, which does nothing if processing wrote the trie log
+   */
+  public Runnable getTrieLogWrite() {
+    return trieLogWrite;
   }
 
   /**

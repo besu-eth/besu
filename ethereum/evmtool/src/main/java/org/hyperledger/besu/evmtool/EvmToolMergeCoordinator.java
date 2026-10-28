@@ -35,6 +35,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * Minimal MergeMiningCoordinator for evmtool engine-test. Implements the core methods used by
@@ -79,12 +80,15 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
    * on a side chain would advance the head where a real node would not, and the {@code
    * lastblockhash} oracle would then be checking this harness's semantics rather than production's
    * — so mirror store-then-FCU here if such fixtures ever appear.
+   *
+   * <p>The block is stored before returning, so the writer is not used.
    */
   @Override
   public BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions) {
+      final Set<Transaction> inclusionListTransactions,
+      final Executor blockWriter) {
     final var result =
         protocolSchedule
             .getByBlockHeader(block.getHeader())

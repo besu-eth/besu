@@ -115,8 +115,20 @@ public interface MutableBlockchain extends Blockchain {
       List<SyncBlockWithReceipts> blocksAndReceipts, boolean indexTransactions);
 
   /**
-   * Records that every block from {@code blockNumber} up to the chain head has its body and
-   * receipts stored.
+   * Writes in one batch the total difficulties of the canonical headers above block {@code parent}
+   * up to block {@code last}, each checked to be the child of the one before, for a sync that
+   * stored the headers without them.
+   *
+   * @param parent a block of the canonical index
+   * @param parentTotal the total difficulty of block {@code parent}
+   * @param last the highest block whose total difficulty is written, above {@code parent}
+   * @return the total difficulty of block {@code last}
+   */
+  Difficulty unsafeStoreSyncTotalDifficulties(long parent, Difficulty parentTotal, long last);
+
+  /**
+   * Records that every block from {@code blockNumber} up to the chain head, or up to the head a
+   * sync is about to set, has its body and receipts stored.
    *
    * @param blockNumber the lowest block whose body and receipts are stored
    */

@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /** The Transition coordinator. */
 public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
@@ -143,8 +144,10 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   public BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions) {
-    return mergeCoordinator.rememberBlock(block, blockAccessList);
+      final Set<Transaction> inclusionListTransactions,
+      final Executor blockWriter) {
+    return mergeCoordinator.rememberBlock(
+        block, blockAccessList, inclusionListTransactions, blockWriter);
   }
 
   @Override

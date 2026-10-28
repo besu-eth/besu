@@ -61,8 +61,21 @@ public interface Blockchain {
   Optional<Long> getEarliestBlockNumber();
 
   /**
+   * Returns the number of the earliest block in the canonical chain, unless it is above the chain
+   * head the caller read and sends with it, as a sync may move the head up in between.
+   *
+   * @param chainHead the number of the chain head the caller read
+   * @return The number of the earliest block in the chain, at or below {@code chainHead}.
+   */
+  default Optional<Long> getEarliestBlockNumber(final long chainHead) {
+    return getEarliestBlockNumber().filter(earliest -> earliest <= chainHead);
+  }
+
+  /**
    * Returns the block from which a sync stored every body and receipts up to the chain head. The
-   * blocks below may miss theirs, and a pruner may later remove some above it without moving it.
+   * blocks below may miss theirs, and a pruner may later remove some above it without moving it. A
+   * sync records the bodies below its final pivot before it moves the head up to them, so it may be
+   * above the head until then.
    *
    * @return the block, or empty when no sync recorded one
    */

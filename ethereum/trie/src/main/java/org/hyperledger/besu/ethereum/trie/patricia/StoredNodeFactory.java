@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.trie.NodeFactory;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.StoredNode;
+import org.hyperledger.besu.ethereum.trie.TrieBytes;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -177,13 +178,13 @@ public class StoredNodeFactory<V> implements NodeFactory<V> {
     final RLPInput childRlp = valueRlp.readAsRlp();
     if (childRlp.nextIsList()) {
       final Node<V> childNode =
-          decode(location == null ? null : Bytes.concatenate(location, path), childRlp, errMessage);
+          decode(location == null ? null : TrieBytes.concat(location, path), childRlp, errMessage);
       return new ExtensionNode<>(location, path, childNode, this);
     } else {
       final Bytes32 childHash = childRlp.readBytes32();
       final StoredNode<V> childNode =
           new StoredNode<>(
-              this, location == null ? null : Bytes.concatenate(location, path), childHash);
+              this, location == null ? null : TrieBytes.concat(location, path), childHash);
       return new ExtensionNode<>(location, path, childNode, this);
     }
   }
@@ -199,7 +200,7 @@ public class StoredNodeFactory<V> implements NodeFactory<V> {
       } else if (nodeRLPs.nextIsList()) {
         final Node<V> child =
             decode(
-                location == null ? null : Bytes.concatenate(location, Bytes.of((byte) i)),
+                location == null ? null : TrieBytes.append(location, (byte) i),
                 nodeRLPs,
                 errMessage);
         children.add(child);
@@ -207,9 +208,7 @@ public class StoredNodeFactory<V> implements NodeFactory<V> {
         final Bytes32 childHash = nodeRLPs.readBytes32();
         children.add(
             new StoredNode<>(
-                this,
-                location == null ? null : Bytes.concatenate(location, Bytes.of((byte) i)),
-                childHash));
+                this, location == null ? null : TrieBytes.append(location, (byte) i), childHash));
       }
     }
 

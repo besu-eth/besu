@@ -78,6 +78,8 @@ import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -308,6 +310,25 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
                 + "instead of correct nonce=0 from genesis. "
                 + "This is the exact production bug.")
         .isPresent();
+  }
+
+  @Test
+  public void rememberBlockLeavesStoringAValidBlockToTheWriter() throws Exception {
+    final Block block = buildBlockWithTransaction(Wei.of(1), Bytes32.ZERO);
+    final List<Runnable> writes = new ArrayList<>();
+
+    assertThat(coordinator.rememberBlock(block, Optional.empty(), writes::add).getYield())
+        .isPresent();
+    assertThat(blockchain.getBlockByHash(block.getHash())).isEmpty();
+
+    assertThat(writes).hasSize(1);
+    writes.getFirst().run();
+    assertThat(blockchain.getBlockByHash(block.getHash())).isPresent();
+    assertThat(worldStateArchive.getTrieLogManager().getTrieLogLayer(block.getHash())).isPresent();
+
+    coordinator.updateForkChoice(
+        block.getHeader(), genesisState.getBlock().getHash(), genesisState.getBlock().getHash());
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block.getHash());
   }
 
   private Block buildBlockWithTransaction(final Wei value, final Bytes32 random) throws Exception {

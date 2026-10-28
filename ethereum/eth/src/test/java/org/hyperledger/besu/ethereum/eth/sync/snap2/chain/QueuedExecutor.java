@@ -20,11 +20,11 @@ import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /** Keeps what is submitted, to run it in turn on the test thread when the test says. */
-final class QueuedExecutor extends AbstractExecutorService {
+public final class QueuedExecutor extends AbstractExecutorService {
   private final List<Runnable> tasks = new ArrayList<>();
   private boolean shutdown;
 
-  void runAll() {
+  public void runAll() {
     while (!tasks.isEmpty()) {
       tasks.removeFirst().run();
       // a pipeline stage, or an interrupted back-fill, leaves the test thread interrupted

@@ -419,7 +419,7 @@ public class InclusionListWorkflowIntegrationTest {
    */
   private void stubBlockProcessingResult(
       final InclusionListValidationResult inclusionListValidationResult) {
-    when(mergeCoordinator.rememberBlock(any(), any(), any()))
+    when(mergeCoordinator.rememberBlock(any(), any(), any(), any()))
         .thenReturn(
             new BlockProcessingResult(
                 Optional.of(
@@ -467,7 +467,7 @@ public class InclusionListWorkflowIntegrationTest {
         .isFalse();
 
     // the block was processed only the first time
-    verify(mergeCoordinator, times(1)).rememberBlock(any(), any(), any());
+    verify(mergeCoordinator, times(1)).rememberBlock(any(), any(), any(), any());
   }
 
   @Test
@@ -522,7 +522,7 @@ public class InclusionListWorkflowIntegrationTest {
     assertThat(callForkchoiceUpdatedWithoutAttributes(payloadHeader).getInclusionListSatisfied())
         .isFalse();
 
-    verify(mergeCoordinator, times(1)).rememberBlock(any(), any(), any());
+    verify(mergeCoordinator, times(1)).rememberBlock(any(), any(), any(), any());
   }
 
   private static String encode(final Transaction transaction) {

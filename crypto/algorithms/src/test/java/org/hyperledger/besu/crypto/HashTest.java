@@ -16,8 +16,19 @@ package org.hyperledger.besu.crypto;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.tuweni.bytes.AbstractBytes;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.MutableBytes;
 import org.bouncycastle.util.encoders.Hex;
 import org.junit.jupiter.api.Test;
 
@@ -50,6 +61,47 @@ public class HashTest {
 
     final Bytes resultCow = Hash.keccak256(Bytes.wrap("cow".getBytes(UTF_8)));
     assertThat(resultCow).isEqualTo(Bytes.fromHexString(cowKeccak256));
+
+    assertThat(Hash.keccak256(Bytes.wrap("horse".getBytes(UTF_8))))
+        .isEqualTo(Bytes.fromHexString(horseKeccak256));
+  }
+
+  @Test
+  public void keccak256HashIsCorrectAfterAnInputFailsHalfway() {
+    final Bytes failing = new FailingHalfwayBytes(Bytes.wrap("horse".getBytes(UTF_8)));
+    assertThatThrownBy(() -> Hash.keccak256(failing)).isInstanceOf(IllegalStateException.class);
+
+    assertThat(Hash.keccak256(Bytes.wrap("cow".getBytes(UTF_8))))
+        .isEqualTo(Bytes.fromHexString(cowKeccak256));
+  }
+
+  @Test
+  public void keccak256HashIsCorrectOnConcurrentThreads() throws Exception {
+    final Bytes horse = Bytes.wrap("horse".getBytes(UTF_8));
+    final Bytes cow = Bytes.wrap("cow".getBytes(UTF_8));
+    final ExecutorService executor = Executors.newFixedThreadPool(4);
+    try {
+      final List<Future<Boolean>> results = new ArrayList<>();
+      for (int i = 0; i < 4; i++) {
+        final Bytes input = i % 2 == 0 ? horse : cow;
+        final Bytes expected = Bytes.fromHexString(i % 2 == 0 ? horseKeccak256 : cowKeccak256);
+        results.add(
+            executor.submit(
+                () -> {
+                  for (int n = 0; n < 10_000; n++) {
+                    if (!Hash.keccak256(input).equals(expected)) {
+                      return false;
+                    }
+                  }
+                  return true;
+                }));
+      }
+      for (final Future<Boolean> result : results) {
+        assertThat(result.get(1, TimeUnit.MINUTES)).isTrue();
+      }
+    } finally {
+      executor.shutdownNow();
+    }
   }
 
   /** Validate sha256 hash. */
@@ -77,5 +129,50 @@ public class HashTest {
   public void blake2bfCompression() {
     final Bytes result = Hash.blake2bf(Bytes.wrap(Hex.decode(inputBlake2bf)));
     assertThat(result).isEqualTo(Bytes.fromHexString(outputBlake2bf));
+  }
+
+  /** Feeds the first half of its bytes to a digest, then fails. */
+  private static final class FailingHalfwayBytes extends AbstractBytes {
+    private final Bytes bytes;
+
+    private FailingHalfwayBytes(final Bytes bytes) {
+      this.bytes = bytes;
+    }
+
+    @Override
+    public void update(final MessageDigest digest) {
+      bytes.slice(0, bytes.size() / 2).update(digest);
+      throw new IllegalStateException("failed halfway");
+    }
+
+    @Override
+    public int size() {
+      return bytes.size();
+    }
+
+    @Override
+    public byte get(final int i) {
+      return bytes.get(i);
+    }
+
+    @Override
+    public Bytes slice(final int i, final int length) {
+      return bytes.slice(i, length);
+    }
+
+    @Override
+    public Bytes copy() {
+      return bytes.copy();
+    }
+
+    @Override
+    public MutableBytes mutableCopy() {
+      return bytes.mutableCopy();
+    }
+
+    @Override
+    public String toString() {
+      return bytes.toString();
+    }
   }
 }
