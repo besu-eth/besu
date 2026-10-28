@@ -24,6 +24,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
 import org.hyperledger.besu.evm.v2.worldstate.JournaledWorldUpdaterV2;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
@@ -46,6 +48,7 @@ import java.util.stream.Collectors;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /**
@@ -72,23 +75,31 @@ class JournaledWorldUpdaterV2DifferentialTest {
     Bytes.EMPTY, Bytes.fromHexString("0x6001"), Bytes.fromHexString("0x60026000")
   };
 
-  static List<Long> seeds() {
-    final List<Long> seeds = new ArrayList<>();
+  static List<Arguments> seeds() {
+    final List<Arguments> seeds = new ArrayList<>();
     for (long seed = 0; seed < 1500; seed++) {
-      seeds.add(seed);
+      for (final WorldUpdaterMode mode : WorldUpdaterMode.values()) {
+        seeds.add(Arguments.of(seed, mode));
+      }
     }
     return seeds;
   }
 
+  /**
+   * The stacked updaters stay the reference in both modes, while the journal commits to a
+   * transaction updater of the given mode, as on a node running in that mode.
+   */
   @ParameterizedTest
   @MethodSource("seeds")
-  void journalMatchesStackedUpdaters(final long seed) {
-    final Side stacked = new Side(false);
-    final Side journal = new Side(true);
+  void journalMatchesStackedUpdaters(final long seed, final WorldUpdaterMode mode) {
+    final Side stacked = new Side(false, WorldUpdaterMode.STACKED);
+    final Side journal = new Side(true, mode);
+    // a journaled transaction updater drops a storage clear when it commits, for v1 frames as well
+    final boolean clearsStorage = mode == WorldUpdaterMode.STACKED;
     final Random random = new Random(seed);
     final int steps = 20 + random.nextInt(80);
     for (int step = 0; step < steps; step++) {
-      final Function<Side, Object> op = randomOp(random);
+      final Function<Side, Object> op = randomOp(random, clearsStorage);
       final Object expected = op.apply(stacked);
       final Object actual = op.apply(journal);
       assertThat(actual).as("seed %s step %s", seed, step).isEqualTo(expected);
@@ -101,18 +112,21 @@ class JournaledWorldUpdaterV2DifferentialTest {
     stacked.finish(closes, commitTransaction);
     journal.finish(closes, commitTransaction);
 
-    assertThat(journal.transactionUpdaterState())
-        .as("seed %s transaction updater", seed)
-        .isEqualTo(stacked.transactionUpdaterState());
-    assertThat(journal.blockAccessList())
-        .as("seed %s block access list", seed)
-        .isEqualTo(stacked.blockAccessList());
+    // a block access list needs the stacked mode, and journaled updaters track other accounts
+    if (mode == WorldUpdaterMode.STACKED) {
+      assertThat(journal.transactionUpdaterState())
+          .as("seed %s transaction updater", seed)
+          .isEqualTo(stacked.transactionUpdaterState());
+      assertThat(journal.blockAccessList())
+          .as("seed %s block access list", seed)
+          .isEqualTo(stacked.blockAccessList());
+    }
     assertThat(journal.persistedRoot())
         .as("seed %s state root", seed)
         .isEqualTo(stacked.persistedRoot());
   }
 
-  private static Function<Side, Object> randomOp(final Random random) {
+  private static Function<Side, Object> randomOp(final Random random, final boolean clearsStorage) {
     final Address address = ADDRESSES[random.nextInt(ADDRESSES.length)];
     final UInt256 slot = SLOTS[random.nextInt(SLOTS.length)];
     final UInt256 value = VALUES[random.nextInt(VALUES.length)];
@@ -143,7 +157,7 @@ class JournaledWorldUpdaterV2DifferentialTest {
         if (account == null) {
           return "absent";
         }
-        mutate(account, mutation, slot, value, code, amount);
+        mutate(account, mutation, slot, value, code, amount, clearsStorage);
         return describe(account, slot);
       };
     } else if (choice < 82) {
@@ -156,7 +170,7 @@ class JournaledWorldUpdaterV2DifferentialTest {
           return "skipped";
         }
         final MutableAccount account = side.top().getOrCreate(address);
-        mutate(account, mutation, slot, value, code, amount);
+        mutate(account, mutation, slot, value, code, amount, clearsStorage);
         return describe(account, slot);
       };
     } else if (choice < 86) {
@@ -179,18 +193,19 @@ class JournaledWorldUpdaterV2DifferentialTest {
       final UInt256 slot,
       final UInt256 value,
       final Bytes code,
-      final long amount) {
+      final long amount,
+      final boolean clearsStorage) {
     switch (mutation) {
       case 0 -> account.setBalance(Wei.of(amount));
       case 1 -> account.incrementNonce();
       case 2, 3 -> account.setStorageValue(slot, value);
       case 4 -> account.setCode(code);
       default -> {
-        if (amount == 0) {
-          account.clearStorage();
-        } else {
+        if (amount != 0) {
           // a write of the value the slot already holds
           account.setStorageValue(slot, account.getStorageValue(slot));
+        } else if (clearsStorage) {
+          account.clearStorage();
         }
       }
     }
@@ -230,15 +245,17 @@ class JournaledWorldUpdaterV2DifferentialTest {
 
   /** One world state with a transaction updater and the call frame updaters on top of it. */
   private static final class Side {
-    private final MutableWorldState worldState =
-        InMemoryKeyValueStorageProvider.createInMemoryWorldState();
+    private final MutableWorldState worldState;
     private final WorldUpdater blockUpdater;
     private final WorldUpdater transactionUpdater;
     private final WorldUpdater frameUpdater;
     private final Deque<WorldUpdater> frames = new ArrayDeque<>();
     private final Set<Address> deleted = new HashSet<>();
 
-    Side(final boolean journaled) {
+    Side(final boolean journaled, final WorldUpdaterMode mode) {
+      worldState =
+          InMemoryKeyValueStorageProvider.createInMemoryWorldState(
+              new EvmConfiguration(32_000L, mode, true));
       final WorldUpdater genesis = worldState.updater();
       genesis.createAccount(SENDER, 1, Wei.of(10));
       final MutableAccount contract = genesis.createAccount(CONTRACT, 1, Wei.of(2));
