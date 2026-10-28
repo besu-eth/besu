@@ -26,7 +26,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -70,7 +70,7 @@ class MissingCodeFetcherTest {
     when(blockchain.getChainHeadHeader()).thenReturn(head);
     when(ethContext.getEthPeers()).thenReturn(ethPeers);
     when(ethPeers.streamAvailablePeers()).thenAnswer(invocation -> Stream.of(attributes(peer)));
-    when(peer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP1));
+    when(peer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(peer.getSnapBytecode(any(), any())).thenReturn(stream);
   }
 
@@ -86,7 +86,8 @@ class MissingCodeFetcherTest {
   void closesTheStreamOfASilentPeerAndAsksTheNextOne() throws Exception {
     final EthPeer silentPeer = mock(EthPeer.class);
     final ResponseStream silentStream = mock(ResponseStream.class);
-    when(silentPeer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP1));
+    when(silentPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(silentPeer.getSnapBytecode(any(), any())).thenReturn(silentStream);
     when(silentStream.then(any())).thenReturn(silentStream);
     when(ethPeers.streamAvailablePeers())
@@ -104,7 +105,8 @@ class MissingCodeFetcherTest {
         new MissingCodeFetcher(ethContext, blockchain, Duration.ofSeconds(30));
     final EthPeer malformedPeer = mock(EthPeer.class);
     final ResponseStream malformedStream = mock(ResponseStream.class);
-    when(malformedPeer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP1));
+    when(malformedPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(malformedPeer.getSnapBytecode(any(), any())).thenReturn(malformedStream);
     // the response is delivered later on another thread, as by the network
     when(malformedStream.then(any()))
@@ -133,7 +135,8 @@ class MissingCodeFetcherTest {
   void stopsAskingThePeersOnceInterrupted() throws Exception {
     final EthPeer interruptedPeer = mock(EthPeer.class);
     final ResponseStream interruptedStream = mock(ResponseStream.class);
-    when(interruptedPeer.getAgreedCapabilities()).thenReturn(Set.of(SnapProtocol.SNAP1));
+    when(interruptedPeer.getAgreedCapabilities())
+        .thenReturn(Set.of(SnapProtocolVersion.V1.getCapability()));
     when(interruptedPeer.getSnapBytecode(any(), any())).thenReturn(interruptedStream);
     // the caller is interrupted while it waits for the first peer
     when(interruptedStream.then(any()))

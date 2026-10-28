@@ -195,8 +195,15 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
   void removeTransaction(
       final PendingTransaction pendingTransaction, final SequencedRemovalReason reason) {
-    removeTransaction(pendingTransaction.getTransaction(), false);
-    eventEmitter.notifyPendingTransactionDropped(pendingTransaction, reason);
+    // notify while holding the lock, so that the events are notified in the order they happen, and
+    // only if this pending tx is still in the pool, since it could have been removed already, and
+    // the same tx added again, like after a timed eviction scan
+    synchronized (lock) {
+      if (pendingTransaction.equals(pendingTransactions.get(pendingTransaction.getHash()))) {
+        removeTransaction(pendingTransaction.getTransaction(), false);
+        eventEmitter.notifyPendingTransactionDropped(pendingTransaction, reason);
+      }
+    }
   }
 
   @Override
@@ -472,12 +479,14 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
       pendingTransactions.put(pendingTransaction.getHash(), pendingTransaction);
       prioritizeTransaction(pendingTransaction);
+      // notify while holding the lock and before evicting, since the eviction could drop the added
+      // tx itself, so that the events are notified in the order they happen
+      eventEmitter.notifyPendingTransactionAdded(pendingTransaction);
 
       if (pendingTransactions.size() > poolConfig.getTxPoolMaxSize()) {
         evictLessPriorityTransactions();
       }
     }
-    eventEmitter.notifyPendingTransactionAdded(pendingTransaction);
     return ADDED;
   }
 

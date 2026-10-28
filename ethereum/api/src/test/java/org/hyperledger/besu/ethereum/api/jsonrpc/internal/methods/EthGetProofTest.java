@@ -127,6 +127,31 @@ class EthGetProofTest {
   }
 
   @Test
+  void acceptsMaxStorageKeys() {
+    final JsonRpcRequestContext request =
+        requestWithParams(address.toString(), storageKeys(EthGetProof.MAX_STORAGE_KEYS), "latest");
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    assertThat(((GetProofResult) ((JsonRpcSuccessResponse) response).getResult()).getStorageProof())
+        .hasSize(EthGetProof.MAX_STORAGE_KEYS);
+  }
+
+  @Test
+  void errorWhenTooManyStorageKeysSupplied() {
+    final JsonRpcRequestContext request =
+        requestWithParams(
+            address.toString(), storageKeys(EthGetProof.MAX_STORAGE_KEYS + 1), "latest");
+
+    Assertions.assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessage("Too many storage keys requested (max 1024, got 1025)")
+        .extracting(e -> ((InvalidJsonRpcParameters) e).getRpcErrorType())
+        .isEqualTo(RpcErrorType.INVALID_STORAGE_KEYS_PARAMS);
+  }
+
+  @Test
   void defaultsToLatestWhenNoBlockSupplied() {
     // Per execution-apis the Block parameter is optional and defaults to 'latest'.
     // Omitting it must behave identically to explicitly passing "latest".
@@ -493,6 +518,12 @@ class EthGetProofTest {
     final JsonRpcRequestContext request =
         requestWithParams(account.toString(), keys, "0x" + Long.toHexString(blockNumber));
     return (GetProofResult) ((JsonRpcSuccessResponse) method.response(request)).getResult();
+  }
+
+  private static String[] storageKeys(final int count) {
+    return IntStream.range(0, count)
+        .mapToObj(i -> UInt256.valueOf(i).toHexString())
+        .toArray(String[]::new);
   }
 
   private JsonRpcRequestContext requestWithParams(final Object... params) {

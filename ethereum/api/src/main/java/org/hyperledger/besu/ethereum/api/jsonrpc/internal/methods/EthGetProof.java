@@ -37,10 +37,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.units.bigints.UInt256;
 
 public class EthGetProof extends AbstractBlockParameterOrBlockHashMethod {
   private static final Pattern HEX_DIGITS = Pattern.compile("[0-9a-fA-F]*");
+
+  // Maximum number of storage keys in one request, the same limit as geth, Nethermind and Erigon.
+  @VisibleForTesting static final int MAX_STORAGE_KEYS = 1024;
 
   public EthGetProof(final BlockchainQueries blockchain) {
     super(blockchain);
@@ -115,6 +119,13 @@ public class EthGetProof extends AbstractBlockParameterOrBlockHashMethod {
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
           "Invalid storage keys parameters (index 1)", RpcErrorType.INVALID_STORAGE_KEYS_PARAMS, e);
+    }
+    // checked before any key is parsed or any state is read
+    if (keys.length > MAX_STORAGE_KEYS) {
+      throw new InvalidJsonRpcParameters(
+          String.format(
+              "Too many storage keys requested (max %d, got %d)", MAX_STORAGE_KEYS, keys.length),
+          RpcErrorType.INVALID_STORAGE_KEYS_PARAMS);
     }
     return Arrays.stream(keys).map(EthGetProof::normalizeStorageKey).toList();
   }
