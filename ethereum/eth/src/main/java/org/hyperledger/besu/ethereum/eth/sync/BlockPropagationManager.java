@@ -81,6 +81,15 @@ import org.slf4j.LoggerFactory;
 public class BlockPropagationManager implements UnverifiedForkchoiceListener {
   private static final Logger LOG = LoggerFactory.getLogger(BlockPropagationManager.class);
   private static final long TIMEOUT = Duration.ofSeconds(60L).toMillis();
+  // Retries of a failed block retrieval are spaced out and capped: a block that cannot be
+  // retrieved (for example because no peer serves it) must not keep a request slot busy for as
+  // long as its number remains inside the propagation range.
+  private static final int MAX_BLOCK_RETRIES = 10;
+  // The first retry is short so that a transient failure recovers quickly; the delay then doubles
+  // up to the cap below.
+  private static final Duration INITIAL_RETRY_DELAY = Duration.ofMillis(250);
+  private static final Duration MAX_RETRY_DELAY = Duration.ofSeconds(30);
+  private static final int MAX_RETRY_BACKOFF_DOUBLINGS = 7;
   private final SynchronizerConfiguration config;
   private final ProtocolSchedule protocolSchedule;
   private final ProtocolContext protocolContext;
@@ -90,6 +99,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
   private final BlockBroadcaster blockBroadcaster;
 
   private final AtomicBoolean started = new AtomicBoolean(false);
+  private final AtomicBoolean stopped = new AtomicBoolean(false);
   private final ProcessingBlocksManager processingBlocksManager;
   private final PendingBlocksManager pendingBlocksManager;
   private Optional<Long> onBlockAddedSId = Optional.empty();
@@ -141,6 +151,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
 
   public void start() {
     if (started.compareAndSet(false, true)) {
+      stopped.set(false);
       setupListeners();
     } else {
       throw new IllegalStateException(
@@ -149,6 +160,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
   }
 
   public void stop() {
+    stopped.set(true);
     if (started.get()) {
       clearListeners();
       started.set(false);
@@ -445,12 +457,14 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
     }
   }
 
-  private CompletableFuture<Block> retrieveNonAnnouncedBlock(final long blockNumber) {
+  @VisibleForTesting
+  CompletableFuture<Block> retrieveNonAnnouncedBlock(final long blockNumber) {
     LOG.trace("Retrieve non announced block {} from peers", blockNumber);
     return getBlockFromPeers(Optional.empty(), blockNumber, Optional.empty());
   }
 
-  private CompletableFuture<Block> processAnnouncedBlock(
+  @VisibleForTesting
+  CompletableFuture<Block> processAnnouncedBlock(
       final EthPeer peer, final BlockAnnouncement blockHash) {
     LOG.trace("Retrieve announced block by header {} from peers", blockHash);
     return getBlockFromPeers(Optional.of(peer), blockHash.number(), Optional.of(blockHash.hash()));
@@ -487,7 +501,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
       final Optional<EthPeer> preferredPeer,
       final long blockNumber,
       final Optional<Hash> maybeBlockHash) {
-    return repeatableGetBlockFromPeer(preferredPeer, blockNumber, maybeBlockHash)
+    return repeatableGetBlockFromPeer(preferredPeer, blockNumber, maybeBlockHash, 0)
         .whenComplete(
             (block, throwable) -> {
               if (block != null) {
@@ -518,7 +532,8 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
   private CompletableFuture<Block> repeatableGetBlockFromPeer(
       final Optional<EthPeer> preferredPeer,
       final long blockNumber,
-      final Optional<Hash> maybeBlockHash) {
+      final Optional<Hash> maybeBlockHash,
+      final int attempt) {
     return exceptionallyCompose(
             scheduleGetBlockFromPeers(preferredPeer, blockNumber, maybeBlockHash),
             handleGetBlockErrors(blockNumber, maybeBlockHash))
@@ -528,7 +543,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
                 // nothing left to fetch, only a failed attempt (null) is worth repeating
                 block != null
                     ? CompletableFuture.completedFuture(block)
-                    : maybeRepeatGetBlock(blockNumber, maybeBlockHash));
+                    : maybeRepeatGetBlock(blockNumber, maybeBlockHash, attempt));
   }
 
   private Function<Throwable, CompletionStage<Block>> handleGetBlockErrors(
@@ -544,7 +559,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
   }
 
   private CompletableFuture<Block> maybeRepeatGetBlock(
-      final long blockNumber, final Optional<Hash> maybeBlockHash) {
+      final long blockNumber, final Optional<Hash> maybeBlockHash, final int attempt) {
     final MutableBlockchain blockchain = protocolContext.getBlockchain();
     final Optional<Block> maybeBlock =
         maybeBlockHash
@@ -572,15 +587,63 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
       return CompletableFuture.completedFuture(null);
     }
 
+    // Stop retrying as soon as the request is no longer current: the entry may have been removed
+    // because the block arrived by another path, or replaced by an announcement for a different
+    // hash. Retrying a request that nobody waits for only burns peer request slots.
+    if (!isRetryStillRelevant(blockNumber, maybeBlockHash)) {
+      LOG.atDebug()
+          .setMessage("Not retrying to get block {} since it is no longer requested")
+          .addArgument(() -> logBlockNumberMaybeHash(blockNumber, maybeBlockHash))
+          .log();
+      return CompletableFuture.completedFuture(null);
+    }
+
+    if (attempt >= MAX_BLOCK_RETRIES) {
+      LOG.atDebug()
+          .setMessage("Giving up on block {} after {} attempts")
+          .addArgument(() -> logBlockNumberMaybeHash(blockNumber, maybeBlockHash))
+          .addArgument(attempt)
+          .log();
+      // The block number is released by the caller's whenComplete, which sees this completion and
+      // has to release on every give-up path anyway. Releasing it here as well would race that
+      // call: an announcement accepted in between the two releases would be dropped by the second
+      // one.
+      return CompletableFuture.completedFuture(null);
+    }
+
+    final Duration retryDelay = retryDelay(attempt);
     LOG.atDebug()
-        .setMessage("Retrying to get block {}")
+        .setMessage("Retrying to get block {} in {}")
         .addArgument(() -> logBlockNumberMaybeHash(blockNumber, maybeBlockHash))
+        .addArgument(retryDelay)
         .log();
 
     return ethContext
         .getScheduler()
-        .scheduleSyncWorkerTask(
-            () -> repeatableGetBlockFromPeer(Optional.empty(), blockNumber, maybeBlockHash));
+        .scheduleFutureTask(
+            () -> {
+              if (!isRetryStillRelevant(blockNumber, maybeBlockHash)) {
+                return CompletableFuture.<Block>completedFuture(null);
+              }
+              return ethContext
+                  .getScheduler()
+                  .scheduleSyncWorkerTask(
+                      () ->
+                          repeatableGetBlockFromPeer(
+                              Optional.empty(), blockNumber, maybeBlockHash, attempt + 1));
+            },
+            retryDelay);
+  }
+
+  private boolean isRetryStillRelevant(
+      final long blockNumber, final Optional<Hash> maybeBlockHash) {
+    return !stopped.get() && processingBlocksManager.isStillRequested(blockNumber, maybeBlockHash);
+  }
+
+  private static Duration retryDelay(final int attempt) {
+    final long delayMillis =
+        INITIAL_RETRY_DELAY.toMillis() << Math.min(attempt, MAX_RETRY_BACKOFF_DOUBLINGS);
+    return Duration.ofMillis(Math.min(delayMillis, MAX_RETRY_DELAY.toMillis()));
   }
 
   private CompletableFuture<Block> scheduleGetBlockFromPeers(
@@ -911,6 +974,22 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
 
     synchronized boolean alreadyImporting(final Hash hash) {
       return importingBlocks.contains(hash);
+    }
+
+    /**
+     * Returns whether the given block number is still waiting for exactly the given block hash.
+     *
+     * @param blockNumber the block number being retrieved
+     * @param maybeBlockHash the hash being retrieved, or empty for a non-announced block
+     * @return true if the current request for that number still matches this hash
+     */
+    synchronized boolean isStillRequested(
+        final long blockNumber, final Optional<Hash> maybeBlockHash) {
+      if (maybeBlockHash.isEmpty()) {
+        return requestedNonAnnouncedBlocks.contains(blockNumber);
+      }
+      final HashAndPeer requested = requestedBlocksByNumber.get(blockNumber);
+      return requested != null && requested.hash().equals(maybeBlockHash.get());
     }
 
     synchronized void registerReceivedBlock(final Block block) {

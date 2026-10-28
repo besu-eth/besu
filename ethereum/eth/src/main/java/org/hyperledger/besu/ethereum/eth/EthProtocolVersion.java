@@ -24,7 +24,11 @@ import java.util.List;
  * Eth protocol versions as defined in <a
  * href="https://github.com/ethereum/devp2p/blob/master/caps/eth.md">Ethereum Wire Protocol
  * (ETH)</a>, with the messages each of them supports. The constants are declared in ascending
- * order, so the last one is the latest version.
+ * order, so the last advertised one is the latest version.
+ *
+ * <p>A version can be known without being advertised, which is how one is carried while it is still
+ * being implemented: its messages are defined, so they encode, decode and validate, but no peer can
+ * negotiate it because it is left out of the capabilities this node offers.
  */
 public enum EthProtocolVersion {
   /** eth/68 */
@@ -38,7 +42,17 @@ public enum EthProtocolVersion {
   /** eth/70 uses the same messages as eth/69 */
   V70(70, Messages.ETH69),
   /** eth/71 */
-  V71(71, Messages.ETH71);
+  V71(71, Messages.ETH71),
+  /**
+   * eth/72 EIP-8070
+   *
+   * <p>Version 72 adds the GetCells and Cells messages, and a cell availability mask on transaction
+   * announcements.
+   *
+   * <p>Not advertised yet: the rest of the sparse blobpool is still arriving, and a peer that
+   * negotiated eth/72 would expect this node to answer GetCells.
+   */
+  V72(72, Messages.ETH72, false);
 
   private static final EthProtocolVersion[] VERSIONS = values();
 
@@ -46,11 +60,18 @@ public enum EthProtocolVersion {
   private final Capability capability;
   private final int messageSpace;
   private final List<Integer> supportedMessages;
+  private final boolean advertised;
 
   EthProtocolVersion(final int version, final List<Integer> supportedMessages) {
+    this(version, supportedMessages, true);
+  }
+
+  EthProtocolVersion(
+      final int version, final List<Integer> supportedMessages, final boolean advertised) {
     this.version = version;
     this.capability = Capability.create(EthProtocol.NAME, version);
     this.supportedMessages = supportedMessages;
+    this.advertised = advertised;
     // message codes start at 0, so the space is the highest supported code plus one
     this.messageSpace = supportedMessages.stream().mapToInt(Integer::intValue).max().orElse(-1) + 1;
   }
@@ -93,12 +114,26 @@ public enum EthProtocolVersion {
   }
 
   /**
-   * The latest known version.
+   * Whether this node offers this version to its peers.
    *
-   * @return the latest version
+   * @return true if the version is advertised
+   */
+  public boolean isAdvertised() {
+    return advertised;
+  }
+
+  /**
+   * The latest version this node advertises, which is the latest it can be asked to speak.
+   *
+   * @return the latest advertised version
    */
   public static EthProtocolVersion latest() {
-    return VERSIONS[VERSIONS.length - 1];
+    for (int i = VERSIONS.length - 1; i >= 0; i--) {
+      if (VERSIONS[i].advertised) {
+        return VERSIONS[i];
+      }
+    }
+    throw new IllegalStateException("No eth protocol version is advertised");
   }
 
   /**
@@ -152,6 +187,9 @@ public enum EthProtocolVersion {
             ETH69,
             EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
             EthProtocolMessages.BLOCK_ACCESS_LISTS);
+
+    private static final List<Integer> ETH72 =
+        with(ETH71, EthProtocolMessages.GET_CELLS, EthProtocolMessages.CELLS);
 
     private static List<Integer> with(final List<Integer> previous, final Integer... added) {
       final List<Integer> messages = new ArrayList<>(previous);

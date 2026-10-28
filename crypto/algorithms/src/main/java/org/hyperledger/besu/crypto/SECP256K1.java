@@ -14,16 +14,19 @@
  */
 package org.hyperledger.besu.crypto;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1.SECP256K1_EC_UNCOMPRESSED;
 
 import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1;
 import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1.secp256k1_ecdsa_recoverable_signature;
 import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1.secp256k1_ecdsa_signature;
 import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1.secp256k1_pubkey;
+import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1JNI;
 
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.LongByReference;
@@ -49,6 +52,9 @@ import org.slf4j.LoggerFactory;
 public class SECP256K1 extends AbstractSECP256 {
 
   private static final Logger LOG = LoggerFactory.getLogger(SECP256K1.class);
+
+  // Startup creates several instances and calls maybeEnableNative on them repeatedly
+  private static final AtomicBoolean JNI_UNAVAILABLE_LOGGED = new AtomicBoolean();
 
   private boolean useNative;
 
@@ -81,12 +87,22 @@ public class SECP256K1 extends AbstractSECP256 {
       LOG.info("Native secp256k1 not available - {}", e.getMessage());
       useNative = false;
     }
+    if (useNative
+        && !LibSecp256k1JNI.ENABLED
+        && JNI_UNAVAILABLE_LOGGED.compareAndSet(false, true)) {
+      LOG.info("Native secp256k1 ECDH and ecrecover not available, using the Java implementation");
+    }
     return useNative;
   }
 
   @Override
   public boolean isNative() {
     return useNative;
+  }
+
+  @Override
+  public boolean isNativeJniEnabled() {
+    return useNative && LibSecp256k1JNI.ENABLED;
   }
 
   /**
@@ -154,8 +170,40 @@ public class SECP256K1 extends AbstractSECP256 {
   }
 
   @Override
+  public Bytes32 calculateECDHKeyAgreement(
+      final SECPPrivateKey privKey, final SECPPublicKey theirPubKey) {
+    if (isNativeJniEnabled()) {
+      return Bytes32.wrap(calculateECDHNative(privKey, theirPubKey), 1);
+    }
+    return super.calculateECDHKeyAgreement(privKey, theirPubKey);
+  }
+
+  @Override
+  public Bytes calculateECDHKeyAgreementCompressed(
+      final SECPPrivateKey privKey, final SECPPublicKey theirPubKey) {
+    if (isNativeJniEnabled()) {
+      return Bytes.wrap(calculateECDHNative(privKey, theirPubKey));
+    }
+    return super.calculateECDHKeyAgreementCompressed(privKey, theirPubKey);
+  }
+
+  @Override
   public String getCurveName() {
     return CURVE_NAME;
+  }
+
+  private byte[] calculateECDHNative(
+      final SECPPrivateKey privKey, final SECPPublicKey theirPubKey) {
+    checkArgument(privKey != null, "missing private key");
+    checkArgument(theirPubKey != null, "missing remote public key");
+    final byte[] sharedPoint = new byte[33];
+    if (LibSecp256k1JNI.secp256k1_ecdh_jni(
+            theirPubKey.getEncoded(), privKey.getEncoded(), sharedPoint)
+        != 0) {
+      throw new IllegalArgumentException(
+          "Could not calculate ECDH key agreement. Public key or private key is invalid.");
+    }
+    return sharedPoint;
   }
 
   private SECPSignature signNative(final Bytes32 dataHash, final KeyPair keyPair) {

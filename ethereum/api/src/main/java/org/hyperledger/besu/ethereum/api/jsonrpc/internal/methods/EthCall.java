@@ -22,7 +22,6 @@ import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
@@ -38,6 +37,7 @@ import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
+import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -100,6 +100,18 @@ public class EthCall extends AbstractBlockParameterOrBlockHashMethod {
     Optional<StateOverrideMap> maybeStateOverrides = getAddressStateOverrideMap(request);
     // TODO implement for block overrides
 
+    try {
+      return simulate(request, header, callParams, maybeStateOverrides);
+    } catch (final BlockStateCallException e) {
+      return errorResponse(request, new JsonRpcError(e.getError().getCode(), e.getMessage(), null));
+    }
+  }
+
+  private Object simulate(
+      final JsonRpcRequestContext request,
+      final BlockHeader header,
+      final CallParameter callParams,
+      final Optional<StateOverrideMap> maybeStateOverrides) {
     return transactionSimulator
         .process(
             callParams,
@@ -133,7 +145,7 @@ public class EthCall extends AbstractBlockParameterOrBlockHashMethod {
     try {
       return request.getOptionalParameter(2, StateOverrideMap.class);
     } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcRequestException(
+      throw new InvalidJsonRpcParameters(
           "Invalid account overrides parameter (index 2)", RpcErrorType.INVALID_CALL_PARAMS, e);
     }
   }

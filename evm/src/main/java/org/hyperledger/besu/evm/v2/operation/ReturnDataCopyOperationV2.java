@@ -65,7 +65,7 @@ public class ReturnDataCopyOperationV2 extends AbstractOperationV2 {
           frame, 3, new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS));
     }
 
-    frame.writeMemory(memOffset, sourceOffset, numBytes, returnData, true);
+    frame.writeMemoryV2(memOffset, sourceOffset, numBytes, returnData);
     frame.setTopV2(top - 3);
     return new OperationResult(cost, null);
   }

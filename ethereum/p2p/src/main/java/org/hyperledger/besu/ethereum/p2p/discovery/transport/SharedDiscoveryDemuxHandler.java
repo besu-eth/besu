@@ -29,6 +29,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.socket.DatagramPacket;
 import org.apache.tuweni.bytes.Bytes;
+import org.ethereum.beacon.discovery.pipeline.handler.IncomingDataPacker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,6 +100,13 @@ final class SharedDiscoveryDemuxHandler extends SimpleChannelInboundHandler<Data
 
     if (v5Enabled && isV5Packet(msg.content())) {
       counters.v5().inc();
+      if (size > IncomingDataPacker.MAX_PACKET_SIZE) {
+        // Drop before retaining/copying: the discv5 library rejects packets above this size, but
+        // only after this handler has already duplicated the datagram. A UDP datagram can be up to
+        // ~64KiB, so honoring the spec cap here avoids duplicating it just to be discarded.
+        LOG.trace("Discarding over-sized V5 packet ({} bytes) from {}", size, msg.sender());
+        return;
+      }
       if (v5Sink != null) {
         msg.retain();
         v5Sink.accept(msg);

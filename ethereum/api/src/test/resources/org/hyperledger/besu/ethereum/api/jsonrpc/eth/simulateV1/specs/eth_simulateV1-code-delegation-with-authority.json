@@ -1,5 +1,6 @@
 {
   "comment": "This test simulates an ERC-7702 style delegated authorization flow using eth_simulateV1",
+  "comment": "Authorizer 0xaa Contract sends all its Ether to the address provided as call data 0xbb.",
   "request": {
     "jsonrpc": "2.0",
     "id": 1,
@@ -12,15 +13,12 @@
           {
             "stateOverrides": {
               "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
-                "comment": "Authorizer recipient",
                 "balance": "0x90000000000000000000000"
               },
               "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
-                "comment": "Sender account",
                 "balance": "0x90000000000000000000000"
               },
               "0xcccccccccccccccccccccccccccccccccccccccc": {
-                "comment": "Contract sends all its Ether to the address provided as a call data.",
                 "code": "5F5F5F5F475F355AF100"
               }
             },
