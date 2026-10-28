@@ -571,7 +571,8 @@ public class MempoolPrewarmer implements AutoCloseable {
                       if (!slot.isUnchanged()) {
                         changedAccounts.add(address);
                         if (warming.preloadedSlots().add(new ChangedSlot(address, slotKey))) {
-                          loader.preLoadStorageSlot(storage, address, slotKey);
+                          loader.preLoadStorageSlot(
+                              storage, address, startingStorageRoot(accumulator, address), slotKey);
                         }
                       }
                     }));
@@ -591,6 +592,23 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /** Whether the account trie stores a different value for the two versions of an account. */
+  /**
+   * The account's storage root at the head, or null when the accumulator has not loaded the
+   * account, so the loader reads it.
+   */
+  private static @Nullable Hash startingStorageRoot(
+      final PathBasedWorldStateUpdateAccumulator<?> accumulator, final Address address) {
+    if (accumulator.getStorageToClear().contains(address)) {
+      return Hash.EMPTY_TRIE_HASH;
+    }
+    final var accountValue = accumulator.getAccountsToUpdate().get(address);
+    if (accountValue == null) {
+      return null;
+    }
+    final var prior = accountValue.getPrior();
+    return prior == null ? Hash.EMPTY_TRIE_HASH : prior.getStorageRoot();
+  }
+
   private static boolean changesTrieValue(final BonsaiAccount prior, final BonsaiAccount updated) {
     if (prior == null || updated == null) {
       return prior != updated;
