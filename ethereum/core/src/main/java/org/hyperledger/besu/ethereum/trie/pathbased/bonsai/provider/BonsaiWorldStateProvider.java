@@ -25,6 +25,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.BonsaiWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.ServiceManager;
@@ -45,6 +48,8 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
   private final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
   private final Optional<Long> amsterdamMilestone;
   private volatile CodeFetcher codeFetcher = codeHash -> Optional.empty();
+  private volatile MissingTrieNodeFetcher missingTrieNodeFetcher =
+      (request, budget) -> Optional.empty();
 
   public BonsaiWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -137,6 +142,16 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
 
   public void setCodeFetcher(final CodeFetcher codeFetcher) {
     this.codeFetcher = codeFetcher;
+  }
+
+  public void setMissingTrieNodeFetcher(final MissingTrieNodeFetcher fetcher) {
+    this.missingTrieNodeFetcher = java.util.Objects.requireNonNull(fetcher);
+  }
+
+  @Override
+  public WorldStateRepairResult repairWorldState(
+      final WorldStateRepairRequest request, final WorldStateRepairBudget budget) {
+    return new BonsaiWorldStateRepair(this, missingTrieNodeFetcher, budget).repair(request);
   }
 
   @Override

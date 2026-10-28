@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.FailurePolicy;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -142,6 +143,27 @@ public class MainnetBlockValidator implements BlockValidator {
       final Optional<BlockAccessList> blockAccessList,
       final boolean shouldUpdateHead,
       final boolean shouldRecordBadBlock) {
+    return validateAndProcessBlock(
+        context,
+        block,
+        headerValidationMode,
+        ommerValidationMode,
+        blockAccessList,
+        shouldUpdateHead,
+        shouldRecordBadBlock,
+        FailurePolicy.LEGACY);
+  }
+
+  @Override
+  public BlockProcessingResult validateAndProcessBlock(
+      final ProtocolContext context,
+      final Block block,
+      final HeaderValidationMode headerValidationMode,
+      final HeaderValidationMode ommerValidationMode,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean shouldUpdateHead,
+      final boolean shouldRecordBadBlock,
+      final FailurePolicy failurePolicy) {
 
     final int blockSize = block.getSize();
     if (blockSize > maxRlpBlockSize) {
@@ -192,7 +214,8 @@ public class MainnetBlockValidator implements BlockValidator {
                 ommerValidationMode,
                 blockAccessList,
                 shouldUpdateHead,
-                shouldRecordBadBlock);
+                shouldRecordBadBlock,
+                failurePolicy);
     final Supplier<BlockProcessingResult> processWithHeadLock =
         () ->
             shouldUpdateHead
@@ -230,11 +253,13 @@ public class MainnetBlockValidator implements BlockValidator {
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
       final boolean shouldUpdateHead,
-      final boolean shouldRecordBadBlock) {
+      final boolean shouldRecordBadBlock,
+      final FailurePolicy failurePolicy) {
     final WorldStateQueryParams worldStateQueryParams =
         WorldStateQueryParams.newBuilder()
             .withBlockHeader(parentHeader)
             .withShouldWorldStateUpdateHead(shouldUpdateHead)
+            .withFailurePolicy(failurePolicy)
             .build();
     try (final var worldState =
         context.getWorldStateArchive().getWorldState(worldStateQueryParams).orElse(null)) {
@@ -331,6 +356,11 @@ public class MainnetBlockValidator implements BlockValidator {
       handleFailedBlockProcessing(block, blockAccessList, retval, false, context);
       return retval;
     } catch (Exception ex) {
+      if (failurePolicy == FailurePolicy.PRESERVE_LOCAL_FAILURE) {
+        // Local acquisition/execution faults are not evidence against the block. Keep the cause
+        // for the recovery caller, including missing code so the existing healer can retry it.
+        return new BlockProcessingResult(Optional.empty(), ex);
+      }
       // Wrap checked autocloseable exception from try-with-resources
       throw new RuntimeException(ex);
     }

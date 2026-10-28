@@ -55,6 +55,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 public class DefaultStateRootCommitter implements StateRootCommitter {
 
   private final BiFunction<BonsaiWorldState, Address, Hash> addressHasher;
+  private final java.util.concurrent.Executor storageExecutor;
 
   public DefaultStateRootCommitter() {
     this((bonsai, address) -> address.addressHash());
@@ -62,7 +63,21 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
 
   public DefaultStateRootCommitter(
       final BiFunction<BonsaiWorldState, Address, Hash> addressHasher) {
+    this(addressHasher, command -> BlockProcessingExecutors.storageTrieExecutor().execute(command));
+  }
+
+  /**
+   * Creates a committer with an explicitly owned executor, e.g. direct execution for isolated
+   * repair.
+   *
+   * @param addressHasher account-address hashing strategy
+   * @param storageExecutor executor for storage-root computations
+   */
+  public DefaultStateRootCommitter(
+      final BiFunction<BonsaiWorldState, Address, Hash> addressHasher,
+      final java.util.concurrent.Executor storageExecutor) {
     this.addressHasher = addressHasher;
+    this.storageExecutor = Objects.requireNonNull(storageExecutor);
   }
 
   @Override
@@ -78,7 +93,10 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
     final List<StateRootComputations.UpdaterWrite> writes = new ArrayList<>();
     final Hash root =
         new DefaultComputation(
-                bonsai, (BonsaiWorldStateUpdateAccumulator) accumulator, addressHasher)
+                bonsai,
+                (BonsaiWorldStateUpdateAccumulator) accumulator,
+                addressHasher,
+                storageExecutor)
             .executeInto(writes);
     return StateRootComputations.pathBased(root, writes);
   }
@@ -88,6 +106,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
     private final BonsaiWorldState bonsai;
     private final BonsaiWorldStateUpdateAccumulator worldStateUpdater;
     private final BiFunction<BonsaiWorldState, Address, Hash> addressHasher;
+    private final java.util.concurrent.Executor storageExecutor;
 
     /** Lock-free queue; storage futures and account staging may append concurrently. */
     private final ConcurrentLinkedQueue<StateRootComputations.UpdaterWrite> writes =
@@ -105,10 +124,12 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
     DefaultComputation(
         final BonsaiWorldState bonsai,
         final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
-        final BiFunction<BonsaiWorldState, Address, Hash> addressHasher) {
+        final BiFunction<BonsaiWorldState, Address, Hash> addressHasher,
+        final java.util.concurrent.Executor storageExecutor) {
       this.bonsai = bonsai;
       this.worldStateUpdater = worldStateUpdater;
       this.addressHasher = addressHasher;
+      this.storageExecutor = storageExecutor;
       this.sink = bonsai.isStorageFrozen() ? new FrozenSink() : new PersistingSink(writes);
     }
 
@@ -129,7 +150,7 @@ public class DefaultStateRootCommitter implements StateRootCommitter {
               address,
               CompletableFuture.supplyAsync(
                   () -> updateStorageTrie(address, storageAccountUpdate.getValue()),
-                  BlockProcessingExecutors.storageTrieExecutor()));
+                  storageExecutor));
         }
       }
 
