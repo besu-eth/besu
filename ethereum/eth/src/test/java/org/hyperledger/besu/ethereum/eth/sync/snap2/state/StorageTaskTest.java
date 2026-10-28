@@ -15,6 +15,9 @@
 package org.hyperledger.besu.ethereum.eth.sync.snap2.state;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.state.StorageTask.CoverResult.ADDED;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.state.StorageTask.CoverResult.ALREADY_COVERED;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.state.StorageTask.CoverResult.COMPLETED;
 
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 
@@ -35,11 +38,11 @@ class StorageTaskTest {
   void reportsTheCompletionOfTheStorageOnce() {
     final StorageTask task = new StorageTask(Bytes32.ZERO, Bytes32.ZERO);
 
-    assertThat(task.cover(MIDDLE, RangeManager.MAX_RANGE, 3)).isFalse();
+    assertThat(task.cover(MIDDLE, RangeManager.MAX_RANGE, 3)).isEqualTo(ADDED);
     // a range covered again, as a retried request's is, counts nothing more
-    assertThat(task.cover(MIDDLE, RangeManager.MAX_RANGE, 3)).isFalse();
-    assertThat(task.cover(RangeManager.MIN_RANGE, MIDDLE, 2)).isTrue();
-    assertThat(task.cover(RangeManager.MIN_RANGE, MIDDLE, 2)).isFalse();
+    assertThat(task.cover(MIDDLE, RangeManager.MAX_RANGE, 3)).isEqualTo(ALREADY_COVERED);
+    assertThat(task.cover(RangeManager.MIN_RANGE, MIDDLE, 2)).isEqualTo(COMPLETED);
+    assertThat(task.cover(RangeManager.MIN_RANGE, MIDDLE, 2)).isEqualTo(ALREADY_COVERED);
     assertThat(task.covers(MIDDLE)).isTrue();
     assertThat(task.slots()).isEqualTo(5);
   }

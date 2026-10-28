@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.eth.messages.TransactionsMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -61,7 +62,9 @@ public class TransactionsMessageSenderTest {
       new PeerTransactionTracker(TransactionPoolConfiguration.DEFAULT, ethPeers, ethScheduler);
   private final TransactionsMessageSender messageSender =
       new TransactionsMessageSender(
-          transactionTracker, EthProtocolConfiguration.DEFAULT.getMaxTransactionsMessageSize());
+          transactionTracker,
+          EthProtocolConfiguration.DEFAULT.getMaxTransactionsMessageSize(),
+          EthProtocolConfiguration.DEFAULT.getMaxTransactionsPerMessage());
 
   @BeforeEach
   void setUp() {
@@ -145,7 +148,8 @@ public class TransactionsMessageSenderTest {
   public void shouldDropOversizedTransactionAndContinueSending() throws Exception {
     // A message size of 1 byte makes every transaction "too large to fit"
     final TransactionsMessageSender tinySender =
-        new TransactionsMessageSender(transactionTracker, 1);
+        new TransactionsMessageSender(
+            transactionTracker, 1, EthProtocolConfiguration.DEFAULT.getMaxTransactionsPerMessage());
 
     transactionTracker.addToPeerSendQueue(peer1, List.of(transaction1, transaction2));
     transactionTracker.addToPeerSendQueue(peer2, List.of(transaction3));
@@ -156,6 +160,27 @@ public class TransactionsMessageSenderTest {
     // Every transaction is too large — no message is ever sent to any peer
     verify(peer1, never()).send(any());
     verify(peer2, never()).send(any());
+  }
+
+  @Test
+  public void shouldCapTransactionsPerMessageAtConfiguredMax() throws Exception {
+    final int maxTransactions = 2;
+    final TransactionsMessageSender cappedSender =
+        new TransactionsMessageSender(
+            transactionTracker,
+            EthProtocolConfiguration.DEFAULT.getMaxTransactionsMessageSize(),
+            maxTransactions);
+    final List<Transaction> transactions = new ArrayList<>(generator.transactions(5));
+    transactions.forEach(
+        transaction -> transactionTracker.addToPeerSendQueue(peer1, List.of(transaction)));
+
+    cappedSender.sendTransactionsToPeer(peer1);
+
+    final ArgumentCaptor<MessageData> sent = ArgumentCaptor.forClass(MessageData.class);
+    verify(peer1, times(3)).send(sent.capture());
+    assertThat(sent.getAllValues())
+        .extracting(message -> getTransactionsFromMessage(message).size())
+        .containsExactly(2, 2, 1);
   }
 
   private MessageData transactionsMessageContaining(final Transaction... transactions) {
@@ -170,6 +195,8 @@ public class TransactionsMessageSenderTest {
 
   private Set<Transaction> getTransactionsFromMessage(final MessageData message) {
     final TransactionsMessage transactionsMessage = TransactionsMessage.readFrom(message);
-    return newHashSet(transactionsMessage.transactions());
+    return newHashSet(
+        transactionsMessage.transactions(
+            EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE));
   }
 }
