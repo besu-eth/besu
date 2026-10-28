@@ -246,7 +246,9 @@ public class RocksDBCLIOptions {
   }
 
   /**
-   * Derives max open files from the host's available memory.
+   * Derives max open files from the memory outside the heap: the total memory of the host or
+   * container minus the maximum heap, so the value depends neither on how much of the heap is
+   * committed at startup nor on the page cache.
    *
    * @return the max open files value for the current machine, or {@link #DEFAULT_MAX_OPEN_FILES} if
    *     memory information is unavailable
@@ -255,7 +257,10 @@ public class RocksDBCLIOptions {
     final java.lang.management.OperatingSystemMXBean osBean =
         ManagementFactory.getOperatingSystemMXBean();
     if (osBean instanceof OperatingSystemMXBean operatingSystemMXBean) {
-      return calculateMaxOpenFiles(operatingSystemMXBean.getFreeMemorySize());
+      // -1 when the maximum heap is undefined
+      final long maxHeapBytes = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax();
+      return calculateMaxOpenFiles(
+          operatingSystemMXBean.getTotalMemorySize() - Math.max(0, maxHeapBytes));
     }
     return DEFAULT_MAX_OPEN_FILES;
   }

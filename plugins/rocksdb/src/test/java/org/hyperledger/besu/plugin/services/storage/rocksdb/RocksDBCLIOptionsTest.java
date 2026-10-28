@@ -31,6 +31,8 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
 
 import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
 
 import com.sun.management.OperatingSystemMXBean;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,7 @@ import picocli.CommandLine;
 
 public class RocksDBCLIOptionsTest {
 
+  private static final long MIB = 1024L * 1024L;
   private static final int MAX_OPEN_FILES_4GB = 2048;
   private static final int MAX_OPEN_FILES_8GB = 4096;
   private static final int MAX_OPEN_FILES_16GB = 8192;
@@ -154,17 +157,57 @@ public class RocksDBCLIOptionsTest {
     assertMaxOpenFilesDerivedFromAvailableMemory(sixteenPointOneGib, 8243);
   }
 
+  @Test
+  public void autoMaxOpenFilesLeavesOutMaxHeap() {
+    final long maxHeap = 8L * GIB;
+    final MemoryUsage fullyCommittedHeap = new MemoryUsage(maxHeap, 512L * MIB, maxHeap, maxHeap);
+    final MemoryUsage partlyCommittedHeap =
+        new MemoryUsage(512L * MIB, 256L * MIB, 512L * MIB, maxHeap);
+
+    assertThat(toOptionsWithMemory(16L * GIB, fullyCommittedHeap).getResolvedMaxOpenFiles())
+        .isEqualTo(MAX_OPEN_FILES_8GB);
+    assertThat(toOptionsWithMemory(16L * GIB, partlyCommittedHeap).getResolvedMaxOpenFiles())
+        .isEqualTo(MAX_OPEN_FILES_8GB);
+  }
+
+  @Test
+  public void autoMaxOpenFilesWithMaxHeapAboveTotalMemory() {
+    final RocksDBCLIOptions options = toOptionsWithMemory(4L * GIB, heapWithMax(16L * GIB));
+
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+  }
+
+  @Test
+  public void autoMaxOpenFilesWithUndefinedMaxHeapUsesTotalMemory() {
+    final RocksDBCLIOptions options = toOptionsWithMemory(8L * GIB, heapWithMax(-1));
+
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(MAX_OPEN_FILES_8GB);
+  }
+
   private static RocksDBFactoryConfiguration toDomainObjectWithAvailableMemory(
-      final long freeMemoryBytes, final String... cliArgs) {
-    return toOptionsWithAvailableMemory(freeMemoryBytes, cliArgs).toDomainObject();
+      final long availableMemoryBytes, final String... cliArgs) {
+    return toOptionsWithAvailableMemory(availableMemoryBytes, cliArgs).toDomainObject();
   }
 
   private static RocksDBCLIOptions toOptionsWithAvailableMemory(
-      final long freeMemoryBytes, final String... cliArgs) {
+      final long availableMemoryBytes, final String... cliArgs) {
+    // a 1 GiB heap on top of the memory available outside it
+    return toOptionsWithMemory(availableMemoryBytes + GIB, heapWithMax(GIB), cliArgs);
+  }
+
+  private static MemoryUsage heapWithMax(final long maxHeapBytes) {
+    return new MemoryUsage(0, 0, 0, maxHeapBytes);
+  }
+
+  private static RocksDBCLIOptions toOptionsWithMemory(
+      final long totalMemoryBytes, final MemoryUsage heap, final String... cliArgs) {
     try (MockedStatic<ManagementFactory> managementFactory = mockStatic(ManagementFactory.class)) {
       final OperatingSystemMXBean osBean = mock(OperatingSystemMXBean.class);
-      when(osBean.getFreeMemorySize()).thenReturn(freeMemoryBytes);
+      when(osBean.getTotalMemorySize()).thenReturn(totalMemoryBytes);
       managementFactory.when(ManagementFactory::getOperatingSystemMXBean).thenReturn(osBean);
+      final MemoryMXBean memoryBean = mock(MemoryMXBean.class);
+      when(memoryBean.getHeapMemoryUsage()).thenReturn(heap);
+      managementFactory.when(ManagementFactory::getMemoryMXBean).thenReturn(memoryBean);
 
       final RocksDBCLIOptions options = RocksDBCLIOptions.create();
       new CommandLine(options).parseArgs(cliArgs);
@@ -174,9 +217,9 @@ public class RocksDBCLIOptionsTest {
   }
 
   private static void assertMaxOpenFilesDerivedFromAvailableMemory(
-      final long freeMemoryBytes, final int expectedMaxOpenFiles) {
+      final long availableMemoryBytes, final int expectedMaxOpenFiles) {
     final RocksDBFactoryConfiguration configuration =
-        toDomainObjectWithAvailableMemory(freeMemoryBytes);
+        toDomainObjectWithAvailableMemory(availableMemoryBytes);
     assertThat(configuration.getMaxOpenFiles()).isEqualTo(expectedMaxOpenFiles);
   }
 }

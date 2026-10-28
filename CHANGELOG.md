@@ -14,6 +14,7 @@
 - `eth_call`, `eth_estimateGas` and `callTracer` now decode `Panic(uint256)` revert data into a reason, such as `arithmetic underflow or overflow`, as geth does. [#11635](https://github.com/besu-eth/besu/pull/11635)
 - Discovery no longer buffers unbounded memory for inbound DiscV5 packets: over-sized datagrams are dropped before they are copied for dispatch, and the dispatch queue is bounded. [#11672](https://github.com/besu-eth/besu/pull/11672)
 - On OpenTelemetry, a supplied metric created again, as by the world state download after a resync, now replaces the old one, as on Prometheus. Previously a labelled supplied gauge or counter threw `IllegalStateException` and a gauge kept reporting its first supplier. `debug_metrics` no longer fails on OpenTelemetry once a supplied counter is registered. [#11773](https://github.com/besu-eth/besu/pull/11773)
+- The derived RocksDB max open files now comes from the total memory minus the maximum heap, instead of the free memory at startup. Nodes with a large heap get a lower value and may log a table cache warm-up warning at startup. [#11762](https://github.com/besu-eth/besu/pull/11762)
 
 ### Additions and Improvements
 - With `--Xevm-v2`, `MessageFrame.getMaybeUpdatedMemory` and `getMaybeUpdatedStorage` are recorded only while a tracer that traces operations runs. [#11690](https://github.com/besu-eth/besu/pull/11690)
