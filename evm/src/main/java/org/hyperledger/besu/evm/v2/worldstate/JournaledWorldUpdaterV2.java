@@ -35,6 +35,10 @@ import org.jspecify.annotations.Nullable;
  * one {@link TransactionJournalV2}, and each frame's updater is a mark in the journal's undo log.
  * Reverting a frame rolls the log back to its mark, committing a frame keeps its changes, and
  * committing the transaction's updater writes the changes to the updater it was created on.
+ *
+ * <p>A read does not end the updaters created on this one, so it sees their changes. A change
+ * abandons them and discards their changes, as dropping a stacked updater would, and using an
+ * abandoned updater again throws.
  */
 public final class JournaledWorldUpdaterV2 implements WorldUpdater {
 
@@ -42,6 +46,7 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
   @Nullable private final JournaledWorldUpdaterV2 parentUpdater;
   final int mark;
   boolean open = true;
+  boolean abandoned;
 
   /**
    * Creates the updater of a transaction on top of the given updater.
@@ -63,7 +68,6 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
   @Override
   @Nullable
   public Account get(final Address address) {
-    journal.activate(this);
     final JournalAccountV2 account = journal.lookup(address);
     return account.exists ? account : null;
   }
@@ -96,13 +100,11 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
 
   @Override
   public Collection<? extends Account> getTouchedAccounts() {
-    journal.activate(this);
     return journal.touchedSince(mark);
   }
 
   @Override
   public Collection<Address> getDeletedAccountAddresses() {
-    journal.activate(this);
     return journal.deletedSince(mark);
   }
 
@@ -114,6 +116,7 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
 
   @Override
   public void revert() {
+    checkNotAbandoned();
     if (!open) {
       return;
     }
@@ -123,12 +126,20 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
 
   @Override
   public void commit() {
+    checkNotAbandoned();
     if (!open) {
       return;
     }
     journal.close(this);
     if (parentUpdater == null) {
       journal.commitToParent();
+    }
+  }
+
+  void checkNotAbandoned() {
+    if (abandoned) {
+      throw new IllegalStateException(
+          "World updater used after a change through an updater below it discarded its changes");
     }
   }
 

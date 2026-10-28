@@ -165,6 +165,9 @@ class JournaledWorldUpdaterV2DifferentialTest {
         side.deleted.add(address);
         return "deleted";
       };
+    } else if (choice < 92) {
+      final int depth = random.nextInt(4);
+      return side -> side.readOuter(depth, address);
     } else {
       return side -> touchedAndDeleted(side.top());
     }
@@ -271,6 +274,22 @@ class JournaledWorldUpdaterV2DifferentialTest {
     }
 
     /**
+     * Reads through a frame below the innermost one, as a tracer may between frames. The journal
+     * sees the changes of the frames above, which a stacked updater does not, so the reads are not
+     * compared: the frames above must stay usable.
+     */
+    Object readOuter(final int depth, final Address address) {
+      final List<WorldUpdater> outer = new ArrayList<>(frames);
+      outer.removeFirst();
+      outer.add(frameUpdater);
+      final WorldUpdater updater = outer.get(depth % outer.size());
+      updater.get(address);
+      updater.getTouchedAccounts();
+      updater.getDeletedAccountAddresses();
+      return "read";
+    }
+
+    /**
      * Ends the innermost frame: 0 commits, 1 reverts and commits as a failing frame does, 2
      * abandons it, 3 fails it the way the message processors do, force-deleting empty accounts.
      */
@@ -285,7 +304,8 @@ class JournaledWorldUpdaterV2DifferentialTest {
           frame.revert();
           frame.commit();
         }
-        case 2 -> {}
+        // the journal discards an abandoned frame at the next change through the frame below
+        case 2 -> top().updater().commit();
         default -> {
           final List<Address> forceDelete =
               frame.getTouchedAccounts().stream()
