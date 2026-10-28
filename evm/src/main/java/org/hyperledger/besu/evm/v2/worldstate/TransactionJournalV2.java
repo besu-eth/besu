@@ -124,17 +124,20 @@ final class TransactionJournalV2 {
   }
 
   /**
-   * Makes the updater the innermost open one. An updater above it was abandoned without a commit or
-   * revert, so its changes are discarded, as a stacked updater's would be.
+   * Makes the updater the innermost open one before it changes the journal. An updater above it was
+   * abandoned without a commit or revert, so its changes are discarded, as a stacked updater's
+   * would be.
    */
   void activate(final JournaledWorldUpdaterV2 updater) {
-    if (!updater.open || openUpdaters[openCount - 1] == updater) {
+    if (!updater.open) {
+      updater.checkNotAbandoned();
       return;
     }
     while (openUpdaters[openCount - 1] != updater) {
       final JournaledWorldUpdaterV2 abandoned = openUpdaters[--openCount];
       openUpdaters[openCount] = null;
       abandoned.open = false;
+      abandoned.abandoned = true;
       undoTo(abandoned.mark);
     }
   }

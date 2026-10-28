@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.v2.worldstate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -88,11 +89,39 @@ class JournaledWorldUpdaterV2Test {
     abandoned.getAccount(CONTRACT).setBalance(Wei.of(99));
     abandoned.createAccount(ABSENT);
 
+    outer.commit();
     assertThat(outer.get(CONTRACT).getBalance()).isEqualTo(Wei.of(10));
     assertThat(outer.get(ABSENT)).isNull();
-    outer.commit();
     journal.commit();
     assertThat(transactionUpdater.getTouchedAccounts()).isEmpty();
+  }
+
+  @Test
+  void anAbandonedFrameCannotBeUsedAgain() {
+    final WorldUpdater outer = journal.updater();
+    final WorldUpdater abandoned = outer.updater();
+    abandoned.getAccount(CONTRACT).setBalance(Wei.of(99));
+    outer.getAccount(CONTRACT);
+
+    assertThatThrownBy(() -> abandoned.getAccount(CONTRACT))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(abandoned::revert).isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(abandoned::commit).isInstanceOf(IllegalStateException.class);
+    assertThat(outer.get(CONTRACT).getBalance()).isEqualTo(Wei.of(10));
+  }
+
+  @Test
+  void aReadThroughAnOuterFrameKeepsTheInnerFrameOpen() {
+    final WorldUpdater outer = journal.updater();
+    final WorldUpdater inner = outer.updater();
+    // a tracer reads the calling frame after CALL created the frame it calls
+    outer.get(CONTRACT);
+    outer.getTouchedAccounts();
+    inner.getAccount(CONTRACT).setBalance(Wei.of(99));
+
+    inner.revert();
+    inner.commit();
+    assertThat(outer.get(CONTRACT).getBalance()).isEqualTo(Wei.of(10));
   }
 
   @Test
