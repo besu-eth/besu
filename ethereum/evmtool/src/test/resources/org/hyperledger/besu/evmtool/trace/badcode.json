@@ -9,6 +9,6 @@
   "stdout": [
     {"pc":0,"op":96,"gas":"0x2540be400","gasCost":"0x3","memSize":0,"stack":[],"depth":1,"refund":0,"opName":"PUSH1"},
     {"pc":2,"op":239,"gas":"0x2540be3fd","gasCost":"0x0","memSize":0,"stack":["0x0"],"depth":1,"refund":0,"opName":"INVALID","error":"Invalid opcode: 0xef"},
-    {"stateRoot":"0xfc9dc1be50c1b0a497afa545d770cc7064f0d71efbc4338f002dc2e086965d98","output":"0x","gasUsed":"0x2540be400","pass":false,"fork":"BPO2"}
+    {"stateRoot":"0xfc9dc1be50c1b0a497afa545d770cc7064f0d71efbc4338f002dc2e086965d98","output":"0x","gasUsed":"0x2540be400","pass":false,"fork":"Amsterdam"}
   ]
 }

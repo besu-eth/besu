@@ -123,7 +123,10 @@ public class BonsaiAccount implements MutableAccount, TrieAccountValue {
     this.codeHash = tracked.getCodeHash();
     this.immutable = false;
     this.codeCache = codeCache;
-    this.code = new Code(tracked.getCode());
+    // code not set by the tracker is read on demand from codeHash
+    if (tracked.codeWasUpdated() || !tracked.hasCode()) {
+      this.code = tracked.getOrCreateCachedCode();
+    }
     this.storageRootStrategy = new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH);
     this.updatedStorage.putAll(tracked.getUpdatedStorage());
   }

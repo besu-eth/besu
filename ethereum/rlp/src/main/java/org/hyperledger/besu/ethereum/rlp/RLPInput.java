@@ -192,6 +192,18 @@ public interface RLPInput {
   BigInteger readBigIntegerScalar();
 
   /**
+   * Reads a scalar from the input and returns it as a {@link BigInteger}, rejecting an over-wide
+   * encoding.
+   *
+   * @param maxSizeBytes the maximum number of bytes the encoded scalar may occupy.
+   * @return The next scalar item of this input as a {@link BigInteger}.
+   * @throws RLPException if the next item to read is a list, the input is at the end of its current
+   *     list (and {@link #leaveList()} hasn't been called), the next item has leading zeros, or the
+   *     next item is longer than {@code maxSizeBytes}.
+   */
+  BigInteger readBigIntegerScalar(int maxSizeBytes);
+
+  /**
    * Reads a scalar from the input and return is as a {@link UInt64}.
    *
    * @return The next scalar item of this input as a {@link UInt64}.

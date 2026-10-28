@@ -200,31 +200,48 @@ public class OpenTelemetryMetricsSystemTest {
   }
 
   @Test
-  public void shouldHandleDuplicateSuppliedGaugeCreation() {
-    final LabelledSuppliedMetric gauge1 =
-        metricsSystem.createLabelledSuppliedGauge(RPC, "gaugeName", "help", "label");
-    final LabelledSuppliedMetric gauge2 =
-        metricsSystem.createLabelledSuppliedGauge(RPC, "gaugeName", "help", "label");
+  public void reportsTheNewSupplierOfAGaugeCreatedAgain() {
+    metricsSystem.createGauge(RPC, "myGauge", "help", () -> 1.0);
+    metricsSystem.createGauge(RPC, "myGauge", "help", () -> 2.0);
 
-    // Both calls must return the exact same cached instance.
-    assertThat(gauge1).isSameAs(gauge2);
-
-    gauge1.labels(() -> 7.0, "value1");
-
-    // Exactly one observation, not two.
     assertThat(metricsSystem.streamObservations())
-        .containsExactly(new Observation(RPC, "gaugeName", 7.0, singletonList("value1")));
+        .containsExactly(new Observation(RPC, "myGauge", 2.0, emptyList()));
+  }
+
+  // as on Prometheus, the labels of the old gauge go with it
+  @Test
+  public void reportsOnlyTheNewLabelledGaugeCreatedAgain() {
+    final LabelledSuppliedMetric old =
+        metricsSystem.createLabelledSuppliedGauge(RPC, "gaugeName", "help", "label");
+    old.labels(() -> 1.0, "value1");
+    old.labels(() -> 1.0, "value2");
+
+    metricsSystem
+        .createLabelledSuppliedGauge(RPC, "gaugeName", "help", "label")
+        .labels(() -> 2.0, "value1");
+
+    assertThat(metricsSystem.streamObservations())
+        .containsExactly(new Observation(RPC, "gaugeName", 2.0, singletonList("value1")));
   }
 
   @Test
-  public void shouldHandleDuplicateSuppliedCounterCreation() {
-    final LabelledSuppliedMetric counter1 =
-        metricsSystem.createLabelledSuppliedCounter(RPC, "myCounter", "help");
-    final LabelledSuppliedMetric counter2 =
-        metricsSystem.createLabelledSuppliedCounter(RPC, "myCounter", "help");
+  public void reportsTheNewSupplierOfASuppliedCounterCreatedAgain() {
+    metricsSystem.createCounter(RPC, "myCounter", "help", () -> 1.0);
+    metricsSystem.createCounter(RPC, "myCounter", "help", () -> 2.0);
 
-    // Both calls must return the exact same cached instance — only one OTel callback registered.
-    assertThat(counter1).isSameAs(counter2);
+    assertThat(metricsSystem.streamObservations())
+        .containsExactly(new Observation(RPC, "myCounter", 2.0, emptyList()));
+  }
+
+  @Test
+  public void keepsAGaugeOfTheSameNameInAnotherCategory() {
+    metricsSystem.createGauge(RPC, "myGauge", "help", () -> 1.0);
+    metricsSystem.createGauge(NETWORK, "myGauge", "help", () -> 2.0);
+
+    assertThat(metricsSystem.streamObservations())
+        .containsExactlyInAnyOrder(
+            new Observation(RPC, "myGauge", 1.0, emptyList()),
+            new Observation(NETWORK, "myGauge", 2.0, emptyList()));
   }
 
   @Test

@@ -61,30 +61,40 @@ public class TransactionsMessage extends AbstractMessageData {
     return EthProtocolMessages.TRANSACTIONS;
   }
 
-  public List<Transaction> transactions() {
-    return new BytesValueRLPInput(data, false).readList(Transaction::readFrom);
+  public List<Transaction> transactions(final int maxTransactions) {
+    return new BytesValueRLPInput(data, false).readList(Transaction::readFrom, maxTransactions);
   }
 
-  public static class SizeLimitedBuilder {
+  public static class SizeAndCountLimitedBuilder {
     private final int maxTransactionsMessageSize;
+    private final int maxTransactionsPerMessage;
     private final BytesValueRLPOutput message = new BytesValueRLPOutput();
     private int estimatedMsgSize = RLP.MAX_PREFIX_SIZE;
+    private int txCount = 0;
     private boolean finalized = false;
 
-    public SizeLimitedBuilder(final int maxTransactionsMessageSize) {
+    public SizeAndCountLimitedBuilder(
+        final int maxTransactionsMessageSize, final int maxTransactionsPerMessage) {
       this.maxTransactionsMessageSize = maxTransactionsMessageSize;
+      this.maxTransactionsPerMessage = maxTransactionsPerMessage;
       message.startList();
     }
 
     public boolean add(final Transaction transaction) {
+      if (txCount >= maxTransactionsPerMessage) {
+        return false;
+      }
+
       final BytesValueRLPOutput encodedTransaction = new BytesValueRLPOutput();
       transaction.writeTo(encodedTransaction);
       final Bytes encodedBytes = encodedTransaction.encoded();
       if (estimatedMsgSize + encodedBytes.size() > maxTransactionsMessageSize) {
         return false;
       }
+
       message.writeRaw(encodedBytes);
       estimatedMsgSize += encodedBytes.size();
+      txCount++;
       return true;
     }
 

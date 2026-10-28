@@ -39,15 +39,18 @@ class NewPooledTransactionHashesMessageHandler implements EthMessages.MessageCal
   private final NewPooledTransactionHashesMessageProcessor transactionsMessageProcessor;
   private final EthScheduler scheduler;
   private final Duration txMsgKeepAlive;
+  private final int maxNewPooledTransactionHashesMessageSize;
   private final AtomicBoolean isEnabled = new AtomicBoolean(false);
 
   public NewPooledTransactionHashesMessageHandler(
       final EthScheduler scheduler,
       final NewPooledTransactionHashesMessageProcessor transactionsMessageProcessor,
-      final int txMsgKeepAliveSeconds) {
+      final int txMsgKeepAliveSeconds,
+      final int maxNewPooledTransactionHashesMessageSize) {
     this.scheduler = scheduler;
     this.transactionsMessageProcessor = transactionsMessageProcessor;
     this.txMsgKeepAlive = Duration.ofSeconds(txMsgKeepAliveSeconds);
+    this.maxNewPooledTransactionHashesMessageSize = maxNewPooledTransactionHashesMessageSize;
   }
 
   @Override
@@ -55,6 +58,16 @@ class NewPooledTransactionHashesMessageHandler implements EthMessages.MessageCal
     if (isEnabled.get()) {
       final Capability capability = message.getPeer().getConnection().capability(EthProtocol.NAME);
       final MessageData rawMessage = message.getData();
+      if (rawMessage.getSize() > maxNewPooledTransactionHashesMessageSize) {
+        LOG.debug(
+            "Oversized NewPooledTransactionHashes message received ({} bytes), disconnecting: {}",
+            rawMessage.getSize(),
+            message.getPeer());
+        message
+            .getPeer()
+            .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+        return;
+      }
       final Instant startedAt = now();
       scheduler.scheduleTxWorkerTask(
           () -> {
