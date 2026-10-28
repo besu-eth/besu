@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import java.util.List;
 import java.util.Optional;
@@ -87,7 +88,8 @@ class ExecutionEngineConcurrencySafetyTest {
               null,
               null,
               null,
-              0),
+              0,
+              WorldStateRepairRequester.DISABLED),
           null,
           null);
       this.name = name;

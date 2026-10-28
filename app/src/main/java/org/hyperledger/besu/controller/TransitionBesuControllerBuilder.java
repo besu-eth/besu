@@ -118,14 +118,15 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
     // construct a transition backward sync context
     BackwardSyncContext transitionBackwardsSyncContext =
         new TransitionBackwardSyncContext(
-            protocolContext,
-            transitionProtocolSchedule,
-            syncConfig,
-            metricsSystem,
-            ethProtocolManager.ethContext(),
-            syncState,
-            storageProvider,
-            new BackwardSyncAlgorithmFactory());
+                protocolContext,
+                transitionProtocolSchedule,
+                syncConfig,
+                metricsSystem,
+                ethProtocolManager.ethContext(),
+                syncState,
+                storageProvider,
+                new BackwardSyncAlgorithmFactory())
+            .withWorldStateRepairRequester(worldStateRepairRequester);
 
     final TransitionCoordinator composedCoordinator =
         new TransitionCoordinator(

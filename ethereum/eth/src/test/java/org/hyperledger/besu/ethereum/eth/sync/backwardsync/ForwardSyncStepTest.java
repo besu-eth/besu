@@ -169,7 +169,8 @@ public class ForwardSyncStepTest {
 
     when(context
             .getBlockValidatorForBlock(any())
-            .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean()))
+            .validateAndProcessBlock(
+                any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any()))
         .thenAnswer(
             invocation -> {
               final Object[] arguments = invocation.getArguments();

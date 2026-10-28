@@ -189,7 +189,8 @@ public class BackwardSyncContextTest {
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager);
     EthContext ethContext = ethProtocolManager.ethContext();
 
-    when(blockValidator.validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean()))
+    when(blockValidator.validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any()))
         .thenAnswer(
             invocation -> {
               final Object[] arguments = invocation.getArguments();
@@ -244,7 +245,8 @@ public class BackwardSyncContextTest {
     doReturn(blockValidator).when(context).getBlockValidatorForBlock(any());
     doReturn(BlockProcessingResult.worldStateUnavailable("parent world state is not available"))
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
 
     final List<LogEvent> events =
         withLogCapture(
@@ -622,7 +624,8 @@ public class BackwardSyncContextTest {
         new BlockProcessingResult(Optional.empty(), new StorageException("database bedlam"));
     doReturn(result)
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
         .isInstanceOf(BackwardSyncException.class);
@@ -646,7 +649,8 @@ public class BackwardSyncContextTest {
         new BlockProcessingResult(Optional.empty(), new MerkleTrieException("missing node"));
     doReturn(result)
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
         .isInstanceOf(BackwardSyncException.class);
@@ -701,7 +705,8 @@ public class BackwardSyncContextTest {
     BlockProcessingResult result = new BlockProcessingResult("Parent block not present");
     doReturn(result)
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
 
     assertThatThrownBy(() -> context.saveBlock(block, Optional.empty()))
         .isInstanceOf(BackwardSyncException.class);
@@ -729,7 +734,8 @@ public class BackwardSyncContextTest {
         .hasMessageContaining("known bad block");
 
     verify(blockValidator, never())
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
     verify(badChainListener)
         .onBadChain(block.getHeader(), Collections.emptyList(), List.of(childBlockHeader));
   }
@@ -848,7 +854,8 @@ public class BackwardSyncContextTest {
               return result;
             })
         .when(blockValidator)
-        .validateAndProcessBlock(any(), any(), any(), any(), any(), anyBoolean());
+        .validateAndProcessBlock(
+            any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any());
   }
 
   private Block mockBlockWithParentOnChain() {

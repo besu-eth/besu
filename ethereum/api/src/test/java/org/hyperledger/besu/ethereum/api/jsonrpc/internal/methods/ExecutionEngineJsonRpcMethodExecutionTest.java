@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -165,6 +166,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
               .metricsSystem(new NoOpMetricsSystem())
               .transactionPool(transactionPool)
               .maxRequestBlocks(0)
+              .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
               .build(),
           null,
           null);
@@ -204,6 +206,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
               .metricsSystem(new NoOpMetricsSystem())
               .transactionPool(transactionPool)
               .maxRequestBlocks(0)
+              .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
               .build(),
           null,
           null);

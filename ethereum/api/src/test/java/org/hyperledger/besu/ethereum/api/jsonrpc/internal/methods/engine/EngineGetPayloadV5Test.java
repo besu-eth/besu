@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArg
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobsBundleV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV5;
 import org.hyperledger.besu.ethereum.core.Request;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
 
 import java.util.List;
 import java.util.OptionalLong;
@@ -47,6 +48,7 @@ public class EngineGetPayloadV5Test extends EngineGetPayloadV4Test {
             .metricsSystem(metricsSystem)
             .transactionPool(transactionPool)
             .maxRequestBlocks(0)
+            .worldStateRecoveryCoordinator(WorldStateRepairRequester.DISABLED)
             .build(),
         OSAKA,
         AMSTERDAM);

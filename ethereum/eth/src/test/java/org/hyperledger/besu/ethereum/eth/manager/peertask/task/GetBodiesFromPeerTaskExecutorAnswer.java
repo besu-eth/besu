@@ -21,8 +21,10 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -49,7 +51,7 @@ public class GetBodiesFromPeerTaskExecutorAnswer
     List<Block> blocks =
         task.getBlockHeaders().stream()
             .map((bh) -> otherBlockchain.getBlockByHash(bh.getBlockHash()).get())
-            .toList();
+            .collect(Collectors.toCollection(ArrayList::new));
     return new PeerTaskExecutorResult<>(
         Optional.of(blocks), PeerTaskExecutorResponseCode.SUCCESS, List.of(ethPeer));
   }

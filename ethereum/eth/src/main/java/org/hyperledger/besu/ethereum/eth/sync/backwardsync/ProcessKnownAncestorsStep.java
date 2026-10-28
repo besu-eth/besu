@@ -29,6 +29,7 @@ public class ProcessKnownAncestorsStep {
   private static final Logger LOG = getLogger(ProcessKnownAncestorsStep.class);
 
   private final BackwardSyncContext context;
+  private final long recoveryGeneration;
   private final BackwardChain backwardChain;
   private final BackwardSyncBalImporter balImporter;
 
@@ -43,6 +44,7 @@ public class ProcessKnownAncestorsStep {
       final BackwardChain backwardChain,
       final BackwardSyncBalImporter balImporter) {
     this.context = backwardSyncContext;
+    this.recoveryGeneration = context.recoveryGeneration();
     this.backwardChain = backwardChain;
     this.balImporter = balImporter;
   }
@@ -54,6 +56,7 @@ public class ProcessKnownAncestorsStep {
   @VisibleForTesting
   protected void processKnownAncestors() {
     while (backwardChain.getFirstAncestorHeader().isPresent()) {
+      context.ensureCurrentGeneration(recoveryGeneration);
       BlockHeader header = backwardChain.getFirstAncestorHeader().orElseThrow();
       final long chainHeadBlockNumber =
           context.getProtocolContext().getBlockchain().getChainHeadBlockNumber();
