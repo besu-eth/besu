@@ -29,11 +29,11 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -87,7 +87,7 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
   public BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final Executor blockWriter) {
     final var result =
         protocolSchedule

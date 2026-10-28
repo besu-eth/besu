@@ -15,15 +15,14 @@
 package org.hyperledger.besu.ethereum;
 
 import org.hyperledger.besu.ethereum.core.Block;
-import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * The BlockValidator interface defines the methods for validating and processing blocks in the
@@ -66,7 +65,7 @@ public interface BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final boolean shouldPersist);
 
   /**
@@ -89,7 +88,7 @@ public interface BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final boolean shouldUpdateHead,
       final boolean shouldRecordBadBlock);
 
@@ -112,7 +111,7 @@ public interface BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions) {
+      final InclusionListTransactions inclusionListTransactions) {
     return validateAndProcessBlock(
         context,
         block,

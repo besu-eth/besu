@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -62,7 +63,6 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -181,7 +181,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.FULL,
             HeaderValidationMode.FULL,
             Optional.empty(),
-            Set.of(),
+            InclusionListTransactions.EMPTY,
             shouldUpdateHead,
             true);
 
@@ -269,7 +269,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             Optional.of(bal),
-            Set.of(),
+            InclusionListTransactions.EMPTY,
             true);
 
     assertValidationFailed(result, "Block access list validation failed");
@@ -300,7 +300,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             optionalBal,
-            Set.of(),
+            InclusionListTransactions.EMPTY,
             true);
 
     assertThat(result.isSuccessful()).isTrue();
@@ -326,7 +326,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             bal,
-            Set.of(),
+            InclusionListTransactions.EMPTY,
             true);
 
     assertValidationFailed(result, "provided gas insufficient");
@@ -529,7 +529,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             Optional.empty(),
-            Set.of(),
+            InclusionListTransactions.EMPTY,
             false,
             false);
 
@@ -549,7 +549,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             Optional.empty(),
-            Set.of(),
+            InclusionListTransactions.EMPTY,
             false,
             true);
 
@@ -569,7 +569,7 @@ public class MainnetBlockValidatorTest {
             HeaderValidationMode.DETACHED_ONLY,
             HeaderValidationMode.DETACHED_ONLY,
             Optional.empty(),
-            Set.of(),
+            InclusionListTransactions.EMPTY,
             false);
 
     assertThat(result.isFailed()).isTrue();

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.vm;
 
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
@@ -130,7 +131,7 @@ public class ZkevmWitnessReferenceTestTools {
                     validationMode,
                     validationMode,
                     candidateBlock.getBlockAccessList(),
-                        Set.of(), false,
+                        InclusionListTransactions.EMPTY, false,
                     false);
 
         final boolean imported = processingResult.isSuccessful();

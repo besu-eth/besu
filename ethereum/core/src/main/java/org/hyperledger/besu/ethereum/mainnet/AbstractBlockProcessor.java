@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidator;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
@@ -345,17 +346,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       }
 
-      // EIP-7805: validated against the state after the block txs, before withdrawals
-      final InclusionListValidationResult inclusionListValidationResult =
-          InclusionListValidator.validate(
-              protocolSpec,
-              worldState.updater(),
-              blockHeader,
-              cumulativeExecutionGasUsed,
-              cumulativeStateGasUsed,
-              InclusionListValidator.notIncludedIn(
-                  context.getInclusionListTransactions(), transactions));
-
       final var optionalHeaderBlobGasUsed = blockHeader.getBlobGasUsed();
       if (optionalHeaderBlobGasUsed.isPresent()) {
         final long headerBlobGasUsed = optionalHeaderBlobGasUsed.get();
@@ -371,6 +361,20 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
       }
+
+      // EIP-7805: validated against the state after the block txs, before withdrawals
+      final InclusionListTransactions inclusionListTransactions =
+          context.getInclusionListTransactions();
+      final InclusionListValidationResult inclusionListValidationResult =
+          inclusionListTransactions.isEmpty()
+              ? InclusionListValidationResult.valid()
+              : InclusionListValidator.validate(
+                  protocolSpec,
+                  worldState.updater(),
+                  blockHeader,
+                  cumulativeExecutionGasUsed,
+                  cumulativeStateGasUsed,
+                  inclusionListTransactions.notIncludedIn(transactions));
 
       final Optional<AccessLocationTracker> postExecutionAccessLocationTracker =
           blockAccessListBuilder.map(

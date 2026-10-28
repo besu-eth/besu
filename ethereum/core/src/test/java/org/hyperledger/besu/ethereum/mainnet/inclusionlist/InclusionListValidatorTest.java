@@ -23,10 +23,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
@@ -34,11 +34,13 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidatorFactory;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -46,7 +48,9 @@ import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import java.math.BigInteger;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +66,8 @@ class InclusionListValidatorTest {
   private final MainnetTransactionProcessor transactionProcessor =
       mock(MainnetTransactionProcessor.class);
   private final TransactionValidator transactionValidator = mock(TransactionValidator.class);
+  private final TransactionValidatorFactory transactionValidatorFactory =
+      mock(TransactionValidatorFactory.class);
   private final WorldUpdater worldUpdater = mock(WorldUpdater.class);
   private final BlockHeader blockHeader =
       new BlockHeaderTestFixture().gasLimit(BLOCK_GAS_LIMIT).baseFeePerGas(Wei.ONE).buildHeader();
@@ -86,8 +92,6 @@ class InclusionListValidatorTest {
         .thenReturn(ValidationResult.<TransactionInvalidReason>valid());
     when(transactionValidator.validateForSender(any(), any(), any()))
         .thenReturn(ValidationResult.<TransactionInvalidReason>valid());
-    final TransactionValidatorFactory transactionValidatorFactory =
-        mock(TransactionValidatorFactory.class);
     when(transactionValidatorFactory.get()).thenReturn(transactionValidator);
     when(protocolSpec.getTransactionValidatorFactory()).thenReturn(transactionValidatorFactory);
 
@@ -156,35 +160,44 @@ class InclusionListValidatorTest {
   }
 
   @Test
-  void notIncludedInDropsTheTransactionsOfTheBlock() {
-    final Transaction otherIlTx =
-        new TransactionTestFixture()
-            .nonce(1)
-            .createTransaction(SignatureAlgorithmFactory.getInstance().generateKeyPair());
-
-    assertThat(InclusionListValidator.notIncludedIn(List.of(ilTx, otherIlTx), List.of(ilTx)))
-        .containsExactly(otherIlTx);
-  }
-
-  @Test
-  void notIncludedInKeepsATransactionThatDiffersFromABlockTransactionOnlyInItsAccessList() {
-    final Transaction blockTx =
-        new TransactionTestFixture()
-            .type(TransactionType.EIP1559)
-            .createTransaction(SignatureAlgorithmFactory.getInstance().generateKeyPair());
-    // same signature, so it recovers a different sender
-    final Transaction ilTxWithAccessList =
+  void satisfiedWhenTheSenderOfTheTransactionCannotBeRecovered() {
+    // r = 5 is a valid scalar but not the x-coordinate of any curve point
+    final Transaction unrecoverableTx =
         Transaction.builder()
-            .copiedFrom(blockTx)
-            .accessList(List.of(new AccessListEntry(Address.ZERO, List.of())))
+            .copiedFrom(ilTx)
             .sender(null)
+            .signature(
+                SignatureAlgorithmFactory.getInstance()
+                    .createSignature(BigInteger.valueOf(5), BigInteger.ONE, (byte) 0))
             .build();
-    // Transaction.equals ignores the access list, but the bytes differ
-    assertThat(ilTxWithAccessList).isEqualTo(blockTx);
-    assertThat(ilTxWithAccessList.getHash()).isNotEqualTo(blockTx.getHash());
+    final TransactionValidator mainnetTransactionValidator =
+        new MainnetTransactionValidator(
+            mock(GasCalculator.class),
+            mock(GasLimitCalculator.class),
+            FeeMarket.london(0L),
+            true,
+            unrecoverableTx.getChainId(),
+            Set.of(unrecoverableTx.getType()),
+            Set.of(BlobType.KZG_PROOF),
+            Integer.MAX_VALUE);
+    when(transactionValidatorFactory.get()).thenReturn(mainnetTransactionValidator);
 
-    assertThat(InclusionListValidator.notIncludedIn(List.of(ilTxWithAccessList), List.of(blockTx)))
-        .containsExactly(ilTxWithAccessList);
+    assertThat(
+            InclusionListValidator.validate(
+                    protocolSpec, worldUpdater, blockHeader, 0, 0, Set.of(unrecoverableTx))
+                .isValid())
+        .isTrue();
+    // skipped by the signature check, before its sender is needed
+    assertThat(
+            mainnetTransactionValidator
+                .validate(
+                    unrecoverableTx,
+                    blockHeader.getBaseFee(),
+                    Optional.of(Wei.ZERO),
+                    TransactionValidationParams.processingBlock())
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INVALID_SIGNATURE);
+    verifyNoInteractions(worldUpdater);
   }
 
   private InclusionListValidationResult validate(
