@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.vm;
 
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
@@ -201,7 +202,7 @@ public class BlockchainReferenceTestTools {
                                     validationMode,
                                     validationMode,
                                     candidateBlock.getBlockAccessList(),
-                                    Set.of(), false);
+                                    InclusionListTransactions.EMPTY, false);
 
                     final boolean imported = processingResult.isSuccessful();
                     if (imported) {

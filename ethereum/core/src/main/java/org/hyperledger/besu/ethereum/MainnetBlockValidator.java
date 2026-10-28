@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
@@ -43,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 import java.util.function.Supplier;
 
 import com.google.common.base.Throwables;
@@ -120,7 +120,7 @@ public class MainnetBlockValidator implements BlockValidator {
         headerValidationMode,
         ommerValidationMode,
         Optional.empty(),
-        Set.of(),
+        InclusionListTransactions.EMPTY,
         true,
         true);
   }
@@ -132,7 +132,7 @@ public class MainnetBlockValidator implements BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final boolean shouldPersist) {
     return validateAndProcessBlock(
         context,
@@ -152,7 +152,7 @@ public class MainnetBlockValidator implements BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final boolean shouldUpdateHead,
       final boolean shouldRecordBadBlock) {
     return validateAndProcessBlock(
@@ -174,7 +174,7 @@ public class MainnetBlockValidator implements BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions) {
+      final InclusionListTransactions inclusionListTransactions) {
     return validateAndProcessBlock(
         context,
         block,
@@ -193,7 +193,7 @@ public class MainnetBlockValidator implements BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final boolean shouldUpdateHead,
       final boolean shouldRecordBadBlock,
       final boolean deferTrieLog) {
@@ -286,7 +286,7 @@ public class MainnetBlockValidator implements BlockValidator {
       final BlockHeader parentHeader,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final boolean shouldUpdateHead,
       final boolean shouldRecordBadBlock,
       final boolean deferTrieLog) {
@@ -478,7 +478,7 @@ public class MainnetBlockValidator implements BlockValidator {
       final MutableWorldState worldState,
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions) {
+      final InclusionListTransactions inclusionListTransactions) {
 
     return blockProcessor.processBlock(
         BlockExecutionContext.builder()

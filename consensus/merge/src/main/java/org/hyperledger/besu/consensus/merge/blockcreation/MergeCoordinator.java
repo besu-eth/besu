@@ -282,8 +282,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     final Block minimalBlock = minimalBlockResult.getBlock();
 
     BlockProcessingResult result =
-        validateProposedBlock(
-            minimalBlock, minimalBlockResult.getBlockAccessList(), inclusionListTransactions);
+        validateProposedBlock(minimalBlock, minimalBlockResult.getBlockAccessList());
     if (result.isSuccessful()) {
       mergeContext.putPayloadById(
           new PayloadWrapper(
@@ -489,9 +488,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     ethScheduler
         .scheduleBlockCreationTask(
             parentHeader.getNumber() + 1,
-            () ->
-                retryBlockCreationUntilUseful(
-                    payloadIdentifier, blockCreator, inclusionListTransactions))
+            () -> retryBlockCreationUntilUseful(payloadIdentifier, blockCreator))
         .orTimeout(
             miningConfiguration.getUnstable().getPosBlockCreationMaxTime(), TimeUnit.MILLISECONDS)
         .whenComplete(
@@ -519,17 +516,14 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   private Void retryBlockCreationUntilUseful(
-      final PayloadIdentifier payloadIdentifier,
-      final Supplier<BlockCreationResult> blockCreator,
-      final Set<Transaction> inclusionListTransactions) {
+      final PayloadIdentifier payloadIdentifier, final Supplier<BlockCreationResult> blockCreator) {
 
     long lastStartAt;
 
     while (!isBlockCreationCancelled(payloadIdentifier)) {
       try {
         lastStartAt = System.currentTimeMillis();
-        recoverableBlockCreation(
-            payloadIdentifier, blockCreator, inclusionListTransactions, lastStartAt);
+        recoverableBlockCreation(payloadIdentifier, blockCreator, lastStartAt);
         final long lastDuration = System.currentTimeMillis() - lastStartAt;
         final long waitBeforeRepetition =
             Math.max(
@@ -580,11 +574,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   private void recoverableBlockCreation(
       final PayloadIdentifier payloadIdentifier,
       final Supplier<BlockCreationResult> blockCreator,
-      final Set<Transaction> inclusionListTransactions,
       final long startedAt) {
 
     try {
-      evaluateNewBlock(blockCreator.get(), payloadIdentifier, inclusionListTransactions, startedAt);
+      evaluateNewBlock(blockCreator.get(), payloadIdentifier, startedAt);
     } catch (final Throwable throwable) {
       if (canRetryBlockCreation(throwable) && !isBlockCreationCancelled(payloadIdentifier)) {
         LOG.atDebug()
@@ -592,8 +585,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             .addArgument(payloadIdentifier)
             .addArgument(() -> logException(throwable))
             .log();
-        recoverableBlockCreation(
-            payloadIdentifier, blockCreator, inclusionListTransactions, startedAt);
+        recoverableBlockCreation(payloadIdentifier, blockCreator, startedAt);
       } else {
         throw throwable;
       }
@@ -603,12 +595,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   private void evaluateNewBlock(
       final BlockCreationResult blockCreationResult,
       final PayloadIdentifier payloadIdentifier,
-      final Set<Transaction> inclusionListTransactions,
       final long startedAt) {
     final var bestBlock = blockCreationResult.getBlock();
     final var resultBest =
-        validateProposedBlock(
-            bestBlock, blockCreationResult.getBlockAccessList(), inclusionListTransactions);
+        validateProposedBlock(bestBlock, blockCreationResult.getBlockAccessList());
     if (resultBest.isSuccessful()) {
 
       mergeContext.putPayloadById(
@@ -705,13 +695,11 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public BlockProcessingResult validateBlock(final Block block) {
-    return validateBlock(block, Optional.empty(), Set.of());
+    return validateBlock(block, Optional.empty());
   }
 
   private BlockProcessingResult validateBlock(
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions) {
+      final Block block, final Optional<BlockAccessList> blockAccessList) {
     final var validationResult =
         protocolSchedule
             .getByBlockHeader(block.getHeader())
@@ -722,16 +710,14 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
-                inclusionListTransactions,
+                InclusionListTransactions.EMPTY,
                 false);
 
     return validationResult;
   }
 
   private BlockProcessingResult validateProposedBlock(
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions) {
+      final Block block, final Optional<BlockAccessList> blockAccessList) {
     final var validationResult =
         protocolSchedule
             .getByBlockHeader(block.getHeader())
@@ -742,7 +728,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
-                inclusionListTransactions,
+                // the inclusion list validation result is not used for a proposed block
+                InclusionListTransactions.EMPTY,
                 false,
                 false);
 
@@ -758,7 +745,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final Executor blockWriter) {
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
     final var chain = protocolContext.getBlockchain();

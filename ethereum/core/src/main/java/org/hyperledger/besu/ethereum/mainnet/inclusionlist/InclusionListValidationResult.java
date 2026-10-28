@@ -27,6 +27,9 @@ public class InclusionListValidationResult {
     UNSATISFIED
   }
 
+  private static final InclusionListValidationResult VALID =
+      new InclusionListValidationResult(Status.VALID, Optional.empty());
+
   private final Status status;
   private final Optional<String> errorMessage;
 
@@ -36,7 +39,7 @@ public class InclusionListValidationResult {
   }
 
   public static InclusionListValidationResult valid() {
-    return new InclusionListValidationResult(Status.VALID, Optional.empty());
+    return VALID;
   }
 
   public static InclusionListValidationResult unsatisfied(final String errorMessage) {

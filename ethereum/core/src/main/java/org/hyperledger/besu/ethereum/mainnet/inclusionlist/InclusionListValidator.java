@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.mainnet.inclusionlist;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -28,10 +27,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,28 +50,8 @@ import org.slf4j.LoggerFactory;
 public class InclusionListValidator {
 
   private static final Logger LOG = LoggerFactory.getLogger(InclusionListValidator.class);
-
-  /**
-   * Returns the inclusion list transactions that are not included in the block. A transaction is
-   * included only if a block transaction has its exact bytes, so they are matched by hash: {@link
-   * Transaction#equals} ignores some fields, like the access list and the authorization list.
-   *
-   * @param inclusionListTransactions the inclusion list transactions
-   * @param blockTransactions the transactions of the block
-   * @return the inclusion list transactions that are not in the block
-   */
-  public static Collection<Transaction> notIncludedIn(
-      final Collection<Transaction> inclusionListTransactions,
-      final List<Transaction> blockTransactions) {
-    if (inclusionListTransactions.isEmpty()) {
-      return List.of();
-    }
-    final Set<Hash> blockTransactionHashes =
-        blockTransactions.stream().map(Transaction::getHash).collect(Collectors.toSet());
-    return inclusionListTransactions.stream()
-        .filter(ilTx -> !blockTransactionHashes.contains(ilTx.getHash()))
-        .toList();
-  }
+  // blob txs are skipped, so the blob fee does not matter
+  private static final Optional<Wei> NO_BLOB_FEE = Optional.of(Wei.ZERO);
 
   /**
    * Validates the inclusion list transactions that are not in the block against the state after the
@@ -143,7 +119,7 @@ public class InclusionListValidator {
           transactionValidator.validate(
               tx,
               newBlockHeader.getBaseFee(),
-              Optional.of(Wei.ZERO),
+              NO_BLOB_FEE,
               TransactionValidationParams.processingBlock());
       if (!baseValidationResult.isValid()) {
         LOG.atDebug()
@@ -171,8 +147,11 @@ public class InclusionListValidator {
           String.format(
               "inclusion list tx %s (sender %s, nonce %d) could have been included but was not",
               tx.getHash(), sender, tx.getNonce());
-      LOG.debug(
-          "Block {} does not satisfy its {}", newBlockHeader.toLogString(), unsatisfiedReason);
+      LOG.atDebug()
+          .setMessage("Block {} does not satisfy its {}")
+          .addArgument(newBlockHeader::toLogString)
+          .addArgument(unsatisfiedReason)
+          .log();
       return InclusionListValidationResult.unsatisfied(unsatisfiedReason);
     }
 

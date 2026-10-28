@@ -172,7 +172,7 @@ public final class EngineNewPayloadV6<
     return mergeCoordinator.rememberBlock(
         block,
         Optional.of(requestParameters.payloadParameter().getBlockAccessList()),
-        requestParameters.inclusionListTransactions().getTransactions(),
+        requestParameters.inclusionListTransactions(),
         writeAfterReply(block));
   }
 }

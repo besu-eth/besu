@@ -87,6 +87,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.N
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotRead;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -102,7 +103,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Supplier;
 
 import com.google.common.base.Suppliers;
@@ -311,7 +311,8 @@ public class InclusionListWorkflowIntegrationTest {
     assertThat(newPayloadStatus.getStatus()).isEqualTo(VALID);
     assertThat(newPayloadStatus.getInclusionListSatisfied()).isFalse();
     // the inclusion list transactions are validated during block processing
-    verify(mergeCoordinator).rememberBlock(any(), any(), eq(Set.of(ilTx)));
+    verify(mergeCoordinator)
+        .rememberBlock(any(), any(), eq(new InclusionListTransactions(List.of(ilTx))), any());
 
     final PayloadStatusV2 fcuStatus = callForkchoiceUpdatedWithoutAttributes(payloadHeader);
     assertThat(fcuStatus.getStatus()).isEqualTo(VALID);
@@ -498,8 +499,12 @@ public class InclusionListWorkflowIntegrationTest {
     assertThat(callForkchoiceUpdatedWithoutAttributes(payloadHeader).getInclusionListSatisfied())
         .isFalse();
 
-    verify(mergeCoordinator).rememberBlock(any(), any(), eq(Set.of(notIncludableTx)));
-    verify(mergeCoordinator).rememberBlock(any(), any(), eq(Set.of(includableTx)));
+    verify(mergeCoordinator)
+        .rememberBlock(
+            any(), any(), eq(new InclusionListTransactions(List.of(notIncludableTx))), any());
+    verify(mergeCoordinator)
+        .rememberBlock(
+            any(), any(), eq(new InclusionListTransactions(List.of(includableTx))), any());
   }
 
   @Test

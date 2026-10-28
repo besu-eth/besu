@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -33,7 +32,6 @@ import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransact
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -100,7 +98,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    */
   default BlockProcessingResult rememberBlock(
       final Block block, final Optional<BlockAccessList> blockAccessList) {
-    return rememberBlock(block, blockAccessList, Set.of(), Runnable::run);
+    return rememberBlock(block, blockAccessList, InclusionListTransactions.EMPTY, Runnable::run);
   }
 
   /**
@@ -115,7 +113,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   default BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions) {
+      final InclusionListTransactions inclusionListTransactions) {
     return rememberBlock(block, blockAccessList, inclusionListTransactions, Runnable::run);
   }
 
@@ -133,7 +131,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
       final Executor blockWriter) {
-    return rememberBlock(block, blockAccessList, Set.of(), blockWriter);
+    return rememberBlock(block, blockAccessList, InclusionListTransactions.EMPTY, blockWriter);
   }
 
   /**
@@ -151,7 +149,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final Set<Transaction> inclusionListTransactions,
+      final InclusionListTransactions inclusionListTransactions,
       final Executor blockWriter);
 
   /**
