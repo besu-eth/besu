@@ -18,7 +18,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.Accounts;
@@ -303,6 +308,44 @@ class StorageTrieUpdaterTest {
 
     assertThat(updater.updated()).isOne();
     assertThat(storages.sync().getAccount(account)).isEmpty();
+  }
+
+  @Test
+  void abortsTheRootBatchOfAFailedWriteButNotOneWhoseCommitFailed() {
+    final World world = SyncStorageFixture.randomWorld(new Random(21), 80);
+    final List<Bytes32> accounts = largestStorages(world, 2);
+    final Bytes32 firstRoot = downloaded(world, accounts.get(0));
+    final Bytes32 secondRoot = downloaded(world, accounts.get(1));
+    final SyncStateStorage storage = spy(storages.sync());
+    final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
+    doReturn(batch).when(storage).batch();
+    // the updater only logs the error, read here where the root write runs
+    final AtomicReference<RuntimeException> failure = new AtomicReference<>();
+    final Predicate<Runnable> withoutMoves =
+        action -> {
+          try {
+            action.run();
+            return true;
+          } catch (final RuntimeException e) {
+            failure.set(e);
+            throw e;
+          }
+        };
+    final StorageTrieUpdater updater =
+        new StorageTrieUpdater(storage, withoutMoves, hash -> false, 0, 0);
+
+    // the commit of the transaction has started, it cannot be rolled back
+    doThrow(new IllegalStateException("disk full")).when(batch).commit();
+    updater.changed(accounts.get(0), Hash.wrap(firstRoot), move(world, accounts.get(0), 1));
+    assertThat(updater.applyNext()).isTrue();
+    assertThat(failure.get()).hasMessage("disk full");
+    verify(batch, never()).abort();
+
+    doThrow(new IllegalStateException("write failed")).when(batch).putAccount(any(), any());
+    updater.changed(accounts.get(1), Hash.wrap(secondRoot), move(world, accounts.get(1), 1));
+    assertThat(updater.applyNext()).isTrue();
+    assertThat(failure.get()).hasMessage("write failed");
+    verify(batch).abort();
   }
 
   private StorageTrieUpdater updater(final SyncStateStorage storage, final int budget) {

@@ -16,10 +16,14 @@ package org.hyperledger.besu.ethereum.eth.sync.snap2.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStorageFixture.slots;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_LOG_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -122,8 +126,53 @@ class BonsaiSyncStateStorageTest {
 
     storage.deleteStorage(FIRST);
 
-    assertThat(slotsOf(FIRST)).isEmpty();
-    assertThat(slotsOf(SECOND)).containsExactly(key(0x01));
+    assertThat(slots(storage, FIRST)).isEmpty();
+    assertThat(slots(storage, SECOND)).containsOnlyKeys(key(0x01));
+  }
+
+  @Test
+  void deleteStorageAbortsTheBatchOfAFailedWriteButNotOneWhoseCommitFailed() {
+    final SyncStateStorage.Batch slots = storage.batch();
+    slots.putStorage(FIRST, key(0x01), value(1));
+    slots.commit();
+    final SyncStateStorage failing = spy(storage);
+    final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
+    doReturn(batch).when(failing).batch();
+
+    // the commit of the transaction has started, it cannot be rolled back
+    doThrow(new IllegalStateException("disk full")).when(batch).commit();
+    assertThatThrownBy(() -> failing.deleteStorage(FIRST)).hasMessage("disk full");
+    verify(batch, never()).abort();
+
+    doThrow(new IllegalStateException("write failed")).when(batch).removeStorage(any(), any());
+    assertThatThrownBy(() -> failing.deleteStorage(FIRST)).hasMessage("write failed");
+    verify(batch).abort();
+  }
+
+  // the next batch fails to start once the first one is committed
+  @Test
+  void deleteStorageAbortsNoBatchItCommitted() {
+    final SyncStateStorage.Batch slots = storage.batch();
+    for (int i = 0; i < 10_001; i++) {
+      slots.putStorage(FIRST, Bytes32.leftPad(Bytes.ofUnsignedInt(i)), value(1));
+    }
+    slots.commit();
+    final SyncStateStorage failing = spy(storage);
+    final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
+    doReturn(batch).doThrow(new IllegalStateException("storage closed")).when(failing).batch();
+
+    assertThatThrownBy(() -> failing.deleteStorage(FIRST)).hasMessage("storage closed");
+    verify(batch).commit();
+    verify(batch, never()).abort();
+  }
+
+  @Test
+  void deleteStorageWritesNothingForAnAccountWithoutSlots() {
+    final SyncStateStorage spied = spy(storage);
+
+    spied.deleteStorage(FIRST);
+
+    verify(spied, never()).batch();
   }
 
   @Test
@@ -139,7 +188,7 @@ class BonsaiSyncStateStorageTest {
     removal.commit();
 
     assertThat(storage.getAccount(FIRST)).isEmpty();
-    assertThat(slotsOf(FIRST)).isEmpty();
+    assertThat(slots(storage, FIRST)).isEmpty();
   }
 
   @Test
@@ -150,7 +199,7 @@ class BonsaiSyncStateStorageTest {
     batch.abort();
 
     assertThat(storage.getAccount(FIRST)).isEmpty();
-    assertThat(slotsOf(FIRST)).isEmpty();
+    assertThat(slots(storage, FIRST)).isEmpty();
   }
 
   @Test
@@ -284,26 +333,6 @@ class BonsaiSyncStateStorageTest {
     new BonsaiSyncStateStorage(archive).completeSync();
 
     assertThat(archive.getFlatDbMode()).isEqualTo(FlatDbMode.ARCHIVE);
-  }
-
-  // the slots stored for an account, by a scan of its key alone
-  private List<Bytes32> slotsOf(final Bytes32 account) {
-    final List<Bytes32> slots = new ArrayList<>();
-    storage.scan(
-        account,
-        account,
-        new SyncStateStorage.ScanVisitor() {
-          @Override
-          public boolean onAccount(final Bytes32 accountHash, final Bytes value) {
-            return true;
-          }
-
-          @Override
-          public void onSlot(final Bytes32 accountHash, final Bytes32 slotHash, final Bytes value) {
-            slots.add(slotHash);
-          }
-        });
-    return slots;
   }
 
   private static BonsaiWorldStateKeyValueStorage bonsai(final DataStorageConfiguration config) {

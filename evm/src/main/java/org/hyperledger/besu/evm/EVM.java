@@ -513,6 +513,7 @@ public class EVM {
 
     byte[] code = frame.getCode().getBytes().toArrayUnsafe();
     final boolean tracing = operationTracer.tracesOperations();
+    frame.setRecordsUpdatesForTracerV2(tracing);
     final Operation[] operationArray = tracing ? operations.getOperations() : null;
     while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
       int pc = frame.getPC();

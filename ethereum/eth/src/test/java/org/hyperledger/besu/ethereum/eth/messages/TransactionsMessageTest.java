@@ -15,12 +15,15 @@
 package org.hyperledger.besu.ethereum.eth.messages;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -36,6 +39,8 @@ public class TransactionsMessageTest {
   private final BlockDataGenerator generator = new BlockDataGenerator();
   private final int maxTransactionsMessageSize =
       EthProtocolConfiguration.DEFAULT.getMaxTransactionsMessageSize();
+  private final int maxTransactionsPerMessage =
+      EthProtocolConfiguration.DEFAULT.getMaxTransactionsPerMessage();
   private final int safeTxPayloadSize = maxTransactionsMessageSize / 2 + 1;
 
   @Test
@@ -57,7 +62,7 @@ public class TransactionsMessageTest {
     final TransactionsMessage message = TransactionsMessage.readFrom(raw);
 
     // Check that transactions match original inputs after transformations
-    assertThat(message.transactions()).isEqualTo(transactions);
+    assertThat(message.transactions(maxTransactionsPerMessage)).isEqualTo(transactions);
   }
 
   @Test
@@ -67,8 +72,9 @@ public class TransactionsMessageTest {
     final Set<Transaction> includedTransactions = new HashSet<>();
 
     while (!remainingTransactions.isEmpty()) {
-      final TransactionsMessage.SizeLimitedBuilder messageBuilder =
-          new TransactionsMessage.SizeLimitedBuilder(maxTransactionsMessageSize);
+      final TransactionsMessage.SizeAndCountLimitedBuilder messageBuilder =
+          new TransactionsMessage.SizeAndCountLimitedBuilder(
+              maxTransactionsMessageSize, maxTransactionsPerMessage);
 
       // Add transactions until the message is full
       remainingTransactions.removeIf(
@@ -98,8 +104,9 @@ public class TransactionsMessageTest {
     final Set<Transaction> includedTransactions = new HashSet<>();
 
     while (!remainingTransactions.isEmpty()) {
-      final TransactionsMessage.SizeLimitedBuilder messageBuilder =
-          new TransactionsMessage.SizeLimitedBuilder(maxTransactionsMessageSize);
+      final TransactionsMessage.SizeAndCountLimitedBuilder messageBuilder =
+          new TransactionsMessage.SizeAndCountLimitedBuilder(
+              maxTransactionsMessageSize, maxTransactionsPerMessage);
 
       // Add transactions until the message is full
       remainingTransactions.removeIf(
@@ -132,31 +139,50 @@ public class TransactionsMessageTest {
         generator.transaction(Bytes.wrap(new byte[maxTransactionsMessageSize - 200]));
     final Transaction smallTransaction = generator.transaction();
 
-    final TransactionsMessage.SizeLimitedBuilder messageBuilder =
-        new TransactionsMessage.SizeLimitedBuilder(maxTransactionsMessageSize);
+    final TransactionsMessage.SizeAndCountLimitedBuilder messageBuilder =
+        new TransactionsMessage.SizeAndCountLimitedBuilder(
+            maxTransactionsMessageSize, maxTransactionsPerMessage);
 
     assertThat(messageBuilder.add(largeTransaction)).isTrue();
     assertThat(messageBuilder.add(smallTransaction)).isFalse();
   }
 
   @Test
+  public void addTransactionReturnsFalseWhenMaxTransactionsReached() {
+    final int maxTransactions = 2;
+    final List<Transaction> transactions = new ArrayList<>(generator.transactions(3));
+    final TransactionsMessage.SizeAndCountLimitedBuilder messageBuilder =
+        new TransactionsMessage.SizeAndCountLimitedBuilder(
+            maxTransactionsMessageSize, maxTransactions);
+
+    assertThat(messageBuilder.add(transactions.get(0))).isTrue();
+    assertThat(messageBuilder.add(transactions.get(1))).isTrue();
+    assertThat(messageBuilder.add(transactions.get(2))).isFalse();
+    assertThat(messageBuilder.build().transactions(maxTransactionsPerMessage))
+        .containsExactly(transactions.get(0), transactions.get(1));
+  }
+
+  @Test
   public void build() {
     final Set<Transaction> transactions = generator.transactions(10);
-    final TransactionsMessage.SizeLimitedBuilder messageBuilder =
-        new TransactionsMessage.SizeLimitedBuilder(maxTransactionsMessageSize);
+    final TransactionsMessage.SizeAndCountLimitedBuilder messageBuilder =
+        new TransactionsMessage.SizeAndCountLimitedBuilder(
+            maxTransactionsMessageSize, maxTransactionsPerMessage);
 
     transactions.forEach(messageBuilder::add);
 
     final TransactionsMessage transactionsMessage = messageBuilder.build();
     assertThat(transactionsMessage).isNotNull();
-    assertThat(transactionsMessage.transactions()).hasSameSizeAs(transactions);
+    assertThat(transactionsMessage.transactions(maxTransactionsPerMessage))
+        .hasSameSizeAs(transactions);
   }
 
   @Test
   public void estimatedMessageSizeIncreasesAsTransactionsAreAdded() {
     final List<Transaction> transactions = new ArrayList<>(generator.transactions(5));
-    final TransactionsMessage.SizeLimitedBuilder messageBuilder =
-        new TransactionsMessage.SizeLimitedBuilder(maxTransactionsMessageSize);
+    final TransactionsMessage.SizeAndCountLimitedBuilder messageBuilder =
+        new TransactionsMessage.SizeAndCountLimitedBuilder(
+            maxTransactionsMessageSize, maxTransactionsPerMessage);
 
     int previousSize = messageBuilder.getEstimatedMessageSize();
 
@@ -166,5 +192,47 @@ public class TransactionsMessageTest {
       assertThat(currentSize).isGreaterThan(previousSize);
       previousSize = currentSize;
     }
+  }
+
+  @Test
+  public void rejectsMoreThanMaxTransactionsBeforeDecodingAnyOfThem() {
+    final int maxTransactions = 3;
+    // The entries are not transactions, so decoding any of them would fail with a different error
+    final TransactionsMessage message = junkTransactionsMessage(maxTransactions + 1);
+
+    assertThatThrownBy(() -> message.transactions(maxTransactions))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodesEntriesWhenCountIsWithinMax() {
+    // Control for the test above: within the bound the same junk entries are decoded, and fail
+    // with a decoding error rather than the count check
+    final int maxTransactions = 3;
+    final TransactionsMessage message = junkTransactionsMessage(maxTransactions);
+
+    assertThatThrownBy(() -> message.transactions(maxTransactions))
+        .isInstanceOf(RLPException.class)
+        .hasMessageNotContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodesAllTransactionsWhenCountEqualsMax() {
+    final List<Transaction> transactions = new ArrayList<>(generator.transactions(3));
+    final TransactionsMessage message = TransactionsMessage.create(transactions);
+
+    assertThat(message.transactions(transactions.size())).isEqualTo(transactions);
+  }
+
+  private static TransactionsMessage junkTransactionsMessage(final int entryCount) {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    for (int i = 0; i < entryCount; i++) {
+      out.writeBytes(Bytes.of(0x01));
+    }
+    out.endList();
+    return TransactionsMessage.readFrom(
+        new RawMessage(EthProtocolMessages.TRANSACTIONS, out.encoded()));
   }
 }

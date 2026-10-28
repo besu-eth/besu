@@ -1,6 +1,8 @@
 {
   "cli": [
     "--notime",
+    "--fork",
+    "BPO2",
     "--json",
     "--code",
     "634E6F70656000526004601CFD"

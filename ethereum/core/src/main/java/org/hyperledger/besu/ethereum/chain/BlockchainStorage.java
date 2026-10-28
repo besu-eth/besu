@@ -55,7 +55,18 @@ public interface BlockchainStorage {
 
   Optional<Hash> getTransactionHashBySenderAndNonce(Address sender, long nonce);
 
+  /**
+   * Returns the block from which a sync stored every body and receipts up to the chain head, or
+   * empty when no sync recorded one.
+   */
+  Optional<Long> getBodiesFrom();
+
   Updater updater();
+
+  /** Returns an updater committed as one write batch, for writes that never conflict. */
+  default Updater batchUpdater() {
+    return updater();
+  }
 
   interface Updater {
 
@@ -100,6 +111,9 @@ public interface BlockchainStorage {
     void setFinalized(Hash blockHash);
 
     void setSafeBlock(Hash blockHash);
+
+    /** Records that every block from this one up to the chain head has its body and receipts. */
+    void setBodiesFrom(long blockNumber);
 
     void removeBlockHash(long blockNumber);
 

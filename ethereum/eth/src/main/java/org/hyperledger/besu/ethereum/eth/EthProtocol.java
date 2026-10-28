@@ -43,7 +43,9 @@ public class EthProtocol implements SubProtocol {
             EthProtocolMessages.GET_RECEIPTS,
             EthProtocolMessages.RECEIPTS,
             EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
-            EthProtocolMessages.BLOCK_ACCESS_LISTS);
+            EthProtocolMessages.BLOCK_ACCESS_LISTS,
+            EthProtocolMessages.GET_CELLS,
+            EthProtocolMessages.CELLS);
     REQUEST_ID_MESSAGES =
         new BitSet(requestIdMessages.stream().mapToInt(i -> i).max().getAsInt() + 1);
     requestIdMessages.forEach(REQUEST_ID_MESSAGES::set);
@@ -92,6 +94,8 @@ public class EthProtocol implements SubProtocol {
       case EthProtocolMessages.BLOCK_RANGE_UPDATE -> "BlockRangeUpdate";
       case EthProtocolMessages.GET_BLOCK_ACCESS_LISTS -> "GetBlockAccessLists";
       case EthProtocolMessages.BLOCK_ACCESS_LISTS -> "BlockAccessLists";
+      case EthProtocolMessages.GET_CELLS -> "GetCells";
+      case EthProtocolMessages.CELLS -> "Cells";
       default -> INVALID_MESSAGE_NAME;
     };
   }
@@ -113,5 +117,10 @@ public class EthProtocol implements SubProtocol {
   public static boolean isEth71Compatible(final Capability capability) {
     return NAME.equals(capability.getName())
         && capability.getVersion() >= EthProtocolVersion.V71.getVersion();
+  }
+
+  public static boolean isEth72Compatible(final Capability capability) {
+    return NAME.equals(capability.getName())
+        && capability.getVersion() >= EthProtocolVersion.V72.getVersion();
   }
 }
