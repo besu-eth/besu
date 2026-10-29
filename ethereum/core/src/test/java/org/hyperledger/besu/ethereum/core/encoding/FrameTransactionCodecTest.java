@@ -18,15 +18,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameReceipt;
 import org.hyperledger.besu.ethereum.core.FrameSignature;
 import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDecoder;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.math.BigInteger;
@@ -41,8 +50,10 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Round trips of EIP-8141 frame transactions through {@link FrameTransactionEncoder} and {@link
- * FrameTransactionDecoder}. The decoder is not registered for type 0x06 in {@link
- * TransactionDecoder} yet, so the round trips call it directly.
+ * FrameTransactionDecoder}, and of frame transaction receipts through {@link
+ * TransactionReceiptEncoder} and {@link TransactionReceiptDecoder}. The transaction decoder is not
+ * registered for type 0x06 in {@link TransactionDecoder} yet, so the transaction round trips call
+ * it directly.
  */
 class FrameTransactionCodecTest {
 
@@ -417,6 +428,152 @@ class FrameTransactionCodecTest {
     assertThatThrownBy(() -> FrameTransactionDecoder.decode(encoded))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("Frame transaction must have at least one frame");
+  }
+
+  @Test
+  void flatEth69ReceiptWithTheFrameTypeIsRejected() {
+    // The eth/69 shape of the other types, [type, status, cumulative gas used, logs]. With the
+    // frame type it is read as a frame receipt, so the 2-byte cumulative gas used is its payer.
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeBytes(Bytes.of(TransactionType.FRAME.getEthSerializedType()));
+    out.writeLongScalar(1L);
+    out.writeLongScalar(21_000L);
+    out.startList();
+    out.endList();
+    out.endList();
+
+    assertThatThrownBy(() -> TransactionReceiptDecoder.readFrom(RLP.input(out.encoded()), true))
+        .isInstanceOf(RLPException.class)
+        .hasMessage("Address unexpected size of 2 (needs 20)");
+  }
+
+  @Test
+  void frameReceiptRoundTrips() {
+    final Log log =
+        new Log(
+            TARGET,
+            Bytes.fromHexString("0x0badf00d"),
+            List.of(LogTopic.wrap(Bytes32.leftPad(Bytes.of(1)))));
+    final TransactionReceipt receipt =
+        new TransactionReceipt(
+            SENDER,
+            123_456L,
+            List.of(
+                new FrameReceipt(FrameReceipt.STATUS_SUCCESS, 100L, 0L, List.of()),
+                new FrameReceipt(FrameReceipt.STATUS_SUCCESS, 3_000L, 183_600L, List.of(log)),
+                new FrameReceipt(FrameReceipt.STATUS_SKIPPED, 0L, 0L, List.of())));
+
+    // The opaque (wire/storage) encodings must round-trip through the decoder. Each of them carries
+    // the frame receipt as a typed envelope in an RLP byte string.
+    for (final TransactionReceiptEncodingConfiguration configuration :
+        List.of(
+            TransactionReceiptEncodingConfiguration.DEFAULT,
+            TransactionReceiptEncodingConfiguration.STORAGE_WITH_COMPACTION,
+            TransactionReceiptEncodingConfiguration.STORAGE_WITHOUT_COMPACTION)) {
+      final BytesValueRLPOutput out = new BytesValueRLPOutput();
+      TransactionReceiptEncoder.writeTo(receipt, out, configuration);
+      assertThat(RLP.input(out.encoded()).nextIsList()).isFalse();
+      assertThat(RLP.input(out.encoded()).readBytes().get(0)).isEqualTo((byte) 0x06);
+
+      final TransactionReceipt decoded =
+          TransactionReceiptDecoder.readFrom(RLP.input(out.encoded()), true);
+      assertThat(decoded.getTransactionType()).isEqualTo(TransactionType.FRAME);
+      assertThat(decoded.getPayer().orElseThrow().getBytes()).isEqualTo(SENDER.getBytes());
+      assertThat(decoded.getCumulativeGasUsed()).isEqualTo(123_456L);
+      assertThat(decoded.getFrameReceipts().orElseThrow())
+          .isEqualTo(receipt.getFrameReceipts().orElseThrow());
+      assertThat(decoded.getLogsList()).containsExactly(log);
+      assertThat(decoded.getBloomFilter()).isEqualTo(receipt.getBloomFilter());
+      assertThat(decoded).isEqualTo(receipt);
+    }
+
+    // eth/69 sends it flat, [0x06, cumulative_gas_used, payer, frame_receipts], and it round-trips
+    // through the decoder too.
+    final BytesValueRLPOutput eth69Out = new BytesValueRLPOutput();
+    TransactionReceiptEncoder.writeTo(
+        receipt, eth69Out, TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION);
+    final RLPInput eth69Receipt = RLP.input(eth69Out.encoded());
+    assertThat(eth69Receipt.nextIsList()).isTrue();
+    eth69Receipt.enterList();
+    assertThat(eth69Receipt.readBytes()).isEqualTo(Bytes.of(0x06));
+    assertThat(TransactionReceiptDecoder.readFrom(RLP.input(eth69Out.encoded()), true))
+        .isEqualTo(receipt);
+
+    // The trie-root form (used only for hashing, like other typed receipts) is the typed
+    // envelope itself: type byte followed by the frame receipt payload, not wrapped in a string.
+    final BytesValueRLPOutput trieRootOut = new BytesValueRLPOutput();
+    TransactionReceiptEncoder.writeTo(
+        receipt, trieRootOut, TransactionReceiptEncodingConfiguration.TRIE_ROOT);
+    assertThat(trieRootOut.encoded().get(0)).isEqualTo((byte) 0x06);
+    final BytesValueRLPOutput defaultOut = new BytesValueRLPOutput();
+    TransactionReceiptEncoder.writeTo(
+        receipt, defaultOut, TransactionReceiptEncodingConfiguration.DEFAULT);
+    assertThat(trieRootOut.encoded()).isEqualTo(RLP.input(defaultOut.encoded()).readBytes());
+  }
+
+  @Test
+  void frameReceiptDerivesItsStatusAndLogsFromItsFrames() {
+    final Log first = new Log(TARGET, Bytes.of(1), List.of());
+    final Log second = new Log(SENDER, Bytes.of(2), List.of());
+    final TransactionReceipt allSucceeded =
+        new TransactionReceipt(
+            SENDER,
+            1L,
+            List.of(
+                new FrameReceipt(FrameReceipt.STATUS_SUCCESS, 1L, 0L, List.of(first)),
+                new FrameReceipt(FrameReceipt.STATUS_SUCCESS, 1L, 0L, List.of(second))));
+    assertThat(allSucceeded.getStatus()).isEqualTo(1);
+    assertThat(allSucceeded.getLogsList()).containsExactly(first, second);
+    assertThat(allSucceeded.getStateRoot()).isNull();
+    assertThat(allSucceeded.getRevertReason()).isEmpty();
+
+    for (final int status : List.of(FrameReceipt.STATUS_FAILURE, FrameReceipt.STATUS_SKIPPED)) {
+      final TransactionReceipt notAllSucceeded =
+          new TransactionReceipt(
+              SENDER,
+              1L,
+              List.of(
+                  new FrameReceipt(FrameReceipt.STATUS_SUCCESS, 1L, 0L, List.of()),
+                  new FrameReceipt(status, 1L, 0L, List.of())));
+      assertThat(notAllSucceeded.getStatus()).isZero();
+    }
+  }
+
+  @Test
+  void frameReceiptEqualityCoversPayerAndFrameReceipts() {
+    final List<FrameReceipt> frameReceipts =
+        List.of(new FrameReceipt(FrameReceipt.STATUS_SUCCESS, 100L, 0L, List.of()));
+    final TransactionReceipt receipt = new TransactionReceipt(SENDER, 1L, frameReceipts);
+
+    assertThat(receipt).isEqualTo(new TransactionReceipt(SENDER, 1L, frameReceipts));
+    assertThat(receipt).isNotEqualTo(new TransactionReceipt(TARGET, 1L, frameReceipts));
+    assertThat(receipt)
+        .isNotEqualTo(
+            new TransactionReceipt(
+                SENDER,
+                1L,
+                List.of(new FrameReceipt(FrameReceipt.STATUS_SUCCESS, 101L, 0L, List.of()))));
+    // A standard receipt with the same status, gas and logs is not a frame receipt.
+    assertThat(receipt)
+        .isNotEqualTo(
+            new TransactionReceipt(TransactionType.EIP1559, 1, 1L, List.of(), Optional.empty()));
+  }
+
+  @Test
+  void rejectsAFrameReceiptWithAMalformedPayer() {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeByte(TransactionType.FRAME.getSerializedType());
+    out.startList();
+    out.writeLongScalar(1L);
+    out.writeBytes(Bytes.repeat((byte) 1, 19));
+    out.writeEmptyList();
+    out.endList();
+    final Bytes wrapped = RLP.encode(o -> o.writeBytes(out.encoded()));
+
+    assertThatThrownBy(() -> TransactionReceiptDecoder.readFrom(RLP.input(wrapped), true))
+        .isInstanceOf(RLPException.class)
+        .hasMessage("Address unexpected size of 19 (needs 20)");
   }
 
   /** Encodes the sample transaction's frames with the given nonce and fee fields. */

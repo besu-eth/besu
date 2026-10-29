@@ -1335,6 +1335,8 @@ public abstract class MainnetProtocolSpecs {
             (gasCalculator, __) ->
                 MainnetEVMs.bogota(
                     gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+        // EIP-8141: frame transaction receipts
+        .transactionReceiptFactory(new BogotaTransactionReceiptFactory(enableRevertReason))
         .hardforkId(BOGOTA);
   }
 
@@ -1481,6 +1483,35 @@ public abstract class MainnetProtocolSpecs {
           gasUsed,
           result.getLogs(),
           revertReasonEnabled ? result.getRevertReason() : Optional.empty());
+    }
+  }
+
+  /**
+   * Bogota: EIP-8141 frame transactions have their own receipt payload {@code [cumulative_gas_used,
+   * payer, [frame_receipt, ...]]}; every other type keeps the Berlin typed status receipt.
+   */
+  static class BogotaTransactionReceiptFactory extends BerlinTransactionReceiptFactory {
+
+    public BogotaTransactionReceiptFactory(final boolean revertReasonEnabled) {
+      super(revertReasonEnabled);
+    }
+
+    @Override
+    public TransactionReceipt create(
+        final TransactionType transactionType,
+        final TransactionProcessingResult result,
+        final long gasUsed) {
+      if (transactionType.supportsFrames()) {
+        final var outcome =
+            result
+                .getFrameTransactionOutcome()
+                .orElseThrow(
+                    () ->
+                        new IllegalStateException(
+                            "Frame transaction result is missing its frame outcome"));
+        return new TransactionReceipt(outcome.payer(), gasUsed, outcome.frameReceipts());
+      }
+      return super.create(transactionType, result, gasUsed);
     }
   }
 

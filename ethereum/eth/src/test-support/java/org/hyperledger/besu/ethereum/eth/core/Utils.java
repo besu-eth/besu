@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.core.SyncBlock;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
@@ -37,6 +38,8 @@ import org.apache.tuweni.bytes.Bytes;
 public class Utils {
   private static final SyncTransactionReceiptEncoder SYNC_RECEIPT_ENCODER =
       new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder());
+  private static final SyncTransactionReceiptDecoder SYNC_RECEIPT_DECODER =
+      new SyncTransactionReceiptDecoder();
 
   public static SyncTransactionReceipt receiptToSyncReceipt(
       final TransactionReceipt receipt,
@@ -49,6 +52,11 @@ public class Utils {
     final BytesValueRLPInput rlpInput = new BytesValueRLPInput(rlpOutput.encoded(), false);
     final Bytes rawBytes =
         rlpInput.nextIsList() ? rlpInput.currentListAsBytes() : rlpInput.readBytes();
+    // A frame receipt's eth/69 form is not its consensus encoding; the decoder converts it, so do
+    // the same here rather than store bytes the receipts root is not computed over.
+    if (receipt.getTransactionType().supportsFrames()) {
+      return SYNC_RECEIPT_DECODER.decode(rawBytes);
+    }
     return new SyncTransactionReceipt(rawBytes);
   }
 

@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.BogotaDevnet1FrameReceipts;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
@@ -67,6 +68,8 @@ import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 public class EthServerTest {
 
@@ -223,6 +226,82 @@ public class EthServerTest {
     final Optional<MessageData> result =
         ethMessages.dispatch(ethMsg, EthProtocolVersion.V69.getCapability());
     assertThat(result).contains(expectedMsg);
+  }
+
+  /** eth/68 sends EIP-8141 frame receipts as typed receipts, in their consensus encoding. */
+  @Test
+  public void shouldServeFrameReceiptsAsTypedReceiptsOnEth68() {
+    final BogotaDevnet1FrameReceipts block = BogotaDevnet1FrameReceipts.BLOCK_0X843A;
+    final Hash blockHash = setupFrameReceipts(block);
+
+    final Optional<MessageData> result =
+        ethMessages.dispatch(
+            new EthMessage(ethPeer, GetReceiptsMessage.create(List.of(blockHash))),
+            EthProtocolVersion.V68.getCapability());
+
+    assertThat(result)
+        .contains(
+            ReceiptsMessage.createUnsafe(
+                RLP.encode(
+                    out ->
+                        out.writeList(
+                            List.of(block.typedReceipts()),
+                            (receipts, blockOut) ->
+                                blockOut.writeList(receipts, (r, rOut) -> rOut.writeBytes(r))))));
+  }
+
+  /**
+   * eth/69 sends EIP-8141 frame receipts in the form of the EIP-8141 Networking section, {@code
+   * [0x06, cumulative_gas_used, payer, frame_receipts]}, byte for byte as geth does.
+   */
+  @Test
+  public void shouldServeFrameReceiptsInTheEip8141NetworkFormOnEth69() {
+    final BogotaDevnet1FrameReceipts block = BogotaDevnet1FrameReceipts.BLOCK_0X843A;
+    final Hash blockHash = setupFrameReceipts(block);
+
+    final Optional<MessageData> result =
+        ethMessages.dispatch(
+            new EthMessage(ethPeer, GetReceiptsMessage.create(List.of(blockHash))),
+            EthProtocolVersion.V69.getCapability());
+
+    assertThat(result)
+        .contains(
+            ReceiptsMessage.createUnsafe(
+                RLP.encode(
+                    out ->
+                        out.writeList(
+                            List.of(block.eth69Receipts()),
+                            (receipts, blockOut) ->
+                                blockOut.writeList(receipts, (r, rOut) -> rOut.writeRaw(r))))));
+  }
+
+  /** eth/70 and later paginate receipts, which keep the eth/69 form. */
+  @ParameterizedTest
+  @EnumSource(
+      value = EthProtocolVersion.class,
+      names = {"V70", "V71"})
+  public void shouldServePaginatedFrameReceiptsInTheEip8141NetworkForm(
+      final EthProtocolVersion version) {
+    final BogotaDevnet1FrameReceipts block = BogotaDevnet1FrameReceipts.BLOCK_0X843A;
+    final Hash blockHash = setupFrameReceipts(block);
+
+    final Optional<MessageData> result =
+        ethMessages.dispatch(
+            new EthMessage(ethPeer, GetPaginatedReceiptsMessage.create(List.of(blockHash), 0)),
+            version.getCapability());
+
+    assertThat(result)
+        .contains(
+            PaginatedReceiptsMessage.createUnsafe(
+                RLP.encode(
+                    out -> {
+                      out.writeLongScalar(0);
+                      out.writeList(
+                          List.of(block.eth69Receipts()),
+                          (receipts, blockOut) ->
+                              blockOut.writeList(receipts, (r, rOut) -> rOut.writeRaw(r)));
+                    }),
+                false));
   }
 
   @Test
@@ -662,6 +741,13 @@ public class EthServerTest {
     }
 
     return txReceiptsByHash;
+  }
+
+  private Hash setupFrameReceipts(final BogotaDevnet1FrameReceipts block) {
+    final Hash blockHash = dataGenerator.hash();
+    when(blockchain.getTxReceipts(blockHash)).thenReturn(Optional.of(block.receipts()));
+    setupEthServer();
+    return blockHash;
   }
 
   private List<Transaction> setupTransactions(final int count) {
