@@ -239,6 +239,9 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
   @Override
   public void awaitStop() throws InterruptedException {
+    if (fastSyncDownloader.isPresent()) {
+      fastSyncDownloader.get().awaitStop();
+    }
     backgroundBackfill.awaitStop();
   }
 

@@ -193,6 +193,15 @@ public class DefaultSynchronizerTest {
     verify(backgroundBackfill).awaitStop();
   }
 
+  @Test
+  public void awaitsTheSnapSyncBeforeTheStorageCloses() throws InterruptedException {
+    final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.SNAP);
+
+    synchronizer.awaitStop();
+
+    verify(snapSyncController).awaitStop();
+  }
+
   private DefaultSynchronizer createSynchronizer(final SyncMode syncMode) {
     final SynchronizerConfiguration syncConfig = mock(SynchronizerConfiguration.class);
     when(syncConfig.getSyncMode()).thenReturn(syncMode);

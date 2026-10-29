@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
@@ -46,6 +47,7 @@ import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEnc
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
@@ -65,6 +67,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -1075,7 +1078,6 @@ public class DefaultBlockchainTest {
     assertThat(blockchain.getBlockHeadersCache()).isEmpty();
     assertThat(blockchain.getBlockBodiesCache()).isEmpty();
     assertThat(blockchain.getTransactionReceiptsCache()).isEmpty();
-    assertThat(blockchain.getTotalDifficultyCache()).isEmpty();
   }
 
   @Test
@@ -1097,12 +1099,10 @@ public class DefaultBlockchainTest {
     assertThat(blockchain.getBlockHeadersCache()).isNotEmpty();
     assertThat(blockchain.getBlockBodiesCache()).isNotEmpty();
     assertThat(blockchain.getTransactionReceiptsCache()).isNotEmpty();
-    assertThat(blockchain.getTotalDifficultyCache()).isNotEmpty();
 
     assertThat(blockchain.getBlockHeadersCache().get().size()).isEqualTo(0);
     assertThat(blockchain.getBlockBodiesCache().get().size()).isEqualTo(0);
     assertThat(blockchain.getTransactionReceiptsCache().get().size()).isEqualTo(0);
-    assertThat(blockchain.getTotalDifficultyCache().get().size()).isEqualTo(0);
 
     blockchain.appendBlock(newBlock, receipts);
 
@@ -1117,10 +1117,24 @@ public class DefaultBlockchainTest {
     assertThat(blockchain.getTransactionReceiptsCache().get().size()).isEqualTo(1);
     assertThat(blockchain.getTransactionReceiptsCache().get().getIfPresent(newBlock.getHash()))
         .isEqualTo(receipts);
+  }
 
-    assertThat(blockchain.getTotalDifficultyCache().get().size()).isEqualTo(1);
-    assertThat(blockchain.getTotalDifficultyCache().get().getIfPresent(newBlock.getHash()))
-        .isEqualTo(newBlock.getHeader().getDifficulty());
+  @Test
+  public void totalDifficultyOfCachedBlockIsTheTotalDifficulty() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock, "/data/test", 512, 0);
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+
+    blockchain.appendBlock(newBlock, gen.receipts(newBlock));
+
+    assertThat(blockchain.getTotalDifficultyByHash(newBlock.getHash()))
+        .contains(
+            genesisBlock.getHeader().getDifficulty().add(newBlock.getHeader().getDifficulty()));
   }
 
   @Test
@@ -1142,7 +1156,6 @@ public class DefaultBlockchainTest {
     assertThat(blockchain.getBlockHeadersCache()).isNotEmpty();
     assertThat(blockchain.getBlockBodiesCache()).isEmpty();
     assertThat(blockchain.getTransactionReceiptsCache()).isEmpty();
-    assertThat(blockchain.getTotalDifficultyCache()).isEmpty();
 
     assertThat(blockchain.getBlockHeadersCache().get().size()).isEqualTo(0);
 
@@ -1208,6 +1221,31 @@ public class DefaultBlockchainTest {
         new VariablesKeyValueStorage(kvStorageVariables),
         new MainnetBlockHeaderFunctions(),
         false);
+  }
+
+  @Test
+  public void storesSyncBlockAccessListsWithoutMovingTheChainHead() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(
+            new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage(), genesisBlock);
+    final List<Block> blocks = blocksAbove(gen, genesisBlock, 2, Difficulty.ONE);
+    final List<BlockAccessList> accessLists =
+        List.of(gen.blockAccessList(3), gen.blockAccessList(2));
+
+    blockchain.unsafeStoreSyncBlockAccessLists(
+        Map.of(
+            blocks.get(0).getHash(),
+            new SyncBlockAccessList(accessLists.get(0).encode()),
+            blocks.get(1).getHash(),
+            new SyncBlockAccessList(accessLists.get(1).encode())));
+
+    assertThat(blockchain.getChainHeadBlockNumber()).isZero();
+    for (int i = 0; i < blocks.size(); i++) {
+      assertThat(blockchain.getBlockAccessList(blocks.get(i).getHash()))
+          .contains(accessLists.get(i));
+    }
   }
 
   @Test
@@ -1302,20 +1340,22 @@ public class DefaultBlockchainTest {
   }
 
   @Test
-  public void keepsTheBlockTheBodiesAreStoredFrom() {
+  public void keepsTheBlockTheBodiesAreStoredFromAndTheFloorOfTheSync() {
     final Block genesisBlock = new BlockDataGenerator().genesisBlock();
     final KeyValueStorage chainKv = new InMemoryKeyValueStorage();
     final KeyValueStorage variablesKv = new InMemoryKeyValueStorage();
     final DefaultBlockchain blockchain =
         createMutableBlockchain(chainKv, variablesKv, genesisBlock);
     assertThat(blockchain.getBodiesFrom()).isEmpty();
+    assertThat(blockchain.getSyncFloor()).isEmpty();
 
-    blockchain.unsafeSetBodiesFrom(2);
+    blockchain.unsafeSetBodiesFrom(7);
+    blockchain.unsafeSetSyncFloor(1);
 
-    assertThat(blockchain.getBodiesFrom()).contains(2L);
-    // stored, so a restarted node reads it back
-    assertThat(createMutableBlockchain(chainKv, variablesKv, genesisBlock).getBodiesFrom())
-        .contains(2L);
+    // stored apart, so a restarted node reads both back
+    final DefaultBlockchain restarted = createMutableBlockchain(chainKv, variablesKv, genesisBlock);
+    assertThat(restarted.getBodiesFrom()).contains(7L);
+    assertThat(restarted.getSyncFloor()).contains(1L);
   }
 
   @Test

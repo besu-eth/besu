@@ -47,7 +47,6 @@ import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.HeaderFetcher;
-import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.QueuedExecutor;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestFailedException;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestFailedException.Reason;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;

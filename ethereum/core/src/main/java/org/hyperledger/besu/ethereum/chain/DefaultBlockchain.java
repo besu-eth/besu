@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -89,7 +90,6 @@ public class DefaultBlockchain implements MutableBlockchain {
   private Optional<Cache<Hash, BlockHeader>> blockHeadersCache;
   private Optional<Cache<Hash, BlockBody>> blockBodiesCache;
   private Optional<Cache<Hash, List<TransactionReceipt>>> transactionReceiptsCache;
-  private Optional<Cache<Hash, Difficulty>> totalDifficultyCache;
   private Optional<Cache<Hash, BlockAccessList>> blockAccessListCache;
   private Optional<Cache<Hash, InclusionListStatus>> inclusionListStatusCache;
 
@@ -178,8 +178,6 @@ public class DefaultBlockchain implements MutableBlockchain {
           Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
       transactionReceiptsCache =
           Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
-      totalDifficultyCache =
-          Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
       blockAccessListCache =
           Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
       registerCacheMetrics(metricsSystem);
@@ -199,7 +197,6 @@ public class DefaultBlockchain implements MutableBlockchain {
   private void setBlockCachesEmpty() {
     blockBodiesCache = Optional.empty();
     transactionReceiptsCache = Optional.empty();
-    totalDifficultyCache = Optional.empty();
     blockAccessListCache = Optional.empty();
   }
 
@@ -208,8 +205,6 @@ public class DefaultBlockchain implements MutableBlockchain {
     metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "blockBodies", blockBodiesCache.get());
     metricsSystem.createGuavaCacheCollector(
         BLOCKCHAIN, "transactionReceipts", transactionReceiptsCache.get());
-    metricsSystem.createGuavaCacheCollector(
-        BLOCKCHAIN, "totalDifficulty", totalDifficultyCache.get());
   }
 
   private void registerHeadersCacheMetrics(final MetricsSystem metricsSystem) {
@@ -422,6 +417,11 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public Optional<Long> getSyncFloor() {
+    return blockchainStorage.getSyncFloor();
+  }
+
+  @Override
   public Hash getChainHeadHash() {
     return chainHeader.getHash();
   }
@@ -548,12 +548,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<Difficulty> getTotalDifficultyByHash(final Hash blockHeaderHash) {
-    return totalDifficultyCache
-        .map(
-            cache ->
-                Optional.ofNullable(cache.getIfPresent(blockHeaderHash))
-                    .or(() -> blockchainStorage.getTotalDifficulty(blockHeaderHash)))
-        .orElseGet(() -> blockchainStorage.getTotalDifficulty(blockHeaderHash));
+    return blockchainStorage.getTotalDifficulty(blockHeaderHash);
   }
 
   @Override
@@ -678,8 +673,6 @@ public class DefaultBlockchain implements MutableBlockchain {
     cacheBlockHeader(block.getHeader());
     blockBodiesCache.ifPresent(cache -> cache.put(block.getHash(), block.getBody()));
     transactionReceiptsCache.ifPresent(cache -> cache.put(block.getHash(), receipts));
-    totalDifficultyCache.ifPresent(
-        cache -> cache.put(block.getHash(), block.getHeader().getDifficulty()));
     blockAccessListCache.ifPresent(
         cache -> blockAccessList.ifPresent(t -> cache.put(block.getHash(), t)));
   }
@@ -802,6 +795,13 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public void unsafeStoreSyncBlockAccessLists(final Map<Hash, SyncBlockAccessList> accessLists) {
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
+    accessLists.forEach(updater::putSyncBlockAccessList);
+    updater.commit();
+  }
+
+  @Override
   public Difficulty unsafeStoreSyncTotalDifficulties(
       final long parent, final Difficulty parentTotal, final long last) {
     checkArgument(last > parent, "block %s is not above block %s", last, parent);
@@ -839,6 +839,13 @@ public class DefaultBlockchain implements MutableBlockchain {
   public void unsafeSetBodiesFrom(final long blockNumber) {
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     updater.setBodiesFrom(blockNumber);
+    updater.commit();
+  }
+
+  @Override
+  public void unsafeSetSyncFloor(final long blockNumber) {
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    updater.setSyncFloor(blockNumber);
     updater.commit();
   }
 
@@ -1370,10 +1377,6 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   public Optional<Cache<Hash, BlockAccessList>> getBlockAccessListCache() {
     return blockAccessListCache;
-  }
-
-  public Optional<Cache<Hash, Difficulty>> getTotalDifficultyCache() {
-    return totalDifficultyCache;
   }
 
   /**
