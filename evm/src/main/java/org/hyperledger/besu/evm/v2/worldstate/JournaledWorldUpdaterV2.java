@@ -38,7 +38,8 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>A read does not end the updaters created on this one, so it sees their changes. A change
  * abandons them and discards their changes, as dropping a stacked updater would, and using an
- * abandoned updater again throws.
+ * abandoned updater again throws. Since only the running frame's updater can use the journal this
+ * way, the transaction processor does not use it when the tracer may access the world state.
  */
 public final class JournaledWorldUpdaterV2 implements WorldUpdater {
 
