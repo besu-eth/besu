@@ -24,6 +24,7 @@ import io.vertx.core.spi.metrics.VertxMetrics;
 public class VertxMetricsAdapterFactory implements VertxMetricsFactory {
 
   private final MetricsSystem metricsSystem;
+  private final String poolNamePrefix;
 
   /**
    * Instantiates a new Vertx metrics adapter factory.
@@ -31,11 +32,24 @@ public class VertxMetricsAdapterFactory implements VertxMetricsFactory {
    * @param metricsSystem the metrics system
    */
   public VertxMetricsAdapterFactory(final MetricsSystem metricsSystem) {
+    this(metricsSystem, "");
+  }
+
+  /**
+   * Instantiates a new Vertx metrics adapter factory whose pool metrics are labeled with prefixed
+   * pool names, so that pools of different Vertx instances are reported separately.
+   *
+   * @param metricsSystem the metrics system
+   * @param poolNamePrefix the prefix prepended to each pool name
+   */
+  public VertxMetricsAdapterFactory(
+      final MetricsSystem metricsSystem, final String poolNamePrefix) {
     this.metricsSystem = metricsSystem;
+    this.poolNamePrefix = poolNamePrefix;
   }
 
   @Override
   public VertxMetrics metrics(final VertxOptions options) {
-    return new VertxMetricsAdapter(metricsSystem);
+    return new VertxMetricsAdapter(metricsSystem, poolNamePrefix);
   }
 }

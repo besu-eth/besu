@@ -160,6 +160,7 @@ public class RunnerBuilder {
   private static final Logger LOG = LoggerFactory.getLogger(RunnerBuilder.class);
 
   private Vertx vertx;
+  private Vertx engineVertx;
   private BesuController besuController;
 
   private NetworkingConfiguration networkingConfiguration = NetworkingConfiguration.DEFAULT;
@@ -215,6 +216,17 @@ public class RunnerBuilder {
    */
   public RunnerBuilder vertx(final Vertx vertx) {
     this.vertx = vertx;
+    return this;
+  }
+
+  /**
+   * Add the Vertx dedicated to the engine API.
+   *
+   * @param engineVertx the engine vertx instance
+   * @return runner builder
+   */
+  public RunnerBuilder engineVertx(final Vertx engineVertx) {
+    this.engineVertx = engineVertx;
     return this;
   }
 
@@ -1040,7 +1052,7 @@ public class RunnerBuilder {
       engineJsonRpcService =
           Optional.of(
               new EngineJsonRpcService(
-                  vertx,
+                  engineVertx,
                   dataDir,
                   engineJsonRpcConfiguration.orElse(JsonRpcConfiguration.createEngineDefault()),
                   metricsSystem,
@@ -1237,6 +1249,7 @@ public class RunnerBuilder {
 
     return new Runner(
         vertx,
+        engineVertx,
         networkRunner,
         natService,
         jsonRpcHttpService,
@@ -1401,8 +1414,7 @@ public class RunnerBuilder {
     // pool, except engine_forkchoiceUpdated and engine_newPayload calls, which the Engine API
     // spec requires to be processed in the order received — those run on a dedicated
     // single-threaded executor (see OrderedExecutionJsonRpcMethod)
-    final Vertx consensusEngineServer =
-        Vertx.vertx(new io.vertx.core.VertxOptions().setWorkerPoolSize(1).setEventLoopPoolSize(1));
+    final Vertx consensusEngineServer = engineVertx;
 
     final Map<String, JsonRpcMethod> methods =
         new JsonRpcMethodsFactory()

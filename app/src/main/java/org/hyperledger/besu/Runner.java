@@ -68,7 +68,9 @@ public class Runner implements AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger(Runner.class);
 
   private final Vertx vertx;
+  private final Vertx engineVertx;
   private final CountDownLatch vertxShutdownLatch = new CountDownLatch(1);
+  private final CountDownLatch engineVertxShutdownLatch = new CountDownLatch(1);
   private final CountDownLatch shutdown = new CountDownLatch(1);
 
   private final NatService natService;
@@ -95,6 +97,7 @@ public class Runner implements AutoCloseable {
    * Instantiates a new Runner.
    *
    * @param vertx the vertx
+   * @param engineVertx the vertx dedicated to the engine API
    * @param networkRunner the network runner
    * @param natService the nat service
    * @param jsonRpc the json rpc
@@ -113,6 +116,7 @@ public class Runner implements AutoCloseable {
    */
   Runner(
       final Vertx vertx,
+      final Vertx engineVertx,
       final NetworkRunner networkRunner,
       final NatService natService,
       final Optional<JsonRpcHttpService> jsonRpc,
@@ -129,6 +133,7 @@ public class Runner implements AutoCloseable {
       final Optional<TransactionLogBloomCacher> transactionLogBloomCacher,
       final Blockchain blockchain) {
     this.vertx = vertx;
+    this.engineVertx = engineVertx;
     this.networkRunner = networkRunner;
     this.natService = natService;
     this.graphQLHttp = graphQLHttp;
@@ -327,6 +332,12 @@ public class Runner implements AutoCloseable {
     stopServices();
     vertx.close().onComplete((res) -> vertxShutdownLatch.countDown());
     waitForServiceToStop("Vertx", vertxShutdownLatch::await);
+    if (engineVertx == vertx) {
+      engineVertxShutdownLatch.countDown();
+    } else {
+      engineVertx.close().onComplete((_) -> engineVertxShutdownLatch.countDown());
+    }
+    waitForServiceToStop("Engine Vertx", engineVertxShutdownLatch::await);
     if (ephemeryService != null) {
       ephemeryService.close();
     }

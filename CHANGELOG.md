@@ -25,6 +25,7 @@
 - Support Amsterdam hardfork at genesis on Ephemery, aligning with Ephemery iteration 165 and removing dynamic in-cycle BPO offsets. [#11728](https://github.com/besu-eth/besu/pull/11728)
 - `engine_newPayload` replies before it stores a valid block and its trie log. [#11682](https://github.com/besu-eth/besu/pull/11682)
 - Block import preloads and commits only the state a block changes, and builds trie keys without streams. [#11758](https://github.com/besu-eth/besu/pull/11758)
+- The Engine API runs on its own Vert.x instance, so a JSON-RPC load such as `eth_sendRawTransaction` no longer takes the worker threads that Engine API calls need. Its pool metrics are labelled with an `engine-api-` prefix, e.g. `poolName="engine-api-vert.x-worker-thread"`. Hidden options size the pools: `--Xengine-rpc-vertx-worker-pool-size` (default 8) and `--Xengine-rpc-vertx-event-loop-pool-size` (default 2) for the Engine API, and `--Xrpc-vertx-worker-pool-size` (default 20, unchanged) for JSON-RPC. [#11764](https://github.com/besu-eth/besu/pull/11764)
 
 ## 26.10.2
 

@@ -14,13 +14,22 @@
  */
 package org.hyperledger.besu.cli.options;
 
+import org.hyperledger.besu.cli.converter.PositiveNumberConverter;
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
+import org.hyperledger.besu.util.number.PositiveNumber;
 
+import io.vertx.core.VertxOptions;
 import picocli.CommandLine;
 
 /** The Rpc Cli options. */
 public class RPCOptions {
+
+  /** Default Vertx worker pool size for the engine API. */
+  public static final int DEFAULT_ENGINE_WORKER_POOL_SIZE = 8;
+
+  /** Default Vertx event loop pool size for the engine API. */
+  public static final int DEFAULT_ENGINE_EVENT_LOOP_POOL_SIZE = 2;
 
   @CommandLine.Option(
       hidden = true,
@@ -41,6 +50,30 @@ public class RPCOptions {
       names = {"--Xws-timeout-seconds"},
       description = "Web socket timeout in seconds (default: ${DEFAULT-VALUE})")
   private final Long wsTimeoutSec = TimeoutOptions.defaultOptions().getTimeoutSeconds();
+
+  @CommandLine.Option(
+      hidden = true,
+      names = {"--Xrpc-vertx-worker-pool-size"},
+      converter = PositiveNumberConverter.class,
+      description = "Vertx worker pool size (default: ${DEFAULT-VALUE})")
+  private final PositiveNumber rpcVertxWorkerPoolSize =
+      PositiveNumber.fromInt(VertxOptions.DEFAULT_WORKER_POOL_SIZE);
+
+  @CommandLine.Option(
+      hidden = true,
+      names = {"--Xengine-rpc-vertx-worker-pool-size"},
+      converter = PositiveNumberConverter.class,
+      description = "Vertx worker pool size for the engine API (default: ${DEFAULT-VALUE})")
+  private final PositiveNumber engineRpcVertxWorkerPoolSize =
+      PositiveNumber.fromInt(DEFAULT_ENGINE_WORKER_POOL_SIZE);
+
+  @CommandLine.Option(
+      hidden = true,
+      names = {"--Xengine-rpc-vertx-event-loop-pool-size"},
+      converter = PositiveNumberConverter.class,
+      description = "Vertx event loop pool size for the engine API (default: ${DEFAULT-VALUE})")
+  private final PositiveNumber engineRpcVertxEventLoopPoolSize =
+      PositiveNumber.fromInt(DEFAULT_ENGINE_EVENT_LOOP_POOL_SIZE);
 
   /** Default Constructor. */
   RPCOptions() {}
@@ -79,5 +112,32 @@ public class RPCOptions {
    */
   public Long getWsTimeoutSec() {
     return wsTimeoutSec;
+  }
+
+  /**
+   * Gets rpc vertx worker pool size.
+   *
+   * @return the rpc vertx worker pool size
+   */
+  public PositiveNumber getRpcVertxWorkerPoolSize() {
+    return rpcVertxWorkerPoolSize;
+  }
+
+  /**
+   * Gets engine rpc vertx worker pool size.
+   *
+   * @return the engine rpc vertx worker pool size
+   */
+  public PositiveNumber getEngineRpcVertxWorkerPoolSize() {
+    return engineRpcVertxWorkerPoolSize;
+  }
+
+  /**
+   * Gets engine rpc vertx event loop pool size.
+   *
+   * @return the engine rpc vertx event loop pool size
+   */
+  public PositiveNumber getEngineRpcVertxEventLoopPoolSize() {
+    return engineRpcVertxEventLoopPoolSize;
   }
 }

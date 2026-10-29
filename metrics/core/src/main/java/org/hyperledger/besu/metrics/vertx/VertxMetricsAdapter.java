@@ -23,6 +23,7 @@ import io.vertx.core.spi.metrics.VertxMetrics;
 public class VertxMetricsAdapter implements VertxMetrics {
 
   private final MetricsSystem metricsSystem;
+  private final String poolNamePrefix;
 
   /**
    * Instantiates a new Vertx metrics adapter.
@@ -30,12 +31,24 @@ public class VertxMetricsAdapter implements VertxMetrics {
    * @param metricsSystem the metrics system
    */
   public VertxMetricsAdapter(final MetricsSystem metricsSystem) {
+    this(metricsSystem, "");
+  }
+
+  /**
+   * Instantiates a new Vertx metrics adapter whose pool metrics are labelled with prefixed pool
+   * names.
+   *
+   * @param metricsSystem the metrics system
+   * @param poolNamePrefix the prefix prepended to each pool name
+   */
+  public VertxMetricsAdapter(final MetricsSystem metricsSystem, final String poolNamePrefix) {
     this.metricsSystem = metricsSystem;
+    this.poolNamePrefix = poolNamePrefix;
   }
 
   @Override
   public PoolMetrics<?, ?> createPoolMetrics(
       final String poolType, final String poolName, final int maxPoolSize) {
-    return new PoolMetricsAdapter(metricsSystem, poolType, poolName);
+    return new PoolMetricsAdapter(metricsSystem, poolType, poolNamePrefix + poolName);
   }
 }

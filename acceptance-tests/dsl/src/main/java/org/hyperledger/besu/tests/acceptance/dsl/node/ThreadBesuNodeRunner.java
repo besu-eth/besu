@@ -206,6 +206,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
 
     runnerBuilder
         .vertx(Vertx.vertx(vertxOptions))
+        .engineVertx(Vertx.vertx(vertxOptions))
         .besuController(besuController)
         .ethNetworkConfig(ethNetworkConfig)
         .discoveryEnabled(node.isDiscoveryEnabled())
