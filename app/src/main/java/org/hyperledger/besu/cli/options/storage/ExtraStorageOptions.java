@@ -71,6 +71,9 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
   public static final String PARALLEL_STATE_ROOT_COMPUTATION_ENABLED =
       "--bonsai-parallel-state-root-computation-enabled";
 
+  /** The bonsai full flat database enabled option name. */
+  public static final String FULL_FLAT_DB_ENABLED = "--Xbonsai-full-flat-db-enabled";
+
   /** The bonsai archive state proofs enabled option name. */
   public static final String STATE_PROOFS_ENABLED = "--Xbonsai-archive-state-proofs-enabled";
 
@@ -125,7 +128,7 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
 
     @Option(
         hidden = true,
-        names = {"--Xbonsai-full-flat-db-enabled"},
+        names = {FULL_FLAT_DB_ENABLED},
         arity = "1",
         description = "Enables bonsai full flat database strategy. (default: ${DEFAULT-VALUE})")
     private Boolean fullFlatDbEnabled = DEFAULT_FULL_FLAT_DB_ENABLED;
@@ -241,6 +244,13 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
       }
     }
     if (DataStorageFormat.X_BONSAI_ARCHIVE == dataStorageFormat) {
+      if (!unstableOptions.fullFlatDbEnabled) {
+        throw new CommandLine.ParameterException(
+            commandLine,
+            String.format(
+                "%s=false cannot be used with --data-storage-format=%s",
+                FULL_FLAT_DB_ENABLED, DataStorageFormat.X_BONSAI_ARCHIVE));
+      }
       validateCheckpointInterval(
           commandLine,
           SHALLOW_CHECKPOINT_INTERVAL,

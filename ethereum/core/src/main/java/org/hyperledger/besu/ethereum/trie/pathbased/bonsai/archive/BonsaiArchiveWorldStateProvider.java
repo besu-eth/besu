@@ -35,7 +35,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateC
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -65,7 +64,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
   private final BonsaiCodeCache codeCache;
   private final WorldStateConfig archiveWorldStateConfig;
-  private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
+  private volatile LongSupplier archiveProgressSupplier = () -> -1L;
 
   private final ArchiveNodeHistoryStore archiveHistoryStore;
   private final ArchiveHistoryReader archiveHistoryReader;
@@ -241,24 +240,23 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   /**
    * Sets the supplier used by {@code isHistoricalQuery} to check the highest block number that has
-   * been migrated to Bonsai archive storage.
+   * been archived to Bonsai archive storage.
    *
    * <p>Until this is called, the default supplier returns {@code -1}, which denies all
    * archive-backed historical queries and falls back to trie-log rollback via {@code super}.
    *
    * @param supplier returns the highest block number available in Bonsai archive storage
    */
-  public void setArchiveMigrationProgressSupplier(final LongSupplier supplier) {
-    this.archiveMigrationProgressSupplier = supplier;
+  public void setArchiveProgressSupplier(final LongSupplier supplier) {
+    this.archiveProgressSupplier = supplier;
   }
 
   private boolean isHistoricalQuery(final WorldStateQueryParams queryParams) {
     final long queryBlock = queryParams.getBlockHeader().getNumber();
-    return worldStateKeyValueStorage.getFlatDbMode().equals(FlatDbMode.ARCHIVE)
-        && !queryParams.shouldWorldStateUpdateHead()
+    return !queryParams.shouldWorldStateUpdateHead()
         && blockchain.getChainHeadHeader().getNumber() - queryBlock
             >= trieLogManager.getMaxLayersToLoad()
-        && archiveMigrationProgressSupplier.getAsLong() >= queryBlock;
+        && archiveProgressSupplier.getAsLong() >= queryBlock;
   }
 
   @Override

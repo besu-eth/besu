@@ -65,7 +65,7 @@ public class BonsaiArchiveWorldStateProviderTest {
     when(blockchain.getBlockHeader(chainHeadHeader.getHash()))
         .thenReturn(Optional.of(chainHeadHeader));
 
-    provider = createProvider(true);
+    provider = createProvider();
   }
 
   @Test
@@ -74,7 +74,7 @@ public class BonsaiArchiveWorldStateProviderTest {
         new BlockHeaderTestFixture().number(CHAIN_HEAD - MAX_LAYERS - 1).buildHeader();
     when(blockchain.getBlockHeader(historicalHeader.getHash()))
         .thenReturn(Optional.of(historicalHeader));
-    provider.setArchiveMigrationProgressSupplier(() -> CHAIN_HEAD);
+    provider.setArchiveProgressSupplier(() -> CHAIN_HEAD);
 
     final var result =
         provider.getWorldState(
@@ -87,8 +87,8 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
-  void historicalQuery_migratorBehindQueryBlock_fallsThroughToSuper() {
-    // Migrator has not yet processed the requested block.
+  void historicalQuery_archiverBehindQueryBlock_fallsThroughToSuper() {
+    // Archiver has not yet processed the requested block.
     // Provider should fall through to super.getWorldState(), which cannot serve blocks
     // beyond maxLayersToLoad via trie-log rollback → empty result.
     final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
@@ -96,7 +96,7 @@ public class BonsaiArchiveWorldStateProviderTest {
         new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
     when(blockchain.getBlockHeader(historicalHeader.getHash()))
         .thenReturn(Optional.of(historicalHeader));
-    provider.setArchiveMigrationProgressSupplier(() -> queryBlockNumber - 1);
+    provider.setArchiveProgressSupplier(() -> queryBlockNumber - 1);
 
     final var result =
         provider.getWorldState(
@@ -106,16 +106,16 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
-  void historicalQuery_atExactBoundary_migratorBehind_fallsThroughToSuper() {
-    // Models the "new block just arrived, migrator hasn't caught up yet" race:
+  void historicalQuery_atExactBoundary_archiverBehind_fallsThroughToSuper() {
+    // Models the "new block just arrived, archiver hasn't caught up yet" race:
     // queryBlock sits exactly at head - maxLayersToLoad (the historical routing threshold),
-    // migrator progress is one block short. Gate must refuse the archive route.
+    // archiver progress is one block short. Gate must refuse the archive route.
     final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS;
     final BlockHeader boundaryHeader =
         new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
     when(blockchain.getBlockHeader(boundaryHeader.getHash()))
         .thenReturn(Optional.of(boundaryHeader));
-    provider.setArchiveMigrationProgressSupplier(() -> queryBlockNumber - 1);
+    provider.setArchiveProgressSupplier(() -> queryBlockNumber - 1);
 
     final var result =
         provider.getWorldState(
@@ -125,13 +125,13 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
-  void historicalQuery_migratorAtQueryBlock_usesArchive() {
+  void historicalQuery_archiverAtQueryBlock_usesArchive() {
     final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
     final BlockHeader historicalHeader =
         new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
     when(blockchain.getBlockHeader(historicalHeader.getHash()))
         .thenReturn(Optional.of(historicalHeader));
-    provider.setArchiveMigrationProgressSupplier(() -> queryBlockNumber);
+    provider.setArchiveProgressSupplier(() -> queryBlockNumber);
 
     final var result =
         provider.getWorldState(
@@ -168,42 +168,26 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
-  void historicalQuery_beforeMigrationComplete_returnsEmpty() {
-    // Migration not yet complete: flatDbMode is FULL, not ARCHIVE.
-    // The archive path is skipped; super.getWorldState() is called instead,
+  void historicalQuery_beforeAnyBlockArchived_returnsEmpty() {
+    // No block archived yet (no progress supplier set), so the archive path is skipped;
+    // super.getWorldState() is called instead,
     // which cannot serve blocks beyond maxLayersToLoad via trie-log rollback.
-    final BonsaiArchiveWorldStateProvider providerNotYetMigrated = createProvider(false);
-
     final BlockHeader historicalHeader =
         new BlockHeaderTestFixture().number(CHAIN_HEAD - MAX_LAYERS - 1).buildHeader();
+    when(blockchain.getBlockHeader(historicalHeader.getHash()))
+        .thenReturn(Optional.of(historicalHeader));
 
     final var result =
-        providerNotYetMigrated.getWorldState(
+        provider.getWorldState(
             WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(historicalHeader));
 
     assertThat(result).isEmpty();
   }
 
   @Test
-  void recentQuery_beforeMigrationComplete_returnsBonsaiWorldStateBackedByMainStorage() {
-    // Migration not yet complete: falls through to super.getWorldState() which serves
-    // recent blocks normally via trie-log rollback from the cached head state.
-    final BonsaiArchiveWorldStateProvider providerNotYetMigrated = createProvider(false);
-
-    final var result =
-        providerNotYetMigrated.getWorldState(
-            WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHeadHeader));
-
-    assertThat(result).isPresent();
-    final BonsaiWorldState worldState = (BonsaiWorldState) result.get();
-    assertThat(worldState.getWorldStateStorage().getFlatDbStrategy())
-        .isInstanceOf(BonsaiFullFlatDbStrategy.class);
-  }
-
-  @Test
   void installsInlineStrategyWhenProofsEnabled() {
     seededProgress = 4L;
-    final BonsaiArchiveWorldStateProvider proofsProvider = createProvider(true, true);
+    final BonsaiArchiveWorldStateProvider proofsProvider = createProvider(true);
 
     assertThat(proofsProvider.getWorldStateKeyValueStorage().getTrieNodeStrategy())
         .isInstanceOf(ArchiveTrieNodeStrategy.class);
@@ -237,7 +221,7 @@ public class BonsaiArchiveWorldStateProviderTest {
   void startupFailsWhenProofsEnabledPastGenesisWithoutCoverage() {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
 
-    assertThatThrownBy(() -> createProvider(true, true))
+    assertThatThrownBy(() -> createProvider(true))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("no proof history");
   }
@@ -246,7 +230,7 @@ public class BonsaiArchiveWorldStateProviderTest {
   void startupFailsWhenGenesisWasPersistedWithoutProofs() {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(0L);
 
-    assertThatThrownBy(() -> createProvider(true, true))
+    assertThatThrownBy(() -> createProvider(true))
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("no proof history");
   }
@@ -256,7 +240,7 @@ public class BonsaiArchiveWorldStateProviderTest {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(0L);
     seedWorldStateBlockHash = false;
 
-    createProvider(true, true).close();
+    createProvider(true).close();
   }
 
   @Test
@@ -264,22 +248,21 @@ public class BonsaiArchiveWorldStateProviderTest {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
     seededProgress = 4L;
 
-    createProvider(true, true).close();
+    createProvider(true).close();
   }
 
   @Test
   void startupIgnoresCoverageWhenProofsDisabled() {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
 
-    createProvider(true, false);
+    createProvider(false);
   }
 
-  private BonsaiArchiveWorldStateProvider createProvider(final boolean archiveModeReady) {
-    return createProvider(archiveModeReady, false);
+  private BonsaiArchiveWorldStateProvider createProvider() {
+    return createProvider(false);
   }
 
-  private BonsaiArchiveWorldStateProvider createProvider(
-      final boolean archiveModeReady, final boolean stateProofsEnabled) {
+  private BonsaiArchiveWorldStateProvider createProvider(final boolean stateProofsEnabled) {
     final var config =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(DataStorageFormat.X_BONSAI_ARCHIVE)
@@ -295,9 +278,6 @@ public class BonsaiArchiveWorldStateProviderTest {
     final BonsaiWorldStateKeyValueStorage worldStateStorage =
         new BonsaiWorldStateKeyValueStorage(
             new InMemoryKeyValueStorageProvider(), new NoOpMetricsSystem(), config);
-    if (archiveModeReady) {
-      worldStateStorage.upgradeToArchiveFlatDbMode();
-    }
 
     // Seed the chain head block hash so the head world state is cached under it,
     // allowing non-historical queries to find it via worldStateCacheManager.

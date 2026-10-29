@@ -270,6 +270,16 @@ public class DataStorageOptionsTest
   }
 
   @Test
+  public void bonsaiArchiveRequiresFullFlatDb() {
+    internalTestFailure(
+        "--Xbonsai-full-flat-db-enabled=false cannot be used with --data-storage-format=X_BONSAI_ARCHIVE",
+        "--data-storage-format",
+        "X_BONSAI_ARCHIVE",
+        "--Xbonsai-full-flat-db-enabled",
+        "false");
+  }
+
+  @Test
   public void bonsaiArchiveShallowCheckpointIntervalMustBePositive() {
     internalTestFailure(
         "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval=0 must be in [1, 256]",

@@ -92,7 +92,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiFlatDbToArchiveMigrator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.TrailingFlatStateArchiver;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -101,7 +101,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogPruner
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -125,7 +124,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
@@ -956,45 +954,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(
         dataStorageConfiguration.getDataStorageFormat())) {
-      if (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
-          || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL)) {
-        final BonsaiFlatDbToArchiveMigrator archiveMigrator =
-            createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
-        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
-            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
-        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
-        closeables.addFirst(archiveMigrator);
-
-        final AtomicBoolean migrationStarted = new AtomicBoolean(false);
-        final AtomicLong syncSubscriptionId = new AtomicLong();
-        syncSubscriptionId.set(
-            synchronizer.subscribeInSync(
-                (inSync) -> {
-                  if (inSync && migrationStarted.compareAndSet(false, true)) {
-                    synchronizer.unsubscribeInSync(syncSubscriptionId.get());
-                    LOG.info("Node is in sync, starting Bonsai archive migration");
-                    archiveMigrator
-                        .migrate()
-                        .exceptionally(
-                            error -> {
-                              LOG.error(
-                                  "Archive migration failed, archiver will remain disabled until restart",
-                                  error);
-                              return null;
-                            });
-                  }
-                },
-                0));
-      } else {
-        // Already in ARCHIVE mode (restart after migration): register ongoing migration
-        final BonsaiFlatDbToArchiveMigrator archiveMigrator =
-            createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
-        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
-            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
-        archiveMigrator.startOngoingMigration();
-        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
-        closeables.addFirst(archiveMigrator);
-      }
+      final TrailingFlatStateArchiver flatStateArchiver =
+          createFlatStateArchiver(worldStateStorageCoordinator, worldStateArchive, blockchain);
+      ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+          .setArchiveProgressSupplier(flatStateArchiver::getArchivedBlockNumber);
+      // Close the archiver before storageProvider so callback finishes before RocksDB is closed
+      closeables.addFirst(flatStateArchiver);
+      flatStateArchiver.start();
     }
 
     return new BesuController(
@@ -1085,7 +1051,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     return trieLogPruner;
   }
 
-  private BonsaiFlatDbToArchiveMigrator createArchiveMigrator(
+  private TrailingFlatStateArchiver createFlatStateArchiver(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateArchive worldStateArchive,
       final Blockchain blockchain) {
@@ -1093,16 +1059,16 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
     final TrieLogManager trieLogManager =
         ((BonsaiWorldStateProvider) worldStateArchive).getTrieLogManager();
-    final ScheduledExecutorService migrationExecutor =
-        MonitoredExecutors.newScheduledThreadPool("archive-migrator", 1, metricsSystem);
+    final ScheduledExecutorService archiverExecutor =
+        MonitoredExecutors.newScheduledThreadPool("flat-state-archiver", 1, metricsSystem);
     final BonsaiArchiveFlatDbStrategy archiveStrategy =
         new BonsaiArchiveFlatDbStrategy(
             metricsSystem, worldStateKeyValueStorage.getFlatDbStrategy().getCodeStorageStrategy());
-    return new BonsaiFlatDbToArchiveMigrator(
+    return new TrailingFlatStateArchiver(
         worldStateKeyValueStorage,
         trieLogManager,
         blockchain,
-        migrationExecutor,
+        archiverExecutor,
         metricsSystem,
         archiveStrategy);
   }
