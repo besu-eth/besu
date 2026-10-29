@@ -165,8 +165,21 @@ class BonsaiArchiveStateProofIntegrationTest {
   }
 
   /** Archives {@code node} at {@code location} as block {@code block}. */
+  // Loads the stored node at key, as the state-root trie does before replacing it.
+  private void loadStored(final Bytes key) {
+    storage
+        .get(TRIE_BRANCH_STORAGE, key.toArrayUnsafe())
+        .map(Bytes::wrap)
+        .ifPresent(
+            node ->
+                archiveStrategy
+                    .overrideNodeLoader(storage, (l, h) -> Optional.of(node), l -> key)
+                    .getNode(key, hash(node)));
+  }
+
   private void writeAccountBlock(final long block, final Bytes location, final Bytes node) {
     final SegmentedKeyValueStorageTransaction tx = startBlock(block);
+    loadStored(location);
     archiveStrategy.putTrieNode(storage, tx, location, hash(node), node);
     commitBlock(block, tx);
   }
@@ -349,6 +362,7 @@ class BonsaiArchiveStateProofIntegrationTest {
     for (long block = 0; block <= 1; block++) {
       final SegmentedKeyValueStorageTransaction tx = startBlock(block);
       final Bytes aNode = block == 0 ? aV0 : aV1;
+      loadStored(TrieNodeKey.of(accountA, location));
       archiveStrategy.putTrieNode(
           storage, tx, TrieNodeKey.of(accountA, location), hash(aNode), aNode);
       if (block == 0) {
