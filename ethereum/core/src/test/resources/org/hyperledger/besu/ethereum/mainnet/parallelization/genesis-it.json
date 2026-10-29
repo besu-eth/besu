@@ -242,6 +242,13 @@
       "codeDecompiled": "PUSH2 0x30FF PUSH0 MSTORE PUSH1 2 PUSH1 30 SELFBALANCE CREATE PUSH0 PUSH0 PUSH0 PUSH0 PUSH0 SWAP5 GAS CALL STOP",
       "storage": {}
     },
+    "0x0000000000000000000000000000000000007720": {
+      "comment": "Pays 1 wei to the funded account 0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb whenever called, spending from its own balance without reading it.",
+      "balance": "1000000000000000000",
+      "code": "0x5F5F5F5F600173a4664c40aacebd82a2db79f0ea36c06bc6a19adb5AF100",
+      "codeDecompiled": "PUSH0 PUSH0 PUSH0 PUSH0 PUSH1 1 PUSH20 0xa4664c40aacebd82a2db79f0ea36c06bc6a19adb GAS CALL STOP",
+      "storage": {}
+    },
     "627306090abab3a6e1400e9345bc60c78a8bef57": {
       "balance": "0x3635C9ADC5DEA00000",
       "privateKey": "c87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3",

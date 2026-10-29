@@ -75,7 +75,9 @@ public class PayOperationV2 extends AbstractOperationV2 {
     // EIP-5920 pays from the current address, the one ADDRESS returns, not from the caller
     final Address from = frame.getRecipientAddress();
     final MutableAccount fromAccount = getMutableAccount(from, frame);
-    if (fromAccount == null || value.compareTo(fromAccount.getBalance()) > 0) {
+    final Wei fromBalance = fromAccount == null ? Wei.ZERO : fromAccount.getBalance();
+    frame.getWorldUpdater().observeSpending(from, fromBalance, value);
+    if (fromAccount == null || value.compareTo(fromBalance) > 0) {
       setLong(0L, stack, top - 2);
       frame.setTopV2(top - 1);
       return new OperationResult(cost, null);

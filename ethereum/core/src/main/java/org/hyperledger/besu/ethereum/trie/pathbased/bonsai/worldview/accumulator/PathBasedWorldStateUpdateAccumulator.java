@@ -40,6 +40,7 @@ import org.hyperledger.besu.plugin.services.trielogs.TrieLogAccumulator;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
@@ -55,6 +56,7 @@ import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,6 +88,11 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
   private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
   protected boolean isAccumulatorStateChanged;
 
+  // the balances a speculatively executed transaction depends on, null when not recorded
+  private @Nullable Set<Address> observedBalances;
+  // how far the balances it only spends from may be lower, null when not recorded
+  private @Nullable Map<Address, Wei> balanceMargins;
+
   public PathBasedWorldStateUpdateAccumulator(
       final BonsaiWorldView world,
       final Consumer<BonsaiValue<ACCOUNT>> accountPreloader,
@@ -97,6 +104,52 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
     this.storagePreloader = storagePreloader;
     this.isAccumulatorStateChanged = false;
     this.evmConfiguration = evmConfiguration;
+  }
+
+  /**
+   * Starts recording which balances the transaction executed on this accumulator depends on, so
+   * that a change of any other balance by an earlier transaction does not invalidate it.
+   */
+  public void recordBalanceObservations() {
+    observedBalances = new HashSet<>();
+    balanceMargins = new HashMap<>();
+  }
+
+  /**
+   * The balances the transaction executed on this accumulator depends on.
+   *
+   * @return the accounts, or null if they were not recorded
+   */
+  public @Nullable Set<Address> getObservedBalances() {
+    return observedBalances;
+  }
+
+  /**
+   * How far below its starting value the balance of an account the transaction only spends from may
+   * be without changing the transaction's outcome.
+   *
+   * @param address the account
+   * @return the margin, or empty if the transaction did not spend from the account or the margins
+   *     were not recorded
+   */
+  public Optional<Wei> getBalanceMargin(final Address address) {
+    return balanceMargins == null
+        ? Optional.empty()
+        : Optional.ofNullable(balanceMargins.get(address));
+  }
+
+  @Override
+  public void observeBalance(final Address address) {
+    if (observedBalances != null) {
+      observedBalances.add(address);
+    }
+  }
+
+  @Override
+  public void observeSufficientBalance(final Address address, final Wei margin) {
+    if (balanceMargins != null) {
+      balanceMargins.merge(address, margin, (a, b) -> a.compareTo(b) <= 0 ? a : b);
+    }
   }
 
   public void cloneFromUpdater(final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
