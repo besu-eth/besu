@@ -69,7 +69,7 @@ class BonsaiArchiveReadWorldStateStorageCoordinatorTest {
     store.putEncoded(
         tx,
         ArchiveNodeKey.historyKey(ArchiveNodeKey.account(location), block),
-        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeFull(node)));
+        ArchiveTrieNodeCodec.encodeFull(node));
     tx.commit();
   }
 
@@ -80,7 +80,7 @@ class BonsaiArchiveReadWorldStateStorageCoordinatorTest {
     store.putEncoded(
         tx,
         ArchiveNodeKey.historyKey(ArchiveNodeKey.storage(accountHash.getBytes(), location), block),
-        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeFull(node)));
+        ArchiveTrieNodeCodec.encodeFull(node));
     tx.commit();
   }
 

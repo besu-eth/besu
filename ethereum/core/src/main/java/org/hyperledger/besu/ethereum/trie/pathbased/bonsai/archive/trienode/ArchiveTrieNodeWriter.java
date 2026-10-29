@@ -24,6 +24,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,7 +45,9 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private record CaptureRequest(
       Bytes naturalKey, Bytes location, long block, Bytes newNode, Bytes priorNode) {}
 
-  private record EncodedEntry(Bytes historyKey, Bytes storedValue) {}
+  // latestCounter is empty for a deletion, which removes the key's latest counter
+  private record EncodedEntry(
+      Bytes naturalKey, Bytes historyKey, Bytes codecEntry, Optional<Integer> latestCounter) {}
 
   private static class CaptureBuffer {
     final long block;
@@ -153,13 +156,28 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private void dispatchBatch(final CaptureBuffer buf) {
     final List<CaptureRequest> batch = List.copyOf(buf.pendingRequests);
     buf.pendingRequests.clear();
-    buf.inFlight.add(
-        capturePool.submit(
-            () -> batch.stream().map(r -> encodeHistoryEntry(r, buf.chainContiguous)).toList()));
+    buf.inFlight.add(capturePool.submit(() -> encodeBatch(batch, buf.chainContiguous)));
+  }
+
+  // Looks up the latest counters of the batch's updates in one multiget; creations, deletions and
+  // non-contiguous blocks are written FULL.
+  private List<EncodedEntry> encodeBatch(
+      final List<CaptureRequest> batch, final boolean chainContiguous) {
+    final Map<Bytes, Integer> priorCounters =
+        chainContiguous
+            ? historyStore.getLatestCounters(
+                batch.stream()
+                    .filter(r -> r.priorNode() != null && r.newNode() != null)
+                    .map(CaptureRequest::naturalKey)
+                    .toList())
+            : Map.of();
+    return batch.stream()
+        .map(r -> encodeHistoryEntry(r, Optional.ofNullable(priorCounters.get(r.naturalKey()))))
+        .toList();
   }
 
   private EncodedEntry encodeHistoryEntry(
-      final CaptureRequest request, final boolean chainContiguous) {
+      final CaptureRequest request, final Optional<Integer> priorCounter) {
     final Bytes priorNode = request.priorNode();
     final Bytes newNode = request.newNode();
 
@@ -167,17 +185,13 @@ public class ArchiveTrieNodeWriter implements Closeable {
       return createEncodedEntry(request, 0, ArchiveTrieNodeCodec.encodeDiff(priorNode, newNode));
     }
 
-    if (request.block() != 0L && chainContiguous) {
-      final Optional<ArchiveNodeHistoryStore.HistoryEntry> priorEntry =
-          historyStore.getLatestBefore(request.naturalKey(), request.block() - 1L);
-      if (priorEntry.isPresent() && !priorEntry.get().codecEntry().isDeletion()) {
-        final int counter = priorEntry.get().counter() + 1;
-        if (counter < checkpointIntervalForDepth(request.location().size())) {
-          final Bytes codecEntry = ArchiveTrieNodeCodec.encodeDiff(priorNode, newNode);
-          // encodeDiff may fall back to FULL when the patch is no smaller than the node
-          final int effectiveCounter = ArchiveTrieNodeEntry.isFullEncoded(codecEntry) ? 0 : counter;
-          return createEncodedEntry(request, effectiveCounter, codecEntry);
-        }
+    if (priorCounter.isPresent()) {
+      final int counter = priorCounter.get() + 1;
+      if (counter < checkpointIntervalForDepth(request.location().size())) {
+        final Bytes codecEntry = ArchiveTrieNodeCodec.encodeDiff(priorNode, newNode);
+        // encodeDiff may fall back to FULL when the patch is no smaller than the node
+        final int effectiveCounter = ArchiveTrieNodeEntry.isFullEncoded(codecEntry) ? 0 : counter;
+        return createEncodedEntry(request, effectiveCounter, codecEntry);
       }
     }
     return createEncodedEntry(request, 0, ArchiveTrieNodeCodec.encodeFull(newNode));
@@ -186,8 +200,10 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private EncodedEntry createEncodedEntry(
       final CaptureRequest request, final int counter, final Bytes codecEntry) {
     return new EncodedEntry(
+        request.naturalKey(),
         ArchiveNodeKey.historyKey(request.naturalKey(), request.block()),
-        ArchiveNodeHistoryStore.encodeStoredValue(counter, codecEntry));
+        codecEntry,
+        request.newNode() == null ? Optional.empty() : Optional.of(counter));
   }
 
   public void onBeforeCommit(final SegmentedKeyValueStorageTransaction transaction) {
@@ -219,7 +235,12 @@ public class ArchiveTrieNodeWriter implements Closeable {
       try {
         for (final Future<List<EncodedEntry>> future : buf.inFlight) {
           for (final EncodedEntry entry : future.get()) {
-            historyStore.putEncoded(writeTx, entry.historyKey(), entry.storedValue());
+            historyStore.putEncoded(writeTx, entry.historyKey(), entry.codecEntry());
+            entry
+                .latestCounter()
+                .ifPresentOrElse(
+                    counter -> historyStore.putLatestCounter(writeTx, entry.naturalKey(), counter),
+                    () -> historyStore.removeLatestCounter(writeTx, entry.naturalKey()));
           }
         }
       } catch (final InterruptedException e) {

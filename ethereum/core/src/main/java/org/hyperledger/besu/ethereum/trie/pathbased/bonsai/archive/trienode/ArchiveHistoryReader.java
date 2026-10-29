@@ -69,29 +69,26 @@ public final class ArchiveHistoryReader {
   }
 
   /**
-   * Walks backward from {@code anchorEntry} (itself a DIFF) exactly {@code anchorEntry.counter()}
-   * steps — the distance to the FULL checkpoint recorded by the writer — then applies the collected
-   * diffs forward. The counter is a single unsigned byte, so the walk is inherently bounded to at
-   * most {@link ArchiveNodeHistoryStore#MAX_COUNTER} steps. Treats any mismatch between the counter
-   * and the actual chain (a missing entry, an unexpected deletion, or no FULL at the expected
-   * point) as corruption.
+   * Walks backward from {@code anchorEntry} (itself a DIFF) to the nearest FULL checkpoint, then
+   * applies the collected diffs forward. The writer starts a new FULL at least every {@link
+   * ArchiveNodeHistoryStore#MAX_COUNTER} DIFFs, so a longer walk, a missing entry or an unexpected
+   * deletion is treated as corruption.
    */
   private Optional<Bytes> reconstructFromDiffChain(
       final Bytes naturalKey,
       final ArchiveNodeHistoryStore.HistoryEntry anchorEntry,
       final long targetBlock) {
-    final int stepsToFull = anchorEntry.counter();
-    final List<Bytes> diffs = new ArrayList<>(stepsToFull);
+    final int maxSteps = ArchiveNodeHistoryStore.MAX_COUNTER;
+    final List<Bytes> diffs = new ArrayList<>();
     diffs.add(anchorEntry.rawEntryBytes());
     long walkBlock = anchorEntry.block();
 
-    for (int step = 0; step < stepsToFull && walkBlock > 0; step++) {
+    for (int step = 0; step < maxSteps && walkBlock > 0; step++) {
       final Optional<ArchiveNodeHistoryStore.HistoryEntry> prevOpt =
           historyStore.getLatestBefore(naturalKey, walkBlock - 1);
       if (prevOpt.isEmpty()) {
         LOG.warn(
-            "expected a FULL checkpoint {} steps back for key {} but history ran out before block {} (target block {})",
-            stepsToFull,
+            "expected a FULL checkpoint for key {} but history ran out before block {} (target block {})",
             naturalKey,
             walkBlock,
             targetBlock);
@@ -116,7 +113,7 @@ public final class ArchiveHistoryReader {
 
     LOG.warn(
         "expected a FULL checkpoint within {} steps for key {} but none was found (target block {})",
-        stepsToFull,
+        maxSteps,
         naturalKey,
         targetBlock);
     return Optional.empty();
