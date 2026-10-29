@@ -15,16 +15,22 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker.Coverage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ArchiveCoverageTrackerTest {
 
@@ -43,52 +49,92 @@ class ArchiveCoverageTrackerTest {
     assertThat(progress.hasArchiveBlock(10)).isFalse();
   }
 
-  @Test
-  void coversRecordedBlockAfterRecord() {
-    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    progress.record(tx, 5L);
-    tx.commit();
+  private static Hash blockHash(final long block) {
+    return Hash.hash(Bytes.ofUnsignedLong(block));
+  }
 
-    assertThat(progress.hasArchiveBlock(5L)).isTrue();
-    assertThat(progress.hasArchiveBlock(6L)).isFalse();
+  private void commitRecord(final long block) {
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    progress.record(tx, block, blockHash(block));
+    tx.commit();
   }
 
   @Test
-  void indexStartTracksFirstRecordedBlock() {
-    // Blocks are always archived in ascending order.
-    final SegmentedKeyValueStorageTransaction tx1 = storage.startTransaction();
-    progress.record(tx1, 5L);
-    tx1.commit();
+  void coversRecordedBlockAfterRecord() {
+    commitRecord(0L);
 
-    final SegmentedKeyValueStorageTransaction tx2 = storage.startTransaction();
-    progress.record(tx2, 10L);
-    tx2.commit();
+    assertThat(progress.hasArchiveBlock(0L)).isTrue();
+    assertThat(progress.hasArchiveBlock(1L)).isFalse();
+  }
 
-    // Covered range is [5, 10]
-    assertThat(progress.hasArchiveBlock(5L)).isTrue();
-    assertThat(progress.hasArchiveBlock(10L)).isTrue();
-    assertThat(progress.hasArchiveBlock(4L)).isFalse();
-    assertThat(progress.hasArchiveBlock(11L)).isFalse();
+  @Test
+  void coverageSpansContiguousRecords() {
+    commitRecord(0L);
+    commitRecord(1L);
+    commitRecord(2L);
+
+    assertThat(progress.hasArchiveBlock(0L)).isTrue();
+    assertThat(progress.hasArchiveBlock(2L)).isTrue();
+    assertThat(progress.hasArchiveBlock(3L)).isFalse();
   }
 
   @Test
   void progressIsReadFromStorageNotInMemory() {
-    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    progress.record(tx, 3L);
-    tx.commit();
+    commitRecord(0L);
+    commitRecord(1L);
 
-    // A fresh instance reading the same storage sees the same progress
     final ArchiveCoverageTracker anotherView = new ArchiveCoverageTracker(storage);
-    assertThat(anotherView.hasArchiveBlock(3L)).isTrue();
-    assertThat(anotherView.hasArchiveBlock(4L)).isFalse();
+    assertThat(anotherView.hasArchiveBlock(1L)).isTrue();
+    assertThat(anotherView.hasArchiveBlock(2L)).isFalse();
   }
 
   @Test
   void uncommittedRecordNotVisible() {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    progress.record(tx, 7L);
+    progress.record(tx, 0L, blockHash(0L));
     // NOT committed
 
-    assertThat(progress.hasArchiveBlock(7L)).isFalse();
+    assertThat(progress.hasArchiveBlock(0L)).isFalse();
+  }
+
+  // 16 bytes is the legacy hash-less format.
+  @ParameterizedTest
+  @ValueSource(ints = {4, 16})
+  void malformedCoverageTreatedAsNone(final int size) {
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    tx.put(TRIE_BRANCH_STORAGE_ARCHIVE, ArchiveCoverageTracker.COVERAGE_KEY, new byte[size]);
+    tx.commit();
+
+    assertThat(progress.getCoverage()).isEmpty();
+    assertThat(progress.hasArchiveBlock(0L)).isFalse();
+  }
+
+  @Test
+  void recordRejectsGap() {
+    commitRecord(0L);
+    assertThatThrownBy(() -> commitRecord(2L)).isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void recordRejectsNonGenesisFirstBlock() {
+    assertThatThrownBy(() -> commitRecord(5L)).isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void coverageReportsWindow() {
+    commitRecord(0L);
+    commitRecord(1L);
+    assertThat(progress.getCoverage()).contains(new Coverage(0L, 1L, blockHash(1L)));
+  }
+
+  @Test
+  void recordStoresStartLastAndHash() {
+    commitRecord(0L);
+
+    final byte[] raw =
+        storage.get(TRIE_BRANCH_STORAGE_ARCHIVE, ArchiveCoverageTracker.COVERAGE_KEY).orElseThrow();
+    assertThat(raw).hasSize(48);
+    assertThat(new ArchiveCoverageTracker(storage).getCoverage())
+        .contains(new Coverage(0L, 0L, blockHash(0L)));
   }
 }

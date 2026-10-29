@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
+import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
@@ -631,6 +632,18 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
           trieBranchSegment, WORLD_ROOT_HASH_KEY, nodeHash.toArrayUnsafe());
       composedWorldStateTransaction.put(
           trieBranchSegment, WORLD_BLOCK_HASH_KEY, blockHash.toArrayUnsafe());
+      return this;
+    }
+
+    /**
+     * Notifies the trie-node strategy that {@code blockHeader}'s block is about to be persisted
+     * through this updater. Must be called before the block's trie nodes are written.
+     *
+     * @param blockHeader the header of the block being persisted
+     * @return this updater
+     */
+    public Updater beginBlockPersist(final BlockHeader blockHeader) {
+      trieNodeStrategy.onBlockPersist(worldStorage, composedWorldStateTransaction, blockHeader);
       return this;
     }
 

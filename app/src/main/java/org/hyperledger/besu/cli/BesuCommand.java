@@ -2463,6 +2463,23 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             DataStorageFormat.BONSAI);
       }
     }
+
+    if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
+        && dataStorageConfiguration
+            .getExtraStorageConfiguration()
+            .getUnstable()
+            .getBonsaiArchiveStateProofsEnabled()
+        && SyncMode.SNAP.equals(getDefaultSyncModeIfNotSet())) {
+      throw new ParameterException(
+          commandLine,
+          String.format(
+              "Cannot enable %s with --sync-mode=%s and --data-storage-format=%s. You must use --sync-mode=%s",
+              ExtraStorageOptions.STATE_PROOFS_ENABLED,
+              SyncMode.SNAP,
+              DataStorageFormat.X_BONSAI_ARCHIVE,
+              SyncMode.FULL));
+    }
+
     return dataStorageConfiguration;
   }
 

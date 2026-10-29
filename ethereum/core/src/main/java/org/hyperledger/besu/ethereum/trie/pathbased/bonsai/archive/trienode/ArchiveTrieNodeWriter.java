@@ -14,6 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
+import static com.google.common.base.Preconditions.checkState;
+
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.io.Closeable;
@@ -43,12 +48,14 @@ public class ArchiveTrieNodeWriter implements Closeable {
 
   private static class CaptureBuffer {
     final long block;
+    final Hash blockHash;
     final boolean chainContiguous;
     final List<CaptureRequest> pendingRequests = new ArrayList<>();
     final List<Future<List<EncodedEntry>>> inFlight = new ArrayList<>();
 
-    CaptureBuffer(final long block, final boolean chainContiguous) {
+    CaptureBuffer(final long block, final Hash blockHash, final boolean chainContiguous) {
       this.block = block;
+      this.blockHash = blockHash;
       this.chainContiguous = chainContiguous;
     }
   }
@@ -64,25 +71,50 @@ public class ArchiveTrieNodeWriter implements Closeable {
   // One buffer per open transaction, keyed by identity; removed on commit or rollback.
   private final ConcurrentHashMap<SegmentedKeyValueStorageTransaction, CaptureBuffer> buffers =
       new ConcurrentHashMap<>();
-  private volatile long lastArchivedBlock = -1L;
+
+  // When present, each block's entries and coverage commit in their own transaction on it.
+  private final Optional<SegmentedKeyValueStorage> ownCommitStorage;
 
   public ArchiveTrieNodeWriter(
       final ArchiveNodeHistoryStore historyStore,
       final ArchiveCoverageTracker coverageTracker,
       final ExecutorService capturePool,
       final int shallowCheckpointInterval,
-      final int deepCheckpointInterval) {
+      final int deepCheckpointInterval,
+      final Optional<SegmentedKeyValueStorage> ownCommitStorage) {
     this.historyStore = Objects.requireNonNull(historyStore, "historyStore must not be null");
     this.coverageTracker =
         Objects.requireNonNull(coverageTracker, "coverageTracker must not be null");
     this.capturePool = Objects.requireNonNull(capturePool, "capturePool must not be null");
     this.shallowCheckpointInterval = shallowCheckpointInterval;
     this.deepCheckpointInterval = deepCheckpointInterval;
+    this.ownCommitStorage = Objects.requireNonNull(ownCommitStorage);
   }
 
   @VisibleForTesting
   int checkpointIntervalForDepth(final int locationSizeBytes) {
     return locationSizeBytes <= 2 ? shallowCheckpointInterval : deepCheckpointInterval;
+  }
+
+  /**
+   * Opens {@code transaction}'s capture buffer for {@code blockHeader}'s block. Entries diff
+   * against prior history only when coverage ends at {@code block - 1}; otherwise every entry is
+   * written FULL.
+   *
+   * @param transaction the open transaction that will commit this block's writes
+   * @param blockHeader the header of the block being imported
+   * @throws IllegalStateException if {@code transaction} already has a begun block
+   */
+  public void beginBlock(
+      final SegmentedKeyValueStorageTransaction transaction, final BlockHeader blockHeader) {
+    final long block = blockHeader.getNumber();
+    final boolean chainContiguous =
+        coverageTracker.getCoverage().map(c -> c.lastBlock() == block - 1).orElse(false);
+    checkState(
+        buffers.putIfAbsent(
+                transaction, new CaptureBuffer(block, blockHeader.getBlockHash(), chainContiguous))
+            == null,
+        "Block already begun on this transaction");
   }
 
   /**
@@ -94,6 +126,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
    * @param newNode the new RLP-encoded node value, or {@code null} if the node is being deleted
    * @param priorNode the previous RLP-encoded node value, or {@code null} if this is a creation
    * @param transaction the open transaction that will commit this block's writes
+   * @throws IllegalStateException if {@link #beginBlock} was not called for {@code transaction}
    */
   void capture(
       final Bytes naturalKey,
@@ -102,9 +135,11 @@ public class ArchiveTrieNodeWriter implements Closeable {
       final Bytes newNode,
       final Bytes priorNode,
       final SegmentedKeyValueStorageTransaction transaction) {
-    final CaptureBuffer buf =
-        buffers.computeIfAbsent(
-            transaction, tx -> new CaptureBuffer(block, block == lastArchivedBlock + 1L));
+    final CaptureBuffer buf = buffers.get(transaction);
+    if (buf == null) {
+      throw new IllegalStateException(
+          "trie-node capture for block " + block + " on a transaction with no begun block");
+    }
     synchronized (buf) {
       if (buf.block != block) {
         throw new IllegalStateException(
@@ -165,6 +200,23 @@ public class ArchiveTrieNodeWriter implements Closeable {
     if (buf == null) {
       return;
     }
+    if (ownCommitStorage.isEmpty()) {
+      writeBlock(buf, transaction);
+      return;
+    }
+    final SegmentedKeyValueStorageTransaction ownTx =
+        ownCommitStorage.get().startLowPriorityTransaction();
+    try {
+      writeBlock(buf, ownTx);
+    } catch (final RuntimeException | Error e) {
+      ownTx.rollback();
+      throw e;
+    }
+    ownTx.commit();
+  }
+
+  private void writeBlock(
+      final CaptureBuffer buf, final SegmentedKeyValueStorageTransaction writeTx) {
     synchronized (buf) {
       if (!buf.pendingRequests.isEmpty()) {
         dispatchBatch(buf);
@@ -172,7 +224,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
       try {
         for (final Future<List<EncodedEntry>> future : buf.inFlight) {
           for (final EncodedEntry entry : future.get()) {
-            historyStore.putEncoded(transaction, entry.historyKey(), entry.storedValue());
+            historyStore.putEncoded(writeTx, entry.historyKey(), entry.storedValue());
           }
         }
       } catch (final InterruptedException e) {
@@ -181,8 +233,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
       } catch (final ExecutionException e) {
         throw new RuntimeException("trie-node capture failed", e.getCause());
       }
-      coverageTracker.record(transaction, buf.block);
-      lastArchivedBlock = buf.block;
+      coverageTracker.record(writeTx, buf.block, buf.blockHash);
     }
   }
 
