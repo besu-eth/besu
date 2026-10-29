@@ -108,16 +108,14 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
       names = {"--max-blobs-per-transaction"},
       description =
           "Maximum number of blobs allowed per transaction. "
-              + "Only applies from Osaka hardfork onwards. (default: 6)",
-      arity = "1")
+              + "Only applies from Osaka hardfork onwards. (default: 6)")
   private Integer maxBlobsPerTransaction = null;
 
   @Option(
       names = {"--max-blobs-per-block"},
       description =
           "Maximum number of blobs allowed per block when building blocks. "
-              + "Only applies from Osaka hardfork onwards. Values above the protocol maximum are clamped. (default: protocol maximum)",
-      arity = "1")
+              + "Only applies from Osaka hardfork onwards. Values above the protocol maximum are clamped. (default: protocol maximum)")
   private Integer maxBlobsPerBlock = null;
 
   @CommandLine.ArgGroup(validate = false)
