@@ -71,6 +71,19 @@ class HeaderFetcherTest {
   }
 
   @Test
+  void cancelsTheRequestOfAHeaderNoLongerAwaited() {
+    final BlockHeader header = chain.get(10);
+    sender.leaveUnanswered = true;
+    final CompletableFuture<BlockHeader> fetched =
+        fetcher(Optional::empty).byHash(header.getHash(), Priority.HEADERS);
+
+    fetched.cancel(false);
+
+    // the scheduler would retry it until then
+    assertThat(sender.unanswered).isCancelled();
+  }
+
+  @Test
   void walksDownTheParentLinks() {
     assertThat(fetcher(Optional::empty).chainDown(chain.get(17), 5, Priority.HEADERS))
         .isCompletedWithValue(chain.subList(5, 18));
@@ -165,6 +178,9 @@ class HeaderFetcherTest {
     private final List<SyncRequest<?>> requests = new ArrayList<>();
     private final List<GetBlockHeadersMessage> messages = new ArrayList<>();
     private long bestPeerHeight;
+    // a request left without an answer, as a peer that does not answer
+    private boolean leaveUnanswered;
+    private CompletableFuture<?> unanswered;
     // the most headers an answer carries, fewer than asked as a peer may send
     private int maxAnswer = Integer.MAX_VALUE;
 
@@ -180,6 +196,11 @@ class HeaderFetcherTest {
       final GetBlockHeadersMessage message = GetBlockHeadersMessage.readFrom(request.message(peer));
       requests.add(request);
       messages.add(message);
+      if (leaveUnanswered) {
+        final CompletableFuture<Response<T>> answer = new CompletableFuture<>();
+        unanswered = answer;
+        return answer;
+      }
       // a reverse request by hash, from that header down
       int number = (int) header(message.hash().orElseThrow()).getNumber();
       final List<BlockHeader> headers = new ArrayList<>();

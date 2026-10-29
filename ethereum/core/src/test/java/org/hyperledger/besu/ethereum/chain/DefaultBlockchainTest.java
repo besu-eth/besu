@@ -17,8 +17,15 @@ package org.hyperledger.besu.ethereum.chain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -26,6 +33,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockOptions;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
@@ -46,6 +54,7 @@ import org.hyperledger.besu.metrics.MetricsSystemFactory;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
@@ -271,22 +280,11 @@ public class DefaultBlockchainTest {
     final KeyValueStorage variablesStorage = new InMemoryKeyValueStorage();
     final Block genesisBlock = gen.genesisBlock();
     final MetricsSystem metricsSystem = mock(MetricsSystem.class);
-    final AtomicReference<IntSupplier> chainHeadTransactionCount = new AtomicReference<>();
-    doAnswer(
-            invocation -> {
-              chainHeadTransactionCount.set(invocation.getArgument(3));
-              return null;
-            })
-        .when(metricsSystem)
-        .createIntegerGauge(any(), any(), any(), any());
+    final AtomicReference<IntSupplier> chainHeadTransactionCount =
+        chainHeadTransactionCount(metricsSystem);
     final DefaultBlockchain blockchain =
         createMutableBlockchain(chainStorage, variablesStorage, genesisBlock, metricsSystem);
-    final Block importedBlock =
-        gen.block(
-            new BlockDataGenerator.BlockOptions()
-                .setBlockNumber(1L)
-                .addTransaction(gen.transactions(2))
-                .setParentHash(genesisBlock.getHash()));
+    final Block importedBlock = blockWithTwoTransactions(gen, genesisBlock);
     blockchain.storeBlockHeaders(List.of(importedBlock.getHeader()));
     final SyncBlockWithReceipts syncBlockWithReceipts = toSyncBlockWithReceipts(importedBlock);
     final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -1258,12 +1256,16 @@ public class DefaultBlockchainTest {
             new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage(), genesisBlock);
     final List<Block> blocks = blocksAbove(gen, genesisBlock, 8, Difficulty.ONE);
     blockchain.storeBlockHeaders(blocks.stream().map(Block::getHeader).toList());
-    blockchain.unsafeSetChainHead(blocks.getLast().getHeader(), Difficulty.of(9));
     // block 4 is where a search from block 1 looks first, its body stored apart
     storeBodies(blockchain, blocks, 4, 7, 8);
     blockchain.unsafeSetBodiesFrom(7);
+    // recorded by a sync whose chain head is still below
+    assertThat(blockchain.getEarliestBlockNumber()).isEmpty();
+    blockchain.unsafeSetChainHead(blocks.getLast().getHeader(), Difficulty.of(9));
 
     assertThat(blockchain.getEarliestBlockNumber()).contains(7L);
+    // above the chain head a caller read before the sync moved it up
+    assertThat(blockchain.getEarliestBlockNumber(6)).isEmpty();
 
     // the back-fill moves the record down
     storeBodies(blockchain, blocks, 5, 6);
@@ -1286,6 +1288,138 @@ public class DefaultBlockchainTest {
     // stored, so a restarted node reads it back
     assertThat(createMutableBlockchain(chainKv, variablesKv, genesisBlock).getBodiesFrom())
         .contains(2L);
+  }
+
+  @Test
+  public void writesTheTotalDifficultiesOfTheHeadersAboveTheParentInOneBatch() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Block genesisBlock = gen.genesisBlock();
+    final BlockchainStorage storage =
+        spy(createStorage(new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage()));
+    final DefaultBlockchain blockchain =
+        (DefaultBlockchain)
+            DefaultBlockchain.createMutable(genesisBlock, storage, new NoOpMetricsSystem(), 0);
+    final Difficulty genesisTotal = blockchain.getChainHead().getTotalDifficulty();
+    final List<Block> blocks = blocksAbove(gen, genesisBlock, 4, Difficulty.ONE);
+    clearInvocations(storage);
+    blockchain.storeBlockHeaders(blocks.stream().map(Block::getHeader).toList());
+    // a total difficulty already stored is computed again
+    final BlockchainStorage.Updater updater = storage.updater();
+    updater.putTotalDifficulty(blocks.get(1).getHash(), Difficulty.ONE);
+    updater.commit();
+
+    final Difficulty total = blockchain.unsafeStoreSyncTotalDifficulties(0, genesisTotal, 3);
+
+    blockchain.unsafeSetChainHead(blocks.get(2).getHeader(), total);
+    assertTotalDifficultiesAreConsistent(blockchain, blocks.get(2));
+    assertThat(blockchain.getTotalDifficultyByHash(blocks.get(3).getHash())).isEmpty();
+    // the headers, then their total difficulties, each in one batch without conflict checks
+    verify(storage, times(2)).batchUpdater();
+  }
+
+  @Test
+  public void rejectsAHeaderThatDoesNotFollowTheCanonicalChain() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(
+            new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage(), genesisBlock);
+    final List<Block> blocks = blocksAbove(gen, genesisBlock, 3, Difficulty.ONE);
+    // the canonical block 2 is not the child of block 1
+    final BlockHeader orphan =
+        new BlockHeaderTestFixture()
+            .number(2)
+            .parentHash(Hash.ZERO)
+            .difficulty(Difficulty.ONE)
+            .buildHeader();
+    blockchain.storeBlockHeaders(
+        List.of(blocks.get(0).getHeader(), orphan, blocks.get(2).getHeader()));
+    final Difficulty genesisTotal = blockchain.getChainHead().getTotalDifficulty();
+
+    assertThatThrownBy(() -> blockchain.unsafeStoreSyncTotalDifficulties(0, genesisTotal, 3))
+        .isInstanceOf(IllegalStateException.class);
+    // not even the total difficulty of block 1 is written
+    assertThat(blockchain.getTotalDifficultyByHash(blocks.get(0).getHash())).isEmpty();
+  }
+
+  @Test
+  public void rejectsTotalDifficultiesUpToABlockThatIsNotAboveTheParent() {
+    final Block genesisBlock = new BlockDataGenerator().genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(
+            new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage(), genesisBlock);
+
+    assertThatThrownBy(() -> blockchain.unsafeStoreSyncTotalDifficulties(0, Difficulty.ONE, 0))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  public void countsTheTransactionsOfTheChainHeadASyncSets() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Block genesisBlock = gen.genesisBlock();
+    final MetricsSystem metricsSystem = mock(MetricsSystem.class);
+    final AtomicReference<IntSupplier> transactionCount = chainHeadTransactionCount(metricsSystem);
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(
+            new InMemoryKeyValueStorage(),
+            new InMemoryKeyValueStorage(),
+            genesisBlock,
+            metricsSystem);
+    final Block block = blockWithTwoTransactions(gen, genesisBlock);
+    blockchain.storeBlockHeaders(List.of(block.getHeader()));
+    blockchain.unsafeStoreSyncBodiesAndReceipts(List.of(toSyncBlockWithReceipts(block)), false);
+
+    blockchain.unsafeSetChainHead(block.getHeader(), Difficulty.ONE);
+    assertThat(transactionCount.get().getAsInt()).isEqualTo(2);
+
+    // a checkpoint, whose body is not stored
+    final BlockHeader checkpoint =
+        blocksAbove(gen, block, 1, Difficulty.ZERO).getFirst().getHeader();
+    blockchain.unsafeStoreHeader(checkpoint, Difficulty.ONE);
+    assertThat(transactionCount.get().getAsInt()).isZero();
+  }
+
+  @Test
+  public void keepsTheChainHeadWhenItsCommitFails() {
+    final Block genesisBlock = new BlockDataGenerator().genesisBlock();
+    final BlockchainStorage storage =
+        spy(createStorage(new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage()));
+    final DefaultBlockchain blockchain =
+        (DefaultBlockchain)
+            DefaultBlockchain.createMutable(genesisBlock, storage, new NoOpMetricsSystem(), 0);
+    final BlockchainStorage.Updater failing = spy(storage.updater());
+    doThrow(new StorageException("not committed")).when(failing).commit();
+    doReturn(failing).when(storage).updater();
+    final BlockHeader header =
+        new BlockHeaderTestFixture().number(1).parentHash(genesisBlock.getHash()).buildHeader();
+
+    assertThatThrownBy(() -> blockchain.unsafeSetChainHead(header, Difficulty.ONE))
+        .isInstanceOf(StorageException.class);
+    assertThatThrownBy(() -> blockchain.unsafeStoreHeader(header, Difficulty.ONE))
+        .isInstanceOf(StorageException.class);
+    assertThat(blockchain.getChainHeadHeader()).isEqualTo(genesisBlock.getHeader());
+  }
+
+  // the supplier of the transaction count gauge of the chain head
+  private static AtomicReference<IntSupplier> chainHeadTransactionCount(
+      final MetricsSystem metricsSystem) {
+    final AtomicReference<IntSupplier> transactionCount = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              transactionCount.set(invocation.getArgument(3));
+              return null;
+            })
+        .when(metricsSystem)
+        .createIntegerGauge(any(), eq("chain_head_transaction_count"), any(), any());
+    return transactionCount;
+  }
+
+  private static Block blockWithTwoTransactions(final BlockDataGenerator gen, final Block parent) {
+    return gen.block(
+        new BlockOptions()
+            .setBlockNumber(parent.getHeader().getNumber() + 1)
+            .addTransaction(gen.transactions(2))
+            .setParentHash(parent.getHash()));
   }
 
   // count blocks above the parent, each the child of the one before

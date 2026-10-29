@@ -72,6 +72,7 @@ public class SnapSyncConfiguration {
 
   public static final Boolean DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED = Boolean.FALSE;
   public static final Boolean DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED = Boolean.TRUE;
+  public static final Boolean DEFAULT_SNAP2_BACKFILL_ENABLED = Boolean.TRUE;
 
   public static SnapSyncConfiguration getDefault() {
     return ImmutableSnapSyncConfiguration.builder().build();
@@ -135,5 +136,10 @@ public class SnapSyncConfiguration {
   @Value.Default
   public Boolean isSnapSyncTransactionIndexingEnabled() {
     return DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED;
+  }
+
+  @Value.Default
+  public Boolean isSnap2BackfillEnabled() {
+    return DEFAULT_SNAP2_BACKFILL_ENABLED;
   }
 }

@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.FullSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.BackgroundBackfill;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
@@ -68,6 +69,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   private final ProtocolContext protocolContext;
   private final PivotBlockSelector pivotBlockSelector;
   private final SyncTerminationCondition terminationCondition;
+  private final BackgroundBackfill backgroundBackfill;
 
   public DefaultSynchronizer(
       final SynchronizerConfiguration syncConfig,
@@ -89,6 +91,17 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     this.pivotBlockSelector = pivotBlockSelector;
     this.protocolContext = protocolContext;
     this.terminationCondition = terminationCondition;
+    this.backgroundBackfill =
+        BackgroundBackfill.create(
+            protocolContext.getBlockchain(),
+            protocolSchedule,
+            ethContext.getEthPeers(),
+            syncState,
+            chainDataPruner,
+            syncConfig.getSnapSyncConfiguration(),
+            metricsSystem);
+    // started once the initial sync completes, stopped when it starts again
+    syncState.subscribeCompletionReached(backgroundBackfill);
 
     ChainHeadTracker.trackChainHeadForPeers(
         ethContext,
@@ -209,6 +222,8 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
   @Override
   public void stop() {
+    // the back-fill outlives the initial sync, after which the synchronizer no longer runs
+    backgroundBackfill.stop();
     if (running.compareAndSet(true, false)) {
       LOG.info("Stopping synchronizer");
       fastSyncDownloader.ifPresent(SnapSyncController::stop);
@@ -223,7 +238,9 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   }
 
   @Override
-  public void awaitStop() {}
+  public void awaitStop() throws InterruptedException {
+    backgroundBackfill.awaitStop();
+  }
 
   private CompletableFuture<Void> handleSyncResult(final SnapSyncProcessState result) {
     if (!running.get()) {

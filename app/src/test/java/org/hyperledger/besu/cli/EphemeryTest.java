@@ -37,6 +37,7 @@ import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.KeyPairUtil;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ImmutableInProcessRpcConfiguration;
@@ -44,18 +45,24 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
@@ -71,8 +78,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -349,6 +358,32 @@ public class EphemeryTest extends CommandTestAbstract {
   public void testLoadKeyPairShouldNotGenerateKnewKey() {
     var key = besuCommand.loadKeyPair(besuCommand.dataPath.resolve("key").toFile());
     assertThat(key).isEqualTo(keyPair); // key loaded and not generated
+  }
+
+  @Test
+  public void testEphemeryIteration165GenesisHash() {
+    final GenesisConfig genesisConfig = GenesisConfig.fromResource("/ephemery.json");
+    final Map<String, String> overrides = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    overrides.put("chainId", "39438165");
+    overrides.put("timestamp", "1792695600");
+    final GenesisConfig iter165Config = genesisConfig.withOverrides(overrides);
+
+    final ProtocolSchedule protocolSchedule =
+        MainnetProtocolSchedule.fromConfig(
+            iter165Config.getConfigOptions(),
+            miningParameters,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            noOpMetricsSystem);
+    final GenesisState genesisState =
+        GenesisState.fromConfig(iter165Config, protocolSchedule, new BonsaiCodeCache());
+
+    final Hash genesisHash = genesisState.getBlock().getHash();
+    assertThat(genesisHash)
+        .isEqualTo(
+            Hash.fromHexString(
+                "0x9485bbe8e32e278194666d249590c9167057edeabaecc62e7a68355f68305ecc"));
   }
 
   private void getPeers(final long timeout, final long leastExpectedPeers, final int cycle) {
