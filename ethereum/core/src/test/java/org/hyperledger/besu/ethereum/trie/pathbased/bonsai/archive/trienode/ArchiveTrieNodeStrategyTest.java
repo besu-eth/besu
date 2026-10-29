@@ -20,10 +20,17 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
@@ -35,6 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 import java.util.function.LongPredicate;
 import java.util.function.Supplier;
 
@@ -93,6 +101,22 @@ class ArchiveTrieNodeStrategyTest {
   private ArchiveTrieNodeStrategy strategy(final LongPredicate isFinal) {
     return new ArchiveTrieNodeStrategy(
         new BonsaiTrieNodeStrategy(), capture, historyStore, s -> s == storage, isFinal);
+  }
+
+  private ArchiveTrieNodeStrategy strategyOver(final BonsaiTrieNodeStrategy base) {
+    return new ArchiveTrieNodeStrategy(base, capture, historyStore, s -> s == storage, b -> true);
+  }
+
+  // A state-root trie over {@code target} loading {@code node} at {@code location}.
+  private static void load(
+      final ArchiveTrieNodeStrategy strategy,
+      final SegmentedKeyValueStorage target,
+      final Bytes location,
+      final Bytes32 nodeHash,
+      final Bytes node) {
+    strategy
+        .overrideNodeLoader(target, (l, h) -> Optional.of(node), Function.identity())
+        .getNode(location, nodeHash);
   }
 
   private static Bytes32 hash(final Bytes value) {
@@ -407,5 +431,92 @@ class ArchiveTrieNodeStrategyTest {
     persistBlock(strategy, 1, remove(location));
 
     assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isEmpty();
+  }
+
+  @Test
+  void priorLoadedByTheStateRootTrieIsUsedWithoutReadingStorage() {
+    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
+    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
+    final Bytes location = Bytes.of(0x07);
+    final Bytes node = Bytes.fromHexString("0xfeed");
+    persistBlock(strategy, 0, put(location, node));
+
+    load(strategy, storage, location, hash(node), node);
+    clearInvocations(base);
+    // an unchanged rewrite is only skipped if the prior is known
+    persistBlock(strategy, 1, put(location, node));
+
+    verify(base, never()).getTrieNode(any(), any(), any());
+    assertThat(
+            historyStore
+                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
+                .orElseThrow()
+                .block())
+        .isZero();
+  }
+
+  @Test
+  void priorNotLoadedIsReadFromStorage() {
+    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
+    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
+    final Bytes location = Bytes.of(0x07);
+    final Bytes node = Bytes.fromHexString("0xfeed");
+    persistBlock(strategy, 0, put(location, node));
+
+    clearInvocations(base);
+    persistBlock(strategy, 1, put(location, node));
+
+    verify(base).getTrieNode(storage, location, Bytes32.ZERO);
+    assertThat(
+            historyStore
+                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
+                .orElseThrow()
+                .block())
+        .isZero();
+  }
+
+  @Test
+  void emptyTrieNodeIsNotAPrior() {
+    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
+    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
+    final Bytes location = Bytes.of(0x07);
+    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
+
+    load(strategy, storage, location, MerkleTrie.EMPTY_TRIE_NODE_HASH, MerkleTrie.EMPTY_TRIE_NODE);
+    clearInvocations(base);
+    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xfeed")));
+
+    verify(base).getTrieNode(storage, location, Bytes32.ZERO);
+    assertThat(
+            historyStore
+                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
+                .orElseThrow()
+                .codecEntry()
+                .isFull())
+        .isTrue();
+  }
+
+  @Test
+  void commitDiscardsNodesLoadedBeforeIt() {
+    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
+    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
+    final Bytes location = Bytes.of(0x07);
+    final Bytes node = Bytes.fromHexString("0xfeed");
+    persistBlock(strategy, 0, put(location, node));
+
+    load(strategy, storage, location, hash(node), node);
+    strategy.onBeforeCommit(storage, storage.startTransaction());
+    clearInvocations(base);
+    persistBlock(strategy, 1, put(location, node));
+
+    verify(base).getTrieNode(storage, location, Bytes32.ZERO);
+  }
+
+  @Test
+  void loaderOverOtherStorageIsNotDecorated() {
+    final NodeLoader loader = (location, hash) -> Optional.empty();
+
+    assertThat(strategy().overrideNodeLoader(newStorage(), loader, Function.identity()))
+        .isSameAs(loader);
   }
 }
