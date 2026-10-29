@@ -238,6 +238,10 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
                 Unstable.builder()
                     .posBlockCreationMaxTime(1)
                     .posBlockCreationRepetitionMinDuration(1)
+                    // building B1 caches its validation result, so with the cache on,
+                    // rememberBlock(B1) would reuse it instead of executing B1 after A1
+                    // became head, which removes the buggy code path this test exercises
+                    .posValidatedBlockCacheSize(0)
                     .build())
             .build();
 
@@ -293,7 +297,6 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
     // === Step 3: Import A1 — rememberBlock(A1) + FCU(A1) ===
     BlockProcessingResult resultA1 = coordinator.rememberBlock(blockA1);
     assertThat(resultA1.getYield()).describedAs("Block A1 should process successfully").isPresent();
-    resultA1.getYield().get().getWorldState().persist(blockA1.getHeader());
 
     coordinator.updateForkChoice(
         blockA1.getHeader(), genesisState.getBlock().getHash(), genesisState.getBlock().getHash());

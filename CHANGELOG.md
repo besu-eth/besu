@@ -25,6 +25,7 @@
 - Support Amsterdam hardfork at genesis on Ephemery, aligning with Ephemery iteration 165 and removing dynamic in-cycle BPO offsets. [#11728](https://github.com/besu-eth/besu/pull/11728)
 - `engine_newPayload` replies before it stores a valid block and its trie log. [#11682](https://github.com/besu-eth/besu/pull/11682)
 - Block import preloads and commits only the state a block changes, and builds trie keys without streams. [#11758](https://github.com/besu-eth/besu/pull/11758)
+- `engine_newPayload` no longer executes a block that this node built for `engine_getPayload`, and instead reuses the validation done while building it, which cuts `engine_newPayload` latency for blocks the node proposes. The hidden `--Xpos-validated-block-cache-size` option sets how many results are kept (default 4); `0` turns this off. [#11767](https://github.com/besu-eth/besu/pull/11767)
 
 ## 26.10.2
 

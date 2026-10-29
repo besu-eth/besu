@@ -342,6 +342,7 @@ public abstract class MiningConfiguration {
     long DEFAULT_POS_BLOCK_CREATION_REPETITION_MIN_DURATION = Duration.ofMillis(500).toMillis();
     long DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS = 0L;
     Integer DEFAULT_POS_SLOT_DURATION_SECS = 12;
+    long DEFAULT_POS_VALIDATED_BLOCK_CACHE_SIZE = 4L;
 
     MiningConfiguration.Unstable DEFAULT = ImmutableMiningConfiguration.Unstable.builder().build();
 
@@ -368,6 +369,11 @@ public abstract class MiningConfiguration {
     @Value.Default
     default long getPosBlockFinalizationTimeoutMs() {
       return DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS;
+    }
+
+    @Value.Default
+    default long getPosValidatedBlockCacheSize() {
+      return DEFAULT_POS_VALIDATED_BLOCK_CACHE_SIZE;
     }
   }
 }

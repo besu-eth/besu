@@ -73,6 +73,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -108,6 +110,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   private final AtomicReference<Hash> finalizedHashAfterBackwardSync = new AtomicReference<>();
   private final AtomicReference<CompletableFuture<Void>> backwardSyncWithFinalizedUpdate =
       new AtomicReference<>();
+
+  private final Cache<Hash, ValidatedBlock> validatedBlockCache;
 
   /**
    * Instantiates a new Merge coordinator.
@@ -176,6 +180,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       getDefaultGasLimit(protocolSchedule).ifPresent(miningParams::setTargetGasLimit);
     }
     this.miningConfiguration = miningParams;
+    this.validatedBlockCache =
+        CacheBuilder.newBuilder()
+            .maximumSize(miningParams.getUnstable().getPosValidatedBlockCacheSize())
+            .build();
 
     this.mergeBlockCreatorFactory = mergeBlockCreatorFactory;
 
@@ -729,7 +737,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 blockAccessList,
                 false,
                 false);
-
+    if (validationResult.isSuccessful()) {
+      validatedBlockCache.put(
+          block.getHash(), new ValidatedBlock(blockAccessList, validationResult));
+    }
     return validationResult;
   }
 
@@ -752,15 +763,20 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
     final var chain = protocolContext.getBlockchain();
     final var validationResult =
-        protocolSchedule
-            .getByBlockHeader(block.getHeader())
-            .getBlockValidator()
-            .validateAndProcessBlockDeferringTrieLog(
-                protocolContext,
-                block,
-                HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE,
-                blockAccessList);
+        Optional.ofNullable(validatedBlockCache.getIfPresent(block.getHash()))
+            .filter(validated -> validated.blockAccessList().equals(blockAccessList))
+            .map(ValidatedBlock::result)
+            .orElseGet(
+                () ->
+                    protocolSchedule
+                        .getByBlockHeader(block.getHeader())
+                        .getBlockValidator()
+                        .validateAndProcessBlockDeferringTrieLog(
+                            protocolContext,
+                            block,
+                            HeaderValidationMode.FULL,
+                            HeaderValidationMode.NONE,
+                            blockAccessList));
     validationResult
         .getYield()
         .ifPresentOrElse(
@@ -773,6 +789,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             () -> LOG.debug("empty yield in blockProcessingResult"));
     return validationResult;
   }
+
+  private record ValidatedBlock(
+      Optional<BlockAccessList> blockAccessList, BlockProcessingResult result) {}
 
   @Override
   public ForkchoiceResult updateForkChoice(

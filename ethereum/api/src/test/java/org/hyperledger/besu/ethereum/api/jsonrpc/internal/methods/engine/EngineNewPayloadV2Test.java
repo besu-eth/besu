@@ -95,7 +95,7 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
     BlockHeader mockHeader =
         setupPayloadV2(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             withdrawals);
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
@@ -108,7 +108,7 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
     BlockHeader mockHeader =
         setupPayloadV2(
             getMinSupportedTimestamp() / 2,
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             withdrawals);
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
@@ -121,7 +121,7 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
     BlockHeader mockHeader =
         setupPayloadV2(
             getMinSupportedTimestamp() / 2,
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             withdrawals);
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
@@ -136,7 +136,7 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
     BlockHeader mockHeader =
         setupPayloadV2(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             withdrawals);
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 

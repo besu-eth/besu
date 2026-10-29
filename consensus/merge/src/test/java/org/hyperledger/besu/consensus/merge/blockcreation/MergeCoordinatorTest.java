@@ -78,6 +78,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -263,7 +264,39 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
-  public void coinbaseShouldMatchSuggestedFeeRecipient() {
+  public void coinbaseShouldMatchSuggestedFeeRecipient() throws Exception {
+    final PayloadWrapper payload = buildPayloadByThisNode();
+
+    assertThat(payload.blockWithReceipts().getHeader().getCoinbase())
+        .isEqualTo(suggestedFeeRecipient);
+  }
+
+  @Test
+  public void rememberBlockShouldNotExecuteBlockBuiltByThisNode() throws Exception {
+    final Block block = buildPayloadByThisNode().blockWithReceipts().getBlock();
+    // building validated the block through getByBlockHeader(block.getHeader()), the same call
+    // that executing it in rememberBlock makes, so never() below must see only the later calls
+    clearInvocations(protocolSchedule);
+
+    assertThat(coordinator.rememberBlock(block).isSuccessful()).isTrue();
+    verify(protocolSchedule, never()).getByBlockHeader(any());
+    assertThat(blockchain.getBlockByHash(block.getHash())).isPresent();
+  }
+
+  @Test
+  public void rememberBlockShouldExecuteBuiltBlockWithDifferentBlockAccessList() throws Exception {
+    final Block block = buildPayloadByThisNode().blockWithReceipts().getBlock();
+    // building validated the block through getByBlockHeader(block.getHeader()), which would
+    // satisfy the verification below even if rememberBlock did not execute the block
+    clearInvocations(protocolSchedule);
+
+    coordinator.rememberBlock(block, Optional.of(new BlockAccessList(List.of())));
+
+    verify(protocolSchedule, atLeastOnce()).getByBlockHeader(block.getHeader());
+  }
+
+  private PayloadWrapper buildPayloadByThisNode() throws Exception {
+    // stop rebuilding after the first payload, so no build runs concurrently with the assertions
     doAnswer(
             invocation -> {
               coordinator.finalizeProposalById(
@@ -273,7 +306,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .when(mergeContext)
         .putPayloadById(any());
 
-    var payloadId =
+    final var payloadId =
         coordinator.preparePayload(
             new PreparePayloadArgsBuilder()
                 .parentHeader(genesisState.getBlock().getHeader())
@@ -281,14 +314,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                 .prevRandao(Bytes32.ZERO)
                 .feeRecipient(suggestedFeeRecipient)
                 .build());
+    blockCreationTask.get();
 
-    ArgumentCaptor<PayloadWrapper> payloadWrapper = ArgumentCaptor.forClass(PayloadWrapper.class);
-
-    verify(mergeContext, atLeastOnce()).putPayloadById(payloadWrapper.capture());
-
-    assertThat(payloadWrapper.getValue().payloadIdentifier()).isEqualTo(payloadId);
-    assertThat(payloadWrapper.getValue().blockWithReceipts().getHeader().getCoinbase())
-        .isEqualTo(suggestedFeeRecipient);
+    final ArgumentCaptor<PayloadWrapper> payload = ArgumentCaptor.forClass(PayloadWrapper.class);
+    verify(mergeContext, atLeastOnce()).putPayloadById(payload.capture());
+    assertThat(payload.getValue().payloadIdentifier()).isEqualTo(payloadId);
+    return payload.getValue();
   }
 
   @Test
@@ -1413,6 +1444,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     final MiningConfiguration mockMiningConfiguration = mock(MiningConfiguration.class);
     when(mockMiningConfiguration.getTargetGasLimit()).thenReturn(OptionalLong.empty());
+    when(mockMiningConfiguration.getUnstable()).thenReturn(MiningConfiguration.Unstable.DEFAULT);
     when(protocolSchedule.getChainId()).thenReturn(Optional.of(BigInteger.valueOf(chainId)));
     doNothing().when(backwardSyncContext).subscribeBadChainListener(any());
 

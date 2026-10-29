@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_PLU
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_CREATION_MAX_TIME;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_VALIDATED_BLOCK_CACHE_SIZE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -183,6 +184,31 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
         "--Xpos-block-creation-max-time must be positive and ≤ 12000",
         "--Xpos-block-creation-max-time",
         "17000");
+  }
+
+  @Test
+  public void posValidatedBlockCacheSizeDefaultValue() {
+    internalTestSuccess(
+        miningParams ->
+            assertThat(miningParams.getUnstable().getPosValidatedBlockCacheSize())
+                .isEqualTo(DEFAULT_POS_VALIDATED_BLOCK_CACHE_SIZE));
+  }
+
+  @Test
+  public void posValidatedBlockCacheSizeOption() {
+    internalTestSuccess(
+        miningParams ->
+            assertThat(miningParams.getUnstable().getPosValidatedBlockCacheSize()).isZero(),
+        "--Xpos-validated-block-cache-size",
+        "0");
+  }
+
+  @Test
+  public void posValidatedBlockCacheSizeNegative() {
+    internalTestFailure(
+        "--Xpos-validated-block-cache-size must be a non-negative value",
+        "--Xpos-validated-block-cache-size",
+        "-1");
   }
 
   @Test

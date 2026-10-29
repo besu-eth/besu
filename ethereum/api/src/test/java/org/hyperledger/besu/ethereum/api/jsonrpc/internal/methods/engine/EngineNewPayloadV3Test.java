@@ -130,7 +130,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     BlockHeader blockHeader =
         setupPayloadV3(
             getMinSupportedTimestamp() - 1,
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             BlobGas.ZERO,
             0L);
 
@@ -145,7 +145,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     BlockHeader blockHeader =
         setupPayloadV3(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             BlobGas.ZERO,
             0L);
 
@@ -167,7 +167,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     BlockHeader blockHeader =
         setupPayloadV3(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             BlobGas.ZERO,
             0L);
 
@@ -188,7 +188,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     BlockHeader blockHeader =
         setupPayloadV3(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             BlobGas.ZERO,
             0L);
 
@@ -214,7 +214,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     BlockHeader blockHeader =
         setupPayloadV3(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             excessBlobGas,
             blobGasUsed);
 
@@ -240,7 +240,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     BlockHeader blockHeader =
         setupPayloadV3(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             excessBlobGas,
             blobGasUsed);
 
@@ -270,7 +270,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     BlockHeader blockHeader =
         setupPayloadV3(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             excessBlobGas,
             blobGasUsed);
 

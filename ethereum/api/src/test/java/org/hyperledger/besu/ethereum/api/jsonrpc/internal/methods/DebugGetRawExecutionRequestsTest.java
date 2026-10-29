@@ -42,7 +42,6 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockOptions;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
@@ -149,8 +148,7 @@ public class DebugGetRawExecutionRequestsTest {
   }
 
   private void reExecutionYields(final Optional<List<Request>> requests) {
-    final BlockProcessingOutputs outputs =
-        new BlockProcessingOutputs(mock(MutableWorldState.class), List.of(), requests);
+    final BlockProcessingOutputs outputs = new BlockProcessingOutputs(List.of(), requests);
     when(blockValidator.validateAndProcessBlock(
             any(), eq(block), any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(new BlockProcessingResult(Optional.of(outputs)));

@@ -121,7 +121,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     BlockHeader blockHeader =
         setupPayloadV4(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             VALID_REQUESTS);
 
     final Map<String, Object> payloadParam = mockEnginePayloadParam(blockHeader, emptyList());
@@ -142,7 +142,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     BlockHeader blockHeader =
         setupPayloadV4(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))),
             requests);
 
     var resp = respV4(mockEnginePayloadParam(blockHeader, emptyList()), null);
@@ -186,8 +186,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
         setupPayloadV4(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
-                Optional.of(
-                    new BlockProcessingOutputs(null, List.of(), Optional.of(emptyRequests)))),
+                Optional.of(new BlockProcessingOutputs(List.of(), Optional.of(emptyRequests)))),
             emptyRequests);
 
     var resp =
@@ -202,8 +201,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
         setupPayloadV4(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
-                Optional.of(
-                    new BlockProcessingOutputs(null, List.of(), Optional.of(VALID_REQUESTS)))),
+                Optional.of(new BlockProcessingOutputs(List.of(), Optional.of(VALID_REQUESTS)))),
             VALID_REQUESTS);
 
     var resp =
@@ -233,7 +231,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
                 Optional.of(
-                    new BlockProcessingOutputs(null, List.of(), Optional.of(unknownTypeRequests)))),
+                    new BlockProcessingOutputs(List.of(), Optional.of(unknownTypeRequests)))),
             unknownTypeRequests);
 
     var resp =
@@ -258,7 +256,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
         setupPayloadV4(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
-                Optional.of(new BlockProcessingOutputs(null, List.of(), Optional.of(List.of())))),
+                Optional.of(new BlockProcessingOutputs(List.of(), Optional.of(List.of())))),
             List.of());
 
     var resp = respV4(mockEnginePayloadParam(blockHeader, emptyList()), List.of("0x8f"));
@@ -282,7 +280,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
                 Optional.of(
-                    new BlockProcessingOutputs(null, List.of(), Optional.of(outOfOrderRequests)))),
+                    new BlockProcessingOutputs(List.of(), Optional.of(outOfOrderRequests)))),
             outOfOrderRequests);
 
     var resp =
@@ -301,8 +299,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
         setupPayloadV3(
             getMinSupportedTimestamp() - 1,
             new BlockProcessingResult(
-                Optional.of(
-                    new BlockProcessingOutputs(null, List.of(), Optional.of(VALID_REQUESTS)))),
+                Optional.of(new BlockProcessingOutputs(List.of(), Optional.of(VALID_REQUESTS)))),
             BlobGas.ZERO,
             0L);
 
