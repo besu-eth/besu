@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -22,6 +23,13 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.NoOpTrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.NoOpBonsaiWorldStateCacheManager;
+import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -30,6 +38,7 @@ import org.hyperledger.besu.evm.v2.worldstate.JournaledWorldUpdaterV2;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayDeque;
@@ -79,7 +88,8 @@ class JournaledWorldUpdaterV2DifferentialTest {
     final List<Arguments> seeds = new ArrayList<>();
     for (long seed = 0; seed < 1500; seed++) {
       for (final WorldUpdaterMode mode : WorldUpdaterMode.values()) {
-        seeds.add(Arguments.of(seed, mode));
+        seeds.add(Arguments.of(seed, mode, false));
+        seeds.add(Arguments.of(seed, mode, true));
       }
     }
     return seeds;
@@ -87,13 +97,15 @@ class JournaledWorldUpdaterV2DifferentialTest {
 
   /**
    * The stacked updaters stay the reference in both modes, while the journal commits to a
-   * transaction updater of the given mode, as on a node running in that mode.
+   * transaction updater of the given mode, as on a node running in that mode, on a Forest or a
+   * Bonsai world state.
    */
   @ParameterizedTest
   @MethodSource("seeds")
-  void journalMatchesStackedUpdaters(final long seed, final WorldUpdaterMode mode) {
-    final Side stacked = new Side(false, WorldUpdaterMode.STACKED);
-    final Side journal = new Side(true, mode);
+  void journalMatchesStackedUpdaters(
+      final long seed, final WorldUpdaterMode mode, final boolean bonsai) {
+    final Side stacked = new Side(false, WorldUpdaterMode.STACKED, bonsai);
+    final Side journal = new Side(true, mode, bonsai);
     // a journaled transaction updater drops a storage clear when it commits, for v1 frames as well
     final boolean clearsStorage = mode == WorldUpdaterMode.STACKED;
     final Random random = new Random(seed);
@@ -252,10 +264,12 @@ class JournaledWorldUpdaterV2DifferentialTest {
     private final Deque<WorldUpdater> frames = new ArrayDeque<>();
     private final Set<Address> deleted = new HashSet<>();
 
-    Side(final boolean journaled, final WorldUpdaterMode mode) {
+    Side(final boolean journaled, final WorldUpdaterMode mode, final boolean bonsai) {
+      final EvmConfiguration evmConfiguration = new EvmConfiguration(32_000L, mode, true);
       worldState =
-          InMemoryKeyValueStorageProvider.createInMemoryWorldState(
-              new EvmConfiguration(32_000L, mode, true));
+          bonsai
+              ? bonsaiWorldState(evmConfiguration)
+              : InMemoryKeyValueStorageProvider.createInMemoryWorldState(evmConfiguration);
       final WorldUpdater genesis = worldState.updater();
       genesis.createAccount(SENDER, 1, Wei.of(10));
       final MutableAccount contract = genesis.createAccount(CONTRACT, 1, Wei.of(2));
@@ -389,6 +403,22 @@ class JournaledWorldUpdaterV2DifferentialTest {
       final BlockAccessListBuilder builder = BlockAccessList.builder();
       builder.apply(tracker, transactionUpdater);
       return builder.build();
+    }
+
+    private static MutableWorldState bonsaiWorldState(final EvmConfiguration evmConfiguration) {
+      final BonsaiWorldStateKeyValueStorage storage =
+          new BonsaiWorldStateKeyValueStorage(
+              new InMemoryKeyValueStorageProvider(),
+              new NoOpMetricsSystem(),
+              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+      return new BonsaiWorldState(
+          storage,
+          new NoOpBonsaiCachedMerkleTrieLoader(),
+          new NoOpBonsaiWorldStateCacheManager(storage, evmConfiguration, new BonsaiCodeCache()),
+          new NoOpTrieLogManager(),
+          evmConfiguration,
+          createStatefulConfigWithTrie(),
+          new BonsaiCodeCache());
     }
 
     String persistedRoot() {
