@@ -44,6 +44,9 @@ public abstract class ApiConfiguration {
   /** The default gas cap used for transaction simulation */
   public static final long DEFAULT_GAS_CAP = 100_000_000L;
 
+  /** Default maximum total size, in bytes, of the trace files directory (10 GiB). */
+  public static final long DEFAULT_TRACE_FILES_MAX_DIR_SIZE = 10L * 1024 * 1024 * 1024;
+
   /** The default maximum number of concurrently active JSON-RPC filters. */
   public static final int DEFAULT_MAX_FILTER_COUNT = 1000;
 
@@ -137,6 +140,17 @@ public abstract class ApiConfiguration {
   @Value.Default
   public Long getGasCap() {
     return DEFAULT_GAS_CAP;
+  }
+
+  /**
+   * Returns the maximum total size, in bytes, of the directory that debug_standardTrace*ToFile
+   * methods write to. A value of 0 disables the limit.
+   *
+   * @return the maximum size of the trace files directory in bytes
+   */
+  @Value.Default
+  public Long getTraceFilesMaxDirSize() {
+    return DEFAULT_TRACE_FILES_MAX_DIR_SIZE;
   }
 
   /**

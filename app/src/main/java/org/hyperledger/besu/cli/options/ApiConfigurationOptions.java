@@ -99,6 +99,12 @@ public class ApiConfigurationOptions {
   private final Long maxTraceFilterRange = 1000L;
 
   @CommandLine.Option(
+      names = {"--rpc-trace-files-max-dir-size"},
+      description =
+          "Specifies the maximum total size in bytes of the trace files written by the debug_standardTraceBlockToFile and debug_standardTraceBadBlockToFile methods. Must be >=0. 0 specifies no limit  (default: ${DEFAULT-VALUE})")
+  private final Long traceFilesMaxDirSize = ApiConfiguration.DEFAULT_TRACE_FILES_MAX_DIR_SIZE;
+
+  @CommandLine.Option(
       names = {"--rpc-max-active-filters"},
       description =
           "Specifies the maximum number of concurrently-active RPC filters (eth_newFilter, "
@@ -181,6 +187,7 @@ public class ApiConfigurationOptions {
             .estimateGasToleranceRatio(estimateGasToleranceRatio)
             .maxLogsRange(rpcMaxLogsRange)
             .gasCap(rpcGasCap)
+            .traceFilesMaxDirSize(traceFilesMaxDirSize)
             .isGasAndPriorityFeeLimitingEnabled(apiGasAndPriorityFeeLimitingEnabled)
             .maxTraceFilterRange(maxTraceFilterRange)
             .maxFilterCount(rpcMaxActiveFilters)

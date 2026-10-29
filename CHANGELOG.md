@@ -19,6 +19,7 @@
 - With `--cache-last-blocks` set, RPC methods return the total difficulty of recently imported blocks instead of their own difficulty, which is 0 after the merge. [#11790](https://github.com/besu-eth/besu/pull/11790)
 
 ### Additions and Improvements
+- `debug_standardTraceBlockToFile` and `debug_standardTraceBadBlockToFile` now stop writing once the trace directory reaches `--rpc-trace-files-max-dir-size` (default 10 GiB, 0 for no limit). The request returns a `-32000` error and the partial file is deleted. Trace file names no longer include a timestamp, so tracing the same block again overwrites its files. [#11814](https://github.com/besu-eth/besu/issues/11814)
 - With `--Xevm-v2`, `MessageFrame.getMaybeUpdatedMemory` and `getMaybeUpdatedStorage` are recorded only while a tracer that traces operations runs. [#11690](https://github.com/besu-eth/besu/pull/11690)
 - Update besu-native to 2.1.0 and compute the secp256k1 ECDH key agreements of RLPx handshakes and DiscV5 natively, which removes about 2 MB of allocation per agreement. [#11648](https://github.com/besu-eth/besu/pull/11648)
 - Upgrade Vert.x from 5.1.6 to 5.2.2, which fixes the Vert.x advisories published in October 2026, including HTTP/1.x request smuggling through canonicalized headers, unbounded allocation for compressed WebSocket frames, and an incomplete HTTP client SSL context cache key. [#11770](https://github.com/besu-eth/besu/pull/11770)
