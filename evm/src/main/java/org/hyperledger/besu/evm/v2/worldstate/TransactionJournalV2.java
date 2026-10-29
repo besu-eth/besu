@@ -24,7 +24,9 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeBasedTable;
@@ -68,6 +70,9 @@ final class TransactionJournalV2 {
   // every execution, and comparing the instance is cheaper than hashing and comparing the address
   @Nullable private Address lastAddress;
   @Nullable private JournalAccountV2 lastAccount;
+  // access list slots of accounts not looked up yet, so that the access list alone does not load
+  // an account from the parent, which would count as touched for the parallel collision detection
+  private final HashMap<Address, Set<Bytes32>> accessListSlots = new HashMap<>();
   // never reused, so a slot value of a reverted epoch cannot pass for one of a later epoch
   private int lastStorageEpoch;
 
@@ -106,12 +111,32 @@ final class TransactionJournalV2 {
     }
     JournalAccountV2 account = accounts.get(address);
     if (account == null) {
-      account = new JournalAccountV2(this, address, parent.get(address));
-      accounts.put(address, account);
+      account = load(address);
     }
     lastAddress = address;
     lastAccount = account;
     return account;
+  }
+
+  private JournalAccountV2 load(final Address address) {
+    final JournalAccountV2 account = new JournalAccountV2(this, address, parent.get(address));
+    accounts.put(address, account);
+    if (!accessListSlots.isEmpty()) {
+      final Set<Bytes32> slots = accessListSlots.remove(address);
+      if (slots != null) {
+        slots.forEach(account::warmUpFromAccessList);
+      }
+    }
+    return account;
+  }
+
+  /** Warms up a slot of the access list without loading the account, returning if it was warm. */
+  boolean warmUpStorage(final Address address, final Bytes32 slot) {
+    final JournalAccountV2 account = accounts.get(address);
+    if (account != null) {
+      return account.warmUpStorage(UInt256.fromBytes(slot), slot);
+    }
+    return !accessListSlots.computeIfAbsent(address, unused -> new HashSet<>()).add(slot);
   }
 
   // updaters
@@ -295,6 +320,8 @@ final class TransactionJournalV2 {
                     warm.put(address, slot.warmKey, Boolean.TRUE);
                   }
                 }));
+    accessListSlots.forEach(
+        (address, slots) -> slots.forEach(slot -> warm.put(address, slot, Boolean.TRUE)));
     return warm;
   }
 

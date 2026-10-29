@@ -16,7 +16,10 @@ package org.hyperledger.besu.evm.v2.worldstate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -289,6 +292,24 @@ class JournaledWorldUpdaterV2Test {
     final JournalAccountV2 created = (JournalAccountV2) frame.createAccount(ABSENT);
     assertThat(created.warmUpStorage(SLOT)).isTrue();
     assertThat(journal.getWarmedUpStorage().rowKeySet()).containsExactly(CONTRACT, ABSENT);
+  }
+
+  @Test
+  void theAccessListLoadsAnAccountOnlyWhenTheTransactionLooksItUp() {
+    final WorldUpdater parent = spy(transactionUpdater);
+    final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(parent);
+    assertThat(journal.warmUpStorage(CONTRACT, SLOT)).isFalse();
+    assertThat(journal.warmUpStorage(CONTRACT, SLOT)).isTrue();
+    assertThat(journal.getWarmedUpStorage().row(CONTRACT)).containsOnlyKeys(SLOT);
+    verify(parent, never()).get(any());
+
+    final WorldUpdater frame = journal.updater();
+    final JournalAccountV2 contract = (JournalAccountV2) frame.getAccount(CONTRACT);
+    verify(parent).get(CONTRACT);
+    frame.revert();
+    frame.commit();
+    // the access list's warm-up is not the frame's, so its revert keeps the slot warm
+    assertThat(contract.warmUpStorage(SLOT)).isTrue();
   }
 
   @Test
