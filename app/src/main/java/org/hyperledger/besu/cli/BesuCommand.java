@@ -1056,6 +1056,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       validateOptions();
 
       initialProcess();
+      // A trusted setup loading in the background may still be loading: wait for it, so that a
+      // failed load stops the node now rather than at its first KZG operation. No-op otherwise.
+      KZGPointEvalPrecompiledContract.awaitTrustedSetup();
 
       if (network.equals(EPHEMERY)) {
         long lastGenesisTimestamp = parseLong(genesisConfigOverrides.get("timestamp"));
@@ -1530,10 +1533,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
 
     if (hasKzgFork(readGenesisConfigOptions())) {
+      final boolean loadInBackground =
+          unstableNativeLibraryOptions.getKzgTrustedSetupBackgroundLoad();
       if (kzgTrustedSetupFile != null) {
-        KZGPointEvalPrecompiledContract.init(kzgTrustedSetupFile);
+        KZGPointEvalPrecompiledContract.init(kzgTrustedSetupFile, loadInBackground);
       } else {
-        KZGPointEvalPrecompiledContract.init();
+        KZGPointEvalPrecompiledContract.init(loadInBackground);
       }
     } else if (kzgTrustedSetupFile != null) {
       throw new ParameterException(

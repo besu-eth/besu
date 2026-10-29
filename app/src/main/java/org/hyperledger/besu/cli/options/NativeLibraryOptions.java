@@ -64,6 +64,16 @@ public class NativeLibraryOptions {
       arity = "1")
   private final Boolean nativeP256Verify = Boolean.TRUE;
 
+  @CommandLine.Option(
+      hidden = true,
+      names = {"--Xkzg-trusted-setup-background-load-enabled"},
+      description =
+          "Load the KZG trusted setup on a background thread while the rest of the node starts. "
+              + "Every KZG operation waits for the load. If the load fails, the node stops, "
+              + "possibly after its services have opened (default: ${DEFAULT-VALUE})",
+      arity = "1")
+  private final Boolean kzgTrustedSetupBackgroundLoad = Boolean.FALSE;
+
   /** Default constructor. */
   NativeLibraryOptions() {}
 
@@ -119,5 +129,14 @@ public class NativeLibraryOptions {
    */
   public Boolean getNativeP256Verify() {
     return nativeP256Verify;
+  }
+
+  /**
+   * Whether the KZG trusted setup is loaded on a background thread.
+   *
+   * @return true if enabled, false otherwise.
+   */
+  public Boolean getKzgTrustedSetupBackgroundLoad() {
+    return kzgTrustedSetupBackgroundLoad;
   }
 }
