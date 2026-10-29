@@ -140,7 +140,8 @@ public class BlockExecutionContext {
             .block(block)
             .blockAccessList(getBlockAccessList())
             .sequentialExecutionRequested(sequentialExecutionRequested)
-            .blockAccessListFactoryProvider(blockAccessListFactoryProvider);
+            .blockAccessListFactoryProvider(blockAccessListFactoryProvider)
+            .inclusionListTransactions(inclusionListTransactions);
     if (blockTracer != null) {
       builder.blockTracer(blockTracer);
     }
