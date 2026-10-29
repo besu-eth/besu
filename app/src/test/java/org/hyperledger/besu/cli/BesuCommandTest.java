@@ -110,9 +110,11 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.json.jackson.DatabindCodec;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.toml.Toml;
 import org.apache.tuweni.toml.TomlParseResult;
@@ -2524,6 +2526,52 @@ public class BesuCommandTest extends CommandTestAbstract {
     parseCommand("--Xws-timeout-seconds=abc");
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains("Invalid value for option", "--Xws-timeout-seconds", "abc", "is not a long");
+  }
+
+  @Test
+  public void assertThatDefaultMaxRequestTokenCountIsApplied() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand();
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxTokenCount())
+          .isEqualTo(JsonRpcConfiguration.DEFAULT_MAX_REQUEST_TOKEN_COUNT);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
+  }
+
+  @Test
+  public void assertThatNonPositiveMaxRequestContentLengthDoesNotLimitStrings() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand("--rpc-http-max-request-content-length=-1");
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      verify(mockRunnerBuilder).build();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxStringLength())
+          .isEqualTo(Integer.MAX_VALUE);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
+  }
+
+  @Test
+  public void assertThatMaxRequestTokenCountWorks() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand("--Xrpc-max-request-token-count=4242");
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxTokenCount())
+          .isEqualTo(4242);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
   }
 
   @Test
