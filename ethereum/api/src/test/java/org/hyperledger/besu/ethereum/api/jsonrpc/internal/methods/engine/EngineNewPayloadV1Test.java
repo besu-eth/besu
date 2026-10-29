@@ -35,6 +35,8 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.crypto.KeyPair;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
@@ -55,8 +57,14 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -64,6 +72,8 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
+import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +81,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 import io.vertx.core.Vertx;
@@ -501,6 +513,127 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   protected JsonRpcResponse resp(final Object... params) {
     return method.response(
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", this.method.getName(), params)));
+  }
+
+  @Test
+  public void shouldRecoverSignaturesOnABoundedNumberOfTasks() {
+    final List<Transaction> transactions = signedTransactions(20);
+    final List<Supplier<?>> recoveryTasks = captureSignatureRecoveryTasks();
+    final BlockHeader header = setupPayloadWithTransactions(transactions);
+    when(mergeCoordinator.rememberBlock(any(), any(), any(Executor.class)))
+        .thenReturn(new BlockProcessingResult("error 42"));
+
+    resp(requestParams(mockEnginePayloadParam(header, encoded(transactions))));
+
+    // not one task per transaction, whatever the payload carries
+    assertThat(recoveryTasks).hasSize(SignatureRecoveryPrecomputation.MAX_WORKERS);
+  }
+
+  @Test
+  public void shouldNotRecoverSignaturesAfterThePayloadIsFoundInvalid() {
+    final List<Transaction> transactions = signedTransactions(20);
+    final List<Supplier<?>> recoveryTasks = captureSignatureRecoveryTasks();
+    final BlockHeader header = setupPayloadWithTransactions(transactions);
+    final AtomicReference<Block> executedBlock = new AtomicReference<>();
+    when(mergeCoordinator.rememberBlock(any(), any(), any(Executor.class)))
+        .thenAnswer(
+            invocation -> {
+              executedBlock.set(invocation.getArgument(0));
+              return new BlockProcessingResult("error 42");
+            });
+
+    final PayloadStatusV1 status =
+        fromSuccessResp(resp(requestParams(mockEnginePayloadParam(header, encoded(transactions)))));
+    assertThat(status.getStatus()).isEqualTo(INVALID);
+
+    // the computation pool only gets to the queued tasks after the verdict
+    runRecoveryTasks(recoveryTasks);
+
+    assertThat(executedBlock.get().getBody().getTransactions())
+        .hasSameSizeAs(transactions)
+        .noneMatch(EngineNewPayloadV1Test::senderRecovered);
+  }
+
+  @Test
+  public void shouldRecoverSignaturesWhileThePayloadExecutes() {
+    final List<Transaction> transactions = signedTransactions(20);
+    final List<Supplier<?>> recoveryTasks = captureSignatureRecoveryTasks();
+    final BlockHeader header = setupPayloadWithTransactions(transactions);
+    final AtomicReference<Block> executedBlock = new AtomicReference<>();
+    when(mergeCoordinator.rememberBlock(any(), any(), any(Executor.class)))
+        .thenAnswer(
+            invocation -> {
+              executedBlock.set(invocation.getArgument(0));
+              // the computation pool runs the queued tasks while the payload executes
+              runRecoveryTasks(recoveryTasks);
+              return new BlockProcessingResult("error 42");
+            });
+
+    resp(requestParams(mockEnginePayloadParam(header, encoded(transactions))));
+
+    assertThat(executedBlock.get().getBody().getTransactions())
+        .hasSameSizeAs(transactions)
+        .allMatch(EngineNewPayloadV1Test::senderRecovered);
+  }
+
+  private static void runRecoveryTasks(final List<Supplier<?>> tasks) {
+    // each task keeps recovering until no transaction is left or it is cancelled, then ends
+    for (final Supplier<?> task : tasks) {
+      final Object unused = task.get();
+    }
+  }
+
+  private BlockHeader setupPayloadWithTransactions(final List<Transaction> transactions) {
+    return setupPayloadV1(
+        getMinSupportedTimestamp(),
+        null,
+        fixture -> fixture.transactionsRoot(BodyValidation.transactionsRoot(transactions)));
+  }
+
+  private List<Supplier<?>> captureSignatureRecoveryTasks() {
+    final EthScheduler ethScheduler = mock(EthScheduler.class);
+    final List<Supplier<?>> tasks = new ArrayList<>();
+    when(ethScheduler.scheduleComputationTask(any()))
+        .thenAnswer(
+            invocation -> {
+              tasks.add(invocation.getArgument(0));
+              return new CompletableFuture<>();
+            });
+    when(mergeCoordinator.getEthScheduler()).thenReturn(ethScheduler);
+    return tasks;
+  }
+
+  private static List<Transaction> signedTransactions(final int count) {
+    final KeyPair keyPair = SignatureAlgorithmFactory.getInstance().generateKeyPair();
+    final List<Transaction> transactions = new ArrayList<>(count);
+    for (int nonce = 0; nonce < count; nonce++) {
+      transactions.add(new TransactionTestFixture().nonce(nonce).createTransaction(keyPair));
+    }
+    return transactions;
+  }
+
+  private static List<String> encoded(final List<Transaction> transactions) {
+    return transactions.stream()
+        .map(
+            transaction ->
+                TransactionEncoder.encodeOpaqueBytes(transaction, EncodingContext.BLOCK_BODY)
+                    .toHexString())
+        .toList();
+  }
+
+  /**
+   * Whether the sender of a transaction decoded from the payload has been recovered: it is cached
+   * in the transaction the first time it is, and the payload's transactions are decoded without
+   * one.
+   */
+  private static boolean senderRecovered(final Transaction transaction) {
+    try {
+      final Field sender = Transaction.class.getDeclaredField("sender");
+      sender.setAccessible(true);
+      return sender.get(transaction) != null;
+    } catch (final ReflectiveOperationException e) {
+      throw new LinkageError("Transaction no longer caches its sender in a 'sender' field", e);
+    }
   }
 
   protected Map<String, Object> mockEnginePayloadParam(
