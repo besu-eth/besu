@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
@@ -53,15 +52,12 @@ public final class StateRootCommitterFactory {
   public StateRootCommitter forBlock(
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
-      final Optional<BlockAccessList> maybeBal,
+      final Optional<BlockAccessListAccountLookup> maybeBlockAccessListLookup,
       final boolean storageFrozen) {
-    return switch (resolveMode(protocolContext, maybeBal)) {
+    return switch (resolveMode(protocolContext, maybeBlockAccessListLookup)) {
       case BAL ->
           new BalStateRootCommitter(
-                  protocolContext,
-                  blockHeader,
-                  BlockAccessListAccountLookup.of(maybeBal.get()),
-                  storageFrozen)
+                  protocolContext, blockHeader, maybeBlockAccessListLookup.get(), storageFrozen)
               .start();
       case DEFAULT -> new DefaultStateRootCommitter();
       case FOREST -> ForestStateRootCommitter.INSTANCE;
@@ -70,11 +66,12 @@ public final class StateRootCommitterFactory {
   }
 
   private Mode resolveMode(
-      final ProtocolContext protocolContext, final Optional<BlockAccessList> maybeBal) {
+      final ProtocolContext protocolContext,
+      final Optional<BlockAccessListAccountLookup> maybeBlockAccessListLookup) {
     if (protocolContext.getWorldStateArchive() instanceof ForestWorldStateArchive) {
       return Mode.FOREST;
     }
-    if (maybeBal.isPresent()
+    if (maybeBlockAccessListLookup.isPresent()
         && balConfiguration.isBalStateRootEnabled()
         && !isTrieDisabled(protocolContext)) {
       return Mode.BAL;
