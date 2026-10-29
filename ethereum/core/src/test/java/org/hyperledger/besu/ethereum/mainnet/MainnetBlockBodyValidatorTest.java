@@ -230,7 +230,7 @@ class MainnetBlockBodyValidatorTest {
                 BodyValidationMode.LIGHT))
         .isTrue();
     verify(bodyValidatorSpy, times(1)).validateBodyLight(any(), any(), any(), any(), any());
-    verify(bodyValidatorSpy, never()).validateBodyRoots(any(), any(), any());
+    verify(bodyValidatorSpy, never()).validateBodyRoots(any(), any(), any(), any());
   }
 
   @Test
@@ -251,7 +251,7 @@ class MainnetBlockBodyValidatorTest {
         .isTrue();
 
     verify(bodyValidatorSpy, never()).validateBodyLight(any(), any(), any(), any(), any());
-    verify(bodyValidatorSpy, times(1)).validateBodyRoots(any(), any(), any());
+    verify(bodyValidatorSpy, times(1)).validateBodyRoots(any(), any(), any(), any());
   }
 
   @Test
@@ -271,7 +271,7 @@ class MainnetBlockBodyValidatorTest {
                 BodyValidationMode.FULL))
         .isTrue();
     verify(bodyValidatorSpy, times(1)).validateBodyLight(any(), any(), any(), any(), any());
-    verify(bodyValidatorSpy, times(1)).validateBodyRoots(any(), any(), any());
+    verify(bodyValidatorSpy, times(1)).validateBodyRoots(any(), any(), any(), any());
   }
 
   private Block setupBlock() {
