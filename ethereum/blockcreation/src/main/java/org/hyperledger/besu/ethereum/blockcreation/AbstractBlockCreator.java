@@ -63,6 +63,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -200,6 +201,32 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final long timestamp,
       final boolean rewardCoinbase,
       final BlockHeader parentHeader) {
+    return createBlock(
+        maybeTransactions,
+        maybeOmmers,
+        maybeWithdrawals,
+        maybePrevRandao,
+        maybeParentBeaconBlockRoot,
+        maybeSlotNumber,
+        maybeTargetGasLimit,
+        timestamp,
+        rewardCoinbase,
+        parentHeader,
+        Set.of());
+  }
+
+  public BlockCreationResult createBlock(
+      final Optional<List<Transaction>> maybeTransactions,
+      final Optional<List<BlockHeader>> maybeOmmers,
+      final Optional<List<Withdrawal>> maybeWithdrawals,
+      final Optional<Bytes32> maybePrevRandao,
+      final Optional<Bytes32> maybeParentBeaconBlockRoot,
+      final Optional<Long> maybeSlotNumber,
+      final Optional<Long> maybeTargetGasLimit,
+      final long timestamp,
+      final boolean rewardCoinbase,
+      final BlockHeader parentHeader,
+      final Set<Transaction> inclusionListTransactions) {
 
     final var timings = new BlockCreationTiming();
 
@@ -270,7 +297,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               pluginTransactionSelector,
               selectorsStateManager,
               parentHeader,
-              blockAccessListBuilder);
+              blockAccessListBuilder,
+              inclusionListTransactions);
       transactionResults.logSelectionStats();
       timings.register("txsSelection");
       timings.registerValue(
@@ -410,7 +438,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final PluginTransactionSelector pluginTransactionSelector,
       final SelectorsStateManager selectorsStateManager,
       final BlockHeader parentHeader,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder)
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Set<Transaction> inclusionListTransactions)
       throws RuntimeException {
     final MainnetTransactionProcessor transactionProcessor = protocolSpec.getTransactionProcessor();
 
@@ -437,7 +466,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
             pluginTransactionSelector,
             ethScheduler,
             selectorsStateManager,
-            blockAccessListBuilder);
+            blockAccessListBuilder,
+            inclusionListTransactions);
 
     if (transactions.isPresent()) {
       return selector.evaluateTransactions(transactions.get());

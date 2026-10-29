@@ -26,7 +26,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.BaseJsonRpcProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods.WebSocketMethodsFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.SubscriptionManager;
 import org.hyperledger.besu.ethereum.api.util.TestJsonRpcMethodsUtil;
@@ -34,13 +37,21 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
+import java.io.IOException;
+import java.net.Socket;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
@@ -199,6 +210,139 @@ public class WebSocketServiceTest {
     assertThat(metricsSystem.getGaugeValue("active_ws_connection_count"))
         .as("abrupt WS reset must not leak active_ws_connection_count")
         .isEqualTo(0);
+  }
+
+  @Test
+  public void stalledResponseIsAbandonedWhenClientResets() throws Exception {
+    assertStalledResponseIsAbandoned(AbortiveWebSocketClient::reset);
+  }
+
+  @Test
+  public void stalledResponseIsAbandonedWhenClientSendsCloseFrame() throws Exception {
+    assertStalledResponseIsAbandoned(AbortiveWebSocketClient::sendCloseFrame);
+  }
+
+  /**
+   * Runs against the real Vert.x server rather than a mocked ServerWebSocket, so it checks what
+   * JsonResponseStreamer and StreamBackpressure assume about a WebSocket that closes while its
+   * write queue is full.
+   */
+  private void assertStalledResponseIsAbandoned(final SocketCloser closeWhileStalled)
+      throws Exception {
+    final EndlessResult result = new EndlessResult();
+    final JsonRpcMethod method = endlessResponse(result);
+    websocketMethods.put(method.getName(), method);
+
+    final CountDownLatch subscriptionsRemoved = new CountDownLatch(1);
+    vertx
+        .eventBus()
+        .consumer(
+            SubscriptionManager.EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS,
+            m -> subscriptionsRemoved.countDown())
+        .completion()
+        .toCompletionStage()
+        .toCompletableFuture()
+        .get(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+
+    final Socket socket =
+        AbortiveWebSocketClient.handshakeAndSendWithoutReading(
+            websocketConfiguration.getHost(),
+            websocketConfiguration.getPort(),
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"" + method.getName() + "\",\"params\":[]}");
+    try {
+      assertThat(waitUntilStalled(result))
+          .as("the response should stall once the client stops reading")
+          .isTrue();
+
+      closeWhileStalled.close(socket);
+
+      // StreamBackpressure would otherwise wait out its 60s drain timeout
+      final Throwable failure =
+          result.writeFailure.get(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+      assertThat(failure)
+          .as("the stalled write should be abandoned as soon as the WebSocket closes")
+          .isInstanceOf(IOException.class)
+          .hasMessageNotContaining("Timed out");
+    } finally {
+      if (!socket.isClosed()) {
+        AbortiveWebSocketClient.reset(socket);
+      }
+      websocketMethods.remove(method.getName());
+    }
+
+    assertThat(subscriptionsRemoved.await(VERTX_AWAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
+        .as("closing the connection should remove its subscriptions")
+        .isTrue();
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (metricsSystem.getGaugeValue("active_ws_connection_count") != 0
+        && System.nanoTime() <= deadline) {
+      Thread.sleep(50);
+    }
+    assertThat(metricsSystem.getGaugeValue("active_ws_connection_count"))
+        .as("closing a stalled WS must not leak active_ws_connection_count")
+        .isEqualTo(0);
+  }
+
+  /** Waits until chunks have been written and then stop being written for a while. */
+  private static boolean waitUntilStalled(final EndlessResult result) throws InterruptedException {
+    final long deadline =
+        System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(VERTX_AWAIT_TIMEOUT_MILLIS);
+    long previous = -1;
+    while (System.nanoTime() <= deadline) {
+      Thread.sleep(200);
+      final long current = result.chunksWritten.get();
+      if (current > 0 && current == previous) {
+        return true;
+      }
+      previous = current;
+    }
+    return false;
+  }
+
+  private static JsonRpcMethod endlessResponse(final EndlessResult result) {
+    return new JsonRpcMethod() {
+      @Override
+      public String getName() {
+        return "temp_endlessResponse";
+      }
+
+      @Override
+      public JsonRpcResponse response(final JsonRpcRequestContext request) {
+        return new JsonRpcSuccessResponse(request.getRequest().getId(), result);
+      }
+    };
+  }
+
+  @FunctionalInterface
+  private interface SocketCloser {
+    void close(Socket socket) throws IOException;
+  }
+
+  /** A result that streams chunks until writing one fails, and records that failure. */
+  @JsonSerialize(using = EndlessResultSerializer.class)
+  private static final class EndlessResult {
+    final AtomicLong chunksWritten = new AtomicLong();
+    final CompletableFuture<Throwable> writeFailure = new CompletableFuture<>();
+  }
+
+  private static final class EndlessResultSerializer extends JsonSerializer<EndlessResult> {
+    private static final String CHUNK = "a".repeat(8192);
+
+    @Override
+    public void serialize(
+        final EndlessResult value, final JsonGenerator gen, final SerializerProvider serializers)
+        throws IOException {
+      gen.writeStartArray();
+      try {
+        while (true) {
+          gen.writeString(CHUNK);
+          value.chunksWritten.incrementAndGet();
+        }
+      } catch (final IOException | RuntimeException e) {
+        value.writeFailure.complete(e);
+        throw e;
+      }
+    }
   }
 
   @Test

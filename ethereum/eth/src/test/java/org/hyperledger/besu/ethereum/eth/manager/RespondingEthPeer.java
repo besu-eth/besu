@@ -397,7 +397,9 @@ public class RespondingEthPeer {
           final PooledTransactionsMessage pooledTransactionsMessage =
               PooledTransactionsMessage.readFrom(originalResponse);
           final List<Transaction> originalPooledTx =
-              Lists.newArrayList(pooledTransactionsMessage.transactions());
+              Lists.newArrayList(
+                  pooledTransactionsMessage.transactions(
+                      EthProtocolConfiguration.DEFAULT_MAX_GET_POOLED_TRANSACTIONS));
           final List<Transaction> partialPooledTx =
               originalPooledTx.subList(0, (int) (originalPooledTx.size() * portion));
           partialResponse = PooledTransactionsMessage.create(partialPooledTx);

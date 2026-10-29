@@ -18,7 +18,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.Accounts;
@@ -48,16 +53,21 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /** Runs without workers: every update is applied on the test thread, by finish or applyNext. */
 class StorageTrieUpdaterTest {
 
   private static final int NO_BUDGET = Integer.MAX_VALUE;
 
-  private final Storages storages = SyncStorageFixture.create(Format.BONSAI);
+  // Bonsai, unless a test runs on each format
+  private Storages storages = SyncStorageFixture.create(Format.BONSAI);
 
-  @Test
-  void appliesTheSlotsAMoveChangedToTheTrie() {
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void appliesTheSlotsAMoveChangedToTheTrie(final Format format) {
+    storages = SyncStorageFixture.create(format);
     final World world = SyncStorageFixture.randomWorld(new Random(8), 80);
     final Bytes32 account = largestStorage(world);
     final Bytes32 root = downloaded(world, account);
@@ -305,18 +315,38 @@ class StorageTrieUpdaterTest {
     assertThat(storages.sync().getAccount(account)).isEmpty();
   }
 
+  @Test
+  void abortsTheRootBatchOfAFailedWrite() {
+    final World world = SyncStorageFixture.randomWorld(new Random(21), 80);
+    final Bytes32 account = largestStorage(world);
+    final Bytes32 root = downloaded(world, account);
+    final SyncStateStorage storage = spy(storages.sync());
+    final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
+    doReturn(batch).when(storage).batch();
+    doThrow(new IllegalStateException("write failed")).when(batch).putAccount(any(), any());
+    final StorageTrieUpdater updater = updater(storage, 0);
+    updater.changed(account, Hash.wrap(root), move(world, account, 1));
+
+    assertThat(updater.applyNext()).isTrue();
+    // the error left the update to the final build
+    assertThat(updater.updated()).isZero();
+    verify(batch, never()).commit();
+    verify(batch).abort();
+  }
+
   private StorageTrieUpdater updater(final SyncStateStorage storage, final int budget) {
     return new StorageTrieUpdater(
         storage, StorageTrieUpdaterTest::noMoves, hash -> false, 0, budget);
   }
 
-  // runs an action on the first trie read of an update, as a move or a stop during it does
+  // runs an action on an update's first read below the root, as a move or a stop during it does
   private SyncStateStorage onTheFirstRead(final Runnable action) {
     final SyncStateStorage storage = spy(storages.sync());
     final AtomicBoolean read = new AtomicBoolean();
     doAnswer(
             invocation -> {
-              if (read.compareAndSet(false, true)) {
+              final Bytes location = invocation.getArgument(1);
+              if (!location.isEmpty() && read.compareAndSet(false, true)) {
                 action.run();
               }
               return invocation.callRealMethod();

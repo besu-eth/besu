@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
 
@@ -75,12 +76,18 @@ public final class PooledTransactionsMessage extends AbstractMessageData {
     return new PooledTransactionsMessage(message.getData());
   }
 
-  public List<Transaction> transactions() {
+  public List<Transaction> transactions(final int maxTransactions) {
     if (pooledTransactions == null) {
       final BytesValueRLPInput in = new BytesValueRLPInput(getData(), false);
       pooledTransactions =
           in.readList(
-              input -> TransactionDecoder.decodeRLP(input, EncodingContext.POOLED_TRANSACTION));
+              input -> TransactionDecoder.decodeRLP(input, EncodingContext.POOLED_TRANSACTION),
+              maxTransactions);
+    } else if (pooledTransactions.size() > maxTransactions) {
+      throw new RLPException(
+          String.format(
+              "List of %d elements exceeds the maximum permitted size of %d",
+              pooledTransactions.size(), maxTransactions));
     }
     return pooledTransactions;
   }

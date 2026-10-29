@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.proof;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
@@ -29,6 +28,7 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.annotation.JsonGetter;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 
 public class GetProofResult {
 
@@ -63,20 +63,23 @@ public class GetProofResult {
     this.storageEntries = storageEntries;
   }
 
-  public static GetProofResult build(final Address address, final WorldStateProof worldStateProof) {
+  public static GetProofResult build(
+      final Address address,
+      final WorldStateProof worldStateProof,
+      final List<String> storageKeys) {
 
     final Optional<PatriciaTrieAccountValue> maybeStateTrieAccountValue =
         worldStateProof.getStateTrieAccountValue();
     final List<StorageEntryProof> storageEntries = new ArrayList<>();
-    worldStateProof
-        .getStorageKeys()
-        .forEach(
-            key ->
-                storageEntries.add(
-                    new StorageEntryProof(
-                        key,
-                        worldStateProof.getStorageValue(key),
-                        worldStateProof.getStorageProof(key))));
+    storageKeys.forEach(
+        key -> {
+          final UInt256 slot = UInt256.fromHexString(key);
+          storageEntries.add(
+              new StorageEntryProof(
+                  key,
+                  worldStateProof.getStorageValue(slot),
+                  worldStateProof.getStorageProof(slot)));
+        });
 
     return maybeStateTrieAccountValue
         .map(
@@ -94,9 +97,9 @@ public class GetProofResult {
                 new GetProofResult(
                     address,
                     Wei.ZERO,
-                    Bytes32.wrap(Hash.EMPTY.getBytes()),
+                    Bytes32.ZERO,
                     0L,
-                    Bytes32.wrap(Hash.EMPTY_TRIE_HASH.getBytes()),
+                    Bytes32.ZERO,
                     worldStateProof.getAccountProof(),
                     storageEntries));
   }

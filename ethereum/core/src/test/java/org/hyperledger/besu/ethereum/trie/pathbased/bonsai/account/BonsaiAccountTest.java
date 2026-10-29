@@ -133,6 +133,31 @@ public class BonsaiAccountTest {
         .isEqualTo(bytecode);
   }
 
+  @Test
+  void metadataAndCodeHashChecksDoNotLoadCodeOrTouchCache() {
+    final BonsaiCodeCache codeCache = mock(BonsaiCodeCache.class);
+    final BonsaiWorldView worldView = mock(BonsaiWorldView.class);
+    final Hash codeHash = Hash.hash(Bytes.fromHexString("0x60005260206000f3"));
+
+    final BonsaiAccount account = contract(worldView, codeHash, codeCache);
+    final UpdateTrackingAccount<BonsaiAccount> tracked = new UpdateTrackingAccount<>(account);
+    final BonsaiAccount copiedFromTracked = new BonsaiAccount(worldView, tracked, codeCache);
+
+    assertThat(account.getCodeHash()).isEqualTo(codeHash);
+    assertThat(account.hasCode()).isTrue();
+    assertThat(account.isEmpty()).isFalse();
+
+    assertThat(tracked.getCodeHash()).isEqualTo(codeHash);
+    assertThat(tracked.hasCode()).isTrue();
+    assertThat(tracked.isEmpty()).isFalse();
+
+    assertThat(copiedFromTracked.getCodeHash()).isEqualTo(codeHash);
+    assertThat(copiedFromTracked.hasCode()).isTrue();
+    assertThat(copiedFromTracked.isEmpty()).isFalse();
+
+    org.mockito.Mockito.verifyNoInteractions(codeCache, worldView);
+  }
+
   private static BonsaiAccount contract(
       final BonsaiWorldView worldView, final Hash codeHash, final BonsaiCodeCache codeCache) {
     return new BonsaiAccount(

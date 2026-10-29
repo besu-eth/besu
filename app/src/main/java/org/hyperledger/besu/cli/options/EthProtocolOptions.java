@@ -32,6 +32,9 @@ public class EthProtocolOptions implements CLIOptions<EthProtocolConfiguration> 
   private static final String MAX_GET_BODIES_FLAG = "--Xewp-max-get-bodies";
   private static final String MAX_GET_RECEIPTS_FLAG = "--Xewp-max-get-receipts";
   private static final String MAX_GET_POOLED_TRANSACTIONS = "--Xewp-max-get-pooled-transactions";
+  private static final String MAX_TRANSACTIONS_PER_MESSAGE = "--Xewp-max-transactions-per-message";
+  private static final String MAX_ANNOUNCEMENTS_PER_MESSAGE =
+      "--Xewp-max-announcements-per-message";
   private static final String MAX_CAPABILITY = "--Xeth-capability-max";
   private static final String MIN_CAPABILITY = "--Xeth-capability-min";
 
@@ -91,6 +94,24 @@ public class EthProtocolOptions implements CLIOptions<EthProtocolConfiguration> 
 
   @CommandLine.Option(
       hidden = true,
+      names = {MAX_TRANSACTIONS_PER_MESSAGE},
+      paramLabel = "<INTEGER>",
+      description =
+          "Maximum number of transactions per Ethereum Wire Protocol TRANSACTIONS. (default: ${DEFAULT-VALUE})")
+  private PositiveNumber maxTransactionsPerMessage =
+      PositiveNumber.fromInt(EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE);
+
+  @CommandLine.Option(
+      hidden = true,
+      names = {MAX_ANNOUNCEMENTS_PER_MESSAGE},
+      paramLabel = "<INTEGER>",
+      description =
+          "Maximum number of announcements per Ethereum Wire Protocol NEW_POOLED_TRANSACTIONS_HASHES. Also sets the maximum size of that message, to the largest encoding of that many announcements. (default: ${DEFAULT-VALUE})")
+  private PositiveNumber maxAnnouncementsPerMessage =
+      PositiveNumber.fromInt(EthProtocolConfiguration.DEFAULT_MAX_ANNOUNCEMENTS_PER_MESSAGE);
+
+  @CommandLine.Option(
+      hidden = true,
       names = {MAX_CAPABILITY},
       paramLabel = "<INTEGER>",
       description = "Max protocol version to support")
@@ -129,6 +150,10 @@ public class EthProtocolOptions implements CLIOptions<EthProtocolConfiguration> 
     options.maxGetBlockBodies = PositiveNumber.fromInt(config.getMaxGetBlockBodies());
     options.maxGetReceipts = PositiveNumber.fromInt(config.getMaxGetReceipts());
     options.maxGetPooledTransactions = PositiveNumber.fromInt(config.getMaxGetPooledTransactions());
+    options.maxTransactionsPerMessage =
+        PositiveNumber.fromInt(config.getMaxTransactionsPerMessage());
+    options.maxAnnouncementsPerMessage =
+        PositiveNumber.fromInt(config.getMaxAnnouncementsPerMessage());
     options.maxEthCapability = config.getMaxEthCapability();
     options.minEthCapability = config.getMinEthCapability();
     return options;
@@ -143,6 +168,8 @@ public class EthProtocolOptions implements CLIOptions<EthProtocolConfiguration> 
         .maxGetBlockBodies(maxGetBlockBodies.getValue())
         .maxGetReceipts(maxGetReceipts.getValue())
         .maxGetPooledTransactions(maxGetPooledTransactions.getValue())
+        .maxTransactionsPerMessage(maxTransactionsPerMessage.getValue())
+        .maxAnnouncementsPerMessage(maxAnnouncementsPerMessage.getValue())
         .maxEthCapability(maxEthCapability)
         .minEthCapability(minEthCapability)
         .build();

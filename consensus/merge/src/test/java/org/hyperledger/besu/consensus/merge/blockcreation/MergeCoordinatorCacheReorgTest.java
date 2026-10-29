@@ -27,7 +27,6 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.PreparePayloadArgs;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
@@ -79,6 +78,8 @@ import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -311,6 +312,25 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
         .isPresent();
   }
 
+  @Test
+  public void rememberBlockLeavesStoringAValidBlockToTheWriter() throws Exception {
+    final Block block = buildBlockWithTransaction(Wei.of(1), Bytes32.ZERO);
+    final List<Runnable> writes = new ArrayList<>();
+
+    assertThat(coordinator.rememberBlock(block, Optional.empty(), writes::add).getYield())
+        .isPresent();
+    assertThat(blockchain.getBlockByHash(block.getHash())).isEmpty();
+
+    assertThat(writes).hasSize(1);
+    writes.getFirst().run();
+    assertThat(blockchain.getBlockByHash(block.getHash())).isPresent();
+    assertThat(worldStateArchive.getTrieLogManager().getTrieLogLayer(block.getHash())).isPresent();
+
+    coordinator.updateForkChoice(
+        block.getHeader(), genesisState.getBlock().getHash(), genesisState.getBlock().getHash());
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block.getHash());
+  }
+
   private Block buildBlockWithTransaction(final Wei value, final Bytes32 random) throws Exception {
     final CountDownLatch latch = new CountDownLatch(1);
     final AtomicReference<Block> result = new AtomicReference<>();
@@ -332,15 +352,13 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
     transactions.addTransaction(createLocalTransaction(0, value), Optional.empty());
 
     coordinator.preparePayload(
-        new PreparePayloadArgs(
-            genesisState.getBlock().getHeader(),
-            System.currentTimeMillis() / 1000,
-            random,
-            Address.ZERO,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty()));
+        new PreparePayloadArgsBuilder()
+            .parentHeader(genesisState.getBlock().getHeader())
+            .timestamp(System.currentTimeMillis() / 1000)
+            .prevRandao(random)
+            .feeRecipient(Address.ZERO)
+            .targetGasLimit(Optional.empty())
+            .build());
 
     boolean built = latch.await(30, TimeUnit.SECONDS);
     assertThat(built)
