@@ -27,11 +27,13 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.immutables.value.Value;
@@ -52,6 +54,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param parentBeaconBlockRoot the parent beacon block root, if present
    * @param slotNumber the consensus-layer slot number, if present
    * @param targetGasLimit the CL-supplied target gas limit, if present
+   * @param inclusionListTransactions the inclusion list transactions (EIP-7805), if present
    */
   @Value.Builder
   record PreparePayloadArgs(
@@ -62,7 +65,8 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       Optional<List<Withdrawal>> withdrawals,
       Optional<Bytes32> parentBeaconBlockRoot,
       Optional<Long> slotNumber,
-      Optional<Long> targetGasLimit) {}
+      Optional<Long> targetGasLimit,
+      Optional<InclusionListTransactions> inclusionListTransactions) {}
 
   /**
    * Prepare payload identifier.
@@ -94,6 +98,23 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    */
   BlockProcessingResult rememberBlock(
       final Block block, final Optional<BlockAccessList> blockAccessList);
+
+  /**
+   * Remember a block, handing the writes that store a valid one to the given writer, which may run
+   * them later. They write the block's trie log ahead of the block, since moving the head to a
+   * stored block needs its trie log.
+   *
+   * @param block the block
+   * @param blockAccessList optional block access list
+   * @param blockWriter runs the writes that store the block
+   * @return the block processing result
+   */
+  default BlockProcessingResult rememberBlock(
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final Executor blockWriter) {
+    return rememberBlock(block, blockAccessList);
+  }
 
   /**
    * Validate block.

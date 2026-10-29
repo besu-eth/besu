@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snap2.state;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -34,6 +36,9 @@ final class StorageTask {
   private Bytes32 trieRoot;
   private Bytes trieRootNode;
   private boolean trieGivenUp;
+
+  // the slot ranges of its download, which only the loop of the state download touches
+  final List<RangeTask> chunks = new ArrayList<>();
 
   StorageTask(final Bytes32 accountHash, final Bytes32 storageRoot) {
     // copies, as hashes decoded from a response slice the whole message
@@ -70,15 +75,24 @@ final class StorageTask {
     return covered.contains(slotHash);
   }
 
-  /** Covers a slot range holding some slots; returns true for the call that completes it. */
-  public synchronized boolean cover(final Bytes32 from, final Bytes32 to, final int slots) {
-    // a range covered already, as a retried request's is, counts nothing more
+  /** What covering a slot range did. */
+  enum CoverResult {
+    /** The range was covered already, as a retried request's is, and counts nothing more. */
+    ALREADY_COVERED,
+    /** The range is new, and other ranges are still missing. */
+    ADDED,
+    /** The range is new and completes the storage, which only one call learns. */
+    COMPLETED
+  }
+
+  /** Covers a slot range holding some slots. */
+  public synchronized CoverResult cover(final Bytes32 from, final Bytes32 to, final int slots) {
     if (covered.encloses(from, to)) {
-      return false;
+      return CoverResult.ALREADY_COVERED;
     }
     covered.add(from, to);
     this.slots += slots;
-    return covered.isFull();
+    return covered.isFull() ? CoverResult.COMPLETED : CoverResult.ADDED;
   }
 
   /** Returns the number of slots stored. */

@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -89,7 +90,6 @@ public class DefaultBlockchain implements MutableBlockchain {
   private Optional<Cache<Hash, BlockHeader>> blockHeadersCache;
   private Optional<Cache<Hash, BlockBody>> blockBodiesCache;
   private Optional<Cache<Hash, List<TransactionReceipt>>> transactionReceiptsCache;
-  private Optional<Cache<Hash, Difficulty>> totalDifficultyCache;
   private Optional<Cache<Hash, BlockAccessList>> blockAccessListCache;
 
   private Counter gasUsedCounter = NoOpMetricsSystem.NO_OP_COUNTER;
@@ -175,8 +175,6 @@ public class DefaultBlockchain implements MutableBlockchain {
           Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
       transactionReceiptsCache =
           Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
-      totalDifficultyCache =
-          Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
       blockAccessListCache =
           Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
       registerCacheMetrics(metricsSystem);
@@ -195,7 +193,6 @@ public class DefaultBlockchain implements MutableBlockchain {
   private void setBlockCachesEmpty() {
     blockBodiesCache = Optional.empty();
     transactionReceiptsCache = Optional.empty();
-    totalDifficultyCache = Optional.empty();
     blockAccessListCache = Optional.empty();
   }
 
@@ -204,8 +201,6 @@ public class DefaultBlockchain implements MutableBlockchain {
     metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "blockBodies", blockBodiesCache.get());
     metricsSystem.createGuavaCacheCollector(
         BLOCKCHAIN, "transactionReceipts", transactionReceiptsCache.get());
-    metricsSystem.createGuavaCacheCollector(
-        BLOCKCHAIN, "totalDifficulty", totalDifficultyCache.get());
   }
 
   private void registerHeadersCacheMetrics(final MetricsSystem metricsSystem) {
@@ -416,6 +411,11 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public Optional<Long> getSyncFloor() {
+    return blockchainStorage.getSyncFloor();
+  }
+
+  @Override
   public Hash getChainHeadHash() {
     return chainHeader.getHash();
   }
@@ -542,12 +542,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<Difficulty> getTotalDifficultyByHash(final Hash blockHeaderHash) {
-    return totalDifficultyCache
-        .map(
-            cache ->
-                Optional.ofNullable(cache.getIfPresent(blockHeaderHash))
-                    .or(() -> blockchainStorage.getTotalDifficulty(blockHeaderHash)))
-        .orElseGet(() -> blockchainStorage.getTotalDifficulty(blockHeaderHash));
+    return blockchainStorage.getTotalDifficulty(blockHeaderHash);
   }
 
   @Override
@@ -610,7 +605,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public void storeBlockHeaders(final List<BlockHeader> blockHeaders) {
-    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
     blockHeaders.forEach(header -> putCanonicalHeader(updater, header));
     updater.commit();
   }
@@ -652,16 +647,17 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
-  public void unsafeStoreHeader(final BlockHeader blockHeader, final Difficulty totalDifficulty) {
+  public synchronized void unsafeStoreHeader(
+      final BlockHeader blockHeader, final Difficulty totalDifficulty) {
     // as this is used only to store premerge block headers, we don't cache the header in this case
+    final int transactionCount = transactionCount(blockHeader);
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     updater.putBlockHeader(blockHeader.getHash(), blockHeader);
     updater.putBlockHash(blockHeader.getNumber(), blockHeader.getBlockHash());
     updater.putTotalDifficulty(blockHeader.getHash(), totalDifficulty);
-    this.chainHeader = blockHeader;
-    this.totalDifficulty = totalDifficulty;
     updater.setChainHead(blockHeader.getBlockHash());
     updater.commit();
+    publishChainHead(blockHeader, totalDifficulty, transactionCount);
   }
 
   private void cacheBlockData(
@@ -671,8 +667,6 @@ public class DefaultBlockchain implements MutableBlockchain {
     cacheBlockHeader(block.getHeader());
     blockBodiesCache.ifPresent(cache -> cache.put(block.getHash(), block.getBody()));
     transactionReceiptsCache.ifPresent(cache -> cache.put(block.getHash(), receipts));
-    totalDifficultyCache.ifPresent(
-        cache -> cache.put(block.getHash(), block.getHeader().getDifficulty()));
     blockAccessListCache.ifPresent(
         cache -> blockAccessList.ifPresent(t -> cache.put(block.getHash(), t)));
   }
@@ -795,6 +789,47 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public void unsafeStoreSyncBlockAccessLists(final Map<Hash, SyncBlockAccessList> accessLists) {
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
+    accessLists.forEach(updater::putSyncBlockAccessList);
+    updater.commit();
+  }
+
+  @Override
+  public Difficulty unsafeStoreSyncTotalDifficulties(
+      final long parent, final Difficulty parentTotal, final long last) {
+    checkArgument(last > parent, "block %s is not above block %s", last, parent);
+    Hash parentHash = canonicalHeader(parent).getHash();
+    Difficulty total = parentTotal;
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
+    try {
+      for (long number = parent + 1; number <= last; number++) {
+        final BlockHeader header = canonicalHeader(number);
+        if (!header.getParentHash().equals(parentHash)) {
+          throw new IllegalStateException(
+              "block " + number + " does not follow the canonical chain");
+        }
+        total = total.add(header.getDifficulty());
+        updater.putTotalDifficulty(header.getHash(), total);
+        parentHash = header.getHash();
+      }
+    } catch (final RuntimeException e) {
+      updater.rollback();
+      throw e;
+    }
+    updater.commit();
+    return total;
+  }
+
+  // not through getBlockHeader, whose cache millions of sync headers would flush
+  private BlockHeader canonicalHeader(final long number) {
+    return blockchainStorage
+        .getBlockHash(number)
+        .flatMap(blockchainStorage::getBlockHeader)
+        .orElseThrow(() -> new IllegalStateException("no canonical header for block " + number));
+  }
+
+  @Override
   public void unsafeSetBodiesFrom(final long blockNumber) {
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     updater.setBodiesFrom(blockNumber);
@@ -802,13 +837,36 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public void unsafeSetSyncFloor(final long blockNumber) {
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    updater.setSyncFloor(blockNumber);
+    updater.commit();
+  }
+
+  @Override
   public synchronized void unsafeSetChainHead(
       final BlockHeader blockHeader, final Difficulty totalDifficulty) {
+    final int transactionCount = transactionCount(blockHeader);
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
-    this.chainHeader = blockHeader;
-    this.totalDifficulty = totalDifficulty;
     updater.setChainHead(blockHeader.getBlockHash());
     updater.commit();
+    publishChainHead(blockHeader, totalDifficulty, transactionCount);
+  }
+
+  // read before the commit, so that a body that cannot be read writes nothing
+  private int transactionCount(final BlockHeader blockHeader) {
+    return blockchainStorage
+        .getBlockBody(blockHeader.getBlockHash())
+        .map(body -> body.getTransactions().size())
+        .orElse(0);
+  }
+
+  // once committed, as a failed commit leaves the stored chain head where it was
+  private void publishChainHead(
+      final BlockHeader blockHeader, final Difficulty totalDifficulty, final int transactionCount) {
+    chainHeadTransactionCount = transactionCount;
+    this.totalDifficulty = totalDifficulty;
+    chainHeader = blockHeader;
   }
 
   @Override
@@ -1300,10 +1358,6 @@ public class DefaultBlockchain implements MutableBlockchain {
     return blockAccessListCache;
   }
 
-  public Optional<Cache<Hash, Difficulty>> getTotalDifficultyCache() {
-    return totalDifficultyCache;
-  }
-
   /**
    * Performs a binary search to find the first existing block number in the blockchain. This method
    * starts the search from {@code lowest}, at least block number 1, as the genesis block (block 0)
@@ -1321,6 +1375,10 @@ public class DefaultBlockchain implements MutableBlockchain {
   private Optional<Long> getFirstNonGenesisBlockNumber(final long lowest) {
     long low = lowest;
     long high = getChainHeadBlockNumber();
+    // a sync records bodies above the chain head before it moves the head up to them
+    if (low > high) {
+      return Optional.empty();
+    }
     while (low < high) {
       long mid = (low + high) / 2;
       if (getBlockByNumber(mid).isPresent()) {

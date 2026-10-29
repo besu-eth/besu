@@ -84,6 +84,12 @@ public abstract class PathBasedWorldState
   protected Hash worldStateRootHash;
   protected Hash worldStateBlockHash;
 
+  /**
+   * The root of a frozen world state with its accumulator applied. The tries stay rooted at
+   * worldStateRootHash, because a frozen world state never stores the nodes of this root.
+   */
+  private Hash frozenRootHash;
+
   // configuration parameters for the world state.
   protected WorldStateConfig worldStateConfig;
 
@@ -96,6 +102,9 @@ public abstract class PathBasedWorldState
    * - All modifications are temporary and will be lost once the world state is discarded.
    */
   protected boolean isStorageFrozen;
+
+  private boolean deferTrieLog;
+  private Runnable trieLogWrite = () -> {};
 
   protected PathBasedWorldState(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -169,6 +178,27 @@ public abstract class PathBasedWorldState
   }
 
   /**
+   * Leaves the trie log of the block persisted next to {@link #takeTrieLogWrite()}, for the caller
+   * to write once it has found the block valid. Only a frozen world state defers it: any other
+   * writes its trie log ahead of the state it persists. It is not deferred either if the trie log
+   * manager cannot defer it.
+   */
+  public void deferTrieLog() {
+    deferTrieLog = isStorageFrozen && trieLogManager.canDeferTrieLog();
+  }
+
+  /**
+   * Hands over the write of a deferred trie log.
+   *
+   * @return the write, which does nothing if no trie log was deferred
+   */
+  public Runnable takeTrieLogWrite() {
+    final Runnable write = trieLogWrite;
+    trieLogWrite = () -> {};
+    return write;
+  }
+
+  /**
    * Reset the worldState to this block header
    *
    * @param blockHeader block to use
@@ -176,6 +206,7 @@ public abstract class PathBasedWorldState
   public void resetWorldStateTo(final BlockHeader blockHeader) {
     worldStateBlockHash = blockHeader.getBlockHash();
     worldStateRootHash = blockHeader.getStateRoot();
+    frozenRootHash = null;
   }
 
   @Override
@@ -222,8 +253,12 @@ public abstract class PathBasedWorldState
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
-        // Trie log first, ahead of composed state, in case of an abnormal shutdown.
-        trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
+        if (deferTrieLog) {
+          trieLogWrite = trieLogManager.deferTrieLog(accumulator, calculatedRootHash, blockHeader);
+        } else {
+          // Trie log first, ahead of composed state, in case of an abnormal shutdown.
+          trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
+        }
       }
 
       stateUpdater.commitComposedOnly();
@@ -243,6 +278,7 @@ public abstract class PathBasedWorldState
       throw e;
     } finally {
       accumulator.reset();
+      frozenRootHash = null;
     }
   }
 
@@ -397,10 +433,10 @@ public abstract class PathBasedWorldState
   @Override
   public Hash rootHash() {
     if (isStorageFrozen && accumulator.isAccumulatorStateChanged()) {
-      worldStateRootHash = resolveDefaultCommitter().compute(this, null, accumulator.copy()).root();
+      frozenRootHash = resolveDefaultCommitter().compute(this, null, accumulator.copy()).root();
       accumulator.resetAccumulatorStateChanged();
     }
-    return worldStateRootHash;
+    return frozenRootHash != null ? frozenRootHash : worldStateRootHash;
   }
 
   /**
