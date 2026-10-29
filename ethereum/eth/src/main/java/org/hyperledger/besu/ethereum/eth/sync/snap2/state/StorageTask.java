@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snap2.state;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -34,6 +36,9 @@ final class StorageTask {
   private Bytes32 trieRoot;
   private Bytes trieRootNode;
   private boolean trieGivenUp;
+
+  // the slot ranges of its download, which only the loop of the state download touches
+  final List<RangeTask> chunks = new ArrayList<>();
 
   StorageTask(final Bytes32 accountHash, final Bytes32 storageRoot) {
     // copies, as hashes decoded from a response slice the whole message

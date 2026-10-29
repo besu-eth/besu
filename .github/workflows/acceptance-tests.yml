@@ -20,6 +20,7 @@ jobs:
       actions: read
     outputs:
       run_id: ${{ steps.resolve.outputs.run_id }}
+      repo: ${{ steps.resolve.outputs.repo }}
     steps:
       - name: Find the newest published timing baseline
         id: resolve
@@ -27,31 +28,56 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          # A repository that publishes no baseline of its own, such as a fork, uses the one of
+          # this repository: the tests, and so their timings, are the same.
+          UPSTREAM_REPO: besu-eth/besu
         run: |
           set -euo pipefail
-          run_id=
-          # Look past the newest run: its artifact may already have aged out of the retention
-          # window, and a run for a commit pushed without a pull request succeeds without
-          # publishing one. The loop stops at the first run that has it, so a wide window costs
-          # nothing when the newest run does. Restricting to push events on main keeps pull
-          # request runs, and therefore forks, out of the candidate set.
-          for candidate in $(gh api \
-                "repos/$GH_REPO/actions/workflows/acceptance-tests-timing-reports-update.yml/runs?branch=main&event=push&status=success&per_page=100" \
-                --jq ".workflow_runs[] | select(.head_repository.full_name == \"$GH_REPO\") | .id")
-          do
-            if gh api "repos/$GH_REPO/actions/runs/$candidate/artifacts" \
-                 --jq '.artifacts[] | select(.name == "acceptance-tests-timing-reports" and .expired == false) | .id' \
-                 | grep -q .
-            then
-              run_id=$candidate
-              break
+          run_id='' repo=''
+          repos=("$GH_REPO")
+          [ "$GH_REPO" = "$UPSTREAM_REPO" ] || repos+=("$UPSTREAM_REPO")
+          for candidate_repo in "${repos[@]}"; do
+            # Look past the newest run: its artifact may already have aged out of the retention
+            # window, and a run for a commit pushed without a pull request succeeds without
+            # publishing one. The loop stops at the first run that has it, so a wide window costs
+            # nothing when the newest run does. Restricting to push events on main of that
+            # repository keeps pull request runs, and therefore forks, out of the candidate set.
+            if ! candidates=$(gh api \
+                  "repos/$candidate_repo/actions/workflows/acceptance-tests-timing-reports-update.yml/runs?branch=main&event=push&status=success&per_page=100" \
+                  --jq ".workflow_runs[] | select(.head_repository.full_name == \"$candidate_repo\") | .id"); then
+              # this repository's own runs must be readable; another's only may be
+              if [ "$candidate_repo" = "$GH_REPO" ]; then echo "::error::cannot read the timing baselines of $GH_REPO"; exit 1; fi
+              echo "::warning::cannot read the timing baselines of $candidate_repo"
+              continue
             fi
+            for candidate in $candidates; do
+              if ! artifact=$(gh api "repos/$candidate_repo/actions/runs/$candidate/artifacts" \
+                    --jq '[.artifacts[] | select(.name == "acceptance-tests-timing-reports" and .expired == false)] | first | .id // empty'); then
+                # as for the runs: an error, not a run without the baseline
+                if [ "$candidate_repo" = "$GH_REPO" ]; then echo "::error::cannot read the artifacts of run $candidate of $GH_REPO"; exit 1; fi
+                echo "::warning::cannot read the timing baselines of $candidate_repo"
+                break
+              fi
+              [ -n "$artifact" ] || continue
+              # the token of another repository may list its artifacts but not download them: check
+              # it here, once, rather than in every leg. The API answers a download it allows with a
+              # redirect to the storage, which is not followed: gh would send the token there too.
+              if [ "$candidate_repo" != "$GH_REPO" ] \
+                 && [ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
+                         "${GITHUB_API_URL:-https://api.github.com}/repos/$candidate_repo/actions/artifacts/$artifact/zip")" != 302 ]; then
+                echo "::warning::cannot download the timing baseline of $candidate_repo with the token of this run"
+                break
+              fi
+              run_id=$candidate repo=$candidate_repo
+              break 2
+            done
           done
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
           if [ -z "$run_id" ]; then
             echo "::warning::no timing baseline is available, so tests will be split round-robin. Check the acceptance-tests-timing-reports-update workflow on main."
           else
-            echo "using the timing baseline published by run $run_id"
+            echo "using the timing baseline published by run $run_id of $repo"
           fi
 
   acceptanceTests:
@@ -127,7 +153,7 @@ jobs:
           fi
           cat tmp/currentTests.list
       # Downloads the timing baseline produced by acceptance-tests-timing-reports-update.yml on a
-      # merge to main. `splitTestsByTime.sh` uses the per-test durations in these XMLs to distribute
+      # merge to main, of this repository or of the one it falls back to (resolveTimingBaseline). `splitTestsByTime.sh` uses the per-test durations in these XMLs to distribute
       # tests across parallel runners by historical wall-clock time rather than a naive split.
       # The run is pinned by resolveTimingBaseline so every leg reads the same one; that job also
       # decides whether a baseline exists at all, so a failure here is a real error rather than the
@@ -136,6 +162,7 @@ jobs:
         if: needs.resolveTimingBaseline.outputs.run_id != ''
         uses: dawidd6/action-download-artifact@7f871e041ed7fe12467d2d4196da8a466c5311ff # v22
         with:
+          repo: ${{ needs.resolveTimingBaseline.outputs.repo }}
           run_id: ${{ needs.resolveTimingBaseline.outputs.run_id }}
           name: acceptance-tests-timing-reports
           path: tmp/junit-xml-reports-downloaded

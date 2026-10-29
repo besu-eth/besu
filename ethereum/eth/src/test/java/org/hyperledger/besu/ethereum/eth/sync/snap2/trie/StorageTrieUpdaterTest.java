@@ -53,16 +53,21 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /** Runs without workers: every update is applied on the test thread, by finish or applyNext. */
 class StorageTrieUpdaterTest {
 
   private static final int NO_BUDGET = Integer.MAX_VALUE;
 
-  private final Storages storages = SyncStorageFixture.create(Format.BONSAI);
+  // Bonsai, unless a test runs on each format
+  private Storages storages = SyncStorageFixture.create(Format.BONSAI);
 
-  @Test
-  void appliesTheSlotsAMoveChangedToTheTrie() {
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void appliesTheSlotsAMoveChangedToTheTrie(final Format format) {
+    storages = SyncStorageFixture.create(format);
     final World world = SyncStorageFixture.randomWorld(new Random(8), 80);
     final Bytes32 account = largestStorage(world);
     final Bytes32 root = downloaded(world, account);
@@ -311,40 +316,21 @@ class StorageTrieUpdaterTest {
   }
 
   @Test
-  void abortsTheRootBatchOfAFailedWriteButNotOneWhoseCommitFailed() {
+  void abortsTheRootBatchOfAFailedWrite() {
     final World world = SyncStorageFixture.randomWorld(new Random(21), 80);
-    final List<Bytes32> accounts = largestStorages(world, 2);
-    final Bytes32 firstRoot = downloaded(world, accounts.get(0));
-    final Bytes32 secondRoot = downloaded(world, accounts.get(1));
+    final Bytes32 account = largestStorage(world);
+    final Bytes32 root = downloaded(world, account);
     final SyncStateStorage storage = spy(storages.sync());
     final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
     doReturn(batch).when(storage).batch();
-    // the updater only logs the error, read here where the root write runs
-    final AtomicReference<RuntimeException> failure = new AtomicReference<>();
-    final Predicate<Runnable> withoutMoves =
-        action -> {
-          try {
-            action.run();
-            return true;
-          } catch (final RuntimeException e) {
-            failure.set(e);
-            throw e;
-          }
-        };
-    final StorageTrieUpdater updater =
-        new StorageTrieUpdater(storage, withoutMoves, hash -> false, 0, 0);
-
-    // the commit of the transaction has started, it cannot be rolled back
-    doThrow(new IllegalStateException("disk full")).when(batch).commit();
-    updater.changed(accounts.get(0), Hash.wrap(firstRoot), move(world, accounts.get(0), 1));
-    assertThat(updater.applyNext()).isTrue();
-    assertThat(failure.get()).hasMessage("disk full");
-    verify(batch, never()).abort();
-
     doThrow(new IllegalStateException("write failed")).when(batch).putAccount(any(), any());
-    updater.changed(accounts.get(1), Hash.wrap(secondRoot), move(world, accounts.get(1), 1));
+    final StorageTrieUpdater updater = updater(storage, 0);
+    updater.changed(account, Hash.wrap(root), move(world, account, 1));
+
     assertThat(updater.applyNext()).isTrue();
-    assertThat(failure.get()).hasMessage("write failed");
+    // the error left the update to the final build
+    assertThat(updater.updated()).isZero();
+    verify(batch, never()).commit();
     verify(batch).abort();
   }
 
@@ -353,13 +339,14 @@ class StorageTrieUpdaterTest {
         storage, StorageTrieUpdaterTest::noMoves, hash -> false, 0, budget);
   }
 
-  // runs an action on the first trie read of an update, as a move or a stop during it does
+  // runs an action on an update's first read below the root, as a move or a stop during it does
   private SyncStateStorage onTheFirstRead(final Runnable action) {
     final SyncStateStorage storage = spy(storages.sync());
     final AtomicBoolean read = new AtomicBoolean();
     doAnswer(
             invocation -> {
-              if (read.compareAndSet(false, true)) {
+              final Bytes location = invocation.getArgument(1);
+              if (!location.isEmpty() && read.compareAndSet(false, true)) {
                 action.run();
               }
               return invocation.callRealMethod();

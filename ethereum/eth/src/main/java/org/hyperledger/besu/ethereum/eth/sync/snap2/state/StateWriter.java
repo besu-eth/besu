@@ -32,7 +32,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -83,7 +82,7 @@ final class StateWriter {
         (int) hashes.stream().takeWhile(hash -> hash.compareTo(request.limit) <= 0).count();
     final List<StorageTask> storageTasks = new ArrayList<>();
     final Set<Bytes32> codeHashes = new LinkedHashSet<>();
-    write(
+    storage.write(
         batch -> {
           for (int i = 0; i < count; i++) {
             final Bytes account = result.accounts().get(i);
@@ -99,7 +98,8 @@ final class StateWriter {
           }
         });
     final boolean done = reachesLimit(hashes, result.hasMore(), request.limit);
-    final Bytes32 end = coveredEnd(hashes, result.hasMore(), request.limit);
+    // a copy, as keys decoded from a response slice the whole message
+    final Bytes32 end = coveredEnd(hashes, result.hasMore(), request.limit).copy();
     storageTasks.forEach(coverage::addStorageTask);
     coverage.accounts().add(request.origin, end);
     accountsWritten.addAndGet(count);
@@ -133,7 +133,8 @@ final class StateWriter {
     final StorageRangesRequest.Slots last = result.accounts().getLast();
     return new StorageWritten(
         result.accounts().size(),
-        last.hashes().isEmpty() ? null : last.hashes().getLast(),
+        // a copy, as keys decoded from a response slice the whole message
+        last.hashes().isEmpty() ? null : last.hashes().getLast().copy(),
         reachesLimit(last.hashes(), !last.complete(), request.limit),
         last.hashes().size());
   }
@@ -149,12 +150,12 @@ final class StateWriter {
     final Bytes32 hash = task.accountHash();
     if (!result.startsWith(hash)) {
       LOG.debug("Account {} no longer exists at the pivot, dropping it", hash);
-      write(batch -> batch.removeAccount(hash));
+      storage.write(batch -> batch.removeAccount(hash));
       dropStorage(task);
       return true;
     }
     final Bytes account = result.accounts().getFirst();
-    write(batch -> batch.putAccount(hash, account));
+    storage.write(batch -> batch.putAccount(hash, account));
     final Hash storageRoot = Accounts.decode(account).getStorageRoot();
     if (storageRoot.equals(Hash.EMPTY_TRIE_HASH)) {
       dropStorage(task);
@@ -166,7 +167,7 @@ final class StateWriter {
 
   /** Writes bytecodes. */
   void codes(final Map<Bytes32, Bytes> received) {
-    write(batch -> received.forEach(batch::putCode));
+    storage.write(batch -> received.forEach(batch::putCode));
     codesWritten.addAndGet(received.size());
   }
 
@@ -205,18 +206,6 @@ final class StateWriter {
     return storageTriesLeft.contains(accountHash);
   }
 
-  // writes a batch and commits it, or drops it if a write fails
-  private void write(final Consumer<SyncStateStorage.Batch> writes) {
-    final SyncStateStorage.Batch batch = storage.batch();
-    try {
-      writes.accept(batch);
-    } catch (final RuntimeException e) {
-      batch.abort();
-      throw e;
-    }
-    batch.commit();
-  }
-
   private record Covered(StorageTask task, Bytes32 end, int slots) {}
 
   // stores the slots of each pending storage served and the trie nodes of its range
@@ -225,7 +214,7 @@ final class StateWriter {
       final StorageRangesRequest.Result result,
       final SyncStateStorage.TrieWriter writer) {
     final List<Covered> covered = new ArrayList<>();
-    write(
+    storage.write(
         batch -> {
           for (int i = 0; i < result.accounts().size(); i++) {
             final StorageTask task = request.tasks.get(i);

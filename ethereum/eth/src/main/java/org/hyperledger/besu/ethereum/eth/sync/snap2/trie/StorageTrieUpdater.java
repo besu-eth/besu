@@ -371,19 +371,8 @@ public final class StorageTrieUpdater {
     storage
         .getAccount(accountHash)
         .map(Accounts::decode)
-        .ifPresent(
-            account -> {
-              final SyncStateStorage.Batch batch = storage.batch();
-              try {
-                batch.putAccount(
-                    accountHash,
-                    Accounts.encode(Accounts.withStorageRoot(account, Hash.wrap(root))));
-              } catch (final RuntimeException e) {
-                batch.abort();
-                throw e;
-              }
-              // outside the try: a transaction whose commit has started refuses its rollback
-              batch.commit();
-            });
+        .map(account -> Accounts.withStorageRoot(account, Hash.wrap(root)))
+        .map(Accounts::encode)
+        .ifPresent(encoded -> storage.write(batch -> batch.putAccount(accountHash, encoded)));
   }
 }
