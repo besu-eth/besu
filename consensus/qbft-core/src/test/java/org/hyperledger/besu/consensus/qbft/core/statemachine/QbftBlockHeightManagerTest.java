@@ -478,7 +478,8 @@ public class QbftBlockHeightManagerTest {
     final ConsensusRoundIdentifier futureRoundIdentifier = createFrom(roundIdentifier, 0, +2);
     final RoundChange roundChange =
         messageFactory.createRoundChange(futureRoundIdentifier, Optional.empty());
-    when(roundChangeManager.appendRoundChangeMessage(any()))
+    when(roundChangeManager.isMessageValid(any())).thenReturn(true);
+    when(roundChangeManager.appendValidatedRoundChangeMessage(any()))
         .thenReturn(Optional.of(singletonList(roundChange)));
     when(finalState.isLocalNodeProposerForRound(any())).thenReturn(false);
 
@@ -497,7 +498,9 @@ public class QbftBlockHeightManagerTest {
 
     manager.handleRoundChangePayload(roundChange);
 
-    verify(roundChangeManager, times(1)).appendRoundChangeMessage(roundChange);
+    verify(roundChangeManager, times(1)).appendValidatedRoundChangeMessage(roundChange);
+    // Validation must happen exactly once per message, not once per consumer.
+    verify(roundChangeManager, times(1)).isMessageValid(roundChange);
     verify(roundFactory, times(1))
         .createNewRound(any(), eq(futureRoundIdentifier.getRoundNumber()));
   }
@@ -531,7 +534,8 @@ public class QbftBlockHeightManagerTest {
     final RoundChangeArtifacts roundChangArtifacts =
         RoundChangeArtifacts.create(singletonList(roundChange));
 
-    when(roundChangeManager.appendRoundChangeMessage(any()))
+    when(roundChangeManager.isMessageValid(any())).thenReturn(true);
+    when(roundChangeManager.appendValidatedRoundChangeMessage(any()))
         .thenReturn(Optional.of(singletonList(roundChange)));
     when(finalState.isLocalNodeProposerForRound(any())).thenReturn(true);
     when(blockInterface.replaceRoundForCommitBlock(eq(createdBlock), eq(2)))

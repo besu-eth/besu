@@ -15,6 +15,10 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -22,15 +26,21 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.proof.GetProofResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.proof.StorageEntryProof;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
+import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -38,6 +48,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -50,6 +61,8 @@ import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class EthGetProofTest {
 
@@ -63,6 +76,9 @@ class EthGetProofTest {
       Address.fromHexString("0x000d836201318ec6899a67540690382780743280");
   private final UInt256 storageKey =
       UInt256.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000001");
+
+  private static final Address EXISTING_ACCOUNT =
+      Address.fromHexString("8bebc8ba651aee624937e7d897853ac30c95a067");
 
   private final long blockNumber = 500;
 
@@ -339,6 +355,169 @@ class EthGetProofTest {
                   .as("proof nodes for non-existent account must be empty")
                   .isEmpty();
             });
+  }
+
+  @Test
+  void echoesStorageKeysInRequestedFormat() {
+    final String key63 = "0x" + "0".repeat(62) + "1";
+    final String key64 = "0x" + "0".repeat(63) + "1";
+    final GetProofResult result =
+        proofResult(EXISTING_ACCOUNT, "0x1", "0x01", "0x", "0x0", "1", key63, key64);
+
+    assertThat(result.getStorageProof())
+        .extracting(StorageEntryProof::getKey)
+        .containsExactly("0x1", "0x1", "0x0", "0x0", "0x1", key64, key64);
+    assertThat(result.getStorageProof())
+        .extracting(StorageEntryProof::getValue)
+        .containsExactly("0x1", "0x1", "0x0", "0x0", "0x1", "0x1", "0x1");
+  }
+
+  @Test
+  void returnsOneEntryPerRequestedKeyInRequestOrder() {
+    final GetProofResult result = proofResult(EXISTING_ACCOUNT, "0x2", "0x1", "0x2", "0x1");
+
+    assertThat(result.getStorageProof())
+        .extracting(StorageEntryProof::getKey)
+        .containsExactly("0x2", "0x1", "0x2", "0x1");
+    assertThat(result.getStorageProof())
+        .extracting(StorageEntryProof::getValue)
+        .containsExactly("0x2", "0x1", "0x2", "0x1");
+  }
+
+  @Test
+  void returnsSameProofForTwoEncodingsOfOneSlot() {
+    final String key64 = "0x" + "0".repeat(63) + "1";
+    final GetProofResult result = proofResult(EXISTING_ACCOUNT, "0x1", key64);
+
+    final List<StorageEntryProof> entries = result.getStorageProof();
+    assertThat(entries).extracting(StorageEntryProof::getKey).containsExactly("0x1", key64);
+    assertThat(entries.get(0).getValue()).isEqualTo(entries.get(1).getValue());
+    assertThat(entries.get(0).getStorageProof()).isNotEmpty();
+    assertThat(entries.get(0).getStorageProof()).isEqualTo(entries.get(1).getStorageProof());
+  }
+
+  @Test
+  void acceptsManyStorageKeys() {
+    final String[] keys =
+        IntStream.range(0, 1024)
+            .mapToObj(Integer::toHexString)
+            .map(k -> "0x" + k)
+            .toArray(String[]::new);
+    final GetProofResult result = proofResult(EXISTING_ACCOUNT, keys);
+
+    assertThat(result.getStorageProof()).hasSize(1024);
+    assertThat(result.getStorageProof().get(1023).getKey()).isEqualTo("0x3ff");
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "0xzz",
+        "zz",
+        "0x0x1",
+        "0x00000000000000000000000000000000000000000000000000000000000000001"
+      })
+  void rejectsInvalidStorageKey(final String key) {
+    final JsonRpcRequestContext request =
+        requestWithParams(EXISTING_ACCOUNT.toString(), new String[] {"0x1", key}, "latest");
+
+    Assertions.assertThatThrownBy(() -> method.response(request))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> {
+              assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_STORAGE_KEYS_PARAMS);
+              assertThat(e.getRpcErrorType().getCode()).isEqualTo(-32602);
+            });
+  }
+
+  @Test
+  void absentAccountHasZeroHashes() {
+    final GetProofResult result =
+        proofResult(Address.fromHexString("7bebc8ba651aee624937e7d897853ac30c95a067"), "0x1");
+
+    assertThat(result.getCodeHash()).isEqualTo(Bytes32.ZERO.toHexString());
+    assertThat(result.getStorageHash()).isEqualTo(Bytes32.ZERO.toHexString());
+    assertThat(result.getStorageProof()).hasSize(1);
+    assertThat(result.getStorageProof().get(0).getValue()).isEqualTo("0x0");
+    assertThat(result.getStorageProof().get(0).getStorageProof()).isEmpty();
+  }
+
+  @Test
+  void returnsPrunedHistoryWhenStateIsNotKept() {
+    final BlockHeader header = new BlockHeaderTestFixture().buildHeader();
+    final WorldStateArchive archive = mock(WorldStateArchive.class);
+    when(archive.getAccountProof(eq(header), any(), any(), any())).thenReturn(Optional.empty());
+
+    assertThat(errorWithMockedState(header, Optional.of(header), archive, true))
+        .isEqualTo(RpcErrorType.PRUNED_HISTORY_UNAVAILABLE);
+    assertThat(RpcErrorType.PRUNED_HISTORY_UNAVAILABLE.getCode()).isEqualTo(4444);
+  }
+
+  @Test
+  void returnsPrunedHistoryWhenProofIsUnavailable() {
+    final BlockHeader header = new BlockHeaderTestFixture().buildHeader();
+    final WorldStateArchive archive = mock(WorldStateArchive.class);
+    when(archive.getAccountProof(eq(header), any(), any(), any()))
+        .thenAnswer(
+            invocation ->
+                invocation
+                    .<Function<Optional<WorldStateProof>, Optional<?>>>getArgument(3)
+                    .apply(Optional.empty()));
+
+    assertThat(errorWithMockedState(header, Optional.of(header), archive, true))
+        .isEqualTo(RpcErrorType.PRUNED_HISTORY_UNAVAILABLE);
+  }
+
+  @Test
+  void keepsWorldStateUnavailableWhenHeadStateIsUnavailable() {
+    final BlockHeader header = new BlockHeaderTestFixture().buildHeader();
+    final WorldStateArchive archive = mock(WorldStateArchive.class);
+    when(archive.getAccountProof(eq(header), any(), any(), any())).thenReturn(Optional.empty());
+
+    assertThat(errorWithMockedState(header, Optional.of(header), archive, false))
+        .isEqualTo(RpcErrorType.WORLD_STATE_UNAVAILABLE);
+  }
+
+  @Test
+  void keepsWorldStateUnavailableWhenHeaderIsMissing() {
+    final BlockHeader header = new BlockHeaderTestFixture().buildHeader();
+
+    assertThat(errorWithMockedState(header, Optional.empty(), mock(WorldStateArchive.class), true))
+        .isEqualTo(RpcErrorType.WORLD_STATE_UNAVAILABLE);
+  }
+
+  private RpcErrorType errorWithMockedState(
+      final BlockHeader header,
+      final Optional<BlockHeader> storedHeader,
+      final WorldStateArchive archive,
+      final boolean headStateAvailable) {
+    final BlockchainQueries queries = mock(BlockchainQueries.class);
+    final Blockchain blockchain = mock(Blockchain.class);
+    final BlockHeader head = new BlockHeaderTestFixture().number(1000).buildHeader();
+    when(queries.getBlockchain()).thenReturn(blockchain);
+    when(queries.getWorldStateArchive()).thenReturn(archive);
+    when(queries.getBlockHeaderByHash(header.getHash())).thenReturn(Optional.of(header));
+    when(blockchain.getBlockHeader(header.getHash())).thenReturn(storedHeader);
+    when(blockchain.getChainHeadHeader()).thenReturn(head);
+    when(archive.isWorldStateAvailable(head.getStateRoot(), head.getHash()))
+        .thenReturn(headStateAvailable);
+
+    final JsonRpcResponse response =
+        new EthGetProof(queries)
+            .response(
+                requestWithParams(
+                    EXISTING_ACCOUNT.toString(),
+                    new String[] {"0x1"},
+                    header.getHash().toHexString()));
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    return ((JsonRpcErrorResponse) response).getErrorType();
+  }
+
+  private GetProofResult proofResult(final Address account, final String... keys) {
+    final JsonRpcRequestContext request =
+        requestWithParams(account.toString(), keys, "0x" + Long.toHexString(blockNumber));
+    return (GetProofResult) ((JsonRpcSuccessResponse) method.response(request)).getResult();
   }
 
   private static String[] storageKeys(final int count) {

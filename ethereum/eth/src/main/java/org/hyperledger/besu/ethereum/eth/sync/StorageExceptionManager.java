@@ -41,7 +41,7 @@ public final class StorageExceptionManager {
    * @return true if the operation can be retried, false otherwise
    */
   public static boolean canRetryOnError(final StorageException e) {
-    return Optional.of(e.getCause())
+    return Optional.ofNullable(e.getCause())
         .filter(z -> z instanceof RocksDBException)
         .map(RocksDBException.class::cast)
         .map(RocksDBException::getStatus)

@@ -173,7 +173,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
     assertThat(fromErrorResp(resp).getMessage())
         .isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
-    verify(mergeCoordinator, never()).rememberBlock(any(), any());
+    verify(mergeCoordinator, never()).rememberBlock(any(), any(), any());
   }
 
   @Test
