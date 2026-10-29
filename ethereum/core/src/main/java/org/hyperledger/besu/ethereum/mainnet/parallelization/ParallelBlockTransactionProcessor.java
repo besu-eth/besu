@@ -36,6 +36,27 @@ public abstract class ParallelBlockTransactionProcessor {
 
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
+  private Optional<PrewarmReuse> prewarmReuse = Optional.empty();
+
+  /**
+   * Lets the block take prewarm results instead of executing transactions where they stand for the
+   * executions.
+   *
+   * @param prewarmReuse the reuse of prewarm results for the block
+   */
+  public void setPrewarmReuse(final Optional<PrewarmReuse> prewarmReuse) {
+    this.prewarmReuse = prewarmReuse;
+  }
+
+  /**
+   * The reuse of prewarm results for the block, if any.
+   *
+   * @return the reuse of prewarm results for the block
+   */
+  public Optional<PrewarmReuse> getPrewarmReuse() {
+    return prewarmReuse;
+  }
+
   protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
     final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
     futures[txIndex] = null;

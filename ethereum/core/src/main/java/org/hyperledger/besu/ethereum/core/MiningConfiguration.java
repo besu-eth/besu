@@ -342,6 +342,11 @@ public abstract class MiningConfiguration {
     long DEFAULT_POS_BLOCK_CREATION_REPETITION_MIN_DURATION = Duration.ofMillis(500).toMillis();
     long DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS = 0L;
     Integer DEFAULT_POS_SLOT_DURATION_SECS = 12;
+    boolean DEFAULT_MEMPOOL_PREWARM_ENABLED = false;
+    int DEFAULT_MEMPOOL_PREWARM_THREADS =
+        Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
+    int DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER = 4;
+    boolean DEFAULT_MEMPOOL_PREWARM_REUSE_ENABLED = true;
 
     MiningConfiguration.Unstable DEFAULT = ImmutableMiningConfiguration.Unstable.builder().build();
 
@@ -368,6 +373,26 @@ public abstract class MiningConfiguration {
     @Value.Default
     default long getPosBlockFinalizationTimeoutMs() {
       return DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS;
+    }
+
+    @Value.Default
+    default boolean isMempoolPrewarmEnabled() {
+      return DEFAULT_MEMPOOL_PREWARM_ENABLED;
+    }
+
+    @Value.Default
+    default int getMempoolPrewarmThreads() {
+      return DEFAULT_MEMPOOL_PREWARM_THREADS;
+    }
+
+    @Value.Default
+    default int getMempoolPrewarmGasLimitMultiplier() {
+      return DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER;
+    }
+
+    @Value.Default
+    default boolean isMempoolPrewarmReuseEnabled() {
+      return DEFAULT_MEMPOOL_PREWARM_REUSE_ENABLED;
     }
   }
 }

@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -172,6 +173,20 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final ParallelizedTransactionContext.Builder ctxBuilder =
           new ParallelizedTransactionContext.Builder();
 
+      final Optional<TransactionProcessingResult> reused =
+          getPrewarmReuse()
+              .flatMap(
+                  reuse ->
+                      reuse.withBlockAccessList(
+                          transaction,
+                          transactionLocation,
+                          blockAccessListAccountLookup,
+                          balanceOf(ws.get(miningBeneficiary)),
+                          balanceOf(ws.get(PrewarmedTransactions.PREWARM_COINBASE))));
+      if (reused.isPresent()) {
+        return ctxBuilder.transactionProcessingResult(reused.get()).build();
+      }
+
       final PathBasedWorldStateUpdateAccumulator<?> blockUpdater = ws.getAccumulator();
       final WorldUpdater txUpdater = blockUpdater.updater();
       final Optional<AccessLocationTracker> txTracker =
@@ -198,6 +213,10 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     } finally {
       ws.close();
     }
+  }
+
+  private static Wei balanceOf(final Account account) {
+    return account == null ? Wei.ZERO : account.getBalance();
   }
 
   @Override

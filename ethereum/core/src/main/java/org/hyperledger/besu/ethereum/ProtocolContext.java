@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum;
 
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.PrewarmedTransactions;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.ServiceManager;
 
@@ -32,6 +33,7 @@ public class ProtocolContext {
   private final ConsensusContext consensusContext;
   private final BadBlockManager badBlockManager;
   private final ServiceManager serviceManager;
+  private final PrewarmedTransactions prewarmedTransactions;
 
   /**
    * Constructs a new ProtocolContext with the given blockchain, world state archive, consensus
@@ -49,11 +51,48 @@ public class ProtocolContext {
       final ConsensusContext consensusContext,
       final BadBlockManager badBlockManager,
       final ServiceManager serviceManager) {
+    this(
+        blockchain,
+        worldStateArchive,
+        consensusContext,
+        badBlockManager,
+        serviceManager,
+        PrewarmedTransactions.DISABLED);
+  }
+
+  /**
+   * Constructs a new ProtocolContext that also keeps the transactions the mempool prewarmer
+   * executed.
+   *
+   * @param blockchain the blockchain of the protocol context
+   * @param worldStateArchive the world state archive of the protocol context
+   * @param consensusContext the consensus context
+   * @param badBlockManager the bad block manager of the protocol context
+   * @param serviceManager plugin service manager
+   * @param prewarmedTransactions the transactions the mempool prewarmer executed
+   */
+  protected ProtocolContext(
+      final MutableBlockchain blockchain,
+      final WorldStateArchive worldStateArchive,
+      final ConsensusContext consensusContext,
+      final BadBlockManager badBlockManager,
+      final ServiceManager serviceManager,
+      final PrewarmedTransactions prewarmedTransactions) {
     this.blockchain = blockchain;
     this.worldStateArchive = worldStateArchive;
     this.consensusContext = consensusContext;
     this.badBlockManager = badBlockManager;
     this.serviceManager = serviceManager;
+    this.prewarmedTransactions = prewarmedTransactions;
+  }
+
+  /**
+   * Gets the transactions the mempool prewarmer executed for the next block to take results from.
+   *
+   * @return the prewarmed transactions
+   */
+  public PrewarmedTransactions getPrewarmedTransactions() {
+    return prewarmedTransactions;
   }
 
   /**
@@ -152,6 +191,7 @@ public class ProtocolContext {
     private ConsensusContext consensusContext;
     private BadBlockManager badBlockManager = new BadBlockManager();
     private ServiceManager serviceManager = new ServiceManager.SimpleServiceManager();
+    private PrewarmedTransactions prewarmedTransactions = PrewarmedTransactions.DISABLED;
 
     /** Default constructor. linter requires javadoc. */
     public Builder() {}
@@ -212,13 +252,29 @@ public class ProtocolContext {
     }
 
     /**
+     * Sets the {@link PrewarmedTransactions} for the {@link ProtocolContext}.
+     *
+     * @param prewarmedTransactions the transactions the mempool prewarmer executed
+     * @return the builder instance for chaining.
+     */
+    public Builder withPrewarmedTransactions(final PrewarmedTransactions prewarmedTransactions) {
+      this.prewarmedTransactions = prewarmedTransactions;
+      return this;
+    }
+
+    /**
      * Constructs a new {@link ProtocolContext} using the currently configured properties.
      *
      * @return a new {@link ProtocolContext} instance with the specified properties.
      */
     public ProtocolContext build() {
       return new ProtocolContext(
-          blockchain, worldStateArchive, consensusContext, badBlockManager, serviceManager);
+          blockchain,
+          worldStateArchive,
+          consensusContext,
+          badBlockManager,
+          serviceManager,
+          prewarmedTransactions);
     }
   }
 }

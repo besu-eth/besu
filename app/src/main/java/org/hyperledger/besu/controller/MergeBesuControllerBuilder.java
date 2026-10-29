@@ -22,6 +22,7 @@ import org.hyperledger.besu.consensus.merge.TransitionBestPeerComparator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.blockcreation.MempoolPrewarmer;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.GenesisState;
@@ -168,13 +169,28 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     this.syncState.set(syncState);
 
+    final MiningConfiguration.Unstable unstable = miningConfiguration.getUnstable();
+    final Optional<MempoolPrewarmer> mempoolPrewarmer =
+        unstable.isMempoolPrewarmEnabled()
+            ? Optional.of(
+                new MempoolPrewarmer(
+                    protocolContext,
+                    protocolSchedule,
+                    transactionPool,
+                    miningConfiguration,
+                    unstable.getMempoolPrewarmThreads(),
+                    unstable.getMempoolPrewarmGasLimitMultiplier(),
+                    metricsSystem))
+            : Optional.empty();
+
     return new MergeCoordinator(
         protocolContext,
         protocolSchedule,
         ethScheduler,
         transactionPool,
         miningConfiguration,
-        backwardSyncContext);
+        backwardSyncContext,
+        mempoolPrewarmer);
   }
 
   @Override

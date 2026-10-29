@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.PrewarmedTransactions;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -136,6 +137,7 @@ public class MainnetBlockValidatorTest {
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
     when(protocolContext.getBadBlockManager()).thenReturn(badBlockManager);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+    when(protocolContext.getPrewarmedTransactions()).thenReturn(PrewarmedTransactions.DISABLED);
     when(worldStateArchive.getWorldState(any())).thenReturn(Optional.of(worldState));
     when(worldStateArchive.getWorldState(any())).thenReturn(Optional.of(worldState));
     when(worldStateArchive.getWorldState()).thenReturn(worldState);
@@ -719,6 +721,44 @@ public class MainnetBlockValidatorTest {
     verify(worldStateArchive).healMissingCode(Address.ZERO, Hash.ZERO);
     verify(blockProcessor, times(2)).processBlock(contextWith(block, Optional.empty()));
     assertNoBadBlocks();
+  }
+
+  @Test
+  public void validateAndProcessBlock_processesABlockThatFailedWithPrewarmResultsAgainWithout() {
+    final PrewarmedTransactions prewarmed = mock(PrewarmedTransactions.class);
+    when(protocolContext.getPrewarmedTransactions()).thenReturn(prewarmed);
+    when(prewarmed.reusedIn(block.getHash())).thenReturn(true);
+    when(blockProcessor.processBlock(contextWith(block, Optional.empty())))
+        .thenReturn(new BlockProcessingResult("access list mismatch"))
+        .thenReturn(new BlockProcessingResult(Optional.empty(), false));
+
+    final BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY);
+
+    assertThat(result.isSuccessful()).isTrue();
+    verify(prewarmed).processWithoutReuse(block.getHash());
+    verify(blockProcessor, times(2)).processBlock(contextWith(block, Optional.empty()));
+    assertNoBadBlocks();
+  }
+
+  @Test
+  public void validateAndProcessBlock_doesNotProcessAgainABlockThatTookNoPrewarmResults() {
+    when(blockProcessor.processBlock(contextWith(block, Optional.empty())))
+        .thenReturn(new BlockProcessingResult("access list mismatch"));
+
+    final BlockProcessingResult result =
+        mainnetFrontierBlockValidator.validateAndProcessBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.DETACHED_ONLY,
+            HeaderValidationMode.DETACHED_ONLY);
+
+    assertThat(result.isFailed()).isTrue();
+    verify(blockProcessor).processBlock(contextWith(block, Optional.empty()));
   }
 
   private void assertNoBadBlocks() {

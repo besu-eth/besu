@@ -36,6 +36,7 @@ import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -124,6 +125,12 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       return blockProcessingResult;
     }
     final Block block = context.getBlock();
+    final PrewarmedTransactions prewarmedTransactions =
+        context.getProtocolContext().getPrewarmedTransactions();
+    if (prewarmedTransactions.reusedIn(block.getHash())) {
+      // the sequential run takes no prewarm results
+      prewarmedTransactions.processWithoutReuse(block.getHash());
+    }
     LOG.info(
         "Parallel transaction processing failure. Falling back to non-parallel processing for block #{} ({})",
         block.getHeader().getNumber(),
@@ -173,6 +180,8 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }
 
+    parallelProcessor.setPrewarmReuse(
+        protocolContext.getPrewarmedTransactions().forBlock(blockHeader));
     parallelProcessor.runAsyncBlock(
         protocolContext,
         blockHeader,
@@ -198,8 +207,8 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       final int location,
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    return parallelProcessor
-        .flatMap(
+    final Optional<TransactionProcessingResult> parallelResult =
+        parallelProcessor.flatMap(
             processor ->
                 processor.getProcessingResult(
                     blockProcessingContext.getWorldState(),
@@ -207,19 +216,36 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
                     transaction,
                     location,
                     confirmedParallelizedTransactionCounter,
-                    conflictingButCachedTransactionCounter))
-        // No usable parallel result (a conflict, or nothing ran in parallel): process it
-        // sequentially.
-        .orElseGet(
-            () ->
-                processTransactionSequentially(
-                    blockProcessingContext,
-                    transactionUpdater,
-                    blobGasPrice,
-                    miningBeneficiary,
-                    transaction,
-                    blockHashLookup,
-                    accessLocationTracker));
+                    conflictingButCachedTransactionCounter));
+    if (parallelResult.isPresent()) {
+      return parallelResult.get();
+    }
+    // No usable parallel result (a conflict, or nothing ran in parallel): a prewarm result that
+    // still holds costs less than executing the transaction again.
+    if (!blockProcessingContext.getOperationTracer().isEnabled()
+        && blockProcessingContext.getWorldState() instanceof PathBasedWorldState worldState) {
+      final Optional<TransactionProcessingResult> reused =
+          parallelProcessor
+              .flatMap(ParallelBlockTransactionProcessor::getPrewarmReuse)
+              .flatMap(
+                  reuse ->
+                      reuse.withBlockState(
+                          transaction,
+                          location,
+                          worldState.getAccumulator(),
+                          transactionProcessor.getClearEmptyAccounts()));
+      if (reused.isPresent()) {
+        return reused.get();
+      }
+    }
+    return processTransactionSequentially(
+        blockProcessingContext,
+        transactionUpdater,
+        blobGasPrice,
+        miningBeneficiary,
+        transaction,
+        blockHashLookup,
+        accessLocationTracker);
   }
 
   public static class ParallelBlockProcessorBuilder

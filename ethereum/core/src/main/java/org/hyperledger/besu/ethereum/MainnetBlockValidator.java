@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.PrewarmedTransactions;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -238,7 +239,17 @@ public class MainnetBlockValidator implements BlockValidator {
             shouldUpdateHead
                 ? context.getWorldStateArchive().withHeadWorldStateLock(process)
                 : process.get();
-    final BlockProcessingResult result = processWithHeadLock.get();
+    BlockProcessingResult result = processWithHeadLock.get();
+    final PrewarmedTransactions prewarmedTransactions = context.getPrewarmedTransactions();
+    if (result.isFailed() && prewarmedTransactions.reusedIn(header.getHash())) {
+      // validation is what checks a prewarm result, so a failure may come from one
+      LOG.info(
+          "Block {} failed after taking prewarm results, processing it again without them: {}",
+          header.toLogString(),
+          result.errorMessage.orElse("unknown cause"));
+      prewarmedTransactions.processWithoutReuse(header.getHash());
+      result = processWithHeadLock.get();
+    }
     return healMissingCode(context, result) ? processWithHeadLock.get() : result;
   }
 

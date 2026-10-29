@@ -80,6 +80,7 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.PrewarmedTransactions;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
@@ -1393,6 +1394,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         .withConsensusContext(consensusContext)
         .withBadBlockManager(badBlockManager)
         .withServiceManager(serviceManager)
+        .withPrewarmedTransactions(
+            miningConfiguration.getUnstable().isMempoolPrewarmEnabled()
+                    && miningConfiguration.getUnstable().isMempoolPrewarmReuseEnabled()
+                ? new PrewarmedTransactions(metricsSystem)
+                : PrewarmedTransactions.DISABLED)
         .build();
   }
 
