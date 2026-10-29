@@ -375,10 +375,11 @@ public class MainnetTransactionProcessor {
       final long initialGas = Math.min(executionBudget, gasAvailable);
       final long initialStateGasReservoir = gasAvailable - initialGas;
 
-      // On EVM v2 the call frames share one journal instead of stacking an updater each.
+      // On EVM v2 the call frames share one journal instead of stacking an updater each, unless
+      // the tracer may reach the updater of a frame other than the running one.
       final WorldUpdater worldUpdater;
       final Multimap<Address, Bytes32> frameWarmStorage;
-      if (messageCallProcessor.runsOnEvmV2()) {
+      if (messageCallProcessor.runsOnEvmV2() && !operationTracer.accessesWorldState()) {
         final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(frameWorldState);
         // the journal tracks the EIP-2929 warm slots instead of the frames, starting with the
         // access list's

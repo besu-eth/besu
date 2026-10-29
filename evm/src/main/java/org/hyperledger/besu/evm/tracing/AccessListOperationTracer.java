@@ -28,8 +28,7 @@ import org.apache.tuweni.bytes.Bytes32;
 /** The Access List Operation Tracer. */
 public class AccessListOperationTracer implements OperationTracer {
 
-  // the warm slots are read once the transaction is done, since EVM v2 copies them on every read
-  private MessageFrame frame;
+  private Table<Address, Bytes32, Boolean> warmedUpStorage;
 
   /** Default constructor. */
   private AccessListOperationTracer() {
@@ -38,7 +37,7 @@ public class AccessListOperationTracer implements OperationTracer {
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    this.frame = frame;
+    warmedUpStorage = frame.getWarmedUpStorage();
   }
 
   /**
@@ -47,8 +46,6 @@ public class AccessListOperationTracer implements OperationTracer {
    * @return the access list
    */
   public List<AccessListEntry> getAccessList() {
-    final Table<Address, Bytes32, Boolean> warmedUpStorage =
-        frame != null ? frame.getWarmedUpStorage() : null;
     if (warmedUpStorage != null && !warmedUpStorage.isEmpty()) {
       final List<AccessListEntry> list = new ArrayList<>(warmedUpStorage.size());
       warmedUpStorage
