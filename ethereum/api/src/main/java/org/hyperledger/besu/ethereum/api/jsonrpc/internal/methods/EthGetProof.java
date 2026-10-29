@@ -25,20 +25,24 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.proof.GetProofResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.units.bigints.UInt256;
 
 public class EthGetProof extends AbstractBlockParameterOrBlockHashMethod {
+  private static final Pattern HEX_DIGITS = Pattern.compile("[0-9a-fA-F]*");
+
   // Maximum number of storage keys in one request, the same limit as geth, Nethermind and Erigon.
   @VisibleForTesting static final int MAX_STORAGE_KEYS = 1024;
 
@@ -68,36 +72,39 @@ public class EthGetProof extends AbstractBlockParameterOrBlockHashMethod {
       throw new InvalidJsonRpcParameters(
           "Invalid address parameter (index 0)", RpcErrorType.INVALID_ADDRESS_PARAMS, e);
     }
-    final List<UInt256> storageKeys = getStorageKeys(requestContext);
+    final List<String> storageKeys = getStorageKeys(requestContext);
 
     final Blockchain blockchain = getBlockchainQueries().getBlockchain();
+    final Optional<BlockHeader> maybeBlockHeader = blockchain.getBlockHeader(blockHash);
+    if (maybeBlockHeader.isEmpty()) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.WORLD_STATE_UNAVAILABLE);
+    }
     final WorldStateArchive worldStateArchive = getBlockchainQueries().getWorldStateArchive();
-    return blockchain
-        .getBlockHeader(blockHash)
-        .flatMap(
-            blockHeader -> {
-              return worldStateArchive.getAccountProof(
-                  blockHeader,
-                  address,
-                  storageKeys,
-                  maybeWorldStateProof ->
-                      maybeWorldStateProof
-                          .map(
-                              proof ->
-                                  (JsonRpcResponse)
-                                      new JsonRpcSuccessResponse(
-                                          requestContext.getRequest().getId(),
-                                          GetProofResult.build(address, proof)))
-                          .or(
-                              () ->
-                                  Optional.of(
-                                      new JsonRpcErrorResponse(
-                                          requestContext.getRequest().getId(),
-                                          RpcErrorType.INTERNAL_ERROR))));
-            })
-        .orElse(
-            new JsonRpcErrorResponse(
-                requestContext.getRequest().getId(), RpcErrorType.WORLD_STATE_UNAVAILABLE));
+    return worldStateArchive
+        .getAccountProof(
+            maybeBlockHeader.get(),
+            address,
+            storageKeys.stream().map(UInt256::fromHexString).distinct().toList(),
+            maybeWorldStateProof ->
+                maybeWorldStateProof.map(
+                    proof -> GetProofResult.build(address, proof, storageKeys)))
+        .<JsonRpcResponse>map(
+            result -> new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result))
+        .orElseGet(
+            () ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(),
+                    isHeadWorldStateAvailable(blockchain, worldStateArchive)
+                        ? RpcErrorType.PRUNED_HISTORY_UNAVAILABLE
+                        : RpcErrorType.WORLD_STATE_UNAVAILABLE));
+  }
+
+  // Without the head state the node is still syncing, so the gap is temporary, not pruned.
+  private static boolean isHeadWorldStateAvailable(
+      final Blockchain blockchain, final WorldStateArchive worldStateArchive) {
+    final BlockHeader head = blockchain.getChainHeadHeader();
+    return worldStateArchive.isWorldStateAvailable(head.getStateRoot(), head.getHash());
   }
 
   @Override
@@ -105,7 +112,7 @@ public class EthGetProof extends AbstractBlockParameterOrBlockHashMethod {
     return (JsonRpcResponse) handleParamTypes(requestContext);
   }
 
-  private List<UInt256> getStorageKeys(final JsonRpcRequestContext request) {
+  private List<String> getStorageKeys(final JsonRpcRequestContext request) {
     final String[] keys;
     try {
       keys = request.getRequiredParameter(1, String[].class);
@@ -120,6 +127,25 @@ public class EthGetProof extends AbstractBlockParameterOrBlockHashMethod {
               "Too many storage keys requested (max %d, got %d)", MAX_STORAGE_KEYS, keys.length),
           RpcErrorType.INVALID_STORAGE_KEYS_PARAMS);
     }
-    return Arrays.stream(keys).map(UInt256::fromHexString).collect(Collectors.toList());
+    return Arrays.stream(keys).map(EthGetProof::normalizeStorageKey).toList();
+  }
+
+  // A key with 63 or 64 hex digits is echoed as a 32-byte value; any other key as a minimal
+  // quantity, per execution-apis eth_getProof.
+  private static String normalizeStorageKey(final String key) {
+    if (key == null) {
+      throw invalidStorageKey(key);
+    }
+    final String digits = key.startsWith("0x") ? key.substring(2) : key;
+    if (digits.length() > 64 || !HEX_DIGITS.matcher(digits).matches()) {
+      throw invalidStorageKey(key);
+    }
+    final UInt256 value = digits.isEmpty() ? UInt256.ZERO : UInt256.fromHexString(digits);
+    return digits.length() >= 63 ? value.toHexString() : Quantity.create(value);
+  }
+
+  private static InvalidJsonRpcParameters invalidStorageKey(final String key) {
+    return new InvalidJsonRpcParameters(
+        "Invalid storage key: " + key, RpcErrorType.INVALID_STORAGE_KEYS_PARAMS);
   }
 }

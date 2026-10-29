@@ -15,6 +15,10 @@
 package org.hyperledger.besu.ethereum.eth.sync.snap2.chain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.chain.StorageFailures.diskFailure;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.chain.StorageFailures.notCommitted;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -51,6 +55,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -84,6 +89,7 @@ class BodyBackfillTest {
   private final Map<Hash, Block> blocksByHash = new HashMap<>();
   private final Map<Hash, List<TransactionReceipt>> receiptsByHash = new HashMap<>();
   private final FakeSender sender = new FakeSender();
+  private final List<Long> pauses = new ArrayList<>();
   private MutableBlockchain blockchain;
 
   @Test
@@ -315,6 +321,37 @@ class BodyBackfillTest {
   }
 
   @Test
+  void recordsWhatItStoredAgainWhenTheRecordIsNotCommitted() {
+    blockchain = spy(chain(51));
+    // the transaction of the record fails its conflict check once
+    doThrow(notCommitted()).doCallRealMethod().when(blockchain).unsafeSetBodiesFrom(anyLong());
+    final BodyBackfill backfill = backfill();
+
+    runToEnd(backfill);
+
+    assertThat(backfill.done()).isCompleted();
+    assertThat(blockchain.getBodiesFrom()).contains(1L);
+    assertThat(pauses).containsExactly(20L);
+  }
+
+  @Test
+  void endsOnAStorageFailure() {
+    blockchain = spy(chain(51));
+    final StorageException failure = diskFailure();
+    doThrow(failure).when(blockchain).unsafeStoreSyncBodiesAndReceipts(anyList(), anyBoolean());
+    final BodyBackfill backfill = backfill();
+
+    runToEnd(backfill);
+
+    // rather than asking the same range again and again
+    assertThat(backfill.done())
+        .failsWithin(Duration.ZERO)
+        .withThrowableThat()
+        .havingCause()
+        .isSameAs(failure);
+  }
+
+  @Test
   void endsWhenItsWorkerIsInterrupted() {
     blockchain = chain(51);
     sender.leaveNextUnanswered = true;
@@ -375,7 +412,8 @@ class BodyBackfillTest {
         lowestNeeded,
         new Settings(
             "test", 1, recordBytes, Duration.ZERO, Duration.ZERO, RANGE_BLOCKS, false, true),
-        new NoOpMetricsSystem());
+        new NoOpMetricsSystem(),
+        pauses::add);
   }
 
   // each step asks whether the node is in sync: a back-fill that never ends fails, not hangs

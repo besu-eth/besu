@@ -17,7 +17,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -72,7 +74,9 @@ class TrieLogManagerTests {
 
   @BeforeEach
   public void setup() {
-    when(bonsaiWorldState.getWorldStateStorage()).thenReturn(bonsaiWorldStateKeyValueStorage);
+    lenient()
+        .when(bonsaiWorldState.getWorldStateStorage())
+        .thenReturn(bonsaiWorldStateKeyValueStorage);
     when(bonsaiWorldStateKeyValueStorage.updater()).thenReturn(mockedUpdater);
     when(mockedUpdater.getTrieLogStorageTransaction()).thenReturn(mockedTrieLogTransaction);
 
@@ -104,6 +108,23 @@ class TrieLogManagerTests {
     trieLogManager.saveTrieLog(bonsaiUpdater, Hash.ZERO, blockHeader, bonsaiWorldState);
 
     verify(mockedTrieLogTransaction, times(1))
+        .put(eq(blockHeader.getBlockHash().getBytes().toArrayUnsafe()), any());
+  }
+
+  @Test
+  void deferredTrieLogIsSavedWhenItsSaveRuns() {
+    final AtomicBoolean eventFired = new AtomicBoolean(false);
+    trieLogManager.subscribe(layer -> eventFired.set(true));
+
+    final Runnable save = trieLogManager.deferTrieLog(bonsaiUpdater, Hash.ZERO, blockHeader);
+
+    assertThat(eventFired.get()).isFalse();
+    verify(mockedTrieLogTransaction, never()).put(any(), any());
+
+    save.run();
+
+    assertThat(eventFired.get()).isTrue();
+    verify(mockedTrieLogTransaction)
         .put(eq(blockHeader.getBlockHash().getBytes().toArrayUnsafe()), any());
   }
 }
