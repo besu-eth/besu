@@ -23,9 +23,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
-
-import com.google.common.base.Suppliers;
 
 public class BlockBody implements org.hyperledger.besu.plugin.data.BlockBody {
 
@@ -40,9 +37,9 @@ public class BlockBody implements org.hyperledger.besu.plugin.data.BlockBody {
    */
   private final List<Transaction> transactions;
 
-  // memoized, so the root can be computed on another thread while the block executes
-  private final Supplier<Hash> transactionsRoot =
-      Suppliers.memoize(() -> BodyValidation.transactionsRoot(getTransactions()));
+  // filled on first use, so the root can be computed on another thread while the block executes;
+  // threads that race for it compute the same value
+  private volatile Hash transactionsRoot;
 
   private final List<BlockHeader> ommers;
   private final Optional<List<Withdrawal>> withdrawals;
@@ -67,12 +64,17 @@ public class BlockBody implements org.hyperledger.besu.plugin.data.BlockBody {
   }
 
   /**
-   * The root of the transactions trie, computed once.
+   * The root of the transactions trie, computed on first use.
    *
    * @return the transactions root
    */
   public Hash getTransactionsRoot() {
-    return transactionsRoot.get();
+    Hash root = transactionsRoot;
+    if (root == null) {
+      root = BodyValidation.transactionsRoot(getTransactions());
+      transactionsRoot = root;
+    }
+    return root;
   }
 
   /**

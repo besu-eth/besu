@@ -70,35 +70,10 @@ public interface BlockBodyValidator {
    *     from receipts.
    * @return {@code true} if valid; otherwise {@code false}
    */
-  boolean validateBody(
-      final ProtocolContext context,
-      final Block block,
-      final List<TransactionReceipt> receipts,
-      final Hash worldStateRootHash,
-      final HeaderValidationMode ommerValidationMode,
-      final BodyValidationMode bodyValidationMode,
-      final OptionalLong cumulativeBlockGasUsed);
-
-  /**
-   * Validates a block body like {@link #validateBody(ProtocolContext, Block, List, Hash,
-   * HeaderValidationMode, BodyValidationMode, OptionalLong)}, taking the receipts root from a
-   * computation that may have started while the block was persisted.
-   *
-   * @param context the {@link ProtocolContext}
-   * @param block the block whose body to validate
-   * @param receipts the receipts that correspond to the blocks transactions
-   * @param receiptsRoot the root of {@code receipts}
-   * @param worldStateRootHash the rootHash for the worldState after the block is applied
-   * @param ommerValidationMode the validation mode to use for ommer headers
-   * @param bodyValidationMode the validation mode to use for the body
-   * @param cumulativeBlockGasUsed the gas the block used
-   * @return {@code true} if valid; otherwise {@code false}
-   */
   default boolean validateBody(
       final ProtocolContext context,
       final Block block,
       final List<TransactionReceipt> receipts,
-      final Supplier<Hash> receiptsRoot,
       final Hash worldStateRootHash,
       final HeaderValidationMode ommerValidationMode,
       final BodyValidationMode bodyValidationMode,
@@ -107,11 +82,38 @@ public interface BlockBodyValidator {
         context,
         block,
         receipts,
+        () -> BodyValidation.receiptsRoot(receipts),
         worldStateRootHash,
         ommerValidationMode,
         bodyValidationMode,
         cumulativeBlockGasUsed);
   }
+
+  /**
+   * Validates that the block body is valid, taking the receipts root from a computation that may
+   * already be under way.
+   *
+   * @param context the {@link ProtocolContext}
+   * @param block the block whose body to validate
+   * @param receipts the receipts that correspond to the blocks transactions
+   * @param receiptsRoot the root of {@code receipts}
+   * @param worldStateRootHash the rootHash for the worldState after the block is applied
+   * @param ommerValidationMode the validation mode to use for ommer headers
+   * @param bodyValidationMode the validation mode to use for the body
+   * @param cumulativeBlockGasUsed the cumulative block gas used from block processing (pre-refund
+   *     for EIP-7778). When provided, this value is used for gas validation instead of deriving
+   *     from receipts.
+   * @return {@code true} if valid; otherwise {@code false}
+   */
+  boolean validateBody(
+      final ProtocolContext context,
+      final Block block,
+      final List<TransactionReceipt> receipts,
+      final Supplier<Hash> receiptsRoot,
+      final Hash worldStateRootHash,
+      final HeaderValidationMode ommerValidationMode,
+      final BodyValidationMode bodyValidationMode,
+      final OptionalLong cumulativeBlockGasUsed);
 
   /**
    * Validates that the block body is valid, but skips state root validation.

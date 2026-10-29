@@ -51,26 +51,6 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
       final ProtocolContext context,
       final Block block,
       final List<TransactionReceipt> receipts,
-      final Hash worldStateRootHash,
-      final HeaderValidationMode ommerValidationMode,
-      final BodyValidationMode bodyValidationMode,
-      final OptionalLong cumulativeBlockGasUsed) {
-    return validateBody(
-        context,
-        block,
-        receipts,
-        () -> BodyValidation.receiptsRoot(receipts),
-        worldStateRootHash,
-        ommerValidationMode,
-        bodyValidationMode,
-        cumulativeBlockGasUsed);
-  }
-
-  @Override
-  public boolean validateBody(
-      final ProtocolContext context,
-      final Block block,
-      final List<TransactionReceipt> receipts,
       final Supplier<Hash> receiptsRoot,
       final Hash worldStateRootHash,
       final HeaderValidationMode ommerValidationMode,

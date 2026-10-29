@@ -49,6 +49,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
+import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -336,7 +337,8 @@ public class MainnetBlockValidator implements BlockValidator {
         pathBasedWorldState.deferTrieLog();
       }
 
-      // the transactions root does not depend on execution, so it is computed alongside it
+      // the transactions root does not depend on execution, so it is computed alongside it, on the
+      // IO pool because the block's transactions occupy the CPU pool
       CompletableFuture.runAsync(
           block.getBody()::getTransactionsRoot, BlockProcessingExecutors.ioExecutor());
       var result =
@@ -359,7 +361,7 @@ public class MainnetBlockValidator implements BlockValidator {
             result
                 .getYield()
                 .map(BlockProcessingOutputs::getReceiptsRoot)
-                .orElseGet(() -> () -> BodyValidation.receiptsRoot(receipts));
+                .orElseGet(() -> Suppliers.memoize(() -> BodyValidation.receiptsRoot(receipts)));
         if (!blockBodyValidator.validateBody(
             context,
             block,
