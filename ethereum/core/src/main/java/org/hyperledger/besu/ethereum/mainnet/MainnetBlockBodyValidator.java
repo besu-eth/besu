@@ -79,8 +79,7 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
     final BlockHeader header = block.getHeader();
     final BlockBody body = block.getBody();
 
-    final Bytes32 transactionsRoot =
-        Bytes32.wrap(BodyValidation.transactionsRoot(body.getTransactions()).getBytes());
+    final Bytes32 transactionsRoot = Bytes32.wrap(body.getTransactionsRoot().getBytes());
     if (!validateTransactionsRoot(
         header, Bytes32.wrap(header.getTransactionsRoot().getBytes()), transactionsRoot)) {
       return false;

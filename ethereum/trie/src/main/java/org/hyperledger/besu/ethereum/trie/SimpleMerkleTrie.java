@@ -113,6 +113,28 @@ public abstract class SimpleMerkleTrie<K extends Bytes, V> implements MerkleTrie
     return root.getHash();
   }
 
+  /**
+   * Returns the same hash as {@link #getRootHash()}, first hashing the subtries {@code depth}
+   * levels below the root in parallel on the common fork-join pool. Nodes keep their hashes, so
+   * hashing the levels above them afterwards reuses those.
+   *
+   * @param depth the number of levels below the root at which the subtries are hashed in parallel
+   * @return the root hash
+   */
+  public Bytes32 getRootHashInParallel(final int depth) {
+    hashSubtriesInParallel(root, depth);
+    return root.getHash();
+  }
+
+  private static <V> void hashSubtriesInParallel(final Node<V> node, final int depth) {
+    final List<Node<V>> children = node.getChildren();
+    if (depth == 0 || children.isEmpty()) {
+      node.getHash();
+    } else {
+      children.parallelStream().forEach(child -> hashSubtriesInParallel(child, depth - 1));
+    }
+  }
+
   @Override
   public String toString() {
     return getClass().getSimpleName() + "[" + getRootHash() + "]";

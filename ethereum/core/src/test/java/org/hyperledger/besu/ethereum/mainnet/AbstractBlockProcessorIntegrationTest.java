@@ -554,7 +554,7 @@ class AbstractBlockProcessorIntegrationTest {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> blockAccessList,
+        final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup,
         final Optional<BlockHeader> maybeParentHeader) {
       parallelAttempts++;
       return Optional.of(

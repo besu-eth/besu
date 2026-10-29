@@ -30,14 +30,13 @@ import java.util.Optional;
  */
 public final class BlockAccessListAccountLookup {
 
+  private final BlockAccessList blockAccessList;
   private final Map<Address, AccountEntry> accountEntries;
-  private final List<BlockAccessList.AccountChanges> accountChanges;
 
   private BlockAccessListAccountLookup(
-      final Map<Address, AccountEntry> accountEntries,
-      final List<BlockAccessList.AccountChanges> accountChanges) {
+      final BlockAccessList blockAccessList, final Map<Address, AccountEntry> accountEntries) {
+    this.blockAccessList = blockAccessList;
     this.accountEntries = accountEntries;
-    this.accountChanges = accountChanges;
   }
 
   public static BlockAccessListAccountLookup of(final BlockAccessList blockAccessList) {
@@ -46,15 +45,19 @@ public final class BlockAccessListAccountLookup {
     for (final BlockAccessList.AccountChanges changes : accountChanges) {
       entries.put(changes.address(), new AccountEntry(changes));
     }
-    return new BlockAccessListAccountLookup(entries, accountChanges);
+    return new BlockAccessListAccountLookup(blockAccessList, entries);
+  }
+
+  public BlockAccessList blockAccessList() {
+    return blockAccessList;
   }
 
   public List<BlockAccessList.AccountChanges> accountChanges() {
-    return accountChanges;
+    return blockAccessList.accountChanges();
   }
 
   public boolean isEmpty() {
-    return accountChanges.isEmpty();
+    return blockAccessList.accountChanges().isEmpty();
   }
 
   public Optional<BlockAccessList.AccountChanges> getAccountChanges(final Address address) {
@@ -80,7 +83,9 @@ public final class BlockAccessListAccountLookup {
 
     private AccountEntry(final BlockAccessList.AccountChanges accountChanges) {
       this.accountChanges = accountChanges;
-      this.addressHash = accountChanges.address().addressHash();
+      // Hashed here rather than through Address's shared hash cache, which holds fewer entries
+      // than a large block touches and would evict and recompute them.
+      this.addressHash = Hash.hash(accountChanges.address().getBytes());
       this.storageBySlot = buildStorageBySlot(accountChanges.storageChanges());
     }
 

@@ -30,8 +30,8 @@ import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
@@ -157,7 +157,7 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup,
       final Optional<BlockHeader> maybeParentHeader) {
     if (!(protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider)) {
       return Optional.empty();
@@ -165,10 +165,11 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
 
     final ParallelBlockTransactionProcessor parallelProcessor;
 
-    if (balConfiguration.isPerfectParallelizationEnabled() && blockAccessList.isPresent()) {
+    if (balConfiguration.isPerfectParallelizationEnabled()
+        && blockAccessListAccountLookup.isPresent()) {
       parallelProcessor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList.get(), balConfiguration);
+              transactionProcessor, blockAccessListAccountLookup.get(), balConfiguration);
     } else {
       parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }

@@ -61,11 +61,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   public BalConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
-      final BlockAccessList blockAccessList,
+      final BlockAccessListAccountLookup blockAccessListAccountLookup,
       final BalConfiguration balConfiguration) {
     this.transactionProcessor = transactionProcessor;
-    this.blockAccessList = blockAccessList;
-    this.blockAccessListAccountLookup = BlockAccessListAccountLookup.of(blockAccessList);
+    this.blockAccessList = blockAccessListAccountLookup.blockAccessList();
+    this.blockAccessListAccountLookup = blockAccessListAccountLookup;
     this.maybePrefetcher =
         balConfiguration.isBalPreFetchReadingEnabled()
             ? Optional.of(
@@ -184,7 +184,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           transactionProcessor.processTransaction(
               txUpdater,
               blockHeader,
-              transaction.detachedCopy(),
+              detachedCopyWithSender(transaction),
               miningBeneficiary,
               OperationTracer.NO_TRACING,
               blockHashLookup.forkForParallelWorker(),

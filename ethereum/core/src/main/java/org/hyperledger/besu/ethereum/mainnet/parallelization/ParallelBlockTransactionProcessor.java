@@ -103,6 +103,19 @@ public abstract class ParallelBlockTransactionProcessor {
         .map(BonsaiWorldState.class::cast);
   }
 
+  /**
+   * Copies the transaction for a worker after recovering its sender on the block's own transaction,
+   * which newPayload's sender precompute also uses, so each sender is recovered once.
+   */
+  protected static Transaction detachedCopyWithSender(final Transaction transaction) {
+    try {
+      transaction.getSender();
+    } catch (final IllegalArgumentException | IllegalStateException e) {
+      // The copy's validation reports a signature that does not recover a sender
+    }
+    return transaction.detachedCopy();
+  }
+
   protected abstract ParallelizedTransactionContext runTransaction(
       ProtocolContext protocolContext,
       BlockHeader blockHeader,
