@@ -18,6 +18,8 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 
 import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
@@ -27,11 +29,15 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.io.Closeable;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 import com.github.benmanes.caffeine.cache.Cache;
@@ -46,9 +52,9 @@ import org.slf4j.LoggerFactory;
  * A {@link TrieNodeStrategy} that archives trie-node writes into {@code
  * TRIE_BRANCH_STORAGE_ARCHIVE} for historical {@code eth_getProof}.
  *
- * <p>Each put reads the prior node on the calling thread, where it is usually hot in memory, and
- * queues the history entry for async encoding; {@link #onBeforeCommit} writes the entries into the
- * block's transaction.
+ * <p>Each put takes the prior node from the nodes the block's state-root computation loaded,
+ * falling back to a storage read, and queues the history entry for async encoding; {@link
+ * #onBeforeCommit} writes the entries into the block's transaction.
  */
 public class ArchiveTrieNodeStrategy
     implements TrieNodeStrategy, Synchronizer.InSyncListener, Closeable {
@@ -68,8 +74,15 @@ public class ArchiveTrieNodeStrategy
   // True when an external chain estimate exists (e.g. a peer or CL that knows the chain head)
   private volatile BooleanSupplier hasChainEstimate;
 
-  // Transactions persisting a captured block, mapped to that block's number.
-  private final Cache<SegmentedKeyValueStorageTransaction, Long> capturedBlocks =
+  private record CapturedBlock(long number, Map<Bytes, Bytes> priorNodes) {}
+
+  // Nodes loaded from the capture storage since its last commit, by trie-node key. They are what
+  // storage holds until that commit, so a captured block uses them as the nodes it replaces.
+  private final AtomicReference<Map<Bytes, Bytes>> loadedNodes =
+      new AtomicReference<>(new ConcurrentHashMap<>());
+
+  // Transactions persisting a captured block, mapped to that block.
+  private final Cache<SegmentedKeyValueStorageTransaction, CapturedBlock> capturedBlocks =
       Caffeine.newBuilder().weakKeys().build();
 
   /**
@@ -140,6 +153,25 @@ public class ArchiveTrieNodeStrategy
   }
 
   @Override
+  public NodeLoader overrideNodeLoader(
+      final SegmentedKeyValueStorage storage,
+      final NodeLoader loader,
+      final Function<Bytes, Bytes> keyOf) {
+    if (!isCaptureStorage.test(storage)) {
+      return loader;
+    }
+    return (location, hash) -> {
+      // taken before the load, so a load racing a commit can't reach the next commit's map
+      final Map<Bytes, Bytes> loaded = loadedNodes.get();
+      final Optional<Bytes> node = loader.getNode(location, hash);
+      // the empty trie node is never stored, so it is never a prior
+      node.filter(n -> !hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH))
+          .ifPresent(n -> loaded.put(keyOf.apply(location), n));
+      return node;
+    };
+  }
+
+  @Override
   public void onBlockPersist(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
@@ -150,7 +182,7 @@ public class ArchiveTrieNodeStrategy
         && (block == 0L || archiving.get())
         && extendsCoverage(blockHeader)) {
       trieNodeWriter.beginBlock(transaction, blockHeader);
-      capturedBlocks.put(transaction, block);
+      capturedBlocks.put(transaction, new CapturedBlock(block, loadedNodes.get()));
     }
   }
 
@@ -202,13 +234,13 @@ public class ArchiveTrieNodeStrategy
       final Bytes32 nodeHash,
       final Bytes node) {
     base.putTrieNode(storage, transaction, key, nodeHash, node);
-    final Long block = capturedBlocks.getIfPresent(transaction);
+    final CapturedBlock block = capturedBlocks.getIfPresent(transaction);
     if (block != null) {
-      final Bytes prior = readPriorNode(storage, key, block);
+      final Bytes prior = priorNode(storage, key, block);
       if (isNoOpRewrite(prior, node)) {
         return;
       }
-      capture(key, block, node, prior, transaction);
+      capture(key, block.number(), node, prior, transaction);
     }
   }
 
@@ -218,20 +250,25 @@ public class ArchiveTrieNodeStrategy
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes key) {
     base.removeTrieNode(storage, transaction, key);
-    final Long block = capturedBlocks.getIfPresent(transaction);
+    final CapturedBlock block = capturedBlocks.getIfPresent(transaction);
     if (block != null) {
-      final Bytes prior = readPriorNode(storage, key, block);
+      final Bytes prior = priorNode(storage, key, block);
       // Removing a node that doesn't exist is a no-op for the archive.
       if (prior != null) {
-        capture(key, block, null, prior, transaction);
+        capture(key, block.number(), null, prior, transaction);
       }
     }
   }
 
+  // The node being replaced: as loaded by the state-root computation, else read from storage.
   // Genesis (block 0) has no prior node by definition.
-  private Bytes readPriorNode(
-      final SegmentedKeyValueStorage storage, final Bytes key, final long block) {
-    return block == 0L ? null : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
+  private Bytes priorNode(
+      final SegmentedKeyValueStorage storage, final Bytes key, final CapturedBlock block) {
+    if (block.number() == 0L) {
+      return null;
+    }
+    final Bytes loaded = block.priorNodes().get(key);
+    return loaded != null ? loaded : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
   }
 
   private void capture(
@@ -248,6 +285,10 @@ public class ArchiveTrieNodeStrategy
   public void onBeforeCommit(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction) {
+    if (isCaptureStorage.test(storage)) {
+      // the commit may change any loaded node, so nothing loaded before it is a prior after it
+      loadedNodes.set(new ConcurrentHashMap<>());
+    }
     if (capturedBlocks.asMap().remove(transaction) != null) {
       trieNodeWriter.onBeforeCommit(transaction);
     }
