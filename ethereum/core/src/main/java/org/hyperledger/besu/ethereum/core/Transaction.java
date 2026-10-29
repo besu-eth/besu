@@ -483,6 +483,23 @@ public class Transaction
     return sender;
   }
 
+  /**
+   * The sender when it has already been recovered for this transaction or cached by hash, without
+   * running the signature recovery.
+   *
+   * @return the sender if it is known
+   */
+  public Optional<Address> getSenderIfKnown() {
+    if (sender == null) {
+      final Address cached = senderCache.getIfPresent(getHash());
+      if (cached == null) {
+        return Optional.empty();
+      }
+      sender = cached;
+    }
+    return Optional.of(sender);
+  }
+
   private Address computeSender() {
     final SECPPublicKey publicKey =
         signatureAlgorithm

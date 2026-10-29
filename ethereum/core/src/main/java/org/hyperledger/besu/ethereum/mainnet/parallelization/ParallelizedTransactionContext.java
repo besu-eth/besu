@@ -20,22 +20,40 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 
 import java.util.Objects;
 
+import org.jspecify.annotations.Nullable;
+
 public final class ParallelizedTransactionContext {
   private final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator;
   private final TransactionProcessingResult transactionProcessingResult;
   private final boolean isMiningBeneficiaryTouchedPreRewardByTransaction;
   private final Wei miningBeneficiaryReward;
+  private final @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator;
 
   public ParallelizedTransactionContext(
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
       final TransactionProcessingResult transactionProcessingResult,
       final boolean isMiningBeneficiaryTouchedPreRewardByTransaction,
       final Wei miningBeneficiaryReward) {
+    this(
+        transactionAccumulator,
+        transactionProcessingResult,
+        isMiningBeneficiaryTouchedPreRewardByTransaction,
+        miningBeneficiaryReward,
+        null);
+  }
+
+  public ParallelizedTransactionContext(
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final TransactionProcessingResult transactionProcessingResult,
+      final boolean isMiningBeneficiaryTouchedPreRewardByTransaction,
+      final Wei miningBeneficiaryReward,
+      final @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator) {
     this.transactionAccumulator = transactionAccumulator;
     this.transactionProcessingResult = transactionProcessingResult;
     this.isMiningBeneficiaryTouchedPreRewardByTransaction =
         isMiningBeneficiaryTouchedPreRewardByTransaction;
     this.miningBeneficiaryReward = miningBeneficiaryReward;
+    this.chainPredecessorAccumulator = chainPredecessorAccumulator;
   }
 
   public PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator() {
@@ -52,6 +70,17 @@ public final class ParallelizedTransactionContext {
 
   public Wei miningBeneficiaryReward() {
     return miningBeneficiaryReward;
+  }
+
+  /**
+   * The state left by the previous transaction of the same sender, which this transaction ran on
+   * top of instead of the parent state.
+   *
+   * @return the previous transaction's accumulator, or null if the transaction ran on the parent
+   *     state
+   */
+  public @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator() {
+    return chainPredecessorAccumulator;
   }
 
   @Override
@@ -97,6 +126,7 @@ public final class ParallelizedTransactionContext {
     private TransactionProcessingResult transactionProcessingResult;
     private boolean isMiningBeneficiaryTouchedPreRewardByTransaction;
     private Wei miningBeneficiaryReward = Wei.ZERO;
+    private @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator;
 
     public Builder transactionAccumulator(
         final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator) {
@@ -122,12 +152,19 @@ public final class ParallelizedTransactionContext {
       return this;
     }
 
+    public Builder chainPredecessorAccumulator(
+        final @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator) {
+      this.chainPredecessorAccumulator = chainPredecessorAccumulator;
+      return this;
+    }
+
     public ParallelizedTransactionContext build() {
       return new ParallelizedTransactionContext(
           transactionAccumulator,
           transactionProcessingResult,
           isMiningBeneficiaryTouchedPreRewardByTransaction,
-          miningBeneficiaryReward);
+          miningBeneficiaryReward,
+          chainPredecessorAccumulator);
     }
   }
 }
