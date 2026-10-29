@@ -16,8 +16,10 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest.createAccountFlatHealingRangeRequest;
 import static org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest.createAccountTrieNodeDataRequest;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest.createStorageRootRefreshRequest;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -48,10 +50,13 @@ import org.hyperledger.besu.services.tasks.Task;
 import org.hyperledger.besu.services.tasks.TaskCollection;
 
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -76,6 +81,11 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
       new InMemoryTaskQueue<>();
   protected final InMemoryTaskQueue<SnapDataRequest> pendingCodeRequests =
       new InMemoryTaskQueue<>();
+  protected final InMemoryTaskQueue<SnapDataRequest> pendingStorageRootRefreshRequests =
+      new InMemoryTaskQueue<>();
+  private final Map<Hash, RefreshedStorageRoot> refreshedStorageRoots = new HashMap<>();
+  private final Set<Hash> storageRootRefreshesPending = new HashSet<>();
+  private final Map<Hash, List<Task<SnapDataRequest>>> parkedStorageRequests = new HashMap<>();
   protected final InMemoryTasksPriorityQueues<SnapDataRequest> pendingTrieNodeRequests =
       new InMemoryTasksPriorityQueues<>();
 
@@ -174,6 +184,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
     // Check if all snapsync tasks are completed
     if (!internalFuture.isDone()
         && pendingAccountRequests.allTasksCompleted()
+        && pendingStorageRootRefreshRequests.allTasksCompleted()
         && pendingCodeRequests.allTasksCompleted()
         && pendingStorageRequests.allTasksCompleted()
         && pendingLargeStorageRequests.allTasksCompleted()
@@ -246,6 +257,10 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
   protected synchronized void cleanupQueues() {
     super.cleanupQueues();
     pendingAccountRequests.clear();
+    pendingStorageRootRefreshRequests.clear();
+    storageRootRefreshesPending.clear();
+    refreshedStorageRoots.clear();
+    parkedStorageRequests.clear();
     pendingStorageRequests.clear();
     pendingLargeStorageRequests.clear();
     pendingCodeRequests.clear();
@@ -316,8 +331,12 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
         } else {
           pendingStorageRequests.add(request);
         }
-      } else if (request instanceof AccountRangeDataRequest) {
-        pendingAccountRequests.add(request);
+      } else if (request instanceof AccountRangeDataRequest accountRangeDataRequest) {
+        if (accountRangeDataRequest.isStorageRootRefresh()) {
+          pendingStorageRootRefreshRequests.add(request);
+        } else {
+          pendingAccountRequests.add(request);
+        }
       } else if (request instanceof AccountFlatDatabaseHealingRangeRequest) {
         pendingAccountFlatDatabaseHealingRequests.add(request);
       } else if (request instanceof StorageFlatDatabaseHealingRangeRequest) {
@@ -353,6 +372,53 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
   }
 
   @Override
+  public synchronized Optional<RefreshedStorageRoot> getRefreshedStorageRoot(
+      final Hash accountHash) {
+    return Optional.ofNullable(refreshedStorageRoots.get(accountHash));
+  }
+
+  @Override
+  public synchronized void requestStorageRootRefresh(final Hash accountHash) {
+    if (internalFuture.isDone() || storageRootRefreshesPending.contains(accountHash)) {
+      return;
+    }
+    final Hash stateRoot = snapSyncState.getPivotBlockHeader().orElseThrow().getStateRoot();
+    final RefreshedStorageRoot refreshed = refreshedStorageRoots.get(accountHash);
+    if (refreshed != null && refreshed.stateRoot().equals(stateRoot)) {
+      // already refreshed at this pivot: requests retried at this pivot use that storage root
+      return;
+    }
+    // built before the account is marked pending, so that a failure cannot leave it marked
+    // without a refresh behind it
+    final SnapDataRequest refresh = createStorageRootRefreshRequest(stateRoot, accountHash);
+    enqueueRequest(refresh);
+    storageRootRefreshesPending.add(accountHash);
+  }
+
+  @Override
+  public synchronized void completeStorageRootRefresh(
+      final Hash accountHash, final Hash stateRoot, final Bytes32 storageRoot) {
+    refreshedStorageRoots.put(accountHash, new RefreshedStorageRoot(stateRoot, storageRoot));
+    storageRootRefreshesPending.remove(accountHash);
+    final List<Task<SnapDataRequest>> parked = parkedStorageRequests.remove(accountHash);
+    if (parked != null) {
+      // failing a task puts it back on its queue without counting it as a request
+      parked.forEach(Task::markFailed);
+      notifyAll();
+    }
+  }
+
+  /**
+   * Returns whether a storage root refresh is pending for the account.
+   *
+   * @param accountHash the account
+   * @return true while a refresh is queued or in flight
+   */
+  public synchronized boolean isStorageRootRefreshPending(final Hash accountHash) {
+    return storageRootRefreshesPending.contains(accountHash);
+  }
+
+  @Override
   public synchronized void enqueueRequests(final Stream<SnapDataRequest> requests) {
     if (!internalFuture.isDone()) {
       requests.forEach(this::enqueueRequest);
@@ -363,11 +429,28 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
       final List<TaskCollection<SnapDataRequest>> queueDependencies,
       final TaskCollection<SnapDataRequest> queue,
       final Consumer<Void> unBlocked) {
+    return dequeueRequestBlocking(queueDependencies, queue, unBlocked, Optional.empty());
+  }
+
+  /**
+   * Like {@link #dequeueRequestBlocking(List, TaskCollection, Consumer)}, but tasks in {@code
+   * priorityQueue} are returned first and without waiting for the queue dependencies.
+   */
+  private synchronized Task<SnapDataRequest> dequeueRequestBlocking(
+      final List<TaskCollection<SnapDataRequest>> queueDependencies,
+      final TaskCollection<SnapDataRequest> queue,
+      final Consumer<Void> unBlocked,
+      final Optional<TaskCollection<SnapDataRequest>> priorityQueue) {
     boolean isWaiting = false;
     while (!internalFuture.isDone()) {
       while (queueDependencies.stream()
           .map(TaskCollection::allTasksCompleted)
           .anyMatch(Predicate.isEqual(false))) {
+        final Task<SnapDataRequest> priorityTask =
+            priorityQueue.map(TaskCollection::remove).orElse(null);
+        if (priorityTask != null) {
+          return priorityTask;
+        }
         try {
           isWaiting = true;
           wait();
@@ -376,11 +459,19 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
           return null;
         }
       }
+      final Task<SnapDataRequest> priorityTask =
+          priorityQueue.map(TaskCollection::remove).orElse(null);
+      if (priorityTask != null) {
+        return priorityTask;
+      }
       if (isWaiting) {
         unBlocked.accept(null);
       }
       isWaiting = false;
       Task<SnapDataRequest> task = queue.remove();
+      while (task != null && parkIfStorageRootRefreshPending(task)) {
+        task = queue.remove();
+      }
       if (task != null) {
         return task;
       }
@@ -395,11 +486,27 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
     return null;
   }
 
+  /**
+   * Parks a storage request whose account is waiting for a storage root refresh: it would fail
+   * against the outdated storage root, so it is held until {@link #completeStorageRootRefresh}.
+   */
+  private boolean parkIfStorageRootRefreshPending(final Task<SnapDataRequest> task) {
+    if (task.getData() instanceof StorageRangeDataRequest storageRequest
+        && storageRootRefreshesPending.contains(storageRequest.getAccountHash())) {
+      parkedStorageRequests
+          .computeIfAbsent(storageRequest.getAccountHash(), __ -> new ArrayList<>())
+          .add(task);
+      return true;
+    }
+    return false;
+  }
+
   public synchronized Task<SnapDataRequest> dequeueAccountRequestBlocking() {
     return dequeueRequestBlocking(
         List.of(pendingStorageRequests, pendingLargeStorageRequests, pendingCodeRequests),
         pendingAccountRequests,
-        unused -> snapContext.updatePersistedTasks(pendingAccountRequests.asList()));
+        unused -> snapContext.updatePersistedTasks(pendingAccountRequests.asList()),
+        Optional.of(pendingStorageRootRefreshRequests));
   }
 
   public synchronized Task<SnapDataRequest> dequeueLargeStorageRequestBlocking() {

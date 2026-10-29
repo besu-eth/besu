@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -57,11 +58,15 @@ public class StorageRangeDataRequest extends SnapDataRequest {
   private static final Logger LOG = LoggerFactory.getLogger(StorageRangeDataRequest.class);
 
   private final Hash accountHash;
-  private final Bytes32 storageRoot;
   private final Bytes32 startKeyHash;
   private final Bytes32 endKeyHash;
 
-  private final StackTrie stackTrie;
+  // The account's storage root, and the state root it is known to be valid for. Updated from a
+  // storage root refresh after a pivot change, so that this request can be retried unchanged.
+  private Bytes32 storageRoot;
+  private Hash storageRootValidAt;
+
+  private StackTrie stackTrie;
   private Optional<Boolean> isProofValid;
 
   protected StorageRangeDataRequest(
@@ -73,6 +78,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
     super(STORAGE_RANGE, rootHash);
     this.accountHash = Hash.wrap(accountHash);
     this.storageRoot = storageRoot;
+    this.storageRootValidAt = rootHash;
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
     this.isProofValid = Optional.empty();
@@ -129,6 +135,27 @@ public class StorageRangeDataRequest extends SnapDataRequest {
       final WorldStateProofProvider worldStateProofProvider,
       final NavigableMap<Bytes32, Bytes> slots,
       final ArrayDeque<Bytes> proofs) {
+    // If the storage root has been refreshed, update the storage root if the refresh was proven
+    // against the state root this response was served for. A response for another pivot is
+    // verified against the request's own storage root, so a late response for an older pivot is
+    // still accepted and healed afterwards.
+    downloadState
+        .getRefreshedStorageRoot(accountHash)
+        .filter(refreshed -> refreshed.stateRoot().equals(getRootHash()))
+        .ifPresent(
+            refreshed -> {
+              storageRoot = refreshed.storageRoot();
+              storageRootValidAt = refreshed.stateRoot();
+            });
+
+    if (storageRoot.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      // the account has no storage left at the current pivot, so there is nothing to download
+      // slots saved from earlier ranges are removed by healing
+      downloadState.addAccountToHealingList(CompactEncoding.bytesToPath(accountHash.getBytes()));
+      isProofValid = Optional.of(true);
+      return;
+    }
+
     if (!slots.isEmpty() || !proofs.isEmpty()) {
       if (!worldStateProofProvider.isValidRangeProof(
           startKeyHash, endKeyHash, storageRoot, proofs, slots)) {
@@ -142,16 +169,32 @@ public class StorageRangeDataRequest extends SnapDataRequest {
             .log();
 
         downloadState.addAccountToHealingList(CompactEncoding.bytesToPath(accountHash.getBytes()));
-        // We will request the new storage root of the account because it is apparently no longer
-        // valid with the new pivot block.
-        downloadState.enqueueRequest(
-            createAccountDataRequest(getRootHash(), accountHash, startKeyHash, endKeyHash));
-        isProofValid = Optional.of(false);
+
+        // If our storage root was learned at an older pivot, the account's storage has probably
+        // changed: refresh the storage root once for the account. Otherwise the response itself
+        // was bad. Either way this request stays unanswered and is retried unchanged.
+        final boolean storageRootOutdated = !isStorageRootValidAt(getRootHash());
+        if (storageRootOutdated) {
+          downloadState.requestStorageRootRefresh(accountHash);
+        }
       } else {
+        // the storage root is valid for the state root this response was served for
+        storageRootValidAt = getRootHash();
+        stackTrie = new StackTrie(Hash.wrap(storageRoot), startKeyHash);
         stackTrie.addElement(startKeyHash, proofs, slots);
         isProofValid = Optional.of(true);
       }
     }
+  }
+
+  /**
+   * Returns whether the storage root is known to be valid at the given state root.
+   *
+   * @param stateRoot the state root
+   * @return true if the storage root was proven or refreshed for that state root
+   */
+  public boolean isStorageRootValidAt(final Hash stateRoot) {
+    return storageRootValidAt.equals(stateRoot);
   }
 
   @Override

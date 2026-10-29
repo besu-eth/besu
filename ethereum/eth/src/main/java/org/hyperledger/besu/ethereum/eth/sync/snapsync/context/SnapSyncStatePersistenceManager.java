@@ -122,9 +122,19 @@ public class SnapSyncStatePersistenceManager {
         });
   }
 
+  /**
+   * Returns the saved account range tasks, each range only once.
+   *
+   * @return the saved account range tasks without duplicate ranges
+   */
   public List<AccountRangeDataRequest> getCurrentAccountRange() {
+    final Set<Bytes> seenRanges = new HashSet<>();
     return accountRangeToDownload
         .streamValuesFromKeysThat(bytes -> true)
+        .filter(
+            request ->
+                seenRanges.add(
+                    Bytes.concatenate(request.getStartKeyHash(), request.getEndKeyHash())))
         .collect(Collectors.toList());
   }
 

@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -59,23 +60,20 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
   protected final Bytes32 startKeyHash;
   protected final Bytes32 endKeyHash;
-  protected final Optional<Bytes32> startStorageRange;
-  protected final Optional<Bytes32> endStorageRange;
+  private final boolean storageRootRefresh;
 
   protected final StackTrie stackTrie;
   private Optional<Boolean> isProofValid;
 
-  protected AccountRangeDataRequest(
+  private AccountRangeDataRequest(
       final Hash rootHash,
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash,
-      final Optional<Bytes32> startStorageRange,
-      final Optional<Bytes32> endStorageRange) {
+      final boolean storageRootRefresh) {
     super(ACCOUNT_RANGE, rootHash);
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
-    this.startStorageRange = startStorageRange;
-    this.endStorageRange = endStorageRange;
+    this.storageRootRefresh = storageRootRefresh;
     this.isProofValid = Optional.empty();
     this.stackTrie = new StackTrie(rootHash, startKeyHash);
     LOG.trace(
@@ -87,20 +85,24 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
   protected AccountRangeDataRequest(
       final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    this(rootHash, startKeyHash, endKeyHash, Optional.empty(), Optional.empty());
+    this(rootHash, startKeyHash, endKeyHash, false);
   }
 
-  protected AccountRangeDataRequest(
-      final Hash rootHash,
-      final Hash accountHash,
-      final Bytes32 startStorageRange,
-      final Bytes32 endStorageRange) {
+  /**
+   * Creates a request that fetches a single account only to learn its current storage root, after a
+   * storage range response suggested that the root is out of date: its proof failed, or the peer
+   * sent no storage for the account.
+   *
+   * @param rootHash the state root to fetch the account for
+   * @param accountHash the account
+   */
+  protected AccountRangeDataRequest(final Hash rootHash, final Hash accountHash) {
     this(
-        rootHash,
-        Bytes32.wrap(accountHash.getBytes()),
-        Bytes32.wrap(accountHash.getBytes()),
-        Optional.of(startStorageRange),
-        Optional.of(endStorageRange));
+        rootHash, Bytes32.wrap(accountHash.getBytes()), Bytes32.wrap(accountHash.getBytes()), true);
+  }
+
+  public boolean isStorageRootRefresh() {
+    return storageRootRefresh;
   }
 
   @Override
@@ -111,9 +113,8 @@ public class AccountRangeDataRequest extends SnapDataRequest {
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
 
-    if (startStorageRange.isPresent() && endStorageRange.isPresent()) {
-      // not store the new account if we just want to complete the account thanks to another
-      // rootHash
+    if (storageRootRefresh) {
+      // the account was only fetched to learn its storage root; it is stored by the range download
       return 0;
     }
 
@@ -163,10 +164,11 @@ public class AccountRangeDataRequest extends SnapDataRequest {
       if (!worldStateProofProvider.isValidRangeProof(
           startKeyHash, endKeyHash, Bytes32.wrap(getRootHash().getBytes()), proofs, accounts)) {
         // this happens on repivot and on bad proofs
+        // the response can have no accounts, so log the requested range
         LOG.atTrace()
             .setMessage("invalid range proof received for account range {} {}")
-            .addArgument(accounts.firstKey())
-            .addArgument(accounts.lastKey())
+            .addArgument(startKeyHash)
+            .addArgument(endKeyHash)
             .log();
         isProofValid = Optional.of(false);
       } else {
@@ -195,6 +197,22 @@ public class AccountRangeDataRequest extends SnapDataRequest {
     final List<SnapDataRequest> childRequests = new ArrayList<>();
 
     final StackTrie.TaskElement taskElement = stackTrie.getElement(startKeyHash);
+
+    if (storageRootRefresh) {
+      final Hash accountHash = Hash.wrap(startKeyHash);
+      final Bytes accountValue = taskElement.keys().get(startKeyHash);
+      // an account that no longer exists has no storage left to download
+      final Bytes32 storageRoot =
+          accountValue == null
+              ? MerkleTrie.EMPTY_TRIE_NODE_HASH
+              : Bytes32.wrap(
+                  PatriciaTrieAccountValue.readFrom(RLP.input(accountValue))
+                      .getStorageRoot()
+                      .getBytes());
+      downloadState.completeStorageRootRefresh(accountHash, getRootHash(), storageRoot);
+      return Stream.empty();
+    }
+
     // new request is added if the response does not match all the requested range
     findNewBeginElementInRange(
             Bytes32.wrap(getRootHash().getBytes()),
@@ -231,8 +249,8 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                 getRootHash(),
                 account.getKey(),
                 Bytes32.wrap(accountValue.getStorageRoot().getBytes()),
-                startStorageRange.orElse(MIN_RANGE),
-                endStorageRange.orElse(MAX_RANGE)));
+                MIN_RANGE,
+                MAX_RANGE));
       }
       if (!accountValue.getCodeHash().equals(Hash.EMPTY)) {
         childRequests.add(
