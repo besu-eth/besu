@@ -231,9 +231,17 @@ public class BlockExecutionContext {
       return this;
     }
 
+    /**
+     * Sets the inclusion list the block is checked against (EIP-7805) (optional, defaults to an
+     * empty inclusion list, which the block always satisfies).
+     *
+     * @param inclusionListTransactions the inclusion list transactions
+     * @return this builder
+     */
     public Builder inclusionListTransactions(
         final InclusionListTransactions inclusionListTransactions) {
-      this.inclusionListTransactions = inclusionListTransactions;
+      this.inclusionListTransactions =
+          Objects.requireNonNull(inclusionListTransactions, "inclusionListTransactions");
       return this;
     }
 
