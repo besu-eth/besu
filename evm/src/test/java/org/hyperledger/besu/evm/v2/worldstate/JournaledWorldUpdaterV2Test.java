@@ -16,6 +16,9 @@ package org.hyperledger.besu.evm.v2.worldstate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -211,6 +214,22 @@ class JournaledWorldUpdaterV2Test {
         .containsEntry(SLOT, UInt256.valueOf(7))
         .containsEntry(OTHER_SLOT, UInt256.ZERO);
     assertThat(transactionUpdater.get(ABSENT).getBalance()).isEqualTo(Wei.of(3));
+  }
+
+  @Test
+  void commitSetsTheNonceAndBalanceOfACreatedAccountTheParentHandsBack() {
+    // the Bonsai accumulator hands back an empty account it still tracks, without the values
+    final WorldUpdater parent = mock(WorldUpdater.class);
+    final MutableAccount trackedEmptyAccount = mock(MutableAccount.class);
+    when(parent.createAccount(ABSENT, 1, Wei.of(5))).thenReturn(trackedEmptyAccount);
+    final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(parent);
+    final WorldUpdater frame = journal.updater();
+    frame.createAccount(ABSENT, 1, Wei.of(5));
+    frame.commit();
+    journal.commit();
+
+    verify(trackedEmptyAccount).setNonce(1);
+    verify(trackedEmptyAccount).setBalance(Wei.of(5));
   }
 
   @Test
