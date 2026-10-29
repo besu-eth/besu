@@ -347,7 +347,8 @@ class ArchiveTrieNodeStrategyTest {
     // Block 0: real write — archived.
     persistBlock(strategy, 0, put(location, node));
 
-    // Block 1: identical bytes re-written — no-op, must be skipped (no new entry).
+    // Block 1: identical bytes re-written over the loaded node — no-op, must be skipped.
+    load(strategy, storage, location, hash(node), node);
     persistBlock(strategy, 1, put(location, node));
 
     final var latest = historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L);
@@ -456,23 +457,24 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
-  void priorNotLoadedIsReadFromStorage() {
+  void putOfNodeNotLoadedHasNoPriorAndIsWrittenFull() {
+    // e.g. a location holding a node Bonsai left behind
     final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
     final ArchiveTrieNodeStrategy strategy = strategyOver(base);
     final Bytes location = Bytes.of(0x07);
-    final Bytes node = Bytes.fromHexString("0xfeed");
-    persistBlock(strategy, 0, put(location, node));
+    persistBlock(strategy, 0, put(location, Bytes.fromHexString("0xfeed")));
 
     clearInvocations(base);
-    persistBlock(strategy, 1, put(location, node));
+    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbeef")));
 
-    verify(base).getTrieNode(storage, location, Bytes32.ZERO);
+    verify(base, never()).getTrieNode(any(), any(), any());
     assertThat(
             historyStore
                 .getLatestBefore(ArchiveNodeKey.account(location), 1L)
                 .orElseThrow()
-                .block())
-        .isZero();
+                .codecEntry()
+                .isFull())
+        .isTrue();
   }
 
   @Test
@@ -486,7 +488,7 @@ class ArchiveTrieNodeStrategyTest {
     clearInvocations(base);
     persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xfeed")));
 
-    verify(base).getTrieNode(storage, location, Bytes32.ZERO);
+    verify(base, never()).getTrieNode(any(), any(), any());
     assertThat(
             historyStore
                 .getLatestBefore(ArchiveNodeKey.account(location), 1L)
@@ -506,10 +508,35 @@ class ArchiveTrieNodeStrategyTest {
 
     load(strategy, storage, location, hash(node), node);
     strategy.onBeforeCommit(storage, storage.startTransaction());
-    clearInvocations(base);
     persistBlock(strategy, 1, put(location, node));
 
+    // the prior was discarded, so the unchanged rewrite is archived
+    assertThat(
+            historyStore
+                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
+                .orElseThrow()
+                .block())
+        .isEqualTo(1L);
+  }
+
+  @Test
+  void removalOfNodeNotLoadedReadsStorage() {
+    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
+    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
+    final Bytes location = Bytes.of(0x07);
+    persistBlock(strategy, 0, put(location, Bytes.fromHexString("0xfeed")));
+
+    clearInvocations(base);
+    persistBlock(strategy, 1, remove(location));
+
     verify(base).getTrieNode(storage, location, Bytes32.ZERO);
+    assertThat(
+            historyStore
+                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
+                .orElseThrow()
+                .codecEntry()
+                .isDeletion())
+        .isTrue();
   }
 
   @Test

@@ -48,9 +48,9 @@ import org.slf4j.LoggerFactory;
  * A {@link TrieNodeStrategy} that archives trie-node writes into {@code
  * TRIE_BRANCH_STORAGE_ARCHIVE} for historical {@code eth_getProof}.
  *
- * <p>Each put takes the prior node from the nodes the block's state-root computation loaded,
- * falling back to a storage read, and queues the history entry for async encoding; {@link
- * #onBeforeCommit} writes the entries into the block's transaction.
+ * <p>Each put takes the prior node from the nodes the block's state-root computation loaded and
+ * queues the history entry for async encoding; {@link #onBeforeCommit} writes the entries into the
+ * block's transaction.
  */
 public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
 
@@ -171,7 +171,7 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
     base.putTrieNode(storage, transaction, key, nodeHash, node);
     final CapturedBlock block = capturedBlocks.getIfPresent(transaction);
     if (block != null) {
-      final Bytes prior = priorNode(storage, key, block);
+      final Bytes prior = loadedPriorNode(key, block);
       if (isNoOpRewrite(prior, node)) {
         return;
       }
@@ -195,15 +195,19 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
     }
   }
 
-  // The node being replaced: as loaded by the state-root computation, else read from storage.
-  // Genesis (block 0) has no prior node by definition.
+  // Live nodes are always loaded before being replaced; anything else is written FULL.
+  private Bytes loadedPriorNode(final Bytes key, final CapturedBlock block) {
+    return block.number() == 0L ? null : block.priorNodes().get(key);
+  }
+
+  // A removal reads storage when the node wasn't loaded, to know whether it existed.
   private Bytes priorNode(
       final SegmentedKeyValueStorage storage, final Bytes key, final CapturedBlock block) {
-    if (block.number() == 0L) {
-      return null;
+    final Bytes loaded = loadedPriorNode(key, block);
+    if (loaded != null || block.number() == 0L) {
+      return loaded;
     }
-    final Bytes loaded = block.priorNodes().get(key);
-    return loaded != null ? loaded : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
+    return base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
   }
 
   private void capture(
