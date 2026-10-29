@@ -25,7 +25,6 @@ import java.util.Optional;
 
 import com.google.common.collect.Table;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.units.bigints.UInt256;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -153,7 +152,7 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
    */
   public boolean warmUpStorage(final Address address, final Bytes32 slot) {
     journal.activate(this);
-    return journal.lookup(address).warmUpStorage(UInt256.fromBytes(slot), slot);
+    return journal.warmUpStorage(address, slot);
   }
 
   /**

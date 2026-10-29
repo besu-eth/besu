@@ -233,6 +233,15 @@ public final class JournalAccountV2 implements MutableAccount {
     return warmUpStorage(key, key);
   }
 
+  /** Warms up a slot of the access list, which no frame's revert makes cold again. */
+  void warmUpFromAccessList(final Bytes32 warmKey) {
+    final Slot slot = slot(UInt256.fromBytes(warmKey));
+    if (!slot.warm) {
+      slot.warm = true;
+      slot.warmKey = warmKey;
+    }
+  }
+
   boolean warmUpStorage(final UInt256 key, final Bytes32 warmKey) {
     final Slot slot = slot(key);
     if (slot.warm) {
