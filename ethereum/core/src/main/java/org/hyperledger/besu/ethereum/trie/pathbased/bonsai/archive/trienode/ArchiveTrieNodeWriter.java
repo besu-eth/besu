@@ -18,7 +18,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.plugin.data.BlockHeader;
-import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.io.Closeable;
@@ -32,6 +31,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
@@ -74,20 +74,20 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private final ConcurrentHashMap<SegmentedKeyValueStorageTransaction, CaptureBuffer> buffers =
       new ConcurrentHashMap<>();
 
-  // When present, each block's entries and coverage commit in their own transaction on it.
-  private final Optional<SegmentedKeyValueStorage> ownCommitStorage;
+  // Each block's entries, index and coverage commit in their own transaction, before the block's.
+  private final Supplier<SegmentedKeyValueStorageTransaction> archiveTransactions;
 
   public ArchiveTrieNodeWriter(
       final ArchiveNodeHistoryStore historyStore,
       final ExecutorService capturePool,
       final int shallowCheckpointInterval,
       final int deepCheckpointInterval,
-      final Optional<SegmentedKeyValueStorage> ownCommitStorage) {
+      final Supplier<SegmentedKeyValueStorageTransaction> archiveTransactions) {
     this.historyStore = Objects.requireNonNull(historyStore, "historyStore must not be null");
     this.capturePool = Objects.requireNonNull(capturePool, "capturePool must not be null");
     this.shallowCheckpointInterval = shallowCheckpointInterval;
     this.deepCheckpointInterval = deepCheckpointInterval;
-    this.ownCommitStorage = Objects.requireNonNull(ownCommitStorage);
+    this.archiveTransactions = Objects.requireNonNull(archiveTransactions);
   }
 
   @VisibleForTesting
@@ -211,19 +211,14 @@ public class ArchiveTrieNodeWriter implements Closeable {
     if (buf == null) {
       return;
     }
-    if (ownCommitStorage.isEmpty()) {
-      writeBlock(buf, transaction);
-      return;
-    }
-    final SegmentedKeyValueStorageTransaction ownTx =
-        ownCommitStorage.get().startLowPriorityTransaction();
+    final SegmentedKeyValueStorageTransaction archiveTx = archiveTransactions.get();
     try {
-      writeBlock(buf, ownTx);
+      writeBlock(buf, archiveTx);
     } catch (final RuntimeException | Error e) {
-      ownTx.rollback();
+      archiveTx.rollback();
       throw e;
     }
-    ownTx.commit();
+    archiveTx.commit();
   }
 
   private void writeBlock(

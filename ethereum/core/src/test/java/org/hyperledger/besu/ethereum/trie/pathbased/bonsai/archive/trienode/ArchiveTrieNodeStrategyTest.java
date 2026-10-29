@@ -73,7 +73,7 @@ class ArchiveTrieNodeStrategyTest {
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
-            Optional.empty());
+            storage::startBatchTransaction);
     chain = buildChain(BlockHeaderTestFixture::new, 6);
   }
 

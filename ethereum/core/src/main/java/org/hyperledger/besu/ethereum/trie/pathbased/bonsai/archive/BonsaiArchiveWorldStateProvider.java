@@ -42,6 +42,7 @@ import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
@@ -50,6 +51,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -145,7 +147,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         worldStateKeyValueStorage.getComposedWorldStateStorage();
     return new ArchiveTrieNodeStrategy(
         new BonsaiTrieNodeStrategy(),
-        newWriter(unstable, capturePool, Optional.empty()),
+        newWriter(unstable, capturePool, liveStorage::startBatchTransaction),
         archiveHistoryStore,
         storage -> storage == liveStorage,
         this::isFinal);
@@ -154,8 +156,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private TrailingTrieNodeArchiver startTrailingArchiver(
       final ExtraStorageConfiguration extraStorage, final ExecutorService capturePool) {
     final ExtraStorageConfiguration.Unstable unstable = extraStorage.getUnstable();
-    final Optional<SegmentedKeyValueStorage> liveStorage =
-        Optional.of(worldStateKeyValueStorage.getComposedWorldStateStorage());
+    final SegmentedKeyValueStorage liveStorage =
+        worldStateKeyValueStorage.getComposedWorldStateStorage();
     final RollingTrieNodeArchiveStep step =
         new RollingTrieNodeArchiveStep(
             this::openHeadWorldState,
@@ -163,7 +165,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             blockchain,
             trieLogManager,
             archiveHistoryStore,
-            () -> newWriter(unstable, capturePool, liveStorage));
+            () -> newWriter(unstable, capturePool, liveStorage::startLowPriorityTransaction));
     final TrailingTrieNodeArchiver archiver =
         new TrailingTrieNodeArchiver(
             blockchain,
@@ -190,13 +192,13 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private ArchiveTrieNodeWriter newWriter(
       final ExtraStorageConfiguration.Unstable unstable,
       final ExecutorService capturePool,
-      final Optional<SegmentedKeyValueStorage> ownCommitStorage) {
+      final Supplier<SegmentedKeyValueStorageTransaction> archiveTransactions) {
     return new ArchiveTrieNodeWriter(
         archiveHistoryStore,
         capturePool,
         unstable.getBonsaiArchiveShallowCheckpointInterval(),
         unstable.getBonsaiArchiveDeepCheckpointInterval(),
-        ownCommitStorage);
+        archiveTransactions);
   }
 
   @VisibleForTesting
