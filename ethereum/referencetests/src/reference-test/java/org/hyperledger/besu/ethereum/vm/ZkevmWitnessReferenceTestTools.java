@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.vm;
 
-import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
@@ -34,6 +33,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.FixtureExecutionWitness;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
@@ -52,7 +52,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -131,7 +130,8 @@ public class ZkevmWitnessReferenceTestTools {
                     validationMode,
                     validationMode,
                     candidateBlock.getBlockAccessList(),
-                        InclusionListTransactions.EMPTY, false,
+                    InclusionListTransactions.EMPTY,
+                    false,
                     false);
 
         final boolean imported = processingResult.isSuccessful();
