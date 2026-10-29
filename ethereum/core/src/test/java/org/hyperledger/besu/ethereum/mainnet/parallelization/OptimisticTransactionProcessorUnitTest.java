@@ -959,6 +959,37 @@ class OptimisticTransactionProcessorUnitTest {
       assertThat(result).isNotNull();
     }
 
+    @Test
+    @DisplayName("An unrecoverable sender does not keep the others of its batch from being chained")
+    void unrecoverableSenderDoesNotStopChaining() {
+      final List<Runnable> background = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, background::add);
+      final Transaction unrecoverable = mockTransaction();
+      when(unrecoverable.getSenderIfKnown()).thenReturn(Optional.empty());
+      when(unrecoverable.getSender())
+          .thenThrow(new IllegalStateException("Cannot recover public key from signature"));
+      final Transaction tx1 = mockTransaction();
+      final Transaction tx2 = mockTransaction();
+      for (final Transaction transaction : List.of(tx1, tx2)) {
+        when(transaction.getSenderIfKnown())
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(sender));
+      }
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(unrecoverable, tx1, tx2), tasks::add);
+      runAll(background);
+      runAll(background);
+      verify(tx1).getSender();
+      verify(tx2).getSender();
+      tasks.get(1).run();
+
+      assertThat(tasks).as("tx2 runs again chained on tx1").hasSize(4);
+    }
+
     private void runAll(final List<Runnable> runnables) {
       final List<Runnable> pending = new ArrayList<>(runnables);
       runnables.clear();
