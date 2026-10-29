@@ -348,9 +348,10 @@ final class TransactionJournalV2 {
           throw new IllegalStateException(
               "Account " + account.getAddress() + " disappeared from the parent updater");
         }
-        target.setNonce(account.nonce);
-        target.setBalance(account.balance);
       }
+      // a parent that already tracks an empty account hands it back from createAccount unchanged
+      target.setNonce(account.nonce);
+      target.setBalance(account.balance);
       final Code code = account.code;
       if (code != null) {
         target.setCode(code.getBytes());
