@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.Trie
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.util.log.LogUtil;
 
 import java.io.Closeable;
 import java.util.Map;
@@ -62,6 +63,21 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
   private final Predicate<SegmentedKeyValueStorage> isCaptureStorage;
   private final LongPredicate isFinal;
   private final AtomicBoolean reorgLogged = new AtomicBoolean(false);
+  private static final int SKIP_LOG_INTERVAL_SECONDS = 60;
+
+  private enum CaptureSkip {
+    WORLD_STATE_NOT_AT_PARENT("the world state is not at the block's parent"),
+    NOT_FINAL("the block is not final"),
+    DOES_NOT_EXTEND_COVERAGE("the block does not extend the archived range");
+
+    private final String reason;
+
+    CaptureSkip(final String reason) {
+      this.reason = reason;
+    }
+  }
+
+  private final Map<CaptureSkip, AtomicBoolean> skipLogThrottles = new ConcurrentHashMap<>();
 
   private record CapturedBlock(long number, Map<Bytes, Bytes> priorNodes) {}
 
@@ -111,14 +127,51 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
       final BlockHeader blockHeader) {
-    final long block = blockHeader.getNumber();
-    if (isCaptureStorage.test(storage)
-        && isSingleBlockPersist(storage, blockHeader)
-        && isFinal.test(block)
-        && extendsCoverage(blockHeader)) {
-      trieNodeWriter.beginBlock(transaction, blockHeader);
-      capturedBlocks.put(transaction, new CapturedBlock(block, loadedNodes.get()));
+    if (!isCaptureStorage.test(storage)) {
+      return;
     }
+    final long block = blockHeader.getNumber();
+    final Optional<CaptureSkip> skip = captureSkip(storage, blockHeader);
+    if (skip.isPresent()) {
+      logSkipped(skip.get());
+      return;
+    }
+    trieNodeWriter.beginBlock(transaction, blockHeader);
+    capturedBlocks.put(transaction, new CapturedBlock(block, loadedNodes.get()));
+  }
+
+  private Optional<CaptureSkip> captureSkip(
+      final SegmentedKeyValueStorage storage, final BlockHeader blockHeader) {
+    if (!isSingleBlockPersist(storage, blockHeader)) {
+      return Optional.of(CaptureSkip.WORLD_STATE_NOT_AT_PARENT);
+    }
+    if (!isFinal.test(blockHeader.getNumber())) {
+      return Optional.of(CaptureSkip.NOT_FINAL);
+    }
+    if (!extendsCoverage(blockHeader)) {
+      return Optional.of(CaptureSkip.DOES_NOT_EXTEND_COVERAGE);
+    }
+    return Optional.empty();
+  }
+
+  // Capture is skipped without failing the block, and the trailing archiver then covers it, so say
+  // why. A block that does not extend the archived range also stops inline capture for every block
+  // after it.
+  private void logSkipped(final CaptureSkip skip) {
+    LogUtil.throttledLog(
+        () -> {
+          final String archivedTo =
+              historyStore.getArchivedBlock().map(b -> String.valueOf(b.number())).orElse("none");
+          if (skip == CaptureSkip.NOT_FINAL) {
+            LOG.debug(
+                "Not capturing trie nodes: {} (archived to block {})", skip.reason, archivedTo);
+          } else {
+            LOG.info(
+                "Not capturing trie nodes: {} (archived to block {})", skip.reason, archivedTo);
+          }
+        },
+        skipLogThrottles.computeIfAbsent(skip, s -> new AtomicBoolean(true)),
+        SKIP_LOG_INTERVAL_SECONDS);
   }
 
   private static boolean isSingleBlockPersist(

@@ -35,10 +35,13 @@ import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
@@ -251,6 +254,52 @@ class ArchiveTrieNodeWriterTest {
     assertThat(entriesVisible).isTrue();
     assertThat(coverageVisible).isFalse();
     assertThat(historyStore.getArchivedBlockNumber()).isZero();
+  }
+
+  @Test
+  void interruptedWhileWaitingForEntriesFailsTheBlockWithoutCoverage() throws Exception {
+    final CountDownLatch batchStarted = new CountDownLatch(1);
+    final CountDownLatch releaseBatch = new CountDownLatch(1);
+    final ArchiveTrieNodeWriter writer =
+        writerWith(
+            () -> {
+              batchStarted.countDown();
+              try {
+                releaseBatch.await(10, TimeUnit.SECONDS);
+              } catch (final InterruptedException e) {
+                throw new IllegalStateException(e);
+              }
+              return storage.startBatchTransaction();
+            });
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
+
+    final AtomicReference<Throwable> failure = new AtomicReference<>();
+    final AtomicBoolean interruptRestored = new AtomicBoolean();
+    final Thread importThread =
+        new Thread(
+            () -> {
+              try {
+                writer.onBeforeCommit(tx);
+              } catch (final Throwable t) {
+                failure.set(t);
+                interruptRestored.set(Thread.currentThread().isInterrupted());
+              }
+            });
+    importThread.start();
+    assertThat(batchStarted.await(10, TimeUnit.SECONDS)).isTrue();
+    importThread.interrupt();
+    importThread.join(10_000);
+    releaseBatch.countDown();
+
+    assertThat(importThread.isAlive()).isFalse();
+    assertThat(failure.get())
+        .isInstanceOf(RuntimeException.class)
+        .hasCauseInstanceOf(InterruptedException.class);
+    assertThat(interruptRestored).isTrue();
+    assertThat(historyStore.getArchivedBlock()).isEmpty();
   }
 
   @Test
