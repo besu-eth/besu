@@ -15,19 +15,28 @@
 package org.hyperledger.besu.evm.frame;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.EVM;
+import org.hyperledger.besu.evm.MainnetEVMs;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.toy.ToyBlockValues;
 import org.hyperledger.besu.evm.toy.ToyWorld;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
+
+import java.math.BigInteger;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -102,5 +111,35 @@ class MessageFrameTest {
     assertThat(messageFrame.runsOnEvmV2()).isTrue();
     assertThat(StacksV2.take(0, stack.length)).isSameAs(stack);
     assertThat(StacksV2.take(0, stack.length)).isNotSameAs(stack);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void childFrameRunsOnTheEvmOfItsParent(final boolean parentOnEvmV2) {
+    final MessageFrame parent = messageFrameBuilder.enableEvmV2(parentOnEvmV2).build();
+
+    final MessageFrame child =
+        messageFrameBuilder.parentMessageFrame(parent).enableEvmV2(!parentOnEvmV2).build();
+
+    assertThat(child.runsOnEvmV2()).isEqualTo(parentOnEvmV2);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void frameRunsOnlyOnTheEvmItWasBuiltFor(final boolean frameOnEvmV2) {
+    final MessageFrame frame = messageFrameBuilder.enableEvmV2(frameOnEvmV2).build();
+    final EVM evm =
+        MainnetEVMs.osaka(
+            BigInteger.ONE,
+            new EvmConfiguration(
+                32_000L, EvmConfiguration.WorldUpdaterMode.STACKED, true, !frameOnEvmV2));
+
+    assertThatThrownBy(() -> evm.runToHalt(frame, OperationTracer.NO_TRACING))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageStartingWith(
+            "A frame built for EVM "
+                + (frameOnEvmV2 ? "v2" : "v1")
+                + " cannot run on EVM "
+                + (frameOnEvmV2 ? "v1" : "v2"));
   }
 }
