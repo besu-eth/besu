@@ -70,6 +70,7 @@ class CallParameterUtilTest {
                 new Object[] {Map.of(), "latest", Map.of(), Map.of("time", "0x80000000")}));
 
     assertThatThrownBy(() -> CallParameterUtil.rejectBlockOverrides(request))
+        .hasMessage("Too many arguments: expected at most 3")
         .isInstanceOfSatisfying(
             InvalidJsonRpcParameters.class,
             e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));

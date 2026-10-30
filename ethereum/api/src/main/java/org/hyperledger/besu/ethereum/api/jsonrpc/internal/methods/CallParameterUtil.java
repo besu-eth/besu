@@ -54,8 +54,7 @@ public class CallParameterUtil {
   public static void rejectBlockOverrides(final JsonRpcRequestContext request) {
     if (request.getRequest().getParamLength() > MAX_CALL_PARAMS) {
       throw new InvalidJsonRpcParameters(
-          "Too many arguments: block overrides (index 3) are not supported by this method",
-          RpcErrorType.INVALID_PARAMS);
+          "Too many arguments: expected at most " + MAX_CALL_PARAMS, RpcErrorType.INVALID_PARAMS);
     }
   }
 
