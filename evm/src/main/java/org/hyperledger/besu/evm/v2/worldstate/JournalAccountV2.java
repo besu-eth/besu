@@ -69,7 +69,10 @@ public final class JournalAccountV2 implements MutableAccount {
   Wei balance;
   // set by the transaction, null while the code is the parent account's
   @Nullable Code code;
-  final HashMap<UInt256, Slot> slots = new HashMap<>();
+  final HashMap<SlotKey, Slot> slots = new HashMap<>();
+  // SLOAD and SSTORE look up their slot several times with the same UInt256 instance
+  @Nullable private UInt256 lastKey;
+  @Nullable private Slot lastSlot;
   // changes when the storage is cleared or the account created, which drops every slot value
   int storageEpoch;
   boolean storageCleared;
@@ -211,7 +214,19 @@ public final class JournalAccountV2 implements MutableAccount {
     return value;
   }
 
+  @SuppressWarnings("ReferenceEquality") // a key keeps its slot for the whole transaction
   private Slot slot(final UInt256 key) {
+    final Slot last = lastSlot;
+    if (key == lastKey && last != null) {
+      return last;
+    }
+    final Slot slot = slot(new SlotKey(key));
+    lastKey = key;
+    lastSlot = slot;
+    return slot;
+  }
+
+  private Slot slot(final SlotKey key) {
     Slot slot = slots.get(key);
     if (slot == null) {
       slot = new Slot();
@@ -238,7 +253,7 @@ public final class JournalAccountV2 implements MutableAccount {
   }
 
   /** Warms up a slot of the access list, which no frame's revert makes cold again. */
-  void warmUpFromAccessList(final UInt256 key) {
+  void warmUpFromAccessList(final SlotKey key) {
     slot(key).warm = true;
   }
 
@@ -286,7 +301,7 @@ public final class JournalAccountV2 implements MutableAccount {
     slots.forEach(
         (key, slot) -> {
           if (isWritten(slot)) {
-            updated.put(key, slot.current);
+            updated.put(key.value, slot.current);
           }
         });
     return updated;
