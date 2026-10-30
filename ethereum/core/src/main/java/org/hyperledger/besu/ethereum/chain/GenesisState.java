@@ -348,6 +348,14 @@ public final class GenesisState {
     if (amsterdamTimestamp.isPresent()) {
       return genesis.getTimestamp() >= amsterdamTimestamp.getAsLong();
     }
+    return isBogotaAtGenesis(genesis);
+  }
+
+  private static boolean isBogotaAtGenesis(final GenesisConfig genesis) {
+    final OptionalLong bogotaTimestamp = genesis.getConfigOptions().getBogotaTime();
+    if (bogotaTimestamp.isPresent()) {
+      return genesis.getTimestamp() >= bogotaTimestamp.getAsLong();
+    }
     return isFutureEipsTimeAtGenesis(genesis);
   }
 

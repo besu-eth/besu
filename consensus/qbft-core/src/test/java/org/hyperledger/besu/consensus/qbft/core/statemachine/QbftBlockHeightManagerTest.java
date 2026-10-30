@@ -478,7 +478,8 @@ public class QbftBlockHeightManagerTest {
     final ConsensusRoundIdentifier futureRoundIdentifier = createFrom(roundIdentifier, 0, +2);
     final RoundChange roundChange =
         messageFactory.createRoundChange(futureRoundIdentifier, Optional.empty());
-    when(roundChangeManager.appendRoundChangeMessage(any()))
+    when(roundChangeManager.isMessageValid(any())).thenReturn(true);
+    when(roundChangeManager.appendValidatedRoundChangeMessage(any()))
         .thenReturn(Optional.of(singletonList(roundChange)));
     when(finalState.isLocalNodeProposerForRound(any())).thenReturn(false);
 
@@ -497,7 +498,9 @@ public class QbftBlockHeightManagerTest {
 
     manager.handleRoundChangePayload(roundChange);
 
-    verify(roundChangeManager, times(1)).appendRoundChangeMessage(roundChange);
+    verify(roundChangeManager, times(1)).appendValidatedRoundChangeMessage(roundChange);
+    // Validation must happen exactly once per message, not once per consumer.
+    verify(roundChangeManager, times(1)).isMessageValid(roundChange);
     verify(roundFactory, times(1))
         .createNewRound(any(), eq(futureRoundIdentifier.getRoundNumber()));
   }
@@ -531,7 +534,8 @@ public class QbftBlockHeightManagerTest {
     final RoundChangeArtifacts roundChangArtifacts =
         RoundChangeArtifacts.create(singletonList(roundChange));
 
-    when(roundChangeManager.appendRoundChangeMessage(any()))
+    when(roundChangeManager.isMessageValid(any())).thenReturn(true);
+    when(roundChangeManager.appendValidatedRoundChangeMessage(any()))
         .thenReturn(Optional.of(singletonList(roundChange)));
     when(finalState.isLocalNodeProposerForRound(any())).thenReturn(true);
     when(blockInterface.replaceRoundForCommitBlock(eq(createdBlock), eq(2)))
@@ -726,6 +730,74 @@ public class QbftBlockHeightManagerTest {
             firstPrepare.getSignedPayload(),
             secondPrepare.getSignedPayload(),
             thirdPrepare.getSignedPayload());
+  }
+
+  @Test
+  public void preparedCertificateSurvivesRoundAdvanceViaFutureRoundProposal() {
+    when(finalState.isLocalNodeProposerForRound(any())).thenReturn(true);
+    when(blockTimer.checkEmptyBlockExpired(any(), eq(0L))).thenReturn(true);
+    when(blockInterface.replaceRoundForCommitBlock(eq(createdBlock), anyInt()))
+        .thenReturn(createdBlock);
+    when(futureRoundProposalMessageValidator.validateProposalMessage(any())).thenReturn(true);
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.getArgument(0, RLPInput.class).readBytes();
+              return createdBlock;
+            });
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class)
+                  .writeBytes(org.apache.tuweni.bytes.Bytes.of(0xAB));
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+
+    // Become prepared in round 0.
+    manager.handleBlockTimerExpiry(roundIdentifier);
+    for (int i = 0; i < 3; i++) {
+      manager.handlePreparePayload(
+          validatorMessageFactory
+              .get(i)
+              .createPrepare(roundIdentifier, Hash.fromHexStringLenient("0")));
+    }
+
+    // Advance to round 2 by a route other than this node's own round timer expiring. This path
+    // does not pass through doRoundChange, so the prepared certificate used to be discarded here.
+    final ConsensusRoundIdentifier futureRoundIdentifier = createFrom(roundIdentifier, 0, +2);
+    manager.handleProposalPayload(
+        messageFactory.createProposal(
+            futureRoundIdentifier, createdBlock, emptyList(), emptyList()));
+
+    // Force this node to emit a RoundChange and inspect what it claims to have prepared.
+    manager.roundExpired(new RoundExpiry(futureRoundIdentifier));
+
+    verify(validatorMulticaster, atLeastOnce()).send(sentMessageArgCaptor.capture());
+    final RoundChangeMessageData roundChange =
+        sentMessageArgCaptor.getAllValues().stream()
+            .filter(RoundChangeMessageData.class::isInstance)
+            .map(RoundChangeMessageData.class::cast)
+            .reduce((first, second) -> second)
+            .orElseThrow(() -> new AssertionError("no RoundChange was multicast"));
+
+    Assertions.assertThat(roundChange.decode(blockEncoder).getPreparedRoundMetadata())
+        .as(
+            "node prepared a block in round 0 but reports no prepared certificate after advancing "
+                + "via a future-round proposal - a proposer assembling a RoundChangeCertificate "
+                + "cannot learn that the block was prepared")
+        .isNotEmpty();
   }
 
   @Test

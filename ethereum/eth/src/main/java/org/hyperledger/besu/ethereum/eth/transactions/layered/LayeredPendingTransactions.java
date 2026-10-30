@@ -33,8 +33,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
@@ -215,7 +213,18 @@ public class LayeredPendingTransactions implements PendingTransactions {
       final long lowestNonce = reAddTxs.getFirst().getNonce();
       final int newNonceDistance = (int) Math.max(0, lowestNonce - stateSenderNonce);
 
-      reAddTxs.forEach(ptx -> prioritizedTransactions.add(ptx, newNonceDistance, NEW_RECONCILED));
+      if (newNonceDistance >= poolConfig.getMaxFutureBySender()) {
+        // re-added txs skip the nonce checks done for new ones, so drop them here
+        LOG.atTrace()
+            .setMessage(
+                "Drop {} reconciled transaction(s) of sender {}, too much in the future since current sender nonce is {}")
+            .addArgument(reAddTxs::size)
+            .addArgument(sender)
+            .addArgument(stateSenderNonce)
+            .log();
+      } else {
+        reAddTxs.forEach(ptx -> prioritizedTransactions.add(ptx, newNonceDistance, NEW_RECONCILED));
+      }
     }
 
     LOG.atDebug()
@@ -306,27 +315,42 @@ public class LayeredPendingTransactions implements PendingTransactions {
         ethScheduler.scheduleServiceTask(
             () -> {
               synchronized (this) {
-                prioritizedTransactions.remove(evaluatedPendingTx, INVALIDATED);
-                logInvalidTransaction(evaluatedPendingTx, result);
-                LOG.atTrace()
-                    .setMessage("Transaction {} removed by block selection")
-                    .addArgument(evaluatedPendingTx::toTraceLog)
-                    .log();
+                getPooledInstance(evaluatedPendingTx)
+                    .ifPresent(
+                        pooledTx -> {
+                          prioritizedTransactions.remove(pooledTx, INVALIDATED);
+                          logInvalidTransaction(pooledTx, result);
+                          LOG.atTrace()
+                              .setMessage("Transaction {} removed by block selection")
+                              .addArgument(pooledTx::toTraceLog)
+                              .log();
+                        });
               }
             });
       } else if (result.penalize()) {
         ethScheduler.scheduleServiceTask(
             () -> {
               synchronized (this) {
-                prioritizedTransactions.penalize(evaluatedPendingTx, result);
-                LOG.atTrace()
-                    .setMessage("Transaction {} penalized by block selection")
-                    .addArgument(evaluatedPendingTx::toTraceLog)
-                    .log();
+                getPooledInstance(evaluatedPendingTx)
+                    .ifPresent(
+                        pooledTx -> {
+                          prioritizedTransactions.penalize(pooledTx, result);
+                          LOG.atTrace()
+                              .setMessage("Transaction {} penalized by block selection")
+                              .addArgument(pooledTx::toTraceLog)
+                              .log();
+                        });
               }
             });
       }
     }
+  }
+
+  // selection runs without the lock, so the evaluated instance could have been replaced, removed
+  // or re-added since, while the layers must only be updated with the instances they index
+  private Optional<PendingTransaction> getPooledInstance(
+      final PendingTransaction evaluatedPendingTx) {
+    return prioritizedTransactions.getByHash(evaluatedPendingTx.getHash());
   }
 
   @Override
@@ -376,26 +400,6 @@ public class LayeredPendingTransactions implements PendingTransactions {
                         e.getKey(),
                         prioritizedTransactions.getCurrentNonceFor(e.getKey()).orElse(0),
                         e.getValue())));
-  }
-
-  @Override
-  public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
-    return prioritizedTransactions.subscribeToAdded(listener);
-  }
-
-  @Override
-  public void unsubscribePendingTransactions(final long id) {
-    prioritizedTransactions.unsubscribeFromAdded(id);
-  }
-
-  @Override
-  public long subscribeDroppedTransactions(final PendingTransactionDroppedListener listener) {
-    return prioritizedTransactions.subscribeToDropped(listener);
-  }
-
-  @Override
-  public void unsubscribeDroppedTransactions(final long id) {
-    prioritizedTransactions.unsubscribeFromDropped(id);
   }
 
   @Override

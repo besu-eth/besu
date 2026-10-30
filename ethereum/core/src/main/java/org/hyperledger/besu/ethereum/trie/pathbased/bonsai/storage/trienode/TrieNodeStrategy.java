@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -24,37 +23,24 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * Defines the strategy for storing and retrieving account/storage trie branch nodes in key-value
- * storage. Implementations can use different key formats or storage segments; this is independent
- * of the flat-account/storage database strategies under {@code storage.flat}.
+ * Defines the strategy for storing and retrieving trie nodes in key-value storage. Nodes are
+ * addressed by a {@link TrieNodeKey}; implementations can use different key formats or storage
+ * segments. This is independent of the flat account/storage database strategies under {@code
+ * storage.flat}.
  */
 public interface TrieNodeStrategy {
 
-  Optional<Bytes> getFlatAccountTrieNode(
-      Bytes location, Bytes32 nodeHash, SegmentedKeyValueStorage storage);
+  Optional<Bytes> getTrieNode(SegmentedKeyValueStorage storage, Bytes key, Bytes32 nodeHash);
 
-  Optional<Bytes> getFlatStorageTrieNode(
-      Hash accountHash, Bytes location, Bytes32 nodeHash, SegmentedKeyValueStorage storage);
-
-  void putFlatAccountTrieNode(
+  void putTrieNode(
       SegmentedKeyValueStorage storage,
       SegmentedKeyValueStorageTransaction transaction,
-      Bytes location,
+      Bytes key,
       Bytes32 nodeHash,
       Bytes node);
 
-  void putFlatStorageTrieNode(
-      SegmentedKeyValueStorage storage,
-      SegmentedKeyValueStorageTransaction transaction,
-      Hash accountHash,
-      Bytes location,
-      Bytes32 nodeHash,
-      Bytes node);
-
-  void removeFlatAccountStateTrieNode(
-      SegmentedKeyValueStorage storage,
-      SegmentedKeyValueStorageTransaction transaction,
-      Bytes location);
+  void removeTrieNode(
+      SegmentedKeyValueStorage storage, SegmentedKeyValueStorageTransaction transaction, Bytes key);
 
   default void onBeforeCommit(
       final SegmentedKeyValueStorage storage,

@@ -1,0 +1,30 @@
+{
+  "comment" : "A call with an explicit gas of 0 fails the intrinsic gas check, and the bundle's error names that violation",
+  "request" : {
+    "method" : "trace_callMany",
+    "params" : [ [ [ {
+      "from" : "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+      "to" : "0x0010000000000000000000000000000000000000",
+      "gas" : "0xfffff2",
+      "gasPrice" : "0xef",
+      "value" : "0x0"
+    }, [ "trace" ] ], [ {
+      "from" : "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73",
+      "to" : "0x0010000000000000000000000000000000000000",
+      "gas" : "0x0",
+      "gasPrice" : "0xef",
+      "value" : "0x0"
+    }, [ "trace" ] ] ], "latest" ],
+    "id" : 1,
+    "jsonrpc" : "2.0"
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "id" : 1,
+    "error" : {
+      "code" : -32003,
+      "message" : "Intrinsic gas exceeds gas limit (intrinsic gas cost 21000 exceeds gas limit 0)"
+    }
+  },
+  "statusCode" : 200
+}

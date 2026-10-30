@@ -63,14 +63,6 @@ public interface PendingTransactions {
 
   Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender();
 
-  long subscribePendingTransactions(PendingTransactionAddedListener listener);
-
-  void unsubscribePendingTransactions(long id);
-
-  long subscribeDroppedTransactions(PendingTransactionDroppedListener listener);
-
-  void unsubscribeDroppedTransactions(long id);
-
   OptionalLong getNextNonceForSender(Address sender);
 
   void manageBlockAdded(

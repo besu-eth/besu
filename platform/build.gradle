@@ -26,13 +26,13 @@ javaPlatform {
 }
 
 dependencies {
-  api platform('com.fasterxml.jackson:jackson-bom:2.21.6')
+  api platform('com.fasterxml.jackson:jackson-bom:2.21.7')
   api platform('io.grpc:grpc-bom:1.79.0')
-  api platform('io.netty:netty-bom:4.2.17.Final')
+  api platform('io.netty:netty-bom:4.2.19.Final')
   api platform('io.opentelemetry:opentelemetry-bom:1.62.0')
   api platform('io.prometheus:prometheus-metrics-bom:1.5.0')
-  api platform('io.vertx:vertx-stack-depchain:5.1.6')
-  api platform('org.apache.logging.log4j:log4j-bom:2.25.5')
+  api platform('io.vertx:vertx-stack-depchain:5.2.2')
+  api platform('org.apache.logging.log4j:log4j-bom:2.26.1')
   api platform('org.assertj:assertj-bom:3.27.7')
   api platform('org.immutables:bom:2.12.1')
   api platform('org.junit:junit-bom:5.14.4')
@@ -96,7 +96,7 @@ dependencies {
     api 'com.google.dagger:dagger-compiler:2.59.2'
     api 'com.google.dagger:dagger:2.59.2'
 
-    api 'com.google.guava:guava:33.5.0-jre'
+    api 'com.google.guava:guava:33.7.2-jre'
 
     api 'org.checkerframework:checker-qual:3.43.0'
 
@@ -132,7 +132,7 @@ dependencies {
 
     api 'io.pkts:pkts-core:3.0.18'
 
-    api 'io.projectreactor:reactor-core:3.8.6'
+    api 'io.projectreactor:reactor-core:3.8.7'
 
     api 'io.consensys.tuweni:tuweni-bytes:2.8.0'
     api 'io.consensys.tuweni:tuweni-config:2.8.0'
@@ -162,20 +162,20 @@ dependencies {
 
     api 'org.awaitility:awaitility:4.3.0'
 
-    api 'org.bouncycastle:bcpkix-jdk18on:1.85'
-    api 'org.bouncycastle:bcprov-jdk18on:1.85'
+    api 'org.bouncycastle:bcpkix-jdk18on:1.86'
+    api 'org.bouncycastle:bcprov-jdk18on:1.86'
 
     api 'org.fusesource.jansi:jansi:2.4.2'
 
     api 'org.hibernate.validator:hibernate-validator:8.0.2.Final'
 
-    api 'org.hyperledger.besu:besu-native-common:2.0.0'
-    api 'org.hyperledger.besu:arithmetic:2.0.0'
-    api 'org.hyperledger.besu:blake2bf:2.0.0'
-    api 'org.hyperledger.besu:gnark:2.0.0'
-    api 'org.hyperledger.besu:secp256k1:2.0.0'
-    api 'org.hyperledger.besu:secp256r1:2.0.0'
-    api 'org.hyperledger.besu:boringssl:2.0.0'
+    api 'org.hyperledger.besu:besu-native-common:2.1.0'
+    api 'org.hyperledger.besu:arithmetic:2.1.0'
+    api 'org.hyperledger.besu:blake2bf:2.1.0'
+    api 'org.hyperledger.besu:gnark:2.1.0'
+    api 'org.hyperledger.besu:secp256k1:2.1.0'
+    api 'org.hyperledger.besu:secp256r1:2.1.0'
+    api 'org.hyperledger.besu:boringssl:2.1.0'
     api 'org.hyperledger.besu:besu-errorprone-checks:1.2.0'
     api 'com.google.errorprone:error_prone_core:2.36.0'
     api 'com.uber.nullaway:nullaway:0.13.1'
@@ -206,16 +206,16 @@ dependencies {
 
     api 'io.consensys.protocols:jc-kzg-4844:2.1.8'
 
-    api 'io.consensys.protocols:discovery:26.8.0'
+    api 'io.consensys.protocols:discovery:26.10.1'
   }
 }
 
-
 spotless {
-  // spotless check applied to build.gradle (groovy) files
+  // spotless check applied to build.gradle (groovy) files; built-in steps only, so the check needs no downloads
   groovyGradle {
     target '*.gradle'
-    greclipse('4.31').configFile(rootProject.file('gradle/spotless/greclipse.properties'))
+    leadingTabsToSpaces(2)
+    trimTrailingWhitespace()
     endWithNewline()
   }
 }

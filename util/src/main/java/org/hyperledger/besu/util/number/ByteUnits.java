@@ -14,10 +14,16 @@
  */
 package org.hyperledger.besu.util.number;
 
-/** The Byte units. */
+/**
+ * The Byte units. Follows this spec <a
+ * href="https://en.wikipedia.org/wiki/Byte#Multiple-byte_units">Multiple-byte units</a>
+ */
 public class ByteUnits {
-  /** The constant MEGABYTE. */
-  public static final int MEGABYTE = 1 << 20;
+  /** The constant MEBIBYTE. */
+  public static final int MEBIBYTE = 1 << 20;
+
+  /** The constant KIBIBYTE. */
+  public static final int KIBIBYTE = 1 << 10;
 
   private ByteUnits() {}
 }

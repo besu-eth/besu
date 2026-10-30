@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.query.cache;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.api.query.cache.TransactionLogBloomCacher.BLOCKS_PER_BLOOM_CACHE;
 import static org.hyperledger.besu.ethereum.api.query.cache.TransactionLogBloomCacher.BLOOM_BITS_LENGTH;
 import static org.mockito.ArgumentMatchers.any;
@@ -34,6 +35,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -222,6 +224,21 @@ public class TransactionLogBloomCacherTest {
     assertThat(transactionLogBloomCacher.removeSegments(0L, (long) BLOCKS_PER_BLOOM_CACHE))
         .isTrue();
     assertThat(logBloom).doesNotExist();
+  }
+
+  @Test
+  public void shouldReportPartialCacheRemovalFailure() throws IOException {
+    final Path blockedSegment = Files.createDirectory(cacheDir.resolve("logBloom-0.cache"));
+    Files.createFile(blockedSegment.resolve("child"));
+    final Path removableSegment = Files.createFile(cacheDir.resolve("logBloom-1.cache"));
+
+    assertThatThrownBy(
+            () -> transactionLogBloomCacher.removeSegments(0L, (long) BLOCKS_PER_BLOOM_CACHE))
+        .isInstanceOf(UncheckedIOException.class)
+        .hasCauseInstanceOf(IOException.class);
+
+    assertThat(blockedSegment).exists();
+    assertThat(removableSegment).doesNotExist();
   }
 
   @Test

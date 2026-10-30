@@ -1,0 +1,15 @@
+{
+  "comment" : "A transaction hash that is not on the chain returns null.",
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "trace_get",
+    "params" : [ "0xfefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe", [ "0x0" ] ],
+    "id" : 1
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "result" : null,
+    "id" : 1
+  },
+  "statusCode" : 200
+}

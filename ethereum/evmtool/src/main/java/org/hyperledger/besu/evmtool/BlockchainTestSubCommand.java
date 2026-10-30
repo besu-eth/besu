@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.evmtool.BlockchainTestSubCommand.COMMAND_NAME;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -54,6 +55,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.file.Path;
@@ -61,16 +63,17 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Option;
@@ -111,7 +114,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       description =
           "Limit execution to tests whose name contains the given substring, or matches the given"
               + " pattern (a regex, with * and ? as wildcards).")
-  private String testName = null;
+  private @Nullable String testName = null;
 
   @Option(
       names = {"--test-name-regex"},
@@ -120,15 +123,15 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               + " hive --sim.limit value: anchored at the start of the id, open at the end and"
               + " case-sensitive, as re.match is. Nothing is escaped or rewritten, so a published"
               + " hive filter can be passed exactly as it appears.")
-  private String testNameRegex = null;
+  private @Nullable String testNameRegex = null;
 
   // Compiled up front so a malformed expression fails before any fixture is read
-  private TestNameFilter nameFilter;
+  private @Nullable TestNameFilter nameFilter;
 
   @Option(
       names = {"--trace-output"},
       description = "Output file for traces (default: stderr). Requires --json or --trace flag.")
-  private String traceOutput = null;
+  private @Nullable String traceOutput = null;
 
   @Option(
       names = {"--workers"},
@@ -152,6 +155,15 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
   private Boolean enablePrecompileCache = false;
 
   @Option(
+      names = {"--block-access-list"},
+      description =
+          "Import each block with the access list its fixture carries (default: ${DEFAULT-VALUE})."
+              + " --noblock-access-list imports without one, as full sync does, so post-Amsterdam"
+              + " blocks take the accumulator state root path rather than the access list one.",
+      negatable = true)
+  private Boolean useBlockAccessList = true;
+
+  @Option(
       names = {"--verbose"},
       description = "Verbose logs, listing all skipped tests")
   private final Boolean verbose = false;
@@ -165,7 +177,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
    * Default constructor for the BlockchainTestSubCommand class. This constructor doesn't take any
    * arguments and initializes the parentCommand to null. PicoCLI requires this constructor.
    */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public BlockchainTestSubCommand() {
     // PicoCLI requires this
     this(null);
@@ -216,9 +228,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           }
           final File file = new File(fileName);
           if (file.isFile()) {
-            final Map<String, BlockchainReferenceTestCaseSpec> blockchainTests =
-                blockchainTestMapper.readValue(file, javaType);
-            executeBlockchainTest(blockchainTests, results);
+            // No stdin: these are file names, and the stream is the list still being read.
+            runFile(file.toPath(), null, blockchainTestMapper, javaType, results);
           } else {
             parentCommand.out.println("File not found: " + fileName);
           }
@@ -227,11 +238,8 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         FixtureRunner.runFiles(
             FixtureRunner.collectFiles(blockchainTestFiles),
             workers,
-            file -> runFile(file, blockchainTestMapper, javaType, results));
+            file -> runFile(file, parentCommand.in, blockchainTestMapper, javaType, results));
       }
-    } catch (final JsonProcessingException jpe) {
-      setupFailed = true;
-      parentCommand.out.println("File content error: " + jpe);
     } catch (final IOException e) {
       setupFailed = true;
       System.err.println("Unable to read state file: " + e.getMessage());
@@ -253,10 +261,17 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             "No blockchain test was executed%s.%n",
             TestNameFilter.describe(testName, testNameRegex));
       }
-      exitCode = results.failed() > 0 || setupFailed || !results.hasTests() ? 1 : 0;
+      exitCode =
+          results.failed() > 0
+                  || setupFailed
+                  || !results.hasTests()
+                  || results.unaccountedCases() > 0
+              ? 1
+              : 0;
       if (jsonArray) {
+        results.addNotRunRows(jsonArrayResults, "fork", "lastBlockHash");
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-      } else if (results.hasTests()) {
+      } else if (results.hasTests() || results.unaccountedCases() > 0) {
         results.printSummary(parentCommand.out);
       }
     }
@@ -273,6 +288,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   // Gate on the compiled filter, not on --test-name: --test-name-regex compiles one
                   // too, and testing the wrong field silently runs the whole tree unfiltered.
                   if (nameFilter != null && !matchesTestName(test)) {
+                    results.recordFiltered();
                     if (verbose) {
                       parentCommand.out.println("Skipping test: " + test);
                     }
@@ -287,7 +303,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     int repeatCount = Math.max(1, parentCommand.getRepeatCount());
     for (int i = 0; i < repeatCount; i++) {
       boolean isLastIteration = (i == repeatCount - 1);
-      parentCommand.out.println("Running iteration " + i);
+      // --json-array stdout is the result array only; progress lines make it unparseable.
+      if (!jsonArray) {
+        parentCommand.out.println("Running iteration " + i);
+      }
       filteredTests.forEach(
           (testName, spec) -> traceTestSpecs(testName, spec, results, isLastIteration));
     }
@@ -301,24 +320,29 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
    */
   private void runFile(
       final Path file,
+      final @Nullable InputStream stdin,
       final ObjectMapper mapper,
       final JavaType javaType,
       final FixtureRunner.TestResults results) {
-    final Map<String, BlockchainReferenceTestCaseSpec> blockchainTests;
-    try {
-      blockchainTests =
-          "stdin".equals(file.toString())
-              ? mapper.readValue(parentCommand.in, javaType)
-              : mapper.readValue(file.toFile(), javaType);
-    } catch (final Exception e) {
-      results.recordUnreadable(file.toString(), "not readable as a blockchain test fixture: " + e);
+    final Map<String, BlockchainReferenceTestCaseSpec> blockchainTests =
+        FixtureRunner.readTests(
+            file,
+            stdin,
+            mapper,
+            javaType,
+            test -> nameFilter == null || matchesTestName(test),
+            (cases, e) ->
+                results.recordUnreadable(
+                    file.toString(), "not readable as a blockchain test fixture: " + e, cases));
+    if (blockchainTests == null) {
       return;
     }
+    results.recordDeclaredCases(blockchainTests.size());
     executeBlockchainTest(blockchainTests, results);
   }
 
   private boolean matchesTestName(final String test) {
-    return nameFilter.matches(test);
+    return requireNonNull(nameFilter).matches(test);
   }
 
   private void traceTestSpecs(
@@ -326,7 +350,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       final BlockchainReferenceTestCaseSpec spec,
       final FixtureRunner.TestResults results,
       final boolean isLastIteration) {
-    if (isLastIteration) {
+    if (isLastIteration && !jsonArray) {
       parentCommand.out.println("Running " + test);
     }
     final MutableBlockchain blockchain = spec.buildBlockchain();
@@ -349,25 +373,26 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         ReferenceTestProtocolSchedules.cached(
                 parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
             .getByName(spec.getNetwork());
+    if (schedule == null) {
+      // Recorded against this test, as engine-test does. Left to throw, it escaped the whole file,
+      // so the rest of the file and every file after it went unread and uncounted.
+      if (isLastIteration) {
+        final String reason = "Unsupported fork: " + spec.getNetwork();
+        if (!jsonArray) {
+          printBlockchainImportResult(reason);
+        }
+        recordResult(test, spec, blockchain, false, reason, results);
+      }
+      return;
+    }
 
     BlockTestTracerManager tracerManager = null;
-    PrintStream traceWriter;
-    long totalGasUsed = 0;
-    int totalTxCount = 0;
-    int blockCount = 0;
-    long testStartTime = System.currentTimeMillis();
-
-    boolean testPassed = true;
-    String failureReason = "";
-
     if (parentCommand.showJsonResults && isLastIteration) {
       try {
-        final boolean isFileOutput = traceOutput != null;
-        if (isFileOutput) {
-          traceWriter = new PrintStream(new FileOutputStream(traceOutput, true), true, UTF_8);
-        } else {
-          traceWriter = new PrintStream(System.err, true, UTF_8);
-        }
+        final PrintStream traceWriter =
+            traceOutput != null
+                ? new PrintStream(new FileOutputStream(traceOutput, true), true, UTF_8)
+                : new PrintStream(System.err, true, UTF_8);
         tracerManager =
             new BlockTestTracerManager(
                 traceWriter,
@@ -381,15 +406,26 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             new BlockchainTestTracerProvider(tracerManager);
         serviceManager.addService(BlockImportTracerProvider.class, tracerProvider);
       } catch (final IOException e) {
-        parentCommand.out.println("Failed to open trace output: " + e.getMessage());
-        return;
+        throw new IllegalStateException("Failed to open trace output: " + e.getMessage(), e);
       }
     }
 
-    for (final BlockchainReferenceTestCaseSpec.CandidateBlock candidateBlock :
-        spec.getCandidateBlocks()) {
+    boolean testPassed = true;
+    String failureReason = null;
+    long totalGasUsed = 0;
+    int totalTxCount = 0;
+    int blockCount = 0;
+    long testStartTime = System.currentTimeMillis();
+
+    final BlockchainReferenceTestCaseSpec.CandidateBlock[] candidateBlocks =
+        spec.getCandidateBlocks();
+    for (int blockIndex = 0; blockIndex < candidateBlocks.length; blockIndex++) {
+      final BlockchainReferenceTestCaseSpec.CandidateBlock candidateBlock =
+          candidateBlocks[blockIndex];
+      // Missing RLP means this slot is not executable; skip it and keep going so later blocks and
+      // the final result row are still produced (matches engine-test's always-record pattern).
       if (!candidateBlock.isExecutable()) {
-        return;
+        continue;
       }
 
       try {
@@ -409,7 +445,12 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         final Stopwatch timer = Stopwatch.createStarted();
 
         final BlockImportResult importResult =
-            blockImporter.importBlock(context, block, validationMode, validationMode);
+            blockImporter.importBlock(
+                context,
+                block,
+                validationMode,
+                validationMode,
+                useBlockAccessList ? candidateBlock.getBlockAccessList() : Optional.empty());
 
         timer.stop();
 
@@ -422,79 +463,121 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           totalTxCount += block.getBody().getTransactions().size();
         }
 
-        if (importResult.isImported() != candidateBlock.isValid()) {
-          testPassed = false;
-          failureReason =
-              String.format(
-                  "Block %d (%s) %s",
-                  block.getHeader().getNumber(),
-                  block.getHash(),
-                  importResult.isImported() ? "Failed to be rejected" : "Failed to import");
-          parentCommand.out.println(failureReason);
-        } else {
-          if (importResult.isImported()) {
-            final long gasUsed = block.getHeader().getGasUsed();
-            final long timeNs = timer.elapsed(TimeUnit.NANOSECONDS);
-            final float mGps = gasUsed * 1000.0f / timeNs;
-            final double timeMs = timeNs / 1_000_000.0;
-            parentCommand.out.printf(
-                "Block %d (%s) Imported in %.2f ms (%.2f MGas/s)%n",
-                block.getHeader().getNumber(), block.getHash(), timeMs, mGps);
-          } else {
-            parentCommand.out.printf(
-                "Block %d (%s) Rejected (correctly)%n",
-                block.getHeader().getNumber(), block.getHash());
-          }
+        final String blockFailureReason =
+            getBlockImportFailureReason(importResult, candidateBlock, block);
+        testPassed &= (blockFailureReason == null);
+        // the first failing block is the root cause; later blocks only fail as a consequence
+        if (failureReason == null) {
+          failureReason = blockFailureReason;
+        }
+
+        if (!jsonArray) {
+          printBlockImportResult(timer, importResult, block, blockFailureReason);
         }
       } catch (final RLPException e) {
+        // Do not call getBlock() again here: decoding already failed, and a second call rethrows
+        // and drops this test from --json-array output (see #11328).
         if (candidateBlock.isValid()) {
           testPassed = false;
-          failureReason =
-              String.format(
-                  "Block %d (%s) RLP exception: %s",
-                  candidateBlock.getBlock().getHeader().getNumber(),
-                  candidateBlock.getBlock().getHash(),
-                  e.getMessage());
-          parentCommand.out.println(failureReason);
+          final String rlpFailureReason =
+              String.format("Block %d RLP exception: %s", blockIndex, e.getMessage());
+          if (failureReason == null) {
+            failureReason = rlpFailureReason;
+          }
+          if (!jsonArray) {
+            parentCommand.out.println(rlpFailureReason);
+          }
         }
       }
     }
 
+    // do not write output until the last iteration
     if (!isLastIteration) {
       return;
     }
 
-    if (!blockchain.getChainHeadHash().equals(spec.getLastBlockHash())) {
-      testPassed = false;
-      failureReason =
-          String.format(
-              "Chain header mismatch, have %s want %s",
-              blockchain.getChainHeadHash(), spec.getLastBlockHash());
-      parentCommand.out.printf(
-          "Chain header mismatch, have %s want %s%n",
-          blockchain.getChainHeadHash(), spec.getLastBlockHash());
-    } else {
-      if (verbose) {
-        parentCommand.out.println("Chain import successful");
-      }
+    failureReason =
+        (failureReason != null)
+            ? failureReason
+            : getBlockchainImportFailureReason(blockchain, spec);
+
+    testPassed &= failureReason == null;
+    if (!jsonArray) {
+      printBlockchainImportResult(failureReason);
     }
 
-    if (parentCommand.showJsonResults) {
+    if (parentCommand.showJsonResults && tracerManager != null) {
       final long testDuration = System.currentTimeMillis() - testStartTime;
-      tracerManager.writeTestEnd(
-          test,
-          testPassed,
-          spec.getNetwork(),
-          testDuration,
-          totalGasUsed,
-          totalTxCount,
-          blockCount);
+      requireNonNull(tracerManager)
+          .writeTestEnd(
+              test,
+              testPassed,
+              spec.getNetwork(),
+              testDuration,
+              totalGasUsed,
+              totalTxCount,
+              blockCount);
     }
 
-    if (!testPassed) {
-      results.recordFailure(test, failureReason);
-    } else {
+    recordResult(test, spec, blockchain, testPassed, failureReason, results);
+  }
+
+  private static @Nullable String getBlockImportFailureReason(
+      final BlockImportResult importResult,
+      final BlockchainReferenceTestCaseSpec.CandidateBlock candidateBlock,
+      final Block block) {
+    return importResult.isImported() == candidateBlock.isValid()
+        ? null
+        : String.format(
+            "Block %d (%s) %s",
+            block.getHeader().getNumber(),
+            block.getHash(),
+            importResult.isImported() ? "Failed to be rejected" : "Failed to import");
+  }
+
+  private void printBlockImportResult(
+      final Stopwatch timer,
+      final BlockImportResult importResult,
+      final Block block,
+      final @Nullable String failureReason) {
+    if (failureReason != null) {
+      parentCommand.out.println(failureReason);
+      return;
+    }
+    if (!importResult.isImported()) {
+      parentCommand.out.printf(
+          "Block %d (%s) Rejected (correctly)%n", block.getHeader().getNumber(), block.getHash());
+      return;
+    }
+    final long gasUsed = block.getHeader().getGasUsed();
+    final long timeNs = timer.elapsed(TimeUnit.NANOSECONDS);
+    final float mGps = gasUsed * 1000.0f / timeNs;
+    final double timeMs = timeNs / 1_000_000.0;
+    parentCommand.out.printf(
+        "Block %d (%s) Imported in %.2f ms (%.2f MGas/s)%n",
+        block.getHeader().getNumber(), block.getHash(), timeMs, mGps);
+  }
+
+  private static @Nullable String getBlockchainImportFailureReason(
+      final MutableBlockchain blockchain, final BlockchainReferenceTestCaseSpec spec) {
+    return blockchain.getChainHeadHash().getBytes().equals(spec.getLastBlockHash().getBytes())
+        ? null
+        : String.format(
+            "Chain header mismatch, have %s want %s",
+            blockchain.getChainHeadHash(), spec.getLastBlockHash());
+  }
+
+  private void recordResult(
+      final String test,
+      final BlockchainReferenceTestCaseSpec spec,
+      final MutableBlockchain blockchain,
+      final boolean testPassed,
+      final @Nullable String failureReason,
+      final FixtureRunner.TestResults results) {
+    if (testPassed) {
       results.recordPass();
+    } else {
+      results.recordFailure(test, requireNonNull(failureReason));
     }
 
     if (jsonArray) {
@@ -502,9 +585,17 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       result.put("name", test);
       result.put("pass", testPassed);
       result.put("fork", spec.getNetwork());
-      result.put("lastBlockHash", blockchain.getChainHeadHash().toHexString());
+      result.put("lastBlockHash", blockchain.getChainHeadHash().getBytes().toHexString());
       result.put("error", failureReason);
       jsonArrayResults.add(result);
+    }
+  }
+
+  private void printBlockchainImportResult(final @Nullable String failureReason) {
+    if (failureReason != null) {
+      parentCommand.out.println(failureReason);
+    } else if (verbose) {
+      parentCommand.out.println("Chain import successful");
     }
   }
 
@@ -645,7 +736,6 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     private final boolean showStack;
     private final boolean showReturnData;
     private final boolean showStorage;
-    private StreamingOperationTracer currentTracer;
 
     /**
      * Constructs a BlockTestTracerManager with specified tracing options.
@@ -675,17 +765,15 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
      * @return a new StreamingOperationTracer instance
      */
     public StreamingOperationTracer createTracer() {
-      currentTracer =
-          new StreamingOperationTracer(
-              output,
-              OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                  .traceMemory(showMemory)
-                  .traceStack(showStack)
-                  .traceReturnData(showReturnData)
-                  .traceStorage(showStorage)
-                  .eip3155Strict(true)
-                  .build());
-      return currentTracer;
+      return new StreamingOperationTracer(
+          output,
+          OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+              .traceMemory(showMemory)
+              .traceStack(showStack)
+              .traceReturnData(showReturnData)
+              .traceStorage(showStorage)
+              .eip3155Strict(true)
+              .build());
     }
 
     /**

@@ -81,8 +81,12 @@ public class RlpBlockExporter {
         Boolean.toString(append),
         maybeBalsOutputFile.map(File::toString).orElse("none"));
 
-    try (final FileOutputStream outputStream = new FileOutputStream(outputFile, append);
+    try (final FileOutputStream outputStream = new FileOutputStream(outputFile, true);
         final DataOutputStream balsStream = openBalsStream(maybeBalsOutputFile, append)) {
+      // Preserve an existing export if the optional BAL sidecar cannot be opened.
+      if (!append) {
+        outputStream.getChannel().truncate(0);
+      }
       long blockNumber = 0L;
       for (long i = startBlock; i < endBlock; i++) {
         final Optional<Block> maybeBlock = blockchain.getBlockByNumber(i);

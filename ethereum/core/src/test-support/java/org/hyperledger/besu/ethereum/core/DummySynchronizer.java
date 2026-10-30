@@ -48,6 +48,11 @@ public class DummySynchronizer implements Synchronizer {
   }
 
   @Override
+  public boolean isInitialSyncPhaseDone() {
+    return true;
+  }
+
+  @Override
   public Optional<Long> getBestPeerChainHead() {
     return Optional.empty();
   }

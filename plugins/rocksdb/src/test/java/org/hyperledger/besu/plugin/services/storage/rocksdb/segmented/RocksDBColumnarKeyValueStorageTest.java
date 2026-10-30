@@ -456,6 +456,49 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     store.close();
   }
 
+  @Test
+  public void batchTransactionCommitPersistsValues() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final byte[] key = bytesFromHexString("0001");
+    final byte[] value = bytesFromHexString("0FFF");
+
+    final SegmentedKeyValueStorageTransaction tx = store.startBatchTransaction();
+    tx.put(TestSegment.FOO, key, value);
+    tx.put(TestSegment.BAR, key, value);
+    tx.remove(TestSegment.BAR, key);
+    tx.commit();
+
+    assertThat(store.get(TestSegment.FOO, key)).contains(value);
+    assertThat(store.get(TestSegment.BAR, key)).isEmpty();
+    store.close();
+  }
+
+  @Test
+  public void batchTransactionRollbackDiscardsValues() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final byte[] key = bytesFromHexString("0001");
+
+    final SegmentedKeyValueStorageTransaction tx = store.startBatchTransaction();
+    tx.put(TestSegment.FOO, key, bytesFromHexString("0FFF"));
+    tx.rollback();
+
+    assertThat(store.get(TestSegment.FOO, key)).isEmpty();
+    store.close();
+  }
+
+  @Test
+  public void batchTransactionThrowsAfterCommit() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+
+    final SegmentedKeyValueStorageTransaction tx = store.startBatchTransaction();
+    tx.commit();
+
+    assertThatThrownBy(
+            () -> tx.put(TestSegment.FOO, bytesFromHexString("0001"), bytesFromHexString("0FFF")))
+        .isInstanceOf(IllegalStateException.class);
+    store.close();
+  }
+
   public enum TestSegment implements SegmentIdentifier {
     DEFAULT("default".getBytes(StandardCharsets.UTF_8)),
     FOO(new byte[] {1}),

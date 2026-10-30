@@ -18,6 +18,7 @@ import java.math.BigInteger;
 import java.util.Objects;
 
 import com.google.common.base.MoreObjects;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Adapted from the pc_ecc (Apache 2 License) implementation:
@@ -98,7 +99,7 @@ public abstract class AbstractFieldPoint<U extends AbstractFieldPoint> implement
 
   @SuppressWarnings("unchecked")
   @Override
-  public U multiply(final U other) {
+  public @Nullable U multiply(final U other) {
     return null;
   }
 

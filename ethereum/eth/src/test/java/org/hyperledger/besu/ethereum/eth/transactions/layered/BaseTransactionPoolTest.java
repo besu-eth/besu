@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 import org.hyperledger.besu.evm.account.Account;
@@ -73,6 +74,8 @@ public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
   protected final Transaction blobTransaction0 = createEIP4844Transaction(0, KEYS1, 1, 1);
 
   protected final EthScheduler ethScheduler = new DeterministicEthScheduler();
+  protected final TransactionEventNotifier transactionEventNotifier =
+      new TransactionEventNotifier(ethScheduler);
   protected final StubMetricsSystem metricsSystem = new StubMetricsSystem();
   protected final SenderBalanceChecker senderBalanceChecker = mock(SenderBalanceChecker.class);
 

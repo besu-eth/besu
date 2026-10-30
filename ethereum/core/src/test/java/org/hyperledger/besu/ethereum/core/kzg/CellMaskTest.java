@@ -209,4 +209,17 @@ class CellMaskTest {
   void withoutRemovesTheIndexesOfTheOtherMask() {
     assertThat(maskOf(1, 2, 3, 5).without(maskOf(2, 5, 9))).isEqualTo(maskOf(1, 3));
   }
+
+  @Test
+  void containsTestsOneIndex() {
+    final CellMask mask = maskOf(0, 64, 127);
+
+    assertThat(mask.contains(0)).isTrue();
+    assertThat(mask.contains(64)).isTrue();
+    assertThat(mask.contains(127)).isTrue();
+    assertThat(mask.contains(1)).isFalse();
+    assertThat(mask.contains(63)).isFalse();
+    assertThat(CellMask.EMPTY.contains(0)).isFalse();
+    assertThat(CellMask.FULL.contains(127)).isTrue();
+  }
 }

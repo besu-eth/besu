@@ -77,7 +77,9 @@
     "BlockException.INVALID_REQUESTS":                           "Invalid execution requests|Requests hash mismatch, calculated: 0x[0-9a-f]+ header: 0x[0-9a-f]+",
 
     "_comment_bal_regex": "Block Access List (BAL) — EIP-7928 (keep even if unmatched)",
-    "BlockException.INCORRECT_BLOCK_FORMAT":                     "Block access list validation failed for block|Block access list hash mismatch",
+    "BlockException.INCORRECT_BLOCK_FORMAT":                     "Block access list validation failed for block|Block access list hash mismatch|Header validation failed",
+    "_comment_pre_fork_bal": "A pre-Amsterdam header carrying a balHash fails BAL validation, which runs before anything that would notice its hash",
+    "BlockException.INVALID_BLOCK_HASH":                         "Block access list validation failed for block",
     "BlockException.INVALID_BAL_HASH":                           "Block access list validation failed for block|Block access list hash mismatch",
     "BlockException.INVALID_BLOCK_ACCESS_LIST":                  "Block access list validation failed for block 0x[0-9a-f]+|Block access list hash mismatch, calculated: 0x[0-9a-f]+ header: 0x[0-9a-f]+",
 
@@ -96,7 +98,7 @@
     "TransactionException.SENDER_NOT_EOA":                       "transaction invalid Sender 0x[0-9a-f]+ has deployed code and so is not authorized to send transactions",
 
     "_comment_tx_signature": "Transaction signature errors",
-    "TransactionException.INVALID_SIGNATURE_VRS":                "transaction invalid Signature s value should be less than \\d+, but got \\d+",
+    "TransactionException.INVALID_SIGNATURE_VRS":                "transaction invalid Signature s value should be less than \\d+, but got \\d+|Cannot recover public key from signature|sender could not be extracted from transaction signature",
 
     "_comment_tx_type_pre_fork": "Transaction type not supported on this fork — Besu emits the same error for all unsupported types",
     "TransactionException.TYPE_NOT_SUPPORTED":                     "transaction invalid Transaction type \\w+ is invalid, accepted transaction types are|replay protected signatures is not supported",

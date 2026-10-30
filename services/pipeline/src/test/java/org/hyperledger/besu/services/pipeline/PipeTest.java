@@ -61,6 +61,19 @@ public class PipeTest {
   }
 
   @Test
+  public void shouldKeepTheInterruptOfTheThreadThatPuts() {
+    Thread.currentThread().interrupt();
+    try {
+      pipe.put("A");
+
+      assertThat(Thread.currentThread().isInterrupted()).isTrue();
+      assertThat(pipe.poll()).isEqualTo("A");
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
   public void shouldLimitNumberOfItemsDrained() {
     pipe.put("a");
     pipe.put("b");

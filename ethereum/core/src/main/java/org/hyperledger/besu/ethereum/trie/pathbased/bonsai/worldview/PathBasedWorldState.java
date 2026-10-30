@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
@@ -30,9 +29,11 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapsho
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.StorageSubscriber;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.TrieBranchSegments;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.PathBasedWorldStateCacheManager;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -82,6 +84,12 @@ public abstract class PathBasedWorldState
   protected Hash worldStateRootHash;
   protected Hash worldStateBlockHash;
 
+  /**
+   * The root of a frozen world state with its accumulator applied. The tries stay rooted at
+   * worldStateRootHash, because a frozen world state never stores the nodes of this root.
+   */
+  private Hash frozenRootHash;
+
   // configuration parameters for the world state.
   protected WorldStateConfig worldStateConfig;
 
@@ -94,6 +102,9 @@ public abstract class PathBasedWorldState
    * - All modifications are temporary and will be lost once the world state is discarded.
    */
   protected boolean isStorageFrozen;
+
+  private boolean deferTrieLog;
+  private Runnable trieLogWrite = () -> {};
 
   protected PathBasedWorldState(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -167,6 +178,27 @@ public abstract class PathBasedWorldState
   }
 
   /**
+   * Leaves the trie log of the block persisted next to {@link #takeTrieLogWrite()}, for the caller
+   * to write once it has found the block valid. Only a frozen world state defers it: any other
+   * writes its trie log ahead of the state it persists. It is not deferred either if the trie log
+   * manager cannot defer it.
+   */
+  public void deferTrieLog() {
+    deferTrieLog = isStorageFrozen && trieLogManager.canDeferTrieLog();
+  }
+
+  /**
+   * Hands over the write of a deferred trie log.
+   *
+   * @return the write, which does nothing if no trie log was deferred
+   */
+  public Runnable takeTrieLogWrite() {
+    final Runnable write = trieLogWrite;
+    trieLogWrite = () -> {};
+    return write;
+  }
+
+  /**
    * Reset the worldState to this block header
    *
    * @param blockHeader block to use
@@ -174,6 +206,7 @@ public abstract class PathBasedWorldState
   public void resetWorldStateTo(final BlockHeader blockHeader) {
     worldStateBlockHash = blockHeader.getBlockHash();
     worldStateRootHash = blockHeader.getStateRoot();
+    frozenRootHash = null;
   }
 
   @Override
@@ -215,12 +248,17 @@ public abstract class PathBasedWorldState
         computation.applyTo(stateUpdater);
       }
       final Hash calculatedRootHash = computation.root();
-      stageWorldStateKeys(stateUpdater, blockHeader, calculatedRootHash);
+      stageWorldStateKeys(
+          stateUpdater, committer.getTrieBranchType(), blockHeader, calculatedRootHash);
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
-        // Trie log first, ahead of composed state, in case of an abnormal shutdown.
-        trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
+        if (deferTrieLog) {
+          trieLogWrite = trieLogManager.deferTrieLog(accumulator, calculatedRootHash, blockHeader);
+        } else {
+          // Trie log first, ahead of composed state, in case of an abnormal shutdown.
+          trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
+        }
       }
 
       stateUpdater.commitComposedOnly();
@@ -240,33 +278,33 @@ public abstract class PathBasedWorldState
       throw e;
     } finally {
       accumulator.reset();
+      frozenRootHash = null;
     }
   }
 
   private void stageWorldStateKeys(
       final BonsaiWorldStateKeyValueStorage.Updater stateUpdater,
+      final TrieBranchType trieBranchType,
       final BlockHeader blockHeader,
       final Hash calculatedRootHash) {
+    final SegmentIdentifier trieBranchSegment = TrieBranchSegments.segmentFor(trieBranchType);
     if (blockHeader != null) {
       stateUpdater
           .getWorldStateTransaction()
           .put(
-              TRIE_BRANCH_STORAGE,
+              trieBranchSegment,
               WORLD_BLOCK_HASH_KEY,
               blockHeader.getBlockHash().getBytes().toArrayUnsafe());
     } else {
-      stateUpdater.getWorldStateTransaction().remove(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY);
+      stateUpdater.getWorldStateTransaction().remove(trieBranchSegment, WORLD_BLOCK_HASH_KEY);
     }
     stateUpdater
         .getWorldStateTransaction()
-        .put(
-            TRIE_BRANCH_STORAGE,
-            WORLD_ROOT_HASH_KEY,
-            calculatedRootHash.getBytes().toArrayUnsafe());
+        .put(trieBranchSegment, WORLD_ROOT_HASH_KEY, calculatedRootHash.getBytes().toArrayUnsafe());
     stateUpdater
         .getWorldStateTransaction()
         .put(
-            TRIE_BRANCH_STORAGE,
+            trieBranchSegment,
             WORLD_BLOCK_NUMBER_KEY,
             Bytes.ofUnsignedLong(blockHeader == null ? 0L : blockHeader.getNumber())
                 .toArrayUnsafe());
@@ -395,10 +433,10 @@ public abstract class PathBasedWorldState
   @Override
   public Hash rootHash() {
     if (isStorageFrozen && accumulator.isAccumulatorStateChanged()) {
-      worldStateRootHash = resolveDefaultCommitter().compute(this, null, accumulator.copy()).root();
+      frozenRootHash = resolveDefaultCommitter().compute(this, null, accumulator.copy()).root();
       accumulator.resetAccumulatorStateChanged();
     }
-    return worldStateRootHash;
+    return frozenRootHash != null ? frozenRootHash : worldStateRootHash;
   }
 
   /**
@@ -428,7 +466,7 @@ public abstract class PathBasedWorldState
       final Address address, final StorageSlotKey storageSlotKey);
 
   @Override
-  public abstract Optional<Bytes> getCode(@NotNull final Address address, final Hash codeHash);
+  public abstract Optional<Code> getCode(@NotNull final Address address, final Hash codeHash);
 
   /**
    * Attaches a Block Access List overlay to this world state, replacing its accumulator with a

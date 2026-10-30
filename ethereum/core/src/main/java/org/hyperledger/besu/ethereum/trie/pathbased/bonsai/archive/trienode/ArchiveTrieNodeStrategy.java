@@ -17,9 +17,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
@@ -42,7 +42,7 @@ import org.apache.tuweni.bytes.Bytes32;
  * TRIE_BRANCH_STORAGE_ARCHIVE} so historical {@code eth_getProof} requests don't need trie-log
  * replay.
  *
- * <p>Each put delegates to {@code base} (live flat DB) first, then — if the archive gate is open —
+ * <p>Each put delegates to {@code base} (live trie) first, then — if the archive gate is open —
  * reads the prior node value from storage (where it is typically hot in the top few in-memory
  * layers) and calls {@link ArchiveTrieNodeWriter#capture} to queue an async history-entry write.
  * Workers compute the history entry ({@link ArchiveNodeHistoryStore#getLatestBefore} + encode
@@ -53,7 +53,7 @@ import org.apache.tuweni.bytes.Bytes32;
  * in the common case (the prior value is hot in the in-memory layered chain) and eliminates any
  * need for worker threads to access the layered storage. An archiving gap — gate closed then
  * reopened, or a restart — forces the next block to write FULL, since the newest archive entry no
- * longer matches the flat DB.
+ * longer matches the live trie.
  */
 public class ArchiveTrieNodeStrategy
     implements TrieNodeStrategy, Synchronizer.InSyncListener, Closeable {
@@ -108,7 +108,7 @@ public class ArchiveTrieNodeStrategy
   }
 
   /**
-   * @param base the delegate strategy for the live flat DB
+   * @param base the delegate strategy for the live trie
    * @param trieNodeWriter the writer that persists archived history entries
    * @param hasChainEstimate supplies whether an external chain estimate exists (see field)
    */
@@ -152,89 +152,59 @@ public class ArchiveTrieNodeStrategy
   }
 
   @Override
-  public Optional<Bytes> getFlatAccountTrieNode(
-      final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
-    return base.getFlatAccountTrieNode(location, nodeHash, storage);
+  public Optional<Bytes> getTrieNode(
+      final SegmentedKeyValueStorage storage, final Bytes key, final Bytes32 nodeHash) {
+    return base.getTrieNode(storage, key, nodeHash);
   }
 
   @Override
-  public Optional<Bytes> getFlatStorageTrieNode(
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final SegmentedKeyValueStorage storage) {
-    return base.getFlatStorageTrieNode(accountHash, location, nodeHash, storage);
-  }
-
-  @Override
-  public void putFlatAccountTrieNode(
+  public void putTrieNode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location,
+      final Bytes key,
       final Bytes32 nodeHash,
       final Bytes node) {
     final long block = txBlockNumberCache.get(transaction, ignored -> readBlockNumber(storage));
-    base.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
+    base.putTrieNode(storage, transaction, key, nodeHash, node);
     if (shouldCaptureBlock(block)) {
-      final Bytes prior =
-          block == 0L
-              ? null
-              : base.getFlatAccountTrieNode(location, Bytes32.ZERO, storage).orElse(null);
+      final Bytes prior = readPriorNode(storage, key, block);
       if (isNoOpRewrite(prior, node)) {
         return;
       }
-      trieNodeWriter.capture(
-          ArchiveNodeKey.account(location), location, block, node, prior, transaction);
+      capture(key, block, node, prior, transaction);
     }
   }
 
   @Override
-  public void putFlatStorageTrieNode(
+  public void removeTrieNode(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final Bytes node) {
+      final Bytes key) {
     final long block = txBlockNumberCache.get(transaction, ignored -> readBlockNumber(storage));
-    base.putFlatStorageTrieNode(storage, transaction, accountHash, location, nodeHash, node);
+    base.removeTrieNode(storage, transaction, key);
     if (shouldCaptureBlock(block)) {
-      final Bytes prior =
-          block == 0L
-              ? null
-              : base.getFlatStorageTrieNode(accountHash, location, Bytes32.ZERO, storage)
-                  .orElse(null);
-      if (isNoOpRewrite(prior, node)) {
-        return;
-      }
-      trieNodeWriter.capture(
-          ArchiveNodeKey.storage(accountHash.getBytes(), location),
-          location,
-          block,
-          node,
-          prior,
-          transaction);
-    }
-  }
-
-  @Override
-  public void removeFlatAccountStateTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location) {
-    final long block = txBlockNumberCache.get(transaction, ignored -> readBlockNumber(storage));
-    base.removeFlatAccountStateTrieNode(storage, transaction, location);
-    if (shouldCaptureBlock(block)) {
-      final Bytes prior =
-          block == 0L
-              ? null
-              : base.getFlatAccountTrieNode(location, Bytes32.ZERO, storage).orElse(null);
+      final Bytes prior = readPriorNode(storage, key, block);
+      // Removing a node that doesn't exist is a no-op for the archive.
       if (prior != null) {
-        // Removing a node that doesn't exist is a no-op for the archive.
-        trieNodeWriter.capture(
-            ArchiveNodeKey.account(location), location, block, null, prior, transaction);
+        capture(key, block, null, prior, transaction);
       }
     }
+  }
+
+  // Genesis (block 0) has no prior node by definition.
+  private Bytes readPriorNode(
+      final SegmentedKeyValueStorage storage, final Bytes key, final long block) {
+    return block == 0L ? null : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
+  }
+
+  private void capture(
+      final Bytes key,
+      final long block,
+      final Bytes node,
+      final Bytes prior,
+      final SegmentedKeyValueStorageTransaction transaction) {
+    trieNodeWriter.capture(
+        ArchiveNodeKey.of(key), TrieNodeKey.location(key), block, node, prior, transaction);
   }
 
   @Override

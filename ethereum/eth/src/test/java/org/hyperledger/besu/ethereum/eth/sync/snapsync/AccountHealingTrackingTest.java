@@ -31,8 +31,9 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
 import org.hyperledger.besu.ethereum.trie.TrieIterator;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -82,16 +83,16 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldMarkAccountForHealingWhenStorageProofIsReceived() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaTrieAccountValue stateTrieAccountValue =
+        PatriciaTrieAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             new StoredNodeFactory<>(
                 (location, hash) ->
-                    worldStateKeyValueStorage.getAccountStorageTrieNode(
-                        accountHash, location, hash),
+                    worldStateKeyValueStorage.getTrieNode(
+                        TrieNodeKey.of(accountHash, location), hash),
                 Function.identity(),
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
@@ -134,16 +135,16 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldNotMarkAccountForHealingWhenAllStorageIsReceivedWithoutProof() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaTrieAccountValue stateTrieAccountValue =
+        PatriciaTrieAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             new StoredNodeFactory<>(
                 (location, hash) ->
-                    worldStateKeyValueStorage.getAccountStorageTrieNode(
-                        accountHash, location, hash),
+                    worldStateKeyValueStorage.getTrieNode(
+                        TrieNodeKey.of(accountHash, location), hash),
                 Function.identity(),
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
@@ -177,16 +178,15 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldMarkAccountForHealingOnInvalidStorageProof() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaTrieAccountValue stateTrieAccountValue =
+        PatriciaTrieAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final List<Bytes> proofs =
         List.of(
             worldStateKeyValueStorage
-                .getAccountStorageTrieNode(
-                    accountHash,
-                    Bytes.EMPTY,
+                .getTrieNode(
+                    TrieNodeKey.of(accountHash, Bytes.EMPTY),
                     Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()))
                 .orElseThrow());
 
@@ -206,16 +206,16 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldMarkAccountForHealingOnInvalidStorageWithoutProof() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaTrieAccountValue stateTrieAccountValue =
+        PatriciaTrieAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             new StoredNodeFactory<>(
                 (location, hash) ->
-                    worldStateKeyValueStorage.getAccountStorageTrieNode(
-                        accountHash, location, hash),
+                    worldStateKeyValueStorage.getTrieNode(
+                        TrieNodeKey.of(accountHash, location), hash),
                 Function.identity(),
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
@@ -247,16 +247,16 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldMarkAccountForHealingOnPartialStorageRange() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaTrieAccountValue stateTrieAccountValue =
+        PatriciaTrieAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
 
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             new StoredNodeFactory<>(
                 (location, hash) ->
-                    worldStateKeyValueStorage.getAccountStorageTrieNode(
-                        accountHash, location, hash),
+                    worldStateKeyValueStorage.getTrieNode(
+                        TrieNodeKey.of(accountHash, location), hash),
                 Function.identity(),
                 Function.identity()),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()));
@@ -301,8 +301,8 @@ public class AccountHealingTrackingTest {
   @Test
   void shouldNotMarkAccountForHealingOnValidStorageTrieNodeDetection() {
     final Hash accountHash = Hash.hash(accounts.getFirst().getBytes());
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(
+    final PatriciaTrieAccountValue stateTrieAccountValue =
+        PatriciaTrieAccountValue.readFrom(
             RLP.input(accountStateTrie.get(accountHash.getBytes()).orElseThrow()));
     final StorageTrieNodeHealingRequest storageTrieNodeHealingRequest =
         SnapDataRequest.createStorageTrieNodeDataRequest(

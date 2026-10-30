@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
@@ -43,7 +44,9 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -61,6 +64,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   protected final TrieLogManager trieLogManager;
   protected PathBasedWorldStateCacheManager worldStateCacheManager;
   protected PathBasedWorldState headWorldState;
+  // the head world state is rolled, executed on and persisted in place, so concurrent writers
+  // would leave its data out of step with its block hash marker. Fair, so that a fork choice
+  // waiting for it is not overtaken by backward sync importing the next block
+  private final ReentrantLock headWorldStateLock = new ReentrantLock(true);
   protected final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage;
   protected EvmConfiguration evmConfiguration;
   // Configuration that will be shared by all instances of world state at their creation
@@ -168,6 +175,16 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
     return headWorldState;
   }
 
+  @Override
+  public <T> T withHeadWorldStateLock(final Supplier<T> action) {
+    headWorldStateLock.lock();
+    try {
+      return action.get();
+    } finally {
+      headWorldStateLock.unlock();
+    }
+  }
+
   /**
    * Gets the full world state based on the provided query parameters.
    *
@@ -208,8 +225,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    */
   private Optional<MutableWorldState> getFullWorldStateFromHead(final Hash blockHash) {
     // a failure here keeps the chain head from moving, so it must be visible at the default level
-    return rollFullWorldStateToBlockHash(headWorldState, blockHash, Level.WARN)
-        .map(MutableWorldState.class::cast);
+    return withHeadWorldStateLock(
+        () ->
+            rollFullWorldStateToBlockHash(headWorldState, blockHash, Level.WARN)
+                .map(MutableWorldState.class::cast));
   }
 
   /**
@@ -347,9 +366,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
               mutableState.getWorldStateStorage().getClass().getSimpleName(),
               blockHash);
           return Optional.of(mutableState);
-        } catch (final MerkleTrieException re) {
-          // need to throw to trigger the heal
-          throw re;
+        } catch (final MerkleTrieException | MissingCodeException e) {
+          // the caller heals and rolls the state again, from a clean updater
+          pathBasedUpdater.reset();
+          throw e;
         } catch (final Exception e) {
           // if we fail we must clean up the updater
           pathBasedUpdater.reset();
@@ -364,7 +384,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         }
       } catch (final RuntimeException re) {
         LOG.warn("Archive rolling failed for block hash " + blockHash, re);
-        if (re instanceof MerkleTrieException) {
+        if (re instanceof MerkleTrieException || re instanceof MissingCodeException) {
           // need to throw to trigger the heal
           throw re;
         }
@@ -392,10 +412,15 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
 
   @Override
   public void resetArchiveStateTo(final BlockHeader blockHeader) {
-    headWorldState.resetWorldStateTo(blockHeader);
-    this.worldStateCacheManager.reset();
-    this.worldStateCacheManager.addCachedLayer(
-        blockHeader, headWorldState.getWorldStateRootHash(), headWorldState);
+    headWorldStateLock.lock();
+    try {
+      headWorldState.resetWorldStateTo(blockHeader);
+      this.worldStateCacheManager.reset();
+      this.worldStateCacheManager.addCachedLayer(
+          blockHeader, headWorldState.getWorldStateRootHash(), headWorldState);
+    } finally {
+      headWorldStateLock.unlock();
+    }
   }
 
   @Override
@@ -413,7 +438,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                 new WorldStateStorageCoordinator(ws.getWorldStateStorage()));
         return mapper.apply(
             worldStateProofProvider.getAccountProof(
-                ws.getWorldStateRootHash(), accountAddress, accountStorageKeys));
+                ws.getWorldStateRootHash(),
+                ws.getWorldStateBlockHash(),
+                accountAddress,
+                accountStorageKeys));
       }
     } catch (Exception ex) {
       LOG.error(

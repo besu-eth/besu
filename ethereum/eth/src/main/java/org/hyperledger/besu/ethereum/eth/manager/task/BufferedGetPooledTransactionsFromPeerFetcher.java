@@ -28,7 +28,9 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -112,8 +114,10 @@ public class BufferedGetPooledTransactionsFromPeerFetcher {
           .addArgument(batchToRequest)
           .log();
 
+      final Set<Hash> remaining = new HashSet<>(batchToRequest);
       final GetPooledTransactionsFromPeerTask task =
-          GetPooledTransactionsFromPeerTask.fromAnnouncements(announcements);
+          GetPooledTransactionsFromPeerTask.fromAnnouncements(
+              announcements.stream().filter(a -> remaining.contains(a.hash())).toList());
 
       final PeerTaskExecutorResult<List<Transaction>> taskResult =
           ethContext.getPeerTaskExecutor().executeAgainstPeer(task, peer);

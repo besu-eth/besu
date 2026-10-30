@@ -27,9 +27,18 @@ public interface BlobsWithCommitments {
   BlobType getBlobType();
 
   /**
-   * Get the blobs.
+   * Determines if blob data is present.
    *
-   * @return the blobs
+   * @return {@code true} if the blobs list is not empty, {@code false} otherwise.
+   */
+  default boolean hasBlobData() {
+    return !getBlobs().isEmpty();
+  }
+
+  /**
+   * Get the blobs if present.
+   *
+   * @return the blobs or empty list if not present
    */
   List<? extends Blob> getBlobs();
 

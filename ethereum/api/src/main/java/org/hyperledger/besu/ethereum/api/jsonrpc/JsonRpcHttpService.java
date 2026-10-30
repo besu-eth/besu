@@ -214,7 +214,7 @@ public class JsonRpcHttpService {
         "Invalid port configuration.");
     checkArgument(config.getHost() != null, "Required host is not configured.");
     checkArgument(
-        config.getMaxActiveConnections() > 0, "Invalid max active connections configuration.");
+        config.getMaxActiveConnections() >= 0, "Invalid max active connections configuration.");
   }
 
   public CompletableFuture<?> start() {
@@ -276,29 +276,32 @@ public class JsonRpcHttpService {
   }
 
   private Handler<HttpConnection> connectionHandler() {
-
     return connection -> {
-      if (activeConnectionsCount.get() >= maxActiveConnections) {
+      if (maxActiveConnections > 0 && activeConnectionsCount.get() >= maxActiveConnections) {
         // disallow new connections to prevent DoS
         LOG.warn(
-            "Rejecting new connection from {}. Max {} active connections limit reached.",
+            "Rejecting new connection from {}. {}/{} max active connections limit reached.",
             connection.remoteAddress(),
-            activeConnectionsCount.getAndIncrement());
+            activeConnectionsCount.get(),
+            maxActiveConnections);
         connection.close();
       } else {
+        final int activeConnections = activeConnectionsCount.incrementAndGet();
         LOG.debug(
             "Opened connection from {}. Total of active connections: {}/{}",
             connection.remoteAddress(),
-            activeConnectionsCount.incrementAndGet(),
+            activeConnections,
             maxActiveConnections);
-      }
-      connection.closeHandler(
-          c ->
+        connection.closeHandler(
+            c -> {
+              final int remainingConnections = activeConnectionsCount.decrementAndGet();
               LOG.debug(
                   "Connection closed from {}. Total of active connections: {}/{}",
                   connection.remoteAddress(),
-                  activeConnectionsCount.decrementAndGet(),
-                  maxActiveConnections));
+                  remainingConnections,
+                  maxActiveConnections);
+            });
+      }
     };
   }
 

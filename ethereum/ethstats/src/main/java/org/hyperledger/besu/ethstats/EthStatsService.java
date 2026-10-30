@@ -73,6 +73,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.WebSocket;
+import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.http.WebSocketClientOptions;
 import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.net.PemTrustOptions;
@@ -106,8 +107,14 @@ public class EthStatsService {
   private final WebSocketClientOptions webSocketClientOptions;
   private final WebSocketConnectOptions webSocketConnectOptions;
 
-  private @Nullable ScheduledFuture<?> reportScheduler;
-  private @Nullable WebSocket webSocket;
+  private volatile @Nullable ScheduledFuture<?> reportScheduler;
+  private volatile @Nullable WebSocket webSocket;
+  // Vert.x 5 closes a WebSocketClient (and its connections) once it is garbage collected, so the
+  // client must stay strongly reachable for as long as its connection is in use. Reconnects reuse
+  // it because Vert.x holds on to every client it creates until Vert.x itself is closed.
+  private volatile @Nullable WebSocketClient webSocketClient;
+  // Keeps close and error handlers from reconnecting after stop().
+  private volatile boolean stopped;
   private @Nullable EnodeURL enodeURL;
   private long pingTimestamp;
 
@@ -185,11 +192,25 @@ public class EthStatsService {
 
   /** Start. */
   public void start() {
+    stopped = false;
+    connect();
+  }
+
+  private void connect() {
     LOG.debug("Connecting to EthStats: {}", getEthStatsURI());
     try {
       enodeURL = p2PNetwork.getLocalEnode().orElseThrow();
-      vertx
-          .createWebSocketClient(webSocketClientOptions)
+      final WebSocketClient client;
+      synchronized (this) {
+        if (stopped) {
+          return;
+        }
+        if (webSocketClient == null) {
+          webSocketClient = vertx.createWebSocketClient(webSocketClientOptions);
+        }
+        client = webSocketClient;
+      }
+      client
           .connect(webSocketConnectOptions)
           .onComplete(
               event -> {
@@ -256,24 +277,43 @@ public class EthStatsService {
 
   /** Ends the current web socket connection, observers and schedulers */
   public void stop() {
-    if (webSocket != null && !webSocket.isClosed()) {
-      webSocket.close();
+    final WebSocketClient client;
+    synchronized (this) {
+      stopped = true;
+      client = webSocketClient;
+      webSocketClient = null;
     }
-    if (reportScheduler != null) {
-      reportScheduler.cancel(true);
+    disconnect();
+    if (client != null) {
+      client.close();
+    }
+  }
+
+  /** Ends the current web socket connection and schedulers, keeping the client for a reconnect. */
+  private void disconnect() {
+    final WebSocket socket = webSocket;
+    if (socket != null && !socket.isClosed()) {
+      socket.close();
+    }
+    final ScheduledFuture<?> scheduler = reportScheduler;
+    if (scheduler != null) {
+      scheduler.cancel(true);
     }
   }
 
   /** Ends the current connection and restart a new one. */
   private void retryConnect() {
+    if (stopped) {
+      return;
+    }
     if (retryInProgress.getAndSet(true) == FALSE) {
-      stop();
+      disconnect();
       updateSSLProtocol(); // switch from ssl:true to ssl:false and vice-versa
       LOG.info("Attempting to reconnect to ethstats server in approximately 10 seconds.");
       protocolManager
           .ethContext()
           .getScheduler()
-          .scheduleFutureTask(this::start, Duration.ofSeconds(10));
+          .scheduleFutureTask(this::connect, Duration.ofSeconds(10));
     }
   }
 
@@ -434,7 +474,7 @@ public class EthStatsService {
     final WebSocket activeWebSocket = requireWebSocket();
     final EnodeURL localEnodeURL = requireEnodeURL();
     final boolean isMiningEnabled = miningCoordinator.isMining();
-    final boolean isSyncing = syncState.isInSync();
+    final boolean isSyncing = !syncState.isInSync();
     final long gasPrice = suggestGasPrice(blockchainQueries.getBlockchain().getChainHeadBlock());
     // safe to cast to int since it isn't realistic to have more than max int peers
     final int peersNumber =

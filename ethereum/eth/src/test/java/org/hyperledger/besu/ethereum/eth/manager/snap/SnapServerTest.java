@@ -39,10 +39,11 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -82,7 +83,7 @@ public class SnapServerTest {
 
   record SnapTestAccount(
       Hash addressHash,
-      PmtStateTrieAccountValue accountValue,
+      PatriciaTrieAccountValue accountValue,
       MerkleTrie<Bytes32, Bytes> storage,
       Bytes code) {
     Bytes accountRLP() {
@@ -152,7 +153,7 @@ public class SnapServerTest {
     storageCoordinator = new WorldStateStorageCoordinator(inMemoryStorage);
     storageTrie =
         new StoredMerklePatriciaTrie<>(
-            inMemoryStorage::getAccountStateTrieNode, Function.identity(), Function.identity());
+            inMemoryStorage::getTrieNode, Function.identity(), Function.identity());
     proofProvider = new WorldStateProofProvider(storageCoordinator);
 
     spyProvider =
@@ -837,7 +838,7 @@ public class SnapServerTest {
   static SnapTestAccount createTestAccount(final String hexAddr) {
     return new SnapTestAccount(
         Hash.wrap(Bytes32.rightPad(Bytes.fromHexString(hexAddr))),
-        new PmtStateTrieAccountValue(
+        new PatriciaTrieAccountValue(
             rand.nextInt(0, 1), Wei.of(rand.nextLong(0L, 1L)), Hash.EMPTY_TRIE_HASH, Hash.EMPTY),
         new SimpleMerklePatriciaTrie<>(a -> a),
         Bytes.EMPTY);
@@ -863,7 +864,7 @@ public class SnapServerTest {
       final Hash acctHash, final int slotKeyGap, final BonsaiWorldStateKeyValueStorage storage) {
     MerkleTrie<Bytes32, Bytes> trie =
         new StoredMerklePatriciaTrie<>(
-            (loc, hash) -> storage.getAccountStorageTrieNode(acctHash, loc, hash),
+            (loc, hash) -> storage.getTrieNode(TrieNodeKey.of(acctHash, loc), hash),
             Bytes32.wrap(Hash.EMPTY_TRIE_HASH.getBytes()),
             a -> a,
             a -> a);
@@ -895,11 +896,11 @@ public class SnapServerTest {
             });
     trie.commit(
         (location, key, value) ->
-            updater.putAccountStorageTrieNode(acctHash, location, key, value));
+            updater.putTrieNode(TrieNodeKey.of(acctHash, location), key, value));
     updater.commit();
     return new SnapTestAccount(
         acctHash,
-        new PmtStateTrieAccountValue(
+        new PatriciaTrieAccountValue(
             rand.nextInt(0, 1), Wei.of(rand.nextLong(0L, 1L)),
             Hash.wrap(trie.getRootHash()), Hash.hash(mockCode)),
         trie,
@@ -912,7 +913,7 @@ public class SnapServerTest {
       updater.putAccountInfoState(account.addressHash(), account.accountRLP());
       storageTrie.put(account.addressHash().getBytes(), account.accountRLP());
     }
-    storageTrie.commit(updater::putAccountStateTrieNode);
+    storageTrie.commit(updater::putTrieNode);
     updater.commit();
     inMemoryStorage
         .getWorldStateBlockNumber()

@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
@@ -76,7 +77,7 @@ class ArchiveReadTrieNodeStrategyTest {
     putArchive(location, 5L, node);
 
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(5L, historyReader);
-    assertThat(strategy.getFlatAccountTrieNode(location, keccak(node), storage)).contains(node);
+    assertThat(strategy.getTrieNode(storage, location, keccak(node))).contains(node);
   }
 
   @Test
@@ -84,8 +85,7 @@ class ArchiveReadTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x0e);
 
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(5L, historyReader);
-    assertThat(strategy.getFlatAccountTrieNode(location, keccak(Bytes.of(0x99)), storage))
-        .isEmpty();
+    assertThat(strategy.getTrieNode(storage, location, keccak(Bytes.of(0x99)))).isEmpty();
   }
 
   @Test
@@ -99,29 +99,27 @@ class ArchiveReadTrieNodeStrategyTest {
     putStorageArchive(accountHash, location, 3L, node);
 
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(3L, historyReader);
-    assertThat(strategy.getFlatStorageTrieNode(accountHash, location, keccak(node), storage))
+    assertThat(strategy.getTrieNode(storage, TrieNodeKey.of(accountHash, location), keccak(node)))
         .contains(node);
     // Account-trie key must not match the storage-trie entry
-    assertThat(strategy.getFlatAccountTrieNode(location, keccak(node), storage)).isEmpty();
+    assertThat(strategy.getTrieNode(storage, location, keccak(node))).isEmpty();
   }
 
   @Test
-  void putFlatAccountTrieNodeThrows() {
+  void putTrieNodeThrows() {
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(0L, historyReader);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     assertThatThrownBy(
-            () ->
-                strategy.putFlatAccountTrieNode(
-                    storage, tx, Bytes.of(0x01), Bytes32.ZERO, Bytes.of(0x00)))
+            () -> strategy.putTrieNode(storage, tx, Bytes.of(0x01), Bytes32.ZERO, Bytes.of(0x00)))
         .isInstanceOf(UnsupportedOperationException.class);
     tx.rollback();
   }
 
   @Test
-  void removeFlatAccountStateTrieNodeThrows() {
+  void removeTrieNodeThrows() {
     final ArchiveReadTrieNodeStrategy strategy = new ArchiveReadTrieNodeStrategy(0L, historyReader);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    assertThatThrownBy(() -> strategy.removeFlatAccountStateTrieNode(storage, tx, Bytes.of(0x01)))
+    assertThatThrownBy(() -> strategy.removeTrieNode(storage, tx, Bytes.of(0x01)))
         .isInstanceOf(UnsupportedOperationException.class);
     tx.rollback();
   }

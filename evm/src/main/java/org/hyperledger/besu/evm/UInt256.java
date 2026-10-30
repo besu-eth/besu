@@ -77,49 +77,157 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   // --------------------------------------------------------------------------
 
   /**
+   * Convert {@code length} bytes starting at {@code offset} (inclusive) to a UInt256 value. This
+   * method must only be used when {@code length} is a multiple of {@code N_BYTES_PER_LIMB} - this
+   * is a shortcut for performance reasons.
+   *
+   * @param bytes raw bytes in BigEndian order.
+   * @param offset start index of the bytes array to convert, inclusive
+   * @param length amount of bytes to take for conversion, multiple of {@code N_BYTES_PER_LIMB}
+   * @return Big-endian UInt256 represented by the bytes.
+   */
+  public static UInt256 fromBytesBEWholeLimbs(
+      final byte[] bytes, final int offset, final int length) {
+    final int end = offset + length;
+    assert length > 0 && length % N_BYTES_PER_LIMB == 0 && end <= bytes.length
+        : "offset=" + offset + " length=" + length + " are invalid; bytes.length=" + bytes.length;
+
+    return new UInt256(
+        length < 32 ? 0 : (long) LONG_BE.get(bytes, end - 32),
+        length < 24 ? 0 : (long) LONG_BE.get(bytes, end - 24),
+        length < 16 ? 0 : (long) LONG_BE.get(bytes, end - 16),
+        (long) LONG_BE.get(bytes, end - 8));
+  }
+
+  /**
    * Instantiates a new UInt256 from byte array.
    *
    * @param bytes raw bytes in BigEndian order.
    * @return Big-endian UInt256 represented by the bytes.
    */
   public static UInt256 fromBytesBE(final byte[] bytes) {
-    if (bytes.length == 0) {
-      return ZERO;
+    long u0 = 0, u1 = 0, u2 = 0, u3 = 0;
+    if (bytes.length >= 8) {
+      int i0 = bytes.length - 8;
+      int i1 = Math.max(0, bytes.length - 16);
+      int i2 = Math.max(0, bytes.length - 24);
+      int i3 = Math.max(0, bytes.length - 32);
+      u0 = getTruncatedLong(bytes, i0, bytes.length);
+      u1 = getTruncatedLong(bytes, i1, i0);
+      u2 = getTruncatedLong(bytes, i2, i1);
+      u3 = getTruncatedLong(bytes, i3, i2);
+    } else {
+      u0 = getLongSlow(bytes, 0, bytes.length);
     }
-    if (bytes.length < 8) {
-      return fromBytesSingleLimb(bytes);
-    }
-    int prevIndex = bytes.length;
-    int nextIndex = prevIndex - 8;
-    final long u0 = getLong(bytes, nextIndex, prevIndex);
-    prevIndex = nextIndex;
-
-    nextIndex = Math.max(0, prevIndex - 8);
-    final long u1 = getLong(bytes, nextIndex, prevIndex);
-    prevIndex = nextIndex;
-
-    nextIndex = Math.max(0, prevIndex - 8);
-    final long u2 = getLong(bytes, nextIndex, prevIndex);
-    prevIndex = nextIndex;
-
-    nextIndex = Math.max(0, bytes.length - BYTESIZE);
-    final long u3 = getLong(bytes, nextIndex, prevIndex);
-
     return new UInt256(u3, u2, u1, u0);
   }
 
-  private static long getLong(final byte[] bytes, final int from, final int to) {
-    int shift = (N_BYTES_PER_LIMB + from - to) * 8;
-    final long value = (long) LONG_BE.get(bytes, from);
-    return shift == N_BITS_PER_LIMB ? 0L : value >>> shift;
+  /**
+   * Convert {@code length} bytes starting at {@code offset} (inclusive) to a UInt256 value. If
+   * {@code length} is less than 32, the most significant bytes of the UInt256 are set to 0. If
+   * {@code length} is greater than 32, the most significant bytes are truncated (the low-order 32
+   * bytes are kept).
+   *
+   * @param bytes raw bytes in BigEndian order.
+   * @param offset start index of the bytes array to convert, inclusive
+   * @param length amount of bytes to take for conversion, caller must ensure >= 0 - unguarded
+   * @return Big-endian UInt256 represented by the bytes.
+   */
+  public static UInt256 fromBytesBE(final byte[] bytes, final int offset, final int length) {
+    long u0 = 0, u1 = 0, u2 = 0, u3 = 0;
+    int end = offset + length;
+    if (bytes.length >= 8) {
+      int i0 = Math.max(offset, end - 8);
+      int i1 = Math.max(offset, end - 16);
+      int i2 = Math.max(offset, end - 24);
+      int i3 = Math.max(offset, end - 32);
+      u0 = getTrimmedLong(bytes, i0, end);
+      u1 = getTrimmedLong(bytes, i1, i0);
+      u2 = getTrimmedLong(bytes, i2, i1);
+      u3 = getTrimmedLong(bytes, i3, i2);
+      return new UInt256(u3, u2, u1, u0);
+    } else {
+      u0 = getLongSlow(bytes, offset, end);
+    }
+    return new UInt256(u3, u2, u1, u0);
   }
 
-  private static UInt256 fromBytesSingleLimb(final byte[] bytes) {
+  /**
+   * Convert a sequence of bytes starting at {@code from} (inclusive) to {@code to} (exclusive) to a
+   * long value. If {@code to - from < 8}, the most significant bytes are set to 0. This method
+   * cannot be used when {@code to - from > 8} or {@code to > bytes.length} as it will give
+   * incorrect results, or it may crash.
+   *
+   * @param bytes raw bytes in BigEndian order
+   * @param from start index of the bytes array to convert, inclusive
+   * @param to end index of the bytes array, exclusive
+   * @return Big-endian long value
+   */
+  public static long getLongBE(final byte[] bytes, final int from, final int to) {
     long value = 0;
-    for (int i = bytes.length - 1, shift = 0; i >= 0; i--, shift += 8) {
+    if (bytes.length >= 8) {
+      value = getTrimmedLong(bytes, from, to);
+    } else {
+      value = getLongSlow(bytes, from, to);
+    }
+    return value;
+  }
+
+  /**
+   * Get a long value off bytes array starting at `from` and ending at `to`, exclusive. Trims the
+   * prefix and suffix of the array if needed.
+   */
+  private static long getTrimmedLong(final byte[] bytes, final int from, final int to) {
+    assert bytes.length >= N_BYTES_PER_LIMB
+            && from >= 0
+            && to >= from
+            && to <= from + N_BYTES_PER_LIMB
+        : "to=" + to + " from=" + from + " indices out of bounds; bytes.length=" + bytes.length;
+
+    if (from == to) return 0L;
+    int start = Math.max(0, to - 8);
+    long value = getTruncatedLong(bytes, start, to);
+    // mask out value to trim off any prefix of bits
+    int shift = (N_BYTES_PER_LIMB - (to - from)) * 8;
+    return value & (-1L >>> shift);
+  }
+
+  /**
+   * Get a long value off bytes array starting at `from` and ending at `to`, exclusive. Truncates
+   * the suffix if needed.
+   */
+  private static long getTruncatedLong(final byte[] bytes, final int from, final int to) {
+    assert bytes.length >= N_BYTES_PER_LIMB
+            && from >= 0
+            && from + N_BYTES_PER_LIMB <= bytes.length
+            && to >= from
+            && to <= from + N_BYTES_PER_LIMB
+        : "to=" + to + " from=" + from + " indices out of bounds; bytes.length=" + bytes.length;
+
+    int shift = (N_BYTES_PER_LIMB + from - to) * 8;
+    if (shift == N_BITS_PER_LIMB) {
+      return 0L;
+    }
+    final long value = (long) LONG_BE.get(bytes, from);
+    return value >>> shift;
+  }
+
+  /**
+   * Used when we are parsing a single limb and we have less than 8 consecutive bytes, so cannot use
+   * VarHandles, otherwise we get an AIOBE. So we need to manually loop through the byte[] array.
+   */
+  private static long getLongSlow(final byte[] bytes, final int from, final int to) {
+    assert from >= 0 && to >= from && to <= bytes.length
+        : "to=" + to + " from=" + from + " indices out of bounds; bytes.length=" + bytes.length;
+
+    if (bytes.length == 0) {
+      return 0;
+    }
+    long value = 0;
+    for (int i = to - 1, shift = 0; i >= from; i--, shift += 8) {
       value |= ((bytes[i] & 0xFFL) << shift);
     }
-    return new UInt256(0, 0, 0, value);
+    return value;
   }
 
   /**

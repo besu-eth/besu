@@ -21,6 +21,10 @@ import java.util.Map;
 
 import com.google.common.base.Stopwatch;
 
+/**
+ * Times the steps of a block creation. Thread safe, since concurrent engine_getPayload calls for
+ * the same payload end the same timing.
+ */
 public class BlockCreationTiming {
   // A standalone entry holds a duration that should be printed as-is, instead of as a delta
   // from the previous step in the timing chain.
@@ -29,28 +33,20 @@ public class BlockCreationTiming {
   private final Map<String, TimingEntry> timing = new LinkedHashMap<>();
   private final Stopwatch stopwatch;
   private final Instant startedAt = Instant.now();
-  public static final BlockCreationTiming EMPTY = createEmpty();
 
   public BlockCreationTiming() {
     this.stopwatch = Stopwatch.createStarted();
   }
 
-  private static BlockCreationTiming createEmpty() {
-    BlockCreationTiming empty = new BlockCreationTiming();
-    empty.timing.put("empty-block-created", new TimingEntry(Duration.ZERO, false));
-    empty.stopwatch.stop();
-    return empty;
-  }
-
-  public void register(final String step) {
+  public synchronized void register(final String step) {
     timing.put(step, new TimingEntry(stopwatch.elapsed(), false));
   }
 
-  public void registerValue(final String step, final Duration value) {
+  public synchronized void registerValue(final String step, final Duration value) {
     timing.put(step, new TimingEntry(value, true));
   }
 
-  public void registerAll(final BlockCreationTiming subTiming) {
+  public synchronized void registerAll(final BlockCreationTiming subTiming) {
     final var offset = Duration.between(startedAt, subTiming.startedAt);
     for (final var entry : subTiming.timing.entrySet()) {
       final TimingEntry te = entry.getValue();
@@ -59,7 +55,7 @@ public class BlockCreationTiming {
     }
   }
 
-  public Duration end(final String step) {
+  public synchronized Duration end(final String step) {
     if (stopwatch.isRunning()) {
       stopwatch.stop();
     }
@@ -73,7 +69,7 @@ public class BlockCreationTiming {
   }
 
   @Override
-  public String toString() {
+  public synchronized String toString() {
     final var sb = new StringBuilder("started at " + startedAt + ", ");
 
     var prevDuration = Duration.ZERO;

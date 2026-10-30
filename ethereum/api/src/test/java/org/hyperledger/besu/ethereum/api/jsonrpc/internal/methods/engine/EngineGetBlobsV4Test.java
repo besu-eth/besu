@@ -17,10 +17,10 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
-import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -33,6 +33,7 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -47,6 +48,9 @@ import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.core.kzg.Cell;
+import org.hyperledger.besu.ethereum.core.kzg.CellMask;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -59,6 +63,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,6 +78,11 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
   private static final Bytes FULL_BITARRAY = Bytes.repeat((byte) 0xFF, 16);
+
+  /** Cell indexes 64 to 127, a plausible custody set and one that starts above zero. */
+  private static final CellMask UPPER_HALF =
+      CellMask.fromBytes(
+          Bytes.concatenate(Bytes.repeat((byte) 0x00, 8), Bytes.repeat((byte) 0xFF, 8)));
 
   @Mock private BlockHeader blockHeader;
   @Mock private MutableBlockchain blockchain;
@@ -90,11 +100,15 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
   @Mock LabelledMetric<Counter> missingLabelledCounter;
   @Mock LabelledMetric<Counter> partialResponseLabelledCounter;
   @Mock LabelledMetric<Counter> fullResponseLabelledCounter;
+  @Mock LabelledMetric<Counter> cellsFullyReturnedLabelledCounter;
+  @Mock LabelledMetric<Counter> cellsPartiallyReturnedLabelledCounter;
   @Mock Counter requestedCounter;
   @Mock Counter availableCounter;
   @Mock Counter missingCounter;
   @Mock Counter partialResponseCounter;
   @Mock Counter fullResponseCounter;
+  @Mock Counter cellsFullyReturnedCounter;
+  @Mock Counter cellsPartiallyReturnedCounter;
   @Mock ObservableMetricsSystem metricsSystem;
   @Mock MergeContext mergeContext;
 
@@ -138,12 +152,28 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
             anyString(),
             eq("version")))
         .thenReturn(fullResponseLabelledCounter);
+    when(metricsSystem.createLabelledCounter(
+            eq(BesuMetricCategory.RPC),
+            eq("execution_engine_getblobs_cells_fully_returned_total"),
+            anyString(),
+            eq("version")))
+        .thenReturn(cellsFullyReturnedLabelledCounter);
+    when(metricsSystem.createLabelledCounter(
+            eq(BesuMetricCategory.RPC),
+            eq("execution_engine_getblobs_cells_partially_returned_total"),
+            anyString(),
+            eq("version")))
+        .thenReturn(cellsPartiallyReturnedLabelledCounter);
 
     when(requestedLabelledCounter.labels(anyString())).thenReturn(requestedCounter);
     when(availableLabelledCounter.labels(anyString())).thenReturn(availableCounter);
     when(missingLabelledCounter.labels(anyString())).thenReturn(missingCounter);
     when(partialResponseLabelledCounter.labels(anyString())).thenReturn(partialResponseCounter);
     when(fullResponseLabelledCounter.labels(anyString())).thenReturn(fullResponseCounter);
+    when(cellsFullyReturnedLabelledCounter.labels(anyString()))
+        .thenReturn(cellsFullyReturnedCounter);
+    when(cellsPartiallyReturnedLabelledCounter.labels(anyString()))
+        .thenReturn(cellsPartiallyReturnedCounter);
 
     method =
         new EngineGetBlobsV4(
@@ -214,14 +244,125 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldReturnTheRequestedCellsOfASparselyHeldBlob() {
+    // Under eth/72 the pool may hold only some of a blob's cells. Reading them by cell index is not
+    // the same as slicing the concatenation at index * cellSize, which is what a held-cell count of
+    // 64 would make of cell index 64.
+    final BlobProofBundle full = new BlobTestFixture().createBlobProofBundle(KZG_CELL_PROOFS);
+    final CellsWithMask allCells = full.getCellsWithMask().orElseThrow();
+    final BlobProofBundle sparse = sparseCopyOf(full, UPPER_HALF);
+
+    // request cell index 64 and cell index 127, both held
+    final byte[] requested = new byte[16];
+    requested[8] = 0x01;
+    requested[15] = (byte) 0x80;
+
+    JsonRpcSuccessResponse response =
+        getSuccessResponse(buildRequestContext(Bytes.wrap(requested), sparse.getVersionedHash()));
+
+    @SuppressWarnings("unchecked")
+    List<BlobCellsAndProofsV1> result = (List<BlobCellsAndProofsV1>) response.getResult();
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst().getBlobCells())
+        .containsExactly(allCells.getCell(64).getData(), allCells.getCell(127).getData());
+    assertThat(result.getFirst().getProofs())
+        .containsExactly(full.getKzgProof().get(64), full.getKzgProof().get(127));
+
+    verify(cellsFullyReturnedCounter).inc();
+    verifyNoInteractions(cellsPartiallyReturnedCounter);
+  }
+
+  @Test
+  public void shouldReturnNullInPlaceOfARequestedCellThatIsNotHeld() throws Exception {
+    // The spec: a cell unavailable for an otherwise available blob is null in blob_cells, and its
+    // entry in proofs is null too, rather than the whole blob being null.
+    final BlobProofBundle full = new BlobTestFixture().createBlobProofBundle(KZG_CELL_PROOFS);
+    final CellsWithMask allCells = full.getCellsWithMask().orElseThrow();
+    final BlobProofBundle sparse = sparseCopyOf(full, UPPER_HALF);
+
+    // request cell index 0, not held, and cell index 127, held
+    final byte[] requested = new byte[16];
+    requested[0] = 0x01;
+    requested[15] = (byte) 0x80;
+
+    JsonRpcSuccessResponse response =
+        getSuccessResponse(buildRequestContext(Bytes.wrap(requested), sparse.getVersionedHash()));
+
+    @SuppressWarnings("unchecked")
+    List<BlobCellsAndProofsV1> result = (List<BlobCellsAndProofsV1>) response.getResult();
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst().getBlobCells())
+        .containsExactly(null, allCells.getCell(127).getData());
+    assertThat(result.getFirst().getProofs()).containsExactly(null, full.getKzgProof().get(127));
+
+    // and the nulls survive serialization, in place
+    final JsonNode json =
+        JsonRpcObjectMapperFactory.getResponseMapper().valueToTree(result.getFirst());
+    assertThat(json.get("blob_cells").get(0).isNull()).isTrue();
+    assertThat(json.get("blob_cells").get(1).isTextual()).isTrue();
+    assertThat(json.get("proofs").get(0).isNull()).isTrue();
+    assertThat(json.get("proofs").get(1).isTextual()).isTrue();
+
+    // A null in place keeps the list at the requested size, so the count has to look at the cells.
+    // The response is still full: every requested blob got an entry.
+    verify(cellsPartiallyReturnedCounter).inc();
+    verifyNoInteractions(cellsFullyReturnedCounter);
+    verify(fullResponseCounter).inc();
+    verifyNoInteractions(partialResponseCounter);
+  }
+
+  @Test
+  public void shouldReturnAnEmptyEntryForAnAllZeroBitarray() {
+    // Nothing requested of a blob we hold is still an answer about a blob we hold, not a miss.
+    BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
+
+    JsonRpcSuccessResponse response =
+        getSuccessResponse(
+            buildRequestContext(Bytes.wrap(new byte[16]), bundle.getVersionedHash()));
+
+    @SuppressWarnings("unchecked")
+    List<BlobCellsAndProofsV1> result = (List<BlobCellsAndProofsV1>) response.getResult();
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst()).isNotNull();
+    assertThat(result.getFirst().getBlobCells()).isEmpty();
+    assertThat(result.getFirst().getProofs()).isEmpty();
+
+    verify(availableCounter).inc(1);
+    verify(missingCounter).inc(0);
+    verify(fullResponseCounter).inc();
+  }
+
+  // Which bundle answers a hash, and whether one does at all, is decided by the pool, which answers
+  // null when it holds none of the requested cells; see BlobV1TransactionPoolTest. Here a null
+  // simply becomes a null entry, as shouldReturnNullForMissingBlobsInPartialResponse covers.
+
+  /** The same blob, holding only the cells of {@code mask}, as a sampling node would. */
+  private BlobProofBundle sparseCopyOf(final BlobProofBundle full, final CellMask mask) {
+    final CellsWithMask allCells = full.getCellsWithMask().orElseThrow();
+    final List<Cell> held = mask.streamIndexes().mapToObj(allCells::getCell).toList();
+    final BlobProofBundle sparse =
+        new BlobProofBundle(
+            KZG_CELL_PROOFS,
+            new CellsWithMask(held, mask),
+            full.getKzgCommitment(),
+            full.getKzgProof(),
+            full.getVersionedHash());
+    when(transactionPool.getBlobProofBundle(eq(sparse.getVersionedHash()), anyList()))
+        .thenReturn(sparse);
+    return sparse;
+  }
+
+  @Test
   public void shouldReturnNullForMissingBlobsInPartialResponse() {
     BlobProofBundle bundle1 = createBundleWithBlobType(KZG_CELL_PROOFS);
     VersionedHash unknownHash = new VersionedHash((byte) 1, Hash.ZERO);
     BlobProofBundle bundle3 = createBundleWithBlobType(KZG_CELL_PROOFS);
 
-    when(transactionPool.getBlobProofBundle(bundle1.getVersionedHash())).thenReturn(bundle1);
-    when(transactionPool.getBlobProofBundle(unknownHash)).thenReturn(null);
-    when(transactionPool.getBlobProofBundle(bundle3.getVersionedHash())).thenReturn(bundle3);
+    when(transactionPool.getBlobProofBundle(eq(bundle1.getVersionedHash()), anyList()))
+        .thenReturn(bundle1);
+    when(transactionPool.getBlobProofBundle(eq(unknownHash), anyList())).thenReturn(null);
+    when(transactionPool.getBlobProofBundle(eq(bundle3.getVersionedHash()), anyList()))
+        .thenReturn(bundle3);
 
     JsonRpcSuccessResponse response =
         getSuccessResponse(
@@ -240,24 +381,6 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
 
     verify(requestedCounter).inc(3);
     verify(availableCounter).inc(2);
-    verify(missingCounter).inc(1);
-    verify(partialResponseCounter).inc();
-    verifyNoInteractions(fullResponseCounter);
-  }
-
-  @Test
-  public void shouldReturnNullForKzgProofBlobType() {
-    BlobProofBundle bundle = createBundleWithBlobType(KZG_PROOF);
-    JsonRpcSuccessResponse response =
-        getSuccessResponse(buildRequestContext(FULL_BITARRAY, bundle.getVersionedHash()));
-
-    @SuppressWarnings("unchecked")
-    List<BlobCellsAndProofsV1> result = (List<BlobCellsAndProofsV1>) response.getResult();
-    assertThat(result).hasSize(1);
-    assertThat(result.getFirst()).isNull();
-
-    verify(requestedCounter).inc(1);
-    verify(availableCounter).inc(0);
     verify(missingCounter).inc(1);
     verify(partialResponseCounter).inc();
     verifyNoInteractions(fullResponseCounter);
@@ -356,7 +479,8 @@ public class EngineGetBlobsV4Test extends AbstractScheduledApiTest {
       final org.hyperledger.besu.datatypes.BlobType blobType) {
     BlobTestFixture blobTestFixture = new BlobTestFixture();
     BlobProofBundle bundle = blobTestFixture.createBlobProofBundle(blobType);
-    when(transactionPool.getBlobProofBundle(bundle.getVersionedHash())).thenReturn(bundle);
+    when(transactionPool.getBlobProofBundle(eq(bundle.getVersionedHash()), anyList()))
+        .thenReturn(bundle);
     return bundle;
   }
 

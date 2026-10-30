@@ -29,6 +29,7 @@ import javax.inject.Singleton;
 
 import dagger.Module;
 import dagger.Provides;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
@@ -64,7 +65,7 @@ public class EvmToolCommandOptionsModule {
       names = {"--fork"},
       paramLabel = "<String>",
       description = "Fork to evaluate, overriding network setting.")
-  String fork = null;
+  @Nullable String fork = null;
 
   @Provides
   @Named("Fork")

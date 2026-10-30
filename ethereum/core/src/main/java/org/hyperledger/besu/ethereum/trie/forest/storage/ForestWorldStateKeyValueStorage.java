@@ -20,11 +20,8 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
-import org.hyperledger.besu.util.Subscribers;
 
-import java.util.HashSet;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -36,8 +33,8 @@ import org.apache.tuweni.bytes.Bytes32;
 
 public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorage {
 
-  private final Subscribers<NodesAddedListener> nodeAddedListeners = Subscribers.create();
   private final KeyValueStorage keyValueStorage;
+  // one commit at a time: a write batch that waits for the keys of another fails after 1 s
   private final ReentrantLock lock = new ReentrantLock();
 
   public ForestWorldStateKeyValueStorage(final KeyValueStorage keyValueStorage) {
@@ -84,7 +81,12 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
   @Override
   public Updater updater() {
-    return new Updater(lock, keyValueStorage.startTransaction(), nodeAddedListeners);
+    return new Updater(lock, keyValueStorage.startTransaction());
+  }
+
+  /** Returns an updater committed as one write batch, for writes that never conflict. */
+  public Updater batchUpdater() {
+    return new Updater(lock, keyValueStorage.startBatchTransaction());
   }
 
   public long prune(final Predicate<byte[]> inUseCheck) {
@@ -106,28 +108,14 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     return prunedKeys.get();
   }
 
-  public long addNodeAddedListener(final NodesAddedListener listener) {
-    return nodeAddedListeners.subscribe(listener);
-  }
-
-  public void removeNodeAddedListener(final long id) {
-    nodeAddedListeners.unsubscribe(id);
-  }
-
   public static class Updater implements WorldStateKeyValueStorage.Updater {
 
     private final KeyValueStorageTransaction transaction;
-    private final Subscribers<NodesAddedListener> nodeAddedListeners;
-    private final Set<Bytes32> addedNodes = new HashSet<>();
     private final Lock lock;
 
-    public Updater(
-        final Lock lock,
-        final KeyValueStorageTransaction transaction,
-        final Subscribers<NodesAddedListener> nodeAddedListeners) {
+    private Updater(final Lock lock, final KeyValueStorageTransaction transaction) {
       this.lock = lock;
       this.transaction = transaction;
-      this.nodeAddedListeners = nodeAddedListeners;
     }
 
     public Updater putCode(final Bytes code) {
@@ -142,7 +130,6 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
         return this;
       }
 
-      addedNodes.add(codeHash);
       transaction.put(codeHash.toArrayUnsafe(), code.toArrayUnsafe());
       return this;
     }
@@ -156,7 +143,6 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
         // Don't save empty nodes
         return this;
       }
-      addedNodes.add(nodeHash);
       transaction.put(nodeHash.toArrayUnsafe(), node.toArrayUnsafe());
       return this;
     }
@@ -171,7 +157,6 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
         // Don't save empty nodes
         return this;
       }
-      addedNodes.add(nodeHash);
       transaction.put(nodeHash.toArrayUnsafe(), node.toArrayUnsafe());
       return this;
     }
@@ -180,7 +165,6 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     public void commit() {
       lock.lock();
       try {
-        nodeAddedListeners.forEach(listener -> listener.onNodesAdded(addedNodes));
         transaction.commit();
       } finally {
         lock.unlock();
@@ -188,7 +172,6 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     }
 
     public void rollback() {
-      addedNodes.clear();
       transaction.rollback();
     }
   }

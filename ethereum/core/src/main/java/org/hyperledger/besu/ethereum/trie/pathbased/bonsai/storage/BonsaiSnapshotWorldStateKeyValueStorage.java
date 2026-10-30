@@ -16,11 +16,13 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SnappableKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.worldstate.TrieBranchType;
 
 import java.util.List;
 import java.util.Optional;
@@ -90,13 +92,18 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public Optional<Bytes> getCode(final Hash codeHash, final Hash accountHash) {
+  public Optional<Code> getCode(final Hash codeHash, final Hash accountHash) {
     return isClosedGet() ? Optional.empty() : super.getCode(codeHash, accountHash);
   }
 
   @Override
-  public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
-    return isClosedGet() ? Optional.empty() : super.getAccountStateTrieNode(location, nodeHash);
+  public Optional<Bytes> getCodeBytes(final Hash codeHash, final Hash accountHash) {
+    return isClosedGet() ? Optional.empty() : super.getCodeBytes(codeHash, accountHash);
+  }
+
+  @Override
+  public Optional<Bytes> getTrieNode(final Bytes key, final Bytes32 nodeHash) {
+    return isClosedGet() ? Optional.empty() : super.getTrieNode(key, nodeHash);
   }
 
   @Override
@@ -105,11 +112,8 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public Optional<Bytes> getAccountStorageTrieNode(
-      final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
-    return isClosedGet()
-        ? Optional.empty()
-        : super.getAccountStorageTrieNode(accountHash, location, nodeHash);
+  public Optional<Bytes> getTrieNodeFromCacheOrStorage(final Bytes key, final Bytes32 nodeHash) {
+    return isClosedGet() ? Optional.empty() : super.getTrieNodeFromCacheOrStorage(key, nodeHash);
   }
 
   @Override
@@ -118,23 +122,18 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public Optional<Bytes> getStateTrieNode(final Bytes location) {
-    return isClosedGet() ? Optional.empty() : super.getStateTrieNode(location);
+  public Optional<Bytes> getWorldStateRootHash(final TrieBranchType trieBranchType) {
+    return isClosedGet() ? Optional.empty() : super.getWorldStateRootHash(trieBranchType);
   }
 
   @Override
-  public Optional<Bytes> getWorldStateRootHash() {
-    return isClosedGet() ? Optional.empty() : super.getWorldStateRootHash();
+  public Optional<Hash> getWorldStateBlockHash(final TrieBranchType trieBranchType) {
+    return isClosedGet() ? Optional.empty() : super.getWorldStateBlockHash(trieBranchType);
   }
 
   @Override
-  public Optional<Hash> getWorldStateBlockHash() {
-    return isClosedGet() ? Optional.empty() : super.getWorldStateBlockHash();
-  }
-
-  @Override
-  public Optional<Long> getWorldStateBlockNumber() {
-    return isClosedGet() ? Optional.empty() : super.getWorldStateBlockNumber();
+  public Optional<Long> getWorldStateBlockNumber(final TrieBranchType trieBranchType) {
+    return isClosedGet() ? Optional.empty() : super.getWorldStateBlockNumber(trieBranchType);
   }
 
   @Override
@@ -165,8 +164,9 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
-  public boolean isWorldStateAvailable(final Bytes32 rootHash, final Hash blockHash) {
-    return !isClosedGet() && super.isWorldStateAvailable(rootHash, blockHash);
+  public boolean isWorldStateAvailable(
+      final TrieBranchType trieBranchType, final Bytes32 rootHash, final Hash blockHash) {
+    return !isClosedGet() && super.isWorldStateAvailable(trieBranchType, rootHash, blockHash);
   }
 
   @Override

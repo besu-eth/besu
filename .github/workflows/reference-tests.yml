@@ -2,6 +2,12 @@ name: reference-tests
 
 on:
   workflow_call:
+    inputs:
+      evm_v2:
+        description: 'Run the reference tests on EVM v2 (-Dtest.evm.v2=true)'
+        required: false
+        type: boolean
+        default: false
 
 env:
   GRADLE_OPTS: "-Xmx6g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
@@ -9,7 +15,7 @@ env:
 
 jobs:
   referenceTests:
-    runs-on: besu-research-ubuntu-8 # since eest-v5.1.0 this job needs more disk space
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -30,7 +36,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
           persist-credentials: false
       - name: Set up Java
@@ -41,7 +47,7 @@ jobs:
       - name: setup gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: execute generate reference tests
         run: ./gradlew ethereum:referencetests:referenceTestClasses -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
       - name: list test files generated
@@ -58,8 +64,19 @@ jobs:
         run: tr '\n' ' ' < testClasses.txt > refTestArgs.txt
       - name: refTestArgs.txt
         run: cat refTestArgs.txt
+      # The unpacked fixtures do not fit on a standard runner, so each job unpacks only the ones its
+      # test classes load. No fixture file is listed by more than one generated class.
+      - name: list the fixtures of this job's tests
+        run: |
+          xargs grep -ho '"fixtures/[^"]*"' < group_${{matrix.runner_index}}.txt | tr -d '"' | sort -u > fixtureSubset.txt
+          wc -l < fixtureSubset.txt
       - name: run reference tests
-        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt`
+        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt` -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
+      - name: report disk usage
+        if: always()
+        run: |
+          df -h /
+          du -sh ethereum/referencetests/build/execution-spec-tests ethereum/referencetests/build/resources ~/.gradle 2>/dev/null || true
       - name: verify test file count matches
         run: |
           listed=$(wc -l < filenames.txt | tr -d ' ')
@@ -73,7 +90,7 @@ jobs:
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always() # always run even if the previous step fails
         with:
-          name: reference-test-node-${{matrix.runner_index}}-results
+          name: reference-test-node-${{matrix.runner_index}}${{ inputs.evm_v2 && '-evm-v2' || '' }}-results
           path: '**/build/test-results/referenceTests/TEST-*.xml'
 
   referenceTestsPassed:

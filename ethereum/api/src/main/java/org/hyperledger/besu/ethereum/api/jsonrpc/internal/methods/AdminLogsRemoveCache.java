@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.cache.TransactionLogBloomCacher;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
+import java.io.UncheckedIOException;
 import java.util.Map;
 import java.util.Optional;
 
@@ -104,9 +105,14 @@ public class AdminLogsRemoveCache implements JsonRpcMethod {
                     new InternalError(
                         "Error attempting to get TransactionLogBloomCacher. Please ensure that the TransactionLogBloomCacher is enabled."));
 
-    if (!transactionLogBloomCacher.removeSegments(startBlock, stopBlock)) {
+    try {
+      if (!transactionLogBloomCacher.removeSegments(startBlock, stopBlock)) {
+        return new JsonRpcErrorResponse(
+            requestContext.getRequest().getId(), RpcErrorType.CACHE_REMOVAL_IN_PROGRESS);
+      }
+    } catch (final UncheckedIOException e) {
       return new JsonRpcErrorResponse(
-          requestContext.getRequest().getId(), RpcErrorType.CACHE_REMOVAL_IN_PROGRESS);
+          requestContext.getRequest().getId(), RpcErrorType.CACHE_REMOVAL_FAILED);
     }
 
     return new JsonRpcSuccessResponse(

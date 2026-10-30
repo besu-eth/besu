@@ -23,9 +23,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.Objects;
 import java.util.function.Supplier;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.io.Resources;
 
@@ -168,109 +168,68 @@ public final class BlockTestUtil {
   }
 
   private static ChainResources supplyTestChainResources() {
-    final URL genesisURL =
-        ensureFileUrl(BlockTestUtil.class.getClassLoader().getResource("testGenesis.json"));
-    final URL blocksURL =
-        ensureFileUrl(BlockTestUtil.class.getClassLoader().getResource("testBlockchain.blocks"));
+    final URL genesisURL = ensureFileUrl(requiredResource("testGenesis.json"));
+    final URL blocksURL = ensureFileUrl(requiredResource("testBlockchain.blocks"));
     return new ChainResources(genesisURL, blocksURL);
   }
 
   private static ChainResources supplySnapTestChainResources() {
-    final URL genesisURL =
-        ensureFileUrl(BlockTestUtil.class.getClassLoader().getResource("snap/snapGenesis.json"));
-    final URL blocksURL =
-        ensureFileUrl(
-            BlockTestUtil.class.getClassLoader().getResource("snap/testBlockchain.blocks"));
+    final URL genesisURL = ensureFileUrl(requiredResource("snap/snapGenesis.json"));
+    final URL blocksURL = ensureFileUrl(requiredResource("snap/testBlockchain.blocks"));
     return new ChainResources(genesisURL, blocksURL);
   }
 
   private static ChainResources supplyHiveTestChainResources() {
-    final URL genesisURL =
-        ensureFileUrl(BlockTestUtil.class.getClassLoader().getResource("hive/testGenesis.json"));
-    final URL blocksURL =
-        ensureFileUrl(
-            BlockTestUtil.class.getClassLoader().getResource("hive/testBlockchain.blocks"));
+    final URL genesisURL = ensureFileUrl(requiredResource("hive/testGenesis.json"));
+    final URL blocksURL = ensureFileUrl(requiredResource("hive/testBlockchain.blocks"));
     return new ChainResources(genesisURL, blocksURL);
   }
 
   private static ChainResources supplyTestChainLondonResources() {
     final URL genesisURL =
-        ensureFileUrl(
-            BlockTestUtil.class
-                .getClassLoader()
-                .getResource("fork-london-data/testLondonGenesis.json"));
+        ensureFileUrl(requiredResource("fork-london-data/testLondonGenesis.json"));
     final URL blocksURL =
-        ensureFileUrl(
-            BlockTestUtil.class
-                .getClassLoader()
-                .getResource("fork-london-data/testLondonBlockchain.blocks"));
+        ensureFileUrl(requiredResource("fork-london-data/testLondonBlockchain.blocks"));
     return new ChainResources(genesisURL, blocksURL);
   }
 
   private static ChainResources supplyMainnetChainResources() {
-    final URL genesisURL =
-        ensureFileUrl(
-            BlockTestUtil.class.getClassLoader().getResource("mainnet-data/mainnet.json"));
-    final URL blocksURL =
-        ensureFileUrl(BlockTestUtil.class.getClassLoader().getResource("mainnet-data/1000.blocks"));
+    final URL genesisURL = ensureFileUrl(requiredResource("mainnet-data/mainnet.json"));
+    final URL blocksURL = ensureFileUrl(requiredResource("mainnet-data/1000.blocks"));
     return new ChainResources(genesisURL, blocksURL);
   }
 
   private static ChainResources supplyBadPowChainResources() {
-    final URL genesisURL =
-        ensureFileUrl(
-            BlockTestUtil.class.getClassLoader().getResource("mainnet-data/mainnet.json"));
-    final URL blocksURL =
-        ensureFileUrl(
-            BlockTestUtil.class.getClassLoader().getResource("mainnet-data/badpow.blocks"));
+    final URL genesisURL = ensureFileUrl(requiredResource("mainnet-data/mainnet.json"));
+    final URL blocksURL = ensureFileUrl(requiredResource("mainnet-data/badpow.blocks"));
     return new ChainResources(genesisURL, blocksURL);
   }
 
   private static ChainResources supplyOutdatedForkResources() {
-    final URL genesisURL =
-        ensureFileUrl(
-            BlockTestUtil.class
-                .getClassLoader()
-                .getResource("fork-chain-data/genesis-outdated.json"));
-    final URL blocksURL =
-        ensureFileUrl(
-            BlockTestUtil.class
-                .getClassLoader()
-                .getResource("fork-chain-data/fork-outdated.blocks"));
+    final URL genesisURL = ensureFileUrl(requiredResource("fork-chain-data/genesis-outdated.json"));
+    final URL blocksURL = ensureFileUrl(requiredResource("fork-chain-data/fork-outdated.blocks"));
     return new ChainResources(genesisURL, blocksURL);
   }
 
   private static ChainResources supplyUpgradedForkResources() {
-    final URL genesisURL =
-        ensureFileUrl(
-            BlockTestUtil.class
-                .getClassLoader()
-                .getResource("fork-chain-data/genesis-upgraded.json"));
-    final URL blocksURL =
-        ensureFileUrl(
-            BlockTestUtil.class
-                .getClassLoader()
-                .getResource("fork-chain-data/fork-upgraded.blocks"));
+    final URL genesisURL = ensureFileUrl(requiredResource("fork-chain-data/genesis-upgraded.json"));
+    final URL blocksURL = ensureFileUrl(requiredResource("fork-chain-data/fork-upgraded.blocks"));
     return new ChainResources(genesisURL, blocksURL);
   }
 
   private static ChainResources supplyTestRpcCompactResources() {
-    final URL genesisURL =
-        ensureFileUrl(
-            BlockTestUtil.class
-                .getClassLoader()
-                .getResource("test-eth-ref-rpc-compact/genesis.json"));
-    final URL blocksURL =
-        ensureFileUrl(
-            BlockTestUtil.class
-                .getClassLoader()
-                .getResource("test-eth-ref-rpc-compact/chain.blocks"));
+    final URL genesisURL = ensureFileUrl(requiredResource("test-eth-ref-rpc-compact/genesis.json"));
+    final URL blocksURL = ensureFileUrl(requiredResource("test-eth-ref-rpc-compact/chain.blocks"));
     return new ChainResources(genesisURL, blocksURL);
+  }
+
+  private static URL requiredResource(final String name) {
+    return Objects.requireNonNull(
+        BlockTestUtil.class.getClassLoader().getResource(name), () -> "Missing resource " + name);
   }
 
   /** Take a resource URL and if needed copy it to a temp file and return that URL. */
   private static URL ensureFileUrl(final URL resource) {
-    Preconditions.checkNotNull(resource);
     try {
       try {
         Paths.get(resource.toURI());

@@ -65,6 +65,15 @@ public class BlockSimulationResult {
     return blockStateCallSimulationResult.getReceipts();
   }
 
+  /**
+   * Returns the gas used by the calls of the block, as their receipts report it.
+   *
+   * @return the cumulative receipt gas used
+   */
+  public long getCumulativeGasUsed() {
+    return blockStateCallSimulationResult.getCumulativeGasUsed();
+  }
+
   public List<TransactionSimulatorResult> getTransactionSimulations() {
     return blockStateCallSimulationResult.getTransactionSimulationResults();
   }
@@ -92,9 +101,7 @@ public class BlockSimulationResult {
                   .indexOf(transactionSimulation.result().transaction()),
               false);
       allLogs.addAll(txLogs);
-      // Advance offset by at least 1 per transaction so that failed transactions (0 logs)
-      // still increment the log index, matching geth's eth_simulateV1 behaviour.
-      logIndexOffset += Math.max(1, transactionSimulation.logs().size());
+      logIndexOffset += txLogs.size();
     }
     return allLogs;
   }

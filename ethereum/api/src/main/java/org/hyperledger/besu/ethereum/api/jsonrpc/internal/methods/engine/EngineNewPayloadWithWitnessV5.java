@@ -30,12 +30,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExecutionWitnessResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadWithWitnessResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadPostExecutionValidationResultV1;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecutionWitnessBuilder;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,11 +81,18 @@ public final class EngineNewPayloadWithWitnessV5<
   }
 
   @Override
+  protected Executor writeAfterReply(final Block block) {
+    // the witness is built from the block's trie log, so the block is stored before the reply
+    return Runnable::run;
+  }
+
+  @Override
   protected JsonRpcResponse respondWithValid(
       final Object requestId,
       final ExecutionPayloadV1 param,
       final BlockHeader newBlockHeader,
-      final BlockProcessingResult executionResult) {
+      final BlockProcessingResult executionResult,
+      final PayloadPostExecutionValidationResultV1 postExecutionResult) {
     final Hash validHash = newBlockHeader.getHash();
     final Optional<BlockAccessList> blockAccessList =
         executionResult.getYield().flatMap(BlockProcessingOutputs::getBlockAccessList);
@@ -119,7 +129,7 @@ public final class EngineNewPayloadWithWitnessV5<
         new EnginePayloadWithWitnessResult(
             VALID,
             validHash,
-            Optional.empty(),
+            null,
             new EngineExecutionWitnessResult(witness.state(), witness.codes(), witness.headers())));
   }
 }

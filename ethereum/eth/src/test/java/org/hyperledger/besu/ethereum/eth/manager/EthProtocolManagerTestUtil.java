@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.ChainHeadTracker;
@@ -122,7 +123,7 @@ public class EthProtocolManagerTestUtil {
     return RespondingEthPeer.builder()
         .ethProtocolManager(ethProtocolManager)
         .totalDifficulty(td)
-        .capability(EthProtocol.ETH68)
+        .capability(EthProtocolVersion.V68.getCapability())
         .build();
   }
 
@@ -134,7 +135,7 @@ public class EthProtocolManagerTestUtil {
         .ethProtocolManager(ethProtocolManager)
         .totalDifficulty(td)
         .estimatedHeight(estimatedHeight)
-        .capability(EthProtocol.ETH68)
+        .capability(EthProtocolVersion.V68.getCapability())
         .build();
   }
 
@@ -146,7 +147,7 @@ public class EthProtocolManagerTestUtil {
         .ethProtocolManager(ethProtocolManager)
         .totalDifficulty(td)
         .estimatedHeight(estimatedHeight)
-        .capability(EthProtocol.ETH68)
+        .capability(EthProtocolVersion.V68.getCapability())
         .build();
   }
 
@@ -170,7 +171,7 @@ public class EthProtocolManagerTestUtil {
         .ethProtocolManager(ethProtocolManager)
         .totalDifficulty(td)
         .estimatedHeight(estimatedHeight)
-        .capability(EthProtocol.ETH68)
+        .capability(EthProtocolVersion.V68.getCapability())
         .peerValidators(validators)
         .build();
   }

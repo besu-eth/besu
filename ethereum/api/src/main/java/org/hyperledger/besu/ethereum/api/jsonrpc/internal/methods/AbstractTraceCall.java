@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErr
 
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -29,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.PreCloseStateHandler;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
+import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
@@ -62,17 +64,6 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
   @Override
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext requestContext, final long blockNumber) {
-    final CallParameter callParams = CallParameterUtil.validateAndGetCallParams(requestContext);
-    final TraceOptions traceOptions = getTraceOptions(requestContext);
-    final String blockNumberString = String.valueOf(blockNumber);
-    LOG.atTrace()
-        .setMessage("Received RPC rpcName={} callParams={} block={} traceTypes={}")
-        .addArgument(this::getName)
-        .addArgument(callParams)
-        .addArgument(blockNumberString)
-        .addArgument(traceOptions)
-        .log();
-
     final Optional<BlockHeader> maybeBlockHeader =
         blockchainQueriesSupplier.get().getBlockHeaderByNumber(blockNumber);
 
@@ -80,21 +71,48 @@ public abstract class AbstractTraceCall extends AbstractTraceByBlock {
       return new JsonRpcErrorResponse(requestContext.getRequest().getId(), BLOCK_NOT_FOUND);
     }
 
-    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(maybeBlockHeader.get());
+    return resultByBlockHeader(requestContext, maybeBlockHeader.get());
+  }
+
+  protected Object resultByBlockHeader(
+      final JsonRpcRequestContext requestContext, final BlockHeader blockHeader) {
+    final CallParameter callParams = getCallParams(requestContext);
+    final TraceOptions traceOptions = getTraceOptions(requestContext);
+    LOG.atTrace()
+        .setMessage("Received RPC rpcName={} callParams={} block={} traceTypes={}")
+        .addArgument(this::getName)
+        .addArgument(callParams)
+        .addArgument(blockHeader::getNumber)
+        .addArgument(traceOptions)
+        .log();
+
+    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockHeader);
 
     final TraceOptions effectiveTraceOptions = applyServerStepLimit(traceOptions);
     final TraceExecution execution =
         createTraceExecution(requestContext, effectiveTraceOptions, protocolSpec);
-    return transactionSimulator
-        .process(
-            callParams,
-            Optional.ofNullable(effectiveTraceOptions.stateOverrides()),
-            buildTransactionValidationParams(maybeBlockHeader.get(), callParams),
-            execution.tracer(),
-            execution.resultHandler(),
-            maybeBlockHeader.get())
-        .orElseGet(
-            () -> new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
+    try {
+      return transactionSimulator
+          .process(
+              callParams,
+              Optional.ofNullable(effectiveTraceOptions.stateOverrides()),
+              buildTransactionValidationParams(blockHeader, callParams),
+              execution.tracer(),
+              execution.resultHandler(),
+              blockHeader)
+          .orElseGet(
+              () -> new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
+    } catch (final BlockStateCallException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(),
+          new JsonRpcError(e.getError().getCode(), e.getMessage(), null));
+    }
+  }
+
+  protected CallParameter getCallParams(final JsonRpcRequestContext requestContext) {
+    final CallParameter callParams = CallParameterUtil.validateAndGetCallParams(requestContext);
+    CallParameterUtil.rejectEmptyBlobHashes(callParams);
+    return callParams;
   }
 
   /**

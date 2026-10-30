@@ -19,7 +19,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 /** Bundles the three {@code discovery_demux_packets_total} label counters as a single reference. */
 record DemuxCounters(Counter v4, Counter v5, Counter dropped) {
 
-  private static final Counter NO_OP_COUNTER =
+  static final Counter NO_OP_COUNTER =
       new Counter() {
         @Override
         public void inc() {}

@@ -14,11 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.core.kzg;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import org.hyperledger.besu.datatypes.BlobType;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import ethereum.ckzg4844.CKZG4844JNI;
 import ethereum.ckzg4844.CellsAndProofs;
@@ -40,6 +41,15 @@ public class CKZG4844Helper {
   public static final int CELLS_PER_EXT_BLOB = CKZG4844JNI.CELLS_PER_EXT_BLOB;
 
   /**
+   * How many cells of a blob are enough to recover the rest of them, and with them the blob itself.
+   * The extension doubles the data, so any half of it suffices.
+   */
+  public static final int CELLS_TO_RECOVER_BLOB = CELLS_PER_EXT_BLOB / 2;
+
+  /** A blob is exactly the un-extended half of its cells. */
+  private static final int BLOB_SIZE = CELLS_TO_RECOVER_BLOB * Cell.SIZE;
+
+  /**
    * Converts the given BlobsWithCommitments to version 1.
    *
    * @param blobsWithCommitments the BlobsWithCommitments to convert.
@@ -58,12 +68,7 @@ public class CKZG4844Helper {
           "Invalid blobs with commitments for conversion to version 1");
     }
 
-    List<BlobProofBundle> version1Bundles =
-        blobsWithCommitments.getBlobProofBundles().stream()
-            .map(CKZG4844Helper::unsafeConvertToVersion1)
-            .collect(Collectors.toList());
-
-    return BlobsWithCommitments.createFromBundles(version1Bundles);
+    return unsafeConvertToVersion1(blobsWithCommitments);
   }
 
   /**
@@ -83,23 +88,14 @@ public class CKZG4844Helper {
     return proofs;
   }
 
-  /**
-   * Converts the given BlobProofBundle to version 1 without validating proof.
-   *
-   * @param bundle the BlobProofBundle to convert.
-   * @return a new BlobProofBundle instance with version 1 and updated proofs.
-   */
-  public static BlobProofBundle unsafeConvertToVersion1(final BlobProofBundle bundle) {
-    if (bundle.getBlobType() == BlobType.KZG_CELL_PROOFS) {
-      return bundle;
-    }
-    List<KZGProof> kzgCellProofs = computeBlobKzgProofs(bundle.getBlob());
-    return new BlobProofBundle(
-        BlobType.KZG_CELL_PROOFS,
-        bundle.getBlob(),
-        bundle.getKzgCommitment(),
-        kzgCellProofs,
-        bundle.getVersionedHash());
+  private static BlobsWithCommitments unsafeConvertToVersion1(final BlobsWithCommitments bwc) {
+    checkArgument(bwc.hasBlobData(), "Blob of type 0 must have full data");
+
+    List<List<KZGProof>> version1Proofs =
+        bwc.getBlobs().stream().map(CKZG4844Helper::computeBlobKzgProofs).toList();
+
+    return BlobsWithCommitments.createFromBlobsType1(
+        bwc.getKzgCommitments(), bwc.getBlobs(), version1Proofs, bwc.getVersionedHashes());
   }
 
   /**
@@ -129,6 +125,94 @@ public class CKZG4844Helper {
   }
 
   /**
+   * Recovers the blobs of a sidecar that holds at least {@link #CELLS_TO_RECOVER_BLOB} cells of
+   * each of them, which is what a node ends up with after sampling a transaction over eth/72.
+   *
+   * <p>This does not verify the cells it is given: a recovery from corrupt cells produces a corrupt
+   * blob, so callers must have established that the cells open their commitments. {@code
+   * TransactionsLimbo} does so as each peer answers, which is also the only point at which a peer
+   * answering with bad cells can still be identified.
+   *
+   * @param sparse a sidecar holding cells and no blobs
+   * @return the same commitments, proofs and versioned hashes, with the blobs recovered
+   */
+  public static BlobsWithCommitments recoverBlobs(final BlobsWithCommitments sparse) {
+    return BlobsWithCommitments.createFromBundles(
+        sparse.getBlobProofBundles().stream().map(CKZG4844Helper::recoverBundle).toList());
+  }
+
+  /**
+   * Recovers the blob of a bundle holding enough of its cells, keeping everything the transaction
+   * arrived with.
+   *
+   * @param bundle the bundle to recover the blob of
+   * @return a bundle holding the recovered blob and every cell of it
+   */
+  private static BlobProofBundle recoverBundle(final BlobProofBundle bundle) {
+    final CellsWithMask cellsWithMask =
+        bundle
+            .getCellsWithMask()
+            .orElseThrow(
+                () -> new IllegalArgumentException("Bundle holds no cells to recover from"));
+    final CellMask heldCells = cellsWithMask.getCellMask();
+    checkArgument(
+        heldCells.cardinality() >= CELLS_TO_RECOVER_BLOB,
+        "Recovering a blob needs at least %s of its cells, got %s",
+        CELLS_TO_RECOVER_BLOB,
+        heldCells.cardinality());
+
+    final CellsAndProofs recovered =
+        CKZG4844JNI.recoverCellsAndKzgProofs(
+            heldCells.streamIndexes().asLongStream().toArray(),
+            bundle.getBlobCellsBytes().orElseThrow().toArrayUnsafe());
+    final Bytes extendedCells = Bytes.wrap(recovered.getCells());
+
+    checkProofsAreTheRecoveredOnes(bundle, recovered);
+
+    // The recovered cells are handed over rather than left to be computed from the blob: recovery
+    // has just produced them, and they are the whole set, so the bundle can serve every cell.
+    return new BlobProofBundle(
+        bundle.getBlobType(),
+        // The extension is systematic: it doubles the data, leaving the blob itself as the first
+        // half of the extended cells.
+        new Blob(extendedCells.slice(0, BLOB_SIZE)),
+        extendedCells,
+        bundle.getKzgCommitment(),
+        // the proofs the transaction arrived with, now known to be the blob's own
+        bundle.getKzgProof(),
+        bundle.getVersionedHash());
+  }
+
+  /**
+   * Checks the cell proofs the transaction arrived with against the ones recovery computed.
+   *
+   * <p>A partially sampled bundle can only have been verified over the cells it holds, so the
+   * proofs for every other cell arrived unchecked, and the recovered bundle presents all of them as
+   * the blob's. Recovery computes them anyway on its way to the cells, so comparing costs nothing
+   * beyond the comparison itself, and a cell proof is determined by the blob and the cell index:
+   * the recovered ones are therefore the only proofs the blob can have.
+   *
+   * <p>A mismatch means the transaction is not valid and no node will accept it. It is refused here
+   * rather than repaired with the recovered proofs, which would leave this node the only one
+   * holding a version of the transaction that verifies.
+   *
+   * @param bundle the bundle being recovered
+   * @param recovered what recovery returned for it
+   */
+  private static void checkProofsAreTheRecoveredOnes(
+      final BlobProofBundle bundle, final CellsAndProofs recovered) {
+    final List<KZGProof> sentProofs = bundle.getKzgProof();
+    final List<KZGProof> recoveredProofs = extractKZGProofs(recovered.getProofs());
+    for (int cellIndex = 0; cellIndex < recoveredProofs.size(); cellIndex++) {
+      checkArgument(
+          recoveredProofs.get(cellIndex).equals(sentProofs.get(cellIndex)),
+          "Proof for cell %s of blob %s is not the proof of the cell it recovers to",
+          cellIndex,
+          bundle.getVersionedHash());
+    }
+  }
+
+  /**
    * Computes the cells for the given Blob.
    *
    * @param blob the Blob for which to compute the cells.
@@ -141,6 +225,10 @@ public class CKZG4844Helper {
   /**
    * Verifies the KZG proofs in the given BlobsWithCommitments.
    *
+   * <p>For {@link BlobType#KZG_CELL_PROOFS} this verifies the cells currently held, which under
+   * eth/72 may be a subset: a sampling node only ever obtains its custody columns. Holding fewer
+   * cells is not itself an error, but every cell held must open its blob's commitment.
+   *
    * @param blobsWithCommitments the BlobsWithCommitments to verify.
    * @return true if the KZG proofs are valid, false otherwise.
    */
@@ -152,12 +240,19 @@ public class CKZG4844Helper {
               blobsWithCommitments.getKzgCommitmentsByteArray(),
               blobsWithCommitments.getKzgProofsByteArray(),
               blobsWithCommitments.getBlobProofBundles().size());
-      case KZG_CELL_PROOFS ->
-          CKZG4844JNI.verifyCellKzgProofBatch(
-              blobsWithCommitments.getKzgCommitmentsByteArray(),
-              blobsWithCommitments.getCellIndexes(),
-              blobsWithCommitments.getBlobCellsByteArray(),
-              blobsWithCommitments.getKzgProofsByteArray());
+      case KZG_CELL_PROOFS -> {
+        if (blobsWithCommitments.getCellMask().isEmpty()) {
+          // An eth/72 transaction arrives with its blobs elided and no cells at all, so there is
+          // nothing to verify yet. Its commitments were already checked against the versioned
+          // hashes; each cell is verified as it is sampled.
+          yield true;
+        }
+        yield CKZG4844JNI.verifyCellKzgProofBatch(
+            blobsWithCommitments.getKzgCommitmentsByteArray(),
+            blobsWithCommitments.getCellIndexes(),
+            blobsWithCommitments.getBlobCellsByteArray(),
+            blobsWithCommitments.getKzgProofsByteArray());
+      }
     };
   }
 }

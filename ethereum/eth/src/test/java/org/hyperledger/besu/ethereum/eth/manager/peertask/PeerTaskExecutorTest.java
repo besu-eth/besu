@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Optional;
@@ -150,6 +151,33 @@ public class PeerTaskExecutorTest {
         .thenReturn(responseMessageData);
     when(peerTask.processResponse(any(), any()))
         .thenThrow(new MalformedRlpFromPeerException(new Exception(), Bytes.EMPTY));
+
+    PeerTaskExecutorResult<Object> result = peerTaskExecutor.executeAgainstPeer(peerTask, ethPeer);
+
+    verify(ethPeer).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+
+    assertNotNull(result);
+    assertFalse(result.result().isPresent());
+    assertEquals(PeerTaskExecutorResponseCode.PEER_DISCONNECTED, result.responseCode());
+  }
+
+  @Test
+  public void testExecuteAgainstPeerWithNoRetriesAndPeerResponseFailingToDecode()
+      throws PeerConnection.PeerNotConnected,
+          ExecutionException,
+          InterruptedException,
+          TimeoutException,
+          InvalidPeerTaskResponseException,
+          MalformedRlpFromPeerException {
+
+    when(peerTask.getRequestMessage(any())).thenReturn(requestMessageData);
+    when(peerTask.getRetriesWithSamePeer()).thenReturn(0);
+    when(peerTask.getSubProtocol()).thenReturn(subprotocol);
+    when(subprotocol.getName()).thenReturn("subprotocol");
+    when(requestSender.sendRequest(subprotocol, requestMessageData, ethPeer))
+        .thenReturn(responseMessageData);
+    when(responseMessageData.getData()).thenReturn(Bytes.EMPTY);
+    when(peerTask.processResponse(any(), any())).thenThrow(new RLPException("malformed"));
 
     PeerTaskExecutorResult<Object> result = peerTaskExecutor.executeAgainstPeer(peerTask, ethPeer);
 

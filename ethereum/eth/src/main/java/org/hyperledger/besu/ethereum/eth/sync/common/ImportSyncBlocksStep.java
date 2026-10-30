@@ -73,7 +73,7 @@ public class ImportSyncBlocksStep implements Consumer<List<SyncBlockWithReceipts
     chainDataPruner.ifPresent(
         pruner -> pruner.pruneForSyncedHead(blocksWithReceipts.getLast().getBlock().getHeader()));
 
-    syncState.setSyncProgress(startBlock, lastBlock, pivotHeaderNumber);
+    syncState.setSyncProgress(startBlock, lastBlock);
 
     if (isTimeToUpdate.get()) {
       int peerCount = -1; // ethContext is not available in tests

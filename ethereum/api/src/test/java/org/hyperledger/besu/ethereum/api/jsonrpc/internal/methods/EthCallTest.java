@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INTERNAL_ERROR;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.REVERT_ERROR;
 import static org.mockito.ArgumentMatchers.any;
@@ -23,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -34,10 +36,12 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -58,6 +62,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -205,6 +210,23 @@ public class EthCallTest {
 
     assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
     verify(transactionSimulator).process(any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void shouldRejectEmptyBlobHashes() {
+    final JsonRpcRequestContext request =
+        ethCallRequest(
+            ImmutableCallParameter.copyOf(callParameter()).withBlobVersionedHashes(List.of()),
+            "latest");
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getChainHead()).thenReturn(chainHead);
+    when(chainHead.getBlockHeader()).thenReturn(blockHeader);
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_BLOB_COUNT));
+    verifyNoInteractions(transactionSimulator);
   }
 
   @Test
@@ -406,6 +428,17 @@ public class EthCallTest {
     assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
     assertThat(((JsonRpcErrorResponse) response).getError().getMessage())
         .isEqualTo("Execution reverted (ERC20: transfer from the zero address)");
+  }
+
+  @Test
+  public void revertErrorMessageIncludesPanicReason() {
+    final String panicHexString =
+        "0x4e487b710000000000000000000000000000000000000000000000000000000000000011";
+    final JsonRpcError error = new JsonRpcError(REVERT_ERROR, panicHexString);
+
+    assertThat(error.getMessage())
+        .isEqualTo("Execution reverted (arithmetic underflow or overflow)");
+    assertThat(error.getData()).isEqualTo(panicHexString);
   }
 
   @Test

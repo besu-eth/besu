@@ -166,4 +166,22 @@ class CellsWithMaskTest {
 
     assertThat(merged.getCells()).isEqualTo(List.of(cellFor(2), cellFor(50), cellFor(100)));
   }
+
+  @Test
+  void equalsComparesTheCellsAndTheMask() {
+    final CellsWithMask cells = cellsFor(maskOf(0, 5, 64));
+
+    assertThat(cells).isEqualTo(cellsFor(maskOf(0, 5, 64)));
+    assertThat(cells).hasSameHashCodeAs(cellsFor(maskOf(0, 5, 64)));
+    // reached the same way, so this also covers the copies the txpool holds
+    assertThat(cells.detachedCopy()).isEqualTo(cells);
+
+    // same cell count, different indexes
+    assertThat(cells).isNotEqualTo(cellsFor(maskOf(0, 5, 65)));
+    // same indexes, different cell content
+    assertThat(cells)
+        .isNotEqualTo(
+            new CellsWithMask(List.of(cellFor(1), cellFor(5), cellFor(64)), maskOf(0, 5, 64)));
+    assertThat(CellsWithMask.EMPTY).isNotEqualTo(cells);
+  }
 }

@@ -91,22 +91,6 @@ public class DisabledPendingTransactions implements PendingTransactions {
   }
 
   @Override
-  public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
-    return 0;
-  }
-
-  @Override
-  public void unsubscribePendingTransactions(final long id) {}
-
-  @Override
-  public long subscribeDroppedTransactions(final PendingTransactionDroppedListener listener) {
-    return 0;
-  }
-
-  @Override
-  public void unsubscribeDroppedTransactions(final long id) {}
-
-  @Override
   public OptionalLong getNextNonceForSender(final Address sender) {
     return OptionalLong.empty();
   }

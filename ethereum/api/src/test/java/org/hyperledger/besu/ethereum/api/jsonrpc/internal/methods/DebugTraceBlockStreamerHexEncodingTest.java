@@ -107,6 +107,44 @@ public class DebugTraceBlockStreamerHexEncodingTest {
             MiningConfiguration.MINING_DISABLED);
   }
 
+  /**
+   * Return data must be written when enableReturnData is set. The init code STATICCALLs the
+   * IDENTITY precompile, so the steps after the call have return data.
+   */
+  @Test
+  public void streamingAndAccumulatingPathsMatchWithReturnDataEnabled() throws Exception {
+    final TraceOptions withReturnData =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceReturnData(true)
+                .build(),
+            java.util.Map.of());
+    final Transaction tx =
+        Transaction.builder()
+            .type(TransactionType.EIP1559)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(5))
+            .maxFeePerGas(Wei.of(7))
+            .gasLimit(200_000L)
+            .value(Wei.ZERO)
+            .payload(Bytes.fromHexString("0x602060006020600060045afa00"))
+            .chainId(BigInteger.valueOf(42))
+            .signAndBuild(KEY_PAIR);
+    final DebugTraceBlockStreamer streamer =
+        new DebugTraceBlockStreamer(
+            buildBlock(tx), withReturnData, fixture.getProtocolSchedule(), blockchainQueries);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer.streamTo(out, mapper, () -> true);
+    final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
+    final JsonNode accRoot =
+        mapper.readTree(mapper.writeValueAsBytes(streamer.accumulateAll(() -> true)));
+
+    assertThat(accRoot.toString()).contains("\"returnData\"");
+    assertThat(streamedRoot).isEqualTo(accRoot);
+  }
+
   // ── revert reason tests ───────────────────────────────────────────
 
   /**

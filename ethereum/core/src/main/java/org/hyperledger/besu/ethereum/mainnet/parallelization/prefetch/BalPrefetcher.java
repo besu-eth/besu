@@ -97,7 +97,7 @@ public class BalPrefetcher {
                 fetchKeysAsync(worldState, keys, fetchExecutor)
                     .thenRun(
                         () ->
-                            LOG.info(
+                            LOG.debug(
                                 "Prefetch completed: {} accounts + {} storage slots{}",
                                 keys.accountKeys.size(),
                                 keys.storageKeys.size(),

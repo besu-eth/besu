@@ -156,7 +156,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     final var resp = fromSuccessResp(respV5(payloadParam));
 
     assertThat(resp.getStatus()).isEqualTo(INVALID);
-    assertThat(resp.getLatestValidHash()).isEmpty();
+    assertThat(resp.getLatestValidHash()).isNull();
     assertThat(resp.getError())
         .isEqualTo(
             "Failed to decode block access list payload parameter (Expected current item to be a list, but it is: BYTE_ELEMENT (at bytes 0-1: [01]))");
@@ -281,7 +281,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     final var resp = fromSuccessResp(respV5(payloadParam));
 
     assertThat(resp.getStatus()).isEqualTo(INVALID);
-    assertThat(resp.getLatestValidHash()).isEmpty();
+    assertThat(resp.getLatestValidHash()).isNull();
     assertThat(resp.getError()).contains("Invalid scalar, has leading zeros bytes");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }

@@ -1,0 +1,42 @@
+{
+  "comment" : "A supplied nonce below the sender's (0x17) is neither validated nor used: the creation runs at the sender's nonce and deploys code returning its own address",
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "trace_call",
+    "params" : [ {
+      "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+      "gas" : "0xfffff2",
+      "gasPrice" : "0xef",
+      "value" : "0x0",
+      "nonce" : "0x7",
+      "data" : "0x3060005260206000f3"
+    }, [ "trace" ], "latest" ],
+    "id" : 53
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "result" : {
+      "output" : "0x0000000000000000000000003d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+      "stateDiff" : null,
+      "trace" : [ {
+        "action" : {
+          "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas" : "0xff3072",
+          "init" : "0x3060005260206000f3",
+          "value" : "0x0"
+        },
+        "result" : {
+          "address" : "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+          "code" : "0x0000000000000000000000003d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+          "gasUsed" : "0x1911"
+        },
+        "subtraces" : 0,
+        "traceAddress" : [ ],
+        "type" : "create"
+      } ],
+      "vmTrace" : null
+    },
+    "id" : 53
+  },
+  "statusCode" : 200
+}

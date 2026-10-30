@@ -19,6 +19,10 @@ import static org.hyperledger.besu.datatypes.VersionedHash.DEFAULT_VERSIONED_HAS
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.VersionedHash;
@@ -27,10 +31,12 @@ import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes48;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 public class BlobProofBundleTest extends TrustedSetupClassLoaderExtension {
 
@@ -47,7 +53,7 @@ public class BlobProofBundleTest extends TrustedSetupClassLoaderExtension {
         new BlobProofBundle(BlobType.KZG_PROOF, blob, kzgCommitment, kzgProofs, versionedHash);
 
     assertEquals(BlobType.KZG_PROOF, bundle.getBlobType());
-    assertEquals(blob, bundle.getBlob());
+    assertEquals(Optional.of(blob), bundle.getBlob());
     assertEquals(kzgCommitment, bundle.getKzgCommitment());
     assertEquals(versionedHash, bundle.getVersionedHash());
     assertEquals(kzgProofs, bundle.getKzgProof());
@@ -55,41 +61,41 @@ public class BlobProofBundleTest extends TrustedSetupClassLoaderExtension {
 
   @Test
   void shouldThrowsExceptionWhenKzgCommitmentIsNull() {
-    IllegalArgumentException exception =
+    NullPointerException exception =
         assertThrows(
-            IllegalArgumentException.class,
+            NullPointerException.class,
             () -> new BlobProofBundle(BlobType.KZG_PROOF, blob, null, kzgProofs, versionedHash));
-    assertEquals("kzgCommitment must not be empty", exception.getMessage());
+    assertEquals("kzgCommitment must not be null", exception.getMessage());
   }
 
   @Test
   void shouldThrowsExceptionWhenVersionedHashIsNull() {
-    IllegalArgumentException exception =
+    NullPointerException exception =
         assertThrows(
-            IllegalArgumentException.class,
+            NullPointerException.class,
             () -> new BlobProofBundle(BlobType.KZG_PROOF, blob, kzgCommitment, kzgProofs, null));
-    assertEquals("versionedHash must not be empty", exception.getMessage());
+    assertEquals("versionedHash must not be null", exception.getMessage());
   }
 
   @Test
   void shouldThrowsExceptionWhenBlobIsNull() {
-    IllegalArgumentException exception =
+    NullPointerException exception =
         assertThrows(
-            IllegalArgumentException.class,
+            NullPointerException.class,
             () ->
                 new BlobProofBundle(
-                    BlobType.KZG_PROOF, null, kzgCommitment, kzgProofs, versionedHash));
-    assertEquals("blob must not be empty", exception.getMessage());
+                    BlobType.KZG_PROOF, (Blob) null, kzgCommitment, kzgProofs, versionedHash));
+    assertEquals("blob must not be null", exception.getMessage());
   }
 
   @Test
   void shouldThrowsExceptionWhenProof_empty() {
-    IllegalArgumentException exception =
+    NullPointerException exception =
         assertThrows(
-            IllegalArgumentException.class,
+            NullPointerException.class,
             () ->
                 new BlobProofBundle(BlobType.KZG_PROOF, blob, kzgCommitment, null, versionedHash));
-    assertEquals("kzgProof must not be empty", exception.getMessage());
+    assertEquals("kzgProof must not be null", exception.getMessage());
   }
 
   @Test
@@ -127,5 +133,71 @@ public class BlobProofBundleTest extends TrustedSetupClassLoaderExtension {
 
     boolean isValid = CKZG4844Helper.verify4844Kzg(blobsWithCommitments);
     assertTrue(isValid, "KZG proof verification should be valid");
+  }
+
+  @Test
+  void shouldThrowExceptionWhenCellsAreGivenForABlobTypeThatHasNoCells() {
+    // Only a cell-proof blob is ever held as cells: nothing splits a v0 blob into any.
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new BlobProofBundle(
+                    BlobType.KZG_PROOF,
+                    CellsWithMask.EMPTY,
+                    kzgCommitment,
+                    kzgProofs,
+                    versionedHash));
+    assertEquals(
+        "Cells-only BlobProofBundle requires blob type KZG_CELL_PROOFS", exception.getMessage());
+  }
+
+  @Test
+  void bundlesOfTheSameBlobHoldingDifferentCellsAreNotEqual() {
+    // Everything else about these two is identical, and neither holds the blob, so the cells are
+    // all there is to tell them apart.
+    final Cell cell = new Cell(Bytes.repeat((byte) 0x11, Cell.SIZE));
+    final BlobProofBundle holdsCellZero =
+        cellsOnlyBundle(new CellsWithMask(List.of(cell), maskOf(0)));
+    final BlobProofBundle holdsCellOne =
+        cellsOnlyBundle(new CellsWithMask(List.of(cell), maskOf(1)));
+
+    assertThat(holdsCellZero).isNotEqualTo(holdsCellOne);
+    assertThat(holdsCellZero)
+        .isEqualTo(cellsOnlyBundle(new CellsWithMask(List.of(cell), maskOf(0))));
+    assertThat(holdsCellZero)
+        .hasSameHashCodeAs(cellsOnlyBundle(new CellsWithMask(List.of(cell), maskOf(0))));
+    assertThat(holdsCellZero).isNotEqualTo(cellsOnlyBundle(CellsWithMask.EMPTY));
+  }
+
+  @Test
+  void detachedCopyOfABlobBundleCopiesItsCellsRatherThanComputingThemAgain() {
+    // The pool detaches every transaction it adds, and extending a blob into its cells is far more
+    // expensive than copying the cells the bundle already holds.
+    final BlobTestFixture fixture = new BlobTestFixture();
+    fixture.createBlobProofBundle(BlobType.KZG_CELL_PROOFS);
+    // the fixture's first blob is all zeros, which would leave every cell equal to every other
+    final BlobProofBundle bundle = fixture.createBlobProofBundle(BlobType.KZG_CELL_PROOFS);
+
+    final BlobProofBundle detached;
+    try (MockedStatic<CKZG4844Helper> helper =
+        mockStatic(CKZG4844Helper.class, CALLS_REAL_METHODS)) {
+      detached = bundle.detachedCopy(bundle.getVersionedHash(), bundle.getKzgProof());
+      helper.verify(() -> CKZG4844Helper.computeCells(any()), never());
+    }
+
+    assertThat(detached).isEqualTo(bundle);
+    assertThat(detached.getCellsWithMask().orElseThrow().getCellMask()).isEqualTo(CellMask.FULL);
+  }
+
+  private BlobProofBundle cellsOnlyBundle(final CellsWithMask cellsWithMask) {
+    return new BlobProofBundle(
+        BlobType.KZG_CELL_PROOFS, cellsWithMask, kzgCommitment, kzgCellProofs, versionedHash);
+  }
+
+  private static CellMask maskOf(final int index) {
+    final byte[] bytes = new byte[CellMask.BYTE_LENGTH];
+    bytes[index / Byte.SIZE] = (byte) (1 << (index % Byte.SIZE));
+    return CellMask.fromBytes(Bytes.wrap(bytes));
   }
 }

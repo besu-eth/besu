@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -41,6 +42,8 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
+import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
+import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -54,7 +57,10 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.log.EIP7708TransferLogEmitter;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
@@ -124,6 +130,11 @@ public class BlockSimulatorTest {
     when(protocolSpec.getFeeMarket()).thenReturn(mock(FeeMarket.class));
     when(protocolSpec.getPreExecutionProcessor()).thenReturn(mock(PreExecutionProcessor.class));
     when(protocolSpec.getSlotDuration()).thenReturn(Duration.ofSeconds(12));
+    when(protocolSpec.getBlockGasAccountingStrategy())
+        .thenReturn(BlockGasAccountingStrategy.FRONTIER);
+    GasCalculator gasCalculator = mock(GasCalculator.class);
+    when(gasCalculator.stateGasCostCalculator()).thenReturn(StateGasCostCalculator.NONE);
+    when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
     when(gasLimitCalculator.computeExcessBlobGas(anyLong(), anyLong(), anyLong())).thenReturn(0L);
   }
 
@@ -158,6 +169,13 @@ public class BlockSimulatorTest {
   public void shouldStopWhenTransactionSimulationIsInvalid() {
     assertInvalidTransactionMapsToError(
         TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE,
+        BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE);
+  }
+
+  @Test
+  public void shouldSurfaceInsufficientFundsForTransferAsUpfrontCostExceedsBalance() {
+    assertInvalidTransactionMapsToError(
+        TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER,
         BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE);
   }
 
@@ -338,6 +356,28 @@ public class BlockSimulatorTest {
   }
 
   @Test
+  public void shouldSetSlotNumberFromParentSlotNumber() {
+    BlockOverrides overrides = BlockOverrides.builder().timestamp(1L).blockNumber(1L).build();
+
+    BlockHeader parentWithSlot =
+        BlockHeaderBuilder.fromHeader(blockHeader)
+            .slotNumber(41L)
+            .blockHeaderFunctions(new MainnetBlockHeaderFunctions())
+            .buildBlockHeader();
+    assertEquals(
+        Optional.of(42L),
+        blockSimulator
+            .overrideBlockHeader(parentWithSlot, protocolSpec, overrides, false, false)
+            .getOptionalSlotNumber());
+
+    assertEquals(
+        Optional.empty(),
+        blockSimulator
+            .overrideBlockHeader(blockHeader, protocolSpec, overrides, false, false)
+            .getOptionalSlotNumber());
+  }
+
+  @Test
   public void shouldUseNextGasLimitWhenEnforceConsensusGasLimitIsTrue() {
     final long parentGasLimit = 10_000_000L;
     final long targetGasLimit = 20_000_000L;
@@ -463,6 +503,38 @@ public class BlockSimulatorTest {
   }
 
   @Test
+  public void shouldRejectSenderAtMaxNonceWithValidationDisabled() {
+    final Address sender = Address.fromHexString("0xc000000000000000000000000000000000000000");
+    final MutableAccount senderAccount = mock(MutableAccount.class);
+    when(senderAccount.getNonce()).thenReturn(Account.MAX_NONCE);
+    when(updater.get(sender)).thenReturn(senderAccount);
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getSender()).thenReturn(Optional.of(sender));
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(false)
+            .build();
+
+    BlockStateCallException exception =
+        assertThrows(
+            BlockStateCallException.class,
+            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(exception.getError()).isEqualTo(BlockStateCallError.UNKNOWN);
+    assertThat(exception.getError().getCode()).isEqualTo(-32603);
+    verify(transactionSimulator, never())
+        .processWithWorldUpdater(
+            any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any(), any(), any(),
+            any());
+  }
+
+  @Test
   public void
       shouldThrowBlockGasLimitExceededWhenSecondTxGasExceedsRemainingAfterFirstTxConsumed() {
     // Block gas limit = 30,000. First tx consumes 21,000 (leaving 9,000 remaining).
@@ -488,6 +560,7 @@ public class BlockSimulatorTest {
 
     Transaction tx = mock(Transaction.class);
     when(tx.getType()).thenReturn(TransactionType.FRONTIER);
+    when(tx.getGasLimit()).thenReturn(21_000L);
 
     TransactionProcessingResult processingResult = mock(TransactionProcessingResult.class);
     when(processingResult.getPartialBlockAccessView()).thenReturn(Optional.empty());

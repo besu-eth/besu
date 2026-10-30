@@ -15,7 +15,12 @@
 
 pluginManagement {
   repositories {
+    // Primary source for plugins and their transitive dependencies.
     gradlePluginPortal()
+    // Independent fallback so a transient Plugin Portal error (e.g. a 403) on a
+    // plugin's transitive dependency doesn't fail the build when the artifact is
+    // also available from Maven Central.
+    mavenCentral()
   }
 }
 

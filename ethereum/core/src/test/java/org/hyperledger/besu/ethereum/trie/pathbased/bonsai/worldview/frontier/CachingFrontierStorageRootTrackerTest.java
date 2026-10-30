@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRoot
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -134,7 +135,7 @@ class CachingFrontierStorageRootTrackerTest {
                     (location, hash) ->
                         worldState
                             .getWorldStateStorage()
-                            .getAccountStorageTrieNode(inv.<Hash>getArgument(0), location, hash),
+                            .getTrieNode(TrieNodeKey.of(inv.<Hash>getArgument(0), location), hash),
                     Bytes32.wrap(inv.<Hash>getArgument(1).getBytes()),
                     Function.identity(),
                     Function.identity()));

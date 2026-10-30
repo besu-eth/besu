@@ -16,6 +16,8 @@ package org.hyperledger.besu.crypto.altbn128;
 
 import java.math.BigInteger;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * Adapted from the pc_ecc (Apache 2 License) implementation:
  * https://github.com/ethereum/py_ecc/blob/master/py_ecc/bn128/bn128_field_elements.py
@@ -46,7 +48,7 @@ public interface FieldPoint<T extends FieldPoint> {
    * @param other the other
    * @return the t
    */
-  T multiply(T other);
+  @Nullable T multiply(T other);
 
   /**
    * Multiply t.

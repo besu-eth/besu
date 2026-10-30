@@ -17,8 +17,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus;
 
-import java.util.Optional;
-
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
@@ -62,7 +60,7 @@ public class EnginePayloadWithWitnessResult {
   public EnginePayloadWithWitnessResult(
       final EngineStatus status,
       final Hash latestValidHash,
-      final Optional<String> validationError,
+      final String validationError,
       final EngineExecutionWitnessResult witness) {
     this.status = new PayloadStatusV1(status, latestValidHash, validationError);
     this.witness = witness;

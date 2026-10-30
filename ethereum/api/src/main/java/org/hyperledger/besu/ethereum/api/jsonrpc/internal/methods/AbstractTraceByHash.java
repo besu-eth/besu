@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionT
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat.FlatTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat.FlatTraceGenerator;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
-import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
@@ -52,13 +51,24 @@ public abstract class AbstractTraceByHash implements JsonRpcMethod {
     this.protocolSchedule = protocolSchedule;
   }
 
-  public Stream<FlatTrace> resultByTransactionHash(final Hash transactionHash) {
+  /**
+   * Traces a transaction by its hash.
+   *
+   * @param transactionHash the hash of the transaction to trace
+   * @return the flat traces of the transaction, or empty if the transaction is not found
+   */
+  public Optional<Stream<FlatTrace>> resultByTransactionHash(final Hash transactionHash) {
     return blockchainQueries
         .transactionByHash(transactionHash)
-        .flatMap(TransactionWithMetadata::getBlockNumber)
-        .flatMap(blockNumber -> blockchainQueries.getBlockchain().getBlockByNumber(blockNumber))
-        .map(block -> getTraceBlock(block, transactionHash))
-        .orElse(Stream.empty());
+        .map(
+            transaction ->
+                transaction
+                    .getBlockNumber()
+                    .flatMap(
+                        blockNumber ->
+                            blockchainQueries.getBlockchain().getBlockByNumber(blockNumber))
+                    .map(block -> getTraceBlock(block, transactionHash))
+                    .orElse(Stream.empty()));
   }
 
   private Stream<FlatTrace> getTraceBlock(final Block block, final Hash transactionHash) {

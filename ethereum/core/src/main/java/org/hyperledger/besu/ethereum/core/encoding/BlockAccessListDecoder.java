@@ -38,7 +38,10 @@ public final class BlockAccessListDecoder {
 
   private BlockAccessListDecoder() {}
 
-  public static BlockAccessList decode(final RLPInput in) {
+  public static BlockAccessList decode(final RLPInput input) {
+    // read on its own: its raw encoding must not be the whole input when it is part of a larger
+    // one, e.g. a consensus message
+    final RLPInput in = input.readAsRlp();
     final List<AccountChanges> accounts = new ArrayList<>();
 
     in.enterList();

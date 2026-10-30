@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.CallParameterUtil.rejectBlobFieldsWithoutHashes;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.CallParameterUtil.validateAndGetCallParams;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -22,8 +23,8 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcErrorConverter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -39,6 +40,7 @@ import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
+import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Optional;
@@ -65,6 +67,36 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     }
   }
 
+  @Override
+  protected Object findResultByParamType(final JsonRpcRequestContext requestContext) {
+    final Optional<BlockParameterOrBlockHash> maybeBlockParameter;
+    try {
+      maybeBlockParameter = requestContext.getOptionalParameter(1, BlockParameterOrBlockHash.class);
+    } catch (JsonRpcParameter.JsonRpcParameterException e) {
+      // BlockParameterOrBlockHash rejects some numbers that BlockParameter accepts, so a
+      // value that is not a hash keeps the BlockParameter handling.
+      return super.findResultByParamType(requestContext);
+    }
+    final Optional<Hash> maybeBlockHash =
+        maybeBlockParameter.flatMap(BlockParameterOrBlockHash::getHash);
+    if (maybeBlockHash.isEmpty()) {
+      return super.findResultByParamType(requestContext);
+    }
+    final CallParameter callParameter = validateAndGetCallParams(requestContext);
+    rejectBlobFieldsWithoutHashes(callParameter);
+    final Optional<BlockHeader> maybeBlockHeader =
+        getBlockchainQueries().getBlockHeaderByHash(maybeBlockHash.get());
+    final Optional<RpcErrorType> jsonRpcError = validateBlockHeader(maybeBlockHeader);
+    if (jsonRpcError.isPresent()) {
+      return errorResponse(requestContext, jsonRpcError.get());
+    }
+    if (maybeBlockParameter.get().getRequireCanonical()
+        && !getBlockchainQueries().blockIsOnCanonicalChain(maybeBlockHash.get())) {
+      return errorResponse(requestContext, RpcErrorType.JSON_RPC_NOT_CANONICAL_ERROR);
+    }
+    return resultByBlockHeader(requestContext, callParameter, maybeBlockHeader.get());
+  }
+
   protected abstract Object simulate(
       final JsonRpcRequestContext requestContext,
       final CallParameter callParams,
@@ -76,6 +108,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
   @Override
   protected Object pendingResult(final JsonRpcRequestContext requestContext) {
     final CallParameter callParameter = validateAndGetCallParams(requestContext);
+    rejectBlobFieldsWithoutHashes(callParameter);
     final var validationParams = getTransactionValidationParams(callParameter);
     final var maybeStateOverrides = getAddressStateOverrideMap(requestContext);
     final var pendingBlockHeader = transactionSimulator.simulatePendingBlockHeader();
@@ -89,7 +122,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
         (cp, op) ->
             transactionSimulator.processOnPending(
                 cp, maybeStateOverrides, validationParams, op, pendingBlockHeader);
-    return simulate(
+    return simulateOrError(
         requestContext,
         callParameter,
         pendingBlockHeader,
@@ -102,6 +135,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext requestContext, final long blockNumber) {
     final CallParameter callParameter = validateAndGetCallParams(requestContext);
+    rejectBlobFieldsWithoutHashes(callParameter);
     final Optional<BlockHeader> maybeBlockHeader = blockHeader(blockNumber);
     final Optional<RpcErrorType> jsonRpcError = validateBlockHeader(maybeBlockHeader);
     if (jsonRpcError.isPresent()) {
@@ -126,13 +160,34 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
         (cp, op) ->
             transactionSimulator.process(
                 cp, maybeStateOverrides, validationParams, op, blockHeader);
-    return simulate(
+    return simulateOrError(
         requestContext,
         callParameter,
         blockHeader,
         simulationFunction,
         gasLimitUpperBound,
         minTxCost);
+  }
+
+  private Object simulateOrError(
+      final JsonRpcRequestContext requestContext,
+      final CallParameter callParams,
+      final ProcessableBlockHeader blockHeader,
+      final TransactionSimulationFunction simulationFunction,
+      final long gasLimitUpperBound,
+      final long minTxCost) {
+    try {
+      return simulate(
+          requestContext,
+          callParams,
+          blockHeader,
+          simulationFunction,
+          gasLimitUpperBound,
+          minTxCost);
+    } catch (final BlockStateCallException e) {
+      return errorResponse(
+          requestContext, new JsonRpcError(e.getError().getCode(), e.getMessage(), null));
+    }
   }
 
   private Optional<BlockHeader> blockHeader(final long blockNumber) {
@@ -211,7 +266,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     try {
       return request.getOptionalParameter(2, StateOverrideMap.class);
     } catch (JsonRpcParameter.JsonRpcParameterException e) {
-      throw new InvalidJsonRpcRequestException(
+      throw new InvalidJsonRpcParameters(
           "Invalid account overrides parameter (index 2)", RpcErrorType.INVALID_CALL_PARAMS, e);
     }
   }

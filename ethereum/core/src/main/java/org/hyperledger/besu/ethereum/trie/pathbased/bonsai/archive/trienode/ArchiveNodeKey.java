@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
+
 import org.apache.tuweni.bytes.Bytes;
 
 /** Utility class for constructing natural keys and history keys for archive trie nodes. */
@@ -22,6 +24,16 @@ public final class ArchiveNodeKey {
   public static final int BLOCK_SUFFIX_BYTES = 8;
 
   private ArchiveNodeKey() {}
+
+  /**
+   * Natural key for the node addressed by a {@link TrieNodeKey}: {@link #storage} when the key
+   * carries a trie prefix, {@link #account} otherwise.
+   */
+  public static Bytes of(final Bytes trieNodeKey) {
+    return TrieNodeKey.hasTriePrefix(trieNodeKey)
+        ? storage(TrieNodeKey.triePrefix(trieNodeKey), TrieNodeKey.location(trieNodeKey))
+        : account(trieNodeKey);
+  }
 
   /**
    * Natural key for an account trie node: {@code [len:1B]‖location}.

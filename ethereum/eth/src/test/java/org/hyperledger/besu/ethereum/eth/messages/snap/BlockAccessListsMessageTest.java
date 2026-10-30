@@ -18,10 +18,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
+import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessageData;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -65,6 +67,17 @@ public class BlockAccessListsMessageTest {
     expected.endList();
 
     assertThat(wrapped.getData()).isEqualTo(expected.encoded());
+  }
+
+  @Test
+  public void decodesTheRawListsAfterTheRequestId() {
+    final BlockAccessList blockAccessList = new BlockDataGenerator(1).blockAccessList();
+    final MessageData wrapped =
+        BlockAccessListsMessage.create(List.of(Optional.of(blockAccessList), Optional.empty()))
+            .wrapMessageData(BigInteger.valueOf(11));
+
+    assertThat(BlockAccessListsMessageData.decodeSnapResponseRaw(wrapped.getData(), true))
+        .containsExactly(blockAccessList.encode(), RLP.NULL);
   }
 
   @Test

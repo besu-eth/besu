@@ -30,7 +30,9 @@ public interface VariablesStorage {
     FINALIZED_BLOCK_HASH("finalizedBlockHash"),
     SAFE_BLOCK_HASH("safeBlockHash"),
     SEQ_NO_STORE("local-enr-seqno"),
-    GENESIS_STATE_HASH("genesisStateHash");
+    GENESIS_STATE_HASH("genesisStateHash"),
+    BODIES_FROM("bodiesFrom"),
+    SYNC_FLOOR("syncFloor");
 
     private final String key;
     private final byte[] byteArray;
@@ -68,6 +70,12 @@ public interface VariablesStorage {
 
   Optional<Hash> getGenesisStateHash();
 
+  /** Returns the block from which a sync stored every body and receipts up to the chain head. */
+  Optional<Long> getBodiesFrom();
+
+  /** Returns the floor of the last sync. */
+  Optional<Long> getSyncFloor();
+
   Updater updater();
 
   interface Updater {
@@ -83,6 +91,10 @@ public interface VariablesStorage {
     void setLocalEnrSeqno(Bytes nodeRecord);
 
     void setGenesisStateHash(Hash genesisStateHash);
+
+    void setBodiesFrom(long blockNumber);
+
+    void setSyncFloor(long blockNumber);
 
     void removeAll();
 

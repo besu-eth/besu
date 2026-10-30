@@ -1,0 +1,22 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [
+      {
+        "blockHash": "0x7291c59f71b42ae905cc864a4c24485c3494cfd7bb20e6efaa01895ad62cf936",
+        "toBlock": "0x13"
+      }
+    ],
+    "id": 415
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "error": {
+      "code": -32602,
+      "message": "Invalid filter params"
+    },
+    "id": 415
+  },
+  "statusCode": 200
+}

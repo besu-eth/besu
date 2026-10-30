@@ -31,12 +31,13 @@ import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 public class PayOperationTest {
-  private static final Address SENDER_ADDRESS = Address.fromHexString("0xc0ff");
+  private static final Address CURRENT_ADDRESS = Address.fromHexString("0xc0ff");
   private static final Address RECIPIENT_ADDRESS = Address.fromHexString("0xc0de");
   private static final EVM EVM_INSTANCE = mock(EVM.class);
 
@@ -45,7 +46,7 @@ public class PayOperationTest {
   @BeforeEach
   void beforeEach() {
     worldUpdater = new SimpleWorld();
-    worldUpdater.createAccount(SENDER_ADDRESS, 0, Wei.ZERO);
+    worldUpdater.createAccount(CURRENT_ADDRESS, 0, Wei.ZERO);
     worldUpdater.createAccount(RECIPIENT_ADDRESS, 0, Wei.ZERO);
   }
 
@@ -53,7 +54,7 @@ public class PayOperationTest {
     return List.of(
         Arguments.of(
             "not enough gas",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             RECIPIENT_ADDRESS,
             99,
             100,
@@ -62,7 +63,7 @@ public class PayOperationTest {
             true),
         Arguments.of(
             "enough gas",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             RECIPIENT_ADDRESS,
             5000,
             100,
@@ -70,17 +71,18 @@ public class PayOperationTest {
             AbstractCallOperation.LEGACY_SUCCESS_STACK_ITEM,
             true),
         Arguments.of(
-            "sender == recipient",
+            "current address == recipient",
             RECIPIENT_ADDRESS,
             RECIPIENT_ADDRESS,
             5000,
             100,
             null,
             AbstractCallOperation.LEGACY_SUCCESS_STACK_ITEM,
-            false),
+            // the current address is always warm
+            true),
         Arguments.of(
             "cold address",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             RECIPIENT_ADDRESS,
             7300,
             2600,
@@ -89,7 +91,7 @@ public class PayOperationTest {
             false),
         Arguments.of(
             "cold address - no account and zero value",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             Address.fromHexString("0x341a2e456a2c23ca9a8c7d765521bcee2188d66a"),
             30000,
             2600,
@@ -102,7 +104,7 @@ public class PayOperationTest {
   @MethodSource("data")
   void noValueTest(
       final String name,
-      final Address senderAddress,
+      final Address currentAddress,
       final Address recipientAddress,
       final long initialGas,
       final long chargedGas,
@@ -113,7 +115,7 @@ public class PayOperationTest {
 
     final var frame =
         new TestMessageFrameBuilder()
-            .sender(senderAddress)
+            .address(currentAddress)
             .initialGas(initialGas)
             .pushStackItem(Bytes.EMPTY)
             .pushStackItem(Bytes.EMPTY)
@@ -142,7 +144,7 @@ public class PayOperationTest {
     return List.of(
         Arguments.of(
             "not enough gas",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             RECIPIENT_ADDRESS,
             5000,
             9100,
@@ -156,7 +158,7 @@ public class PayOperationTest {
             true),
         Arguments.of(
             "enough value",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             RECIPIENT_ADDRESS,
             10000,
             9100,
@@ -170,7 +172,7 @@ public class PayOperationTest {
             true),
         Arguments.of(
             "not enough value",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             RECIPIENT_ADDRESS,
             40000,
             9100,
@@ -183,7 +185,7 @@ public class PayOperationTest {
             Wei.of(0),
             true),
         Arguments.of(
-            "sender == recipient",
+            "current address == recipient",
             RECIPIENT_ADDRESS,
             RECIPIENT_ADDRESS,
             10000,
@@ -198,7 +200,7 @@ public class PayOperationTest {
             true),
         Arguments.of(
             "cold address",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             RECIPIENT_ADDRESS,
             12000,
             11600,
@@ -212,7 +214,7 @@ public class PayOperationTest {
             false),
         Arguments.of(
             "cold address new account",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             Address.fromHexString("0x341a2e456a2c23ca9a8c7d765521bcee2188d66a"),
             40000,
             36600,
@@ -226,7 +228,7 @@ public class PayOperationTest {
             false),
         Arguments.of(
             "precompile address",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             Address.fromHexString("0x01"),
             10000,
             9100,
@@ -244,15 +246,15 @@ public class PayOperationTest {
   @MethodSource("valueData")
   void valueTest(
       final String name,
-      final Address senderAddress,
+      final Address currentAddress,
       final Address recipientAddress,
       final long initialGas,
       final long chargedGas,
       final ExceptionalHaltReason haltReason,
       final Bytes stackItem,
       final Wei valueSent,
-      final Wei initialSenderBalance,
-      final Wei senderBalance,
+      final Wei initialCurrentBalance,
+      final Wei currentBalance,
       final Wei initialRecipientBalance,
       final Wei recipientBalance,
       final boolean warmAddress) {
@@ -260,7 +262,7 @@ public class PayOperationTest {
 
     final var frame =
         new TestMessageFrameBuilder()
-            .sender(senderAddress)
+            .address(currentAddress)
             .initialGas(initialGas)
             .pushStackItem(Bytes.EMPTY)
             .pushStackItem(Bytes.EMPTY)
@@ -272,8 +274,8 @@ public class PayOperationTest {
       frame.warmUpAddress(recipientAddress);
     }
 
-    MutableAccount senderAccount = worldUpdater.getAccount(senderAddress);
-    senderAccount.setBalance(initialSenderBalance);
+    MutableAccount currentAccount = worldUpdater.getAccount(currentAddress);
+    currentAccount.setBalance(initialCurrentBalance);
     MutableAccount recipientAccount = worldUpdater.getAccount(recipientAddress);
     if (recipientAccount != null) {
       recipientAccount.setBalance(initialRecipientBalance);
@@ -286,7 +288,7 @@ public class PayOperationTest {
 
     assertThat(frame.getStackItem(0)).isEqualTo(stackItem);
 
-    assertThat(senderAccount.getBalance()).isEqualTo(senderBalance);
+    assertThat(currentAccount.getBalance()).isEqualTo(currentBalance);
     assertThat(worldUpdater.getAccount(recipientAddress).getBalance()).isEqualTo(recipientBalance);
   }
 
@@ -294,7 +296,7 @@ public class PayOperationTest {
     return List.of(
         Arguments.of(
             "no value in static context",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             101,
             0,
             ExceptionalHaltReason.ILLEGAL_STATE_CHANGE,
@@ -305,7 +307,7 @@ public class PayOperationTest {
             Wei.of(1000),
             Wei.of(1000)),
         Arguments.of(
-            "sender == recipient static context",
+            "current address == recipient static context",
             RECIPIENT_ADDRESS,
             10000,
             0,
@@ -318,7 +320,7 @@ public class PayOperationTest {
             Wei.of(2000)),
         Arguments.of(
             "value in static context",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             9200,
             0,
             ExceptionalHaltReason.ILLEGAL_STATE_CHANGE,
@@ -330,7 +332,7 @@ public class PayOperationTest {
             Wei.of(1000)),
         Arguments.of(
             "no value in static context",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             9200,
             0,
             ExceptionalHaltReason.ILLEGAL_STATE_CHANGE,
@@ -342,7 +344,7 @@ public class PayOperationTest {
             Wei.of(1000)),
         Arguments.of(
             "no gas in static context",
-            SENDER_ADDRESS,
+            CURRENT_ADDRESS,
             9000,
             0,
             ExceptionalHaltReason.ILLEGAL_STATE_CHANGE,
@@ -358,14 +360,14 @@ public class PayOperationTest {
   @MethodSource("staticContext")
   void staticCallContext(
       final String name,
-      final Address senderAddress,
+      final Address currentAddress,
       final long initialGas,
       final long chargedGas,
       final ExceptionalHaltReason haltReason,
       final Bytes stackItem,
       final Wei valueSent,
-      final Wei initialSenderBalance,
-      final Wei senderBalance,
+      final Wei initialCurrentBalance,
+      final Wei currentBalance,
       final Wei initialRecipientBalance,
       final Wei recipientBalance) {
 
@@ -373,7 +375,7 @@ public class PayOperationTest {
 
     final var frame =
         new TestMessageFrameBuilder()
-            .sender(senderAddress)
+            .address(currentAddress)
             .initialGas(initialGas)
             .pushStackItem(Bytes.EMPTY)
             .pushStackItem(Bytes.EMPTY)
@@ -384,8 +386,8 @@ public class PayOperationTest {
             .build();
 
     frame.warmUpAddress(RECIPIENT_ADDRESS);
-    MutableAccount senderAccount = worldUpdater.getAccount(SENDER_ADDRESS);
-    senderAccount.setBalance(initialSenderBalance);
+    MutableAccount currentAccount = worldUpdater.getAccount(CURRENT_ADDRESS);
+    currentAccount.setBalance(initialCurrentBalance);
     MutableAccount recipientAccount = worldUpdater.getAccount(RECIPIENT_ADDRESS);
     recipientAccount.setBalance(initialRecipientBalance);
 
@@ -396,7 +398,7 @@ public class PayOperationTest {
 
     assertThat(frame.getStackItem(0)).isEqualTo(stackItem);
 
-    assertThat(senderAccount.getBalance()).isEqualTo(senderBalance);
+    assertThat(currentAccount.getBalance()).isEqualTo(currentBalance);
     assertThat(recipientAccount.getBalance()).isEqualTo(recipientBalance);
   }
 
@@ -452,7 +454,7 @@ public class PayOperationTest {
 
     final var frame =
         new TestMessageFrameBuilder()
-            .sender(SENDER_ADDRESS)
+            .address(CURRENT_ADDRESS)
             .initialGas(Long.MAX_VALUE)
             .pushStackItem(Bytes.EMPTY)
             .pushStackItem(Bytes.EMPTY)
@@ -461,8 +463,8 @@ public class PayOperationTest {
             .worldUpdater(worldUpdater)
             .build();
 
-    MutableAccount senderAccount = worldUpdater.getAccount(SENDER_ADDRESS);
-    senderAccount.setBalance(Wei.of(2000));
+    MutableAccount currentAccount = worldUpdater.getAccount(CURRENT_ADDRESS);
+    currentAccount.setBalance(Wei.of(2000));
 
     var result = operation.execute(frame, EVM_INSTANCE);
 
@@ -470,5 +472,50 @@ public class PayOperationTest {
     assertThat(result.getHaltReason()).isEqualTo(haltReason);
 
     assertThat(frame.getStackItem(0)).isEqualTo(stackItem);
+  }
+
+  @Test
+  void paysFromTheCurrentAddressNotFromTheCaller() {
+    final Address caller = Address.fromHexString("0xca11");
+    worldUpdater.createAccount(caller, 0, Wei.of(5000));
+    worldUpdater.getAccount(CURRENT_ADDRESS).setBalance(Wei.of(2000));
+    final var frame =
+        new TestMessageFrameBuilder()
+            .sender(caller)
+            .address(CURRENT_ADDRESS)
+            .initialGas(10000)
+            .pushStackItem(Wei.of(1000))
+            .pushStackItem(RECIPIENT_ADDRESS.getBytes())
+            .worldUpdater(worldUpdater)
+            .build();
+    frame.warmUpAddress(RECIPIENT_ADDRESS);
+
+    final var result = new PayOperation(new OsakaGasCalculator()).execute(frame, EVM_INSTANCE);
+
+    assertThat(result.getHaltReason()).isNull();
+    assertThat(frame.getStackItem(0)).isEqualTo(AbstractCallOperation.LEGACY_SUCCESS_STACK_ITEM);
+    assertThat(worldUpdater.get(CURRENT_ADDRESS).getBalance()).isEqualTo(Wei.of(1000));
+    assertThat(worldUpdater.get(RECIPIENT_ADDRESS).getBalance()).isEqualTo(Wei.of(1000));
+    assertThat(worldUpdater.get(caller).getBalance()).isEqualTo(Wei.of(5000));
+  }
+
+  @Test
+  void payingItselfMoreThanItsBalanceFails() {
+    worldUpdater.getAccount(CURRENT_ADDRESS).setBalance(Wei.of(2000));
+    final var frame =
+        new TestMessageFrameBuilder()
+            .address(CURRENT_ADDRESS)
+            .initialGas(10000)
+            .pushStackItem(Wei.of(3000))
+            .pushStackItem(CURRENT_ADDRESS.getBytes())
+            .worldUpdater(worldUpdater)
+            .build();
+    frame.warmUpAddress(CURRENT_ADDRESS);
+
+    final var result = new PayOperation(new OsakaGasCalculator()).execute(frame, EVM_INSTANCE);
+
+    assertThat(result.getHaltReason()).isNull();
+    assertThat(frame.getStackItem(0)).isEqualTo(AbstractCallOperation.LEGACY_FAILURE_STACK_ITEM);
+    assertThat(worldUpdater.get(CURRENT_ADDRESS).getBalance()).isEqualTo(Wei.of(2000));
   }
 }

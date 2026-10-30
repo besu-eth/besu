@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationException;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
@@ -170,10 +171,11 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
       final EthProtocolConfiguration ethProtocolConfiguration) {
     final List<Capability> capabilities = new ArrayList<>();
 
-    capabilities.add(EthProtocol.ETH68);
-    capabilities.add(EthProtocol.ETH69);
-    capabilities.add(EthProtocol.ETH70);
-    capabilities.add(EthProtocol.ETH71);
+    for (final EthProtocolVersion version : EthProtocolVersion.values()) {
+      if (version.isAdvertised()) {
+        capabilities.add(version.getCapability());
+      }
+    }
     capabilities.removeIf(cap -> cap.getVersion() > ethProtocolConfiguration.getMaxEthCapability());
     capabilities.removeIf(cap -> cap.getVersion() < ethProtocolConfiguration.getMinEthCapability());
 
@@ -492,12 +494,10 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
   }
 
   private StatusMessage.BlockRange createBlockRange() {
+    final long chainHead = blockchain.getChainHeadBlockNumber();
     return blockchain
-        .getEarliestBlockNumber()
-        .map(
-            earliestBlockNumber ->
-                new StatusMessage.BlockRange(
-                    earliestBlockNumber, blockchain.getChainHeadBlockNumber()))
+        .getEarliestBlockNumber(chainHead)
+        .map(earliestBlockNumber -> new StatusMessage.BlockRange(earliestBlockNumber, chainHead))
         .orElseGet(() -> new StatusMessage.BlockRange(0, 0));
   }
 }
