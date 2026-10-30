@@ -53,8 +53,6 @@ public final class JournalAccountV2 implements MutableAccount {
     boolean dirty;
     // warm as per EIP-2929, which outlives clearing the storage and creating the account
     boolean warm;
-    // the key as it was first warmed up, for the access list
-    @Nullable Bytes32 warmKey;
   }
 
   private final TransactionJournalV2 journal;
@@ -230,27 +228,18 @@ public final class JournalAccountV2 implements MutableAccount {
    * @return true if the slot was already warm
    */
   public boolean warmUpStorage(final UInt256 key) {
-    return warmUpStorage(key, key);
-  }
-
-  /** Warms up a slot of the access list, which no frame's revert makes cold again. */
-  void warmUpFromAccessList(final Bytes32 warmKey) {
-    final Slot slot = slot(UInt256.fromBytes(warmKey));
-    if (!slot.warm) {
-      slot.warm = true;
-      slot.warmKey = warmKey;
-    }
-  }
-
-  boolean warmUpStorage(final UInt256 key, final Bytes32 warmKey) {
     final Slot slot = slot(key);
     if (slot.warm) {
       return true;
     }
     journal.logWarmUp(slot);
     slot.warm = true;
-    slot.warmKey = warmKey;
     return false;
+  }
+
+  /** Warms up a slot of the access list, which no frame's revert makes cold again. */
+  void warmUpFromAccessList(final UInt256 key) {
+    slot(key).warm = true;
   }
 
   @Override
