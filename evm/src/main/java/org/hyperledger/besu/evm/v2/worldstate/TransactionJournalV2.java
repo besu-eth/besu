@@ -41,14 +41,31 @@ import org.jspecify.annotations.Nullable;
  */
 final class TransactionJournalV2 {
 
-  private static final byte NONCE = 0;
-  private static final byte BALANCE = 1;
-  private static final byte CODE = 2;
-  private static final byte SLOT = 3;
-  private static final byte CLEAR_STORAGE = 4;
-  private static final byte TOUCH = 5;
-  private static final byte LIFECYCLE = 6;
-  private static final byte WARM_UP = 7;
+  /** The change an entry of the undo log records. */
+  private enum UndoKind {
+    // the undo restores the account's nonce
+    NONCE_CHANGED,
+    // the undo restores the account's balance
+    BALANCE_CHANGED,
+    // the undo restores the account's code
+    CODE_CHANGED,
+    // the undo restores the slot's value, its storage epoch, written flag and previous entry
+    SLOT_CHANGED,
+    // the undo restores the account's storage epoch and whether its storage was cleared
+    STORAGE_CLEARED,
+    // the undo restores the log index of the account's previous touch
+    ACCOUNT_TOUCHED,
+    // the undo restores the account as it was before it was created or deleted
+    ACCOUNT_CREATED_OR_DELETED,
+    // the undo makes the slot cold again
+    SLOT_WARMED
+  }
+
+  /** A slot before a change, and the log index of the slot's previous change. */
+  private record SlotState(@Nullable UInt256 current, int epoch, boolean dirty, int loggedAt) {}
+
+  /** An account's storage before it was cleared. */
+  private record StorageState(int epoch, boolean cleared) {}
 
   /** An account's state before it was created or deleted. */
   private record AccountState(
@@ -75,7 +92,7 @@ final class TransactionJournalV2 {
   private int lastStorageEpoch;
 
   // the undo log, one change per index; most transactions make only a few changes
-  private byte[] kinds = new byte[16];
+  private UndoKind[] kinds = new UndoKind[16];
   private Object[] targets = new Object[16];
   private @Nullable Object[] oldObjects = new Object[16];
   private long[] oldLongs = new long[16];
@@ -180,12 +197,12 @@ final class TransactionJournalV2 {
     if (account.touchedAt >= mark) {
       return;
     }
-    final int index = append(TOUCH, account, null, account.touchedAt);
+    final int index = append(UndoKind.ACCOUNT_TOUCHED, account, null, account.touchedAt);
     account.touchedAt = index;
   }
 
   void create(final JournalAccountV2 account, final long nonce, final Wei balance) {
-    final int index = append(LIFECYCLE, account, stateOf(account), 0);
+    final int index = append(UndoKind.ACCOUNT_CREATED_OR_DELETED, account, stateOf(account), 0);
     account.exists = true;
     account.fresh = true;
     account.nonce = nonce;
@@ -198,7 +215,7 @@ final class TransactionJournalV2 {
   }
 
   void delete(final JournalAccountV2 account) {
-    final int index = append(LIFECYCLE, account, stateOf(account), 0);
+    final int index = append(UndoKind.ACCOUNT_CREATED_OR_DELETED, account, stateOf(account), 0);
     account.exists = false;
     account.touchedAt = -1;
     account.deletedAt = index;
@@ -220,35 +237,44 @@ final class TransactionJournalV2 {
   // changes to an account
 
   void logNonce(final JournalAccountV2 account) {
-    append(NONCE, account, null, account.nonce);
+    append(UndoKind.NONCE_CHANGED, account, null, account.nonce);
   }
 
   void logBalance(final JournalAccountV2 account) {
-    append(BALANCE, account, account.balance, 0);
+    append(UndoKind.BALANCE_CHANGED, account, account.balance, 0);
   }
 
   void logCode(final JournalAccountV2 account) {
-    append(CODE, account, account.code, 0);
+    append(UndoKind.CODE_CHANGED, account, account.code, 0);
   }
 
   void logSlot(final JournalAccountV2.Slot slot) {
-    append(SLOT, slot, slot.current, ((long) slot.epoch << 1) | (slot.dirty ? 1 : 0));
+    // the slot's first entry since the innermost updater opened is the one its revert needs
+    if (slot.loggedAt >= innermostMark()) {
+      return;
+    }
+    final SlotState old = new SlotState(slot.current, slot.epoch, slot.dirty, slot.loggedAt);
+    slot.loggedAt = append(UndoKind.SLOT_CHANGED, slot, old, 0);
+  }
+
+  private int innermostMark() {
+    return openCount == 0 ? 0 : openUpdaters[openCount - 1].mark;
   }
 
   void logClearStorage(final JournalAccountV2 account) {
-    append(
-        CLEAR_STORAGE,
-        account,
-        null,
-        ((long) account.storageEpoch << 1) | (account.storageCleared ? 1 : 0));
+    final StorageState old = new StorageState(account.storageEpoch, account.storageCleared);
+    append(UndoKind.STORAGE_CLEARED, account, old, 0);
   }
 
   void logWarmUp(final JournalAccountV2.Slot slot) {
-    append(WARM_UP, slot, null, 0);
+    append(UndoKind.SLOT_WARMED, slot, null, 0);
   }
 
   private int append(
-      final byte kind, final Object target, @Nullable final Object oldObject, final long oldLong) {
+      final UndoKind kind,
+      final Object target,
+      @Nullable final Object oldObject,
+      final long oldLong) {
     if (size == kinds.length) {
       final int capacity = size * 2;
       kinds = Arrays.copyOf(kinds, capacity);
@@ -267,23 +293,26 @@ final class TransactionJournalV2 {
     for (int i = size - 1; i >= mark; i--) {
       final Object old = oldObjects[i];
       switch (kinds[i]) {
-        case NONCE -> ((JournalAccountV2) targets[i]).nonce = oldLongs[i];
-        case BALANCE -> ((JournalAccountV2) targets[i]).balance = (Wei) old;
-        case CODE -> ((JournalAccountV2) targets[i]).code = (Code) old;
-        case SLOT -> {
+        case NONCE_CHANGED -> ((JournalAccountV2) targets[i]).nonce = oldLongs[i];
+        case BALANCE_CHANGED -> ((JournalAccountV2) targets[i]).balance = (Wei) old;
+        case CODE_CHANGED -> ((JournalAccountV2) targets[i]).code = (Code) old;
+        case SLOT_CHANGED -> {
           final JournalAccountV2.Slot slot = (JournalAccountV2.Slot) targets[i];
-          slot.current = (UInt256) old;
-          slot.epoch = (int) (oldLongs[i] >> 1);
-          slot.dirty = (oldLongs[i] & 1) != 0;
+          final SlotState state = (SlotState) old;
+          slot.current = state.current();
+          slot.epoch = state.epoch();
+          slot.dirty = state.dirty();
+          slot.loggedAt = state.loggedAt();
         }
-        case CLEAR_STORAGE -> {
+        case STORAGE_CLEARED -> {
           final JournalAccountV2 account = (JournalAccountV2) targets[i];
-          account.storageEpoch = (int) (oldLongs[i] >> 1);
-          account.storageCleared = (oldLongs[i] & 1) != 0;
+          final StorageState state = (StorageState) old;
+          account.storageEpoch = state.epoch();
+          account.storageCleared = state.cleared();
         }
-        case WARM_UP -> ((JournalAccountV2.Slot) targets[i]).warm = false;
-        case TOUCH -> ((JournalAccountV2) targets[i]).touchedAt = (int) oldLongs[i];
-        case LIFECYCLE -> {
+        case SLOT_WARMED -> ((JournalAccountV2.Slot) targets[i]).warm = false;
+        case ACCOUNT_TOUCHED -> ((JournalAccountV2) targets[i]).touchedAt = (int) oldLongs[i];
+        case ACCOUNT_CREATED_OR_DELETED -> {
           final JournalAccountV2 account = (JournalAccountV2) targets[i];
           final AccountState state = (AccountState) old;
           account.exists = state.exists();
@@ -296,12 +325,11 @@ final class TransactionJournalV2 {
           account.touchedAt = state.touchedAt();
           account.deletedAt = state.deletedAt();
         }
-        default -> throw new IllegalStateException("Unknown journal entry " + kinds[i]);
       }
       targets[i] = null;
       oldObjects[i] = null;
     }
-    size = Math.max(mark, 0);
+    size = mark;
   }
 
   // what changed since a mark
@@ -311,7 +339,7 @@ final class TransactionJournalV2 {
     final List<Account> touched = new ArrayList<>();
     for (int i = mark; i < size; i++) {
       // an account's latest touch is the one its touchedAt points to
-      if ((kinds[i] == TOUCH || kinds[i] == LIFECYCLE)
+      if ((kinds[i] == UndoKind.ACCOUNT_TOUCHED || kinds[i] == UndoKind.ACCOUNT_CREATED_OR_DELETED)
           && targets[i] instanceof JournalAccountV2 account
           && account.touchedAt == i
           && account.exists) {
@@ -325,7 +353,7 @@ final class TransactionJournalV2 {
   List<Address> deletedSince(final int mark) {
     final List<Address> deleted = new ArrayList<>();
     for (int i = mark; i < size; i++) {
-      if (kinds[i] == LIFECYCLE
+      if (kinds[i] == UndoKind.ACCOUNT_CREATED_OR_DELETED
           && targets[i] instanceof JournalAccountV2 account
           && account.deletedAt == i) {
         deleted.add(account.getAddress());

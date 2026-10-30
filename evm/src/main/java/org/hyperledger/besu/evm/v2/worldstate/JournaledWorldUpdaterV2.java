@@ -23,6 +23,7 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.util.Collection;
 import java.util.Optional;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes32;
 import org.jspecify.annotations.Nullable;
 
@@ -152,6 +153,11 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
   public boolean warmUpStorage(final Address address, final Bytes32 slot) {
     journal.activate(this);
     return journal.warmUpStorage(address, slot);
+  }
+
+  @VisibleForTesting
+  int journalSize() {
+    return journal.size();
   }
 
   @Override

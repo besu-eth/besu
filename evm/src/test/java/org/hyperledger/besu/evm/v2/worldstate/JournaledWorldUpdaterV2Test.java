@@ -148,6 +148,43 @@ class JournaledWorldUpdaterV2Test {
   }
 
   @Test
+  void writingASlotAgainInTheSameFrameDoesNotGrowTheLog() {
+    final WorldUpdater frame = journal.updater();
+    final MutableAccount contract = frame.getAccount(CONTRACT);
+    contract.setStorageValue(SLOT, UInt256.valueOf(1));
+    final int size = journal.journalSize();
+    contract.setStorageValue(SLOT, UInt256.valueOf(2));
+    contract.setStorageValue(SLOT, UInt256.valueOf(3));
+    assertThat(journal.journalSize()).isEqualTo(size);
+
+    // a frame opened on it logs the slot again, so its revert restores the value it replaced
+    final WorldUpdater inner = frame.updater();
+    inner.getAccount(CONTRACT).setStorageValue(SLOT, UInt256.valueOf(4));
+    inner.revert();
+    inner.commit();
+    assertThat(frame.get(CONTRACT).getStorageValue(SLOT)).isEqualTo(UInt256.valueOf(3));
+    frame.revert();
+    assertThat(frame.get(CONTRACT).getStorageValue(SLOT)).isEqualTo(UInt256.valueOf(7));
+  }
+
+  @Test
+  void aFrameAfterARevertedOneLogsTheSlotsItWrites() {
+    final WorldUpdater outer = journal.updater();
+    outer.getAccount(CONTRACT).setStorageValue(SLOT, UInt256.valueOf(1));
+    final WorldUpdater reverted = outer.updater();
+    reverted.getAccount(CONTRACT).setStorageValue(SLOT, UInt256.valueOf(2));
+    reverted.revert();
+    reverted.commit();
+
+    // its log starts where the reverted frame's did
+    final WorldUpdater next = outer.updater();
+    next.getAccount(CONTRACT).setStorageValue(SLOT, UInt256.valueOf(3));
+    next.revert();
+    next.commit();
+    assertThat(outer.get(CONTRACT).getStorageValue(SLOT)).isEqualTo(UInt256.valueOf(1));
+  }
+
+  @Test
   void createdAndDeletedAccountsComeBackOnRevert() {
     final WorldUpdater frame = journal.updater();
     frame.getOrCreate(ABSENT).setStorageValue(SLOT, UInt256.ONE);
