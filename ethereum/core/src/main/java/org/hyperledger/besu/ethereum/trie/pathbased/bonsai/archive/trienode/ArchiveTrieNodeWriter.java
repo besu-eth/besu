@@ -37,8 +37,8 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
- * Persists the computed history entries to {@code TRIE_BRANCH_STORAGE_ARCHIVE} before each block
- * commit.
+ * Persists the computed history entries to {@code TRIE_BRANCH_STORAGE_ARCHIVE}: the capture pool
+ * commits them while the block is persisted, and the block's coverage commits before the block.
  */
 public class ArchiveTrieNodeWriter implements Closeable {
 
@@ -54,7 +54,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
     final Hash blockHash;
     final boolean chainContiguous;
     final List<CaptureRequest> pendingRequests = new ArrayList<>();
-    final List<Future<List<EncodedEntry>>> inFlight = new ArrayList<>();
+    final List<Future<?>> inFlight = new ArrayList<>();
 
     CaptureBuffer(final long block, final Hash blockHash, final boolean chainContiguous) {
       this.block = block;
@@ -75,7 +75,8 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private final ConcurrentHashMap<SegmentedKeyValueStorageTransaction, CaptureBuffer> buffers =
       new ConcurrentHashMap<>();
 
-  // Each block's entries, index and coverage commit in their own transaction, before the block's.
+  // Each batch of a block's entries and index updates commits in a transaction of its own on the
+  // capture pool, and the block's coverage in another, all before the block's.
   private final Supplier<SegmentedKeyValueStorageTransaction> archiveTransactions;
 
   public ArchiveTrieNodeWriter(
@@ -161,7 +162,28 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private void dispatchBatch(final CaptureBuffer buf) {
     final List<CaptureRequest> batch = List.copyOf(buf.pendingRequests);
     buf.pendingRequests.clear();
-    buf.inFlight.add(capturePool.submit(() -> encodeBatch(batch, buf.chainContiguous)));
+    buf.inFlight.add(capturePool.submit(() -> encodeAndCommit(batch, buf.chainContiguous)));
+  }
+
+  // Runs on the capture pool: encodes the batch, then commits its entries and index updates in a
+  // transaction of its own, so the pool threads share the write work.
+  private void encodeAndCommit(final List<CaptureRequest> batch, final boolean chainContiguous) {
+    final List<EncodedEntry> entries = encodeBatch(batch, chainContiguous);
+    final SegmentedKeyValueStorageTransaction writeTx = archiveTransactions.get();
+    try {
+      for (final EncodedEntry entry : entries) {
+        historyStore.putEncoded(writeTx, entry.historyKey(), entry.codecEntry());
+        entry
+            .latestCounter()
+            .ifPresentOrElse(
+                counter -> historyStore.putLatestCounter(writeTx, entry.naturalKey(), counter),
+                () -> historyStore.removeLatestCounter(writeTx, entry.naturalKey()));
+      }
+    } catch (final RuntimeException | Error e) {
+      writeTx.rollback();
+      throw e;
+    }
+    writeTx.commit();
   }
 
   // Looks up the latest counters of the batch's updates in one multiget; creations, deletions and
@@ -211,45 +233,52 @@ public class ArchiveTrieNodeWriter implements Closeable {
         request.newNode() == null ? Optional.empty() : Optional.of(counter));
   }
 
+  /**
+   * Waits for the block's history entries, which the capture pool commits batch by batch, then
+   * commits the block's coverage in a transaction of its own. The coverage is the commit point:
+   * entries left by a block that fails before it are overwritten when the block is imported again.
+   */
   public void onBeforeCommit(final SegmentedKeyValueStorageTransaction transaction) {
     final CaptureBuffer buf = buffers.remove(transaction);
     if (buf == null) {
       return;
     }
-    final SegmentedKeyValueStorageTransaction archiveTx = archiveTransactions.get();
+    awaitEntries(buf);
+    final SegmentedKeyValueStorageTransaction coverageTx = archiveTransactions.get();
     try {
-      writeBlock(buf, archiveTx);
+      coverageTracker.record(coverageTx, buf.block, buf.blockHash);
     } catch (final RuntimeException | Error e) {
-      archiveTx.rollback();
+      coverageTx.rollback();
       throw e;
     }
-    archiveTx.commit();
+    coverageTx.commit();
   }
 
-  private void writeBlock(
-      final CaptureBuffer buf, final SegmentedKeyValueStorageTransaction writeTx) {
+  // Waits for every batch, so none is still writing when this fails, then rethrows the first
+  // failure.
+  private void awaitEntries(final CaptureBuffer buf) {
+    final List<Future<?>> batches;
     synchronized (buf) {
       if (!buf.pendingRequests.isEmpty()) {
         dispatchBatch(buf);
       }
+      batches = List.copyOf(buf.inFlight);
+    }
+    Throwable failure = null;
+    for (final Future<?> batch : batches) {
       try {
-        for (final Future<List<EncodedEntry>> future : buf.inFlight) {
-          for (final EncodedEntry entry : future.get()) {
-            historyStore.putEncoded(writeTx, entry.historyKey(), entry.codecEntry());
-            entry
-                .latestCounter()
-                .ifPresentOrElse(
-                    counter -> historyStore.putLatestCounter(writeTx, entry.naturalKey(), counter),
-                    () -> historyStore.removeLatestCounter(writeTx, entry.naturalKey()));
-          }
-        }
+        batch.get();
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new RuntimeException("interrupted while flushing trie-node captures", e);
       } catch (final ExecutionException e) {
-        throw new RuntimeException("trie-node capture failed", e.getCause());
+        if (failure == null) {
+          failure = e.getCause();
+        }
       }
-      coverageTracker.record(writeTx, buf.block, buf.blockHash);
+    }
+    if (failure != null) {
+      throw new RuntimeException("trie-node capture failed", failure);
     }
   }
 

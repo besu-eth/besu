@@ -37,7 +37,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -194,19 +197,78 @@ class ArchiveTrieNodeWriterTest {
   }
 
   @Test
-  void archiveTransactionGetsNothingWhenTheBlockFails() {
-    final ArchiveTrieNodeWriter writer = trieNodeWriter;
+  void coverageIsNotRecordedWhenTheBlockFails() {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
 
-    // Block 5 with no coverage: record refuses the gap after the entries are written.
+    // Block 5 with no coverage: record refuses the gap.
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    writer.beginBlock(tx, header(5L));
-    writer.capture(nk, LOCATION, 5L, branchNode(0), null, tx);
-    assertThatThrownBy(() -> writer.onBeforeCommit(tx)).isInstanceOf(IllegalStateException.class);
+    trieNodeWriter.beginBlock(tx, header(5L));
+    trieNodeWriter.capture(nk, LOCATION, 5L, branchNode(0), null, tx);
+    assertThatThrownBy(() -> trieNodeWriter.onBeforeCommit(tx))
+        .isInstanceOf(IllegalStateException.class);
 
-    assertThat(historyStore.getLatestBefore(nk, 5L)).isEmpty();
-    assertThat(latestCounter(nk)).isEmpty();
     assertThat(coverageTracker.getCoverage()).isEmpty();
+  }
+
+  private ArchiveTrieNodeWriter writerWith(
+      final Supplier<SegmentedKeyValueStorageTransaction> archiveTransactions) {
+    return new ArchiveTrieNodeWriter(
+        historyStore,
+        coverageTracker,
+        Executors.newFixedThreadPool(2),
+        DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
+        DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+        archiveTransactions);
+  }
+
+  @Test
+  void coverageIsNotRecordedWhenAnEntryBatchFails() {
+    final AtomicInteger transactions = new AtomicInteger();
+    final ArchiveTrieNodeWriter writer =
+        writerWith(
+            () -> {
+              if (transactions.incrementAndGet() == 1) {
+                throw new IllegalStateException("storage unavailable");
+              }
+              return storage.startBatchTransaction();
+            });
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
+    assertThatThrownBy(() -> writer.onBeforeCommit(tx))
+        .hasMessageContaining("trie-node capture failed");
+
+    assertThat(coverageTracker.getCoverage()).isEmpty();
+  }
+
+  @Test
+  void entriesAreCommittedBeforeCoverageIsOpened() {
+    final AtomicInteger transactions = new AtomicInteger();
+    final AtomicBoolean entriesVisible = new AtomicBoolean();
+    final AtomicBoolean coverageVisible = new AtomicBoolean();
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    final ArchiveTrieNodeWriter writer =
+        writerWith(
+            () -> {
+              // the second transaction is the block's coverage
+              if (transactions.incrementAndGet() == 2) {
+                entriesVisible.set(historyStore.getLatestBefore(nk, 0L).isPresent());
+                coverageVisible.set(coverageTracker.hasArchiveBlock(0L));
+              }
+              return storage.startBatchTransaction();
+            });
+
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
+    writer.onBeforeCommit(tx);
+
+    assertThat(transactions).hasValue(2);
+    assertThat(entriesVisible).isTrue();
+    assertThat(coverageVisible).isFalse();
+    assertThat(coverageTracker.hasArchiveBlock(0L)).isTrue();
   }
 
   @Test
