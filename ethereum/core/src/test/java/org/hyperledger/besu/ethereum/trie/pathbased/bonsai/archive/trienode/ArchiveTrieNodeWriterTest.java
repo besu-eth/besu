@@ -162,22 +162,18 @@ class ArchiveTrieNodeWriterTest {
         .contains(new ArchiveNodeHistoryStore.ArchivedBlock(1L, header(1L).getBlockHash()));
   }
 
-  private ArchiveTrieNodeWriter lowPriorityWriter() {
-    return lowPriorityWriter(Executors.newFixedThreadPool(2));
-  }
-
-  private ArchiveTrieNodeWriter lowPriorityWriter(final ExecutorService pool) {
+  private ArchiveTrieNodeWriter writerWith(final ExecutorService pool) {
     return new ArchiveTrieNodeWriter(
         historyStore,
         pool,
         DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
         DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
-        storage::startLowPriorityTransaction);
+        storage::startBatchTransaction);
   }
 
   @Test
   void archiveTransactionReceivesEntriesAndCoverageInsteadOfPersistTransaction() {
-    final ArchiveTrieNodeWriter writer = lowPriorityWriter();
+    final ArchiveTrieNodeWriter writer = trieNodeWriter;
     final SegmentedKeyValueStorage persistStorage =
         new SegmentedInMemoryKeyValueStorage(
             List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
@@ -246,7 +242,7 @@ class ArchiveTrieNodeWriterTest {
             return true;
           }
         };
-    final ArchiveTrieNodeWriter writer = lowPriorityWriter(pool);
+    final ArchiveTrieNodeWriter writer = writerWith(pool);
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();

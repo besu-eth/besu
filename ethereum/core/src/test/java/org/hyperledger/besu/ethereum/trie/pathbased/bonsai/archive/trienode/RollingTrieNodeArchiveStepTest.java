@@ -159,7 +159,7 @@ class RollingTrieNodeArchiveStepTest {
                 capturePool,
                 DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
                 DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
-                canonical::startLowPriorityTransaction));
+                canonical::startBatchTransaction));
   }
 
   private Hash hashOf(final long block) {

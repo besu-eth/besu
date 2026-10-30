@@ -176,19 +176,6 @@ public class TrailingFlatStateArchiverTest {
   }
 
   @Test
-  public void usesLowPriorityTransactionsForArchiving() {
-    appendBlocks(1);
-    final SegmentedInMemoryKeyValueStorage spyStorage = spy(new SegmentedInMemoryKeyValueStorage());
-    when(worldStateStorage.getComposedWorldStateStorage()).thenReturn(spyStorage);
-
-    final TrailingFlatStateArchiver archiver = createArchiver();
-    archiver.start();
-
-    awaitProgress(archiver, 1L);
-    verify(spyStorage, atLeastOnce()).startLowPriorityTransaction();
-  }
-
-  @Test
   public void archivingStopsAtHeadMinusBoundaryDistance() {
     // head=5, boundaryDistance=3 → target = 5-3 = 2; blocks 1 and 2 archived, 3 not
     appendBlocks(5);

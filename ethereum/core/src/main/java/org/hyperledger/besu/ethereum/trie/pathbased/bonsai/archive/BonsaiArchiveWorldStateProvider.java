@@ -165,7 +165,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             blockchain,
             trieLogManager,
             archiveHistoryStore,
-            () -> newWriter(unstable, capturePool, liveStorage::startLowPriorityTransaction));
+            () -> newWriter(unstable, capturePool, liveStorage::startBatchTransaction));
     final TrailingTrieNodeArchiver archiver =
         new TrailingTrieNodeArchiver(
             blockchain,

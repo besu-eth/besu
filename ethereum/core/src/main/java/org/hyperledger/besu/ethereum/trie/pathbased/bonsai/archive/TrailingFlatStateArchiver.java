@@ -168,7 +168,7 @@ public class TrailingFlatStateArchiver implements Closeable {
         blockNumber++) {
       final TrieLog trieLog = trieLogAt(blockNumber);
       final SegmentedKeyValueStorageTransaction tx =
-          worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
+          worldStateStorage.getComposedWorldStateStorage().startBatchTransaction();
       processBlock(trieLog, blockNumber, tx);
       saveProgress(blockNumber, tx);
       tx.commit();
