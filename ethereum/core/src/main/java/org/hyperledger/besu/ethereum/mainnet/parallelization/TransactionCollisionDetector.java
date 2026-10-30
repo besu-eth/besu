@@ -20,10 +20,9 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.StorageConsumingMap;
 
 import java.util.HashSet;
-import java.util.Objects;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -62,29 +61,28 @@ public class TransactionCollisionDetector {
     if (addressesTouchedByTransaction.contains(miningBeneficiary)) {
       return true;
     }
+    final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
+        parallelizedTransactionContext.transactionAccumulator();
     for (final Address next : addressesTouchedByTransaction) {
-      final Optional<AccountUpdateContext> maybeAddressTouchedByBlock =
-          getAddressTouchedByBlock(next, Optional.of(blockAccumulator));
-      if (maybeAddressTouchedByBlock.isPresent()) {
-        if (maybeAddressTouchedByBlock.get().areAccountDetailsEqualExcludingStorage()) {
-          final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> txStorage =
-              parallelizedTransactionContext
-                  .transactionAccumulator()
-                  .getStorageToUpdate()
-                  .get(next);
-          if (txStorage != null && !txStorage.isEmpty()) {
-            final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> blockStorage =
-                blockAccumulator.getStorageToUpdate().get(next);
-            if (blockStorage != null) {
-              for (final StorageSlotKey key : txStorage.keySet()) {
-                final BonsaiValue<UInt256> blockValue = blockStorage.get(key);
-                if (blockValue != null && !blockValue.isUnchanged()) {
-                  return true;
-                }
-              }
-            }
-          }
-        } else {
+      final BonsaiValue<? extends BonsaiAccount> inBlock =
+          blockAccumulator.getAccountsToUpdate().get(next);
+      if (inBlock == null) {
+        continue;
+      }
+      if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
+        return true;
+      }
+      final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
+          transactionAccumulator.getStorageToUpdate().get(next);
+      final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> blockSlots =
+          blockAccumulator.getStorageToUpdate().get(next);
+      if (slots == null || blockSlots == null) {
+        continue;
+      }
+      // the block may have changed many slots of a popular contract, the transaction few
+      for (final StorageSlotKey slot : slots.keySet()) {
+        final BonsaiValue<UInt256> inBlockSlot = blockSlots.get(slot);
+        if (inBlockSlot != null && !inBlockSlot.isUnchanged()) {
           return true;
         }
       }
@@ -124,44 +122,6 @@ public class TransactionCollisionDetector {
   }
 
   /**
-   * Retrieves the update context for the given address from the block's world state update
-   * accumulator.
-   *
-   * <p>This method checks if the provided accumulator contains updates for the given address. If an
-   * update is found, it compares the prior and updated states of the account to determine if the
-   * key account details (excluding storage) are considered equal. It then returns an {@link
-   * AccountUpdateContext} containing the address and the result of that comparison.
-   *
-   * <p>If no update is found for the address or the accumulator is absent, the method returns an
-   * empty {@link Optional}.
-   *
-   * @param addressToFind The address for which the update context is being queried.
-   * @param maybeBlockAccumulator An {@link Optional} containing the block's world state update
-   *     accumulator, which holds the updates for the accounts in the block.
-   * @return An {@link Optional} containing the {@link AccountUpdateContext} if the address is found
-   *     in the block's updates, otherwise an empty {@link Optional}.
-   */
-  private Optional<AccountUpdateContext> getAddressTouchedByBlock(
-      final Address addressToFind,
-      final Optional<PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount>>
-          maybeBlockAccumulator) {
-    if (maybeBlockAccumulator.isPresent()) {
-      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator =
-          maybeBlockAccumulator.get();
-      final BonsaiValue<? extends BonsaiAccount> pathBasedValue =
-          blockAccumulator.getAccountsToUpdate().get(addressToFind);
-      if (pathBasedValue != null) {
-        return Optional.of(
-            new AccountUpdateContext(
-                addressToFind,
-                areAccountDetailsEqualExcludingStorage(
-                    pathBasedValue.getPrior(), pathBasedValue.getUpdated())));
-      }
-    }
-    return Optional.empty();
-  }
-
-  /**
    * Compares the state of two accounts to check if their key properties are identical, excluding
    * any differences in their storage.
    *
@@ -182,44 +142,5 @@ public class TransactionCollisionDetector {
             && prior.getNonce() == next.getNonce()
             && prior.getBalance().equals(next.getBalance())
             && prior.getCodeHash().equals(next.getCodeHash()));
-  }
-
-  /**
-   * Represents the context of an account update, including the account's address and whether the
-   * key details of the account (excluding storage) are considered equal.
-   *
-   * <p>This record holds two main pieces of information: - `address`: The address of the account
-   * being updated. - `areAccountDetailsEqualExcludingStorage`: A boolean value indicating whether
-   * the account details, excluding the storage (nonce, balance, and code hash), are considered
-   * equal when compared to a previous state.
-   *
-   * <p>This record is used to track changes to account states and determine if key properties are
-   * unchanged, which helps in detecting whether further action is needed for the account update.
-   */
-  private record AccountUpdateContext(
-      Address address, boolean areAccountDetailsEqualExcludingStorage) {
-
-    @Override
-    public boolean equals(final Object o) {
-      if (this == o) return true;
-      if (o == null || getClass() != o.getClass()) return false;
-      AccountUpdateContext that = (AccountUpdateContext) o;
-      return address.equals(that.address);
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hashCode(address);
-    }
-
-    @Override
-    public String toString() {
-      return "AccountUpdateContext{"
-          + "address="
-          + address
-          + ", areAccountDetailsEqualExcludingStorage="
-          + areAccountDetailsEqualExcludingStorage
-          + '}';
-    }
   }
 }
