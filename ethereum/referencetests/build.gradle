@@ -661,11 +661,15 @@ def generateTestFiles(
   }
 }
 
-// Paths of the fixture files under fixturesRoot, relative to it and '/'-separated. Taken relative to
-// fixturesRoot rather than found by searching the absolute path for the fixtures directory name:
-// the fixtures can be unpacked anywhere, and a directory above them may carry that name too.
+// Paths of the blockchain and state test fixtures under fixturesRoot, the only ones the test
+// classes are generated from, relative to it and '/'-separated. The other fixture directories are
+// not walked. Taken relative to fixturesRoot rather than found by searching the absolute path for
+// the fixtures directory name: the fixtures can be unpacked anywhere, and a directory above them
+// may carry that name too.
 def fixturePathsInDir(File fixturesRoot) {
-  return fixturePathsIn(fileTree(fixturesRoot))
+  return fixturePathsIn(fileTree(fixturesRoot) {
+    include 'fixtures/blockchain_tests/**', 'fixtures/state_tests/**'
+  })
 }
 
 // Paths of the fixture files in the tarball, as unpacked relative to the fixtures root. Only the
@@ -708,8 +712,7 @@ def generateTestFilesGroupedByDirectory(
     def isExcluded = excludedPath.any { excluded -> parentPathFile.startsWith(excluded) }
     if (!fileName.startsWith(".") && !isExcluded) {
       // Extract the part after groupBaseDir to get hardfork/eip/file structure
-      def groupBaseDirIndex = relativePath.indexOf(groupBaseDir)
-      def afterGroupBase = relativePath.substring(groupBaseDirIndex + groupBaseDir.length() + 1)
+      def afterGroupBase = relativePath.substring(groupDir.length())
       def parts = afterGroupBase.split("/")
 
       // Extract group key from directory structure (e.g. "prague_eip7702_set_code_tx")
