@@ -32,7 +32,6 @@ import org.hyperledger.besu.evm.internal.StorageEntry;
 import org.hyperledger.besu.evm.internal.UnderflowException;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.v2.operation.StackUtil;
-import org.hyperledger.besu.evm.v2.worldstate.JournaledWorldUpdaterV2;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
@@ -1623,13 +1622,9 @@ public class MessageFrame {
   /**
    * Gets warmedUp Storage.
    *
-   * @return the warmed up storage, a copy on EVM v2
+   * @return the warmed up storage
    */
   public Table<Address, Bytes32, Boolean> getWarmedUpStorage() {
-    // on EVM v2 the journal of the transaction keeps the warm slots
-    if (worldUpdater instanceof JournaledWorldUpdaterV2 journal) {
-      return journal.getWarmedUpStorage();
-    }
     return txValues.warmedUpStorage();
   }
 

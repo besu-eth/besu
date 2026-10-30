@@ -28,8 +28,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import com.google.common.collect.Table;
-import com.google.common.collect.TreeBasedTable;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.jspecify.annotations.Nullable;
@@ -72,7 +70,7 @@ final class TransactionJournalV2 {
   @Nullable private JournalAccountV2 lastAccount;
   // access list slots of accounts not looked up yet, so that the access list alone does not load
   // an account from the parent, which would count as touched for the parallel collision detection
-  private final HashMap<Address, Set<Bytes32>> accessListSlots = new HashMap<>();
+  private final HashMap<Address, Set<UInt256>> accessListSlots = new HashMap<>();
   // never reused, so a slot value of a reverted epoch cannot pass for one of a later epoch
   private int lastStorageEpoch;
 
@@ -122,7 +120,7 @@ final class TransactionJournalV2 {
     final JournalAccountV2 account = new JournalAccountV2(this, address, parent.get(address));
     accounts.put(address, account);
     if (!accessListSlots.isEmpty()) {
-      final Set<Bytes32> slots = accessListSlots.remove(address);
+      final Set<UInt256> slots = accessListSlots.remove(address);
       if (slots != null) {
         slots.forEach(account::warmUpFromAccessList);
       }
@@ -132,11 +130,12 @@ final class TransactionJournalV2 {
 
   /** Warms up a slot of the access list without loading the account, returning if it was warm. */
   boolean warmUpStorage(final Address address, final Bytes32 slot) {
+    final UInt256 key = UInt256.fromBytes(slot);
     final JournalAccountV2 account = accounts.get(address);
     if (account != null) {
-      return account.warmUpStorage(UInt256.fromBytes(slot), slot);
+      return account.warmUpStorage(key);
     }
-    return !accessListSlots.computeIfAbsent(address, unused -> new HashSet<>()).add(slot);
+    return !accessListSlots.computeIfAbsent(address, unused -> new HashSet<>()).add(key);
   }
 
   // updaters
@@ -280,11 +279,7 @@ final class TransactionJournalV2 {
           account.storageEpoch = (int) (oldLongs[i] >> 1);
           account.storageCleared = (oldLongs[i] & 1) != 0;
         }
-        case WARM_UP -> {
-          final JournalAccountV2.Slot slot = (JournalAccountV2.Slot) targets[i];
-          slot.warm = false;
-          slot.warmKey = null;
-        }
+        case WARM_UP -> ((JournalAccountV2.Slot) targets[i]).warm = false;
         case TOUCH -> ((JournalAccountV2) targets[i]).touchedAt = (int) oldLongs[i];
         case LIFECYCLE -> {
           final JournalAccountV2 account = (JournalAccountV2) targets[i];
@@ -308,22 +303,6 @@ final class TransactionJournalV2 {
   }
 
   // what changed since a mark
-
-  /** The warm storage slots of the transaction, as the EIP-2929 table of a v1 frame holds them. */
-  Table<Address, Bytes32, Boolean> warmedUpStorage() {
-    final Table<Address, Bytes32, Boolean> warm = TreeBasedTable.create();
-    accounts.forEach(
-        (address, account) ->
-            account.slots.forEach(
-                (key, slot) -> {
-                  if (slot.warm) {
-                    warm.put(address, slot.warmKey, Boolean.TRUE);
-                  }
-                }));
-    accessListSlots.forEach(
-        (address, slots) -> slots.forEach(slot -> warm.put(address, slot, Boolean.TRUE)));
-    return warm;
-  }
 
   /** Accounts touched since the mark that still exist, as a stacked updater would track them. */
   List<Account> touchedSince(final int mark) {

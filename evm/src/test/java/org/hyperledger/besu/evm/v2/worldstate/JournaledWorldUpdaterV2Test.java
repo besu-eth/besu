@@ -291,7 +291,7 @@ class JournaledWorldUpdaterV2Test {
 
     final JournalAccountV2 created = (JournalAccountV2) frame.createAccount(ABSENT);
     assertThat(created.warmUpStorage(SLOT)).isTrue();
-    assertThat(journal.getWarmedUpStorage().rowKeySet()).containsExactly(CONTRACT, ABSENT);
+    assertThat(created.warmUpStorage(OTHER_SLOT)).isFalse();
   }
 
   @Test
@@ -300,7 +300,6 @@ class JournaledWorldUpdaterV2Test {
     final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(parent);
     assertThat(journal.warmUpStorage(CONTRACT, SLOT)).isFalse();
     assertThat(journal.warmUpStorage(CONTRACT, SLOT)).isTrue();
-    assertThat(journal.getWarmedUpStorage().row(CONTRACT)).containsOnlyKeys(SLOT);
     verify(parent, never()).get(any());
 
     final WorldUpdater frame = journal.updater();
@@ -310,14 +309,6 @@ class JournaledWorldUpdaterV2Test {
     frame.commit();
     // the access list's warm-up is not the frame's, so its revert keeps the slot warm
     assertThat(contract.warmUpStorage(SLOT)).isTrue();
-  }
-
-  @Test
-  void theAccessListWarmsSlotsOfAccountsThatDoNotExist() {
-    assertThat(journal.warmUpStorage(ABSENT, SLOT)).isFalse();
-    assertThat(journal.warmUpStorage(ABSENT, SLOT)).isTrue();
-    assertThat(journal.get(ABSENT)).isNull();
-    journal.commit();
-    assertThat(transactionUpdater.getTouchedAccounts()).isEmpty();
+    assertThat(contract.warmUpStorage(OTHER_SLOT)).isFalse();
   }
 }

@@ -23,7 +23,6 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.util.Collection;
 import java.util.Optional;
 
-import com.google.common.collect.Table;
 import org.apache.tuweni.bytes.Bytes32;
 import org.jspecify.annotations.Nullable;
 
@@ -153,15 +152,6 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
   public boolean warmUpStorage(final Address address, final Bytes32 slot) {
     journal.activate(this);
     return journal.warmUpStorage(address, slot);
-  }
-
-  /**
-   * The storage slots the transaction has warmed up, for building an access list.
-   *
-   * @return the warm slots by account
-   */
-  public Table<Address, Bytes32, Boolean> getWarmedUpStorage() {
-    return journal.warmedUpStorage();
   }
 
   @Override
