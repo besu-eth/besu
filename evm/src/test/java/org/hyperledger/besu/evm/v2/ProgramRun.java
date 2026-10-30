@@ -73,13 +73,17 @@ final class ProgramRun {
       Bytes.fromHexString(
           "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728");
 
-  static final EvmConfiguration V1 = EvmConfiguration.DEFAULT;
-  static final EvmConfiguration V2 =
-      new EvmConfiguration(
-          EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
-          EvmConfiguration.DEFAULT.worldUpdaterMode(),
-          EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
-          true);
+  // Both set the EVM explicitly, so the tests keep comparing v1 with v2 whatever the default is
+  static final EvmConfiguration V1 = withEvmV2(false);
+  static final EvmConfiguration V2 = withEvmV2(true);
+
+  private static EvmConfiguration withEvmV2(final boolean enableEvmV2) {
+    return new EvmConfiguration(
+        EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
+        EvmConfiguration.DEFAULT.worldUpdaterMode(),
+        EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
+        enableEvmV2);
+  }
 
   record Fork(String name, Function<EvmConfiguration, EVM> factory) {
     @Override
