@@ -337,42 +337,61 @@ public class EthScheduler {
   }
 
   /**
-   * This class is a way to execute a set of tasks, one by one, in a strict order, without blocking
-   * the caller in case there are still previous tasks queued
+   * This class is a way to process a set of items, one by one, in a strict order, without blocking
+   * the caller in case there are still previous items queued. To run tasks in order, create it with
+   * {@code Runnable::run} as processor.
    *
    * @param <ITEM> the class of item to be processed
    */
   public class OrderedProcessor<ITEM> {
-    private final Queue<ITEM> blockAddedQueue = new ConcurrentLinkedQueue<>();
-    private final ReentrantLock blockAddedLock = new ReentrantLock();
+    private final Queue<ITEM> queue = new ConcurrentLinkedQueue<>();
+    private final ReentrantLock lock = new ReentrantLock();
     private final Consumer<ITEM> processor;
 
     private OrderedProcessor(final Consumer<ITEM> processor) {
       this.processor = processor;
     }
 
+    /**
+     * Submits an item for processing. If no thread is already processing or waiting to process the
+     * queue, a new thread is scheduled to handle the queued items. Processing errors for individual
+     * items are logged and do not halt the processing of the following items.
+     *
+     * @param item the item to be processed
+     */
     public void submit(final ITEM item) {
       // add the item to the processing queue
-      blockAddedQueue.add(item);
+      queue.add(item);
 
-      if (blockAddedLock.hasQueuedThreads()) {
+      if (lock.hasQueuedThreads()) {
         // another thread is already waiting to process the queue with our item, there is no need to
         // schedule another thread
         LOG.trace(
-            "Block added event queue is already being processed and an already queued thread is present, nothing to do");
+            "Item queue is already being processed and an already queued thread is present, nothing to do");
       } else {
         servicesExecutor.submit(
             () -> {
-              blockAddedLock.lock();
+              lock.lock();
               try {
-                // now that we have the lock, process as many items as possible
-                for (ITEM i = blockAddedQueue.poll(); i != null; i = blockAddedQueue.poll()) {
-                  processor.accept(i);
-                }
+                processQueuedItems();
               } finally {
-                blockAddedLock.unlock();
+                lock.unlock();
               }
             });
+      }
+    }
+
+    private void processQueuedItems() {
+      // now that we have the lock, process as many items as possible
+      for (ITEM i = queue.poll(); i != null; i = queue.poll()) {
+        try {
+          processor.accept(i);
+        } catch (final VirtualMachineError e) {
+          throw e;
+        } catch (final Throwable t) {
+          // a failing item must not prevent the following ones from being processed
+          LOG.warn("Error processing ordered item {}", i, t);
+        }
       }
     }
   }

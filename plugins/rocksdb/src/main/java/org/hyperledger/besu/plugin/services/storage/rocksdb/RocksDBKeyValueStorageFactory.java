@@ -142,6 +142,11 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
       final BesuConfiguration commonConfiguration,
       final MetricsSystem metricsSystem)
       throws StorageException {
+    if (segmentedStorage != null && segmentedStorage.isClosed()) {
+      // The database was closed (e.g. by KeyValueStorageProvider.close() when the node stopped).
+      // A closed RocksDB cannot be reused, so open it again for this caller.
+      segmentedStorage = null;
+    }
     if (requiresInit()) {
       init(commonConfiguration);
     }

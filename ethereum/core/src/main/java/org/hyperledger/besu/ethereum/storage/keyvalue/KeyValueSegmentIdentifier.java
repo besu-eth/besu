@@ -37,6 +37,7 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
   ACCOUNT_INFO_STATE(new byte[] {6}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE), false, true, false),
   CODE_STORAGE(new byte[] {7}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE)),
   ACCOUNT_STORAGE_STORAGE(new byte[] {8}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE), false, true, false),
+  // holds the Patricia trie branch
   TRIE_BRANCH_STORAGE(new byte[] {9}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE), false, true, false),
   TRIE_LOG_STORAGE(new byte[] {10}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE), true, false, true),
   ACCOUNT_INFO_STATE_ARCHIVE(
@@ -56,7 +57,10 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
   BACKWARD_SYNC_CHAIN(new byte[] {15}),
   SNAPSYNC_MISSING_ACCOUNT_RANGE(new byte[] {16}),
   SNAPSYNC_ACCOUNT_TO_FIX(new byte[] {17}),
-  CHAIN_PRUNER_STATE(new byte[] {18});
+  CHAIN_PRUNER_STATE(new byte[] {18}),
+  // flat state the SNAP2 sync stages on Forest, cleared once the tries are built
+  SNAPSYNC_FLAT_ACCOUNTS(new byte[] {19}, EnumSet.of(FOREST)),
+  SNAPSYNC_FLAT_STORAGE(new byte[] {20}, EnumSet.of(FOREST));
 
   private final byte[] id;
   private final EnumSet<DataStorageFormat> formats;

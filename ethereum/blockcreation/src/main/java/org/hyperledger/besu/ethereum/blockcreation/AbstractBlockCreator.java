@@ -53,16 +53,21 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFa
 import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleException;
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -84,6 +89,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
   }
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractBlockCreator.class);
+  private static final StateRootCommitter STATE_ROOT_COMMITTER = new DefaultStateRootCommitter();
 
   private final MiningBeneficiaryCalculator miningBeneficiaryCalculator;
   private final ExtraDataCalculator extraDataCalculator;
@@ -200,6 +206,32 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final long timestamp,
       final boolean rewardCoinbase,
       final BlockHeader parentHeader) {
+    return createBlock(
+        maybeTransactions,
+        maybeOmmers,
+        maybeWithdrawals,
+        maybePrevRandao,
+        maybeParentBeaconBlockRoot,
+        maybeSlotNumber,
+        maybeTargetGasLimit,
+        timestamp,
+        rewardCoinbase,
+        parentHeader,
+        Set.of());
+  }
+
+  public BlockCreationResult createBlock(
+      final Optional<List<Transaction>> maybeTransactions,
+      final Optional<List<BlockHeader>> maybeOmmers,
+      final Optional<List<Withdrawal>> maybeWithdrawals,
+      final Optional<Bytes32> maybePrevRandao,
+      final Optional<Bytes32> maybeParentBeaconBlockRoot,
+      final Optional<Long> maybeSlotNumber,
+      final Optional<Long> maybeTargetGasLimit,
+      final long timestamp,
+      final boolean rewardCoinbase,
+      final BlockHeader parentHeader,
+      final Set<Transaction> inclusionListTransactions) {
 
     final var timings = new BlockCreationTiming();
 
@@ -270,7 +302,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               pluginTransactionSelector,
               selectorsStateManager,
               parentHeader,
-              blockAccessListBuilder);
+              blockAccessListBuilder,
+              inclusionListTransactions);
       transactionResults.logSelectionStats();
       timings.register("txsSelection");
       timings.registerValue(
@@ -326,11 +359,14 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final GasUsage usage =
           computeExcessBlobGas(transactionResults, newProtocolSpec, parentHeader);
 
+      // computed once on the accumulator, persist reuses it to save the trie log
+      final StateRootComputation stateRoot =
+          stateRootForTrieLog(disposableWorldState, transactionResults);
       BlockHeaderBuilder builder =
           BlockHeaderBuilder.create()
               .populateFrom(processableBlockHeader)
               .ommersHash(BodyValidation.ommersHash(ommers))
-              .stateRoot(disposableWorldState.rootHash())
+              .stateRoot(stateRoot != null ? stateRoot.root() : disposableWorldState.rootHash())
               .transactionsRoot(
                   BodyValidation.transactionsRoot(transactionResults.getSelectedTransactions()))
               .receiptsRoot(BodyValidation.receiptsRoot(transactionResults.getReceipts()))
@@ -365,6 +401,16 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
       operationTracer.traceEndBlock(blockHeader, blockBody);
       timings.register("blockAssembled");
+      if (stateRoot != null) {
+        try {
+          disposableWorldState.persist(
+              trieLogKeyHeader(blockHeader), (ws, header, updater) -> stateRoot);
+          timings.register("trieLogSaved");
+        } catch (final RuntimeException e) {
+          // block is still valid, import will just execute it again
+          LOG.warn("Unable to save the trie log of created block {}", blockHeader.toLogString(), e);
+        }
+      }
       return new BlockCreationResult(
           block, transactionResults, timings, blockAccessList, maybeRequests);
     } catch (final SecurityModuleException ex) {
@@ -375,6 +421,35 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       throw new IllegalStateException(
           "Block creation failed unexpectedly. Will restart on next block added to chain.", ex);
     }
+  }
+
+  /**
+   * Save the trie log of created blocks, so the import can use it instead of executing the block
+   * again. Only for path-based world state and blocks with transactions.
+   *
+   * @return true to save the trie log
+   */
+  protected boolean savesTrieLogOfCreatedBlocks() {
+    return false;
+  }
+
+  /**
+   * Header whose hash keys the trie log of a created block, the block header by default.
+   *
+   * @param blockHeader the created block header
+   * @return the header whose hash keys the trie log
+   */
+  protected BlockHeader trieLogKeyHeader(final BlockHeader blockHeader) {
+    return blockHeader;
+  }
+
+  private @Nullable StateRootComputation stateRootForTrieLog(
+      final MutableWorldState worldState, final TransactionSelectionResults transactionResults) {
+    return savesTrieLogOfCreatedBlocks()
+            && !transactionResults.getSelectedTransactions().isEmpty()
+            && worldState instanceof PathBasedWorldState
+        ? STATE_ROOT_COMMITTER.compute(worldState, null, worldState.updater())
+        : null;
   }
 
   record GasUsage(BlobGas excessBlobGas, BlobGas used) {}
@@ -410,7 +485,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final PluginTransactionSelector pluginTransactionSelector,
       final SelectorsStateManager selectorsStateManager,
       final BlockHeader parentHeader,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder)
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Set<Transaction> inclusionListTransactions)
       throws RuntimeException {
     final MainnetTransactionProcessor transactionProcessor = protocolSpec.getTransactionProcessor();
 
@@ -437,7 +513,8 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
             pluginTransactionSelector,
             ethScheduler,
             selectorsStateManager,
-            blockAccessListBuilder);
+            blockAccessListBuilder,
+            inclusionListTransactions);
 
     if (transactions.isPresent()) {
       return selector.evaluateTransactions(transactions.get());

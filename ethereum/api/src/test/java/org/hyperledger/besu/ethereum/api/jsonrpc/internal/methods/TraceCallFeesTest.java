@@ -15,12 +15,14 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -78,6 +80,7 @@ public class TraceCallFeesTest {
   private EthCall ethCall;
   private TraceCall traceCall;
   private TraceCallMany traceCallMany;
+  private DebugTraceCall debugTraceCall;
 
   @BeforeEach
   public void setUp() throws Exception {
@@ -110,6 +113,8 @@ public class TraceCallFeesTest {
         new TraceCall(blockchainQueries, fixture.getProtocolSchedule(), transactionSimulator);
     traceCallMany =
         new TraceCallMany(blockchainQueries, fixture.getProtocolSchedule(), transactionSimulator);
+    debugTraceCall =
+        new DebugTraceCall(blockchainQueries, fixture.getProtocolSchedule(), transactionSimulator);
   }
 
   @ParameterizedTest
@@ -293,6 +298,51 @@ public class TraceCallFeesTest {
     assertThat(senderDebit(many.get(0))).isEqualTo(BigInteger.valueOf(senderDebit));
   }
 
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "\"maxFeePerBlobGas\":\"0x0\",",
+        "\"maxFeePerBlobGas\":\"0x1\",",
+        "\"maxFeePerBlobGas\":\"0x1\",\"blobVersionedHashes\":null,",
+        "\"blobVersionedHashes\":[],",
+        "\"maxFeePerBlobGas\":\"0x0\",\"blobVersionedHashes\":[],",
+        "\"maxFeePerBlobGas\":\"0x1\",\"blobVersionedHashes\":[],"
+      })
+  public void traceCallRejectsBlobFieldsWithoutBlobHashes(final String blobFields) {
+    final String types = "[\"trace\"]";
+    final String valid = "[" + call("") + "," + types + "]";
+    final String invalid = "[" + call(blobFields) + "," + types + "]";
+
+    assertInvalidBlobCount(
+        traceCall, "trace_call", call(blobFields) + "," + types + ",\"" + BLOCK + "\"");
+    assertInvalidBlobCount(
+        traceCallMany, "trace_callMany", "[" + valid + "," + invalid + "],\"" + BLOCK + "\"");
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "\"blobVersionedHashes\":[],",
+        "\"maxFeePerBlobGas\":\"0x1\",\"blobVersionedHashes\":[],"
+      })
+  public void debugTraceCallRejectsEmptyBlobHashes(final String blobFields) {
+    assertInvalidBlobCount(
+        debugTraceCall, "debug_traceCall", call(blobFields) + ",\"" + BLOCK + "\"");
+  }
+
+  // debug_traceCall follows geth, which runs a lone maxFeePerBlobGas from Cancun
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "\"maxFeePerBlobGas\":\"0x0\",",
+        "\"maxFeePerBlobGas\":\"0x1\",",
+        "\"maxFeePerBlobGas\":\"0x1\",\"blobVersionedHashes\":null,"
+      })
+  public void debugTraceCallAcceptsMaxFeePerBlobGasWithoutBlobHashes(final String blobFields)
+      throws Exception {
+    success(debugTraceCall, "debug_traceCall", call(blobFields) + ",\"" + BLOCK + "\"");
+  }
+
   private static BigInteger senderDebit(final JsonNode result) {
     final JsonNode balance = senderDiff(result).get("balance");
     if (balance.isTextual()) {
@@ -405,6 +455,14 @@ public class TraceCallFeesTest {
     final JsonRpcResponse response = method.response(request(name, params));
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     return ((JsonRpcErrorResponse) response).getError();
+  }
+
+  private static void assertInvalidBlobCount(
+      final JsonRpcMethod method, final String name, final String params) {
+    assertThatThrownBy(() -> method.response(request(name, params)))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_BLOB_COUNT));
   }
 
   private static JsonRpcRequestContext request(final String name, final String params)

@@ -42,14 +42,21 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 class ExecutionEngineJsonRpcMethodsTest {
+  private static final Vertx vertx = Vertx.vertx();
   private static final List<String> ALL_ENGINE_METHOD_NAMES =
       Arrays.stream(RpcMethod.values())
           .map(RpcMethod::getMethodName)
           .filter(name -> name.startsWith("engine_"))
           .toList();
+
+  @AfterAll
+  static void tearDown() {
+    vertx.close().toCompletionStage().toCompletableFuture().join();
+  }
 
   /**
    * Ensures that all methods returned by create() are valid and declared "engine_" methods. This
@@ -125,7 +132,7 @@ class ExecutionEngineJsonRpcMethodsTest {
             protocolSchedule,
             protocolContext,
             mock(EthPeers.class),
-            mock(Vertx.class),
+            vertx,
             "testClient",
             "testCommit",
             mock(TransactionPool.class),

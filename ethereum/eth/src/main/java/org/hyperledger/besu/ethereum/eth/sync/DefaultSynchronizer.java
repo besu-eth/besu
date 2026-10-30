@@ -21,6 +21,7 @@ import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
@@ -28,6 +29,8 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.FullSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.Snap2SyncFactory;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.BackgroundBackfill;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
@@ -67,7 +70,9 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   private final Optional<FullSyncDownloader> fullSyncDownloader;
   private final ProtocolContext protocolContext;
   private final PivotBlockSelector pivotBlockSelector;
+  private final boolean keepsPivotBlockSelector;
   private final SyncTerminationCondition terminationCondition;
+  private final BackgroundBackfill backgroundBackfill;
 
   public DefaultSynchronizer(
       final SynchronizerConfiguration syncConfig,
@@ -84,11 +89,24 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
       final MetricsSystem metricsSystem,
       final SyncTerminationCondition terminationCondition,
       final PivotBlockSelector pivotBlockSelector,
-      final Optional<ChainDataPruner> chainDataPruner) {
+      final Optional<ChainDataPruner> chainDataPruner,
+      final Optional<Difficulty> terminalTotalDifficulty) {
     this.syncState = syncState;
     this.pivotBlockSelector = pivotBlockSelector;
+    this.keepsPivotBlockSelector = syncConfig.getSyncMode() == SyncMode.SNAP2;
     this.protocolContext = protocolContext;
     this.terminationCondition = terminationCondition;
+    this.backgroundBackfill =
+        BackgroundBackfill.create(
+            protocolContext.getBlockchain(),
+            protocolSchedule,
+            ethContext.getEthPeers(),
+            syncState,
+            chainDataPruner,
+            syncConfig.getSnapSyncConfiguration(),
+            metricsSystem);
+    // started once the initial sync completes, stopped when it starts again
+    syncState.subscribeCompletionReached(backgroundBackfill);
 
     ChainHeadTracker.trackChainHeadForPeers(
         ethContext,
@@ -96,7 +114,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
         protocolContext.getBlockchain(),
         this::calculateTrailingPeerRequirements);
 
-    if (syncConfig.getSyncMode() == SyncMode.SNAP) {
+    if (syncConfig.getSyncMode().usesSnap()) {
       SnapServerChecker.createAndSetSnapServerChecker(ethContext, metricsSystem);
     }
 
@@ -149,6 +167,22 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                       clock,
                       syncDurationMetrics,
                       chainDataPruner);
+          case SNAP2 ->
+              () ->
+                  Snap2SyncFactory.create(
+                      syncConfig,
+                      dataDirectory,
+                      protocolSchedule,
+                      protocolContext,
+                      metricsSystem,
+                      ethContext.getEthPeers(),
+                      worldStateStorageCoordinator,
+                      storageProvider,
+                      syncState,
+                      pivotBlockSelector,
+                      terminalTotalDifficulty,
+                      // the back-fill goes on with the scheduler of the sync
+                      backgroundBackfill::handOver);
           default -> () -> Optional.empty();
         };
 
@@ -192,6 +226,10 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
       CompletableFuture<Void> future;
       if (fastSyncDownloader.isPresent()) {
+        // Report progress from the start, so eth_syncing is not false during pivot selection and
+        // the backward header download, before the first block import reports any.
+        final long chainHead = protocolContext.getBlockchain().getChainHeadBlockNumber();
+        syncState.setSyncProgress(chainHead, chainHead);
         future = fastSyncDownloader.get().start().thenCompose(this::handleSyncResult);
       } else {
         syncState.markInitialSyncPhaseAsDone();
@@ -205,6 +243,8 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
   @Override
   public void stop() {
+    // the back-fill outlives the initial sync, after which the synchronizer no longer runs
+    backgroundBackfill.stop();
     if (running.compareAndSet(true, false)) {
       LOG.info("Stopping synchronizer");
       fastSyncDownloader.ifPresent(SnapSyncController::stop);
@@ -219,7 +259,12 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   }
 
   @Override
-  public void awaitStop() {}
+  public void awaitStop() throws InterruptedException {
+    if (fastSyncDownloader.isPresent()) {
+      fastSyncDownloader.get().awaitStop();
+    }
+    backgroundBackfill.awaitStop();
+  }
 
   private CompletableFuture<Void> handleSyncResult(final SnapSyncProcessState result) {
     if (!running.get()) {
@@ -254,7 +299,10 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
         LOG.info(
             "Sync completed successfully with pivot block {}",
             result.getPivotBlockNumber().getAsLong());
-      pivotBlockSelector.close();
+      // the head tracker of SNAP2 stays subscribed, as a resync needs the head again
+      if (!keepsPivotBlockSelector) {
+        pivotBlockSelector.close();
+      }
       syncState.markInitialSyncPhaseAsDone();
     }
 
@@ -294,6 +342,11 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   @Override
   public boolean isInSync() {
     return syncState.isInSync();
+  }
+
+  @Override
+  public boolean isInitialSyncPhaseDone() {
+    return syncState.isInitialSyncPhaseDone();
   }
 
   /**

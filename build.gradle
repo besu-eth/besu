@@ -265,10 +265,11 @@ configure(allprojects - project(':platform')) {
       licenseHeaderFile("${rootDir}/gradle/spotless/java.former.date.license").named("older.year").onlyIfContentMatches("^/\\*\\r?\\n.* Copyright \\d{4} ConsenSys AG\\.")
       licenseHeaderFile("${rootDir}/gradle/spotless/java.current.license").named("current").onlyIfContentMatches("^(?!/\\*\\r?\\n \\*.*(ConsenSys AG|Hyperledger Besu)\\.)")
     }
-    // spotless check applied to build.gradle (groovy) files
+    // spotless check applied to build.gradle (groovy) files; built-in steps only, so the check needs no downloads
     groovyGradle {
       target '*.gradle'
-      greclipse('4.31').configFile(rootProject.file('gradle/spotless/greclipse.properties'))
+      leadingTabsToSpaces(2)
+      trimTrailingWhitespace()
       endWithNewline()
     }
     // Below this line are currently only license header tasks
@@ -991,7 +992,7 @@ subprojects {
     jmh {
       zip64.set(true)
       jmhVersion = '1.37'
-      fork = 3
+      fork = 5
       resultFormat = 'JSON'
       var inc = _strListCmdArg('includes', [''])
       includes = inc.size() > 1 ? [".*(${inc.join('|')}).*"] : inc

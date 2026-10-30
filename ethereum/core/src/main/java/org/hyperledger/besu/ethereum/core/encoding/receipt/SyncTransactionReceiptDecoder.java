@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.ArrayList;
@@ -47,6 +48,7 @@ public class SyncTransactionReceiptDecoder {
       receiptInput = new BytesValueRLPInput(transactionTypeCode.slice(1), false);
       transactionTypeCode = transactionTypeCode.slice(0, 1);
     }
+    requireDefinedTransactionType(transactionTypeCode);
 
     receiptInput.enterList();
     Bytes statusOrStateRoot = receiptInput.readBytes();
@@ -64,6 +66,41 @@ public class SyncTransactionReceiptDecoder {
               rawRlp, transactionTypeCode, statusOrStateRoot, cumulativeGasUsed, bloomFilter, logs);
     }
     return syncTransactionReceipt;
+  }
+
+  /**
+   * Rejects an EIP-2718 wire type byte that no transaction type defines.
+   *
+   * <p>{@code 0x00} is reserved by EIP-2718 precisely so that legacy and typed encodings cannot be
+   * confused, and {@code 0xc0}-{@code 0xfe} cannot be type bytes at all because they collide with
+   * RLP list prefixes. Carrying an undefined byte past this point puts it in {@link
+   * SyncTransactionReceipt#getTransactionTypeCode()}, where it is indistinguishable from the {@code
+   * 0x00} that {@link #decodeEth69Receipt} and {@link #decodeLegacyReceipt} synthesise to mean
+   * "legacy, no type prefix" — so a peer could make a typed receipt re-encode as a legacy one for
+   * the receipts-root calculation.
+   *
+   * <p>The accepted set is derived from {@link TransactionType} rather than written out, so a new
+   * transaction type widens it without this method needing to change. {@code FRONTIER} is excluded
+   * deliberately: it is not a wire type, it is the absence of one.
+   *
+   * @param transactionTypeCode the single type byte read from the wire
+   */
+  private void requireDefinedTransactionType(final Bytes transactionTypeCode) {
+    if (transactionTypeCode.size() != 1) {
+      throw new RLPException(
+          "Typed receipt type prefix is "
+              + transactionTypeCode.size()
+              + " bytes, expected exactly 1");
+    }
+    final byte typeByte = transactionTypeCode.get(0);
+    final boolean isDefinedWireType =
+        TransactionType.fromEthSerializedType(typeByte)
+            .filter(transactionType -> transactionType != TransactionType.FRONTIER)
+            .isPresent();
+    if (!isDefinedWireType) {
+      throw new RLPException(
+          String.format("Invalid transaction type 0x%02x in typed receipt", typeByte));
+    }
   }
 
   private SyncTransactionReceipt decodeFlatReceipt(final Bytes rawRlp, final RLPInput rlpInput) {
@@ -96,6 +133,7 @@ public class SyncTransactionReceiptDecoder {
       final RLPInput input,
       final Bytes transactionByteRlp,
       final Bytes statusOrStateRoot) {
+    requireDefinedEth69TransactionType(transactionByteRlp);
     Bytes transactionTypeCode =
         transactionByteRlp.isEmpty()
             ? Bytes.of(TransactionType.FRONTIER.getEthSerializedType())
@@ -105,6 +143,35 @@ public class SyncTransactionReceiptDecoder {
     LogsBloomFilter bloomFilter = LogsBloomFilter.builder().insertRawLogs(logs).build();
     return new SyncTransactionReceipt(
         rawRlp, transactionTypeCode, statusOrStateRoot, cumulativeGasUsed, bloomFilter, logs);
+  }
+
+  /**
+   * Rejects an eth/69 type field that no transaction type defines.
+   *
+   * <p>The rule differs from the EIP-2718 envelope deliberately. eth/69 carries the type as an RLP
+   * scalar (see {@code TransactionReceiptEncoder.writeEth69Receipt}), so a legacy receipt arrives
+   * as the empty string; a literal {@code 0x00} is a non-canonical spelling of the same zero and
+   * means the same thing, so both are accepted here even though {@code 0x00} is invalid inside the
+   * EIP-2718 envelope.
+   *
+   * <p>What must not be accepted is a byte that is no type at all. {@code
+   * SyncTransactionReceiptEncoder.encodeForRootCalculation} treats {@code 0xf8} as "legacy" exactly
+   * as it treats {@code 0x00} — {@code 0xf8} being the RLP long-list prefix that {@code
+   * TransactionType.FRONTIER} carries as its enum value, not a wire type — so an undefined byte
+   * here would let a receipt hash as legacy for the receipts-root check while being stored with the
+   * bogus value.
+   *
+   * @param transactionTypeField the type field as read from the wire, empty for a legacy receipt
+   */
+  private void requireDefinedEth69TransactionType(final Bytes transactionTypeField) {
+    if (transactionTypeField.isEmpty()) {
+      return;
+    }
+    if (transactionTypeField.size() != 1
+        || TransactionType.fromEthSerializedType(transactionTypeField.get(0)).isEmpty()) {
+      throw new RLPException(
+          "Invalid transaction type " + transactionTypeField + " in eth/69 receipt");
+    }
   }
 
   private SyncTransactionReceipt decodeLegacyReceipt(

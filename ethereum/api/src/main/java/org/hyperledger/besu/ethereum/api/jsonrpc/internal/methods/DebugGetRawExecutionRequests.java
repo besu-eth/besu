@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 
 import java.util.List;
 import java.util.Optional;
@@ -106,6 +107,7 @@ public class DebugGetRawExecutionRequests extends AbstractBlockParameterOrBlockH
                 HeaderValidationMode.NONE,
                 HeaderValidationMode.NONE,
                 Optional.empty(),
+                InclusionListTransactions.EMPTY,
                 false,
                 false);
     if (!result.isSuccessful()) {

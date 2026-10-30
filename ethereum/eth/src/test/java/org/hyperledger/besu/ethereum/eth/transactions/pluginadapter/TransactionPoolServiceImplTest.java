@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.transactions.pluginadapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -28,6 +29,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedL
 import org.hyperledger.besu.ethereum.eth.transactions.RemovalReason;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.plugin.services.Subscription;
+import org.hyperledger.besu.plugin.services.transactionpool.spi.TransactionAddedListener;
 
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -51,14 +53,16 @@ class TransactionPoolServiceImplTest {
 
   @Test
   void transactionAddedIsDeliveredAndClosedOnce() {
-    when(transactionPool.subscribePendingTransactions(any())).thenReturn(7L);
+    when(transactionPool.subscribePendingTransactionsAsync(any(), any())).thenReturn(7L);
     final AtomicReference<Transaction> received = new AtomicReference<>();
 
-    final Subscription subscription = service.subscribeTransactionAdded(received::set);
+    final TransactionAddedListener listener = received::set;
+    final Subscription subscription = service.subscribeTransactionAdded(listener);
 
     final ArgumentCaptor<PendingTransactionAddedListener> captor =
         ArgumentCaptor.forClass(PendingTransactionAddedListener.class);
-    verify(transactionPool).subscribePendingTransactions(captor.capture());
+    verify(transactionPool)
+        .subscribePendingTransactionsAsync(captor.capture(), eq(listener.getClass().getName()));
     final org.hyperledger.besu.ethereum.core.Transaction tx =
         mock(org.hyperledger.besu.ethereum.core.Transaction.class);
     captor.getValue().onTransactionAdded(tx);
@@ -72,7 +76,7 @@ class TransactionPoolServiceImplTest {
 
   @Test
   void transactionDroppedIsDeliveredWithReasonLabelAndClosedOnce() {
-    when(transactionPool.subscribeDroppedTransactions(any())).thenReturn(3L);
+    when(transactionPool.subscribeDroppedTransactionsAsync(any(), any())).thenReturn(3L);
     final AtomicReference<Transaction> received = new AtomicReference<>();
     final AtomicReference<String> reason = new AtomicReference<>();
 
@@ -85,7 +89,7 @@ class TransactionPoolServiceImplTest {
 
     final ArgumentCaptor<PendingTransactionDroppedListener> captor =
         ArgumentCaptor.forClass(PendingTransactionDroppedListener.class);
-    verify(transactionPool).subscribeDroppedTransactions(captor.capture());
+    verify(transactionPool).subscribeDroppedTransactionsAsync(captor.capture(), any());
     final org.hyperledger.besu.ethereum.core.Transaction tx =
         mock(org.hyperledger.besu.ethereum.core.Transaction.class);
     final RemovalReason removalReason = mock(RemovalReason.class);

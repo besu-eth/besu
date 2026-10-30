@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
@@ -42,7 +43,9 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BalConcurrentTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.NoFallbackParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.OptimisticConcurrentTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
@@ -52,13 +55,17 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.worldstate.WorldView;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -167,15 +174,12 @@ class AbstractBlockProcessorIntegrationTest {
             BalConfiguration.DEFAULT);
 
     final BlockProcessor parallelBlockProcessor =
-        new MainnetParallelBlockProcessor(
+        new NoFallbackParallelBlockProcessor(
             transactionProcessor,
             receiptFactory,
             BlockHeader::getCoinbase,
             protocolSchedule,
-            BalConfiguration.DEFAULT,
-            new NoOpMetricsSystem(),
-            Runnable::run,
-            Optional.empty());
+            BalConfiguration.DEFAULT);
 
     return Stream.of(
         Arguments.of("sequential", sequentialBlockProcessor),
@@ -358,45 +362,236 @@ class AbstractBlockProcessorIntegrationTest {
 
   @Test
   void parallelFailureIsRerunOnSequentialFallback() {
-    final ProtocolSchedule protocolSchedule = protocolSchedule();
     final Block block = createBlockWithTwoTransfers();
 
+    final FailingAtSecondTransaction blockProcessor =
+        new FailingAtSecondTransaction(protocolSchedule());
     final BlockProcessingResult result =
-        new FailingAtSecondTransaction(
-                protocolSchedule, Optional.of(sequentialBlockProcessor(protocolSchedule)))
-            .processBlock(
-                BlockExecutionContext.builder()
-                    .protocolContext(protocolContext)
-                    .worldState(worldStateArchive.getWorldState())
-                    .block(block)
-                    .blockAccessList(Optional.empty())
-                    .build());
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldStateArchive.getWorldState())
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
 
     // The parallel attempt applied the first transfer before failing. The rerun only succeeds if
     // the world state was reset first; otherwise the first transfer fails on its nonce.
     assertThat(result.isSuccessful()).isTrue();
+    assertThat(blockProcessor.sequentialReruns).isEqualTo(1);
   }
 
   @Test
-  void parallelFailureIsReturnedWithoutSequentialFallback() {
+  void sequentialRerunFailureIsReturnedWithoutFallingBackAgain() {
+    // A wrong state root fails the block sequentially too.
+    final Block block = createBlockWithTwoTransfers(Hash.ZERO.toHexString());
+
+    final FailingAtSecondTransaction blockProcessor =
+        new FailingAtSecondTransaction(protocolSchedule());
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldStateArchive.getWorldState())
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
+
+    assertThat(result.isFailed()).isTrue();
+    // Only the first attempt runs in parallel, so the rerun was sequential.
+    assertThat(blockProcessor.parallelAttempts).isEqualTo(1);
+    assertThat(blockProcessor.sequentialReruns).isEqualTo(1);
+  }
+
+  @Test
+  void requestedSequentialExecutionSkipsParallelExecution() {
     final Block block = createBlockWithTwoTransfers();
 
+    final FailingAtSecondTransaction blockProcessor =
+        new FailingAtSecondTransaction(protocolSchedule());
     final BlockProcessingResult result =
-        new FailingAtSecondTransaction(protocolSchedule(), Optional.empty())
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldStateArchive.getWorldState())
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .sequentialExecutionRequested(true)
+                .build());
+
+    // The block only succeeds sequentially, since the parallel attempt always fails.
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(blockProcessor.parallelAttempts).isZero();
+    assertThat(blockProcessor.sequentialReruns).isZero();
+  }
+
+  @Test
+  void requestedSequentialExecutionFailureIsNotRerun() {
+    // A wrong state root fails the block sequentially.
+    final Block block = createBlockWithTwoTransfers(Hash.ZERO.toHexString());
+
+    final FailingAtSecondTransaction blockProcessor =
+        new FailingAtSecondTransaction(protocolSchedule());
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldStateArchive.getWorldState())
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .sequentialExecutionRequested(true)
+                .build());
+
+    assertThat(result.isFailed()).isTrue();
+    assertThat(blockProcessor.parallelAttempts).isZero();
+    assertThat(blockProcessor.sequentialReruns).isZero();
+  }
+
+  @Test
+  void balPerfectParallelizationFailureIsNotRerun() {
+    final Block block = createBlockWithTwoTransfers();
+
+    final CountingParallelBlockProcessor blockProcessor =
+        new CountingParallelBlockProcessor(
+            protocolSchedule(),
+            ImmutableBalConfiguration.builder().isBalPreFetchReadingEnabled(false).build());
+    // An access list that is not the block's fails it.
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldStateArchive.getWorldState())
+                .block(block)
+                .blockAccessList(Optional.of(new BlockAccessList(List.of())))
+                .build());
+
+    assertThat(result.isFailed()).isTrue();
+    assertThat(blockProcessor.startedProcessors)
+        .singleElement()
+        .isInstanceOf(BalConcurrentTransactionProcessor.class);
+    assertThat(blockProcessor.sequentialReruns).isZero();
+  }
+
+  @Test
+  void blockAccessListFailureIsRerunWhenPerfectParallelizationIsDisabled() {
+    final Block block = createBlockWithTwoTransfers();
+
+    final FailingAtSecondTransaction blockProcessor =
+        new FailingAtSecondTransaction(
+            protocolSchedule(),
+            ImmutableBalConfiguration.builder().isPerfectParallelizationEnabled(false).build());
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldStateArchive.getWorldState())
+                .block(block)
+                .blockAccessList(Optional.of(blockAccessListOf(block)))
+                .build());
+
+    // The state root comes from the access list, so the rerun only succeeds with the block's own.
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(blockProcessor.parallelAttempts).isEqualTo(1);
+    assertThat(blockProcessor.sequentialReruns).isEqualTo(1);
+  }
+
+  @Test
+  void storageFaultResetsTheWorldState() {
+    final BlockExecutionContext context =
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldStateArchive.getWorldState())
+            .block(createBlockWithTwoTransfers())
+            .blockAccessList(Optional.empty())
+            .build();
+
+    final StorageFaultAtSecondTransaction blockProcessor =
+        new StorageFaultAtSecondTransaction(protocolSchedule());
+    assertThatThrownBy(() -> blockProcessor.processBlock(context))
+        .isInstanceOf(StorageException.class);
+
+    // The first transfer was applied before the fault. Processing the block again on the same
+    // world state only succeeds if it was reset; otherwise the first transfer fails on its nonce.
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(context.toBuilder().sequentialExecutionRequested(true).build());
+    assertThat(result.isSuccessful()).isTrue();
+  }
+
+  /** The block's access list, built by processing it sequentially on a separate world state. */
+  private static BlockAccessList blockAccessListOf(final Block block) {
+    final ExecutionContextTestFixture fixture =
+        ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
+            .dataStorageFormat(DataStorageFormat.BONSAI)
+            .build();
+    final ProtocolSchedule protocolSchedule = fixture.getProtocolSchedule();
+    final ProtocolSpec spec = genesisSpec(protocolSchedule);
+    final BlockProcessingResult result =
+        new MainnetBlockProcessor(
+                spec.getTransactionProcessor(),
+                spec.getTransactionReceiptFactory(),
+                BlockHeader::getCoinbase,
+                protocolSchedule,
+                BalConfiguration.DEFAULT)
             .processBlock(
                 BlockExecutionContext.builder()
-                    .protocolContext(protocolContext)
-                    .worldState(worldStateArchive.getWorldState())
+                    .protocolContext(fixture.getProtocolContext())
+                    .worldState(fixture.getStateArchive().getWorldState())
                     .block(block)
                     .blockAccessList(Optional.empty())
                     .build());
+    return result.getYield().orElseThrow().getBlockAccessList().orElseThrow();
+  }
 
-    assertThat(result.isFailed()).isTrue();
+  @Test
+  void blockTracerObservesEveryTransactionOnParallelProcessor() {
+    final ProtocolSchedule protocolSchedule = protocolSchedule();
+    final ProtocolSpec spec = genesisSpec(protocolSchedule);
+    final BlockProcessor parallelBlockProcessor =
+        new MainnetParallelBlockProcessor(
+            spec.getTransactionProcessor(),
+            spec.getTransactionReceiptFactory(),
+            BlockHeader::getCoinbase,
+            protocolSchedule,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem(),
+            Runnable::run);
+    final Block block = createBlockWithTwoTransfers();
+    final List<Hash> tracedTransactions = new ArrayList<>();
+    final BlockAwareOperationTracer blockTracer =
+        new BlockAwareOperationTracer() {
+          @Override
+          public void traceStartTransaction(
+              final WorldView worldView,
+              final org.hyperledger.besu.datatypes.Transaction transaction) {
+            tracedTransactions.add(transaction.getHash());
+          }
+        };
+
+    final BlockProcessingResult result =
+        parallelBlockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldStateArchive.getWorldState())
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .sequentialExecutionRequested(true)
+                .blockTracer(blockTracer)
+                .build());
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(tracedTransactions)
+        .containsExactlyElementsOf(
+            block.getBody().getTransactions().stream().map(Transaction::getHash).toList());
   }
 
   private Block createBlockWithTwoTransfers() {
+    return createBlockWithTwoTransfers(
+        "0x8d9a8161b2c255f8f514cd92e5364624a775e274739dc9379cf938efd7d45ebc");
+  }
+
+  private Block createBlockWithTwoTransfers(final String stateRoot) {
     return createBlockWithTransactions(
-        "0x8d9a8161b2c255f8f514cd92e5364624a775e274739dc9379cf938efd7d45ebc",
+        stateRoot,
         Wei.ZERO,
         createTransferTransaction(
             0, 1_000_000_000_000_000_000L, 300000L, 0L, 0L, ACCOUNT_2, ACCOUNT_GENESIS_1_KEYPAIR),
@@ -415,43 +610,44 @@ class AbstractBlockProcessorIntegrationTest {
     return protocolSchedule.getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
   }
 
-  private static BlockProcessor sequentialBlockProcessor(final ProtocolSchedule protocolSchedule) {
-    final ProtocolSpec spec = genesisSpec(protocolSchedule);
-    return new MainnetBlockProcessor(
-        spec.getTransactionProcessor(),
-        spec.getTransactionReceiptFactory(),
-        BlockHeader::getCoinbase,
-        protocolSchedule,
-        BalConfiguration.DEFAULT);
-  }
-
   /**
    * Fails the block only when processed in parallel: the first transaction is processed
    * sequentially and changes the world state, then the second gets a result that uses more gas than
    * the block allows. That failure path does not reset the world state, so only the fallback's
    * reset makes the sequential rerun succeed.
    */
-  private static final class FailingAtSecondTransaction extends MainnetParallelBlockProcessor {
+  private static class FailingAtSecondTransaction extends MainnetParallelBlockProcessor {
+
+    FailingAtSecondTransaction(final ProtocolSchedule protocolSchedule) {
+      this(protocolSchedule, BalConfiguration.DEFAULT);
+    }
 
     FailingAtSecondTransaction(
-        final ProtocolSchedule protocolSchedule,
-        final Optional<BlockProcessor> sequentialBlockProcessor) {
-      this(genesisSpec(protocolSchedule), protocolSchedule, sequentialBlockProcessor);
+        final ProtocolSchedule protocolSchedule, final BalConfiguration balConfiguration) {
+      this(genesisSpec(protocolSchedule), protocolSchedule, balConfiguration);
     }
 
     private FailingAtSecondTransaction(
         final ProtocolSpec spec,
         final ProtocolSchedule protocolSchedule,
-        final Optional<BlockProcessor> sequentialBlockProcessor) {
+        final BalConfiguration balConfiguration) {
       super(
           spec.getTransactionProcessor(),
           spec.getTransactionReceiptFactory(),
           BlockHeader::getCoinbase,
           protocolSchedule,
-          BalConfiguration.DEFAULT,
+          balConfiguration,
           new NoOpMetricsSystem(),
-          Runnable::run,
-          sequentialBlockProcessor);
+          Runnable::run);
+    }
+
+    private int parallelAttempts;
+    private int sequentialReruns;
+
+    @Override
+    protected BlockProcessingResult processBlockSequentially(final BlockExecutionContext context) {
+      sequentialReruns++;
+      return super.processBlockSequentially(context);
     }
 
     @Override
@@ -465,8 +661,83 @@ class AbstractBlockProcessorIntegrationTest {
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
         final Optional<BlockAccessList> blockAccessList,
         final Optional<BlockHeader> maybeParentHeader) {
-      return Optional.of(
-          new OverBudgetSecondTransaction(transactionProcessor, blockHeader.getGasLimit() + 1));
+      parallelAttempts++;
+      return Optional.of(failingProcessor(blockHeader));
+    }
+
+    ParallelBlockTransactionProcessor failingProcessor(final BlockHeader blockHeader) {
+      return new OverBudgetSecondTransaction(transactionProcessor, blockHeader.getGasLimit() + 1);
+    }
+  }
+
+  /** Like {@link FailingAtSecondTransaction}, but the second transaction hits a storage fault. */
+  private static final class StorageFaultAtSecondTransaction extends FailingAtSecondTransaction {
+
+    StorageFaultAtSecondTransaction(final ProtocolSchedule protocolSchedule) {
+      super(protocolSchedule);
+    }
+
+    @Override
+    ParallelBlockTransactionProcessor failingProcessor(final BlockHeader blockHeader) {
+      return new StorageFaultSecondTransaction(transactionProcessor);
+    }
+  }
+
+  /** Keeps the parallel processors it starts and counts its sequential reruns. */
+  private static final class CountingParallelBlockProcessor extends MainnetParallelBlockProcessor {
+
+    private final List<ParallelBlockTransactionProcessor> startedProcessors = new ArrayList<>();
+    private int sequentialReruns;
+
+    CountingParallelBlockProcessor(
+        final ProtocolSchedule protocolSchedule, final BalConfiguration balConfiguration) {
+      this(genesisSpec(protocolSchedule), protocolSchedule, balConfiguration);
+    }
+
+    private CountingParallelBlockProcessor(
+        final ProtocolSpec spec,
+        final ProtocolSchedule protocolSchedule,
+        final BalConfiguration balConfiguration) {
+      super(
+          spec.getTransactionProcessor(),
+          spec.getTransactionReceiptFactory(),
+          BlockHeader::getCoinbase,
+          protocolSchedule,
+          balConfiguration,
+          new NoOpMetricsSystem(),
+          Runnable::run);
+    }
+
+    @Override
+    protected BlockProcessingResult processBlockSequentially(final BlockExecutionContext context) {
+      sequentialReruns++;
+      return super.processBlockSequentially(context);
+    }
+
+    @Override
+    protected Optional<ParallelBlockTransactionProcessor> startParallelExecution(
+        final ProtocolContext protocolContext,
+        final BlockHeader blockHeader,
+        final List<Transaction> transactions,
+        final Address miningBeneficiary,
+        final BlockHashLookup blockHashLookup,
+        final Wei blobGasPrice,
+        final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
+        final Optional<BlockAccessList> blockAccessList,
+        final Optional<BlockHeader> maybeParentHeader) {
+      final Optional<ParallelBlockTransactionProcessor> parallelProcessor =
+          super.startParallelExecution(
+              protocolContext,
+              blockHeader,
+              transactions,
+              miningBeneficiary,
+              blockHashLookup,
+              blobGasPrice,
+              blockAccessListBuilder,
+              blockAccessList,
+              maybeParentHeader);
+      parallelProcessor.ifPresent(startedProcessors::add);
+      return parallelProcessor;
     }
   }
 
@@ -505,6 +776,32 @@ class AbstractBlockProcessorIntegrationTest {
               Bytes.EMPTY,
               Optional.empty(),
               ValidationResult.valid()));
+    }
+  }
+
+  /**
+   * Has no result for the first transaction, so it is processed sequentially, and fails to import
+   * the second, as a storage fault would.
+   */
+  private static final class StorageFaultSecondTransaction
+      extends OptimisticConcurrentTransactionProcessor {
+
+    StorageFaultSecondTransaction(final MainnetTransactionProcessor transactionProcessor) {
+      super(transactionProcessor);
+    }
+
+    @Override
+    public Optional<TransactionProcessingResult> getProcessingResult(
+        final MutableWorldState worldState,
+        final Address miningBeneficiary,
+        final Transaction transaction,
+        final int location,
+        final Optional<Counter> confirmedParallelizedTransactionCounter,
+        final Optional<Counter> conflictingButCachedTransactionCounter) {
+      if (location == 0) {
+        return Optional.empty();
+      }
+      throw new StorageException("Simulated storage fault");
     }
   }
 
@@ -550,15 +847,12 @@ class AbstractBlockProcessorIntegrationTest {
 
     // No block-level fallback, so a parallel failure is not masked by a sequential rerun.
     BlockProcessor parallelBlockProcessor =
-        new MainnetParallelBlockProcessor(
+        new NoFallbackParallelBlockProcessor(
             transactionProcessor,
             receiptFactory,
             BlockHeader::getCoinbase,
             protocolSchedule,
-            BalConfiguration.DEFAULT,
-            new NoOpMetricsSystem(),
-            Runnable::run,
-            Optional.empty());
+            BalConfiguration.DEFAULT);
 
     BlockProcessingResult parallelResult =
         parallelBlockProcessor.processBlock(

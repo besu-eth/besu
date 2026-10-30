@@ -30,6 +30,7 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -51,6 +52,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedL
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.RemovalReason;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
@@ -72,6 +74,7 @@ import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
@@ -132,6 +135,8 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   private CreatedLayers createLayers(final TransactionPoolConfiguration poolConfig) {
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(ethScheduler);
 
     final BiFunction<PendingTransaction, PendingTransaction, Boolean> transactionReplacementTester =
         (t1, t2) ->
@@ -139,40 +144,45 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
                     poolConf.getPriceBump(), poolConfig.getBlobPriceBump())
                 .shouldReplace(t1, t2, mockBlockHeader());
 
-    final EvictCollectorLayer evictCollector = new EvictCollectorLayer(txPoolMetrics);
+    final EvictCollectorLayer evictCollector =
+        new EvictCollectorLayer(txPoolMetrics, transactionEventNotifier.newEmitter());
 
     final SparseTransactions sparseTransactions =
         new SparseTransactions(
             poolConfig,
-            ethScheduler,
             evictCollector,
             txPoolMetrics,
             transactionReplacementTester,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier.newEmitter());
 
     final ReadyTransactions readyTransactions =
         new ReadyTransactions(
             poolConfig,
-            ethScheduler,
             sparseTransactions,
             txPoolMetrics,
             transactionReplacementTester,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier.newEmitter());
 
     final BaseFeePrioritizedTransactions prioritizedTransactions =
         new BaseFeePrioritizedTransactions(
             poolConfig,
             LayeredPendingTransactionsTest::mockBlockHeader,
-            ethScheduler,
             readyTransactions,
             txPoolMetrics,
             transactionReplacementTester,
             FeeMarket.london(0L),
             new BlobCache(),
             MiningConfiguration.newDefault().setMinTransactionGasPrice(DEFAULT_MIN_GAS_PRICE),
-            senderBalanceChecker);
+            senderBalanceChecker,
+            transactionEventNotifier.newEmitter());
     return new CreatedLayers(
-        prioritizedTransactions, readyTransactions, sparseTransactions, evictCollector);
+        prioritizedTransactions,
+        readyTransactions,
+        sparseTransactions,
+        evictCollector,
+        transactionEventNotifier);
   }
 
   @BeforeEach
@@ -254,7 +264,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   public void evictTransactionsWhenSizeLimitExceeded() {
     final List<Transaction> firstTxs = new ArrayList<>(MAX_TRANSACTIONS);
 
-    smallPendingTransactions.subscribeDroppedTransactions(droppedListener);
+    smallLayers.eventNotifier().subscribePendingTransactionDropped(droppedListener);
 
     for (int i = 0; i < MAX_TRANSACTIONS; i++) {
       final Account sender = mock(Account.class);
@@ -303,10 +313,43 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  public void notifyAddedBeforeDroppedWhenAddedTransactionIsEvicted() {
+    smallLayers.eventNotifier().subscribePendingTransactionAdded(listener);
+    smallLayers.eventNotifier().subscribePendingTransactionDropped(droppedListener);
+
+    // the nonce gap makes the tx go to the sparse layer, where it does not fit, so it evicts itself
+    final Account sender = mock(Account.class);
+    when(sender.getNonce()).thenReturn(0L);
+    final Transaction evictedOnAdd =
+        createTransactionOfSize(
+            1,
+            DEFAULT_BASE_FEE,
+            (int) smallPoolConfig.getPendingTransactionsLayerMaxCapacityBytes() + 1,
+            SIGNATURE_ALGORITHM.generateKeyPair());
+    assertThat(
+            smallPendingTransactions.addTransaction(
+                createRemotePendingTransaction(evictedOnAdd), Optional.of(sender)))
+        .isEqualTo(ADDED);
+    assertTransactionNotPending(smallPendingTransactions, evictedOnAdd);
+
+    final InOrder inOrder = inOrder(listener, droppedListener);
+    inOrder.verify(listener).onTransactionAdded(evictedOnAdd);
+    inOrder.verify(droppedListener).onTransactionDropped(evictedOnAdd, DROPPED);
+    verifyNoMoreInteractions(listener, droppedListener);
+
+    assertThat(getAddedCount(REMOTE, NO_PRIORITY, NEW, smallLayers.sparseTransactions.name()))
+        .isEqualTo(1);
+    assertThat(
+            getRemovedCount(
+                REMOTE, NO_PRIORITY, DROPPED.label(), smallLayers.evictedCollector.name()))
+        .isEqualTo(1);
+  }
+
+  @Test
   public void txsMovingToNextLayerWhenFirstIsFull() {
     final List<Transaction> txs = new ArrayList<>(MAX_TRANSACTIONS + 1);
 
-    pendingTransactions.subscribeDroppedTransactions(droppedListener);
+    layers.eventNotifier().subscribePendingTransactionDropped(droppedListener);
 
     for (int i = 0; i < MAX_TRANSACTIONS + 1; i++) {
       final Account sender = mock(Account.class);
@@ -359,6 +402,32 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  public void dropIfReconciledTransactionTooFarInFutureForTheSender() {
+    final Account sender = mock(Account.class);
+    when(sender.getNonce()).thenReturn(8L);
+
+    final var sparseTransaction = createTransaction(10);
+    assertThat(
+            senderLimitedTransactions.addTransaction(
+                createRemotePendingTransaction(sparseTransaction), Optional.of(sender)))
+        .isEqualTo(ADDED);
+    assertTransactionPending(senderLimitedTransactions, sparseTransaction);
+
+    // the sender nonce goes back, so the reconciliation re-adds the pending transaction with a
+    // gap that is no more allowed for the sender
+    when(sender.getNonce()).thenReturn(2L);
+
+    final var futureTransaction = createTransaction(11);
+    assertThat(
+            senderLimitedTransactions.addTransaction(
+                createRemotePendingTransaction(futureTransaction), Optional.of(sender)))
+        .isEqualTo(NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER);
+    assertTransactionNotPending(senderLimitedTransactions, sparseTransaction);
+    assertTransactionNotPending(senderLimitedTransactions, futureTransaction);
+    assertThat(senderLimitedTransactions.size()).isEqualTo(0);
+  }
+
+  @Test
   public void dropAlreadyConfirmedTransaction() {
     final Account sender = mock(Account.class);
     when(sender.getNonce()).thenReturn(5L);
@@ -374,7 +443,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
   @Test
   public void notifyListenerWhenRemoteTransactionAdded() {
-    pendingTransactions.subscribePendingTransactions(listener);
+    layers.eventNotifier().subscribePendingTransactionAdded(listener);
 
     pendingTransactions.addTransaction(
         createRemotePendingTransaction(transaction0), Optional.empty());
@@ -384,7 +453,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
   @Test
   public void notifyListenerWhenLocalTransactionAdded() {
-    pendingTransactions.subscribePendingTransactions(listener);
+    layers.eventNotifier().subscribePendingTransactionAdded(listener);
 
     pendingTransactions.addTransaction(
         createLocalPendingTransaction(transaction0), Optional.empty());
@@ -394,14 +463,14 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
   @Test
   public void notNotifyListenerAfterUnsubscribe() {
-    final long id = pendingTransactions.subscribePendingTransactions(listener);
+    final long id = layers.eventNotifier().subscribePendingTransactionAdded(listener);
 
     pendingTransactions.addTransaction(
         createRemotePendingTransaction(transaction0), Optional.empty());
 
     verify(listener).onTransactionAdded(transaction0);
 
-    pendingTransactions.unsubscribePendingTransactions(id);
+    layers.eventNotifier().unsubscribePendingTransactionAdded(id);
 
     pendingTransactions.addTransaction(
         createRemotePendingTransaction(transaction1), Optional.empty());
@@ -482,7 +551,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     pendingTransactions.addTransaction(pendingTx0, Optional.empty());
 
     final var droppedTxCollector = new DroppedTransactionCollector();
-    pendingTransactions.subscribeDroppedTransactions(droppedTxCollector);
+    layers.eventNotifier().subscribePendingTransactionDropped(droppedTxCollector);
 
     pendingTransactions.selectTransactions(
         pendingTxs -> {
@@ -771,7 +840,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
                 createRemotePendingTransaction(transaction1), Optional.empty()))
         .isEqualTo(ADDED);
 
-    pendingTransactions.subscribePendingTransactions(listener);
+    layers.eventNotifier().subscribePendingTransactionAdded(listener);
     assertThat(
             pendingTransactions.addTransaction(
                 createRemotePendingTransaction(transaction1b), Optional.empty()))
@@ -1122,7 +1191,8 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
       AbstractPrioritizedTransactions prioritizedTransactions,
       ReadyTransactions readyTransactions,
       SparseTransactions sparseTransactions,
-      EvictCollectorLayer evictedCollector) {}
+      EvictCollectorLayer evictedCollector,
+      TransactionEventNotifier eventNotifier) {}
 
   static class DroppedTransactionCollector implements PendingTransactionDroppedListener {
     final SequencedMap<Transaction, RemovalReason> droppedTransactions = new LinkedHashMap<>();

@@ -21,10 +21,10 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 
@@ -50,20 +50,20 @@ public abstract class AbstractPrioritizedTransactions extends AbstractSequential
 
   public AbstractPrioritizedTransactions(
       final TransactionPoolConfiguration poolConfig,
-      final EthScheduler ethScheduler,
       final TransactionsLayer prioritizedTransactions,
       final TransactionPoolMetrics metrics,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
           transactionReplacementTester,
       final BlobCache blobCache,
-      final MiningConfiguration miningConfiguration) {
+      final MiningConfiguration miningConfiguration,
+      final TransactionEventNotifier.Emitter eventEmitter) {
     super(
         poolConfig,
-        ethScheduler,
         prioritizedTransactions,
         transactionReplacementTester,
         metrics,
-        blobCache);
+        blobCache,
+        eventEmitter);
     this.orderByFee = new TreeSet<>(this::compareByFee);
     this.miningConfiguration = miningConfiguration;
     getAndLogMinPriorityFeePerGas();

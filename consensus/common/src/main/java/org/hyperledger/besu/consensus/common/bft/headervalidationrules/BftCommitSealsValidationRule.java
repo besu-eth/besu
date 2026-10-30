@@ -50,6 +50,35 @@ public class BftCommitSealsValidationRule implements AttachedBlockHeaderValidati
     final Collection<Address> storedValidators =
         bftContext.getValidatorProvider().getValidatorsAfterBlock(parent);
 
+    // Bound the seal count before recovering any key. Each recovery is an ecrecover, the seals
+    // list is decoded with an unbounded readList, and BFT headers carry no extraData length rule
+    // - so without this check any connected eth peer can put an arbitrary number of seals in a
+    // NEW_BLOCK announcement and have every one of them recovered during FULL header validation
+    // before the header is rejected. Measured: 20,000 byte-identical seals cost ~1s of recovery
+    // to yield a single distinct committer.
+    //
+    // A valid BFT header carries at most one seal per validator, so anything above that is
+    // rejectable on an integer comparison. Capping here also bounds the work the checks below can
+    // be made to do, which is why the duplicate and quorum checks that follow are safe to leave
+    // operating on recovered committers.
+    final int sealCount = bftContext.getBlockInterface().getExtraData(header).getSeals().size();
+
+    if (sealCount > storedValidators.size()) {
+      LOGGER.info(
+          "Invalid block header: More commit seals than validators. (Validators {}, seals {})",
+          storedValidators.size(),
+          sealCount);
+      return false;
+    }
+
+    if (sealCount < calculateRequiredValidatorQuorum(storedValidators.size())) {
+      LOGGER.info(
+          "Invalid block header: Insufficient committers to seal block. (Required {}, received {})",
+          calculateRequiredValidatorQuorum(storedValidators.size()),
+          sealCount);
+      return false;
+    }
+
     final List<Address> committers = bftContext.getBlockInterface().getCommitters(header);
     final List<Address> committersWithoutDuplicates = new ArrayList<>(new HashSet<>(committers));
 

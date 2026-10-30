@@ -18,20 +18,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -44,17 +49,20 @@ import org.hyperledger.besu.ethstats.util.EthStatsConnectOptions;
 import org.hyperledger.besu.ethstats.util.ImmutableEthStatsConnectOptions;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.math.BigInteger;
 import java.time.Duration;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.WebSocket;
 import io.vertx.core.http.WebSocketClient;
@@ -208,6 +216,84 @@ public class EthStatsServiceTest {
   }
 
   @Test
+  public void shouldReuseWebSocketClientWhenReconnecting() {
+    when(p2PNetwork.getLocalEnode()).thenReturn(Optional.of(node));
+    when(webSocketClient.connect(any(WebSocketConnectOptions.class)))
+        .thenReturn(Future.failedFuture(new RuntimeException("connection refused")));
+
+    // Vert.x keeps a reference to every client it creates until it is closed itself, so creating a
+    // client per reconnect grows the heap for as long as the ethstats server is unreachable.
+    ethStatsService.start();
+    final ArgumentCaptor<Runnable> retryCaptor = ArgumentCaptor.forClass(Runnable.class);
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      verify(ethScheduler, times(attempt))
+          .scheduleFutureTask(retryCaptor.capture(), any(Duration.class));
+      retryCaptor.getValue().run();
+    }
+
+    verify(webSocketClient, times(4)).connect(any(WebSocketConnectOptions.class));
+    verify(vertx, times(1)).createWebSocketClient(any(WebSocketClientOptions.class));
+    verify(webSocketClient, never()).close();
+  }
+
+  @Test
+  public void shouldCreateNewWebSocketClientWhenStartedAfterStop() {
+    when(p2PNetwork.getLocalEnode()).thenReturn(Optional.of(node));
+
+    ethStatsService.start();
+    ethStatsService.stop();
+    verify(webSocketClient, times(1)).close();
+
+    ethStatsService.start();
+    verify(vertx, times(2)).createWebSocketClient(any(WebSocketClientOptions.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldNotReconnectWhenConnectionClosesAfterStop() {
+    when(p2PNetwork.getLocalEnode()).thenReturn(Optional.of(node));
+
+    ethStatsService.start();
+    final ArgumentCaptor<Handler<Void>> closeHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
+    verify(webSocket).closeHandler(closeHandlerCaptor.capture());
+    ethStatsService.stop();
+    closeHandlerCaptor.getValue().handle(null);
+
+    verify(ethScheduler, never()).scheduleFutureTask(any(Runnable.class), any(Duration.class));
+    verify(vertx, times(1)).createWebSocketClient(any(WebSocketClientOptions.class));
+  }
+
+  @Test
+  public void shouldNotReconnectWhenPendingConnectFailsAfterStop() {
+    when(p2PNetwork.getLocalEnode()).thenReturn(Optional.of(node));
+    final Promise<WebSocket> pendingConnect = Promise.promise();
+    when(webSocketClient.connect(any(WebSocketConnectOptions.class)))
+        .thenReturn(pendingConnect.future());
+
+    ethStatsService.start();
+    ethStatsService.stop();
+    pendingConnect.fail(new RuntimeException("client closed"));
+
+    verify(ethScheduler, never()).scheduleFutureTask(any(Runnable.class), any(Duration.class));
+  }
+
+  @Test
+  public void shouldNotRunScheduledReconnectAfterStop() {
+    when(p2PNetwork.getLocalEnode()).thenReturn(Optional.of(node));
+    when(webSocketClient.connect(any(WebSocketConnectOptions.class)))
+        .thenReturn(Future.failedFuture(new RuntimeException("connection refused")));
+
+    ethStatsService.start();
+    final ArgumentCaptor<Runnable> retryCaptor = ArgumentCaptor.forClass(Runnable.class);
+    verify(ethScheduler).scheduleFutureTask(retryCaptor.capture(), any(Duration.class));
+    ethStatsService.stop();
+    retryCaptor.getValue().run();
+
+    verify(webSocketClient, times(1)).connect(any(WebSocketConnectOptions.class));
+    verify(vertx, times(1)).createWebSocketClient(any(WebSocketClientOptions.class));
+  }
+
+  @Test
   public void shouldSendFullReportIfHelloMessageSucceeded() {
     ethStatsService =
         new EthStatsService(
@@ -312,6 +398,54 @@ public class EthStatsServiceTest {
     final Field field = EthStatsService.class.getDeclaredField(fieldName);
     field.setAccessible(true);
     field.set(ethStatsService, value);
+  }
+
+  @Test
+  public void nodeStatsReportsSyncingTrueWhenNodeIsNotInSync() throws Exception {
+    when(syncState.isInSync()).thenReturn(false);
+
+    assertThat(reportedSyncingField()).isTrue();
+  }
+
+  @Test
+  public void nodeStatsReportsSyncingFalseWhenNodeIsInSync() throws Exception {
+    when(syncState.isInSync()).thenReturn(true);
+
+    assertThat(reportedSyncingField()).isFalse();
+  }
+
+  /** Sends a node stats report and returns its serialized {@code syncing} field. */
+  private boolean reportedSyncingField() throws Exception {
+    final EthPeers ethPeers = mock(EthPeers.class);
+    when(ethPeers.streamAvailablePeers()).thenReturn(Stream.empty());
+    when(ethContext.getEthPeers()).thenReturn(ethPeers);
+
+    final Blockchain blockchain = mock(Blockchain.class);
+    when(blockchain.getChainHeadBlock()).thenReturn(new BlockDataGenerator().block());
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(miningCoordinator.getMinTransactionGasPrice()).thenReturn(Wei.ONE);
+    when(miningCoordinator.isMining()).thenReturn(false);
+    when(p2PNetwork.getLocalEnode()).thenReturn(Optional.of(node));
+
+    ethStatsService.start();
+
+    final Method sendNodeStatsReport =
+        EthStatsService.class.getDeclaredMethod("sendNodeStatsReport");
+    sendNodeStatsReport.setAccessible(true);
+    sendNodeStatsReport.invoke(ethStatsService);
+
+    final ArgumentCaptor<String> messagesCaptor = ArgumentCaptor.forClass(String.class);
+    verify(webSocket, times(2)).writeTextMessage(messagesCaptor.capture());
+
+    final String statsMessage = messagesCaptor.getAllValues().getLast();
+    final ObjectMapper objectMapper = new ObjectMapper().registerModule(new Jdk8Module());
+    return objectMapper
+        .readTree(statsMessage)
+        .get("emit")
+        .get(1)
+        .get("stats")
+        .get("syncing")
+        .asBoolean();
   }
 
   @Test

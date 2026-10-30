@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.manager.snap;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
@@ -70,6 +71,7 @@ public class SnapProtocolManager implements ProtocolManager {
   public SnapProtocolManager(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncConfiguration snapConfig,
+      final boolean advertiseSnap2,
       final EthPeers ethPeers,
       final EthMessages snapMessages,
       final EthScheduler ethScheduler,
@@ -79,7 +81,7 @@ public class SnapProtocolManager implements ProtocolManager {
     this.ethPeers = ethPeers;
     this.snapMessages = snapMessages;
     this.ethScheduler = ethScheduler;
-    this.supportedCapabilities = calculateCapabilities(snapConfig);
+    this.supportedCapabilities = calculateCapabilities(advertiseSnap2);
     this.maxConcurrentRequestsPerPeer = snapConfig.getMaxConcurrentSnapRequestsPerPeer();
     this.maxConcurrentRequestsGlobal = snapConfig.getMaxConcurrentSnapRequestsGlobal();
     new SnapServer(
@@ -97,11 +99,11 @@ public class SnapProtocolManager implements ProtocolManager {
             "Total number of snap sync GET_* requests answered with an empty response because a concurrency cap was reached");
   }
 
-  private List<Capability> calculateCapabilities(final SnapSyncConfiguration snapConfig) {
+  private List<Capability> calculateCapabilities(final boolean advertiseSnap2) {
     final ImmutableList.Builder<Capability> capabilities = ImmutableList.builder();
-    capabilities.add(SnapProtocol.SNAP1);
-    if (Boolean.TRUE.equals(snapConfig.isSnap2Enabled())) {
-      capabilities.add(SnapProtocol.SNAP2);
+    capabilities.add(SnapProtocolVersion.V1.getCapability());
+    if (advertiseSnap2) {
+      capabilities.add(SnapProtocolVersion.V2.getCapability());
     }
 
     return capabilities.build();

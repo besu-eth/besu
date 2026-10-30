@@ -95,6 +95,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Lists;
@@ -1464,36 +1465,33 @@ public final class EthProtocolManagerTest {
 
   @Test
   public void shouldSendEarliestBlockToPeerWhenCapabilityEth69() {
-    long expectedEarliestBlock = 10L;
-    Blockchain blockChainMock = spy(blockchain);
-    when(blockChainMock.getEarliestBlockNumber()).thenReturn(Optional.of(expectedEarliestBlock));
-    try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestBuilder.builder()
-            .setProtocolSchedule(protocolSchedule)
-            .setBlockchain(blockChainMock)
-            .setEthScheduler(new DeterministicEthScheduler(() -> false))
-            .setWorldStateArchive(protocolContext.getWorldStateArchive())
-            .setTransactionPool(transactionPool)
-            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
-            .build()) {
+    final Blockchain blockChainMock = spy(blockchain);
+    when(blockChainMock.getEarliestBlockNumber()).thenReturn(Optional.of(10L));
 
-      setupPeerWithoutStatusExchange(
-          ethManager,
-          (cap, msg, conn) -> {
-            assertThat(msg.getCode() == EthProtocolMessages.STATUS).isTrue();
-            long earliestBlock =
-                StatusMessage.create(msg.getData()).blockRange().orElseThrow().earliestBlock();
-            assertThat(earliestBlock).isEqualTo(expectedEarliestBlock);
-          },
-          EthProtocolVersion.V69.getCapability());
-    }
+    assertThat(sentBlockRange(blockChainMock).earliestBlock()).isEqualTo(10L);
+  }
+
+  @Test
+  public void shouldSendTheGenesisRangeWhenTheEarliestBlockIsAboveTheChainHead() {
+    final Blockchain blockChainMock = spy(blockchain);
+    // a sync moved the chain head up to the bodies it recorded after the head was read
+    when(blockChainMock.getEarliestBlockNumber())
+        .thenReturn(Optional.of(blockchain.getChainHeadBlockNumber() + 1));
+
+    assertThat(sentBlockRange(blockChainMock)).isEqualTo(new StatusMessage.BlockRange(0, 0));
   }
 
   @Test
   public void shouldSendCorrectEarliestBlockToPeerWhenEarliestIsNotSet() {
-    Blockchain blockChainMock = spy(blockchain);
+    final Blockchain blockChainMock = spy(blockchain);
     when(blockChainMock.getEarliestBlockNumber()).thenReturn(Optional.empty());
 
+    assertThat(sentBlockRange(blockChainMock).earliestBlock()).isZero();
+  }
+
+  // the block range of the status message sent to a new eth/69 peer
+  private StatusMessage.BlockRange sentBlockRange(final Blockchain blockChainMock) {
+    final AtomicReference<StatusMessage.BlockRange> sent = new AtomicReference<>();
     try (final EthProtocolManager ethManager =
         EthProtocolManagerTestBuilder.builder()
             .setProtocolSchedule(protocolSchedule)
@@ -1508,11 +1506,10 @@ public final class EthProtocolManagerTest {
           ethManager,
           (cap, msg, conn) -> {
             assertThat(msg.getCode() == EthProtocolMessages.STATUS).isTrue();
-            long earliestBlock =
-                StatusMessage.create(msg.getData()).blockRange().orElseThrow().earliestBlock();
-            assertThat(earliestBlock).isEqualTo(0L);
+            sent.set(StatusMessage.create(msg.getData()).blockRange().orElseThrow());
           },
           EthProtocolVersion.V69.getCapability());
     }
+    return sent.get();
   }
 }

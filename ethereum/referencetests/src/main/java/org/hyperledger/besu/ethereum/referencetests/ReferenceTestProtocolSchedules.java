@@ -32,9 +32,7 @@ import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -53,8 +51,15 @@ public class ReferenceTestProtocolSchedules {
 
   private static final BigInteger CHAIN_ID = BigInteger.ONE;
 
-  private static final List<String> SPECS_PRIOR_TO_DELETING_EMPTY_ACCOUNTS =
-      Arrays.asList("Frontier", "Homestead", "EIP150");
+  private static final Set<String> SPECS_PRIOR_TO_DELETING_EMPTY_ACCOUNTS =
+      Set.of("frontier", "homestead", "eip150");
+
+  /**
+   * Upgrade names the stable fixtures use for forks these schedules know by their EIP names.
+   * Resolved before every lookup, so a fixture naming either gets the same schedule and rules.
+   */
+  private static final Map<String, String> FORK_ALIASES =
+      Map.of("tangerinewhistle", "eip150", "spuriousdragon", "eip158");
 
   private static final Set<String> FORKS_WITHOUT_BLOCK_BUILDING =
       Set.of(
@@ -74,7 +79,23 @@ public class ReferenceTestProtocolSchedules {
   private record CacheKey(EvmConfiguration evmConfiguration, ObjectNode blobSchedule) {}
 
   public static ReferenceTestProtocolSchedules create() {
-    return create(new StubGenesisConfigOptions(), EvmConfiguration.DEFAULT);
+    return create(new StubGenesisConfigOptions(), evmConfiguration());
+  }
+
+  /**
+   * The EVM configuration the reference tests run with: EVM v2 when the system property test.evm.v2
+   * is set to true, the default configuration otherwise.
+   *
+   * @return the EVM configuration
+   */
+  public static EvmConfiguration evmConfiguration() {
+    return Boolean.getBoolean("test.evm.v2")
+        ? new EvmConfiguration(
+            EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
+            EvmConfiguration.DEFAULT.worldUpdaterMode(),
+            EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
+            true)
+        : EvmConfiguration.DEFAULT;
   }
 
   public static ReferenceTestProtocolSchedules create(final EvmConfiguration evmConfiguration) {
@@ -335,7 +356,28 @@ public class ReferenceTestProtocolSchedules {
   }
 
   public ProtocolSchedule getByName(final String name) {
-    return schedules.get(name.toLowerCase(Locale.ROOT));
+    return schedules.get(canonicalForkName(name));
+  }
+
+  /**
+   * The name every lookup here keys on: lower case, with upgrade names resolved to the EIP names
+   * the schedules are registered under.
+   */
+  private static String canonicalForkName(final String fork) {
+    final String lowerCase = fork.toLowerCase(Locale.ROOT);
+    return FORK_ALIASES.getOrDefault(lowerCase, lowerCase);
+  }
+
+  /**
+   * Whether two fork names select the same schedule, so a filter naming a fork by its upgrade name
+   * matches a fixture naming it by its EIP name, and the other way round.
+   *
+   * @param fork a fork name
+   * @param other another fork name
+   * @return true if both resolve to the same fork
+   */
+  public static boolean isSameFork(final String fork, final String other) {
+    return canonicalForkName(fork).equals(canonicalForkName(other));
   }
 
   public ProtocolSpec geSpecByName(final String name) {
@@ -365,10 +407,10 @@ public class ReferenceTestProtocolSchedules {
   }
 
   public static boolean shouldClearEmptyAccounts(final String fork) {
-    return !SPECS_PRIOR_TO_DELETING_EMPTY_ACCOUNTS.contains(fork);
+    return !SPECS_PRIOR_TO_DELETING_EMPTY_ACCOUNTS.contains(canonicalForkName(fork));
   }
 
   public static boolean supportsBlockBuilding(final String fork) {
-    return !FORKS_WITHOUT_BLOCK_BUILDING.contains(fork.toLowerCase(Locale.ROOT));
+    return !FORKS_WITHOUT_BLOCK_BUILDING.contains(canonicalForkName(fork));
   }
 }

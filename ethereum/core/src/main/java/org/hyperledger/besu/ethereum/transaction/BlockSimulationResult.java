@@ -101,9 +101,7 @@ public class BlockSimulationResult {
                   .indexOf(transactionSimulation.result().transaction()),
               false);
       allLogs.addAll(txLogs);
-      // Advance offset by at least 1 per transaction so that failed transactions (0 logs)
-      // still increment the log index, matching geth's eth_simulateV1 behaviour.
-      logIndexOffset += Math.max(1, transactionSimulation.logs().size());
+      logIndexOffset += txLogs.size();
     }
     return allLogs;
   }

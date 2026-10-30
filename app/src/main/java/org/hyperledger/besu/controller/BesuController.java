@@ -405,7 +405,7 @@ public class BesuController implements java.io.Closeable {
       // wrap with TransitionBesuControllerBuilder if we have a terminal total difficulty:
       if (hasTTD) {
         if (MergeBesuControllerBuilder.isPostMergeAtGenesis(genesisConfig)
-            || (syncMode == SyncMode.SNAP && isCheckpointPoSBlock(configOptions))) {
+            || (syncMode.usesSnap() && isCheckpointPoSBlock(configOptions))) {
           return new MergeBesuControllerBuilder().genesisConfig(genesisConfig);
         }
         // TODO this should be changed to vanilla MergeBesuControllerBuilder and the Transition*

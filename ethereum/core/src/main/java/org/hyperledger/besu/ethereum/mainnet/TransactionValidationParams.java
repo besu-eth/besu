@@ -22,60 +22,60 @@ public interface TransactionValidationParams {
 
   TransactionValidationParams processingBlockParams =
       ImmutableTransactionValidationParams.of(
-          false, false, false, true, false, false, false, false, false);
+          false, false, false, true, false, false, false, false, false, false, false, false);
 
   TransactionValidationParams transactionPoolParams =
       ImmutableTransactionValidationParams.of(
-          true, false, true, true, true, false, false, false, true);
+          true, false, true, true, true, false, false, false, true, false, false, false);
 
   TransactionValidationParams miningParams =
       ImmutableTransactionValidationParams.of(
-          false, false, false, true, true, false, false, false, false);
+          false, false, false, true, true, false, false, false, false, false, false, false);
 
   TransactionValidationParams blockReplayParams =
       ImmutableTransactionValidationParams.of(
-          false, false, false, false, false, false, false, false, false);
+          false, false, false, false, false, false, false, false, false, false, false, false);
 
   TransactionValidationParams transactionSimulatorParams =
       ImmutableTransactionValidationParams.of(
-          false, false, false, false, false, true, true, false, false);
+          false, false, false, false, false, true, true, false, false, false, false, true);
 
   TransactionValidationParams transactionSimulatorParamsAllowFutureNonce =
       ImmutableTransactionValidationParams.of(
-          true, false, false, false, false, true, true, false, false);
+          true, false, false, false, false, true, true, false, false, false, false, true);
 
   TransactionValidationParams transactionSimulatorAllowUnderpricedAndFutureNonceParams =
       ImmutableTransactionValidationParams.of(
-          true, false, true, false, false, true, true, false, false);
+          true, false, true, false, false, true, true, false, false, false, false, true);
 
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceParams =
       ImmutableTransactionValidationParams.of(
-          false, true, false, false, false, true, true, false, false);
+          false, true, false, false, false, true, true, false, false, false, false, true);
 
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceAndFutureNonceParams =
       ImmutableTransactionValidationParams.of(
-          true, true, false, false, false, true, true, false, false);
+          true, true, false, false, false, true, true, false, false, false, false, true);
 
   // eth_simulateV1 non-strict: allows exceeding balance and future nonces, and preserves
   // caller-provided gas pricing so that gas fees are actually charged during simulation.
   TransactionValidationParams blockSimulatorNonStrictParams =
       ImmutableTransactionValidationParams.of(
-          true, true, false, false, false, true, true, true, false);
+          true, true, false, false, false, true, true, true, false, true, true, true);
 
   // eth_simulateV1 strict: enforces economic rules (balance, nonce, base fee) against the
-  // caller's literal values, but does NOT enforce consensus-level transaction caps
-  // (EIP-7825, EIP-8037). Those caps govern mempool/block-building for real transactions
-  // and are not applicable to simulation.
+  // caller's literal values, and the EIP-8037 cap on the intrinsic and calldata floor cost, but
+  // does NOT enforce the transaction gas limit caps (EIP-7825, EIP-8037). Those caps govern
+  // mempool/block-building for real transactions and are not applicable to simulation.
   TransactionValidationParams blockSimulatorStrictParams =
       ImmutableTransactionValidationParams.of(
-          false, false, false, false, false, true, true, true, false);
+          false, false, false, false, false, true, true, true, false, false, false, false);
 
   // Block-building simulation strict: same economic rules as blockSimulatorStrictParams, but
   // also enforces consensus-level transaction caps (EIP-7825, EIP-8037) because this path
   // is used to simulate real block production where those caps must apply.
   TransactionValidationParams blockSimulatorConsensusStrictParams =
       ImmutableTransactionValidationParams.of(
-          false, false, false, false, false, true, false, true, false);
+          false, false, false, false, false, true, false, true, false, false, false, false);
 
   @Value.Default
   default boolean isAllowFutureNonce() {
@@ -136,6 +136,35 @@ public interface TransactionValidationParams {
 
   @Value.Default
   default boolean allowIncompleteBlob() {
+    return false;
+  }
+
+  /**
+   * When true, a transaction nonce below the sender account nonce is accepted. Used by
+   * eth_simulateV1 with validation disabled, which skips the check that the transaction nonce
+   * equals the account nonce.
+   */
+  @Value.Default
+  default boolean isAllowPastNonce() {
+    return false;
+  }
+
+  /**
+   * When true, the whole gas limit is available as execution gas after Amsterdam, instead of
+   * capping execution gas at TX_MAX_GAS_LIMIT (EIP-8037). Used by eth_simulateV1 with validation
+   * disabled.
+   */
+  @Value.Default
+  default boolean isAllowExceedingExecutionGasLimit() {
+    return false;
+  }
+
+  /**
+   * When true, the intrinsic gas cost or calldata floor cost of the transaction may exceed
+   * TX_MAX_GAS_LIMIT after Amsterdam (EIP-8037).
+   */
+  @Value.Default
+  default boolean isAllowExceedingIntrinsicGasLimit() {
     return false;
   }
 

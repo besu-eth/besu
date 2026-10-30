@@ -120,7 +120,7 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
 
   private static boolean accountExists(final Account account) {
     // EIP-684: a sent transaction or deployed code blocks creation; storage alone does not
-    return account.getNonce() != 0 || !account.getCode().isEmpty();
+    return account.getNonce() != 0 || account.hasCode();
   }
 
   @Override

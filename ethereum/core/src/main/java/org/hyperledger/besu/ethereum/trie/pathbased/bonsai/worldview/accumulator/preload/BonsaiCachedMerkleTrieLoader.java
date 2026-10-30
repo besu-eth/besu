@@ -32,12 +32,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 
 public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
 
@@ -45,10 +47,23 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
 
   private static final int ACCOUNT_CACHE_SIZE = 100_000;
   private static final int STORAGE_CACHE_SIZE = 200_000;
+
+  // Guava locks a segment per write, and the preload walks write from many threads at once
+  private static final int CACHE_CONCURRENCY =
+      Math.max(4, Runtime.getRuntime().availableProcessors());
+
   private final Cache<Bytes, Bytes> accountNodes =
-      CacheBuilder.newBuilder().recordStats().maximumSize(ACCOUNT_CACHE_SIZE).build();
+      CacheBuilder.newBuilder()
+          .concurrencyLevel(CACHE_CONCURRENCY)
+          .recordStats()
+          .maximumSize(ACCOUNT_CACHE_SIZE)
+          .build();
   private final Cache<Bytes, Bytes> storageNodes =
-      CacheBuilder.newBuilder().recordStats().maximumSize(STORAGE_CACHE_SIZE).build();
+      CacheBuilder.newBuilder()
+          .concurrencyLevel(CACHE_CONCURRENCY)
+          .recordStats()
+          .maximumSize(STORAGE_CACHE_SIZE)
+          .build();
 
   public BonsaiCachedMerkleTrieLoader(final ObservableMetricsSystem metricsSystem) {
     metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "accountsNodes", accountNodes);
@@ -73,12 +88,12 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     try {
       final StoredMerklePatriciaTrie<Bytes, Bytes> accountTrie =
           new StoredMerklePatriciaTrie<>(
-              (location, hash) -> {
-                Optional<Bytes> node =
-                    getAccountStateTrieNode(worldStateKeyValueStorage, location, hash);
-                node.ifPresent(bytes -> accountNodes.put(Hash.hash(bytes).getBytes(), bytes));
-                return node;
-              },
+              (location, hash) ->
+                  loadAndCache(
+                      accountNodes,
+                      hash,
+                      () ->
+                          worldStateKeyValueStorage.getTrieNodeFromCacheOrStorage(location, hash)),
               Bytes32.wrap(worldStateRootHash.getBytes()),
               Function.identity(),
               Function.identity());
@@ -90,48 +105,96 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     }
   }
 
+  /**
+   * Preloads the path of a storage slot. A known storage root saves reading the root node from
+   * storage to find it, and an empty storage trie has no path to preload.
+   *
+   * @param worldStateKeyValueStorage the storage to read the trie nodes from
+   * @param account the account of the slot
+   * @param storageRoot the account's storage root, or null to read the root node from storage
+   * @param slotKey the slot
+   */
   public void preLoadStorageSlot(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
+      final @Nullable Hash storageRoot,
       final StorageSlotKey slotKey) {
+    if (Hash.EMPTY_TRIE_HASH.equals(storageRoot)) {
+      return;
+    }
     CompletableFuture.runAsync(
-        () -> cacheStorageNodes(worldStateKeyValueStorage, account, slotKey), VIRTUAL_POOL);
+        () -> cacheStorageNodes(worldStateKeyValueStorage, account, storageRoot, slotKey),
+        VIRTUAL_POOL);
   }
 
   @VisibleForTesting
   public void cacheStorageNodes(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
+      final @Nullable Hash storageRoot,
       final StorageSlotKey slotKey) {
     final Hash accountHash = account.addressHash();
     final long storageSubscriberId = worldStateKeyValueStorage.subscribe(this);
     try {
-      worldStateKeyValueStorage
-          .getTrieNodeUnsafe(TrieNodeKey.of(accountHash, Bytes.EMPTY))
-          .ifPresent(
-              storageRoot -> {
-                try {
-                  final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
-                      new StoredMerklePatriciaTrie<Bytes, Bytes>(
-                          (location, hash) -> {
-                            Optional<Bytes> node =
-                                getAccountStorageTrieNode(
-                                    worldStateKeyValueStorage, accountHash, location, hash);
-                            node.ifPresent(
-                                bytes -> storageNodes.put(Hash.hash(bytes).getBytes(), bytes));
-                            return node;
-                          },
-                          Bytes32.wrap(Hash.hash(storageRoot).getBytes()),
-                          Function.identity(),
-                          Function.identity());
-                  storageTrie.get(slotKey.getSlotHash().getBytes());
-                } catch (MerkleTrieException e) {
-                  // ignore exception for the cache
-                }
-              });
+      if (storageRoot != null) {
+        walkStorageTrie(
+            worldStateKeyValueStorage, accountHash, Bytes32.wrap(storageRoot.getBytes()), slotKey);
+      } else {
+        worldStateKeyValueStorage
+            .getTrieNodeUnsafe(TrieNodeKey.of(accountHash, Bytes.EMPTY))
+            .ifPresent(
+                rootNode ->
+                    walkStorageTrie(
+                        worldStateKeyValueStorage,
+                        accountHash,
+                        Bytes32.wrap(Hash.hash(rootNode).getBytes()),
+                        slotKey));
+      }
     } finally {
       worldStateKeyValueStorage.unSubscribe(storageSubscriberId);
     }
+  }
+
+  private void walkStorageTrie(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Hash accountHash,
+      final Bytes32 storageRoot,
+      final StorageSlotKey slotKey) {
+    try {
+      final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
+          new StoredMerklePatriciaTrie<Bytes, Bytes>(
+              (location, hash) ->
+                  loadAndCache(
+                      storageNodes,
+                      hash,
+                      () ->
+                          worldStateKeyValueStorage.getTrieNodeFromCacheOrStorage(
+                              TrieNodeKey.of(accountHash, location), hash)),
+              storageRoot,
+              Function.identity(),
+              Function.identity());
+      storageTrie.get(slotKey.getSlotHash().getBytes());
+    } catch (MerkleTrieException e) {
+      // ignore exception for the cache
+    }
+  }
+
+  /** Only a node that was not cached yet is put, so a hit costs no write. */
+  private static Optional<Bytes> loadAndCache(
+      final Cache<Bytes, Bytes> cache,
+      final Bytes32 nodeHash,
+      final Supplier<Optional<Bytes>> loader) {
+    if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
+    }
+    final Bytes cached = cache.getIfPresent(nodeHash);
+    if (cached != null) {
+      return Optional.of(cached);
+    }
+    final Optional<Bytes> node = loader.get();
+    // nodeHash is a slice of the parent node's RLP; copy it so the key doesn't pin that
+    node.ifPresent(bytes -> cache.put(nodeHash.copy(), bytes));
+    return node;
   }
 
   public Optional<Bytes> getAccountStateTrieNode(
@@ -142,7 +205,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
       return Optional.ofNullable(accountNodes.getIfPresent(nodeHash))
-          .or(() -> worldStateKeyValueStorage.getTrieNode(location, nodeHash));
+          .or(() -> worldStateKeyValueStorage.getTrieNodeFromCacheOrStorage(location, nodeHash));
     }
   }
 
@@ -157,7 +220,7 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       return Optional.ofNullable(storageNodes.getIfPresent(nodeHash))
           .or(
               () ->
-                  worldStateKeyValueStorage.getTrieNode(
+                  worldStateKeyValueStorage.getTrieNodeFromCacheOrStorage(
                       TrieNodeKey.of(accountHash, location), nodeHash));
     }
   }

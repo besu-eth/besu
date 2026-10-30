@@ -336,16 +336,22 @@ public class IbftBesuControllerBuilder extends BesuControllerBuilder {
 
   private static MinedBlockObserver blockLogger(
       final TransactionPool transactionPool, final Address localAddress) {
+    // the pool drops the transactions confirmed by this block asynchronously, so log once that is
+    // done, otherwise the pending count still includes the transactions of this block
     return block ->
-        LOG.info(
-            String.format(
-                "%s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)",
-                block.getHeader().getCoinbase().equals(localAddress) ? "Produced" : "Imported",
-                block.getHeader().getNumber(),
-                block.getBody().getTransactions().size(),
-                transactionPool.count(),
-                block.getHeader().getGasUsed(),
-                (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
-                block.getHash().getBytes().toHexString()));
+        transactionPool.runAfterBlockAddedEventsProcessed(
+            () ->
+                LOG.info(
+                    String.format(
+                        "%s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)",
+                        block.getHeader().getCoinbase().equals(localAddress)
+                            ? "Produced"
+                            : "Imported",
+                        block.getHeader().getNumber(),
+                        block.getBody().getTransactions().size(),
+                        transactionPool.count(),
+                        block.getHeader().getGasUsed(),
+                        (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
+                        block.getHash().getBytes().toHexString())));
   }
 }

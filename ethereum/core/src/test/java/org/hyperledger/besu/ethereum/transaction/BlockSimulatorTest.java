@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,6 +57,7 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
@@ -498,6 +500,38 @@ public class BlockSimulatorTest {
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);
+  }
+
+  @Test
+  public void shouldRejectSenderAtMaxNonceWithValidationDisabled() {
+    final Address sender = Address.fromHexString("0xc000000000000000000000000000000000000000");
+    final MutableAccount senderAccount = mock(MutableAccount.class);
+    when(senderAccount.getNonce()).thenReturn(Account.MAX_NONCE);
+    when(updater.get(sender)).thenReturn(senderAccount);
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getSender()).thenReturn(Optional.of(sender));
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(false)
+            .build();
+
+    BlockStateCallException exception =
+        assertThrows(
+            BlockStateCallException.class,
+            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(exception.getError()).isEqualTo(BlockStateCallError.UNKNOWN);
+    assertThat(exception.getError().getCode()).isEqualTo(-32603);
+    verify(transactionSimulator, never())
+        .processWithWorldUpdater(
+            any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any(), any(), any(),
+            any());
   }
 
   @Test

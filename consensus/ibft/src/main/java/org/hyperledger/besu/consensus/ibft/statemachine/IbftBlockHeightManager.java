@@ -174,13 +174,8 @@ public class IbftBlockHeightManager implements BaseIbftBlockHeightManager {
     LOG.debug(
         "Round has expired, creating PreparedCertificate and notifying peers. round={}",
         currentRound.getRoundIdentifier());
-    final Optional<PreparedRoundArtifacts> preparedRoundArtifacts =
-        currentRound.constructPreparedRoundArtifacts();
-
-    if (preparedRoundArtifacts.isPresent()) {
-      latestPreparedRoundArtifacts = preparedRoundArtifacts;
-    }
-
+    // The prepared artifacts of the round being abandoned are latched by startNewRound, which
+    // covers this path and the two that do not pass through here.
     startNewRound(currentRound.getRoundIdentifier().getRoundNumber() + 1);
 
     try {
@@ -282,6 +277,23 @@ public class IbftBlockHeightManager implements BaseIbftBlockHeightManager {
 
   private void startNewRound(final int roundNumber) {
     LOG.debug("Starting new round {}", roundNumber);
+
+    // Latch the outgoing round's prepared artifacts before currentRound is replaced below.
+    //
+    // This capture used to live solely in roundExpired, but startNewRound is also reached from
+    // the future-round-proposal path and the round-change-quorum path, neither of which passes
+    // through it. A validator that had prepared a block and advanced by either route discarded
+    // the RoundState holding that fact and reported nothing prepared in its next RoundChange,
+    // filling its slot in the quorum intersection that IBFT's safety argument relies on while
+    // contributing nothing. Rounds advance monotonically, so overwriting is correct.
+    //
+    // QbftBlockHeightManager carries the same fix; the two engines share this shape.
+    if (currentRound != null) {
+      currentRound
+          .constructPreparedRoundArtifacts()
+          .ifPresent(artifacts -> latestPreparedRoundArtifacts = Optional.of(artifacts));
+    }
+
     if (futureRoundStateBuffer.containsKey(roundNumber)) {
       currentRound =
           roundFactory.createNewRoundWithState(

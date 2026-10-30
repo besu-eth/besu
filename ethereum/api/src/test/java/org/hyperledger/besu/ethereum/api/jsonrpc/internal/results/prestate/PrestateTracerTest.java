@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.prestate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -82,6 +83,7 @@ class PrestateTracerTest {
     when(protocolSpec.getEvm()).thenReturn(evm);
     when(evm.getEvmVersion()).thenReturn(EvmSpecVersion.CANCUN);
     when(evm.getMaxInitcodeSize()).thenReturn(0xC000);
+    when(protocolSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
     world = mock(WorldUpdater.class);
   }
 
@@ -158,6 +160,26 @@ class PrestateTracerTest {
     when(frame.getStackItem(1)).thenReturn(UInt256.ZERO); // offset
     when(frame.getStackItem(2)).thenReturn(UInt256.valueOf(size)); // size
     when(frame.getStackItem(3)).thenReturn(UInt256.ZERO); // salt
+    when(frame.getRemainingGas()).thenReturn(remainingGas);
+    when(frame.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
+    return frame;
+  }
+
+  private MessageFrame create2FrameV2(
+      final Address self, final long size, final long remainingGas) {
+    final MessageFrame frame = mock(MessageFrame.class);
+    final Create2Operation operation = new Create2Operation(new CancunGasCalculator());
+    when(frame.getCurrentOperation()).thenReturn(operation);
+    when(frame.getWorldUpdater()).thenReturn(world);
+    when(frame.getRecipientAddress()).thenReturn(self);
+    when(frame.runsOnEvmV2()).thenReturn(true);
+    when(frame.stackTopV2()).thenReturn(4);
+    when(frame.stackItemV2(0)).thenReturn(UInt256.ZERO); // value
+    when(frame.stackItemV2(1)).thenReturn(UInt256.ZERO); // offset
+    when(frame.stackItemV2(2)).thenReturn(UInt256.valueOf(size)); // size
+    when(frame.stackItemV2(3)).thenReturn(UInt256.ZERO); // salt
+    when(frame.getStackItem(anyInt())).thenThrow(new IllegalStateException("v1 stack read"));
+    when(frame.stackSize()).thenThrow(new IllegalStateException("v1 stack read"));
     when(frame.getRemainingGas()).thenReturn(remainingGas);
     when(frame.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
     return frame;
@@ -494,5 +516,36 @@ class PrestateTracerTest {
         (PrestateTracerResult.Prestate) tracer.buildResult();
     assertThat(result.accounts()).containsKey(expected.toHexString());
     assertThat(result.accounts().get(expected.toHexString()).balance()).isEqualTo("0x3");
+  }
+
+  @Test
+  void create2ReadsTheStackOfAFrameEvmV2Runs() {
+    final PrestateTracer tracer = newTracer(Map.of());
+    startTransaction(tracer, RECIPIENT);
+
+    final Bytes initCode = Bytes.repeat((byte) 0x60, 32);
+    final MessageFrame frame = create2FrameV2(RECIPIENT, 32, 100_000L);
+    when(frame.shadowReadMemory(0, 32)).thenReturn(initCode);
+
+    final Address expected =
+        Address.extract(
+            Bytes32.wrap(
+                Hash.hash(
+                        Bytes.concatenate(
+                            Bytes.of((byte) 0xff),
+                            RECIPIENT.getBytes(),
+                            Bytes32.ZERO,
+                            Hash.hash(initCode).getBytes()))
+                    .getBytes()));
+    final Account expectedAccount = mockAccount(expected, Wei.of(3), 0, Bytes.EMPTY);
+    when(world.get(expected)).thenReturn(expectedAccount);
+
+    tracer.tracePreExecution(frame);
+    tracer.tracePostExecution(frame, null);
+    endTransaction(tracer);
+
+    final PrestateTracerResult.Prestate result =
+        (PrestateTracerResult.Prestate) tracer.buildResult();
+    assertThat(result.accounts()).containsKey(expected.toHexString());
   }
 }

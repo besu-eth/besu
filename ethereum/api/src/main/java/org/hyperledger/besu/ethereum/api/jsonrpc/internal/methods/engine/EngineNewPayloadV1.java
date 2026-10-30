@@ -59,6 +59,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
 import org.jspecify.annotations.NonNull;
@@ -561,7 +562,26 @@ public sealed class EngineNewPayloadV1<
   }
 
   protected BlockProcessingResult rememberBlock(final Block block, final EP executionPayload) {
-    return mergeCoordinator.rememberBlock(block, Optional.empty());
+    return mergeCoordinator.rememberBlock(block, Optional.empty(), writeAfterReply(block));
+  }
+
+  /**
+   * Stores a valid block once the reply is sent. The calls that need the block are only sent after
+   * the reply, and they run behind the writes.
+   *
+   * @param block the block being validated
+   * @return the writer of the block
+   */
+  protected Executor writeAfterReply(final Block block) {
+    return writes ->
+        queueOnOrderedThread(
+            () -> {
+              try {
+                writes.run();
+              } catch (final RuntimeException e) {
+                logger().error("Failed to store valid block {}", block.toLogString(), e);
+              }
+            });
   }
 
   protected void appendNewPayloadToSync(final Block block, final EP executionPayload) {

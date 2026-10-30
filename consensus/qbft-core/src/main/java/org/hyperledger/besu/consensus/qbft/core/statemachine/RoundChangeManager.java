@@ -153,6 +153,15 @@ public class RoundChangeManager {
       LOG.info("RoundChange message is invalid .");
       return;
     }
+    storeAndLogValidatedRoundChangeSummary(message);
+  }
+
+  /**
+   * As {@link #storeAndLogRoundChangeSummary}, for a message the caller has already validated.
+   *
+   * @param message the round-change message that has just been received and validated
+   */
+  public void storeAndLogValidatedRoundChangeSummary(final RoundChange message) {
     roundSummary.put(message.getAuthor(), message.getRoundIdentifier());
     if (roundChangeCache.keySet().stream()
             .findFirst()
@@ -217,6 +226,25 @@ public class RoundChangeManager {
       return Optional.empty();
     }
 
+    return appendValidatedRoundChangeMessage(msg);
+  }
+
+  /**
+   * Adds an already-validated round change message to this manager and returns a certificate if it
+   * passes the threshold.
+   *
+   * <p>Validating a RoundChange that carries a block executes every transaction in that block, so a
+   * caller that has already called {@link #isMessageValid} for this message uses this variant to
+   * avoid paying that cost a second time. Callers that have not validated the message must use
+   * {@link #appendRoundChangeMessage} instead.
+   *
+   * @param msg the signed round change message to add, which the caller has already validated
+   * @return empty if the round change threshold hasn't been hit, otherwise a round change
+   *     certificate
+   */
+  public Optional<Collection<RoundChange>> appendValidatedRoundChangeMessage(
+      final RoundChange msg) {
+
     final RoundChangeStatus roundChangeStatus = storeRoundChangeMessage(msg);
 
     if (roundChangeStatus.roundChangeQuorumReceived()) {
@@ -226,7 +254,14 @@ public class RoundChangeManager {
     return Optional.empty();
   }
 
-  private boolean isMessageValid(final RoundChange msg) {
+  /**
+   * Validates a round change message. For a message carrying a proposed block this executes the
+   * block, so the verdict is worth reusing rather than recomputing.
+   *
+   * @param msg the round change message to validate
+   * @return true if the message is valid
+   */
+  public boolean isMessageValid(final RoundChange msg) {
     return roundChangeMessageValidator.validate(msg);
   }
 

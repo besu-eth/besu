@@ -44,9 +44,6 @@ public class SnapSyncConfiguration {
       1024; // The default number of flat slots entries to verify and heal per request.
 
   public static final Boolean DEFAULT_SNAP_SERVER_ENABLED = Boolean.FALSE;
-  public static final Boolean DEFAULT_SNAP2_ENABLED = Boolean.FALSE;
-  // per snap/2 world state pipeline; the download is bound by request latency, not by CPU
-  public static final int DEFAULT_SNAP2_REQUEST_PARALLELISM = 64;
 
   /**
    * Default cap on the number of snap/1-2 GET_* requests from a single peer that may have a service
@@ -74,6 +71,7 @@ public class SnapSyncConfiguration {
 
   public static final Boolean DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED = Boolean.FALSE;
   public static final Boolean DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED = Boolean.TRUE;
+  public static final Boolean DEFAULT_SNAP2_BACKFILL_ENABLED = Boolean.TRUE;
 
   public static SnapSyncConfiguration getDefault() {
     return ImmutableSnapSyncConfiguration.builder().build();
@@ -120,16 +118,6 @@ public class SnapSyncConfiguration {
   }
 
   @Value.Default
-  public Boolean isSnap2Enabled() {
-    return DEFAULT_SNAP2_ENABLED;
-  }
-
-  @Value.Default
-  public int getSnap2RequestParallelism() {
-    return DEFAULT_SNAP2_REQUEST_PARALLELISM;
-  }
-
-  @Value.Default
   public int getMaxConcurrentSnapRequestsPerPeer() {
     return DEFAULT_MAX_CONCURRENT_SNAP_REQUESTS_PER_PEER;
   }
@@ -142,5 +130,10 @@ public class SnapSyncConfiguration {
   @Value.Default
   public Boolean isSnapSyncTransactionIndexingEnabled() {
     return DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED;
+  }
+
+  @Value.Default
+  public Boolean isSnap2BackfillEnabled() {
+    return DEFAULT_SNAP2_BACKFILL_ENABLED;
   }
 }

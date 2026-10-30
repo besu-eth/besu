@@ -43,7 +43,8 @@ public class LegacyTransactionPoolGasPriceTest extends AbstractTransactionPoolTe
         poolConfig,
         TestClock.system(ZoneId.systemDefault()),
         metricsSystem,
-        protocolContext.getBlockchain()::getChainHeadHeader);
+        protocolContext.getBlockchain()::getChainHeadHeader,
+        transactionEventNotifier.newEmitter());
   }
 
   @Override

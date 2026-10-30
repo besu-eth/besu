@@ -40,8 +40,10 @@ import org.apache.tuweni.bytes.Bytes32;
  *   <li><b>BlockPropagated</b> - Fired when a new block header has been received and validated and
  *       is about to be sent out to other peers, but before the body of the block has been evaluated
  *       and validated.
- *   <li><b>TransactionAdded</b> - Fired when a new transaction has been added to the node.
- *   <li><b>TransactionDropped</b> - Fired when a new transaction has been dropped from the node.
+ *   <li><b>TransactionAdded</b> - Fired asynchronously when a new transaction has been added to the
+ *       node.
+ *   <li><b>TransactionDropped</b> - Fired asynchronously when a new transaction has been dropped
+ *       from the node.
  *   <li><b>Logs</b> - Fired when a new block containing logs is received.
  *   <li><b>SynchronizerStatus </b> - Fired when the status of the synchronizer changes.
  * </ul>
@@ -113,6 +115,15 @@ public interface BesuEvents extends BesuService {
   /**
    * Add a listener watching new transactions added to the node.
    *
+   * <p>The listener is notified asynchronously, on a Besu thread different from the one that added
+   * the transaction, so by the time it is invoked the transaction may no longer be in the pool.
+   * Transaction added and dropped events are delivered one at a time, in the order the transaction
+   * pool notifies them, which is not always the order in which the changes happened. When the
+   * transaction pool is disabled, the events not yet delivered are discarded. A slow listener
+   * delays the delivery of the following events to all the transaction listeners, so long-running
+   * work should be moved to a separate thread. Exceptions thrown by the listener are logged and do
+   * not prevent the delivery of the following events.
+   *
    * @param transactionAddedListener The listener that will accept the Transaction object as the
    *     event.
    * @return an id to be used as an identifier when de-registering the event.
@@ -120,7 +131,8 @@ public interface BesuEvents extends BesuService {
   long addTransactionAddedListener(TransactionAddedListener transactionAddedListener);
 
   /**
-   * Remove the blockAdded listener from besu notifications.
+   * Remove the transactionAdded listener from besu notifications. Since notifications are delivered
+   * asynchronously, events that were already queued before the removal could still be delivered.
    *
    * @param listenerIdentifier The id that was returned from addTransactionAddedListener
    */
@@ -129,6 +141,14 @@ public interface BesuEvents extends BesuService {
   /**
    * Add a listener watching dropped transactions.
    *
+   * <p>The listener is notified asynchronously, on a Besu thread different from the one that
+   * dropped the transaction. Transaction added and dropped events are delivered one at a time, in
+   * the order the transaction pool notifies them, which is not always the order in which the
+   * changes happened. When the transaction pool is disabled, the events not yet delivered are
+   * discarded. A slow listener delays the delivery of the following events to all the transaction
+   * listeners, so long-running work should be moved to a separate thread. Exceptions thrown by the
+   * listener are logged and do not prevent the delivery of the following events.
+   *
    * @param transactionDroppedListener The listener that will accept the Transaction object as the
    *     event.
    * @return an id to be used as an identifier when de-registering the event.
@@ -136,7 +156,9 @@ public interface BesuEvents extends BesuService {
   long addTransactionDroppedListener(TransactionDroppedListener transactionDroppedListener);
 
   /**
-   * Remove the transactionDropped listener from besu notifications.
+   * Remove the transactionDropped listener from besu notifications. Since notifications are
+   * delivered asynchronously, events that were already queued before the removal could still be
+   * delivered.
    *
    * @param listenerIdentifier The id that was returned from addTransactionDroppedListener
    */
@@ -228,7 +250,10 @@ public interface BesuEvents extends BesuService {
     void onBlockReorg(AddedBlockContext addedBlockContext);
   }
 
-  /** The listener interface for receiving new transaction added events. */
+  /**
+   * The listener interface for receiving new transaction added events, see {@link
+   * #addTransactionAddedListener} for the delivery guarantees.
+   */
   interface TransactionAddedListener {
 
     /**
@@ -239,7 +264,10 @@ public interface BesuEvents extends BesuService {
     void onTransactionAdded(Transaction transaction);
   }
 
-  /** The listener interface for receiving transaction dropped events. */
+  /**
+   * The listener interface for receiving transaction dropped events, see {@link
+   * #addTransactionDroppedListener} for the delivery guarantees.
+   */
   interface TransactionDroppedListener {
 
     /**

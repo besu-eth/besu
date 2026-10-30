@@ -1,0 +1,105 @@
+{
+    "tests/frontier/touch/test_touch.py::test_zero_gas_price_and_touching[fork_SpuriousDragon-state_test]": {
+        "env": {
+            "currentCoinbase": "0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba",
+            "currentGasLimit": "0x07270e00",
+            "currentNumber": "0x01",
+            "currentTimestamp": "0x03e8",
+            "currentDifficulty": "0x020000"
+        },
+        "pre": {
+            "0xf6c3a9edc1afa0ad5b720e4d42e1437c43d3b3ff": {
+                "nonce": "0x00",
+                "balance": "0x033b2e3c9fd0803ce8000000",
+                "code": "0x",
+                "storage": {}
+            },
+            "0x43e6f595ac8e8c6e584c7a2d9949a6bfae8c4287": {
+                "nonce": "0x01",
+                "balance": "0x00",
+                "code": "0x600160005500",
+                "storage": {}
+            }
+        },
+        "transaction": {
+            "nonce": "0x00",
+            "gasPrice": "0x00",
+            "gasLimit": [
+                "0x07270e00"
+            ],
+            "to": "0x43e6f595ac8e8c6e584c7a2d9949a6bfae8c4287",
+            "value": [
+                "0x00"
+            ],
+            "data": [
+                "0x"
+            ],
+            "sender": "0xf6c3a9edc1afa0ad5b720e4d42e1437c43d3b3ff",
+            "secretKey": "0x1ad604b3d94e06ec50b27732ec677f3d857c4d588f082f0016317697dd3a2d92"
+        },
+        "post": {
+            "SpuriousDragon": [
+                {
+                    "hash": "0xe68fdc8013ef9ed8f546616b2082623997955c016528d06e9c9a24e5a55573b3",
+                    "logs": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+                    "receipt": {
+                        "transactionHash": "0x3358058cf4aa59cb8d80ea164bc26affac51cebe9d56da1d9fb73875873d16aa",
+                        "type": "0x00",
+                        "cumulativeGasUsed": "0xa02e",
+                        "bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                        "logs": [],
+                        "postState": "0xe68fdc8013ef9ed8f546616b2082623997955c016528d06e9c9a24e5a55573b3",
+                        "rlp": "0xf90128a0e68fdc8013ef9ed8f546616b2082623997955c016528d06e9c9a24e5a55573b382a02eb9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c0"
+                    },
+                    "txbytes": "0xf86180808407270e009443e6f595ac8e8c6e584c7a2d9949a6bfae8c428780801ba0e930668f6323b055c87344cd649f0508b177c095c1b6034bb27f61d9b221b664a03086821cd994e6e51531de905dbaa89caef00b7fe87c1967f668e0dac36fc78e",
+                    "indexes": {
+                        "data": 0,
+                        "gas": 0,
+                        "value": 0
+                    },
+                    "state": {
+                        "0xf6c3a9edc1afa0ad5b720e4d42e1437c43d3b3ff": {
+                            "nonce": "0x01",
+                            "balance": "0x033b2e3c9fd0803ce8000000",
+                            "code": "0x",
+                            "storage": {}
+                        },
+                        "0x43e6f595ac8e8c6e584c7a2d9949a6bfae8c4287": {
+                            "nonce": "0x01",
+                            "balance": "0x00",
+                            "code": "0x600160005500",
+                            "storage": {
+                                "0x00": "0x01"
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "config": {
+            "chainid": "0x01"
+        },
+        "_info": {
+            "hash": "0x37982496baba6add0ed99b8c00b6ff97c0d70fe341b130ec5b64c95f4f3e9313",
+            "fixture-format": "state_test",
+            "comment": "`execution-specs` generated test",
+            "filling-transition-tool": "2.19.0",
+            "description": "Test sending a zero gasprice transaction in early forks respects\naccount touching rules.",
+            "url": "https://github.com/ethereum/execution-specs/blob/abbe05777ab83fb94ce18c425daaa7ab79e779c1/tests/frontier/touch/test_touch.py#L14",
+            "metadata": {
+                "opcode_count": {
+                    "PUSH1": 2,
+                    "SSTORE": 1,
+                    "STOP": 1
+                },
+                "opcode_count_per_block": [
+                    {
+                        "PUSH1": 2,
+                        "SSTORE": 1,
+                        "STOP": 1
+                    }
+                ]
+            }
+        }
+    }
+}
