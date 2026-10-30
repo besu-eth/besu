@@ -35,10 +35,9 @@ import org.jspecify.annotations.Nullable;
  * Reverting a frame rolls the log back to its mark, committing a frame keeps its changes, and
  * committing the transaction's updater writes the changes to the updater it was created on.
  *
- * <p>A read does not end the updaters created on this one, so it sees their changes. A change
- * abandons them and discards their changes, as dropping a stacked updater would, and using an
- * abandoned updater again throws. Since only the running frame's updater can use the journal this
- * way, the transaction processor does not use it when the tracer may access the world state.
+ * <p>A read through an updater sees the changes of the updaters opened on it. A change through it
+ * discards them, as dropping a stacked updater would, and using a discarded updater throws. The
+ * transaction processor uses the journal only when the tracer does not access the world state.
  */
 public final class JournaledWorldUpdaterV2 implements WorldUpdater {
 

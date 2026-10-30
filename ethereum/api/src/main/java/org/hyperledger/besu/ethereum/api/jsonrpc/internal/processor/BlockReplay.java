@@ -110,8 +110,7 @@ public class BlockReplay {
                   action.performAction(
                       transaction, i, block, blockchain, transactionProcessor, blobGasPrice));
             } else {
-              // an updater per transaction, as block import uses, so the processor never creates
-              // an account in the block's accumulator while it still holds the account's old value
+              // an updater per transaction, as block import does
               final WorldUpdater transactionUpdater = mutableWorldState.updater().updater();
               transactionProcessor.processTransaction(
                   transactionUpdater,
