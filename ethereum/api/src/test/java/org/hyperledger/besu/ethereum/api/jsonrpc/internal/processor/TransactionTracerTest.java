@@ -18,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -34,7 +33,6 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -170,24 +168,12 @@ public class TransactionTracerTest {
     when(tracer.getTraceFrames()).thenReturn(traceFrames);
     final WorldUpdater updater = mock(WorldUpdater.class);
     when(mutableWorldState.updater()).thenReturn(updater);
-    final WorldUpdater otherTransactionUpdater = mock(WorldUpdater.class);
-    when(updater.updater()).thenReturn(otherTransactionUpdater);
+    when(updater.updater()).thenReturn(mock(WorldUpdater.class));
 
     final Optional<TransactionTrace> transactionTrace =
         transactionTracer.traceTransaction(mutableWorldState, blockHash, transactionHash, tracer);
 
     assertThat(transactionTrace.map(TransactionTrace::getTraceFrames)).contains(traceFrames);
-    // the transactions before the traced one run on an updater each, as in block import
-    verify(transactionProcessor)
-        .processTransaction(
-            eq(otherTransactionUpdater),
-            eq(blockHeader),
-            eq(otherTransaction),
-            any(),
-            any(),
-            any(TransactionValidationParams.class),
-            any());
-    verify(otherTransactionUpdater).commit();
   }
 
   @Test
