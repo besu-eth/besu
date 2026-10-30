@@ -269,6 +269,8 @@ public class ArchiveTrieNodeWriter implements Closeable {
       try {
         batch.get();
       } catch (final InterruptedException e) {
+        // batches that have not started never run; the ones that have finish on their own
+        batches.forEach(b -> b.cancel(false));
         Thread.currentThread().interrupt();
         throw new RuntimeException("interrupted while flushing trie-node captures", e);
       } catch (final ExecutionException e) {
