@@ -84,6 +84,38 @@ class JournaledWorldUpdaterV2DifferentialTest {
     Bytes.EMPTY, Bytes.fromHexString("0x6001"), Bytes.fromHexString("0x60026000")
   };
 
+  /** How the innermost frame ends. */
+  private enum Close {
+    COMMIT,
+    // reverts and commits, as a failing frame does
+    REVERT,
+    // the journal discards an abandoned frame at the next change through the frame below
+    ABANDON,
+    // fails the way the message processors do, force-deleting empty accounts
+    FAIL
+  }
+
+  private enum Mutation {
+    SET_BALANCE,
+    INCREMENT_NONCE,
+    SET_STORAGE,
+    SET_CODE,
+    // writes the value the slot already holds
+    REWRITE_STORAGE,
+    CLEAR_STORAGE
+  }
+
+  // storage writes twice as often as the other mutations
+  private static final Mutation[] MUTATIONS = {
+    Mutation.SET_BALANCE,
+    Mutation.INCREMENT_NONCE,
+    Mutation.SET_STORAGE,
+    Mutation.SET_STORAGE,
+    Mutation.SET_CODE,
+    Mutation.REWRITE_STORAGE,
+    Mutation.CLEAR_STORAGE
+  };
+
   static List<Arguments> seeds() {
     final List<Arguments> seeds = new ArrayList<>();
     for (long seed = 0; seed < 1500; seed++) {
@@ -106,20 +138,18 @@ class JournaledWorldUpdaterV2DifferentialTest {
       final long seed, final WorldUpdaterMode mode, final boolean bonsai) {
     final Side stacked = new Side(false, WorldUpdaterMode.STACKED, bonsai);
     final Side journal = new Side(true, mode, bonsai);
-    // a journaled transaction updater drops a storage clear when it commits, for v1 frames as well
-    final boolean clearsStorage = mode == WorldUpdaterMode.STACKED;
     final Random random = new Random(seed);
     final int steps = 20 + random.nextInt(80);
     for (int step = 0; step < steps; step++) {
-      final Function<Side, Object> op = randomOp(random, clearsStorage);
+      final Function<Side, Object> op = randomOp(random);
       final Object expected = op.apply(stacked);
       final Object actual = op.apply(journal);
       assertThat(actual).as("seed %s step %s", seed, step).isEqualTo(expected);
     }
     final boolean commitTransaction = random.nextInt(8) != 0;
-    final List<Integer> closes = new ArrayList<>();
+    final List<Close> closes = new ArrayList<>();
     for (int i = 0; i < 20; i++) {
-      closes.add(random.nextInt(4));
+      closes.add(Close.values()[random.nextInt(Close.values().length)]);
     }
     stacked.finish(closes, commitTransaction);
     journal.finish(closes, commitTransaction);
@@ -138,7 +168,7 @@ class JournaledWorldUpdaterV2DifferentialTest {
         .isEqualTo(stacked.persistedRoot());
   }
 
-  private static Function<Side, Object> randomOp(final Random random, final boolean clearsStorage) {
+  private static Function<Side, Object> randomOp(final Random random) {
     final Address address = ADDRESSES[random.nextInt(ADDRESSES.length)];
     final UInt256 slot = SLOTS[random.nextInt(SLOTS.length)];
     final UInt256 value = VALUES[random.nextInt(VALUES.length)];
@@ -148,13 +178,13 @@ class JournaledWorldUpdaterV2DifferentialTest {
     if (choice < 10) {
       return side -> side.push();
     } else if (choice < 18) {
-      return side -> side.close(0);
+      return side -> side.close(Close.COMMIT);
     } else if (choice < 23) {
-      return side -> side.close(1);
+      return side -> side.close(Close.REVERT);
     } else if (choice < 25) {
-      return side -> side.close(2);
+      return side -> side.close(Close.ABANDON);
     } else if (choice < 28) {
-      return side -> side.close(3);
+      return side -> side.close(Close.FAIL);
     } else if (choice < 40) {
       return side -> describe(side.top().get(address), slot);
     } else if (choice < 50) {
@@ -163,17 +193,17 @@ class JournaledWorldUpdaterV2DifferentialTest {
         return account == null ? "absent" : account.getStorageValue(slot);
       };
     } else if (choice < 72) {
-      final int mutation = random.nextInt(6);
+      final Mutation mutation = MUTATIONS[random.nextInt(MUTATIONS.length)];
       return side -> {
         final MutableAccount account = side.top().getAccount(address);
         if (account == null) {
           return "absent";
         }
-        mutate(account, mutation, slot, value, code, amount, clearsStorage);
+        mutate(account, mutation, slot, value, code, amount);
         return describe(account, slot);
       };
     } else if (choice < 82) {
-      final int mutation = random.nextInt(6);
+      final Mutation mutation = MUTATIONS[random.nextInt(MUTATIONS.length)];
       return side -> {
         // An account deleted and created again within a transaction differs on purpose: the
         // journal treats it as new, while a stacked updater that tracked it before the deletion
@@ -182,7 +212,7 @@ class JournaledWorldUpdaterV2DifferentialTest {
           return "skipped";
         }
         final MutableAccount account = side.top().getOrCreate(address);
-        mutate(account, mutation, slot, value, code, amount, clearsStorage);
+        mutate(account, mutation, slot, value, code, amount);
         return describe(account, slot);
       };
     } else if (choice < 86) {
@@ -201,25 +231,18 @@ class JournaledWorldUpdaterV2DifferentialTest {
 
   private static void mutate(
       final MutableAccount account,
-      final int mutation,
+      final Mutation mutation,
       final UInt256 slot,
       final UInt256 value,
       final Bytes code,
-      final long amount,
-      final boolean clearsStorage) {
+      final long amount) {
     switch (mutation) {
-      case 0 -> account.setBalance(Wei.of(amount));
-      case 1 -> account.incrementNonce();
-      case 2, 3 -> account.setStorageValue(slot, value);
-      case 4 -> account.setCode(code);
-      default -> {
-        if (amount != 0) {
-          // a write of the value the slot already holds
-          account.setStorageValue(slot, account.getStorageValue(slot));
-        } else if (clearsStorage) {
-          account.clearStorage();
-        }
-      }
+      case SET_BALANCE -> account.setBalance(Wei.of(amount));
+      case INCREMENT_NONCE -> account.incrementNonce();
+      case SET_STORAGE -> account.setStorageValue(slot, value);
+      case SET_CODE -> account.setCode(code);
+      case REWRITE_STORAGE -> account.setStorageValue(slot, account.getStorageValue(slot));
+      case CLEAR_STORAGE -> account.clearStorage();
     }
   }
 
@@ -285,7 +308,10 @@ class JournaledWorldUpdaterV2DifferentialTest {
       worldState.persist(null);
 
       blockUpdater = worldState.updater();
-      transactionUpdater = blockUpdater.updater();
+      // as block import picks it, which runs a journaled mode on the block's updater itself
+      final WorldUpdater stackedUpdater = blockUpdater.updater();
+      transactionUpdater =
+          stackedUpdater instanceof StackedUpdater<?, ?> ? stackedUpdater : blockUpdater;
       // the transaction processor charges the sender before the call frames run
       transactionUpdater.getAccount(SENDER).incrementNonce();
       frameUpdater =
@@ -320,24 +346,19 @@ class JournaledWorldUpdaterV2DifferentialTest {
       return "read";
     }
 
-    /**
-     * Ends the innermost frame: 0 commits, 1 reverts and commits as a failing frame does, 2
-     * abandons it, 3 fails it the way the message processors do, force-deleting empty accounts.
-     */
-    Object close(final int how) {
+    Object close(final Close how) {
       if (frames.size() < 2) {
         return "no frame";
       }
       final WorldUpdater frame = frames.pop();
       switch (how) {
-        case 0 -> frame.commit();
-        case 1 -> {
+        case COMMIT -> frame.commit();
+        case REVERT -> {
           frame.revert();
           frame.commit();
         }
-        // the journal discards an abandoned frame at the next change through the frame below
-        case 2 -> top().updater().commit();
-        default -> {
+        case ABANDON -> top().updater().commit();
+        case FAIL -> {
           final List<Address> forceDelete =
               frame.getTouchedAccounts().stream()
                   .filter(account -> account.getAddress().equals(EMPTY) && account.isEmpty())
@@ -353,7 +374,7 @@ class JournaledWorldUpdaterV2DifferentialTest {
       return "closed " + how;
     }
 
-    void finish(final List<Integer> closes, final boolean commitTransaction) {
+    void finish(final List<Close> closes, final boolean commitTransaction) {
       int i = 0;
       while (frames.size() > 1) {
         close(closes.get(i++ % closes.size()));
@@ -422,7 +443,9 @@ class JournaledWorldUpdaterV2DifferentialTest {
     }
 
     String persistedRoot() {
-      transactionUpdater.commit();
+      if (transactionUpdater != blockUpdater) {
+        transactionUpdater.commit();
+      }
       blockUpdater.commit();
       worldState.persist(null);
       return worldState.rootHash().toHexString();
