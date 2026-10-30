@@ -59,11 +59,10 @@ public class SyncTransactionReceiptDecoder {
       syncTransactionReceipt = new SyncTransactionReceipt(rawRlp);
     } else {
       List<List<Bytes>> logs = parseLogs(receiptInput);
-      LogsBloomFilter bloomFilter = LogsBloomFilter.builder().insertRawLogs(logs).build();
       receiptInput.leaveList();
+      requireFullyConsumed(rlpInput);
       syncTransactionReceipt =
-          new SyncTransactionReceipt(
-              rawRlp, transactionTypeCode, statusOrStateRoot, cumulativeGasUsed, bloomFilter, logs);
+          compactedReceipt(transactionTypeCode, statusOrStateRoot, cumulativeGasUsed, logs);
     }
     return syncTransactionReceipt;
   }
@@ -121,7 +120,7 @@ public class SyncTransactionReceiptDecoder {
     boolean isEth69Receipt = isCompacted && !rlpInput.nextIsList();
     SyncTransactionReceipt result;
     if (isEth69Receipt) {
-      result = decodeEth69Receipt(rawRlp, rlpInput, firstElement, secondElement);
+      result = decodeEth69Receipt(rlpInput, firstElement, secondElement);
     } else {
       result = decodeLegacyReceipt(rawRlp, rlpInput, firstElement, secondElement, bloomFilter);
     }
@@ -129,10 +128,7 @@ public class SyncTransactionReceiptDecoder {
   }
 
   private SyncTransactionReceipt decodeEth69Receipt(
-      final Bytes rawRlp,
-      final RLPInput input,
-      final Bytes transactionByteRlp,
-      final Bytes statusOrStateRoot) {
+      final RLPInput input, final Bytes transactionByteRlp, final Bytes statusOrStateRoot) {
     requireDefinedEth69TransactionType(transactionByteRlp);
     Bytes transactionTypeCode =
         transactionByteRlp.isEmpty()
@@ -140,9 +136,8 @@ public class SyncTransactionReceiptDecoder {
             : transactionByteRlp;
     Bytes cumulativeGasUsed = input.readBytes();
     List<List<Bytes>> logs = parseLogs(input);
-    LogsBloomFilter bloomFilter = LogsBloomFilter.builder().insertRawLogs(logs).build();
-    return new SyncTransactionReceipt(
-        rawRlp, transactionTypeCode, statusOrStateRoot, cumulativeGasUsed, bloomFilter, logs);
+    input.leaveList();
+    return compactedReceipt(transactionTypeCode, statusOrStateRoot, cumulativeGasUsed, logs);
   }
 
   /**
@@ -158,8 +153,7 @@ public class SyncTransactionReceiptDecoder {
    * SyncTransactionReceiptEncoder.encodeForRootCalculation} treats {@code 0xf8} as "legacy" exactly
    * as it treats {@code 0x00} — {@code 0xf8} being the RLP long-list prefix that {@code
    * TransactionType.FRONTIER} carries as its enum value, not a wire type — so an undefined byte
-   * here would let a receipt hash as legacy for the receipts-root check while being stored with the
-   * bogus value.
+   * here would be silently reinterpreted as legacy rather than rejected as malformed.
    *
    * @param transactionTypeField the type field as read from the wire, empty for a legacy receipt
    */
@@ -186,16 +180,50 @@ public class SyncTransactionReceiptDecoder {
     } else {
       Bytes transactionTypeCode = Bytes.of(TransactionType.FRONTIER.getEthSerializedType());
       List<List<Bytes>> logs = parseLogs(input);
+      input.leaveList();
       syncTransactionReceipt =
-          new SyncTransactionReceipt(
-              rawRlp,
-              transactionTypeCode,
-              statusOrStateRoot,
-              cumulativeGasUsed,
-              LogsBloomFilter.builder().insertRawLogs(logs).build(),
-              logs);
+          compactedReceipt(transactionTypeCode, statusOrStateRoot, cumulativeGasUsed, logs);
     }
     return syncTransactionReceipt;
+  }
+
+  /**
+   * Builds a compacted receipt whose stored bytes are re-encoded from its parsed fields.
+   *
+   * <p>A compacted receipt carries no bloom, so the receipts root is checked against an encoding of
+   * these fields, not against the bytes the peer sent. Keeping the peer's bytes would let anything
+   * the parse skipped or tolerated reach storage without being covered by the root, where the
+   * strict decoder can fail on it and leave the block's receipts unreadable. Re-encoding means
+   * nothing but root-covered fields is ever stored.
+   */
+  private SyncTransactionReceipt compactedReceipt(
+      final Bytes transactionTypeCode,
+      final Bytes statusOrStateRoot,
+      final Bytes cumulativeGasUsed,
+      final List<List<Bytes>> logs) {
+    return new SyncTransactionReceipt(
+        SyncTransactionReceiptEncoder.encodeCompacted(
+            transactionTypeCode, statusOrStateRoot, cumulativeGasUsed, logs),
+        transactionTypeCode,
+        statusOrStateRoot,
+        cumulativeGasUsed,
+        LogsBloomFilter.builder().insertRawLogs(logs).build(),
+        logs);
+  }
+
+  /**
+   * Rejects a receipt that carries anything after its last field.
+   *
+   * <p>Within a list, {@link RLPInput#leaveList()} catches trailing fields; this catches bytes
+   * after the outermost item, which {@link RLP#input(Bytes)} does not check when that item is a
+   * string rather than a list.
+   *
+   * @param rlpInput the input the receipt was read from, after the receipt has been fully parsed
+   */
+  private void requireFullyConsumed(final RLPInput rlpInput) {
+    if (!rlpInput.isDone()) {
+      throw new RLPException("Unexpected trailing data after receipt");
+    }
   }
 
   private List<List<Bytes>> parseLogs(final RLPInput input) {
