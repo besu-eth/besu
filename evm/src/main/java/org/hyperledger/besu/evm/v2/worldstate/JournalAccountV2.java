@@ -57,6 +57,18 @@ public final class JournalAccountV2 implements MutableAccount {
     int loggedAt = -1;
   }
 
+  /** An account's state before it was created or deleted. */
+  record AccountState(
+      boolean exists,
+      boolean fresh,
+      long nonce,
+      Wei balance,
+      @Nullable Code code,
+      int storageEpoch,
+      boolean storageCleared,
+      int touchedAt,
+      int deletedAt) {}
+
   private final TransactionJournalV2 journal;
   private final Address address;
   // the account in the parent updater when the transaction first looked it up
@@ -96,6 +108,43 @@ public final class JournalAccountV2 implements MutableAccount {
       this.nonce = parentAccount.getNonce();
       this.balance = parentAccount.getBalance();
     }
+  }
+
+  AccountState state() {
+    return new AccountState(
+        exists, fresh, nonce, balance, code, storageEpoch, storageCleared, touchedAt, deletedAt);
+  }
+
+  void restore(final AccountState state) {
+    exists = state.exists();
+    fresh = state.fresh();
+    nonce = state.nonce();
+    balance = state.balance();
+    code = state.code();
+    storageEpoch = state.storageEpoch();
+    storageCleared = state.storageCleared();
+    touchedAt = state.touchedAt();
+    deletedAt = state.deletedAt();
+  }
+
+  /** Makes this a new account with empty code and storage, created by the change at the index. */
+  void create(final long nonce, final Wei balance, final int storageEpoch, final int index) {
+    exists = true;
+    fresh = true;
+    this.nonce = nonce;
+    this.balance = balance;
+    code = Code.EMPTY_CODE;
+    this.storageEpoch = storageEpoch;
+    storageCleared = false;
+    touchedAt = index;
+    deletedAt = -1;
+  }
+
+  /** Deletes the account by the change at the index. */
+  void delete(final int index) {
+    exists = false;
+    touchedAt = -1;
+    deletedAt = index;
   }
 
   @Override
