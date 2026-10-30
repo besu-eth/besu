@@ -16,6 +16,7 @@ package org.hyperledger.besu.evm.v2.worldstate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -139,12 +140,17 @@ class JournaledWorldUpdaterV2Test {
     cleared.clearStorage();
     assertThat(cleared.getStorageValue(SLOT)).isEqualTo(UInt256.ZERO);
     assertThat(cleared.getOriginalStorageValue(SLOT)).isEqualTo(UInt256.ZERO);
+    assertThat(cleared.getStorageValue(OTHER_SLOT)).isEqualTo(UInt256.ZERO);
+    cleared.setStorageValue(SLOT, UInt256.ONE);
 
     inner.revert();
     inner.commit();
-    final Account contract = outer.get(CONTRACT);
+    final MutableAccount contract = outer.getAccount(CONTRACT);
     assertThat(contract.getStorageValue(SLOT)).isEqualTo(UInt256.valueOf(7));
+    assertThat(contract.getOriginalStorageValue(SLOT)).isEqualTo(UInt256.valueOf(7));
+    // the value written before the clear comes back
     assertThat(contract.getStorageValue(OTHER_SLOT)).isEqualTo(UInt256.valueOf(9));
+    assertThat(contract.getUpdatedStorage()).containsExactly(entry(OTHER_SLOT, UInt256.valueOf(9)));
   }
 
   @Test
@@ -203,9 +209,14 @@ class JournaledWorldUpdaterV2Test {
   @Test
   void aCreatedAccountStartsWithEmptyStorage() {
     final WorldUpdater frame = journal.updater();
+    final MutableAccount contract = frame.getAccount(CONTRACT);
+    assertThat(contract.getStorageValue(SLOT)).isEqualTo(UInt256.valueOf(7));
+    contract.setStorageValue(OTHER_SLOT, UInt256.valueOf(9));
     frame.deleteAccount(CONTRACT);
     final MutableAccount recreated = frame.createAccount(CONTRACT);
     assertThat(recreated.getStorageValue(SLOT)).isEqualTo(UInt256.ZERO);
+    assertThat(recreated.getStorageValue(OTHER_SLOT)).isEqualTo(UInt256.ZERO);
+    assertThat(recreated.getUpdatedStorage()).isEmpty();
     assertThat(recreated.getOriginalStorageValue(SLOT)).isEqualTo(UInt256.ZERO);
     assertThat(recreated.getNonce()).isZero();
     assertThat(recreated.hasCode()).isFalse();
@@ -232,6 +243,20 @@ class JournaledWorldUpdaterV2Test {
     reverted.commit();
     // the outer frame still touched it before
     assertThat(outer.getTouchedAccounts()).hasSize(1);
+  }
+
+  @Test
+  void touchingAnAccountAgainInTheSameFrameDoesNotGrowTheLog() {
+    final WorldUpdater frame = journal.updater();
+    frame.getAccount(CONTRACT);
+    final int size = journal.journalSize();
+    frame.getAccount(CONTRACT);
+    assertThat(journal.journalSize()).isEqualTo(size);
+
+    // a frame opened on it touches the account again, so its revert keeps the outer touch
+    final WorldUpdater inner = frame.updater();
+    inner.getAccount(CONTRACT);
+    assertThat(journal.journalSize()).isEqualTo(size + 1);
   }
 
   @Test
@@ -280,24 +305,6 @@ class JournaledWorldUpdaterV2Test {
 
     assertThat(transactionUpdater.getTouchedAccounts()).isEmpty();
     assertThat(transactionUpdater.get(CONTRACT).getBalance()).isEqualTo(Wei.of(10));
-  }
-
-  @Test
-  void aValueWrittenBeforeARevertedClearComesBack() {
-    final WorldUpdater outer = journal.updater();
-    outer.getAccount(CONTRACT).setStorageValue(SLOT, UInt256.valueOf(5));
-    final WorldUpdater inner = outer.updater();
-    final MutableAccount cleared = inner.getAccount(CONTRACT);
-    cleared.clearStorage();
-    assertThat(cleared.getStorageValue(SLOT)).isEqualTo(UInt256.ZERO);
-    cleared.setStorageValue(OTHER_SLOT, UInt256.ONE);
-
-    inner.revert();
-    inner.commit();
-    final MutableAccount contract = outer.getAccount(CONTRACT);
-    assertThat(contract.getStorageValue(SLOT)).isEqualTo(UInt256.valueOf(5));
-    assertThat(contract.getStorageValue(OTHER_SLOT)).isEqualTo(UInt256.valueOf(8));
-    assertThat(contract.getUpdatedStorage()).containsOnlyKeys(SLOT);
   }
 
   @Test
