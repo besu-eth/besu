@@ -35,14 +35,12 @@ import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.AbstractExecutorService;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -162,15 +160,6 @@ class ArchiveTrieNodeWriterTest {
         .contains(new ArchiveNodeHistoryStore.ArchivedBlock(1L, header(1L).getBlockHash()));
   }
 
-  private ArchiveTrieNodeWriter writerWith(final ExecutorService pool) {
-    return new ArchiveTrieNodeWriter(
-        historyStore,
-        pool,
-        DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-        DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
-        storage::startBatchTransaction);
-  }
-
   @Test
   void archiveTransactionReceivesEntriesAndCoverageInsteadOfPersistTransaction() {
     final ArchiveTrieNodeWriter writer = trieNodeWriter;
@@ -204,58 +193,64 @@ class ArchiveTrieNodeWriterTest {
     assertThat(historyStore.getArchivedBlockNumber()).isZero();
   }
 
+  private ArchiveTrieNodeWriter writerWith(
+      final Supplier<SegmentedKeyValueStorageTransaction> archiveTransactions) {
+    return new ArchiveTrieNodeWriter(
+        historyStore,
+        Executors.newFixedThreadPool(2),
+        DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
+        DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+        archiveTransactions);
+  }
+
   @Test
-  void archiveTransactionGetsNothingWhenTheBlockFails() {
-    // The second batch's encoding is cancelled, so the block fails after the first is written.
-    final AtomicInteger submitted = new AtomicInteger();
-    final ExecutorService pool =
-        new AbstractExecutorService() {
-          @Override
-          public void execute(final Runnable task) {
-            if (submitted.incrementAndGet() == 1) {
-              task.run();
-            } else {
-              ((Future<?>) task).cancel(false);
-            }
-          }
-
-          @Override
-          public void shutdown() {}
-
-          @Override
-          public List<Runnable> shutdownNow() {
-            return List.of();
-          }
-
-          @Override
-          public boolean isShutdown() {
-            return false;
-          }
-
-          @Override
-          public boolean isTerminated() {
-            return false;
-          }
-
-          @Override
-          public boolean awaitTermination(final long timeout, final TimeUnit unit) {
-            return true;
-          }
-        };
-    final ArchiveTrieNodeWriter writer = writerWith(pool);
+  void coverageIsNotRecordedWhenAnEntryBatchFails() {
+    final AtomicInteger transactions = new AtomicInteger();
+    final ArchiveTrieNodeWriter writer =
+        writerWith(
+            () -> {
+              if (transactions.incrementAndGet() == 1) {
+                throw new IllegalStateException("storage unavailable");
+              }
+              return storage.startBatchTransaction();
+            });
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     writer.beginBlock(tx, header(0L));
-    for (int i = 0; i <= 64; i++) {
-      final Bytes location = Bytes.of(i);
-      writer.capture(ArchiveNodeKey.account(location), location, 0L, branchNode(0), null, tx);
-    }
-    assertThatThrownBy(() -> writer.onBeforeCommit(tx)).isInstanceOf(CancellationException.class);
+    writer.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
+    assertThatThrownBy(() -> writer.onBeforeCommit(tx))
+        .hasMessageContaining("trie-node capture failed");
 
-    assertThat(historyStore.getLatestBefore(nk, 0L)).isEmpty();
-    assertThat(latestCounter(nk)).isEmpty();
     assertThat(historyStore.getArchivedBlock()).isEmpty();
+  }
+
+  @Test
+  void entriesAreCommittedBeforeCoverageIsOpened() {
+    final AtomicInteger transactions = new AtomicInteger();
+    final AtomicBoolean entriesVisible = new AtomicBoolean();
+    final AtomicBoolean coverageVisible = new AtomicBoolean();
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    final ArchiveTrieNodeWriter writer =
+        writerWith(
+            () -> {
+              // the second transaction is the block's coverage
+              if (transactions.incrementAndGet() == 2) {
+                entriesVisible.set(historyStore.getLatestBefore(nk, 0L).isPresent());
+                coverageVisible.set(historyStore.getArchivedBlockNumber() == 0L);
+              }
+              return storage.startBatchTransaction();
+            });
+
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
+    writer.onBeforeCommit(tx);
+
+    assertThat(transactions).hasValue(2);
+    assertThat(entriesVisible).isTrue();
+    assertThat(coverageVisible).isFalse();
+    assertThat(historyStore.getArchivedBlockNumber()).isZero();
   }
 
   @Test
