@@ -67,18 +67,6 @@ final class TransactionJournalV2 {
   /** An account's storage before it was cleared. */
   private record StorageState(int epoch, boolean cleared) {}
 
-  /** An account's state before it was created or deleted. */
-  private record AccountState(
-      boolean exists,
-      boolean fresh,
-      long nonce,
-      Wei balance,
-      @Nullable Code code,
-      int storageEpoch,
-      boolean storageCleared,
-      int touchedAt,
-      int deletedAt) {}
-
   private final WorldUpdater parent;
   private final HashMap<Address, JournalAccountV2> accounts = new HashMap<>();
   // SLOAD, SSTORE and SELFBALANCE look up their frame's account with the same Address instance on
@@ -202,36 +190,13 @@ final class TransactionJournalV2 {
   }
 
   void create(final JournalAccountV2 account, final long nonce, final Wei balance) {
-    final int index = append(UndoKind.ACCOUNT_CREATED_OR_DELETED, account, stateOf(account), 0);
-    account.exists = true;
-    account.fresh = true;
-    account.nonce = nonce;
-    account.balance = balance;
-    account.code = Code.EMPTY_CODE;
-    account.storageEpoch = nextStorageEpoch();
-    account.storageCleared = false;
-    account.touchedAt = index;
-    account.deletedAt = -1;
+    final int index = append(UndoKind.ACCOUNT_CREATED_OR_DELETED, account, account.state(), 0);
+    account.create(nonce, balance, nextStorageEpoch(), index);
   }
 
   void delete(final JournalAccountV2 account) {
-    final int index = append(UndoKind.ACCOUNT_CREATED_OR_DELETED, account, stateOf(account), 0);
-    account.exists = false;
-    account.touchedAt = -1;
-    account.deletedAt = index;
-  }
-
-  private static AccountState stateOf(final JournalAccountV2 account) {
-    return new AccountState(
-        account.exists,
-        account.fresh,
-        account.nonce,
-        account.balance,
-        account.code,
-        account.storageEpoch,
-        account.storageCleared,
-        account.touchedAt,
-        account.deletedAt);
+    final int index = append(UndoKind.ACCOUNT_CREATED_OR_DELETED, account, account.state(), 0);
+    account.delete(index);
   }
 
   // changes to an account
@@ -312,19 +277,8 @@ final class TransactionJournalV2 {
         }
         case SLOT_WARMED -> ((JournalAccountV2.Slot) targets[i]).warm = false;
         case ACCOUNT_TOUCHED -> ((JournalAccountV2) targets[i]).touchedAt = (int) oldLongs[i];
-        case ACCOUNT_CREATED_OR_DELETED -> {
-          final JournalAccountV2 account = (JournalAccountV2) targets[i];
-          final AccountState state = (AccountState) old;
-          account.exists = state.exists();
-          account.fresh = state.fresh();
-          account.nonce = state.nonce();
-          account.balance = state.balance();
-          account.code = state.code();
-          account.storageEpoch = state.storageEpoch();
-          account.storageCleared = state.storageCleared();
-          account.touchedAt = state.touchedAt();
-          account.deletedAt = state.deletedAt();
-        }
+        case ACCOUNT_CREATED_OR_DELETED ->
+            ((JournalAccountV2) targets[i]).restore((JournalAccountV2.AccountState) old);
       }
       targets[i] = null;
       oldObjects[i] = null;
