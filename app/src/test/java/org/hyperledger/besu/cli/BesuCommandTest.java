@@ -92,6 +92,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
@@ -2757,6 +2758,60 @@ public class BesuCommandTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void kzgTrustedSetupLoadsOnCallingThreadByDefault() throws IOException {
+    final Path genesisFileWithBlobs = createFakeGenesisFile(GENESIS_WITH_DATA_BLOBS_ENABLED);
+    try (MockedStatic<KZGPointEvalPrecompiledContract> kzg =
+        mockStatic(KZGPointEvalPrecompiledContract.class)) {
+      parseCommand("--genesis-file", genesisFileWithBlobs.toString());
+
+      kzg.verify(() -> KZGPointEvalPrecompiledContract.init(false));
+      kzg.verify(() -> KZGPointEvalPrecompiledContract.init(true), never());
+    }
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void kzgTrustedSetupBackgroundLoadIsEnabledAndAwaited()
+      throws IOException, URISyntaxException {
+    final Path testSetupAbsolutePath =
+        Path.of(BesuCommandTest.class.getResource("/trusted_setup.txt").toURI());
+    final Path genesisFileWithBlobs = createFakeGenesisFile(GENESIS_WITH_DATA_BLOBS_ENABLED);
+    try (MockedStatic<KZGPointEvalPrecompiledContract> kzg =
+        mockStatic(KZGPointEvalPrecompiledContract.class)) {
+      parseCommand(
+          "--genesis-file",
+          genesisFileWithBlobs.toString(),
+          "--kzg-trusted-setup",
+          testSetupAbsolutePath.toString(),
+          "--Xkzg-trusted-setup-background-load-enabled",
+          "true");
+
+      kzg.verify(() -> KZGPointEvalPrecompiledContract.init(testSetupAbsolutePath, true));
+      kzg.verify(KZGPointEvalPrecompiledContract::awaitTrustedSetup);
+    }
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void failedKzgTrustedSetupBackgroundLoadFailsStartup(final @TempDir Path dir)
+      throws IOException {
+    final Path invalidSetup = dir.resolve("invalid_trusted_setup.txt");
+    Files.writeString(invalidSetup, "not a trusted setup");
+    final Path genesisFileWithBlobs = createFakeGenesisFile(GENESIS_WITH_DATA_BLOBS_ENABLED);
+    parseCommand(
+        "--genesis-file",
+        genesisFileWithBlobs.toString(),
+        "--kzg-trusted-setup",
+        invalidSetup.toString(),
+        "--Xkzg-trusted-setup-background-load-enabled",
+        "true");
+
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("KZG trusted setup failed to load");
+    verify(mockRunnerBuilder).build();
+    verify(mockRunner, never()).awaitStop();
   }
 
   @Test
