@@ -16,6 +16,10 @@ package org.hyperledger.besu.evm.frame;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
+
 import org.junit.jupiter.api.Test;
 
 class StacksV2Test {
@@ -59,10 +63,51 @@ class StacksV2Test {
   }
 
   @Test
-  void framesBelowTheCachedDepthsAllocate() {
+  void framesBelowTheCachedDepthsShareTheirStacksAcrossDepths() {
     final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
     StacksV2.release(StacksV2.CACHED_DEPTHS, first);
 
-    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH)).isNotSameAs(first);
+    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS + 500, LENGTH)).isSameAs(first);
+  }
+
+  @Test
+  void framesBelowTheCachedDepthsShareTheirStacksAcrossThreads() throws InterruptedException {
+    final long[][] released = new long[1][];
+    final Thread other =
+        new Thread(
+            () -> {
+              released[0] = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+              StacksV2.release(StacksV2.CACHED_DEPTHS, released[0]);
+            });
+    other.start();
+    other.join();
+
+    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH)).isSameAs(released[0]);
+  }
+
+  @Test
+  void sharedStacksAreCapped() {
+    final Set<long[]> released = Collections.newSetFromMap(new IdentityHashMap<>());
+    for (int i = 0; i <= StacksV2.SHARED_STACKS; i++) {
+      final long[] stack = new long[LENGTH];
+      released.add(stack);
+      StacksV2.release(StacksV2.CACHED_DEPTHS, stack);
+    }
+
+    int kept = 0;
+    for (int i = 0; i <= StacksV2.SHARED_STACKS; i++) {
+      if (released.contains(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH))) {
+        kept++;
+      }
+    }
+    assertThat(kept).isPositive().isLessThanOrEqualTo(StacksV2.SHARED_STACKS);
+  }
+
+  @Test
+  void deepFrameOfAnotherLengthGetsANewStack() {
+    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, 16 * 4);
+    StacksV2.release(StacksV2.CACHED_DEPTHS, first);
+
+    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS, 16 * 4)).isNotSameAs(first);
   }
 }
