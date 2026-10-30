@@ -1,0 +1,88 @@
+{
+  "comment": "A deployment whose constructor runs CREATE2 and then CREATE: each frame reports its own creationMethod.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_call",
+    "params": [
+      {
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "gas": "0xfffff2",
+        "gasPrice": "0xef",
+        "value": "0x0",
+        "data": "0x6000600060006000f550600060006000f05000"
+      },
+      [
+        "trace"
+      ],
+      "latest"
+    ],
+    "id": 25
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": {
+      "output": "0x",
+      "stateDiff": null,
+      "trace": [
+        {
+          "action": {
+            "creationMethod": "create",
+            "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+            "gas": "0xff301a",
+            "init": "0x6000600060006000f550600060006000f05000",
+            "value": "0x0"
+          },
+          "result": {
+            "address": "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+            "code": "0x",
+            "gasUsed": "0xfa19"
+          },
+          "subtraces": 2,
+          "traceAddress": [],
+          "type": "create"
+        },
+        {
+          "action": {
+            "creationMethod": "create2",
+            "from": "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+            "gas": "0xfab842",
+            "init": "0x",
+            "value": "0x0"
+          },
+          "result": {
+            "address": "0xa96bac350ccedb652f4e3b4cbf38f2cbf43cd20a",
+            "code": "0x",
+            "gasUsed": "0x0"
+          },
+          "subtraces": 0,
+          "traceAddress": [
+            0
+          ],
+          "type": "create"
+        },
+        {
+          "action": {
+            "creationMethod": "create",
+            "from": "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+            "gas": "0xfa3d2b",
+            "init": "0x",
+            "value": "0x0"
+          },
+          "result": {
+            "address": "0x806ea81c279b6000b9fd9f14d2845dec87fc3544",
+            "code": "0x",
+            "gasUsed": "0x0"
+          },
+          "subtraces": 0,
+          "traceAddress": [
+            1
+          ],
+          "type": "create"
+        }
+      ],
+      "vmTrace": null
+    },
+    "id": 25
+  },
+  "statusCode": 200
+}
