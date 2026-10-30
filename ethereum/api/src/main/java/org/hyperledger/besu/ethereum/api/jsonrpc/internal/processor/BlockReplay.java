@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -109,14 +110,18 @@ public class BlockReplay {
                   action.performAction(
                       transaction, i, block, blockchain, transactionProcessor, blobGasPrice));
             } else {
+              // an updater per transaction, as block import uses, so the processor never creates
+              // an account in the block's accumulator while it still holds the account's old value
+              final WorldUpdater transactionUpdater = mutableWorldState.updater().updater();
               transactionProcessor.processTransaction(
-                  mutableWorldState.updater(),
+                  transactionUpdater,
                   header,
                   transaction,
                   protocolSpec.getMiningBeneficiaryCalculator().calculateBeneficiary(header),
                   blockHashLookup,
                   TransactionValidationParams.blockReplay(),
                   blobGasPrice);
+              transactionUpdater.commit();
             }
           }
           return Optional.empty();

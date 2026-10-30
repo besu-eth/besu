@@ -44,6 +44,7 @@ import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.v2.worldstate.JournaledWorldUpdaterV2;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -54,6 +55,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Multimap;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -373,7 +375,21 @@ public class MainnetTransactionProcessor {
       final long initialGas = Math.min(executionBudget, gasAvailable);
       final long initialStateGasReservoir = gasAvailable - initialGas;
 
-      final WorldUpdater worldUpdater = frameWorldState.updater();
+      // On EVM v2 the call frames share one journal instead of stacking an updater each, unless
+      // the tracer may reach the updater of a frame other than the running one.
+      final WorldUpdater worldUpdater;
+      final Multimap<Address, Bytes32> frameWarmStorage;
+      if (messageCallProcessor.runsOnEvmV2() && !operationTracer.accessesWorldState()) {
+        final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(frameWorldState);
+        // the journal tracks the EIP-2929 warm slots instead of the frames, starting with the
+        // access list's
+        eip2930StorageList.forEach(journal::warmUpStorage);
+        worldUpdater = journal;
+        frameWarmStorage = ImmutableMultimap.of();
+      } else {
+        worldUpdater = frameWorldState.updater();
+        frameWarmStorage = eip2930StorageList;
+      }
 
       operationTracer.traceStartTransaction(worldUpdater, transaction);
 
@@ -393,7 +409,7 @@ public class MainnetTransactionProcessor {
               .completer(__ -> {})
               .miningBeneficiary(miningBeneficiary)
               .blockHashLookup(blockHashLookup)
-              .eip2930AccessListWarmStorage(eip2930StorageList)
+              .eip2930AccessListWarmStorage(frameWarmStorage)
               .enableEvmV2(messageCallProcessor.runsOnEvmV2());
 
       accessLocationTracker.ifPresent(commonMessageFrameBuilder::eip7928AccessList);

@@ -120,6 +120,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                 }
 
                 @Override
+                public boolean accessesWorldState() {
+                  return false;
+                }
+
+                @Override
                 public void traceBeforeRewardTransaction(
                     final WorldView worldView,
                     final org.hyperledger.besu.datatypes.Transaction tx,
