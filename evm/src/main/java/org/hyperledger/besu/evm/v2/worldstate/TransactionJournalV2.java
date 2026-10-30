@@ -70,7 +70,7 @@ final class TransactionJournalV2 {
   @Nullable private JournalAccountV2 lastAccount;
   // access list slots of accounts not looked up yet, so that the access list alone does not load
   // an account from the parent, which would count as touched for the parallel collision detection
-  private final HashMap<Address, Set<UInt256>> accessListSlots = new HashMap<>();
+  private final HashMap<Address, Set<SlotKey>> accessListSlots = new HashMap<>();
   // never reused, so a slot value of a reverted epoch cannot pass for one of a later epoch
   private int lastStorageEpoch;
 
@@ -120,7 +120,7 @@ final class TransactionJournalV2 {
     final JournalAccountV2 account = new JournalAccountV2(this, address, parent.get(address));
     accounts.put(address, account);
     if (!accessListSlots.isEmpty()) {
-      final Set<UInt256> slots = accessListSlots.remove(address);
+      final Set<SlotKey> slots = accessListSlots.remove(address);
       if (slots != null) {
         slots.forEach(account::warmUpFromAccessList);
       }
@@ -135,7 +135,9 @@ final class TransactionJournalV2 {
     if (account != null) {
       return account.warmUpStorage(key);
     }
-    return !accessListSlots.computeIfAbsent(address, unused -> new HashSet<>()).add(key);
+    return !accessListSlots
+        .computeIfAbsent(address, unused -> new HashSet<>())
+        .add(new SlotKey(key));
   }
 
   // updaters
@@ -368,7 +370,7 @@ final class TransactionJournalV2 {
       account.slots.forEach(
           (key, slot) -> {
             if (account.isWritten(slot)) {
-              target.setStorageValue(key, slot.current);
+              target.setStorageValue(key.value, slot.current);
             }
           });
     }
