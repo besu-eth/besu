@@ -202,7 +202,7 @@ class MainnetBlockBodyValidatorTest {
                 BodyValidationMode.LIGHT))
         .isTrue();
     verify(bodyValidatorSpy, times(1)).validateBodyLight(any(), any(), any(), any(), any());
-    verify(bodyValidatorSpy, never()).validateBodyRoots(any(), any(), any());
+    verify(bodyValidatorSpy, never()).validateBodyRoots(any(), any(), any(), any());
   }
 
   @Test
@@ -223,7 +223,7 @@ class MainnetBlockBodyValidatorTest {
         .isTrue();
 
     verify(bodyValidatorSpy, never()).validateBodyLight(any(), any(), any(), any(), any());
-    verify(bodyValidatorSpy, times(1)).validateBodyRoots(any(), any(), any());
+    verify(bodyValidatorSpy, times(1)).validateBodyRoots(any(), any(), any(), any());
   }
 
   @Test
@@ -243,7 +243,57 @@ class MainnetBlockBodyValidatorTest {
                 BodyValidationMode.FULL))
         .isTrue();
     verify(bodyValidatorSpy, times(1)).validateBodyLight(any(), any(), any(), any(), any());
-    verify(bodyValidatorSpy, times(1)).validateBodyRoots(any(), any(), any());
+    verify(bodyValidatorSpy, times(1)).validateBodyRoots(any(), any(), any(), any());
+  }
+
+  @Test
+  public void rootValidationTakesTheSuppliedReceiptsRoot() {
+    final Block block = setupBlock();
+    final MainnetBlockBodyValidator bodyValidator = new MainnetBlockBodyValidator(protocolSchedule);
+
+    assertThat(
+            bodyValidator.validateBody(
+                blockchainSetupUtil.getProtocolContext(),
+                block,
+                receiptsNotInTheBlock(),
+                () -> block.getHeader().getReceiptsRoot(),
+                block.getHeader().getStateRoot(),
+                NONE,
+                BodyValidationMode.ROOT_ONLY,
+                OptionalLong.empty()))
+        .isTrue();
+    assertThat(
+            bodyValidator.validateBody(
+                blockchainSetupUtil.getProtocolContext(),
+                block,
+                emptyList(),
+                () -> Hash.ZERO,
+                block.getHeader().getStateRoot(),
+                NONE,
+                BodyValidationMode.ROOT_ONLY,
+                OptionalLong.empty()))
+        .isFalse();
+  }
+
+  @Test
+  public void rootValidationWithoutASuppliedRootComputesItFromTheReceipts() {
+    final Block block = setupBlock();
+
+    assertThat(
+            new MainnetBlockBodyValidator(protocolSchedule)
+                .validateBody(
+                    blockchainSetupUtil.getProtocolContext(),
+                    block,
+                    receiptsNotInTheBlock(),
+                    block.getHeader().getStateRoot(),
+                    NONE,
+                    BodyValidationMode.ROOT_ONLY,
+                    OptionalLong.empty()))
+        .isFalse();
+  }
+
+  private static List<TransactionReceipt> receiptsNotInTheBlock() {
+    return List.of(new TransactionReceipt(1, 21_000, emptyList(), Optional.empty()));
   }
 
   private Block setupBlock() {

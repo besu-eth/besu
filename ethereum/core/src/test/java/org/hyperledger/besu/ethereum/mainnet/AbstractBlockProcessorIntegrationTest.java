@@ -31,6 +31,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
@@ -967,6 +968,10 @@ class AbstractBlockProcessorIntegrationTest {
         (BonsaiAccount) worldState.get(Address.fromHexStringStrict(ACCOUNT_3));
 
     assertTrue(blockProcessingResult.isSuccessful());
+    final BlockProcessingOutputs outputs = blockProcessingResult.getYield().orElseThrow();
+    assertThat(outputs.getReceipts()).hasSize(2);
+    assertThat(outputs.getReceiptsRoot().get())
+        .isEqualTo(BodyValidation.receiptsRoot(outputs.getReceipts()));
     assertThat(updatedAccount0x2.getBalance()).isEqualTo(Wei.of(1_000_000_000_000_000_000L));
     assertThat(updatedAccount0x3.getBalance()).isEqualTo(Wei.of(2_000_000_000_000_000_000L));
     assertThat(updatedSenderAccount1.getBalance()).isLessThan(senderAccount1.getBalance());

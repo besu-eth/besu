@@ -27,11 +27,13 @@ import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -44,8 +46,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
+import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -333,6 +337,10 @@ public class MainnetBlockValidator implements BlockValidator {
         pathBasedWorldState.deferTrieLog();
       }
 
+      // the transactions root does not depend on execution, so it is computed alongside it, on the
+      // IO pool because the block's transactions occupy the CPU pool
+      CompletableFuture.runAsync(
+          block.getBody()::getTransactionsRoot, BlockProcessingExecutors.ioExecutor());
       var result =
           processBlock(context, worldState, block, blockAccessList, inclusionListTransactions);
       if (result.isFailed()) {
@@ -349,10 +357,16 @@ public class MainnetBlockValidator implements BlockValidator {
             result.getYield().map(BlockProcessingOutputs::getAccessedAncestors).orElse(Map.of());
         long cumulativeBlockGasUsed =
             result.getYield().map(BlockProcessingOutputs::getCumulativeBlockGasUsed).orElse(0L);
+        final Supplier<Hash> receiptsRoot =
+            result
+                .getYield()
+                .map(BlockProcessingOutputs::getReceiptsRoot)
+                .orElseGet(() -> Suppliers.memoize(() -> BodyValidation.receiptsRoot(receipts)));
         if (!blockBodyValidator.validateBody(
             context,
             block,
             receipts,
+            receiptsRoot,
             worldState.rootHash(),
             ommerValidationMode,
             BodyValidationMode.FULL,
@@ -380,6 +394,7 @@ public class MainnetBlockValidator implements BlockValidator {
                         .getYield()
                         .map(BlockProcessingOutputs::getInclusionListValidationResult)
                         .orElseGet(InclusionListValidationResult::valid),
+                    receiptsRoot,
                     worldState instanceof PathBasedWorldState pathBasedWorldState
                         ? pathBasedWorldState.takeTrieLogWrite()
                         : () -> {})),

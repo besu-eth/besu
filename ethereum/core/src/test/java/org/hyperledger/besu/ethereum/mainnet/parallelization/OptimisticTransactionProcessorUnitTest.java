@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -227,6 +228,37 @@ class OptimisticTransactionProcessorUnitTest {
 
       verify(transactionProcessor, times(3))
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("The worker computes the logs bloom of its result")
+    void workerComputesTheLogsBloom() {
+      final Transaction transaction = mockTransaction();
+      final TransactionProcessingResult result =
+          spy(
+              TransactionProcessingResult.successful(
+                  Collections.emptyList(),
+                  0,
+                  0,
+                  Bytes.EMPTY,
+                  Optional.empty(),
+                  ValidationResult.valid()));
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(result);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      verify(result).getLogsBloom();
     }
   }
 
