@@ -16,6 +16,9 @@ package org.hyperledger.besu.evm.v2.worldstate;
 
 import org.hyperledger.besu.crypto.SecureRandomProvider;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.security.SecureRandom;
 
 import org.apache.tuweni.units.bigints.UInt256;
@@ -31,6 +34,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 final class SlotKey implements Comparable<SlotKey> {
 
   private static final long LOW_32_BITS = 0xffffffffL;
+
+  private static final VarHandle LONG_BIG_ENDIAN =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
   private static final long[] HASH_SEEDS = new long[9];
 
@@ -50,10 +56,12 @@ final class SlotKey implements Comparable<SlotKey> {
 
   SlotKey(final UInt256 value) {
     this.value = value;
-    word0 = value.getLong(0);
-    word1 = value.getLong(8);
-    word2 = value.getLong(16);
-    word3 = value.getLong(24);
+    // UInt256 reads getLong a byte at a time, toBytes copies its ints in one go
+    final byte[] bytes = value.toBytes().toArrayUnsafe();
+    word0 = (long) LONG_BIG_ENDIAN.get(bytes, 0);
+    word1 = (long) LONG_BIG_ENDIAN.get(bytes, 8);
+    word2 = (long) LONG_BIG_ENDIAN.get(bytes, 16);
+    word3 = (long) LONG_BIG_ENDIAN.get(bytes, 24);
     // pairing the 32-bit halves of a word keeps keys that differ only in the top bits of two
     // words apart, which summing one product per word would collide whatever the seeds
     final long sum =
