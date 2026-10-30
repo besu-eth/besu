@@ -139,14 +139,16 @@ public class BlockReplay {
         (transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice) -> {
           final BlockHeader blockHeader = block.getHeader();
           final ProtocolSpec spec = protocolSchedule.getByBlockHeader(blockHeader);
+          final WorldUpdater transactionUpdater = mutableWorldState.updater().updater();
           transactionProcessor.processTransaction(
-              mutableWorldState.updater(),
+              transactionUpdater,
               blockHeader,
               transaction,
               spec.getMiningBeneficiaryCalculator().calculateBeneficiary(blockHeader),
               spec.getPreExecutionProcessor().createBlockHashLookup(blockchain, blockHeader),
               TransactionValidationParams.blockReplay(),
               blobGasPrice);
+          transactionUpdater.commit();
           return action.performAction(
               transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice);
         });
