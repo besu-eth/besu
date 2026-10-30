@@ -53,6 +53,8 @@ public final class JournalAccountV2 implements MutableAccount {
     boolean dirty;
     // warm as per EIP-2929, which outlives clearing the storage and creating the account
     boolean warm;
+    // log index of the slot's latest change, -1 if none
+    int loggedAt = -1;
   }
 
   private final TransactionJournalV2 journal;
