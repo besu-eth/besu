@@ -69,12 +69,10 @@ final class TransactionJournalV2 {
 
   private final WorldUpdater parent;
   private final HashMap<Address, JournalAccountV2> accounts = new HashMap<>();
-  // SLOAD, SSTORE and SELFBALANCE look up their frame's account with the same Address instance on
-  // every execution, and comparing the instance is cheaper than hashing and comparing the address
+  // SLOAD, SSTORE and SELFBALANCE reuse their frame's Address instance
   @Nullable private Address lastAddress;
   @Nullable private JournalAccountV2 lastAccount;
-  // access list slots of accounts not looked up yet, so that the access list alone does not load
-  // an account from the parent, which would count as touched for the parallel collision detection
+  // access list slots of accounts not loaded yet, so the access list loads nothing
   private final HashMap<Address, Set<SlotKey>> accessListSlots = new HashMap<>();
   // never reused, so a slot value of a reverted epoch cannot pass for one of a later epoch
   private int lastStorageEpoch;
