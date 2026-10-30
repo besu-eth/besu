@@ -187,14 +187,13 @@ public interface OperationTracer {
   }
 
   /**
-   * Check whether the tracer may read or change the world state through the frames and world views
-   * it is given. EVM v2 lets the call frames of a transaction share one journal only for tracers
-   * that do not, since a tracer can reach the updater of a frame other than the running one, and
-   * the journal keeps the frames apart only for the running one.
+   * Check whether EVM v2 may share one journal between the call frames of a transaction this tracer
+   * follows. A tracer that reads or changes the world state through the frames and world views it
+   * is given must not allow it, since the journal keeps the frames apart only for the running one.
    *
-   * @return true if the tracer may access the world state, by default whether it is enabled
+   * @return true if the call frames may share a journal, by default whether the tracer is disabled
    */
-  default boolean accessesWorldState() {
-    return isEnabled();
+  default boolean allowsJournal() {
+    return !isEnabled();
   }
 }

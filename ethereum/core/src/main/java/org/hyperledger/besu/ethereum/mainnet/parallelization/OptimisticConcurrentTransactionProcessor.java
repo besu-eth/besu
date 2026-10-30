@@ -126,8 +126,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                 }
 
                 @Override
-                public boolean accessesWorldState() {
-                  return false;
+                public boolean allowsJournal() {
+                  return true;
                 }
 
                 @Override

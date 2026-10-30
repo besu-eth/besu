@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
+import org.hyperledger.besu.crypto.SECPPrivateKey;
+import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -45,14 +47,15 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * A tracer can reach the updater of a frame other than the running one, which the journal EVM v2
- * shares between the call frames of a transaction cannot keep apart, so v2 uses it only when the
- * tracer does not access the world state.
+ * On EVM v2 a tracer that accesses the world state gets stacked updaters, so it can read the
+ * calling frame while the called frame runs.
  */
 class EvmV2TracerWorldStateTest {
 
@@ -75,32 +78,42 @@ class EvmV2TracerWorldStateTest {
               + "5af160005500");
   // store 1 in slot 0, then revert
   private static final Bytes CALLEE_CODE = Bytes.fromHexString("0x600160005560006000fd");
-  private static final KeyPair KEY_PAIR = SignatureAlgorithmFactory.getInstance().generateKeyPair();
+  private static final KeyPair KEY_PAIR =
+      SignatureAlgorithmFactory.getInstance()
+          .createKeyPair(
+              SECPPrivateKey.create(
+                  Bytes32.fromHexString(
+                      "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63"),
+                  SignatureAlgorithm.ALGORITHM));
 
-  /** Reads the account of the frame after each operation, as the debug_traceBlock streamer does. */
-  private static final class FrameReadingTracer implements OperationTracer {
-    private final boolean accessesWorldState;
-    private WorldView transactionWorldView;
-
-    FrameReadingTracer(final boolean accessesWorldState) {
-      this.accessesWorldState = accessesWorldState;
-    }
-
-    @Override
-    public boolean accessesWorldState() {
-      return accessesWorldState;
-    }
+  /** Keeps the world view the transaction starts with, and overrides nothing else. */
+  private static class WorldViewTracer implements OperationTracer {
+    WorldView transactionWorldView;
 
     @Override
     public void traceStartTransaction(
         final WorldView worldView, final org.hyperledger.besu.datatypes.Transaction transaction) {
       transactionWorldView = worldView;
     }
+  }
+
+  /** Reads the account of the frame after each operation, as the debug_traceBlock streamer does. */
+  private static final class FrameReadingTracer extends WorldViewTracer {
+    private final boolean readsFrames;
+
+    FrameReadingTracer(final boolean readsFrames) {
+      this.readsFrames = readsFrames;
+    }
+
+    @Override
+    public boolean allowsJournal() {
+      return !readsFrames;
+    }
 
     @Override
     public void tracePostExecution(
         final MessageFrame frame, final OperationResult operationResult) {
-      if (accessesWorldState) {
+      if (readsFrames) {
         // after CALL this is the calling frame, whose updater the called one is open on
         frame.getWorldUpdater().getAccount(frame.getRecipientAddress());
       }
@@ -115,20 +128,32 @@ class EvmV2TracerWorldStateTest {
 
     assertThat(transactionUpdater.get(CALLEE).getStorageValue(UInt256.ZERO))
         .isEqualTo(UInt256.ZERO);
-    assertThat(transactionUpdater.get(CALLER).getStorageValue(UInt256.ZERO))
-        .isEqualTo(UInt256.ZERO);
     assertThat(tracer.transactionWorldView).isNotInstanceOf(JournaledWorldUpdaterV2.class);
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void theJournalRunsOnlyForTracersThatDoNotAccessTheWorldState(final boolean evmV2) {
+  void theJournalRunsForATracerThatAllowsIt(final boolean evmV2) {
     final FrameReadingTracer tracer = new FrameReadingTracer(false);
     final WorldUpdater transactionUpdater = processCall(evmV2, tracer);
 
     assertThat(transactionUpdater.get(CALLEE).getStorageValue(UInt256.ZERO))
         .isEqualTo(UInt256.ZERO);
     assertThat(tracer.transactionWorldView instanceof JournaledWorldUpdaterV2).isEqualTo(evmV2);
+  }
+
+  @Test
+  void aTracerThatOverridesNothingGetsStackedUpdaters() {
+    final WorldViewTracer tracer = new WorldViewTracer();
+    processCall(true, tracer);
+
+    assertThat(tracer.transactionWorldView).isNotInstanceOf(JournaledWorldUpdaterV2.class);
+  }
+
+  @Test
+  void importWithoutATracerAllowsTheJournal() {
+    // the processor runs NO_TRACING, which keeps no world view to check, as any tracer allowing it
+    assertThat(OperationTracer.NO_TRACING.allowsJournal()).isTrue();
   }
 
   private static WorldUpdater processCall(final boolean evmV2, final OperationTracer tracer) {

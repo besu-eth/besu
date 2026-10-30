@@ -379,7 +379,7 @@ public class MainnetTransactionProcessor {
       // the tracer may reach the updater of a frame other than the running one.
       final WorldUpdater worldUpdater;
       final Multimap<Address, Bytes32> frameWarmStorage;
-      if (messageCallProcessor.runsOnEvmV2() && !operationTracer.accessesWorldState()) {
+      if (messageCallProcessor.runsOnEvmV2() && operationTracer.allowsJournal()) {
         final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(frameWorldState);
         // the journal tracks the EIP-2929 warm slots instead of the frames, starting with the
         // access list's
