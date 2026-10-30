@@ -15,20 +15,30 @@
 package org.hyperledger.besu.evm.frame;
 
 /**
- * The free EVM v2 stacks of a thread, one per call depth. A full stack is 32 KB, too large for the
- * thread's allocation buffer, so allocating one per frame contends on the heap lock with every
- * other allocating thread.
+ * The free EVM v2 stacks: those of a thread, one per call depth, and shared ones for deeper frames.
+ * A full stack is 32 KB, too large for the thread's allocation buffer, so allocating one per frame
+ * contends on the heap lock with every other allocating thread.
  */
 final class StacksV2 {
 
-  // Depths 0 to 20 hold 99.99% of mainnet frames. Deeper frames allocate, so that a deep call
-  // chain does not leave megabytes of stacks on the thread.
+  // Depths 0 to 20 hold 99.99% of mainnet frames. Deeper frames share stacks across threads, so
+  // that a deep call chain does not leave megabytes of stacks on every thread that ran one.
   static final int CACHED_DEPTHS = 21;
+
+  // The stacks of two full call chains. Without them, a transaction calling in a loop past the
+  // cached depths, or recursing through them again and again, allocates 32 KB for every frame.
+  static final int SHARED_STACKS = 2 * 1024;
+
+  private static final int SHARED_LENGTH = MessageFrame.DEFAULT_MAX_STACK_SIZE * 4;
 
   // Only stacks of completed frames are kept, so a stack is either here or used by one frame, and
   // a transaction that aborts with frames on its frame stack leaves nothing of it behind.
   private static final ThreadLocal<long[][]> STACKS =
       ThreadLocal.withInitial(() -> new long[CACHED_DEPTHS][]);
+
+  // a stack of free stacks, guarded by itself
+  private static final long[][] SHARED = new long[SHARED_STACKS][];
+  private static int sharedCount;
 
   private StacksV2() {}
 
@@ -41,7 +51,8 @@ final class StacksV2 {
    */
   static long[] take(final int depth, final int length) {
     if (depth >= CACHED_DEPTHS) {
-      return new long[length];
+      final long[] shared = length == SHARED_LENGTH ? takeShared() : null;
+      return shared != null ? shared : new long[length];
     }
     final long[][] stacks = STACKS.get();
     final long[] stack = stacks[depth];
@@ -61,6 +72,27 @@ final class StacksV2 {
   static void release(final int depth, final long[] stack) {
     if (depth < CACHED_DEPTHS) {
       STACKS.get()[depth] = stack;
+    } else if (stack.length == SHARED_LENGTH) {
+      releaseShared(stack);
+    }
+  }
+
+  private static long[] takeShared() {
+    synchronized (SHARED) {
+      if (sharedCount == 0) {
+        return null;
+      }
+      final long[] stack = SHARED[--sharedCount];
+      SHARED[sharedCount] = null;
+      return stack;
+    }
+  }
+
+  private static void releaseShared(final long[] stack) {
+    synchronized (SHARED) {
+      if (sharedCount < SHARED_STACKS) {
+        SHARED[sharedCount++] = stack;
+      }
     }
   }
 }
