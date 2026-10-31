@@ -109,6 +109,23 @@ public class OptimisticTransactionDBRocksDBColumnarKeyValueStorageTest
   }
 
   @Test
+  public void snapshotStreamFromKeyWithEndKeyBoundsKeysOfDifferentLengthsInUnsignedByteOrder()
+      throws Exception {
+    final OptimisticRocksDBColumnarKeyValueStorage store =
+        (OptimisticRocksDBColumnarKeyValueStorage) createSegmentedStore();
+    putKeysOfDifferentLengths(store);
+
+    final RocksDBColumnarKeyValueSnapshot snapshot = store.takeSnapshot();
+    try {
+      assertThat(streamedKeysFromOneToThree(snapshot))
+          .containsExactly("01", "0105", "02", "0200", "03");
+    } finally {
+      snapshot.close();
+      store.close();
+    }
+  }
+
+  @Test
   public void batchTransactionCommitsWithoutCheckingConflicts() throws Exception {
     final SegmentedKeyValueStorage store = createSegmentedStore();
     final byte[] key = bytesFromHexString("0001");
