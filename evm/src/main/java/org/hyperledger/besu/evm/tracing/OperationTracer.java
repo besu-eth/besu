@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.frame.CodeAccessTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
@@ -30,7 +31,7 @@ import java.util.Set;
 import org.apache.tuweni.bytes.Bytes;
 
 /** The interface Operation tracer. */
-public interface OperationTracer {
+public interface OperationTracer extends CodeAccessTracer {
 
   /** The constant NO_TRACING. */
   OperationTracer NO_TRACING =

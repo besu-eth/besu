@@ -161,6 +161,7 @@ public class EVMExecutor {
             .versionedHashes(versionedHashes)
             .completer(c -> {})
             .enableEvmV2(evmSpec.getEvm().getEvmConfiguration().enableEvmV2())
+            .codeAccessTracer(tracer)
             .build();
 
     final Deque<MessageFrame> messageFrameStack = initialMessageFrame.getMessageFrameStack();

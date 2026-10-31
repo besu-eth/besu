@@ -21,6 +21,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.MainnetEVMs;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.frame.CodeAccessTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -53,6 +54,8 @@ class ExtendedOperationTracerTest {
 
     when(frame.getWorldUpdater()).thenReturn(worldUpdater);
     when(worldUpdater.getOrCreate(any())).thenReturn(mutableAccount);
+    // A built frame always has one, NONE by default.
+    when(frame.getCodeAccessTracer()).thenReturn(CodeAccessTracer.NONE);
   }
 
   @Test

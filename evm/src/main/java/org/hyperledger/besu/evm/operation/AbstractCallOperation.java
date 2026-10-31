@@ -28,6 +28,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.frame.CodeAccessTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.MessageFrame.State;
@@ -232,6 +233,11 @@ public abstract class AbstractCallOperation extends AbstractOperation {
 
     final Account contract = getAccount(to, frame);
     cost = clampedAdd(cost, gasCalculator().calculateCodeDelegationResolutionGas(frame, contract));
+    // Resolving a possible delegation reads `to`'s code, even if the call then runs out of gas.
+    final CodeAccessTracer codeAccessTracer = frame.getCodeAccessTracer();
+    if (codeAccessTracer.isCodeAccessTracing() && contract != null) {
+      codeAccessTracer.traceCodeRead(to, contract.getCodeHash());
+    }
 
     if (frame.getRemainingGas() < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
@@ -255,6 +261,14 @@ public abstract class AbstractCallOperation extends AbstractOperation {
         frame
             .getEip7928AccessList()
             .ifPresent(t -> t.addTouchedAccount(getTargetAddress(contractCode)));
+        // Likewise, the target's code is read even on a soft failure: report it here too.
+        if (codeAccessTracer.isCodeAccessTracing()) {
+          final Address target = getTargetAddress(contractCode);
+          final Account targetAccount = frame.getWorldUpdater().get(target);
+          if (targetAccount != null) {
+            codeAccessTracer.traceCodeRead(target, targetAccount.getCodeHash());
+          }
+        }
       }
     }
 
