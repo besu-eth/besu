@@ -60,7 +60,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
   // Only contains updated storage entries, but may contain entry with a value of 0 to signify
   // deletion.
   private final UndoNavigableMap<UInt256, UInt256> updatedStorage;
-  private boolean storageWasCleared = false;
+  private final UndoScalar<Boolean> storageWasCleared;
 
   boolean immutable;
 
@@ -82,6 +82,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
     this.codeHash = UndoScalar.of(Hash.EMPTY);
     this.deleted = UndoScalar.of(Boolean.FALSE);
     this.updatedStorage = UndoNavigableMap.of(new TreeMap<>());
+    this.storageWasCleared = UndoScalar.of(Boolean.FALSE);
     this.transactionBoundaryMark = mark();
   }
 
@@ -110,6 +111,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
       this.deleted = that.deleted;
 
       this.updatedStorage = that.updatedStorage;
+      this.storageWasCleared = that.storageWasCleared;
     } else {
       this.nonce = UndoScalar.of(account.getNonce());
       this.balance = UndoScalar.of(account.getBalance());
@@ -121,6 +123,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
       this.deleted = UndoScalar.of(Boolean.FALSE);
 
       this.updatedStorage = UndoNavigableMap.of(new TreeMap<>());
+      this.storageWasCleared = UndoScalar.of(Boolean.FALSE);
     }
     transactionBoundaryMark = mark();
   }
@@ -143,7 +146,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
   public void setWrappedAccount(final MutableAccount account) {
     if (this.account == null) {
       this.account = account;
-      storageWasCleared = false;
+      storageWasCleared.set(Boolean.FALSE);
     } else {
       throw new IllegalStateException("Already tracking a wrapped account");
     }
@@ -271,7 +274,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
     if (value != null) {
       return value;
     }
-    if (storageWasCleared) {
+    if (storageWasCleared.get()) {
       return UInt256.ZERO;
     }
 
@@ -285,7 +288,9 @@ public class JournaledAccount implements MutableAccount, Undoable {
     // if storage was cleared then it is because it was an empty account, hence zero storage
     // if we have no backing account, it's a new account, hence zero storage
     // otherwise ask outside of what we are journaling, journaled change may not be original value
-    return (storageWasCleared || account == null) ? UInt256.ZERO : account.getStorageValue(key);
+    return (storageWasCleared.get() || account == null)
+        ? UInt256.ZERO
+        : account.getStorageValue(key);
   }
 
   @Override
@@ -321,7 +326,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
     if (immutable) {
       throw new ModificationNotAllowedException();
     }
-    storageWasCleared = true;
+    storageWasCleared.set(Boolean.TRUE);
     updatedStorage.clear();
   }
 
@@ -331,7 +336,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
    * @return boolean if storage was cleared
    */
   public boolean getStorageWasCleared() {
-    return storageWasCleared;
+    return storageWasCleared.get();
   }
 
   /**
@@ -343,13 +348,13 @@ public class JournaledAccount implements MutableAccount, Undoable {
     if (immutable) {
       throw new ModificationNotAllowedException();
     }
-    this.storageWasCleared = storageWasCleared;
+    this.storageWasCleared.set(storageWasCleared);
   }
 
   @Override
   public String toString() {
     String storage = updatedStorage.isEmpty() ? "[not updated]" : updatedStorage.toString();
-    if (updatedStorage.isEmpty() && storageWasCleared) {
+    if (updatedStorage.isEmpty() && storageWasCleared.get()) {
       storage = "[cleared]";
     }
     return String.format(
@@ -368,7 +373,10 @@ public class JournaledAccount implements MutableAccount, Undoable {
         Math.max(
             balance.lastUpdate(),
             Math.max(
-                code.lastUpdate(), Math.max(codeHash.lastUpdate(), updatedStorage.lastUpdate()))));
+                code.lastUpdate(),
+                Math.max(
+                    codeHash.lastUpdate(),
+                    Math.max(storageWasCleared.lastUpdate(), updatedStorage.lastUpdate())))));
   }
 
   @Override
@@ -379,6 +387,7 @@ public class JournaledAccount implements MutableAccount, Undoable {
     codeHash.undo(mark);
     deleted.undo(mark);
     updatedStorage.undo(mark);
+    storageWasCleared.undo(mark);
   }
 
   /** Commit this journaled account entry to the parent, if it is not a journaled account. */
@@ -392,6 +401,9 @@ public class JournaledAccount implements MutableAccount, Undoable {
       }
       if (code.updated()) {
         account.setCode(code.get() == null ? Bytes.EMPTY : code.get());
+      }
+      if (storageWasCleared.get()) {
+        account.clearStorage();
       }
       if (updatedStorage.updated()) {
         updatedStorage.forEach(account::setStorageValue);
