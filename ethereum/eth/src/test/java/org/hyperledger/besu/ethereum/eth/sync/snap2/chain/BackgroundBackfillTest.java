@@ -29,14 +29,11 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
-import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
 import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
-import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.QueuedExecutor;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
@@ -66,7 +63,8 @@ class BackgroundBackfillTest {
 
   private static final long HEAD = 60;
   private static final long BODIES_FROM = 41;
-  private static final long CHECKPOINT = 10;
+  // the checkpoint of the sync
+  private static final long FLOOR = 10;
   private static final String BLOCKS_REMAINING = "snap2_backfill_blocks_remaining";
   // one worker, no wait, and the lowest block recorded once it ends
   private static final BodyBackfill.Settings SETTINGS =
@@ -83,28 +81,21 @@ class BackgroundBackfillTest {
   void setUp() {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(HEAD);
     when(blockchain.getBodiesFrom()).thenReturn(Optional.of(BODIES_FROM));
-    when(syncState.getCheckpoint())
-        .thenReturn(
-            Optional.of(
-                ImmutableCheckpoint.builder()
-                    .blockNumber(CHECKPOINT)
-                    .blockHash(Hash.ZERO)
-                    .totalDifficulty(Difficulty.ONE)
-                    .build()));
+    when(blockchain.getSyncFloor()).thenReturn(Optional.of(FLOOR));
     when(syncState.isInSync()).thenReturn(true);
     when(syncState.getBestPeerChainHead()).thenReturn(Optional.of(mock(ChainHeadEstimate.class)));
   }
 
   @Test
-  void downloadsDownToTheBlockAboveTheCheckpoint() {
+  void downloadsDownToTheBlockAboveTheFloorOfTheSync() {
     backfill().onInitialSyncCompleted();
 
     assertThat(metricsSystem.getGaugeValue(BLOCKS_REMAINING)).isEqualTo(BODIES_FROM - 11);
   }
 
   @Test
-  void downloadsDownToTheBlockAboveGenesisWithoutCheckpoint() {
-    when(syncState.getCheckpoint()).thenReturn(Optional.empty());
+  void downloadsDownToTheBlockAboveGenesisWithoutAFloor() {
+    when(blockchain.getSyncFloor()).thenReturn(Optional.empty());
 
     backfill().onInitialSyncCompleted();
 
@@ -133,7 +124,7 @@ class BackgroundBackfillTest {
 
   @Test
   void startsNothingOnceEveryNeededBodyIsStored() {
-    when(blockchain.getBodiesFrom()).thenReturn(Optional.of(CHECKPOINT + 1));
+    when(blockchain.getBodiesFrom()).thenReturn(Optional.of(FLOOR + 1));
 
     backfill().onInitialSyncCompleted();
 
@@ -168,6 +159,54 @@ class BackgroundBackfillTest {
     workerPools.getFirst().runAll();
 
     verify(sender).stop();
+  }
+
+  @Test
+  void sendsThroughTheSchedulerOfTheSyncAndStopsIt() {
+    final BackgroundBackfill backfill = backfill();
+    final RequestSender scheduler = mock(RequestSender.class);
+    backfill.handOver(scheduler);
+
+    backfill.onInitialSyncCompleted();
+    workerPools.getFirst().runAll();
+
+    assertThat(senders).isEmpty();
+    verify(scheduler).stop();
+  }
+
+  @Test
+  void stopsTheSchedulerOfTheSyncWhenNoBackfillStarts() {
+    when(blockchain.getBodiesFrom()).thenReturn(Optional.empty());
+    final BackgroundBackfill backfill = backfill();
+    final RequestSender scheduler = mock(RequestSender.class);
+    backfill.handOver(scheduler);
+
+    backfill.onInitialSyncCompleted();
+
+    verify(scheduler).stop();
+  }
+
+  @Test
+  void stopsTheSchedulerOfTheSyncOnceClosed() throws InterruptedException {
+    final BackgroundBackfill backfill = backfill();
+    final RequestSender scheduler = mock(RequestSender.class);
+    backfill.handOver(scheduler);
+
+    backfill.awaitStop();
+
+    verify(scheduler).stop();
+  }
+
+  @Test
+  void stopsASchedulerHandedOverOnceClosed() throws InterruptedException {
+    final BackgroundBackfill backfill = backfill();
+    backfill.awaitStop();
+    final RequestSender scheduler = mock(RequestSender.class);
+
+    // a sync that completes as the node stops
+    backfill.handOver(scheduler);
+
+    verify(scheduler).stop();
   }
 
   @Test

@@ -57,7 +57,8 @@ import org.apache.tuweni.bytes.Bytes32;
 /**
  * Serves the snap requests of the state download from in-memory worlds, with real range proofs, in
  * place of the request scheduler. A request waits until the test answers it; one that no peer takes
- * fails at once, as with the scheduler when only peers left out serve it.
+ * fails at once, as with the scheduler when only peers left out serve it. The other requests go to
+ * the chain it serves, if any, which answers them at once.
  */
 public final class FakeSnapNetwork implements RequestSender {
 
@@ -68,11 +69,13 @@ public final class FakeSnapNetwork implements RequestSender {
   private final Map<Bytes32, ServedState> states = new HashMap<>();
   private final Map<Bytes32, Bytes> codes = new HashMap<>();
   private final Set<EthPeer> withoutState = new HashSet<>();
+  private final Set<EthPeer> invalid = new HashSet<>();
   private final List<Sent<?>> unanswered = new ArrayList<>();
   private final List<Bytes32> accountRangeOrigins = new ArrayList<>();
   private final Map<EthPeer, Integer> stateRequests = new HashMap<>();
   private final Map<EthPeer, Integer> codeRequests = new HashMap<>();
   private final Set<EthPeer> disconnected = new HashSet<>();
+  private Optional<ChainSender> chain = Optional.empty();
   // fails every request at once, if set
   private Throwable failure;
   private int requests;
@@ -91,6 +94,16 @@ public final class FakeSnapNetwork implements RequestSender {
     codes.putAll(world.codes());
   }
 
+  /** Answers the requests for headers, bodies, receipts and block access lists from a chain. */
+  void serveChain(final ChainSender chain) {
+    this.chain = Optional.of(chain);
+  }
+
+  /** Stops serving the state with this root, as peers do once it is too old. */
+  public void forget(final Bytes32 root) {
+    states.remove(root);
+  }
+
   /** Caps every response, to force many requests and split storages. */
   public void maxResponseBytes(final int bytes) {
     this.maxResponseBytes = bytes;
@@ -99,6 +112,11 @@ public final class FakeSnapNetwork implements RequestSender {
   /** Makes a peer answer every account and storage range request with nothing. */
   public void serveNoState(final int peer) {
     withoutState.add(peers.get(peer));
+  }
+
+  /** Makes a peer answer every request with an invalid response. */
+  public void answerInvalid(final int peer) {
+    invalid.add(peers.get(peer));
   }
 
   public List<EthPeer> peers() {
@@ -141,6 +159,17 @@ public final class FakeSnapNetwork implements RequestSender {
     answering.forEach(this::answer);
   }
 
+  /** Answers the first requests of a type that wait for an answer, in the order they were sent. */
+  public void answer(final String name, final int count) {
+    final List<Sent<?>> answering =
+        unanswered.stream()
+            .filter(sent -> sent.request().name().equals(name))
+            .limit(count)
+            .toList();
+    unanswered.removeAll(answering);
+    answering.forEach(this::answer);
+  }
+
   /** Returns the number of requests waiting for an answer that the download withdrew. */
   public long withdrawnRequestCount() {
     return unanswered.stream().filter(sent -> sent.future().isCancelled()).count();
@@ -179,6 +208,9 @@ public final class FakeSnapNetwork implements RequestSender {
   @Override
   public <T> CompletableFuture<Response<T>> submit(
       final SyncRequest<T> request, final Set<EthPeer> excluded) {
+    if (request.protocol() != Protocol.SNAP && chain.isPresent()) {
+      return chain.get().submit(request, excluded);
+    }
     requests++;
     if (failure != null) {
       return CompletableFuture.failedFuture(failure);
@@ -236,6 +268,11 @@ public final class FakeSnapNetwork implements RequestSender {
   }
 
   private <T> void answer(final Sent<T> sent) {
+    if (invalid.contains(sent.peer())) {
+      sent.future()
+          .completeExceptionally(new RequestFailedException(INVALID, sent.peer(), "invalid"));
+      return;
+    }
     // snap responses reach a request with their request id
     final MessageData response =
         respond(sent.peer(), sent.message()).wrapMessageData(BigInteger.ONE);

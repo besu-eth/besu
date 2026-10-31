@@ -28,23 +28,27 @@ public class QbftBlockCreatorFactoryAdaptor implements QbftBlockCreatorFactory {
 
   private final BftBlockCreatorFactory<QbftConfigOptions> qbftBlockCreatorFactory;
   private final BftExtraDataCodec bftExtraDataCodec;
+  private final ValidatedBlockCache validatedBlockCache;
 
   /**
    * Constructs a new QbftBlockCreatorFactory
    *
    * @param bftBlockCreatorFactory The Besu QBFT block creator factory
    * @param bftExtraDataCodec the bftExtraDataCodec used to encode extra data for the new header
+   * @param validatedBlockCache cache for outputs of created blocks
    */
   public QbftBlockCreatorFactoryAdaptor(
       final BftBlockCreatorFactory<QbftConfigOptions> bftBlockCreatorFactory,
-      final BftExtraDataCodec bftExtraDataCodec) {
+      final BftExtraDataCodec bftExtraDataCodec,
+      final ValidatedBlockCache validatedBlockCache) {
     this.qbftBlockCreatorFactory = bftBlockCreatorFactory;
     this.bftExtraDataCodec = bftExtraDataCodec;
+    this.validatedBlockCache = validatedBlockCache;
   }
 
   @Override
   public QbftBlockCreator create(final int roundNumber) {
     return new QbftBlockCreatorAdaptor(
-        qbftBlockCreatorFactory.create(roundNumber), bftExtraDataCodec);
+        qbftBlockCreatorFactory.create(roundNumber), bftExtraDataCodec, validatedBlockCache);
   }
 }

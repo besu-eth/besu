@@ -85,8 +85,12 @@ public final class ProgressFormat {
 
   /** Returns the share of a total as a percentage, as in 37.4%, 0.0% without a total. */
   public static String percent(final long done, final long total) {
-    final double share = total > 0 ? Math.clamp((double) done / total, 0, 1) : 0;
-    return String.format(Locale.ROOT, "%.1f%%", 100 * share);
+    return percent(total > 0 ? (double) done / total : 0);
+  }
+
+  /** Returns a share from 0 to 1 as a percentage, as in 37.4%. */
+  public static String percent(final double share) {
+    return String.format(Locale.ROOT, "%.1f%%", 100 * Math.clamp(share, 0, 1));
   }
 
   /** Returns a rate in mebibytes per second, as in 11.8 MiB/s. */

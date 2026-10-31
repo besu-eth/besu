@@ -476,7 +476,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             "Invalid value for option '--sync-mode': '"
                 + value
                 + "' is not a valid sync mode. "
-                + "Valid values are: FULL, SNAP");
+                + "Valid values are: "
+                + Arrays.stream(SyncMode.values())
+                    .map(Enum::name)
+                    .collect(Collectors.joining(", ")));
       }
     }
   }
@@ -1612,6 +1615,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void validateDataStorageOptions() {
     dataStorageOptions.validate(commandLine);
+    // the SNAP2 sync storage is on Bonsai and Forest, not on an archive
+    final DataStorageFormat format = dataStorageOptions.toDomainObject().getDataStorageFormat();
+    if (getDefaultSyncModeIfNotSet() == SyncMode.SNAP2
+        && format == DataStorageFormat.X_BONSAI_ARCHIVE) {
+      throw new ParameterException(
+          commandLine,
+          "--sync-mode=SNAP2 needs --data-storage-format=BONSAI or FOREST, not " + format);
+    }
   }
 
   private void validateMiningParams() {
@@ -3009,9 +3020,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         && !getDataStorageConfiguration().getHistoryExpiryPruneEnabled()) {
       rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.CHAIN_PRUNER_STATE);
     }
-    // the flat state the SNAP2 sync stages on Forest; no sync mode runs it yet
-    rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_ACCOUNTS);
-    rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_STORAGE);
+    // the flat state the SNAP2 sync stages on Forest, created only for that sync
+    if (getDefaultSyncModeIfNotSet() != SyncMode.SNAP2
+        || getDataStorageConfiguration().getDataStorageFormat() != DataStorageFormat.FOREST) {
+      rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_ACCOUNTS);
+      rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_STORAGE);
+    }
   }
 
   private void validateAndResolveCheckpointRelatedConfig() {

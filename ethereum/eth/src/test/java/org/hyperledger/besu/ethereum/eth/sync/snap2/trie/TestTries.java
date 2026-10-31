@@ -21,7 +21,7 @@ import java.util.function.Predicate;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.apache.tuweni.bytes.Bytes32;
 
-/** Trie builds on the calling thread, for the tests of the download. */
+/** Storage trie updates and trie builds on the calling thread, for the tests of the download. */
 public final class TestTries {
 
   // as many as a build commits at once
@@ -29,11 +29,24 @@ public final class TestTries {
 
   private TestTries() {}
 
+  /** Returns an updater without workers: the thread that finishes it applies the updates. */
+  public static StorageTrieUpdater updaterWithoutWorkers(
+      final SyncStateStorage storage,
+      final Predicate<Runnable> withoutMoves,
+      final Predicate<Bytes32> trieLeft) {
+    return new StorageTrieUpdater(storage, withoutMoves, trieLeft, 0, Integer.MAX_VALUE);
+  }
+
   /** Builds the tries of the flat state, its partitions one after the other. */
   public static WorldStateTrieBuilder.Result build(
       final SyncStateStorage storage, final Predicate<Bytes32> trieLeft) {
+    return builder(storage, trieLeft).build();
+  }
+
+  /** Returns a build whose partitions run one after the other, on the thread that builds. */
+  public static WorldStateTrieBuilder builder(
+      final SyncStateStorage storage, final Predicate<Bytes32> trieLeft) {
     return new WorldStateTrieBuilder(
-            storage, trieLeft, MoreExecutors::newDirectExecutorService, FIXES_PER_COMMIT)
-        .build();
+        storage, trieLeft, MoreExecutors::newDirectExecutorService, FIXES_PER_COMMIT);
   }
 }

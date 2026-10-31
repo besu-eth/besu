@@ -114,9 +114,8 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
   @Override
   public final BlockProcessingResult processBlock(final BlockExecutionContext context) {
     final BlockProcessingResult blockProcessingResult = super.processBlock(context);
-    // Return the result as-is if the block succeeded or this processor does not rerun failed
-    // blocks.
-    if (!blockProcessingResult.isFailed() || !shouldRerunSequentially()) {
+    // Return the result as-is if the block succeeded or its failure is not rerun.
+    if (!blockProcessingResult.isFailed() || !shouldRerunSequentially(context)) {
       return blockProcessingResult;
     }
     // The block already ran sequentially, so there is no parallel attempt to fall back from.
@@ -135,9 +134,18 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
     return processBlockSequentially(context);
   }
 
-  /** Returns whether a block whose parallel processing failed is rerun sequentially. */
-  protected boolean shouldRerunSequentially() {
-    return true;
+  /** Whether parallel execution runs on {@link BalConcurrentTransactionProcessor}. */
+  private boolean isBalPerfectParallelization(final Optional<BlockAccessList> blockAccessList) {
+    return balConfiguration.isPerfectParallelizationEnabled() && blockAccessList.isPresent();
+  }
+
+  /**
+   * Returns whether a block whose parallel processing failed is rerun sequentially. A block run on
+   * its block access list is not: each transaction ran on its exact pre-state, so the failure is
+   * the block's own and a rerun would only repeat it.
+   */
+  protected boolean shouldRerunSequentially(final BlockExecutionContext context) {
+    return !isBalPerfectParallelization(context.getBlockAccessList());
   }
 
   /**
@@ -165,7 +173,7 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
 
     final ParallelBlockTransactionProcessor parallelProcessor;
 
-    if (balConfiguration.isPerfectParallelizationEnabled() && blockAccessList.isPresent()) {
+    if (isBalPerfectParallelization(blockAccessList)) {
       parallelProcessor =
           new BalConcurrentTransactionProcessor(
               transactionProcessor, blockAccessList.get(), balConfiguration);

@@ -19,11 +19,21 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.Accounts;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BalanceChange;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.CodeChange;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Random;
@@ -34,7 +44,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
-/** An address-keyed world state, with the trie leaves of its accounts and storages. */
+/** An address-keyed world state that can produce block access lists of random blocks. */
 public final class TestWorld {
 
   /** One account. */
@@ -43,6 +53,19 @@ public final class TestWorld {
     Wei balance = Wei.ZERO;
     Bytes code = Bytes.EMPTY;
     final TreeMap<UInt256, UInt256> storage = new TreeMap<>();
+
+    Account copy() {
+      final Account copy = new Account();
+      copy.nonce = nonce;
+      copy.balance = balance;
+      copy.code = code;
+      copy.storage.putAll(storage);
+      return copy;
+    }
+
+    boolean isEmpty() {
+      return nonce == 0 && balance.isZero() && code.isEmpty();
+    }
   }
 
   private final TreeMap<Address, Account> accounts = new TreeMap<>();
@@ -77,6 +100,112 @@ public final class TestWorld {
       world.accounts.put(randomAddress(random), account);
     }
     return world;
+  }
+
+  public TestWorld copy() {
+    final TestWorld copy = new TestWorld();
+    accounts.forEach((address, account) -> copy.accounts.put(address, account.copy()));
+    return copy;
+  }
+
+  /**
+   * Applies a random block to this world and returns its block access list.
+   *
+   * @param changes the number of accounts touched
+   */
+  public BlockAccessList mutate(final Random random, final int changes) {
+    final List<Address> existing = new ArrayList<>(accounts.keySet());
+    final Map<Address, AccountChanges> bal = new HashMap<>();
+    for (int i = 0; i < changes; i++) {
+      final int kind = random.nextInt(10);
+      if (kind == 0) {
+        // a new contract with storage
+        final Address address = randomAddress(random);
+        final Account account = new Account();
+        account.nonce = 1;
+        account.code = randomBytes(random, 20);
+        final List<SlotChanges> slots = new ArrayList<>();
+        for (int s = 0; s < 3; s++) {
+          final UInt256 key = randomSlot(random);
+          final UInt256 value = UInt256.valueOf(1 + random.nextInt(1000));
+          account.storage.put(key, value);
+          slots.add(slotChange(key, value));
+        }
+        accounts.put(address, account);
+        bal.put(
+            address,
+            new AccountChanges(
+                address,
+                sorted(slots),
+                List.of(),
+                List.of(),
+                List.of(new NonceChange(1, 1)),
+                List.of(new CodeChange(1, account.code))));
+        continue;
+      }
+      final Address address = existing.get(random.nextInt(existing.size()));
+      if (bal.containsKey(address)) {
+        continue;
+      }
+      final Account account = accounts.get(address);
+      final List<SlotChanges> slots = new ArrayList<>();
+      final List<BalanceChange> balances = new ArrayList<>();
+      final List<NonceChange> nonces = new ArrayList<>();
+      if (kind == 1 && account.code.isEmpty() && account.storage.isEmpty()) {
+        // the account ends up empty and disappears
+        account.nonce = 0;
+        account.balance = Wei.ZERO;
+        balances.add(new BalanceChange(1, Wei.ZERO));
+        nonces.add(new NonceChange(1, 0));
+      } else {
+        account.balance = Wei.of(1 + random.nextInt(1_000_000));
+        account.nonce++;
+        balances.add(new BalanceChange(1, account.balance));
+        nonces.add(new NonceChange(1, account.nonce));
+        if (!account.code.isEmpty()) {
+          final List<UInt256> keys = new ArrayList<>(account.storage.keySet());
+          final int slotChanges = 1 + random.nextInt(4);
+          for (int s = 0; s < slotChanges; s++) {
+            final UInt256 key =
+                keys.isEmpty() || random.nextBoolean()
+                    ? randomSlot(random)
+                    : keys.get(random.nextInt(keys.size()));
+            final UInt256 value =
+                random.nextInt(4) == 0 ? UInt256.ZERO : UInt256.valueOf(1 + random.nextInt(1000));
+            if (value.isZero()) {
+              account.storage.remove(key);
+            } else {
+              account.storage.put(key, value);
+            }
+            slots.add(slotChange(key, value));
+          }
+        }
+      }
+      bal.put(
+          address,
+          new AccountChanges(address, sorted(slots), List.of(), balances, nonces, List.of()));
+    }
+    accounts.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+    final List<AccountChanges> sortedChanges = new ArrayList<>(bal.values());
+    sortedChanges.sort(Comparator.comparing(AccountChanges::address));
+    return new BlockAccessList(sortedChanges);
+  }
+
+  /** Applies a block that sets every slot to zero, and returns its block access list. */
+  public BlockAccessList clearStorages() {
+    final List<AccountChanges> changes = new ArrayList<>();
+    accounts.forEach(
+        (address, account) -> {
+          if (!account.storage.isEmpty()) {
+            final List<SlotChanges> slots = new ArrayList<>();
+            account.storage.keySet().forEach(key -> slots.add(slotChange(key, UInt256.ZERO)));
+            account.storage.clear();
+            changes.add(
+                new AccountChanges(
+                    address, sorted(slots), List.of(), List.of(), List.of(), List.of()));
+          }
+        });
+    return new BlockAccessList(changes);
   }
 
   /** Returns the account trie leaves keyed by account hash. */
@@ -134,6 +263,16 @@ public final class TestWorld {
         new SimpleMerklePatriciaTrie<>(Function.identity());
     storageLeaves(account).forEach(trie::put);
     return trie.getRootHash();
+  }
+
+  private static List<SlotChanges> sorted(final List<SlotChanges> slots) {
+    final TreeMap<UInt256, SlotChanges> byKey = new TreeMap<>();
+    slots.forEach(slot -> byKey.put(slot.slot().getSlotKey().orElseThrow(), slot));
+    return new ArrayList<>(byKey.values());
+  }
+
+  private static SlotChanges slotChange(final UInt256 key, final UInt256 value) {
+    return new SlotChanges(new StorageSlotKey(key), List.of(new StorageChange(1, value)));
   }
 
   public static Bytes32 hash(final Address address) {

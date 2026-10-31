@@ -18,10 +18,14 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.Worl
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -61,6 +65,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.util.Collections;
 import java.util.List;
@@ -769,6 +774,50 @@ class BalTransactionProcessorUnitTest {
 
       assertTrue(
           result.isEmpty(), "Expected empty result when context is null - triggers fallback");
+    }
+
+    @Test
+    @DisplayName("Propagates a failure to import the result into the block")
+    void propagatesImportFailure() {
+      final TestEnvironment env = createTestEnvironment();
+      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction();
+
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      // The import may have applied part of the transaction, so it is not processed again.
+      final BonsaiWorldState blockWorldState = mock(BonsaiWorldState.class);
+      final PathBasedWorldStateUpdateAccumulator<?> blockAccumulator =
+          mock(PathBasedWorldStateUpdateAccumulator.class);
+      doReturn(blockAccumulator).when(blockWorldState).updater();
+      doThrow(new StorageException("Simulated failure"))
+          .when(blockAccumulator)
+          .importStateChangesFromPartialView(any(), anyBoolean());
+
+      assertThrows(
+          StorageException.class,
+          () ->
+              processor.getProcessingResult(
+                  blockWorldState,
+                  MINING_BENEFICIARY,
+                  transaction,
+                  0,
+                  Optional.empty(),
+                  Optional.empty()));
     }
   }
 }
