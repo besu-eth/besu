@@ -167,6 +167,7 @@ opportunity to upgrade.
 - Snap sync now restarts instead of staying idle when one of its world state download pipelines fails. [#11515](https://github.com/besu-eth/besu/pull/11515)
 - Snap sync no longer downloads the storage and code of an account twice when an account range response goes past the end of the range. [#11516](https://github.com/besu-eth/besu/pull/11516)
 - Snap sync no longer stalls when a download completes while the pipeline stage is handing on another result. [#11514](https://github.com/besu-eth/besu/pull/11514)
+- Parity flat traces now report a successful nested `CREATE` whose constructor executes `SELFDESTRUCT` with `result.code: "0x"`, like any other creation, instead of `result.output: "0x"`. [#11362](https://github.com/besu-eth/besu/pull/11362)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
