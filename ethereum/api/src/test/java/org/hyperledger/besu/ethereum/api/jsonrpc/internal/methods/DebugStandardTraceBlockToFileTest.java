@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -23,9 +24,13 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.BlockTracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TraceFilesDirSizeLimitExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -87,12 +92,49 @@ public class DebugStandardTraceBlockToFileTest {
             });
 
     when(transactionTracer.traceTransactionToFile(
-            any(MutableWorldState.class), eq(block.getHash()), any(), any()))
+            any(MutableWorldState.class), eq(block.getHash()), any(), any(), anyLong()))
         .thenReturn(paths);
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse) debugStandardTraceBlockToFile.response(request);
     final List result = (List) response.getResult();
 
     assertThat(result.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldReturnErrorWhenTraceFilesDirSizeLimitIsExceeded() {
+    final BlockDataGenerator blockGenerator = new BlockDataGenerator();
+    final Block genesis = blockGenerator.genesisBlock();
+    final Block block =
+        blockGenerator.block(
+            new BlockDataGenerator.BlockOptions().setParentHash(genesis.getHeader().getHash()));
+
+    final Object[] params = new Object[] {block.getHash(), new HashMap<>()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "debug_standardTraceBlockToFile", params));
+
+    when(blockchain.getBlockByHash(block.getHash())).thenReturn(Optional.of(block));
+    when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis.getHeader()));
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchainQueries.getAndMapWorldState(any(), any()))
+        .thenAnswer(
+            invocationOnMock -> {
+              Function<Tracer.TraceableState, ? extends Optional<BlockTracer>> mapper =
+                  invocationOnMock.getArgument(1);
+              return mapper.apply(mock(Tracer.TraceableState.class));
+            });
+    when(transactionTracer.traceTransactionToFile(
+            any(MutableWorldState.class), eq(block.getHash()), any(), any(), eq(1024L)))
+        .thenThrow(new TraceFilesDirSizeLimitExceededException("too big"));
+
+    final DebugStandardTraceBlockToFile limitedMethod =
+        new DebugStandardTraceBlockToFile(
+            () -> transactionTracer, blockchainQueries, folder, 1024L);
+    final JsonRpcResponse response = limitedMethod.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.TRACE_FILES_DIR_SIZE_LIMIT_EXCEEDED);
   }
 }

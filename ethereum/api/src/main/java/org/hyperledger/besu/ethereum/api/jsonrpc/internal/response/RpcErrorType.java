@@ -146,6 +146,9 @@ public enum RpcErrorType implements RpcMethodError {
   P2P_NETWORK_NOT_RUNNING(-32000, "P2P network is not running"),
 
   // Filter & Subscription Errors
+  TRACE_FILES_DIR_SIZE_LIMIT_EXCEEDED(
+      -32000,
+      "Trace files directory size limit exceeded; remove old traces or raise --rpc-trace-files-max-dir-size"),
   FILTER_NOT_FOUND(-32000, "Filter not found"),
   LOGS_FILTER_NOT_FOUND(-32000, "Logs filter not found"),
   SUBSCRIPTION_NOT_FOUND(-32000, "Subscription not found"),

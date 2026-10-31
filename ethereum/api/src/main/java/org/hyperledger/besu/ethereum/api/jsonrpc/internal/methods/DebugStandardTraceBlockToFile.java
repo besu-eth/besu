@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TraceFilesDirSizeLimitExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -44,14 +45,24 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
   protected final Supplier<BlockchainQueries> blockchainQueries;
   private final Supplier<TransactionTracer> transactionTracerSupplier;
   private final Path dataDir;
+  private final long traceFilesMaxDirSize;
 
   public DebugStandardTraceBlockToFile(
       final Supplier<TransactionTracer> transactionTracerSupplier,
       final BlockchainQueries blockchainQueries,
       final Path dataDir) {
+    this(transactionTracerSupplier, blockchainQueries, dataDir, 0L);
+  }
+
+  public DebugStandardTraceBlockToFile(
+      final Supplier<TransactionTracer> transactionTracerSupplier,
+      final BlockchainQueries blockchainQueries,
+      final Path dataDir,
+      final long traceFilesMaxDirSize) {
     this.transactionTracerSupplier = transactionTracerSupplier;
     this.blockchainQueries = Suppliers.ofInstance(blockchainQueries);
     this.dataDir = dataDir;
+    this.traceFilesMaxDirSize = traceFilesMaxDirSize;
   }
 
   @Override
@@ -82,15 +93,23 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
         .get()
         .getBlockchain()
         .getBlockByHash(blockHash)
-        .map(
-            block ->
-                (JsonRpcResponse)
-                    new JsonRpcSuccessResponse(
-                        requestContext.getRequest().getId(),
-                        traceBlock(block, transactionTraceParams)))
+        .map(block -> traceBlockResponse(requestContext, block, transactionTraceParams))
         .orElse(
             new JsonRpcErrorResponse(
                 requestContext.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND));
+  }
+
+  protected JsonRpcResponse traceBlockResponse(
+      final JsonRpcRequestContext requestContext,
+      final Block block,
+      final Optional<TransactionTraceParams> transactionTraceParams) {
+    try {
+      return new JsonRpcSuccessResponse(
+          requestContext.getRequest().getId(), traceBlock(block, transactionTraceParams));
+    } catch (final TraceFilesDirSizeLimitExceededException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.TRACE_FILES_DIR_SIZE_LIMIT_EXCEEDED);
+    }
   }
 
   protected List<String> traceBlock(
@@ -106,7 +125,8 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
                             mutableWorldState,
                             block.getHash(),
                             transactionTraceParams,
-                            dataDir.resolve(TRACE_PATH))))
+                            dataDir.resolve(TRACE_PATH),
+                            traceFilesMaxDirSize)))
         .orElse(new ArrayList<>());
   }
 }

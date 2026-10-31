@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -293,5 +294,88 @@ public class TransactionTracerTest {
     assertThat(transactionTraces.size()).isEqualTo(1);
     assertThat(Files.readString(Path.of(transactionTraces.get(0))))
         .contains("{\"output\":\"0102\",\"gasUsed\":\"0x0\"");
+  }
+
+  private void mockSingleTransactionBlockForFileTracing() {
+    when(blockBody.getTransactions()).thenReturn(Collections.singletonList(transaction));
+    when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
+    when(blockchain.getBlockHeader(blockHash)).thenReturn(Optional.of(blockHeader));
+    when(blockchain.getBlockHeader(previousBlockHash)).thenReturn(Optional.of(previousBlockHeader));
+
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getOutput()).thenReturn(Bytes.of(0x01, 0x02));
+
+    final WorldUpdater updater = mock(WorldUpdater.class);
+    when(mutableWorldState.updater()).thenReturn(updater);
+    final WorldUpdater stackedUpdater = mock(StackedUpdater.class);
+    when(updater.updater()).thenReturn(stackedUpdater);
+    when(transactionProcessor.processTransaction(
+            eq(stackedUpdater),
+            eq(blockHeader),
+            eq(transaction),
+            eq(null),
+            any(StreamingOperationTracer.class),
+            any(),
+            any(),
+            eq(Wei.ZERO)))
+        .thenReturn(result);
+  }
+
+  private List<String> traceToFile(final long maxDirSize) {
+    return transactionTracer.traceTransactionToFile(
+        mutableWorldState,
+        blockHash,
+        Optional.of(ImmutableTransactionTraceParams.builder().build()),
+        traceDir,
+        maxDirSize);
+  }
+
+  @Test
+  public void traceTransactionToFileShouldReuseFileNameWhenTracingSameBlockAgain()
+      throws IOException {
+    mockSingleTransactionBlockForFileTracing();
+
+    final List<String> first = traceToFile(0L);
+    final long traceSize = Files.size(Path.of(first.get(0)));
+    // the file being overwritten must not count against the limit
+    final List<String> second = traceToFile(traceSize);
+
+    assertThat(second).isEqualTo(first);
+    try (var files = Files.list(traceDir)) {
+      assertThat(files.count()).isEqualTo(1);
+    }
+  }
+
+  @Test
+  public void traceTransactionToFileShouldFailAndDeletePartialFileWhenLimitExceeded()
+      throws IOException {
+    mockSingleTransactionBlockForFileTracing();
+
+    assertThatThrownBy(() -> traceToFile(10L))
+        .isInstanceOf(TraceFilesDirSizeLimitExceededException.class);
+    try (var files = Files.list(traceDir)) {
+      assertThat(files.count()).isZero();
+    }
+  }
+
+  @Test
+  public void traceTransactionToFileShouldFailWhenExistingTracesAlreadyFillTheDirectory()
+      throws IOException {
+    mockSingleTransactionBlockForFileTracing();
+    final Path oldTrace = traceDir.resolve("old_trace");
+    Files.write(oldTrace, new byte[100]);
+
+    assertThatThrownBy(() -> traceToFile(100L))
+        .isInstanceOf(TraceFilesDirSizeLimitExceededException.class);
+    try (var files = Files.list(traceDir)) {
+      assertThat(files.toList()).containsExactly(oldTrace);
+    }
+  }
+
+  @Test
+  public void traceTransactionToFileShouldSucceedWhenUnderTheLimit() {
+    mockSingleTransactionBlockForFileTracing();
+
+    assertThat(traceToFile(1024 * 1024L)).hasSize(1);
   }
 }

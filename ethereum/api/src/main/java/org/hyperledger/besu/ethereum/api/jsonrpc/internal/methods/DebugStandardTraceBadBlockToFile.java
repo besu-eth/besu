@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.Transaction
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -43,7 +42,16 @@ public class DebugStandardTraceBadBlockToFile extends DebugStandardTraceBlockToF
       final BlockchainQueries blockchainQueries,
       final ProtocolContext protocolContext,
       final Path dataDir) {
-    super(transactionTracerSupplier, blockchainQueries, dataDir);
+    this(transactionTracerSupplier, blockchainQueries, protocolContext, dataDir, 0L);
+  }
+
+  public DebugStandardTraceBadBlockToFile(
+      final Supplier<TransactionTracer> transactionTracerSupplier,
+      final BlockchainQueries blockchainQueries,
+      final ProtocolContext protocolContext,
+      final Path dataDir,
+      final long traceFilesMaxDirSize) {
+    super(transactionTracerSupplier, blockchainQueries, dataDir, traceFilesMaxDirSize);
     this.protocolContext = protocolContext;
   }
 
@@ -75,12 +83,7 @@ public class DebugStandardTraceBadBlockToFile extends DebugStandardTraceBlockToF
 
     return badBlockManager
         .getBadBlock(blockHash)
-        .map(
-            block ->
-                (JsonRpcResponse)
-                    new JsonRpcSuccessResponse(
-                        requestContext.getRequest().getId(),
-                        traceBlock(block, transactionTraceParams)))
+        .map(block -> traceBlockResponse(requestContext, block, transactionTraceParams))
         .orElse(
             new JsonRpcErrorResponse(
                 requestContext.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND));
