@@ -1,0 +1,23 @@
+{
+  "comment": "trace_filter ranges cover mined blocks, so pending is not a bound",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [
+      {
+        "fromBlock": "pending",
+        "toBlock": "latest"
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid block number params"
+    }
+  },
+  "statusCode": 200
+}

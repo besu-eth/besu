@@ -1,0 +1,29 @@
+{
+  "comment": "Calls are not simulated in a pending environment, so pending is rejected rather than evaluated as latest",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_call",
+    "params": [
+      {
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "gas": "0xfffff2",
+        "gasPrice": "0xef",
+        "input": "0x4360005260206000f3"
+      },
+      [
+        "trace"
+      ],
+      "pending"
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid block number params"
+    }
+  },
+  "statusCode": 200
+}

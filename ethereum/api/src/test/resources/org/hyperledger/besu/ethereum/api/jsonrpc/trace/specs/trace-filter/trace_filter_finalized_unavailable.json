@@ -1,0 +1,23 @@
+{
+  "comment": "The chain has no finalized block, so a finalized bound is rejected rather than replaced by the head",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [
+      {
+        "fromBlock": "finalized",
+        "toBlock": "latest"
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid block number params"
+    }
+  },
+  "statusCode": 200
+}
