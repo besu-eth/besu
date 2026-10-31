@@ -1,0 +1,52 @@
+{
+  "comment": "A root bn128Add precompile call without enough gas for the precompile reports out of gas and emits no vmTrace ops",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_call",
+    "params": [
+      {
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "to": "0x0000000000000000000000000000000000000006",
+        "gas": "0x526c",
+        "gasPrice": "0xef",
+        "value": "0x0",
+        "data": "0x"
+      },
+      [
+        "trace",
+        "vmTrace"
+      ],
+      "latest"
+    ],
+    "id": 0
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": {
+      "output": "0x",
+      "stateDiff": null,
+      "trace": [
+        {
+          "action": {
+            "callType": "call",
+            "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+            "gas": "0xfa",
+            "input": "0x",
+            "to": "0x0000000000000000000000000000000000000006",
+            "value": "0x0"
+          },
+          "error": "Out of gas",
+          "subtraces": 0,
+          "traceAddress": [],
+          "type": "call"
+        }
+      ],
+      "vmTrace": {
+        "code": "0x",
+        "ops": []
+      }
+    },
+    "id": 0
+  },
+  "statusCode": 200
+}
