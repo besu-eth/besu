@@ -1,0 +1,44 @@
+{
+  "comment": "Transaction 4 of block 0x13; the result equals trace_replayBlockTransactions for that transaction.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_replayTransaction",
+    "params": [
+      "0x821ca63d171c5a3c60d32a738803092a52562056db3727a175f659cf49aae283",
+      [
+        "trace"
+      ]
+    ],
+    "id": 415
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": {
+      "output": "0x600035ff",
+      "stateDiff": null,
+      "trace": [
+        {
+          "action": {
+            "creationMethod": "create",
+            "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+            "gas": "0xff300e",
+            "init": "0x6004600c60003960046000f3600035ff",
+            "value": "0x0"
+          },
+          "result": {
+            "address": "0xfb88de099e13c3ed21f80a7a1e49f8caecf10df6",
+            "code": "0x600035ff",
+            "gasUsed": "0x338"
+          },
+          "subtraces": 0,
+          "traceAddress": [],
+          "type": "create"
+        }
+      ],
+      "transactionHash": "0x821ca63d171c5a3c60d32a738803092a52562056db3727a175f659cf49aae283",
+      "vmTrace": null
+    },
+    "id": 415
+  },
+  "statusCode": 200
+}
