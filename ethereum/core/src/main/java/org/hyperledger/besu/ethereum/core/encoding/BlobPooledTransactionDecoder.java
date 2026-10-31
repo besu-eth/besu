@@ -14,17 +14,21 @@
  */
 package org.hyperledger.besu.ethereum.core.encoding;
 
+import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
+
 import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -58,16 +62,31 @@ public class BlobPooledTransactionDecoder {
     if (hasVersionId) {
       versionId = txRlp.readIntScalar();
     }
-    List<Blob> blobs = txRlp.readList(Blob::readFrom);
-    List<KZGCommitment> commitments = txRlp.readList(KZGCommitment::readFrom);
-    List<KZGProof> proofs = txRlp.readList(KZGProof::readFrom);
+    final List<Blob> blobs = txRlp.readList(Blob::readFrom);
+    final List<KZGCommitment> commitments = txRlp.readList(KZGCommitment::readFrom);
+    final List<KZGProof> proofs = txRlp.readList(KZGProof::readFrom);
     txRlp.leaveList();
 
-    final Transaction transaction =
-        builder
-            .kzgBlobs(BlobType.of(versionId), commitments, blobs, proofs)
-            .sizeForAnnouncement(input.size())
-            .build();
+    // eth/72: a peer answering GetPooledTransactions elides the blob payloads, sending the empty
+    // list in their place. The transaction is then held as cells, none of which are known yet, so
+    // each blob starts with its own empty cell set for the blobpool to fill in via GetCells.
+    // One cell set per blob, i.e. one per commitment: proofs.size() is 128x that for cell proofs.
+    if (blobs.isEmpty()) {
+      if (KZG_CELL_PROOFS.getVersionId() != versionId) {
+        throw new RLPException(
+            "Unsupported blob type, expected %d but got %d"
+                .formatted(KZG_CELL_PROOFS.getVersionId(), versionId));
+      }
+      final List<CellsWithMask> cells =
+          Collections.nCopies(commitments.size(), CellsWithMask.EMPTY);
+      builder.kzgBlobCells(commitments, cells, proofs).sizeForEth72Announcement(input.size());
+    } else {
+      builder
+          .kzgBlobs(BlobType.of(versionId), commitments, blobs, proofs)
+          .sizeForAnnouncement(input.size());
+    }
+
+    final Transaction transaction = builder.build();
 
     // Validate that each commitment hashes to the versioned hash declared in the tx body.
     // A mismatch means the peer sent a sidecar that does not correspond to the transaction.

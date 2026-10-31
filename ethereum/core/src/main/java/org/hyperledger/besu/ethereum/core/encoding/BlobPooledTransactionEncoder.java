@@ -34,14 +34,18 @@ public class BlobPooledTransactionEncoder {
   static final String NO_BLOBS_ERROR =
       "Transaction with no blobs data cannot be encoded for Pooled Transaction";
 
-  public static void encode(final Transaction transaction, final RLPOutput out) {
-    LOG.trace("Encoding transaction with blobs {}", transaction);
+  public static void encode(
+      final Transaction transaction, final boolean elideBlobs, final RLPOutput out) {
+    LOG.trace("Encoding transaction with blobs {}, blobs elision {}", transaction, elideBlobs);
     var blobsWithCommitments = transaction.getBlobsWithCommitments();
     if (blobsWithCommitments.isEmpty()) {
       throw new InvalidParameterException(NO_BLOBS_WITH_COMMITMENTS_ERROR);
     }
-    if (!blobsWithCommitments.get().hasBlobData()) {
-      // A sidecar holding only cells has no blob payload to write.
+    // Without elision the payloads are written out, so they must actually be held: a sidecar
+    // holding only cells has none, and getBlobs() is empty for it. With elision, as eth/72 sends
+    // it, there is nothing of the payloads to write, so cells are enough. Callers decide whether a
+    // transaction is encodable with EncodingContext#canEncode; this is the backstop.
+    if (!elideBlobs && !blobsWithCommitments.get().hasBlobData()) {
       throw new InvalidParameterException(NO_BLOBS_ERROR);
     }
     out.startList();
@@ -49,7 +53,12 @@ public class BlobPooledTransactionEncoder {
     if (blobsWithCommitments.get().getBlobType() == KZG_CELL_PROOFS) {
       out.writeIntScalar(blobsWithCommitments.get().getBlobType().getVersionId());
     }
-    out.writeList(blobsWithCommitments.get().getBlobs(), Blob::writeTo);
+    if (elideBlobs) {
+      out.startList();
+      out.endList();
+    } else {
+      out.writeList(blobsWithCommitments.get().getBlobs(), Blob::writeTo);
+    }
     out.writeList(blobsWithCommitments.get().getKzgCommitments(), KZGCommitment::writeTo);
     out.writeList(blobsWithCommitments.get().getKzgProofs(), KZGProof::writeTo);
     out.endList();

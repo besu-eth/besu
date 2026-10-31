@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.messages;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
 
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -48,7 +49,7 @@ public class PooledTransactionsMessageTest {
                 .value(Wei.of(1337))
                 .payload(Bytes.EMPTY)
                 .signAndBuild(SignatureAlgorithmFactory.getInstance().generateKeyPair()));
-    final PooledTransactionsMessage msg = PooledTransactionsMessage.create(tx);
+    final PooledTransactionsMessage msg = createPooledTransactionsMessage(tx);
     assertThat(msg.getCode()).isEqualTo(EthProtocolMessages.POOLED_TRANSACTIONS);
     assertThat(msg.transactions(tx.size())).isEqualTo(tx);
   }
@@ -88,7 +89,7 @@ public class PooledTransactionsMessageTest {
   public void decodesAllTransactionsWhenCountEqualsMax() {
     final List<Transaction> transactions =
         new ArrayList<>(new BlockDataGenerator().transactions(3));
-    final PooledTransactionsMessage message = PooledTransactionsMessage.create(transactions);
+    final PooledTransactionsMessage message = createPooledTransactionsMessage(transactions);
 
     assertThat(message.transactions(transactions.size())).isEqualTo(transactions);
   }
@@ -97,7 +98,7 @@ public class PooledTransactionsMessageTest {
   public void appliesMaxOnEveryCallNotOnlyTheFirst() {
     final List<Transaction> transactions =
         new ArrayList<>(new BlockDataGenerator().transactions(3));
-    final PooledTransactionsMessage message = PooledTransactionsMessage.create(transactions);
+    final PooledTransactionsMessage message = createPooledTransactionsMessage(transactions);
 
     assertThat(message.transactions(transactions.size())).isEqualTo(transactions);
     assertThatThrownBy(() -> message.transactions(transactions.size() - 1))

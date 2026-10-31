@@ -17,11 +17,9 @@ package org.hyperledger.besu.ethereum.eth.messages;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
-import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
@@ -40,16 +38,6 @@ public final class PooledTransactionsMessage extends AbstractMessageData {
   @Override
   public int getCode() {
     return MESSAGE_CODE;
-  }
-
-  public static PooledTransactionsMessage create(final List<Transaction> transactions) {
-    final BytesValueRLPOutput out = new BytesValueRLPOutput();
-    out.writeList(
-        transactions,
-        (transaction, rlpOutput) -> {
-          TransactionEncoder.encodeRLP(transaction, rlpOutput, EncodingContext.POOLED_TRANSACTION);
-        });
-    return new PooledTransactionsMessage(out.encoded());
   }
 
   /**

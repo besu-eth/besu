@@ -14,10 +14,17 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 
+import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
+
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.CellsOnlyBlobTransactionFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
+import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
@@ -25,6 +32,7 @@ import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
@@ -58,7 +66,7 @@ public class GetPooledTransactionsFromPeerTaskTest {
 
     Transaction transaction = GENERATOR.transaction();
     PooledTransactionsMessage pooledTransactionsMessage =
-        PooledTransactionsMessage.create(List.of(transaction));
+        createPooledTransactionsMessage(List.of(transaction));
 
     List<Transaction> result = task.processResponse(pooledTransactionsMessage, AGREED_CAPABILITIES);
 
@@ -71,7 +79,7 @@ public class GetPooledTransactionsFromPeerTaskTest {
     GetPooledTransactionsFromPeerTask task = new GetPooledTransactionsFromPeerTask(hashes);
 
     PooledTransactionsMessage pooledTransactionsMessage =
-        PooledTransactionsMessage.create(List.of(GENERATOR.transaction(), GENERATOR.transaction()));
+        createPooledTransactionsMessage(List.of(GENERATOR.transaction(), GENERATOR.transaction()));
 
     // More transactions than requested hashes is rejected while counting, before decoding
     final MalformedRlpFromPeerException exception =
@@ -96,9 +104,38 @@ public class GetPooledTransactionsFromPeerTaskTest {
 
     final List<Transaction> result =
         task.processResponse(
-            PooledTransactionsMessage.create(List.of(transaction)), AGREED_CAPABILITIES);
+            createPooledTransactionsMessage(List.of(transaction)), AGREED_CAPABILITIES);
 
     Assertions.assertEquals(List.of(transaction), result);
+  }
+
+  @Test
+  public void testProcessResponseAcceptsAnEth72AnnouncedBlobTransaction()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    // An eth/72 peer announces, and returns, the blob-elided form. Sizing the received
+    // transaction by the pre-eth/72 pooled form instead would both mismatch and, for a
+    // transaction we now hold only as cells, have no encoding at all.
+    final Transaction transaction = new CellsOnlyBlobTransactionFixture().create(1, CellMask.FULL);
+    final TransactionAnnouncement announcement =
+        new TransactionAnnouncement(
+            transaction.getHash(),
+            transaction.getType(),
+            (long) transaction.getSizeForEth72Announcement());
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(List.of(announcement));
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeList(
+        List.of(transaction),
+        (tx, rlp) ->
+            TransactionEncoder.encodeRLP(tx, rlp, EncodingContext.POOLED_TRANSACTION_ETH_72));
+
+    final List<Transaction> result =
+        task.processResponse(
+            PooledTransactionsMessage.createUnsafe(out.encoded()),
+            Set.of(EthProtocolVersion.V72.getCapability()));
+
+    Assertions.assertEquals(List.of(transaction.getHash()), Transaction.toHashList(result));
   }
 
   @Test

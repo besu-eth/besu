@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.core;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.crypto.Hash.keccak256;
+import static org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper.CELL_PROOFS_PER_BLOB;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPublicKey;
@@ -40,7 +41,7 @@ import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
-import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -126,6 +127,7 @@ public class Transaction
   private volatile Hash hash;
   // Caches the size in bytes of the encoded transaction.
   private volatile int sizeForAnnouncement = -1;
+  private volatile int sizeForEth72Announcement = -1;
   private volatile int sizeForBlockInclusion = -1;
   private final TransactionType transactionType;
 
@@ -215,8 +217,9 @@ public class Transaction
       final Optional<List<CodeDelegation>> maybeCodeDelegationList,
       final Optional<Bytes> rawRlp,
       final Optional<Hash> hash,
-      final Optional<Integer> sizeForAnnouncement,
-      final Optional<Integer> sizeForBlockInclusion) {
+      final int sizeForAnnouncement,
+      final int sizeForEth72Announcement,
+      final int sizeForBlockInclusion) {
 
     if (!forCopy) {
       if (transactionType.requiresChainId()) {
@@ -279,8 +282,9 @@ public class Transaction
     this.maybeCodeDelegationList = maybeCodeDelegationList;
     this.rawRlp = rawRlp;
     hash.ifPresent(h -> this.hash = h);
-    sizeForAnnouncement.ifPresent(i -> this.sizeForAnnouncement = i);
-    sizeForBlockInclusion.ifPresent(i -> this.sizeForBlockInclusion = i);
+    this.sizeForAnnouncement = sizeForAnnouncement;
+    this.sizeForEth72Announcement = sizeForEth72Announcement;
+    this.sizeForBlockInclusion = sizeForBlockInclusion;
   }
 
   /**
@@ -637,6 +641,35 @@ public class Transaction
       // for transactions not containing blobs the encoding is the same, so we can set this as well:
       sizeForAnnouncement = sizeForBlockInclusion;
     }
+  }
+
+  /**
+   * Returns the size in bytes announced to eth/72 peers.
+   *
+   * <p>This is not the same as {@link #getSizeForAnnouncement()}. An eth/72 {@code
+   * PooledTransactions} response elides blob payloads, encoding {@code blobs} as the empty list, so
+   * the announced size has to describe what {@code GetPooledTransactions} will actually return.
+   * Announcing the full pooled size to an eth/72 peer overstates a blob transaction by roughly 128
+   * KiB per blob.
+   *
+   * @return the size in bytes of the encoded transaction with blob payloads elided
+   */
+  public int getSizeForEth72Announcement() {
+    if (sizeForEth72Announcement == -1) {
+      memoizeSizeForEth72Announcement();
+    }
+    return sizeForEth72Announcement;
+  }
+
+  private void memoizeSizeForEth72Announcement() {
+    if (!transactionType.supportsBlob() || getBlobsWithCommitments().isEmpty()) {
+      // Nothing to elide, so the two encodings coincide.
+      sizeForEth72Announcement = getSizeForAnnouncement();
+      return;
+    }
+    sizeForEth72Announcement =
+        TransactionEncoder.encodeOpaqueBytes(this, EncodingContext.POOLED_TRANSACTION_ETH_72)
+            .size();
   }
 
   private void memoizeSizeForAnnouncement() {
@@ -1297,8 +1330,9 @@ public class Transaction
             detachedCodeDelegationList,
             Optional.empty(),
             Optional.ofNullable(hash),
-            Optional.of(sizeForAnnouncement),
-            Optional.of(sizeForBlockInclusion));
+            sizeForAnnouncement,
+            sizeForEth72Announcement,
+            sizeForBlockInclusion);
 
     // copy also the computed fields, to avoid to recompute them
     copiedTx.sender = this.sender;
@@ -1320,31 +1354,6 @@ public class Transaction
         detachedAddress,
         codeDelegation.nonce(),
         codeDelegation.signature());
-  }
-
-  /**
-   * Builds a sidecar from a flat proof list, which is the shape it has on the wire and here: one
-   * proof per blob for {@link BlobType#KZG_PROOF}, and every blob's cell proofs one blob after
-   * another for {@link BlobType#KZG_CELL_PROOFS}.
-   */
-  private static BlobsWithCommitments blobsWithCommitmentsOf(
-      final BlobType blobType,
-      final List<KZGCommitment> kzgCommitments,
-      final List<Blob> blobs,
-      final List<KZGProof> kzgProofs,
-      final List<VersionedHash> versionedHashes) {
-    return switch (blobType) {
-      case KZG_PROOF ->
-          BlobsWithCommitments.createFromBlobsType0(
-              kzgCommitments, blobs, kzgProofs, versionedHashes);
-      case KZG_CELL_PROOFS ->
-          BlobsWithCommitments.createFromBlobsType1(
-              kzgCommitments,
-              blobs,
-              // partition takes the size of each group, not the number of groups
-              Lists.partition(kzgProofs, CKZG4844Helper.CELL_PROOFS_PER_BLOB),
-              versionedHashes);
-    };
   }
 
   public static class Builder {
@@ -1382,8 +1391,9 @@ public class Transaction
     protected Optional<List<CodeDelegation>> codeDelegationAuthorizations = Optional.empty();
     protected Bytes rawRlp = null;
     private Optional<Hash> hash = Optional.empty();
-    private Optional<Integer> sizeForAnnouncement = Optional.empty();
-    private Optional<Integer> sizeForBlockInclusion = Optional.empty();
+    private int sizeForAnnouncement = -1;
+    private int sizeForEth72Announcement = -1;
+    private int sizeForBlockInclusion = -1;
 
     public Builder copiedFrom(final Transaction toCopy) {
       this.transactionType = toCopy.transactionType;
@@ -1500,12 +1510,17 @@ public class Transaction
     }
 
     public Builder sizeForAnnouncement(final int sizeForAnnouncement) {
-      this.sizeForAnnouncement = Optional.of(sizeForAnnouncement);
+      this.sizeForAnnouncement = sizeForAnnouncement;
+      return this;
+    }
+
+    public Builder sizeForEth72Announcement(final int sizeForEth72Announcement) {
+      this.sizeForEth72Announcement = sizeForEth72Announcement;
       return this;
     }
 
     public Builder sizeForBlockInclusion(final int sizeForBlockInclusion) {
-      this.sizeForBlockInclusion = Optional.of(sizeForBlockInclusion);
+      this.sizeForBlockInclusion = sizeForBlockInclusion;
       return this;
     }
 
@@ -1552,6 +1567,7 @@ public class Transaction
           Optional.ofNullable(rawRlp),
           hash,
           sizeForAnnouncement,
+          sizeForEth72Announcement,
           sizeForBlockInclusion);
     }
 
@@ -1592,7 +1608,27 @@ public class Transaction
         final List<Blob> blobs,
         final List<KZGProof> kzgProofs) {
       this.blobsWithCommitments =
-          blobsWithCommitmentsOf(blobType, kzgCommitments, blobs, kzgProofs, versionedHashes);
+          switch (blobType) {
+            case KZG_PROOF ->
+                BlobsWithCommitments.createFromBlobsType0(
+                    kzgCommitments, blobs, kzgProofs, versionedHashes);
+            case KZG_CELL_PROOFS ->
+                BlobsWithCommitments.createFromBlobsType1(
+                    kzgCommitments,
+                    blobs,
+                    Lists.partition(kzgProofs, CELL_PROOFS_PER_BLOB),
+                    versionedHashes);
+          };
+      return this;
+    }
+
+    public Builder kzgBlobCells(
+        final List<KZGCommitment> kzgCommitments,
+        final List<CellsWithMask> cellsWithMaskList,
+        final List<KZGProof> kzgProofs) {
+      this.blobsWithCommitments =
+          BlobsWithCommitments.createFromBlobCells(
+              kzgCommitments, cellsWithMaskList, kzgProofs, versionedHashes);
       return this;
     }
 
