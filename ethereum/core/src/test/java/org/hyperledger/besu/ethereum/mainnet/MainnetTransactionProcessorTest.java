@@ -156,6 +156,67 @@ class MainnetTransactionProcessorTest {
     assertThat(coinbaseWarmed).isFalse();
   }
 
+  @Test
+  void shouldTraceRewardOnDisabledTracer() {
+    Optional<Address> toAddress =
+        Optional.of(Address.fromHexString("0x2222222222222222222222222222222222222222"));
+    when(transaction.getTo()).thenReturn(toAddress);
+    Address senderAddress = Address.fromHexString("0x5555555555555555555555555555555555555555");
+    Address coinbaseAddress = Address.fromHexString("0x4242424242424242424242424242424242424242");
+
+    when(transaction.getType()).thenReturn(TransactionType.EIP1559);
+    when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    when(transaction.getGasLimit()).thenReturn(100_000L);
+    when(transaction.getSender()).thenReturn(senderAddress);
+    when(transaction.getValue()).thenReturn(Wei.ZERO);
+    when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))
+        .thenReturn(ValidationResult.valid());
+    when(transactionValidatorFactory.get().validateForSender(any(), any(), any()))
+        .thenReturn(ValidationResult.valid());
+    when(worldState.getOrCreateSenderAccount(any())).thenReturn(senderAccount);
+    when(worldState.updater()).thenReturn(worldState);
+    doAnswer(
+            invocation -> {
+              MessageFrame messageFrame = invocation.getArgument(0);
+              messageFrame.getMessageFrameStack().pop();
+              return null;
+            })
+        .when(messageCallProcessor)
+        .process(any(), any());
+
+    final RewardTracer tracer = new RewardTracer();
+    createTransactionProcessor(false)
+        .processTransaction(
+            worldState,
+            blockHeader,
+            transaction,
+            coinbaseAddress,
+            tracer,
+            blockHashLookup,
+            ImmutableTransactionValidationParams.builder().build(),
+            Wei.ZERO);
+
+    assertThat(tracer.rewardTraced).isTrue();
+  }
+
+  // the parallel block processor reads the coinbase reward through a tracer that is disabled
+  static class RewardTracer implements OperationTracer {
+    boolean rewardTraced = false;
+
+    @Override
+    public boolean isEnabled() {
+      return false;
+    }
+
+    @Override
+    public void traceBeforeRewardTransaction(
+        final WorldView worldView,
+        final org.hyperledger.besu.datatypes.Transaction tx,
+        final Wei miningReward) {
+      this.rewardTraced = true;
+    }
+  }
+
   @ParameterizedTest
   @MethodSource("provideExceptionsForTransactionProcessing")
   /*

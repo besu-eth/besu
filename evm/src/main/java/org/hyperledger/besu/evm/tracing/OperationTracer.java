@@ -165,24 +165,13 @@ public interface OperationTracer {
   }
 
   /**
-   * Check to tell whether tracing enabled/disabled.
+   * Check to tell whether tracing enabled/disabled. The EVM skips {@link #tracePreExecution} and
+   * {@link #tracePostExecution} for a disabled tracer, but the transaction and message processors
+   * still call its transaction and call hooks.
    *
    * @return true if tracing is enabled and false otherwise
    */
   default boolean isEnabled() {
     return true;
-  }
-
-  /**
-   * Check whether the tracer follows execution operation by operation. EVM v2 calls {@link
-   * #tracePreExecution} and {@link #tracePostExecution}, sets the frame's current operation and
-   * records the memory and storage updates read through {@link MessageFrame#getMaybeUpdatedMemory}
-   * and {@link MessageFrame#getMaybeUpdatedStorage} only for tracers that do, so a tracer that only
-   * uses transaction or call hooks can return false to keep that work out of every operation.
-   *
-   * @return true if the tracer needs the per-operation calls, by default whether it is enabled
-   */
-  default boolean tracesOperations() {
-    return isEnabled();
   }
 }
