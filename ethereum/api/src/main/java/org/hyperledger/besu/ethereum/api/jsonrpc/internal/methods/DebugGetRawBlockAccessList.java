@@ -25,7 +25,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -78,18 +77,11 @@ public class DebugGetRawBlockAccessList extends AbstractBlockParameterOrBlockHas
 
     return getBlockchainQueries()
         .getBlockchain()
-        .getBlockAccessList(header.getHash())
-        .<Object>map(this::encodeBlockAccessList)
+        .getBlockAccessListRlp(header.getHash())
+        .<Object>map(Bytes::toHexString)
         .orElseGet(
             () ->
                 new JsonRpcErrorResponse(
                     request.getRequest().getId(), RpcErrorType.PRUNED_HISTORY_UNAVAILABLE));
-  }
-
-  private String encodeBlockAccessList(final BlockAccessList blockAccessList) {
-    return blockAccessList
-        .rawRlp()
-        .map(Bytes::toHexString)
-        .orElseGet(() -> blockAccessList.encode().toHexString());
   }
 }

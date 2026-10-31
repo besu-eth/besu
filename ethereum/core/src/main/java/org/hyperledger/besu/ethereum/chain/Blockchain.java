@@ -24,11 +24,14 @@ import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+
+import org.apache.tuweni.bytes.Bytes;
 
 /** An interface for reading data from the blockchain. */
 public interface Blockchain {
@@ -218,6 +221,17 @@ public interface Blockchain {
   Optional<BlockBody> getBlockBody(Hash blockHeaderHash);
 
   /**
+   * Returns the RLP of a block's body as it is sent to peers, without decoding it, for callers that
+   * only serve the encoded body.
+   *
+   * @param blockHeaderHash The hash of the block whose body should be returned.
+   * @return The RLP-encoded block body, if present.
+   */
+  default Optional<Bytes> getBlockBodyRlp(final Hash blockHeaderHash) {
+    return getBlockBody(blockHeaderHash).map(body -> RLP.encode(body::writeWrappedBodyTo));
+  }
+
+  /**
    * Safe version of {@code getBlockBody} (it should take any locks necessary to ensure any block
    * updates that might be taking place have been completed first)
    *
@@ -227,6 +241,18 @@ public interface Blockchain {
   Optional<BlockBody> getBlockBodySafe(Hash blockHeaderHash);
 
   Optional<BlockAccessList> getBlockAccessList(Hash blockHash);
+
+  /**
+   * Returns the RLP of a block's access list without decoding it, for callers that only serve the
+   * encoded list.
+   *
+   * @param blockHash The hash of the block whose access list should be returned.
+   * @return The RLP-encoded block access list, if present.
+   */
+  default Optional<Bytes> getBlockAccessListRlp(final Hash blockHash) {
+    return getBlockAccessList(blockHash)
+        .map(blockAccessList -> blockAccessList.rawRlp().orElseGet(blockAccessList::encode));
+  }
 
   /**
    * Given a block's hash, returns the list of transaction receipts associated with this block's

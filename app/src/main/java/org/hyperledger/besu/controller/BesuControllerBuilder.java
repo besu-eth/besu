@@ -212,6 +212,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   protected Optional<BesuComponent> besuComponent = Optional.empty();
 
   private int numberOfBlocksToCache = 0;
+  private long blockAccessListsCacheMaxCapacity =
+      DefaultBlockchain.DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY;
   private int numberOfBlockHeadersToCache = 0;
   private boolean isCacheLastBlockHeadersPreloadEnabled;
   private boolean senderNonceIndexingEnabled = false;
@@ -523,6 +525,18 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
+   * Sets the number of bytes the cache of block access lists may hold.
+   *
+   * @param blockAccessListsCacheMaxCapacity the max capacity in bytes of the cache
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder cacheLastBlocksMaxCapacity(
+      final Long blockAccessListsCacheMaxCapacity) {
+    this.blockAccessListsCacheMaxCapacity = blockAccessListsCacheMaxCapacity;
+    return this;
+  }
+
+  /**
    * Sets the number of block headers to cache.
    *
    * @param numberOfBlockHeadersToCache the number of block headers to cache
@@ -704,6 +718,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             reorgLoggingThreshold,
             dataDirectory.toString(),
             numberOfBlocksToCache,
+            blockAccessListsCacheMaxCapacity,
             numberOfBlockHeadersToCache,
             senderNonceIndexingEnabled);
 

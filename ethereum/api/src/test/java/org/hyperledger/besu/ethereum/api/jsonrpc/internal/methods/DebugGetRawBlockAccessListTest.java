@@ -34,7 +34,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import java.util.Collections;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -67,8 +66,8 @@ public class DebugGetRawBlockAccessListTest {
     when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
     when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
     when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(true);
-    when(blockchain.getBlockAccessList(blockHash))
-        .thenReturn(Optional.of(new BlockAccessList(Collections.emptyList())));
+    when(blockchain.getBlockAccessListRlp(blockHash))
+        .thenReturn(Optional.of(new BlockAccessList(Collections.emptyList()).encode()));
 
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse) requestRawBlockAccessList(String.format("0x%X", blockNumber));
@@ -83,30 +82,13 @@ public class DebugGetRawBlockAccessListTest {
 
     when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
     when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(true);
-    when(blockchain.getBlockAccessList(blockHash))
-        .thenReturn(Optional.of(new BlockAccessList(Collections.emptyList())));
+    when(blockchain.getBlockAccessListRlp(blockHash))
+        .thenReturn(Optional.of(new BlockAccessList(Collections.emptyList()).encode()));
 
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse) requestRawBlockAccessList(blockHash.toHexString());
 
     assertThat(response.getResult()).isEqualTo("0xc0");
-  }
-
-  @Test
-  public void shouldPreferRawRlpWhenAvailable() {
-    final BlockHeader header = blockDataGenerator.header(5L);
-    final Hash blockHash = header.getHash();
-    final Bytes rawRlp = Bytes.fromHexString("0xdeadbeef");
-
-    when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
-    when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(true);
-    when(blockchain.getBlockAccessList(blockHash))
-        .thenReturn(Optional.of(new BlockAccessList(Collections.emptyList(), rawRlp)));
-
-    final JsonRpcSuccessResponse response =
-        (JsonRpcSuccessResponse) requestRawBlockAccessList(blockHash.toHexString());
-
-    assertThat(response.getResult()).isEqualTo("0xdeadbeef");
   }
 
   @Test
@@ -183,7 +165,7 @@ public class DebugGetRawBlockAccessListTest {
     when(blockchainQueries.getBlockHashByNumber(blockNumber)).thenReturn(Optional.of(blockHash));
     when(blockchainQueries.getBlockHeaderByHash(blockHash)).thenReturn(Optional.of(header));
     when(blockchainQueries.isBlockAccessListSupported(header)).thenReturn(true);
-    when(blockchain.getBlockAccessList(blockHash)).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessListRlp(blockHash)).thenReturn(Optional.empty());
 
     final JsonRpcErrorResponse response =
         (JsonRpcErrorResponse) requestRawBlockAccessList(String.format("0x%X", blockNumber));

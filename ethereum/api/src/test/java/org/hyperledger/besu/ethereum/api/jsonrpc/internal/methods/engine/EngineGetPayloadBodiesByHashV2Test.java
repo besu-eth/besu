@@ -25,6 +25,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -40,6 +41,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
@@ -84,11 +86,16 @@ public class EngineGetPayloadBodiesByHashV2Test extends EngineGetPayloadBodiesBy
     final BlockAccessList blockAccessList = createSampleBlockAccessList();
 
     when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
-    when(blockchain.getBlockAccessList(blockHash)).thenReturn(Optional.of(blockAccessList));
+    when(blockchain.getBlockAccessListRlp(blockHash))
+        .thenReturn(Optional.of(blockAccessList.encode()));
 
     final List<ExecutionPayloadBodiesV2> result = fromSuccessRespV2(resp(new Hash[] {blockHash}));
     assertThat(result.size()).isEqualTo(1);
-    assertThat(result.get(0).getBlockAccessList()).isEqualTo(blockAccessList);
+    assertThat(result.get(0).getBlockAccessList()).isEqualTo(blockAccessList.encode());
+    // the RLP is serialised as the decoded list was
+    final ObjectMapper mapper = JsonRpcObjectMapperFactory.getResponseMapper();
+    assertThat(mapper.valueToTree(result.get(0)).get("blockAccessList"))
+        .isEqualTo(mapper.valueToTree(blockAccessList));
   }
 
   @Test
@@ -101,7 +108,7 @@ public class EngineGetPayloadBodiesByHashV2Test extends EngineGetPayloadBodiesBy
             Collections.emptyList());
 
     when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
-    // blockchain.getBlockAccessList returns Optional.empty() by default
+    // blockchain.getBlockAccessListRlp returns Optional.empty() by default
 
     final List<ExecutionPayloadBodiesV2> result = fromSuccessRespV2(resp(new Hash[] {blockHash}));
     assertThat(result.size()).isEqualTo(1);
@@ -118,7 +125,7 @@ public class EngineGetPayloadBodiesByHashV2Test extends EngineGetPayloadBodiesBy
             Collections.emptyList());
 
     when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
-    when(blockchain.getBlockAccessList(blockHash)).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessListRlp(blockHash)).thenReturn(Optional.empty());
 
     final List<ExecutionPayloadBodiesV2> result = fromSuccessRespV2(resp(new Hash[] {blockHash}));
     assertThat(result.size()).isEqualTo(1);

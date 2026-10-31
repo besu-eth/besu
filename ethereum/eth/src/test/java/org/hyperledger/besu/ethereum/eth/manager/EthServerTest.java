@@ -506,8 +506,9 @@ public class EthServerTest {
     final Hash unavailableHash = dataGenerator.hash();
     final BlockAccessList available = dataGenerator.blockAccessList();
 
-    when(blockchain.getBlockAccessList(availableHash)).thenReturn(Optional.of(available));
-    when(blockchain.getBlockAccessList(unavailableHash)).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessListRlp(availableHash))
+        .thenReturn(Optional.of(available.encode()));
+    when(blockchain.getBlockAccessListRlp(unavailableHash)).thenReturn(Optional.empty());
 
     final GetBlockAccessListsMessage request =
         GetBlockAccessListsMessage.create(List.of(availableHash, unavailableHash));
@@ -533,7 +534,7 @@ public class EthServerTest {
       final BlockAccessList bal = dataGenerator.blockAccessList();
       hashes.add(h);
       accessLists.add(bal);
-      when(blockchain.getBlockAccessList(h)).thenReturn(Optional.of(bal));
+      when(blockchain.getBlockAccessListRlp(h)).thenReturn(Optional.of(bal.encode()));
     }
 
     final GetBlockAccessListsMessage request = GetBlockAccessListsMessage.create(hashes);
@@ -556,7 +557,7 @@ public class EthServerTest {
     for (int i = 0; i < count; i++) {
       final Hash h = dataGenerator.hash();
       hashes.add(h);
-      when(blockchain.getBlockAccessList(h)).thenReturn(Optional.of(bal));
+      when(blockchain.getBlockAccessListRlp(h)).thenReturn(Optional.of(bal.encode()));
     }
 
     final int balEncodedSize = calculateRlpEncodedSize(bal);
@@ -587,10 +588,11 @@ public class EthServerTest {
     final BlockAccessList firstAvailable = dataGenerator.blockAccessList();
     final BlockAccessList secondAvailable = dataGenerator.blockAccessList();
 
-    when(blockchain.getBlockAccessList(firstAvailableHash)).thenReturn(Optional.of(firstAvailable));
-    when(blockchain.getBlockAccessList(unavailableHash)).thenReturn(Optional.empty());
-    when(blockchain.getBlockAccessList(secondAvailableHash))
-        .thenReturn(Optional.of(secondAvailable));
+    when(blockchain.getBlockAccessListRlp(firstAvailableHash))
+        .thenReturn(Optional.of(firstAvailable.encode()));
+    when(blockchain.getBlockAccessListRlp(unavailableHash)).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessListRlp(secondAvailableHash))
+        .thenReturn(Optional.of(secondAvailable.encode()));
 
     final GetBlockAccessListsMessage request =
         GetBlockAccessListsMessage.create(
@@ -602,7 +604,7 @@ public class EthServerTest {
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(expected);
-    verify(blockchain, never()).getBlockAccessList(secondAvailableHash);
+    verify(blockchain, never()).getBlockAccessListRlp(secondAvailableHash);
   }
 
   @Test
@@ -615,15 +617,15 @@ public class EthServerTest {
     final BlockAccessList firstBal = dataGenerator.blockAccessList();
     final BlockAccessList secondBal = dataGenerator.blockAccessList();
 
-    when(blockchain.getBlockAccessList(firstHash)).thenReturn(Optional.of(firstBal));
-    when(blockchain.getBlockAccessList(secondHash)).thenReturn(Optional.of(secondBal));
+    when(blockchain.getBlockAccessListRlp(firstHash)).thenReturn(Optional.of(firstBal.encode()));
+    when(blockchain.getBlockAccessListRlp(secondHash)).thenReturn(Optional.of(secondBal.encode()));
 
     final GetBlockAccessListsMessage request =
         GetBlockAccessListsMessage.create(List.of(firstHash, secondHash));
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(BlockAccessListsMessage.create(List.of()));
-    verify(blockchain, never()).getBlockAccessList(secondHash);
+    verify(blockchain, never()).getBlockAccessListRlp(secondHash);
   }
 
   private void setupEthServer() {
@@ -643,7 +645,8 @@ public class EthServerTest {
   private List<Block> setupBlocks(final int count) {
     final List<Block> blocks = dataGenerator.blockSequence(count);
     for (Block block : blocks) {
-      when(blockchain.getBlockBody(block.getHash())).thenReturn(Optional.of(block.getBody()));
+      when(blockchain.getBlockBodyRlp(block.getHash()))
+          .thenReturn(Optional.of(RLP.encode(block.getBody()::writeWrappedBodyTo)));
       when(blockchain.getBlockHeader(block.getHash())).thenReturn(Optional.of(block.getHeader()));
       when(blockchain.getBlockHeader(block.getHeader().getNumber()))
           .thenReturn(Optional.of(block.getHeader()));

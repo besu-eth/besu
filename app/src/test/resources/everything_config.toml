@@ -103,6 +103,7 @@ rpc-http-max-request-content-length = 5242880
 rpc-max-logs-range=100
 json-pretty-print-enabled=false
 cache-last-blocks=512
+cache-last-blocks-max-capacity=134217728
 cache-last-block-headers=5000
 cache-last-block-headers-preload-enabled=true
 tx-sender-nonce-index-enabled=false

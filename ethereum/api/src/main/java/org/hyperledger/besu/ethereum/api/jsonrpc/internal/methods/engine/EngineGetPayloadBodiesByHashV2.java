@@ -42,7 +42,7 @@ public final class EngineGetPayloadBodiesByHashV2<EPB extends ExecutionPayloadBo
     if (epbv1 != null) {
       return (EPB)
           new ExecutionPayloadBodiesV2(
-              epbv1, blockchain.getBlockAccessList(blockHash).orElse(null));
+              epbv1, blockchain.getBlockAccessListRlp(blockHash).orElse(null));
     }
     return null;
   }
