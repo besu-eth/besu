@@ -91,6 +91,7 @@ public class DefaultBlockchain implements MutableBlockchain {
   private Optional<Cache<Hash, BlockBody>> blockBodiesCache;
   private Optional<Cache<Hash, List<TransactionReceipt>>> transactionReceiptsCache;
   private Optional<Cache<Hash, BlockAccessList>> blockAccessListCache;
+  private Optional<Cache<Hash, InclusionListStatus>> inclusionListStatusCache;
 
   private Counter gasUsedCounter = NoOpMetricsSystem.NO_OP_COUNTER;
   private Counter numberOfTransactionsCounter = NoOpMetricsSystem.NO_OP_COUNTER;
@@ -169,6 +170,8 @@ public class DefaultBlockchain implements MutableBlockchain {
     final int headersSize = Math.max(headersCacheSize, blocksCacheSize);
     blockHeadersCache =
         Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(headersSize).build());
+    inclusionListStatusCache =
+        Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(headersSize).build());
 
     if (blocksCacheSize != 0) {
       blockBodiesCache =
@@ -187,6 +190,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   private void setAllCachesEmpty() {
     blockHeadersCache = Optional.empty();
+    inclusionListStatusCache = Optional.empty();
     setBlockCachesEmpty();
   }
 
@@ -205,6 +209,8 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   private void registerHeadersCacheMetrics(final MetricsSystem metricsSystem) {
     metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "blockHeaders", blockHeadersCache.get());
+    metricsSystem.createGuavaCacheCollector(
+        BLOCKCHAIN, "inclusionListStatus", inclusionListStatusCache.get());
   }
 
   private void createCounters(final MetricsSystem metricsSystem) {
@@ -1178,6 +1184,21 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   private long getSafeBlockNumber() {
     return this.getSafeBlock().flatMap(this::getBlockHeader).map(BlockHeader::getNumber).orElse(0L);
+  }
+
+  @Override
+  public void putInclusionListStatus(
+      final Hash blockHash, final InclusionListStatus inclusionListStatus) {
+    final var updater = blockchainStorage.updater();
+    updater.putInclusionListStatus(blockHash, inclusionListStatus);
+    updater.commit();
+    inclusionListStatusCache.ifPresent(cache -> cache.put(blockHash, inclusionListStatus));
+  }
+
+  @Override
+  public Optional<InclusionListStatus> getInclusionListStatus(final Hash blockHash) {
+    return getCached(
+        inclusionListStatusCache, blockHash, blockchainStorage::getInclusionListStatus);
   }
 
   private void updateCacheForNewCanonicalHead(final Block block, final Difficulty uInt256) {

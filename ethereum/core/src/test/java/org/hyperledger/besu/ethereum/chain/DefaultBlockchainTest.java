@@ -82,6 +82,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import com.google.common.collect.Lists;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
 public class DefaultBlockchainTest {
@@ -100,6 +101,33 @@ public class DefaultBlockchainTest {
     assertBlockIsHead(blockchain, genesisBlock);
     assertTotalDifficultiesAreConsistent(blockchain, genesisBlock);
     assertThat(blockchain.getForks()).isEmpty();
+  }
+
+  @Test
+  public void inclusionListStatusIsStoredAndSurvivesRestart() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final Hash blockHash = gen.hash();
+
+    // created with the block caches disabled, as with the default configuration
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock);
+    assertThat(blockchain.getInclusionListStatus(blockHash)).isEmpty();
+
+    final InclusionListStatus unsatisfied = new InclusionListStatus(Bytes32.random(), false);
+    blockchain.putInclusionListStatus(blockHash, unsatisfied);
+    assertThat(blockchain.getInclusionListStatus(blockHash)).contains(unsatisfied);
+
+    // a new status, e.g. for another inclusion list, replaces the cached one
+    final InclusionListStatus satisfied = new InclusionListStatus(Bytes32.random(), true);
+    blockchain.putInclusionListStatus(blockHash, satisfied);
+    assertThat(blockchain.getInclusionListStatus(blockHash)).contains(satisfied);
+
+    final DefaultBlockchain restartedBlockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock);
+    assertThat(restartedBlockchain.getInclusionListStatus(blockHash)).contains(satisfied);
   }
 
   @Test

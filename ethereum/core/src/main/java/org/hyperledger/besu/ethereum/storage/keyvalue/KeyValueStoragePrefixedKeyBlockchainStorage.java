@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.SEQ_NO_S
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockchainStorage;
+import org.hyperledger.besu.ethereum.chain.InclusionListStatus;
 import org.hyperledger.besu.ethereum.chain.TransactionLocation;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -70,6 +71,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   private static final Bytes TRANSACTION_LOCATION_PREFIX = Bytes.of(7);
   private static final Bytes BLOCK_ACCESS_LIST_PREFIX = Bytes.of(8);
   private static final Bytes SENDER_NONCE_TO_TX_HASH_PREFIX = Bytes.of(9);
+  private static final Bytes INCLUSION_LIST_SATISFIED_PREFIX = Bytes.of(10);
   private static final SimpleNoCopyRlpEncoder NO_COPY_RLP_ENCODER = new SimpleNoCopyRlpEncoder();
 
   final KeyValueStorage blockchainStorage;
@@ -194,6 +196,12 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   public Optional<Hash> getTransactionHashBySenderAndNonce(final Address sender, final long nonce) {
     return get(SENDER_NONCE_TO_TX_HASH_PREFIX, senderNonceKey(sender, nonce))
         .map(bytes -> Hash.wrap(Bytes32.wrap(bytes, 0)));
+  }
+
+  @Override
+  public Optional<InclusionListStatus> getInclusionListStatus(final Hash blockHash) {
+    return get(INCLUSION_LIST_SATISFIED_PREFIX, blockHash.getBytes())
+        .map(InclusionListStatus::decode);
   }
 
   private static Bytes senderNonceKey(final Address sender, final long nonce) {
@@ -492,6 +500,17 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     @Override
     public void removeTotalDifficulty(final Hash blockHash) {
       remove(TOTAL_DIFFICULTY_PREFIX, blockHash.getBytes());
+    }
+
+    @Override
+    public void removeInclusionListStatus(final Hash blockHash) {
+      remove(INCLUSION_LIST_SATISFIED_PREFIX, blockHash.getBytes());
+    }
+
+    @Override
+    public void putInclusionListStatus(
+        final Hash blockHash, final InclusionListStatus inclusionListStatus) {
+      set(INCLUSION_LIST_SATISFIED_PREFIX, blockHash.getBytes(), inclusionListStatus.encode());
     }
 
     @Override

@@ -55,6 +55,8 @@ public interface BlockchainStorage {
 
   Optional<Hash> getTransactionHashBySenderAndNonce(Address sender, long nonce);
 
+  Optional<InclusionListStatus> getInclusionListStatus(Hash blockHash);
+
   /**
    * Returns the block from which a sync stored every body and receipts up to the chain head, or
    * empty when no sync recorded one.
@@ -138,6 +140,10 @@ public interface BlockchainStorage {
     void removeTransactionHashBySenderAndNonce(Address sender, long nonce);
 
     void removeTotalDifficulty(final Hash blockHash);
+
+    void removeInclusionListStatus(Hash blockHash);
+
+    void putInclusionListStatus(Hash blockHash, InclusionListStatus inclusionListStatus);
 
     void commit();
 

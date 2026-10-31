@@ -222,4 +222,13 @@ public interface MutableBlockchain extends Blockchain {
    * @param blockHash The hash of the last safe block.
    */
   void setSafeBlock(final Hash blockHash);
+
+  /**
+   * Stores whether the block satisfied the inclusion list (EIP-7805) it was validated against,
+   * replacing any previous status for the same block.
+   *
+   * @param blockHash The hash of the block.
+   * @param inclusionListStatus the inclusion list status of the block.
+   */
+  void putInclusionListStatus(Hash blockHash, InclusionListStatus inclusionListStatus);
 }

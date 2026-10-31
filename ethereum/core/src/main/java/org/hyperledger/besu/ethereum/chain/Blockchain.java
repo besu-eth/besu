@@ -350,4 +350,14 @@ public interface Blockchain {
    * @param blockChoiceRule The new fork choice rule.
    */
   void setBlockChoiceRule(Comparator<BlockHeader> blockChoiceRule);
+
+  /**
+   * Returns whether the block satisfied the inclusion list (EIP-7805) it was last validated
+   * against, together with the checksum of that inclusion list.
+   *
+   * @param blockHash The hash of the block.
+   * @return the inclusion list status, or empty if the block was never validated against an
+   *     inclusion list.
+   */
+  Optional<InclusionListStatus> getInclusionListStatus(Hash blockHash);
 }
