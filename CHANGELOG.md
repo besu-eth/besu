@@ -9,6 +9,7 @@
 
 ### Bug fixes
 - `eth_simulateV1` now rejects precompiles moved to their own address with error `-38022`. [#11793](https://github.com/besu-eth/besu/issues/11793)
+- Setting `code` on a precompile address in a state override (without `movePrecompileToAddress`) now removes that precompile from the simulation registry, so the overriding code runs instead of the built-in precompile on `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_simulateV1`, and `debug_traceCall`. [#11604](https://github.com/besu-eth/besu/pull/11604)
 - Block propagation now retries a block that peers do not serve with a delay that grows from 250 ms to 30 s and stops after 10 retries, releasing the block number for a later announcement. Previously it rescheduled the retrieval immediately and without a limit for as long as the number stayed in the propagation range. Block propagation stops once a finalized forkchoice is received, so this only affects networks that do not send one (Clique/PoA) and tests, not mainnet. [#11674](https://github.com/besu-eth/besu/pull/11674)
 - `eth_call`, `eth_estimateGas`, `eth_createAccessList` and `debug_traceCall` now reject an invalid state override with the error declared for it instead of `Internal error` (`-32603`). An account override that sets both `state` and `stateDiff` returns `Invalid call params` (`-32602`) and is no longer logged at `ERROR`, and `movePrecompileToAddress` on an address that is not a precompile returns `-32000`, as `eth_simulateV1` does. [#11590](https://github.com/besu-eth/besu/issues/11590)
 - eth_simulateV1 call errors now match the execution-apis schema: reverts return execution reverted[: <reason>], out of gas returns out of gas, and a failing precompile returns -32015 instead of 3. [#11635](https://github.com/besu-eth/besu/pull/11635)
@@ -118,7 +119,6 @@ opportunity to upgrade.
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
-- Setting `code` on a precompile address in a state override (without `movePrecompileToAddress`) now removes that precompile from the simulation registry, so the overriding code runs instead of the built-in precompile on `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_simulateV1`, and `debug_traceCall`. [#11604](https://github.com/besu-eth/besu/pull/11604)
 - Receipts received from a peer carrying a transaction type byte that no type defines are now rejected on decode, on both the EIP-2718 and eth/69 paths.
 - `evmtool t8n-server` keeps serving requests again. Since `evmtool` began exiting with the subcommand's exit code, the server process exited right after printing `Transition server listening on`, so filling tests with Besu as the transition tool failed. A server that cannot bind its port now exits with a non-zero code instead of 0. [#11555](https://github.com/besu-eth/besu/pull/11555)
 - DNS-discovered dual-stack peers now respect `--p2p-ipv6-outbound-enabled` when choosing the connection address. [#11422](https://github.com/besu-eth/besu/issues/11422)
