@@ -42,6 +42,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.slf4j.Logger;
 import picocli.CommandLine;
 
 /** The Transaction pool Cli stable options. */
@@ -226,6 +227,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
 
   static class Sequenced {
     private static final String TX_POOL_RETENTION_HOURS = "--tx-pool-retention-hours";
+    private static final String TX_POOL_RETENTION_SECONDS = "--tx-pool-retention-seconds";
     private static final String TX_POOL_LIMIT_BY_ACCOUNT_PERCENTAGE =
         "--tx-pool-limit-by-account-percentage";
     private static final String TX_POOL_MAX_SIZE = "--tx-pool-max-size";
@@ -234,8 +236,23 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         names = {TX_POOL_RETENTION_HOURS},
         paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
         description =
-            "Maximum retention period of pending transactions in hours (default: ${DEFAULT-VALUE})")
+            "Maximum retention period of pending transactions in hours. If "
+                + TX_POOL_RETENTION_SECONDS
+                + " is also configured then "
+                + TX_POOL_RETENTION_HOURS
+                + " is ignored and a warning is logged. (default: ${DEFAULT-VALUE})")
     Integer pendingTxRetentionPeriod = TransactionPoolConfiguration.DEFAULT_TX_RETENTION_HOURS;
+
+    @CommandLine.Option(
+        names = {TX_POOL_RETENTION_SECONDS},
+        paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
+        description =
+            "Maximum retention period of pending transactions in seconds. Must be greater than 0 or -1 to disable. If "
+                + TX_POOL_RETENTION_HOURS
+                + " is also configured then "
+                + TX_POOL_RETENTION_HOURS
+                + " is ignored and warning is logged. (default: ${DEFAULT-VALUE}, disabled)")
+    Integer pendingTxRetentionSeconds = TransactionPoolConfiguration.DEFAULT_TX_RETENTION_SECONDS;
 
     @CommandLine.Option(
         names = {TX_POOL_LIMIT_BY_ACCOUNT_PERCENTAGE},
@@ -384,6 +401,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         config.getTxPoolLimitByAccountPercentage();
     options.sequencedOptions.txPoolMaxSize = config.getTxPoolMaxSize();
     options.sequencedOptions.pendingTxRetentionPeriod = config.getPendingTxRetentionPeriod();
+    options.sequencedOptions.pendingTxRetentionSeconds = config.getPendingTxRetentionSeconds();
     options.transactionPoolValidatorService = config.getTransactionPoolValidatorService();
     options.unstableOptions.txMessageKeepAliveSeconds =
         config.getUnstable().getTxMessageKeepAliveSeconds();
@@ -404,9 +422,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
    *
    * @param commandLine the full commandLine to check all the options specified by the user
    * @param genesisConfigOptions the genesis config options
+   * @param logger the logger used to report configuration warnings
    */
   public void validate(
-      final CommandLine commandLine, final GenesisConfigOptions genesisConfigOptions) {
+      final CommandLine commandLine,
+      final GenesisConfigOptions genesisConfigOptions,
+      final Logger logger) {
     CommandLineUtils.failIfOptionDoesntMeetRequirement(
         commandLine,
         "Could not use legacy or sequenced transaction pool options with layered implementation",
@@ -428,6 +449,25 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     if (maxTxBytes <= 0) {
       throw new CommandLine.ParameterException(
           commandLine, "Max transaction bytes must be greater than 0");
+    }
+
+    if (sequencedOptions.pendingTxRetentionSeconds <= 0
+        && sequencedOptions.pendingTxRetentionSeconds
+            != TransactionPoolConfiguration.DEFAULT_TX_RETENTION_SECONDS) {
+      throw new CommandLine.ParameterException(
+          commandLine,
+          "Transaction pool retention seconds must be greater than 0, or "
+              + TransactionPoolConfiguration.DEFAULT_TX_RETENTION_SECONDS
+              + " to disable it");
+    }
+
+    if (sequencedOptions.pendingTxRetentionSeconds > 0
+        && CommandLineUtils.isOptionSet(commandLine, Sequenced.TX_POOL_RETENTION_HOURS)) {
+      logger.warn(
+          Sequenced.TX_POOL_RETENTION_HOURS
+              + " is ignored when "
+              + Sequenced.TX_POOL_RETENTION_SECONDS
+              + " is set");
     }
   }
 
@@ -455,6 +495,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         .txPoolLimitByAccountPercentage(sequencedOptions.txPoolLimitByAccountPercentage)
         .txPoolMaxSize(sequencedOptions.txPoolMaxSize)
         .pendingTxRetentionPeriod(sequencedOptions.pendingTxRetentionPeriod)
+        .pendingTxRetentionSeconds(sequencedOptions.pendingTxRetentionSeconds)
         .transactionPoolValidatorService(transactionPoolValidatorService)
         .unstable(
             ImmutableTransactionPoolConfiguration.Unstable.builder()

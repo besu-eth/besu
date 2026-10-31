@@ -2732,6 +2732,29 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void logWarnIfTxPoolRetentionHoursSetWithRetentionSeconds() {
+    parseCommand(
+        "--tx-pool=sequenced",
+        "--tx-pool-retention-seconds",
+        "30",
+        "--tx-pool-retention-hours",
+        "5");
+    verify(mockLogger)
+        .warn("--tx-pool-retention-hours is ignored when --tx-pool-retention-seconds is set");
+  }
+
+  @Test
+  public void noWarnIfTxPoolRetentionHoursSetWithRetentionSecondsDisabled() {
+    parseCommand(
+        "--tx-pool=sequenced",
+        "--tx-pool-retention-seconds",
+        "-1",
+        "--tx-pool-retention-hours",
+        "5");
+    verify(mockLogger, never()).warn(contains("--tx-pool-retention-hours"));
+  }
+
+  @Test
   public void logWarnIfCheckpointUsedWithFullSync() {
     final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
     parseCommand("--sync-mode", "FULL", "--checkpoint=" + hash + ":12345678:1000000");

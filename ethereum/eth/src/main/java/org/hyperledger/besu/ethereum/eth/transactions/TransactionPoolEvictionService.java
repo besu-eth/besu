@@ -14,19 +14,26 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions;
 
+import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 import io.vertx.core.Vertx;
 
 public class TransactionPoolEvictionService {
   private final Vertx vertx;
   private final TransactionPool transactionPool;
+  private final Duration evictionInterval;
   private Optional<Long> timerId = Optional.empty();
 
   public TransactionPoolEvictionService(final Vertx vertx, final TransactionPool transactionPool) {
+    this(vertx, transactionPool, TransactionPoolConfiguration.DEFAULT_TX_EVICTION_INTERVAL);
+  }
+
+  public TransactionPoolEvictionService(
+      final Vertx vertx, final TransactionPool transactionPool, final Duration evictionInterval) {
     this.vertx = vertx;
     this.transactionPool = transactionPool;
+    this.evictionInterval = evictionInterval;
   }
 
   public void start() {
@@ -34,7 +41,7 @@ public class TransactionPoolEvictionService {
     timerId =
         Optional.of(
             vertx.setPeriodic(
-                TimeUnit.MINUTES.toMillis(1),
+                Math.max(1000, evictionInterval.toMillis()),
                 id -> {
                   if (transactionPool.isEnabled()) {
                     transactionPool.evictOldTransactions();

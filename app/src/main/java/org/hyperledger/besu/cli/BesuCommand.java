@@ -1610,7 +1610,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private void validateTransactionPoolOptions() {
-    transactionPoolOptions.validate(commandLine, genesisConfigOptionsSupplier.get());
+    transactionPoolOptions.validate(commandLine, genesisConfigOptionsSupplier.get(), logger);
   }
 
   private void validateDataStorageOptions() {

@@ -21,7 +21,7 @@ import java.util.Locale;
 /** The reason why a pending tx has been removed */
 enum SequencedRemovalReason implements RemovalReason {
   EVICTED(true, false),
-  TIMED_EVICTION(true, false),
+  TIMED_EVICTION(true, true),
   REPLACED(false, true),
   INVALID(false, true);
 
