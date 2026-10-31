@@ -41,6 +41,9 @@ public interface FrontierStorageRootTracker {
   void update(
       Address address, StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> storageUpdates);
 
+  /** Discards any cached state for the account at {@code address}. */
+  void invalidate(Address address);
+
   /** Discards any cached state. Call at the block boundary before processing a new block. */
   void reset();
 
@@ -68,6 +71,11 @@ public interface FrontierStorageRootTracker {
         public void update(
             final Address address,
             final StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> storageUpdates) {
+          // intentionally empty
+        }
+
+        @Override
+        public void invalidate(final Address address) {
           // intentionally empty
         }
 

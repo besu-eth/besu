@@ -18,6 +18,7 @@
 - `trace_rawTransaction` now applies the `--rpc-max-trace-steps` cap, as `trace_call` and `trace_callMany` already do. It traced every step of the submitted transaction regardless of the setting. [#11438](https://github.com/besu-eth/besu/pull/11438)
 - Strict transaction replay protection (`--strict-tx-replay-protection-enabled`) no longer rejects transactions from priority senders received from peers; it applies only to transactions submitted via JSON-RPC, as documented. [#11466](https://github.com/besu-eth/besu/pull/11466)
 - With `--cache-last-blocks` set, RPC methods return the total difficulty of recently imported blocks instead of their own difficulty, which is 0 after the merge. [#11790](https://github.com/besu-eth/besu/pull/11790)
+- `eth_simulateV1` with Bonsai storage now applies a `state` override to the account's whole storage, so slots the override does not list read as zero, as with `eth_call` and Forest storage. Previously slots already stored on chain kept their values. Block processing had the same fault: after a transaction cleared an account's storage, for example by creating a contract at that address, a later transaction in the block could read a slot's old value, and that value was written back to state. [#11522](https://github.com/besu-eth/besu/issues/11522)
 
 ### Additions and Improvements
 - With `--Xevm-v2`, `MessageFrame.getMaybeUpdatedMemory` and `getMaybeUpdatedStorage` are recorded only while a tracer that traces operations runs. [#11690](https://github.com/besu-eth/besu/pull/11690)

@@ -675,6 +675,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
         return Optional.ofNullable(value.getUpdated());
       }
     }
+    if (storageToClear.contains(address)) {
+      return Optional.empty();
+    }
     try {
       final Supplier<UInt256> loader =
           Suppliers.memoize(

@@ -109,6 +109,54 @@ class CachingFrontierStorageRootTrackerTest {
   }
 
   @Test
+  void storageClearOfAccountCreatedInBlockDropsEarlierWrites() {
+    // An account created in this block has an empty base root before and after a clear, so the
+    // cached trie would be reused with the slots written before the clear still in it.
+    final Address created = Address.fromHexString("0x1000000000000000000000000000000000000003");
+    final BonsaiWorldState worldState = createWorldStateWithAccounts();
+
+    final WorldUpdater tx1 = worldState.updater();
+    final MutableAccount account = tx1.createAccount(created);
+    account.setBalance(Wei.of(3));
+    account.setStorageValue(UInt256.ZERO, UInt256.ONE);
+    account.setStorageValue(UInt256.ONE, UInt256.valueOf(2));
+    tx1.commit();
+    tx1.markTransactionBoundary();
+    worldState.frontierRootHash();
+
+    final WorldUpdater tx2 = worldState.updater();
+    final MutableAccount cleared = tx2.getAccount(created);
+    cleared.clearStorage();
+    cleared.setStorageValue(UInt256.ZERO, UInt256.valueOf(0x12));
+    tx2.commit();
+    tx2.markTransactionBoundary();
+
+    assertThat(worldState.frontierRootHash()).isEqualTo(fullRecalculatedRoot(worldState));
+  }
+
+  @Test
+  void secondStorageClearInBlockDropsWritesSinceFirstClear() {
+    final BonsaiWorldState worldState = createWorldStateWithAccounts();
+
+    final WorldUpdater tx1 = worldState.updater();
+    final MutableAccount account = tx1.getAccount(ACCOUNT_A);
+    account.clearStorage();
+    account.setStorageValue(UInt256.valueOf(5), UInt256.valueOf(50));
+    tx1.commit();
+    tx1.markTransactionBoundary();
+    worldState.frontierRootHash();
+
+    final WorldUpdater tx2 = worldState.updater();
+    final MutableAccount clearedAgain = tx2.getAccount(ACCOUNT_A);
+    clearedAgain.clearStorage();
+    clearedAgain.setStorageValue(UInt256.valueOf(6), UInt256.valueOf(60));
+    tx2.commit();
+    tx2.markTransactionBoundary();
+
+    assertThat(worldState.frontierRootHash()).isEqualTo(fullRecalculatedRoot(worldState));
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void recoversAfterMerkleTrieExceptionByRebuildingFresh() {
     final BonsaiWorldState worldState = createWorldStateWithAccounts();

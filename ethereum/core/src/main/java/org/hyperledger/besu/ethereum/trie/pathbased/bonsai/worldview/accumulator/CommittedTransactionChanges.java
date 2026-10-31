@@ -18,9 +18,15 @@ import org.hyperledger.besu.datatypes.Address;
 
 import java.util.Set;
 
-/** Immutable snapshot of addresses whose state was modified by a single committed transaction. */
-public record CommittedTransactionChanges(Set<Address> changedAddresses) {
-  public CommittedTransactionChanges(final Set<Address> changedAddresses) {
+/**
+ * Immutable snapshot of addresses whose state was modified by a single committed transaction, and
+ * of those among them whose storage was cleared.
+ */
+public record CommittedTransactionChanges(
+    Set<Address> changedAddresses, Set<Address> clearedStorageAddresses) {
+  public CommittedTransactionChanges(
+      final Set<Address> changedAddresses, final Set<Address> clearedStorageAddresses) {
     this.changedAddresses = Set.copyOf(changedAddresses);
+    this.clearedStorageAddresses = Set.copyOf(clearedStorageAddresses);
   }
 }
