@@ -15,7 +15,7 @@ env:
 
 jobs:
   referenceTests:
-    runs-on: besu-research-ubuntu-8 # since eest-v5.1.0 this job needs more disk space
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -64,8 +64,19 @@ jobs:
         run: tr '\n' ' ' < testClasses.txt > refTestArgs.txt
       - name: refTestArgs.txt
         run: cat refTestArgs.txt
+      # The unpacked fixtures do not fit on a standard runner, so each job unpacks only the ones its
+      # test classes load. No fixture file is listed by more than one generated class.
+      - name: list the fixtures of this job's tests
+        run: |
+          xargs grep -ho '"fixtures/[^"]*"' < group_${{matrix.runner_index}}.txt | tr -d '"' | sort -u > fixtureSubset.txt
+          wc -l < fixtureSubset.txt
       - name: run reference tests
-        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt` ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
+        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt` -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
+      - name: report disk usage
+        if: always()
+        run: |
+          df -h /
+          du -sh ethereum/referencetests/build/execution-spec-tests ethereum/referencetests/build/resources ~/.gradle 2>/dev/null || true
       - name: verify test file count matches
         run: |
           listed=$(wc -l < filenames.txt | tr -d ' ')

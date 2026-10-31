@@ -1,0 +1,26 @@
+{
+  "request": {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "method": "eth_call",
+    "params": [
+      {
+        "to": "0x6295ee1b4f6dd65047762f924ecd367c17eabf8f",
+        "from": "a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "data": "0x12a7b914",
+        "gasPrice": "0x0",
+        "chainId": "0x2"
+      },
+      "latest"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "error": {
+      "code": -32000,
+      "message": "Wrong chainId (transaction was meant for chain id 2 and not this chain id 1)"
+    }
+  },
+  "statusCode": 200
+}

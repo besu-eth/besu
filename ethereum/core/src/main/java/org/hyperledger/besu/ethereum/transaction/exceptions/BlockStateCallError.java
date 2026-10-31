@@ -28,6 +28,8 @@ public enum BlockStateCallError {
   TIMESTAMPS_NOT_ASCENDING(-38021, "Timestamps are not ascending"),
   /** Invalid precompile address. */
   INVALID_PRECOMPILE_ADDRESS(-32000, "Invalid precompile address"),
+  /** Move precompile target is the source address. */
+  PRECOMPILE_MOVE_TO_SELF(-38022, "MovePrecompileToAddress referenced itself in replacement"),
   /** Duplicated move precompile target. */
   DUPLICATED_PRECOMPILE_TARGET(-38023, "Duplicated move precompile target"),
   /** Transaction nonce is too low. */

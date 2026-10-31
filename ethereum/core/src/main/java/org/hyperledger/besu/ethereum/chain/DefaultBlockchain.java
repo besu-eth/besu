@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -410,6 +411,11 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public Optional<Long> getSyncFloor() {
+    return blockchainStorage.getSyncFloor();
+  }
+
+  @Override
   public Hash getChainHeadHash() {
     return chainHeader.getHash();
   }
@@ -783,6 +789,13 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public void unsafeStoreSyncBlockAccessLists(final Map<Hash, SyncBlockAccessList> accessLists) {
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
+    accessLists.forEach(updater::putSyncBlockAccessList);
+    updater.commit();
+  }
+
+  @Override
   public Difficulty unsafeStoreSyncTotalDifficulties(
       final long parent, final Difficulty parentTotal, final long last) {
     checkArgument(last > parent, "block %s is not above block %s", last, parent);
@@ -820,6 +833,13 @@ public class DefaultBlockchain implements MutableBlockchain {
   public void unsafeSetBodiesFrom(final long blockNumber) {
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     updater.setBodiesFrom(blockNumber);
+    updater.commit();
+  }
+
+  @Override
+  public void unsafeSetSyncFloor(final long blockNumber) {
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    updater.setSyncFloor(blockNumber);
     updater.commit();
   }
 

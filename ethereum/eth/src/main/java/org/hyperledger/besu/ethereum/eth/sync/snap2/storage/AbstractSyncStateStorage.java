@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snap2.storage;
 
 import org.hyperledger.besu.ethereum.trie.RangeManager;
+import org.hyperledger.besu.ethereum.trie.TrieBytes;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 
@@ -22,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import com.google.common.collect.Iterators;
@@ -30,11 +32,11 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
-/** Flat state kept in two segments: accounts keyed by hash and slots keyed by both hashes. */
+/** Flat state in two segments, accounts keyed by hash and slots by both, and the trie writer. */
 abstract class AbstractSyncStateStorage implements SyncStateStorage {
 
   // bounds the write batch a writer keeps before committing
-  protected static final int BYTES_PER_COMMIT = 8 * 1024 * 1024;
+  static final int BYTES_PER_COMMIT = 8 * 1024 * 1024;
   private static final int DELETES_PER_COMMIT = 10_000;
   private static final byte[] ZEROS = new byte[32];
   private static final byte[] ONES = RangeManager.MAX_RANGE.toArray();
@@ -124,19 +126,121 @@ abstract class AbstractSyncStateStorage implements SyncStateStorage {
         flat.streamFromKey(storageSegment, concat(prefix, ZEROS), concat(prefix, ONES))) {
       final Iterator<Pair<byte[], byte[]>> it = slots.iterator();
       while (it.hasNext()) {
-        final Batch batch = batch();
-        try {
-          for (int deletes = 0; deletes < DELETES_PER_COMMIT && it.hasNext(); deletes++) {
-            batch.removeStorage(accountHash, Bytes32.wrap(it.next().getKey(), 32));
-          }
-        } catch (final RuntimeException e) {
-          batch.abort();
-          throw e;
-        }
-        // outside the try: a transaction whose commit has started refuses its rollback
-        batch.commit();
+        write(
+            batch -> {
+              for (int deletes = 0; deletes < DELETES_PER_COMMIT && it.hasNext(); deletes++) {
+                batch.removeStorage(accountHash, Bytes32.wrap(it.next().getKey(), 32));
+              }
+            });
       }
     }
+  }
+
+  @Override
+  public boolean hasStorageTrie(final Bytes32 accountHash, final Bytes32 storageRoot) {
+    return storageTrieNode(accountHash, Bytes.EMPTY, storageRoot).isPresent();
+  }
+
+  /** A batch whose abort does nothing once its commit has started, or after an abort. */
+  protected abstract static class FlatBatch implements Batch {
+    private boolean completed;
+
+    @Override
+    public final void commit() {
+      completed = true;
+      commitWrites();
+    }
+
+    // a completed transaction refuses its rollback, even one whose commit failed
+    @Override
+    public final void abort() {
+      if (!completed) {
+        completed = true;
+        dropWrites();
+      }
+    }
+
+    /** Writes the batch. */
+    protected abstract void commitWrites();
+
+    /** Drops the writes. */
+    protected abstract void dropWrites();
+  }
+
+  /** Trie nodes put through one updater of the format, until committed or aborted. */
+  protected interface NodeBatch {
+    void putAccountNode(Bytes location, Bytes32 hash, Bytes rlp);
+
+    void putStorageNode(Bytes32 accountHash, Bytes location, Bytes32 hash, Bytes rlp);
+
+    void commit();
+
+    void abort();
+  }
+
+  /** Starts a batch of trie nodes. */
+  protected abstract NodeBatch nodeBatch();
+
+  @Override
+  public TrieWriter trieWriter() {
+    return new TrieWriter() {
+      private NodeBatch nodes;
+      private long pendingBytes;
+
+      @Override
+      public void accountNode(final Bytes location, final Bytes32 hash, final Bytes rlp) {
+        nodes().putAccountNode(location, hash, rlp);
+        commitWhenFull(rlp);
+      }
+
+      @Override
+      public void storageNode(
+          final Bytes32 accountHash, final Bytes location, final Bytes32 hash, final Bytes rlp) {
+        nodes().putStorageNode(accountHash, location, hash, rlp);
+        commitWhenFull(rlp);
+      }
+
+      @Override
+      public void commit() {
+        end(NodeBatch::commit);
+      }
+
+      @Override
+      public void abort() {
+        end(NodeBatch::abort);
+      }
+
+      private NodeBatch nodes() {
+        if (nodes == null) {
+          nodes = nodeBatch();
+        }
+        return nodes;
+      }
+
+      // the node and about 32 bytes for its key, whatever the format
+      private void commitWhenFull(final Bytes rlp) {
+        pendingBytes += Bytes32.SIZE + rlp.size();
+        if (pendingBytes >= BYTES_PER_COMMIT) {
+          commit();
+        }
+      }
+
+      private void end(final Consumer<NodeBatch> ending) {
+        if (nodes != null) {
+          try {
+            ending.accept(nodes);
+          } finally {
+            nodes = null;
+            pendingBytes = 0;
+          }
+        }
+      }
+    };
+  }
+
+  /** Returns the key of a slot in the storage segment. */
+  protected static byte[] slotKey(final Bytes32 accountHash, final Bytes32 slotHash) {
+    return TrieBytes.concat(accountHash, slotHash).toArrayUnsafe();
   }
 
   // visits the slots of the accounts before the given one

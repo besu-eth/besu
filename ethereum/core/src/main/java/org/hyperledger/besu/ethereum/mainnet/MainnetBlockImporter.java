@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult.BlockImportStatus;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 
 import java.util.List;
@@ -56,7 +57,13 @@ public class MainnetBlockImporter implements BlockImporter {
 
     final var result =
         blockValidator.validateAndProcessBlock(
-            context, block, headerValidationMode, ommerValidationMode, blockAccessList, false);
+            context,
+            block,
+            headerValidationMode,
+            ommerValidationMode,
+            blockAccessList,
+            InclusionListTransactions.EMPTY,
+            false);
 
     if (result.isSuccessful()) {
       result

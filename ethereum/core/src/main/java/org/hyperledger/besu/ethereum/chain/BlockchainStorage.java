@@ -61,6 +61,9 @@ public interface BlockchainStorage {
    */
   Optional<Long> getBodiesFrom();
 
+  /** Returns the floor of the last sync, or empty when no sync recorded one. */
+  Optional<Long> getSyncFloor();
+
   Updater updater();
 
   /** Returns an updater committed as one write batch, for writes that never conflict. */
@@ -114,6 +117,9 @@ public interface BlockchainStorage {
 
     /** Records that every block from this one up to the chain head has its body and receipts. */
     void setBodiesFrom(long blockNumber);
+
+    /** Records the floor of a sync. */
+    void setSyncFloor(long blockNumber);
 
     void removeBlockHash(long blockNumber);
 

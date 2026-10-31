@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.FixtureExecutionWitness;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
@@ -129,6 +130,7 @@ public class ZkevmWitnessReferenceTestTools {
                     validationMode,
                     validationMode,
                     candidateBlock.getBlockAccessList(),
+                    InclusionListTransactions.EMPTY,
                     false,
                     false);
 

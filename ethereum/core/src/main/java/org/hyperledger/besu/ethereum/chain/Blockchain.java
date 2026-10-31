@@ -84,6 +84,15 @@ public interface Blockchain {
   }
 
   /**
+   * Returns the floor of the last sync: its checkpoint or genesis, above which it needs every body.
+   *
+   * @return the block, or empty when no sync recorded one
+   */
+  default Optional<Long> getSyncFloor() {
+    return Optional.empty();
+  }
+
+  /**
    * Return the block number of the head of the canonical chain.
    *
    * @return The block number of the head of the chain.

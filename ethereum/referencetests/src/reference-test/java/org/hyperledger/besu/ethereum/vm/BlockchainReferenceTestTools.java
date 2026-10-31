@@ -47,6 +47,7 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.BlockExceptionMatcher;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
@@ -201,6 +202,7 @@ public class BlockchainReferenceTestTools {
                                     validationMode,
                                     validationMode,
                                     candidateBlock.getBlockAccessList(),
+                                    InclusionListTransactions.EMPTY,
                                     false);
 
                     final boolean imported = processingResult.isSuccessful();

@@ -83,6 +83,8 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -427,6 +429,38 @@ public class BlockSimulatorTest {
     assertThat(validationResult).isPresent();
     assertThat(validationResult.orElseThrow())
         .isEqualTo(BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0x1", "0x4"})
+  public void shouldRejectPrecompileMovedToItself(final String address) {
+    var precompileAddress = Address.fromHexString(address);
+    var stateOverrideMap = new StateOverrideMap();
+    stateOverrideMap.put(
+        precompileAddress,
+        new StateOverride.Builder().withMovePrecompileToAddress(precompileAddress).build());
+
+    var validationResult =
+        buildParameterWithOverrides(stateOverrideMap).validate(Set.of(precompileAddress));
+
+    assertThat(validationResult).isPresent();
+    assertThat(validationResult.orElseThrow().getCode()).isEqualTo(-38022);
+    assertThat(validationResult.orElseThrow().getMessage())
+        .isEqualTo("MovePrecompileToAddress referenced itself in replacement");
+  }
+
+  @Test
+  public void shouldAllowPrecompileMovedToDifferentAddress() {
+    var precompileAddress = Address.fromHexString("0x4");
+    var stateOverrideMap = new StateOverrideMap();
+    stateOverrideMap.put(
+        precompileAddress,
+        new StateOverride.Builder()
+            .withMovePrecompileToAddress(Address.fromHexString("0x1234"))
+            .build());
+
+    assertThat(buildParameterWithOverrides(stateOverrideMap).validate(Set.of(precompileAddress)))
+        .isEmpty();
   }
 
   @Test

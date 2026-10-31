@@ -96,8 +96,26 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param blockAccessList optional block access list
    * @return the block processing result
    */
-  BlockProcessingResult rememberBlock(
-      final Block block, final Optional<BlockAccessList> blockAccessList);
+  default BlockProcessingResult rememberBlock(
+      final Block block, final Optional<BlockAccessList> blockAccessList) {
+    return rememberBlock(block, blockAccessList, InclusionListTransactions.EMPTY, Runnable::run);
+  }
+
+  /**
+   * Remember block with optional block access list, checking whether it satisfies the inclusion
+   * list (EIP-7805).
+   *
+   * @param block the block
+   * @param blockAccessList optional block access list
+   * @param inclusionListTransactions inclusion list transactions
+   * @return the block processing result
+   */
+  default BlockProcessingResult rememberBlock(
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final InclusionListTransactions inclusionListTransactions) {
+    return rememberBlock(block, blockAccessList, inclusionListTransactions, Runnable::run);
+  }
 
   /**
    * Remember a block, handing the writes that store a valid one to the given writer, which may run
@@ -113,8 +131,26 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
       final Executor blockWriter) {
-    return rememberBlock(block, blockAccessList);
+    return rememberBlock(block, blockAccessList, InclusionListTransactions.EMPTY, blockWriter);
   }
+
+  /**
+   * Remember a block, checking whether it satisfies the inclusion list (EIP-7805), and handing the
+   * writes that store a valid one to the given writer, which may run them later. They write the
+   * block's trie log ahead of the block, since moving the head to a stored block needs its trie
+   * log.
+   *
+   * @param block the block
+   * @param blockAccessList optional block access list
+   * @param inclusionListTransactions inclusion list transactions
+   * @param blockWriter runs the writes that store the block
+   * @return the block processing result
+   */
+  BlockProcessingResult rememberBlock(
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final InclusionListTransactions inclusionListTransactions,
+      final Executor blockWriter);
 
   /**
    * Validate block.

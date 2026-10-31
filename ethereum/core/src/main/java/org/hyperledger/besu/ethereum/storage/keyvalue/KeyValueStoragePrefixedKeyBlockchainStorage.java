@@ -146,6 +146,11 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   }
 
   @Override
+  public Optional<Long> getSyncFloor() {
+    return variablesStorage.getSyncFloor();
+  }
+
+  @Override
   public Optional<BlockHeader> getBlockHeader(final Hash blockHash) {
     return get(BLOCK_HEADER_PREFIX, blockHash.getBytes())
         .map(b -> BlockHeader.readFrom(RLP.input(b), blockHeaderFunctions, blockHash));
@@ -433,6 +438,11 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     @Override
     public void setBodiesFrom(final long blockNumber) {
       variablesUpdater.setBodiesFrom(blockNumber);
+    }
+
+    @Override
+    public void setSyncFloor(final long blockNumber) {
+      variablesUpdater.setSyncFloor(blockNumber);
     }
 
     @Override

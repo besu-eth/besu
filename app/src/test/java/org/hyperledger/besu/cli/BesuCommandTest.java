@@ -35,6 +35,9 @@ import static org.hyperledger.besu.ethereum.p2p.config.DefaultDiscoveryConfigura
 import static org.hyperledger.besu.ethereum.p2p.config.DefaultDiscoveryConfiguration.MAINNET_DISCOVERY_URL;
 import static org.hyperledger.besu.ethereum.p2p.config.DefaultDiscoveryConfiguration.SEPOLIA_BOOTSTRAP_NODES;
 import static org.hyperledger.besu.ethereum.p2p.config.DefaultDiscoveryConfiguration.SEPOLIA_DISCOVERY_URL;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CHAIN_PRUNER_STATE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.SNAPSYNC_FLAT_ACCOUNTS;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.SNAPSYNC_FLAT_STORAGE;
 import static org.hyperledger.besu.plugin.services.storage.DataStorageFormat.BONSAI;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,6 +47,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNotNull;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -79,6 +83,7 @@ import org.hyperledger.besu.metrics.StandardMetricCategory;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.number.Fraction;
 import org.hyperledger.besu.util.number.Percentage;
@@ -120,6 +125,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
@@ -1337,7 +1343,47 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
-            "Invalid value for option '--sync-mode': 'bogus' is not a valid sync mode. Valid values are: FULL, SNAP");
+            "Invalid value for option '--sync-mode': 'bogus' is not a valid sync mode. Valid values are: FULL, SNAP, SNAP2");
+  }
+
+  @Test
+  public void syncMode_snap2() {
+    parseCommand("--sync-mode", "SNAP2");
+    verify(mockControllerBuilder).synchronizerConfiguration(syncConfigurationCaptor.capture());
+
+    assertThat(syncConfigurationCaptor.getValue().getSyncMode()).isEqualTo(SyncMode.SNAP2);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void syncMode_snap2RefusesAnArchive() {
+    parseCommand("--sync-mode", "SNAP2", "--data-storage-format", "X_BONSAI_ARCHIVE");
+    verifyNoInteractions(mockRunnerBuilder);
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "--sync-mode=SNAP2 needs --data-storage-format=BONSAI or FOREST, not X_BONSAI_ARCHIVE");
+  }
+
+  // any other node leaves them out, so that it can still go back to an older version
+  @Test
+  public void syncMode_snap2OnForestCreatesTheSegmentsItStagesTheStateIn() {
+    try (MockedConstruction<RocksDBPlugin> plugins = mockConstruction(RocksDBPlugin.class)) {
+      parseCommand(
+          "--sync-mode",
+          "SNAP2",
+          "--data-storage-format",
+          "FOREST",
+          "--Xchain-pruning-enabled",
+          "NONE");
+
+      final RocksDBPlugin plugin = plugins.constructed().getFirst();
+      verify(plugin).addIgnorableSegmentIdentifier(CHAIN_PRUNER_STATE);
+      verify(plugin, never()).addIgnorableSegmentIdentifier(SNAPSYNC_FLAT_ACCOUNTS);
+      verify(plugin, never()).addIgnorableSegmentIdentifier(SNAPSYNC_FLAT_STORAGE);
+    }
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test

@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 
 import java.util.List;
 import java.util.Optional;
@@ -54,6 +55,7 @@ public interface BlockValidator {
    * @param headerValidationMode the header validation mode
    * @param ommerValidationMode the ommer validation mode
    * @param blockAccessList optional block access list for validation and processing
+   * @param inclusionListTransactions inclusion list transactions
    * @param shouldPersist flag indicating whether the block should be persisted
    * @return the result of the block processing
    */
@@ -63,6 +65,7 @@ public interface BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
+      final InclusionListTransactions inclusionListTransactions,
       final boolean shouldPersist);
 
   /**
@@ -74,7 +77,8 @@ public interface BlockValidator {
    * @param headerValidationMode the header validation mode
    * @param ommerValidationMode the ommer validation mode
    * @param blockAccessList optional block access list for validation and processing
-   * @param shouldPersist flag indicating whether the block should be persisted
+   * @param inclusionListTransactions inclusion list transactions
+   * @param shouldUpdateHead flag indicating whether the block should be persisted
    * @param shouldRecordBadBlock flag indicating whether bad blocks should be recorded
    * @return the result of the block processing
    */
@@ -84,7 +88,8 @@ public interface BlockValidator {
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList,
-      final boolean shouldPersist,
+      final InclusionListTransactions inclusionListTransactions,
+      final boolean shouldUpdateHead,
       final boolean shouldRecordBadBlock);
 
   /**
@@ -97,6 +102,7 @@ public interface BlockValidator {
    * @param headerValidationMode the header validation mode
    * @param ommerValidationMode the ommer validation mode
    * @param blockAccessList optional block access list for validation and processing
+   * @param inclusionListTransactions inclusion list transactions
    * @return the result of the block processing
    */
   default BlockProcessingResult validateAndProcessBlockDeferringTrieLog(
@@ -104,9 +110,16 @@ public interface BlockValidator {
       final Block block,
       final HeaderValidationMode headerValidationMode,
       final HeaderValidationMode ommerValidationMode,
-      final Optional<BlockAccessList> blockAccessList) {
+      final Optional<BlockAccessList> blockAccessList,
+      final InclusionListTransactions inclusionListTransactions) {
     return validateAndProcessBlock(
-        context, block, headerValidationMode, ommerValidationMode, blockAccessList, false);
+        context,
+        block,
+        headerValidationMode,
+        ommerValidationMode,
+        blockAccessList,
+        inclusionListTransactions,
+        false);
   }
 
   /**

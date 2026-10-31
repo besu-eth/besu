@@ -107,15 +107,43 @@ def fixturesDirFor = { String buildDirName, String tarConfigurationName, String 
   })
 }
 
-def registerFixtureExtraction = { String taskName, Provider<Directory> fixturesDir, Closure<File> tarball, String cacheCleanTask ->
+// -Pbesu.referenceTests.fixtureSubset=<file> unpacks only the stable fixtures listed in <file>, one
+// path per line relative to the fixtures root (fixtures/state_tests/...). A path ending with / takes
+// the whole directory. CI gives each reference test runner only the fixtures of its share of the
+// test classes, and each evmtool hive-equivalent job only the directory it replays, as the whole
+// set no longer fits on a standard GitHub runner. The test classes are generated from the tarball,
+// not the unpacked tree, so they can be listed and split before anything is unpacked.
+def stableFixtureSubset = providers.gradleProperty('besu.referenceTests.fixtureSubset')
+
+def registerFixtureExtraction = { String taskName, Provider<Directory> fixturesDir, Closure<File> tarball, String cacheCleanTask, Provider<String> subset = null ->
   if (!sharedFixturesRoot.isPresent()) {
     return tasks.register(taskName, Sync) {
       from {
         tarTree(tarball())
       }
       into fixturesDir
+      if (subset?.isPresent()) {
+        def subsetFile = rootProject.file(subset.get())
+        inputs.file(subsetFile).withPropertyName('fixtureSubset')
+        Set<String> wantedFiles = null
+        List<String> wantedDirs = null
+        include { FileTreeElement element ->
+          if (wantedFiles == null) {
+            def wanted = subsetFile.readLines()*.trim().findAll()
+            wantedDirs = wanted.findAll { it.endsWith('/') }
+            wantedFiles = (wanted - wantedDirs) as Set
+          }
+          def path = element.relativePath.pathString
+          element.directory || wantedFiles.contains(path) || wantedDirs.any { path.startsWith(it) }
+        }
+        includeEmptyDirs = false
+      }
       finalizedBy(cacheCleanTask)
     }
+  }
+  if (subset?.isPresent()) {
+    // A partial tree would be taken by every other checkout for the complete version.
+    throw new GradleException("besu.referenceTests.fixtureSubset cannot be combined with besu.referenceTests.fixturesDir")
   }
   // The shared directory is read by builds in other checkouts, possibly while this one runs, so a
   // version is unpacked once and never modified afterwards. No outputs are declared: Gradle would
@@ -165,23 +193,24 @@ def extractStableFixtures = registerFixtureExtraction(
   "extractStableFixtures",
   stableFixturesDir,
   { configurations.tarConfig.files.find(stableFixtureTarball) },
-  "cleanReferenceTestCache")
+  "cleanReferenceTestCache",
+  stableFixtureSubset)
 
 def executionSpecTests = tasks.register("executionSpecTests") {
-  dependsOn extractStableFixtures
-  final referenceTestsDir = stableFixturesDir
+  final tarball = provider { configurations.tarConfig.files.find(stableFixtureTarball) }
   final generatedTestsDir = layout.buildDirectory.dir("generated/sources/reference-test/$name/java")
 
-  inputs.dir referenceTestsDir
+  inputs.file tarball
   inputs.files fileTree("src/reference-test/templates")
   outputs.dir generatedTestsDir
   doFirst {
     delete generatedTestsDir
   }
   doLast {
+    final fixturePaths = fixturePathsInTarball(tarball.get())
     // generate blockchain_tests grouped by hardfork/EIP:
     generateTestFilesGroupedByDirectory(
-      referenceTestsDir.get().asFile,
+      fixturePaths,
       file("src/reference-test/templates/BlockchainReferenceTest.java.template"),
       "fixtures",
       "blockchain_tests",
@@ -192,7 +221,7 @@ def executionSpecTests = tasks.register("executionSpecTests") {
 
     // generate state_tests grouped by hardfork/EIP:
     generateTestFilesGroupedByDirectory(
-      referenceTestsDir.get().asFile,
+      fixturePaths,
       file("src/reference-test/templates/GeneralStateReferenceTest.java.template"),
       "fixtures",
       "state_tests",
@@ -279,7 +308,7 @@ def zkevmExecutionWitnessTests = tasks.register("zkevmExecutionWitnessTests") {
   }
   doLast {
     generateTestFilesGroupedByDirectory(
-      referenceTestsDir.get().asFile,
+      fixturePathsInDir(referenceTestsDir.get().asFile),
       file("src/reference-test/templates/ZkevmExecutionWitnessTest.java.template"),
       "fixtures",
       "blockchain_tests",
@@ -302,8 +331,9 @@ def executionSpecDevnetTests = tasks.register("executionSpecDevnetTests") {
     delete generatedTestsDir
   }
   doLast {
+    final fixturePaths = fixturePathsInDir(referenceTestsDir.get().asFile)
     generateTestFilesGroupedByDirectory(
-      referenceTestsDir.get().asFile,
+      fixturePaths,
       file("src/reference-test/templates/BlockchainReferenceTest.java.template"),
       "fixtures",
       "blockchain_tests",
@@ -313,7 +343,7 @@ def executionSpecDevnetTests = tasks.register("executionSpecDevnetTests") {
       )
 
     generateTestFilesGroupedByDirectory(
-      referenceTestsDir.get().asFile,
+      fixturePaths,
       file("src/reference-test/templates/GeneralStateReferenceTest.java.template"),
       "fixtures",
       "state_tests",
@@ -393,6 +423,8 @@ sourceSets {
         'src/reference-test/external-resources',
         'src/reference-test/templates',
         'src/reference-test/resources/custom'
+      // ethereum/tests' LegacyTests (2.6 GB) are not run, so they are not copied to build/resources.
+      exclude 'LegacyTests/**', 'src/LegacyTests/**'
     }
   }
   referenceTestDevnet {
@@ -634,8 +666,35 @@ def generateTestFiles(
   }
 }
 
+// Paths of the blockchain and state test fixtures under fixturesRoot, the only ones the test
+// classes are generated from, relative to it and '/'-separated. The other fixture directories are
+// not walked. Taken relative to fixturesRoot rather than found by searching the absolute path for
+// the fixtures directory name: the fixtures can be unpacked anywhere, and a directory above them
+// may carry that name too.
+def fixturePathsInDir(File fixturesRoot) {
+  return fixturePathsIn(fileTree(fixturesRoot) {
+    include 'fixtures/blockchain_tests/**', 'fixtures/state_tests/**'
+  })
+}
+
+// Paths of the fixture files in the tarball, as unpacked relative to the fixtures root. Only the
+// entry names are read, nothing is unpacked.
+def fixturePathsInTarball(File tarball) {
+  return fixturePathsIn(tarTree(tarball))
+}
+
+def fixturePathsIn(FileTree tree) {
+  def paths = []
+  tree.visit { FileVisitDetails details ->
+    if (!details.directory) {
+      paths << details.relativePath.pathString
+    }
+  }
+  return paths
+}
+
 def generateTestFilesGroupedByDirectory(
-  File fixturesRoot,
+  Collection<String> fixturePaths,
   File templateFile,
   String pathstrip,
   String groupBaseDir,
@@ -649,20 +708,17 @@ def generateTestFilesGroupedByDirectory(
   // Collect paths and group by hardfork/EIP directory
   def groups = [:] as TreeMap // sorted for deterministic output
 
-  // Paths are taken relative to fixturesRoot rather than found by searching the absolute path for
-  // pathstrip: the fixtures can be unpacked anywhere, and a directory above them may carry that
-  // name too.
-  def rootPath = fixturesRoot.toPath()
-  fileTree(new File(fixturesRoot, "${pathstrip}/${groupBaseDir}")).getFiles().forEach { testJsonFile ->
-    def parentPathFile = rootPath.relativize(testJsonFile.getParentFile().toPath()).toString()
+  // Sorted so that every CI runner puts the same fixtures in the same test class: each one
+  // generates the classes itself, then runs and unpacks the fixtures of its share of them.
+  def groupDir = "${pathstrip}/${groupBaseDir}/".toString()
+  fixturePaths.findAll { it.startsWith(groupDir) }.sort().forEach { relativePath ->
+    def parentPathFile = relativePath.substring(0, relativePath.lastIndexOf('/'))
+    def fileName = relativePath.substring(parentPathFile.length() + 1)
     def isExcluded = excludedPath.any { excluded -> parentPathFile.startsWith(excluded) }
-    if (!testJsonFile.getName().toString().startsWith(".") && !isExcluded) {
-      def relativePath = rootPath.relativize(testJsonFile.toPath()).toString()
-
+    if (!fileName.startsWith(".") && !isExcluded) {
       // Extract the part after groupBaseDir to get hardfork/eip/file structure
-      def groupBaseDirIndex = relativePath.indexOf(groupBaseDir)
-      def afterGroupBase = relativePath.substring(groupBaseDirIndex + groupBaseDir.length() + 1)
-      def parts = afterGroupBase.split("[/\\\\]")
+      def afterGroupBase = relativePath.substring(groupDir.length())
+      def parts = afterGroupBase.split("/")
 
       // Extract group key from directory structure (e.g. "prague_eip7702_set_code_tx")
       def groupKey = extractGroupKey(parts)
