@@ -22,12 +22,16 @@ import com.google.common.annotations.VisibleForTesting;
 
 /**
  * A message call processor designed specifically for simulation purposes that allows for overriding
- * precompile addresses.
+ * precompile addresses. Apart from the precompile registry, it behaves as the processor it wraps.
  */
 public class SimulationMessageCallProcessor extends MessageCallProcessor {
 
   /**
    * Instantiates a new Modifiable precompiles message call processor for simulation.
+   *
+   * <p>The accounts to force delete when empty and the transfer log emitter are taken from the
+   * original processor, so a simulated call deletes the same touched empty accounts and emits the
+   * same transfer logs as the call would on chain.
    *
    * @param originalProcessor the original processor
    * @param precompileContractRegistryAdapter PrecompileContractRegistryProvider
@@ -38,7 +42,9 @@ public class SimulationMessageCallProcessor extends MessageCallProcessor {
           precompileContractRegistryAdapter) {
     super(
         originalProcessor.evm,
-        precompileContractRegistryAdapter.apply(originalProcessor.precompiles));
+        precompileContractRegistryAdapter.apply(originalProcessor.precompiles),
+        originalProcessor.forceDeleteAccountsWhenEmpty,
+        originalProcessor.transferLogEmitter);
   }
 
   /**
