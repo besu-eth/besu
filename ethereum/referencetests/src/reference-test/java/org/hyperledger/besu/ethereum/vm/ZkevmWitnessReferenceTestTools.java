@@ -33,13 +33,14 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.FixtureExecutionWitness;
+import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecutionWitnessBuilder;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.testutil.JsonTestParameters;
@@ -80,9 +81,15 @@ public class ZkevmWitnessReferenceTestTools {
               });
 
   static {
-    // Stateless-verifier format fixtures: they exercise optional-proof encoding rather than witness
-    // derivation from execution.
-    params.ignore("eip8025_optional_proofs");
+    // Fixtures whose executionWitness EELS deliberately altered (a missing or extra node, code or
+    // header, or reordered entries) to test stateless validation.
+    params.ignore(
+        "::test_validation_codes_",
+        "::test_validation_headers_",
+        "::test_validation_state_missing_",
+        "::test_validation_state_complete_witness_still_validates",
+        "::test_validation_state_unchanged_\\w+\\[[^\\]]*(missing_proof_leaf|missing_storage_root)",
+        "::test_witness_headers_extra_unused_older_ancestor");
   }
 
   private ZkevmWitnessReferenceTestTools() {
@@ -123,6 +130,7 @@ public class ZkevmWitnessReferenceTestTools {
                     validationMode,
                     validationMode,
                     candidateBlock.getBlockAccessList(),
+                    InclusionListTransactions.EMPTY,
                     false,
                     false);
 
@@ -173,7 +181,7 @@ public class ZkevmWitnessReferenceTestTools {
             Optional.of(BigInteger.ONE),
             ProtocolSpecAdapters.create(0, Function.identity()),
             false,
-            EvmConfiguration.DEFAULT,
+            ReferenceTestProtocolSchedules.evmConfiguration(),
             MiningConfiguration.MINING_DISABLED,
             new BadBlockManager(),
             false,

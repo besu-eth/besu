@@ -24,6 +24,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.TrieBytes;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
@@ -281,6 +282,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
   public void clearTrie() {
     subscribers.forEach(StorageSubscriber::onClearTrie);
     composedWorldStateStorage.clear(TRIE_BRANCH_STORAGE);
+    cacheManager.clear(TRIE_BRANCH_STORAGE);
   }
 
   public boolean pruneTrieLog(final Hash blockHash) {
@@ -374,7 +376,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
       final Hash accountHash,
       final StorageSlotKey storageSlotKey) {
     final Bytes key =
-        Bytes.concatenate(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes());
+        TrieBytes.concat(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes());
     return cacheManager.getFromCacheOrStorage(
         ACCOUNT_STORAGE_STORAGE,
         key,
@@ -435,6 +437,18 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
   }
 
   /**
+   * Trie node for a walk that only needs the node's content. A cross-block cache hit does not show
+   * that storage holds the node under {@code key}; {@link #getTrieNode} does.
+   *
+   * @param key the {@link TrieNodeKey} of the node
+   * @param nodeHash the hash of the node
+   * @return the node, or empty if it is neither cached nor stored under {@code key}
+   */
+  public Optional<Bytes> getTrieNodeFromCacheOrStorage(final Bytes key, final Bytes32 nodeHash) {
+    return cacheManager.getTrieNode(nodeHash).or(() -> getTrieNode(key, nodeHash));
+  }
+
+  /**
    * Returns the trie node stored under {@code key} in the live trie, without verifying its hash.
    *
    * @param key the {@link TrieNodeKey} of the node
@@ -486,10 +500,11 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     clearCrossBlockCache();
   }
 
-  /** Drops all cross-block flat-db cache entries without touching RocksDB. */
+  /** Drops all cross-block cache entries without touching RocksDB. */
   public void clearCrossBlockCache() {
     cacheManager.clear(ACCOUNT_INFO_STATE);
     cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
+    cacheManager.clear(TRIE_BRANCH_STORAGE);
   }
 
   public BonsaiFlatDbStrategy getFlatDbStrategy() {
@@ -719,6 +734,8 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     /** Single map per segment. Value {@code null} encodes a staged removal (last-write-wins). */
     private final Map<SegmentIdentifier, Map<Bytes, Bytes>> pending = new HashMap<>();
 
+    private List<FlatDbCacheManager.TrieNode> pendingTrieNodes = new ArrayList<>();
+
     public CachedUpdater(
         final SegmentedKeyValueStorageTransaction composedWorldStateTransaction,
         final KeyValueStorageTransaction trieLogStorageTransaction,
@@ -752,7 +769,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
         final Hash accountHash, final Hash slotHash, final Bytes storageValue) {
       stagePut(
           ACCOUNT_STORAGE_STORAGE,
-          Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()),
+          TrieBytes.concat(accountHash.getBytes(), slotHash.getBytes()),
           storageValue);
       return super.putStorageValueBySlotHash(accountHash, slotHash, storageValue);
     }
@@ -761,8 +778,17 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     public synchronized void removeStorageValueBySlotHash(
         final Hash accountHash, final Hash slotHash) {
       stageRemoval(
-          ACCOUNT_STORAGE_STORAGE, Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()));
+          ACCOUNT_STORAGE_STORAGE, TrieBytes.concat(accountHash.getBytes(), slotHash.getBytes()));
       super.removeStorageValueBySlotHash(accountHash, slotHash);
+    }
+
+    @Override
+    public synchronized Updater putTrieNode(
+        final Bytes key, final Bytes32 nodeHash, final Bytes node) {
+      if (!nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+        pendingTrieNodes.add(new FlatDbCacheManager.TrieNode(nodeHash, node));
+      }
+      return super.putTrieNode(key, nodeHash, node);
     }
 
     private void stagePut(final SegmentIdentifier segment, final Bytes key, final Bytes value) {
@@ -779,6 +805,8 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
 
     private void clearStaged() {
       pending.clear();
+      // not cleared in place: the cache manager may still be reading the list handed to it
+      pendingTrieNodes = new ArrayList<>();
     }
 
     protected void incrementCacheVersion() {
@@ -796,6 +824,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
                       cacheManager.putInCache(segment, key, value, cacheVersion);
                     }
                   }));
+      cacheManager.putTrieNodes(pendingTrieNodes);
       clearStaged();
       cacheManager.scheduleAsyncMaintenance();
     }

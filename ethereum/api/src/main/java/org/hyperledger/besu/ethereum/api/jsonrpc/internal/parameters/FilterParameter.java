@@ -35,6 +35,29 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 public class FilterParameter {
 
+  /** How {@code trace_filter} combines {@code fromAddress} and {@code toAddress}. */
+  public enum TraceFilterMode {
+    /** A trace matches every populated address list. */
+    INTERSECTION,
+    /** A trace matches either populated address list. */
+    UNION;
+
+    /**
+     * Parses a mode from its exact name, so ordinals and other spellings are rejected.
+     *
+     * @param name {@code intersection} or {@code union}
+     * @return the mode
+     */
+    @JsonCreator
+    public static TraceFilterMode fromName(final String name) {
+      return switch (name) {
+        case "intersection" -> INTERSECTION;
+        case "union" -> UNION;
+        default -> throw new IllegalArgumentException("Unknown trace filter mode: " + name);
+      };
+    }
+  }
+
   private final BlockParameter fromBlock;
   private final BlockParameter toBlock;
   private final List<Address> fromAddress;
@@ -44,7 +67,22 @@ public class FilterParameter {
   private final Optional<Hash> maybeBlockHash;
   private final LogsQuery logsQuery;
   private final Optional<Integer> after, count;
+  private final TraceFilterMode mode;
   private final boolean isValid;
+
+  public FilterParameter(
+      final BlockParameter fromBlock,
+      final BlockParameter toBlock,
+      final List<Address> fromAddress,
+      final List<Address> toAddress,
+      final List<Address> address,
+      final List<List<LogTopic>> topics,
+      final Hash blockHash,
+      final Integer after,
+      final Integer count) {
+    this(
+        fromBlock, toBlock, fromAddress, toAddress, address, topics, blockHash, after, count, null);
+  }
 
   @JsonCreator
   public FilterParameter(
@@ -61,7 +99,8 @@ public class FilterParameter {
           final List<List<LogTopic>> topics,
       @JsonProperty("blockHash") @JsonAlias({"blockhash"}) final Hash blockHash,
       @JsonProperty("after") final Integer after,
-      @JsonProperty("count") final Integer count) {
+      @JsonProperty("count") final Integer count,
+      @JsonProperty("mode") final TraceFilterMode mode) {
     this.isValid = blockHash == null || (fromBlock == null && toBlock == null);
     this.fromBlock = fromBlock != null ? fromBlock : BlockParameter.LATEST;
     this.toBlock = toBlock != null ? toBlock : BlockParameter.LATEST;
@@ -73,6 +112,7 @@ public class FilterParameter {
     this.maybeBlockHash = Optional.ofNullable(blockHash);
     this.after = Optional.ofNullable(after);
     this.count = Optional.ofNullable(count);
+    this.mode = mode != null ? mode : TraceFilterMode.INTERSECTION;
   }
 
   public BlockParameter getFromBlock() {
@@ -115,6 +155,29 @@ public class FilterParameter {
     return count;
   }
 
+  public TraceFilterMode getMode() {
+    return mode;
+  }
+
+  /**
+   * Whether a trace with the given sender and recipient matches {@code fromAddress} and {@code
+   * toAddress}. An empty list imposes no restriction. In intersection mode a trace matches every
+   * populated list; in union mode it matches either populated list.
+   *
+   * @param from the trace's sender, if it has one
+   * @param to the trace's recipient, if it has one
+   * @return whether the trace matches the address filter
+   */
+  public boolean matchesTraceAddresses(final Optional<Address> from, final Optional<Address> to) {
+    final boolean fromMatches = from.map(fromAddress::contains).orElse(false);
+    final boolean toMatches = to.map(toAddress::contains).orElse(false);
+    return switch (mode) {
+      case INTERSECTION ->
+          (fromAddress.isEmpty() || fromMatches) && (toAddress.isEmpty() || toMatches);
+      case UNION -> (fromAddress.isEmpty() && toAddress.isEmpty()) || fromMatches || toMatches;
+    };
+  }
+
   @Override
   public boolean equals(final Object o) {
     if (this == o) return true;
@@ -130,7 +193,8 @@ public class FilterParameter {
         && Objects.equals(maybeBlockHash, that.maybeBlockHash)
         && Objects.equals(logsQuery, that.logsQuery)
         && Objects.equals(after, that.after)
-        && Objects.equals(count, that.count);
+        && Objects.equals(count, that.count)
+        && mode == that.mode;
   }
 
   @Override
@@ -146,6 +210,7 @@ public class FilterParameter {
         logsQuery,
         after,
         count,
+        mode,
         isValid);
   }
 
@@ -172,6 +237,8 @@ public class FilterParameter {
         + after
         + ", count="
         + count
+        + ", mode="
+        + mode
         + ", isValid="
         + isValid
         + '}';

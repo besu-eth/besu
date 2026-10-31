@@ -30,6 +30,7 @@ public class GasPricePendingTransactionsTest extends AbstractPendingTransactions
         poolConfig,
         clock.orElse(TestClock.system(ZoneId.systemDefault())),
         metricsSystem,
-        AbstractPendingTransactionsTestBase::mockBlockHeader);
+        AbstractPendingTransactionsTestBase::mockBlockHeader,
+        transactionEventNotifier.newEmitter());
   }
 }

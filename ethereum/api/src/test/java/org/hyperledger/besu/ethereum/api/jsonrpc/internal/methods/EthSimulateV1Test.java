@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -205,6 +206,20 @@ public class EthSimulateV1Test {
   }
 
   @Test
+  public void shouldUseLatestBlockWhenBlockParameterIsOmitted() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_simulateV1", new Object[] {simulateParameter(false)}));
+
+    method.response(request);
+
+    verify(blockSimulator).process(eq(blockHeader), any(), any(OperationTracer.class));
+  }
+
+  @Test
   public void shouldReturnInvalidParamsWhenParameterParsingFails() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
@@ -269,6 +284,56 @@ public class EthSimulateV1Test {
 
     assertThat(method.response(simulateRequest(simulateParam)))
         .isNotInstanceOf(JsonRpcErrorResponse.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0x1", "0x4"})
+  public void shouldRejectPrecompileMovedToItself(final String address) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    final Address precompile = Address.fromHexString(address);
+    when(precompileContractRegistry.getPrecompileAddresses()).thenReturn(Set.of(precompile));
+
+    final JsonRpcResponse response =
+        method.response(simulateRequestWithMovedPrecompile(precompile, precompile));
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    final var error = ((JsonRpcErrorResponse) response).getError();
+    assertThat(error.getCode()).isEqualTo(-38022);
+    assertThat(error.getMessage())
+        .isEqualTo("MovePrecompileToAddress referenced itself in replacement");
+    verifyNoInteractions(blockSimulator);
+  }
+
+  @Test
+  public void shouldAcceptPrecompileMovedToDifferentAddress() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    final Address precompile = Address.fromHexString("0x4");
+    when(precompileContractRegistry.getPrecompileAddresses()).thenReturn(Set.of(precompile));
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenReturn(List.of());
+
+    assertThat(
+            method.response(
+                simulateRequestWithMovedPrecompile(precompile, Address.fromHexString("0x1234"))))
+        .isNotInstanceOf(JsonRpcErrorResponse.class);
+    verify(blockSimulator).process(any(BlockHeader.class), any(), any(OperationTracer.class));
+  }
+
+  private static JsonRpcRequestContext simulateRequestWithMovedPrecompile(
+      final Address source, final Address target) {
+    return simulateRequest(
+        Map.of(
+            "blockStateCalls",
+            List.of(
+                Map.of(
+                    "stateOverrides",
+                    Map.of(
+                        source.toHexString(),
+                        Map.of("movePrecompileToAddress", target.toHexString())),
+                    "calls",
+                    List.of()))));
   }
 
   private static JsonRpcRequestContext simulateRequest(final Map<String, Object> simulateParam) {

@@ -60,11 +60,12 @@ public class WorldStateProofProvider {
 
   public Optional<WorldStateProof> getAccountProof(
       final Hash worldStateRoot,
+      final Hash worldStateBlockHash,
       final Address accountAddress,
       final List<UInt256> accountStorageKeys) {
 
     if (!worldStateStorageCoordinator.isWorldStateAvailable(
-        Bytes32.wrap(worldStateRoot.getBytes()), null)) {
+        Bytes32.wrap(worldStateRoot.getBytes()), worldStateBlockHash)) {
       return Optional.empty();
     } else {
       final Hash accountHash = accountAddress.addressHash();

@@ -59,16 +59,11 @@ public class BlockAccessListItemBudgetTransactionSelector extends AbstractTransa
       return TransactionSelectionResult.SELECTED;
     }
     final BlockAccessList.BlockAccessListBuilder mainBuilder = maybeBlockAccessListBuilder.get();
-    final long itemCount;
-    if (processingResult.getPartialBlockAccessView().isEmpty()) {
-      itemCount = mainBuilder.eip7928ItemCount();
-    } else {
-      final BlockAccessList committedSnapshot = mainBuilder.build();
-      final BlockAccessList.BlockAccessListBuilder probe = BlockAccessList.builder();
-      probe.mergeFrom(committedSnapshot);
-      probe.apply(processingResult.getPartialBlockAccessView().get());
-      itemCount = probe.eip7928ItemCount();
-    }
+    final long itemCount =
+        processingResult
+            .getPartialBlockAccessView()
+            .map(mainBuilder::eip7928ItemCountIfApplied)
+            .orElseGet(mainBuilder::eip7928ItemCount);
     final BlockAccessListItemSizeCheck itemSizeCheck =
         context
             .protocolSpec()

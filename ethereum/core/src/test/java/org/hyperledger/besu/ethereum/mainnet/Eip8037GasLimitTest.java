@@ -190,6 +190,39 @@ class Eip8037GasLimitTest {
   }
 
   @Test
+  void executionGasAboveTxMaxGasLimitSucceedsWhenTheCapIsLifted() {
+    setupCommonMocks(20_000_000L);
+
+    doAnswer(
+            invocation -> {
+              final MessageFrame frame = invocation.getArgument(0);
+              assertThat(frame.getStateGasReservoir()).isZero();
+              frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
+              frame.setGasRemaining(2_000_000L);
+              frame.getMessageFrameStack().pop();
+              return null;
+            })
+        .when(messageCallProcessor)
+        .process(any(), any());
+
+    final TransactionProcessingResult result =
+        createProcessor()
+            .processTransaction(
+                worldState,
+                blockHeader,
+                transaction,
+                Address.fromHexString("0x4242424242424242424242424242424242424242"),
+                blockHashLookup,
+                ImmutableTransactionValidationParams.builder()
+                    .isAllowExceedingExecutionGasLimit(true)
+                    .build(),
+                Wei.ZERO);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(result.getEstimateGasUsedByTransaction()).isEqualTo(18_000_000L);
+  }
+
+  @Test
   void exceptionalHaltShouldNotDeleteAccountsViaSelfDestructs() {
     // Regression test: a failed transaction once deleted the accounts its selfdestruct markers
     // named, wiping pre-existing accounts from world state. EXCEPTIONAL_HALT is the cheapest way

@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -297,15 +296,7 @@ public class ForestMutableWorldState implements MutableWorldState {
       if (codeHash.equals(Hash.EMPTY)) {
         return Bytes.EMPTY;
       }
-      final Optional<Bytes> code = worldStateKeyValueStorage.getCode(codeHash);
-      // a storage fault, not empty code; asserted so that nodes without -ea skip the check
-      assert MerkleTrieException.checkCodeFound(address, codeHash, code.isPresent());
-      return code.orElse(Bytes.EMPTY);
-    }
-
-    @Override
-    public boolean hasCode() {
-      return !getCode().isEmpty();
+      return worldStateKeyValueStorage.getCode(codeHash).orElse(Bytes.EMPTY);
     }
 
     @Override

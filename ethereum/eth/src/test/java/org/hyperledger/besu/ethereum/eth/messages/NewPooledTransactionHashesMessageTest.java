@@ -16,19 +16,25 @@ package org.hyperledger.besu.ethereum.eth.messages;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class NewPooledTransactionHashesMessageTest {
+  private final int maxAnnouncementsPerMessage =
+      EthProtocolConfiguration.DEFAULT_MAX_ANNOUNCEMENTS_PER_MESSAGE;
 
   @Test
   public void roundTripNewPooledTransactionHashesMessage() {
@@ -37,9 +43,22 @@ public class NewPooledTransactionHashesMessageTest {
         NewPooledTransactionHashesMessage.create(transactions, EthProtocol.LATEST);
     assertThat(msg.getCode()).isEqualTo(EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES);
     final List<TransactionAnnouncement> pendingAnnouncements =
-        msg.pendingTransactionAnnouncements();
+        msg.pendingTransactionAnnouncements(maxAnnouncementsPerMessage);
     assertThat(pendingAnnouncements)
         .isEqualTo(transactions.stream().map(TransactionAnnouncement::new).toList());
+  }
+
+  @Test
+  public void appliesMaxOnEveryCallNotOnlyTheFirst() {
+    final List<Transaction> transactions =
+        new ArrayList<>(new BlockDataGenerator().transactions(3));
+    final NewPooledTransactionHashesMessage msg =
+        NewPooledTransactionHashesMessage.create(transactions, EthProtocol.LATEST);
+
+    assertThat(msg.pendingTransactionAnnouncements(transactions.size())).hasSize(3);
+    assertThatThrownBy(() -> msg.pendingTransactionAnnouncements(transactions.size() - 1))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds the maximum permitted size");
   }
 
   @Test

@@ -172,6 +172,23 @@ class BonsaiWorldStateCacheManagerTest {
     Mockito.verify(headSnapshot).close();
   }
 
+  @Test
+  void resetClosesTheCachedWorldStates() throws Exception {
+    final BonsaiWorldStateKeyValueStorage snapshot =
+        Mockito.mock(BonsaiWorldStateKeyValueStorage.class);
+    final TestCacheManager resetCacheManager =
+        new TestCacheManager(
+            Mockito.mock(BonsaiWorldStateKeyValueStorage.class),
+            new ConcurrentHashMap<>(),
+            snapshot);
+    resetCacheManager.addCachedLayer(headers[1], headers[1].getStateRoot(), worldStates[1]);
+
+    resetCacheManager.reset();
+
+    assertThat(resetCacheManager.contains(headers[1].getBlockHash())).isFalse();
+    Mockito.verify(snapshot).close();
+  }
+
   private static Hash uniqueStateRoot(final long blockNumber) {
     return Hash.wrap(Bytes32.leftPad(Bytes.ofUnsignedLong(blockNumber)));
   }

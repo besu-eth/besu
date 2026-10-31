@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.flat.R
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -59,25 +58,20 @@ public class TraceFlatTransactionStep
               protocolSchedule, transactionTrace, block);
     }
     if (filterParameter.isPresent()) {
-      final List<Address> fromAddress = filterParameter.get().getFromAddress();
-      final List<Address> toAddress = filterParameter.get().getToAddress();
       return CompletableFuture.completedFuture(
           traceStream
               .map(FlatTrace.class::cast)
               .filter(
                   trace ->
-                      fromAddress.isEmpty()
-                          || Optional.ofNullable(trace.getAction().getFrom())
-                              .map(Address::fromHexString)
-                              .map(fromAddress::contains)
-                              .orElse(false))
-              .filter(
-                  trace ->
-                      toAddress.isEmpty()
-                          || Optional.ofNullable(trace.getAction().getTo())
-                              .map(Address::fromHexString)
-                              .map(toAddress::contains)
-                              .orElse(false)));
+                      filterParameter
+                          .get()
+                          .matchesTraceAddresses(
+                              Optional.ofNullable(trace.getAction().getFrom())
+                                  .map(Address::fromHexString),
+                              // a reward has no recipient but its author
+                              Optional.ofNullable(trace.getAction().getTo())
+                                  .or(() -> Optional.ofNullable(trace.getAction().getAuthor()))
+                                  .map(Address::fromHexString))));
 
     } else {
       return CompletableFuture.completedFuture(traceStream.map(FlatTrace.class::cast));

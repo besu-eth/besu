@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
-import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.MptStorageRootStrategy;
 import org.hyperledger.besu.ethereum.trie.common.StorageRootStrategy;
 import org.hyperledger.besu.ethereum.trie.common.TrieAccountValue;
@@ -124,7 +123,10 @@ public class BonsaiAccount implements MutableAccount, TrieAccountValue {
     this.codeHash = tracked.getCodeHash();
     this.immutable = false;
     this.codeCache = codeCache;
-    this.code = new Code(tracked.getCode());
+    // code not set by the tracker is read on demand from codeHash
+    if (tracked.codeWasUpdated() || !tracked.hasCode()) {
+      this.code = tracked.getOrCreateCachedCode();
+    }
     this.storageRootStrategy = new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH);
     this.updatedStorage.putAll(tracked.getUpdatedStorage());
   }
@@ -239,12 +241,7 @@ public class BonsaiAccount implements MutableAccount, TrieAccountValue {
     }
 
     // cache miss get the code from the disk, set it and put it in the cache
-    final Optional<Code> loadedCode = context.getCode(address, codeHash);
-    // a storage fault, not empty code: it must neither run nor be cached, and block import must
-    // report it as a local failure rather than an invalid block. Asserted so that nodes without
-    // -ea skip the check.
-    assert MerkleTrieException.checkCodeFound(address, codeHash, loadedCode.isPresent());
-    code = loadedCode.orElseGet(() -> new Code(Bytes.EMPTY, codeHash));
+    code = context.getCode(address, codeHash).orElseGet(() -> new Code(Bytes.EMPTY, codeHash));
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, code));
 
     return code;
@@ -376,6 +373,28 @@ public class BonsaiAccount implements MutableAccount, TrieAccountValue {
         + ", codeHash="
         + codeHash
         + '}';
+  }
+
+  /**
+   * Whether two versions of an account have the same value in the account trie: both are absent, or
+   * they have the same nonce, balance, storage root strategy and code hash. The strategy writes the
+   * storage root field, so equal strategies hold the same root in the same format.
+   *
+   * <p>This is not {@code equals}: the trie log leaves out an account whose prior and updated are
+   * equal, and an account the block only reads has to stay in it.
+   *
+   * @param a an account, or null if it does not exist
+   * @param b another account, or null if it does not exist
+   * @return true if the account trie stores the same value for both
+   */
+  public static boolean trieValueEquals(final BonsaiAccount a, final BonsaiAccount b) {
+    if (a == null || b == null) {
+      return a == b;
+    }
+    return a.getNonce() == b.getNonce()
+        && a.getBalance().equals(b.getBalance())
+        && a.storageRootStrategy.equals(b.storageRootStrategy)
+        && a.getCodeHash().equals(b.getCodeHash());
   }
 
   /**

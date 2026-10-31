@@ -1190,7 +1190,7 @@ public class Transaction
                 : isContractCreation() ? "ContractCreation" : "MessageCall")
         .append(", ");
     sb.append(getNonce()).append(", ");
-    sb.append(getSender()).append(", ");
+    sb.append(senderForLog()).append(", ");
     sb.append(getType()).append(", ");
     getGasPrice()
         .ifPresent(gp -> sb.append("gp: ").append(gp.toHumanReadableString()).append(", "));
@@ -1221,6 +1221,19 @@ public class Transaction
     sb.append("v: ").append(getValue().toHumanReadableString()).append(", ");
     getTo().ifPresent(t -> sb.append("to: ").append(t));
     return sb.append("}").toString();
+  }
+
+  /**
+   * The sender to show in logs. Logging a transaction must not fail, also when it has a signature
+   * that does not recover a public key, e.g. an inclusion list transaction (EIP-7805) that is
+   * logged before being validated.
+   */
+  private String senderForLog() {
+    try {
+      return getSender().toString();
+    } catch (final IllegalArgumentException | IllegalStateException e) {
+      return "<unrecoverable sender>";
+    }
   }
 
   @Override

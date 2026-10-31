@@ -87,14 +87,14 @@ public interface HardforkId {
     BPO1(true, "BPO1"),
     /** BPO2 fork. */
     BPO2(true, "BPO2"),
-    /** BPO3 fork. */
-    BPO3(true, "BPO3"),
-    /** BPO4 fork. */
-    BPO4(true, "BPO4"),
-    /** BPO5 fork. */
-    BPO5(true, "BPO5"),
     /** Amsterdam fork. */
-    AMSTERDAM(false, "Amsterdam"),
+    AMSTERDAM(true, "Amsterdam"),
+    /** BPO3 fork. */
+    BPO3(false, "BPO3"),
+    /** BPO4 fork. */
+    BPO4(false, "BPO4"),
+    /** BPO5 fork. */
+    BPO5(false, "BPO5"),
     /** Bogota fork. */
     BOGOTA(false, "Bogota"),
     /** Polis fork. (from the greek form of an earlier incarnation of the city of Istanbul. */

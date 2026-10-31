@@ -49,10 +49,11 @@ spotless {
     licenseHeaderFile("${rootDir}/gradle/spotless/java.former.date.license").named("older.year").onlyIfContentMatches("^/\\*\\r?\\n.* Copyright \\d{4} ConsenSys AG\\.")
     licenseHeaderFile("${rootDir}/gradle/spotless/java.current.license").named("current").onlyIfContentMatches("^(?!/\\*\\r?\\n \\*.*(ConsenSys AG|Hyperledger Besu)\\.)")
   }
-  // spotless check applied to build.gradle (groovy) files
+  // spotless check applied to build.gradle (groovy) files; built-in steps only, so the check needs no downloads
   groovyGradle {
     target '*.gradle'
-    greclipse('4.31').configFile(rootProject.file('gradle/spotless/greclipse.properties'))
+    leadingTabsToSpaces(2)
+    trimTrailingWhitespace()
     endWithNewline()
   }
 }

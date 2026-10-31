@@ -9,18 +9,6 @@ on:
       version:
         required: false
         type: string
-      cache_scope:
-        required: false
-        type: string
-        default: 'docker-build'
-      write_cache:
-        description: >-
-          Write the BuildKit layer cache. Keep false on PRs so they read the shared
-          cache without filling the 10 GB repo budget with per-PR layers; set true
-          only where the written cache is reusable (e.g. refs/heads/main).
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   buildTestDocker:
@@ -80,8 +68,6 @@ jobs:
             VERSION=${{ inputs.version || 'develop' }}
             VCS_REF=${{ github.sha }}
           tags: hyperledger/besu:test
-          cache-from: type=gha,scope=${{ inputs.cache_scope }}-amd64
-          cache-to: ${{ inputs.write_cache && format('type=gha,mode=min,scope={0}-amd64', inputs.cache_scope) || '' }}
       - name: Download Goss binaries
         run: |
           GOSS_VERSION="v0.4.9"

@@ -19,26 +19,37 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.Snap2SyncFactory;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.BackgroundBackfill;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,11 +65,15 @@ public class DefaultSynchronizerTest {
   private final SyncTerminationCondition terminationCondition =
       mock(SyncTerminationCondition.class);
   private final SnapSyncController snapSyncController = mock(SnapSyncController.class);
+  private final BackgroundBackfill backgroundBackfill = mock(BackgroundBackfill.class);
+  private final PivotBlockSelector pivotBlockSelector = mock(PivotBlockSelector.class);
   private SyncState syncState;
 
   private MockedStatic<ChainHeadTracker> chainHeadTracker;
   private MockedStatic<SnapServerChecker> snapServerChecker;
   private MockedStatic<SnapDownloaderFactory> snapDownloaderFactory;
+  private MockedStatic<BackgroundBackfill> backgroundBackfills;
+  private MockedStatic<Snap2SyncFactory> snap2SyncFactory;
 
   @BeforeEach
   public void setUp() {
@@ -81,6 +96,11 @@ public class DefaultSynchronizerTest {
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
                     any(), any()))
         .thenReturn(Optional.of(snapSyncController));
+    snap2SyncFactory = mockStatic(Snap2SyncFactory.class);
+    backgroundBackfills = mockStatic(BackgroundBackfill.class);
+    backgroundBackfills
+        .when(() -> BackgroundBackfill.create(any(), any(), any(), any(), any(), any(), any()))
+        .thenReturn(backgroundBackfill);
   }
 
   @AfterEach
@@ -88,6 +108,8 @@ public class DefaultSynchronizerTest {
     chainHeadTracker.close();
     snapServerChecker.close();
     snapDownloaderFactory.close();
+    backgroundBackfills.close();
+    snap2SyncFactory.close();
   }
 
   @Test
@@ -130,6 +152,104 @@ public class DefaultSynchronizerTest {
     assertThat(syncState.syncStatus()).isEmpty();
   }
 
+  @Test
+  public void startsTheBackfillOnceTheInitialSyncCompletes() {
+    final CompletableFuture<SnapSyncProcessState> sync = new CompletableFuture<>();
+    when(snapSyncController.start()).thenReturn(sync);
+    final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+    when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
+    final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.SNAP);
+
+    synchronizer.start();
+    verify(backgroundBackfill, never()).onInitialSyncCompleted();
+    sync.complete(
+        new SnapSyncProcessState(new BlockHeaderTestFixture().number(CHAIN_HEAD).buildHeader()));
+
+    verify(backgroundBackfill).onInitialSyncCompleted();
+  }
+
+  @Test
+  public void startsTheBackfillWhenNoInitialSyncIsNeeded() {
+    final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.FULL);
+
+    synchronizer.start();
+
+    verify(backgroundBackfill).onInitialSyncCompleted();
+  }
+
+  @Test
+  public void stopsTheBackfillWhenTheWorldStateIsSyncedAgain() {
+    final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.FULL);
+    // without a download to run, the synchronizer stops running at once, the back-fill does not
+    synchronizer.start();
+
+    synchronizer.resyncWorldState();
+
+    verify(backgroundBackfill).onInitialSyncRestart();
+  }
+
+  @Test
+  public void stopsAndAwaitsTheBackfillOnceTheSynchronizerNoLongerRuns()
+      throws InterruptedException {
+    final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.FULL);
+    synchronizer.start();
+
+    synchronizer.stop();
+    synchronizer.awaitStop();
+
+    verify(backgroundBackfill).stop();
+    verify(backgroundBackfill).awaitStop();
+  }
+
+  @Test
+  public void awaitsTheSnapSyncBeforeTheStorageCloses() throws InterruptedException {
+    final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.SNAP);
+
+    synchronizer.awaitStop();
+
+    verify(snapSyncController).awaitStop();
+  }
+
+  @Test
+  public void resyncsAfterASnap2SyncWithTheHeadItFollowed() {
+    // the selectors and the hand-overs each SNAP2 sync is created with
+    final List<Object> selectors = new ArrayList<>();
+    final List<Consumer<RequestSender>> handOvers = new ArrayList<>();
+    snap2SyncFactory
+        .when(
+            () ->
+                Snap2SyncFactory.create(
+                    any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                    any()))
+        .thenAnswer(
+            invocation -> {
+              selectors.add(invocation.getArgument(9));
+              handOvers.add(invocation.getArgument(11));
+              return Optional.of(snapSyncController);
+            });
+    when(snapSyncController.start())
+        .thenReturn(
+            CompletableFuture.completedFuture(
+                new SnapSyncProcessState(
+                    new BlockHeaderTestFixture().number(CHAIN_HEAD).buildHeader())));
+    final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+    when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
+    final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.SNAP2);
+    synchronizer.start();
+
+    synchronizer.resyncWorldState();
+
+    // the head tracker, still subscribed once the first sync ended
+    assertThat(selectors).hasSize(2).containsOnly(pivotBlockSelector);
+    verify(pivotBlockSelector, never()).close();
+    // the back-fill goes on with the scheduler of the sync
+    final RequestSender scheduler = mock(RequestSender.class);
+    handOvers.getLast().accept(scheduler);
+    verify(backgroundBackfill).handOver(scheduler);
+  }
+
   private DefaultSynchronizer createSynchronizer(final SyncMode syncMode) {
     final SynchronizerConfiguration syncConfig = mock(SynchronizerConfiguration.class);
     when(syncConfig.getSyncMode()).thenReturn(syncMode);
@@ -139,7 +259,7 @@ public class DefaultSynchronizerTest {
         protocolContext,
         null,
         null,
-        null,
+        mock(EthContext.class),
         null,
         syncState,
         Path.of("unused"),
@@ -147,7 +267,8 @@ public class DefaultSynchronizerTest {
         Clock.systemUTC(),
         new NoOpMetricsSystem(),
         terminationCondition,
-        null,
+        pivotBlockSelector,
+        Optional.empty(),
         Optional.empty());
   }
 }

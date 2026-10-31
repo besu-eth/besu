@@ -19,10 +19,13 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledSuppliedMetric;
 import java.util.List;
 
 import io.opentelemetry.api.metrics.Meter;
+import io.opentelemetry.api.metrics.ObservableDoubleGauge;
 
 /** The Open telemetry gauge. */
 public class OpenTelemetryGauge extends OpenTelemetryLabelledSuppliedMetric
     implements LabelledSuppliedMetric {
+  private final ObservableDoubleGauge gauge;
+
   /**
    * Instantiates a new Open telemetry gauge.
    *
@@ -38,6 +41,11 @@ public class OpenTelemetryGauge extends OpenTelemetryLabelledSuppliedMetric
       final List<String> labelNames) {
     super(labelNames);
 
-    meter.gaugeBuilder(metricName).setDescription(help).buildWithCallback(this::updater);
+    gauge = meter.gaugeBuilder(metricName).setDescription(help).buildWithCallback(this::updater);
+  }
+
+  @Override
+  void close() {
+    gauge.close();
   }
 }

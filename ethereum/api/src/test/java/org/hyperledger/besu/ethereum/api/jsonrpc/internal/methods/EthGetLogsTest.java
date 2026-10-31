@@ -26,6 +26,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -39,6 +40,7 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -54,10 +56,11 @@ public class EthGetLogsTest {
 
   @Mock BlockchainQueries blockchainQueries;
   long maxLogRange;
+  int maxFilterAddresses;
 
   @BeforeEach
   public void setUp() {
-    method = new EthGetLogs(blockchainQueries, maxLogRange);
+    method = new EthGetLogs(blockchainQueries, maxLogRange, maxFilterAddresses);
   }
 
   @Test
@@ -285,12 +288,13 @@ public class EthGetLogsTest {
   public void shouldFailIfParamsExceedMaxRange() {
     final JsonRpcRequestContext request = buildRequest(0, 50);
     maxLogRange = 20L;
-    method = new EthGetLogs(blockchainQueries, maxLogRange);
+    method = new EthGetLogs(blockchainQueries, maxLogRange, maxFilterAddresses);
     when(blockchainQueries.headBlockNumber()).thenReturn(100L);
     final JsonRpcResponse response = method.response(request);
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
     assertThat(errorResponse.getErrorType()).isEqualTo(RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+    assertThat(errorResponse.getError().getData()).isEqualTo("20");
   }
 
   @Test
@@ -338,6 +342,67 @@ public class EthGetLogsTest {
     assertThat(ex.getRpcErrorType()).isEqualTo(RpcErrorType.BLOCK_NOT_FOUND);
 
     verify(blockchainQueries).getBlockHeaderByHash(mockHash);
+  }
+
+  @Test
+  public void shouldRejectMoreAddressesThanMaxFilterAddresses() {
+    maxFilterAddresses = 2;
+    method = new EthGetLogs(blockchainQueries, maxLogRange, maxFilterAddresses);
+
+    final JsonRpcResponse response = method.response(buildRequestWithAddresses(3));
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
+    verifyNoInteractions(blockchainQueries);
+  }
+
+  @Test
+  public void shouldAcceptAsManyAddressesAsMaxFilterAddressesAllows() {
+    maxFilterAddresses = 2;
+    method = new EthGetLogs(blockchainQueries, maxLogRange, maxFilterAddresses);
+    when(blockchainQueries.headBlockNumber()).thenReturn(100L);
+    when(blockchainQueries.matchingLogs(anyLong(), anyLong(), any(), any()))
+        .thenReturn(new ArrayList<>());
+
+    final JsonRpcResponse response = method.response(buildRequestWithAddresses(2));
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    verify(blockchainQueries).matchingLogs(anyLong(), anyLong(), any(), any());
+  }
+
+  @Test
+  public void shouldNotCapAddressesWhenMaxFilterAddressesIsZero() {
+    maxFilterAddresses = 0;
+    method = new EthGetLogs(blockchainQueries, maxLogRange, maxFilterAddresses);
+    when(blockchainQueries.headBlockNumber()).thenReturn(100L);
+    when(blockchainQueries.matchingLogs(anyLong(), anyLong(), any(), any()))
+        .thenReturn(new ArrayList<>());
+
+    final JsonRpcResponse response = method.response(buildRequestWithAddresses(3));
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    verify(blockchainQueries).matchingLogs(anyLong(), anyLong(), any(), any());
+  }
+
+  private JsonRpcRequestContext buildRequestWithAddresses(final int addressCount) {
+    final List<Address> addresses = new ArrayList<>();
+    for (int i = 0; i < addressCount; i++) {
+      addresses.add(Address.fromHexString(String.format("0x%040x", i)));
+    }
+    final FilterParameter filterParameter =
+        new FilterParameter(
+            BlockParameter.LATEST,
+            BlockParameter.LATEST,
+            null,
+            null,
+            addresses,
+            null,
+            null,
+            null,
+            null);
+    return new JsonRpcRequestContext(
+        new JsonRpcRequest("2.0", "eth_getLogs", new Object[] {filterParameter}));
   }
 
   private JsonRpcRequestContext buildRequest(final long fromBlock, final long toBlock) {

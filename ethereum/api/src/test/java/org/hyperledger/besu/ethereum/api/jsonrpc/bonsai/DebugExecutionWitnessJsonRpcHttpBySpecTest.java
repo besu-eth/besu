@@ -15,7 +15,10 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
+import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+/** debug_executionWitness on a pre-Amsterdam chain that is on Osaka from its first block. */
 public class DebugExecutionWitnessJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
   @Override
@@ -24,7 +27,13 @@ public class DebugExecutionWitnessJsonRpcHttpBySpecTest extends AbstractJsonRpcH
     startService();
   }
 
+  @Override
+  protected BlockchainSetupUtil getBlockchainSetupUtil(final DataStorageFormat storageFormat) {
+    return createBlockchainSetupUtil(
+        "debug-geth/chain-data/genesis.json", "debug-geth/chain-data/blocks.bin", storageFormat);
+  }
+
   public static Object[][] specs() {
-    return findSpecFiles(new String[] {"debug/witness"});
+    return findSpecFiles(new String[] {"debug/specs/execution-witness"});
   }
 }

@@ -15,10 +15,14 @@
 package org.hyperledger.besu.ethereum.trie.forest.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage.Updater;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -148,6 +152,20 @@ public class ForestKeyValueStorageWorldStateStorageTest {
     assertThat(storage.getCode(Hash.hash(bytesA))).contains(bytesA);
     assertThat(storage.getCode(Hash.hash(bytesB))).contains(bytesB);
     assertThat(storage.getCode(Hash.hash(bytesC))).contains(bytesC);
+  }
+
+  @Test
+  public void batchUpdater_writesInABatch() {
+    final KeyValueStorage keyValueStorage = spy(new InMemoryKeyValueStorage());
+    final ForestWorldStateKeyValueStorage storage =
+        new ForestWorldStateKeyValueStorage(keyValueStorage);
+    final Bytes bytes = Bytes.fromHexString("0x123456");
+
+    storage.batchUpdater().putCode(bytes).commit();
+
+    verify(keyValueStorage).startBatchTransaction();
+    verify(keyValueStorage, never()).startTransaction();
+    assertThat(storage.getCode(Hash.hash(bytes))).contains(bytes);
   }
 
   @Test

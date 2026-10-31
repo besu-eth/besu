@@ -14,10 +14,15 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfigurationBuilder;
 
@@ -25,6 +30,8 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -67,5 +74,24 @@ public class TransactionDBRocksDBColumnarKeyValueStorageTest
         ignorableSegments,
         metricsSystem,
         RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);
+  }
+
+  // a pessimistic database still locks the keys of a batch at commit
+  @Test
+  @Timeout(10)
+  public void batchTransactionWaitsForTheKeysATransactionHolds() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final byte[] key = bytesFromHexString("0001");
+    final SegmentedKeyValueStorageTransaction holder = store.startTransaction();
+    holder.put(TestSegment.FOO, key, bytesFromHexString("1337"));
+
+    final SegmentedKeyValueStorageTransaction batch = store.startBatchTransaction();
+    batch.put(TestSegment.FOO, key, bytesFromHexString("0FFF"));
+    // fails once the lock timeout runs out
+    assertThatThrownBy(batch::commit).isInstanceOf(StorageException.class);
+
+    holder.commit();
+    assertThat(store.get(TestSegment.FOO, key)).contains(bytesFromHexString("1337"));
+    store.close();
   }
 }

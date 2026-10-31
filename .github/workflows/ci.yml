@@ -1,4 +1,6 @@
 name: CI
+# manual runs are named after their checks, so that their results can be told apart
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('CI ({0})', inputs.checks) || '' }}
 
 on:
   push:
@@ -7,13 +9,27 @@ on:
   pull_request:
     branches:
       - main
-      - release-*
+      - release*
       - performance
       - '*-devnet-*'
       - plugin-api-refactor
+      - 'rebase/**'
+  # manual runs on any branch
+  workflow_dispatch:
+    inputs:
+      checks:
+        description: 'fast: build and unit tests; full: every suite'
+        type: choice
+        options:
+          - full
+          - fast
+        default: full
 
+# Manual runs each validate a specific commit, so every one gets a group of its own and is never
+# cancelled. Pull requests and pushes to main keep the usual behaviour: only the latest commit is
+# relevant.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -26,24 +42,51 @@ permissions:
 
 # Job matrix:
 #
-#   push to main:      [gradleWrapper, spotless, checkLicense]
+#   push to main:      [testScope, gradleWrapper, spotless, checkLicense]
 #                    → build
 #                    → dockerBuildTest (docker-build-test.yml: build + goss-test)
 #                    → dockerPublish   (docker-publish.yml: push `develop` image + sign)
 #
-#   pull_request:    [gradleWrapper, spotless, checkLicense]
-#                  → [build, verifySourceMetadata, unitTests, integrationTests, referenceTests, devnetTests, acceptanceTests]
+#   pull_request:    [testScope, gradleWrapper, spotless, checkLicense]
+#                  → [build, verifySourceMetadata, unitTests, integrationTests, referenceTests, referenceTestsEvmV2,
+#                     devnetTests, devnetTestsEvmV2, acceptanceTests]
 #                  → dockerBuildTest (docker-build-test.yml: build + goss-test; dockerPublish skipped - not on main)
-#                  → allTestsPassed (PR merge gate).
+#                  → allTestsPassed (PR merge gate; needs build, the suites and dockerBuildTest).
+#
+#   workflow_dispatch with checks=full: as pull_request (full CI).
+#   workflow_dispatch with checks=fast, pull_request to rebase/**: as pull_request, with only build and
+#                  unitTests (fast checks): verifySourceMetadata, the other suites and dockerBuildTest
+#                  are skipped, and allTestsPassed requires build and unitTests.
+#
+#   testScope selects between them: none (push to main), fast or full.
 
 jobs:
+  testScope:
+    name: "Test scope"
+    runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - name: Select the test suites to run
+        id: scope
+        env:
+          SCOPE: >-
+            ${{
+              ((github.event_name == 'workflow_dispatch' && inputs.checks != 'fast')
+                || (github.event_name == 'pull_request' && !startsWith(github.base_ref, 'rebase/')))
+              && 'full'
+              || ((github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+                  && 'fast' || 'none')
+            }}
+        run: echo "scope=$SCOPE" | tee -a "$GITHUB_OUTPUT"
+
   checkNoBinaries:
     name: "No binaries check"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Check for binary files
         run: |
@@ -73,7 +116,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: gradle/actions/wrapper-validation@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
 
@@ -84,7 +127,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -105,7 +148,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -132,7 +175,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -177,14 +220,14 @@ jobs:
   # from being introduced without explicit sign-off.
   verifySourceMetadata:
     name: "Verify Dependency Source Metadata"
-    if: github.event_name == 'pull_request'
+    if: needs.testScope.outputs.scope == 'full'
     runs-on: ubuntu-latest
-    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    needs: [testScope, spotless, checkLicense, gradleWrapper, checkNoBinaries]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
@@ -201,84 +244,107 @@ jobs:
   # Tests
   # Each suite has its suite-tests-passed job in the file directly
   unitTests:
-    if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    if: needs.testScope.outputs.scope != 'none'
+    needs: [testScope, spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
     uses: ./.github/workflows/unit-tests.yml
 
   integrationTests:
-    if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    if: needs.testScope.outputs.scope == 'full'
+    needs: [testScope, spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
     uses: ./.github/workflows/integration-tests.yml
 
   referenceTests:
-    if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    if: needs.testScope.outputs.scope == 'full'
+    needs: [testScope, spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
       packages: read
     uses: ./.github/workflows/reference-tests.yml
 
+  # EVM v2 is behind the experimental --Xevm-v2 flag; these keep it in consensus with EVM v1.
+  referenceTestsEvmV2:
+    if: needs.testScope.outputs.scope == 'full'
+    needs: [testScope, spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    uses: ./.github/workflows/reference-tests.yml
+    with:
+      evm_v2: true
+
   devnetTests:
-    if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    if: needs.testScope.outputs.scope == 'full'
+    needs: [testScope, spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
       packages: read
     uses: ./.github/workflows/devnet-tests.yml
 
+  devnetTestsEvmV2:
+    if: needs.testScope.outputs.scope == 'full'
+    needs: [testScope, spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+    uses: ./.github/workflows/devnet-tests.yml
+    with:
+      evm_v2: true
+
   acceptanceTests:
-    if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
+    if: needs.testScope.outputs.scope == 'full'
+    needs: [testScope, spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
     uses: ./.github/workflows/acceptance-tests.yml
 
+  # not part of the fast checks
   dockerBuildTest:
-    needs: build
+    needs: [testScope, build]
+    if: needs.testScope.outputs.scope != 'fast'
     permissions:
       actions: read
       contents: read
     uses: ./.github/workflows/docker-build-test.yml
     with:
       assemble_run_id: ${{ github.run_id }}
-      cache_scope: ci-pr-build
-      # Only main writes the BuildKit cache; PRs read it, so per-PR layers no longer
-      # churn the shared 10 GB repo cache budget.
-      write_cache: ${{ github.ref == 'refs/heads/main' }}
 
   # only fires on merge to main, so 'develop' is kept up to date
   dockerPublish:
     needs: [build, dockerBuildTest]
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/docker-publish.yml
     with:
       version: develop
-      cache_scope: ci-pr-build
     secrets: inherit
 
   allTestsPassed:
     name: allTestsPassed
     runs-on: ubuntu-latest
-    needs: [verifySourceMetadata, unitTests, integrationTests, referenceTests, devnetTests, acceptanceTests, dockerBuildTest]
-    if: always() && github.event_name == 'pull_request'
+    needs: [testScope, build, verifySourceMetadata, unitTests, integrationTests, referenceTests, referenceTestsEvmV2, devnetTests, devnetTestsEvmV2, acceptanceTests, dockerBuildTest]
+    if: always() && needs.testScope.outputs.scope != 'none'
     steps:
+      # fast checks skip every suite but unitTests, so build and unitTests must have run
       - name: Fail on workflow error
         run: exit 1
         if: >-
           ${{
             contains(needs.*.result, 'failure')
             || contains(needs.*.result, 'cancelled')
-            || contains(needs.*.result, 'skipped')
+            || (needs.testScope.outputs.scope == 'full' && contains(needs.*.result, 'skipped'))
+            || needs.build.result != 'success'
+            || needs.unitTests.result != 'success'
           }}

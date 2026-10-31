@@ -40,6 +40,36 @@ public abstract class AbstractOperationV2 implements Operation {
   public static final Operation.OperationResult OVERFLOW_RESPONSE =
       new Operation.OperationResult(0L, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
 
+  /**
+   * Empties the stack of an operation that halts on a stack underflow. The v1 operations pop their
+   * arguments one at a time, so they have popped every item when they underflow, and tracers show
+   * the stack after the halt.
+   *
+   * @param frame the frame
+   * @param result the underflow result
+   * @return the result
+   */
+  static Operation.OperationResult haltPoppingAll(
+      final MessageFrame frame, final Operation.OperationResult result) {
+    frame.setTopV2(0);
+    return result;
+  }
+
+  /**
+   * Pops the arguments the v1 version of an operation has popped before it halts, as tracers show
+   * the stack after the halt.
+   *
+   * @param frame the frame
+   * @param popped the number of arguments the v1 operation has popped
+   * @param result the halt result
+   * @return the result
+   */
+  static Operation.OperationResult haltPopping(
+      final MessageFrame frame, final int popped, final Operation.OperationResult result) {
+    frame.setTopV2(frame.stackTopV2() - popped);
+    return result;
+  }
+
   private final int opcode;
   private final String name;
   private final int stackItemsConsumed;

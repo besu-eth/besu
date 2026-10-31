@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.graphql.internal.pojoadapter.AccountAdapter;
 import org.hyperledger.besu.ethereum.api.graphql.internal.pojoadapter.EmptyAccountAdapter;
 import org.hyperledger.besu.ethereum.api.graphql.internal.pojoadapter.LogAdapter;
@@ -87,8 +88,18 @@ public class GraphQLDataFetchers {
    */
   public static final long DEFAULT_MAX_BLOCK_RANGE = GraphQLConfiguration.DEFAULT_MAX_BLOCK_RANGE;
 
+  /**
+   * Default maximum number of addresses a single {@code logs(filter)} query may name, used when no
+   * explicit limit is supplied (e.g. by test call sites). Mirrors {@link
+   * ApiConfiguration#DEFAULT_MAX_FILTER_ADDRESSES} so the GraphQL and JSON-RPC log queries share
+   * one operator-visible limit.
+   */
+  public static final int DEFAULT_MAX_FILTER_ADDRESSES =
+      ApiConfiguration.DEFAULT_MAX_FILTER_ADDRESSES;
+
   private final Integer highestEthVersion;
   private final long maxBlockRange;
+  private final int maxFilterAddresses;
 
   /**
    * Constructs a new GraphQLDataFetchers instance.
@@ -100,19 +111,35 @@ public class GraphQLDataFetchers {
    * @param supportedCapabilities a set of capabilities supported by the Ethereum node
    */
   public GraphQLDataFetchers(final Set<Capability> supportedCapabilities) {
-    this(supportedCapabilities, DEFAULT_MAX_BLOCK_RANGE);
+    this(supportedCapabilities, DEFAULT_MAX_BLOCK_RANGE, DEFAULT_MAX_FILTER_ADDRESSES);
   }
 
   /**
    * Constructs a new GraphQLDataFetchers instance with an explicit cap on the span of a single
-   * {@code blocks(from,to)} range query.
+   * {@code blocks(from,to)} or {@code logs(filter)} range query.
    *
    * @param supportedCapabilities a set of capabilities supported by the Ethereum node
-   * @param maxBlockRange the maximum number of blocks a single {@code blocks(from,to)} query may
-   *     span; 0 means no limit
+   * @param maxBlockRange the maximum number of blocks a single {@code blocks(from,to)} or {@code
+   *     logs(filter)} query may span; 0 means no limit
    */
   public GraphQLDataFetchers(
       final Set<Capability> supportedCapabilities, final long maxBlockRange) {
+    this(supportedCapabilities, maxBlockRange, DEFAULT_MAX_FILTER_ADDRESSES);
+  }
+
+  /**
+   * Constructs a new GraphQLDataFetchers instance with explicit caps on the inputs of a log query.
+   *
+   * @param supportedCapabilities a set of capabilities supported by the Ethereum node
+   * @param maxBlockRange the maximum number of blocks a single {@code blocks(from,to)} or {@code
+   *     logs(filter)} query may span; 0 means no limit
+   * @param maxFilterAddresses the maximum number of addresses a single {@code logs(filter)} query
+   *     may name; 0 means no limit
+   */
+  public GraphQLDataFetchers(
+      final Set<Capability> supportedCapabilities,
+      final long maxBlockRange,
+      final int maxFilterAddresses) {
     final OptionalInt version =
         supportedCapabilities.stream()
             .filter(cap -> EthProtocol.NAME.equals(cap.getName()))
@@ -120,6 +147,7 @@ public class GraphQLDataFetchers {
             .max();
     highestEthVersion = version.isPresent() ? version.getAsInt() : null;
     this.maxBlockRange = maxBlockRange;
+    this.maxFilterAddresses = maxFilterAddresses;
   }
 
   /**
@@ -396,6 +424,12 @@ public class GraphQLDataFetchers {
 
       @SuppressWarnings("unchecked")
       final List<Address> addrs = (List<Address>) filter.get("addresses");
+      // The address list costs a bloom lookup per address per block, so the same cap that
+      // eth_newFilter and eth_subscribe enforce applies here; an uncapped list would let one
+      // unauthenticated query do orders of magnitude more work than a capped filter would.
+      if (maxFilterAddresses > 0 && addrs != null && addrs.size() > maxFilterAddresses) {
+        throw new GraphQLException(GraphQLError.INVALID_PARAMS);
+      }
       // `topics` is nullable in the schema, and the schema's own documentation says "[] or nil
       // matches any topic list", so an omitted value has to behave like an empty one rather than
       // being dereferenced. graphql-java puts the key in the map with a null value when a client

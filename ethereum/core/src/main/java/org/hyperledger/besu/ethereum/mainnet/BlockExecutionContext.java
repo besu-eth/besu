@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -49,6 +50,7 @@ public class BlockExecutionContext {
   private final MutableWorldState worldState;
   private final Block block;
   @Nullable private final BlockAccessList blockAccessList;
+  private final InclusionListTransactions inclusionListTransactions;
   private final boolean sequentialExecutionRequested;
   @Nullable private final BlockAwareOperationTracer blockTracer;
   private final Function<ProtocolSpec, Optional<BlockAccessListFactory>>
@@ -59,6 +61,7 @@ public class BlockExecutionContext {
     this.worldState = builder.worldState;
     this.block = builder.block;
     this.blockAccessList = builder.blockAccessList;
+    this.inclusionListTransactions = builder.inclusionListTransactions;
     this.sequentialExecutionRequested = builder.sequentialExecutionRequested;
     this.blockTracer = builder.blockTracer;
     this.blockAccessListFactoryProvider = builder.blockAccessListFactoryProvider;
@@ -101,6 +104,10 @@ public class BlockExecutionContext {
     return Optional.ofNullable(blockAccessList);
   }
 
+  public InclusionListTransactions getInclusionListTransactions() {
+    return inclusionListTransactions;
+  }
+
   /**
    * Returns whether the caller requested sequential execution for this execution of the block. See
    * {@link Builder#sequentialExecutionRequested(boolean)}.
@@ -133,7 +140,8 @@ public class BlockExecutionContext {
             .block(block)
             .blockAccessList(getBlockAccessList())
             .sequentialExecutionRequested(sequentialExecutionRequested)
-            .blockAccessListFactoryProvider(blockAccessListFactoryProvider);
+            .blockAccessListFactoryProvider(blockAccessListFactoryProvider)
+            .inclusionListTransactions(inclusionListTransactions);
     if (blockTracer != null) {
       builder.blockTracer(blockTracer);
     }
@@ -169,6 +177,7 @@ public class BlockExecutionContext {
     private MutableWorldState worldState;
     private Block block;
     @Nullable private BlockAccessList blockAccessList = null;
+    private InclusionListTransactions inclusionListTransactions = InclusionListTransactions.EMPTY;
     private boolean blockAccessListSet = false;
     private boolean sequentialExecutionRequested = false;
     @Nullable private BlockAwareOperationTracer blockTracer = null;
@@ -219,6 +228,20 @@ public class BlockExecutionContext {
       this.blockAccessList =
           Objects.requireNonNull(blockAccessList, "blockAccessList").orElse(null);
       this.blockAccessListSet = true;
+      return this;
+    }
+
+    /**
+     * Sets the inclusion list the block is checked against (EIP-7805) (optional, defaults to an
+     * empty inclusion list, which the block always satisfies).
+     *
+     * @param inclusionListTransactions the inclusion list transactions
+     * @return this builder
+     */
+    public Builder inclusionListTransactions(
+        final InclusionListTransactions inclusionListTransactions) {
+      this.inclusionListTransactions =
+          Objects.requireNonNull(inclusionListTransactions, "inclusionListTransactions");
       return this;
     }
 

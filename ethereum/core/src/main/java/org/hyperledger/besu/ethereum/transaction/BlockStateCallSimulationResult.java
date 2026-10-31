@@ -57,16 +57,23 @@ public class BlockStateCallSimulationResult {
    * @param protocolSpec the protocol spec of the block
    * @param blockGasLimit the gas limit of the block header
    * @param gasBudget the gas that the calls of the block may use in total, as receipt gas
+   * @param allowExceedingExecutionGasLimit whether the calls may use their whole gas limit as
+   *     execution gas
    */
   public BlockStateCallSimulationResult(
-      final ProtocolSpec protocolSpec, final long blockGasLimit, final long gasBudget) {
+      final ProtocolSpec protocolSpec,
+      final long blockGasLimit,
+      final long gasBudget,
+      final boolean allowExceedingExecutionGasLimit) {
     this.transactionReceiptFactory = protocolSpec.getTransactionReceiptFactory();
     this.blockGasLimit = blockGasLimit;
     this.gasBudget = gasBudget;
     this.gasCalculator = protocolSpec.getGasCalculator();
     this.blockGasAccountingStrategy = protocolSpec.getBlockGasAccountingStrategy();
     this.transactionExecutionGasLimit =
-        gasCalculator.stateGasCostCalculator().transactionExecutionGasLimit();
+        allowExceedingExecutionGasLimit
+            ? Long.MAX_VALUE
+            : gasCalculator.stateGasCostCalculator().transactionExecutionGasLimit();
   }
 
   /**

@@ -151,11 +151,13 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
             .gasLimit(30_000_000L)
             .baseFeePerGas(baseFee)
             // Prague is active at genesis here, so the mandatory requestsHash field must be
-            // present. The system-contract predeploys deterministically yield this requests hash
-            // for these blocks (none of the test transactions enqueue new requests).
+            // present. The withdrawal request queued in the genesis is dequeued by the first block,
+            // later blocks carry no requests (none of the test transactions enqueue new requests).
             .requestsHash(
-                Hash.fromHexString(
-                    "0x5f7606bf4b9eb2a8414aaa53f4c84062ec8789d24c604453563dc26e4ae65837"))
+                parentHeader.getNumber() == 0L
+                    ? Hash.fromHexString(
+                        "0x5f7606bf4b9eb2a8414aaa53f4c84062ec8789d24c604453563dc26e4ae65837")
+                    : Hash.EMPTY_REQUESTS_HASH)
             .buildHeader();
     final BlockBody blockBody =
         new BlockBody(Arrays.asList(txs), Collections.emptyList(), Optional.empty());
