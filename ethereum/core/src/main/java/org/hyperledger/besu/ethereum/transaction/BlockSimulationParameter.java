@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.transaction;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.BLOCK_NUMBERS_NOT_ASCENDING;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.INVALID_PRECOMPILE_ADDRESS;
+import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.PRECOMPILE_MOVE_TO_SELF;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.TIMESTAMPS_NOT_ASCENDING;
 import static org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError.TOO_MANY_BLOCK_CALLS;
 
@@ -170,6 +171,9 @@ public class BlockSimulationParameter {
           if (override.getMovePrecompileToAddress().isPresent()) {
             if (!validPrecompileAddresses.contains(stateOverride)) {
               return Optional.of(INVALID_PRECOMPILE_ADDRESS);
+            }
+            if (override.getMovePrecompileToAddress().get().equals(stateOverride)) {
+              return Optional.of(PRECOMPILE_MOVE_TO_SELF);
             }
           }
         }
