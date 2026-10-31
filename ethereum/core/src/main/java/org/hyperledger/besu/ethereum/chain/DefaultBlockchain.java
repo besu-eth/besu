@@ -1289,13 +1289,11 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   private Optional<BlockWithReceipts> getBlockWithReceipts(final BlockHeader blockHeader) {
-    return blockchainStorage
-        .getBlockBody(blockHeader.getHash())
+    return getBlockBody(blockHeader.getHash())
         .map(body -> new Block(blockHeader, body))
         .flatMap(
             block ->
-                blockchainStorage
-                    .getTransactionReceipts(blockHeader.getHash())
+                getTxReceipts(blockHeader.getHash())
                     .map(receipts -> new BlockWithReceipts(block, receipts)));
   }
 

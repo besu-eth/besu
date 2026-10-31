@@ -1138,6 +1138,55 @@ public class DefaultBlockchainTest {
         .isEqualTo(newBlock.getHeader());
   }
 
+  @Test
+  public void forwardToBlockReusesCachedBlockData() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock, "/data/test", 512, 512);
+
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+    blockchain.storeBlock(newBlock, gen.receipts(newBlock));
+
+    final List<BlockAddedEvent> events = new ArrayList<>();
+    blockchain.observeBlockAdded(events::add);
+
+    assertThat(blockchain.forwardToBlock(newBlock.getHeader())).isTrue();
+
+    assertThat(events).hasSize(1);
+    assertThat(events.getFirst().getBlock().getBody()).isSameAs(newBlock.getBody());
+    assertBlockIsHead(blockchain, newBlock);
+  }
+
+  @Test
+  public void forwardToBlockReadsFromStorageWhenCachesAreDisabled() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    // 0 cache sizes disable the block and receipts caches
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock, "/data/test", 0, 0);
+
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+    final List<TransactionReceipt> receipts = gen.receipts(newBlock);
+    blockchain.storeBlock(newBlock, receipts);
+
+    final List<BlockAddedEvent> events = new ArrayList<>();
+    blockchain.observeBlockAdded(events::add);
+
+    assertThat(blockchain.forwardToBlock(newBlock.getHeader())).isTrue();
+
+    assertThat(events).hasSize(1);
+    assertThat(events.getFirst().getBlock()).isEqualTo(newBlock);
+    assertBlockIsHead(blockchain, newBlock);
+    assertBlockDataIsStored(blockchain, newBlock, receipts);
+  }
+
   /*
    * Check that block header, block body, block number, transaction locations, and receipts for this
    * block are all stored.
