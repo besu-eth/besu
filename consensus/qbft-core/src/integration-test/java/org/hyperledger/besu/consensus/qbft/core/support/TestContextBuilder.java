@@ -574,7 +574,8 @@ public class TestContextBuilder {
     final MessageFactory messageFactory = new MessageFactory(nodeKey, blockEncoder);
 
     final QbftProtocolScheduleAdaptor qbftProtocolSchedule =
-        new QbftProtocolScheduleAdaptor(protocolSchedule, bftProtocolContext, validatedBlockCache);
+        new QbftProtocolScheduleAdaptor(
+            protocolSchedule, bftProtocolContext, BFT_EXTRA_DATA_ENCODER, validatedBlockCache);
     final MessageValidatorFactory messageValidatorFactory =
         new MessageValidatorFactory(
             proposerSelector, qbftProtocolSchedule, qbftValidatorProvider, qbftBlockInterface);

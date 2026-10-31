@@ -18,6 +18,7 @@ import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.consensus.common.bft.BftBlockHeaderFunctions;
 import org.hyperledger.besu.consensus.common.bft.BftExtraData;
 import org.hyperledger.besu.consensus.common.bft.Vote;
 import org.hyperledger.besu.consensus.qbft.QbftExtraDataCodec;
@@ -51,8 +52,23 @@ class QbftBlockCreatorAdaptorTest {
   @Mock private BlockCreator blockCreator;
   @Mock private TransactionSelectionResults transactionSelectionResults;
   private final BlockDataGenerator generator = new BlockDataGenerator();
-  private final Block besuBlock = generator.block();
   private final QbftExtraDataCodec qbftExtraDataCodec = new QbftExtraDataCodec();
+  // created in round 1 and hashed like BftBlockCreator does, so not with the on-chain hash
+  private final Block besuBlock =
+      new Block(
+          new BlockHeaderTestFixture()
+              .number(1)
+              .extraData(
+                  qbftExtraDataCodec.encode(
+                      new BftExtraData(
+                          Bytes.wrap(new byte[32]),
+                          emptyList(),
+                          Optional.empty(),
+                          1,
+                          List.of(Address.ZERO))))
+              .blockHeaderFunctions(BftBlockHeaderFunctions.forCommittedSeal(qbftExtraDataCodec))
+              .buildHeader(),
+          new BlockBody(List.of(generator.transaction()), emptyList()));
   private final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
 
   @Test
@@ -76,7 +92,7 @@ class QbftBlockCreatorAdaptorTest {
   }
 
   @Test
-  void recordsOutputsOfCreatedBlock() {
+  void recordsOutputsOfCreatedBlockUnderCommittedBlockHash() {
     final BlockHeader besuParentHeader = new BlockHeaderTestFixture().buildHeader();
     final List<TransactionReceipt> receipts = generator.receipts(besuBlock);
     when(transactionSelectionResults.getReceipts()).thenReturn(receipts);
@@ -87,11 +103,19 @@ class QbftBlockCreatorAdaptorTest {
                 transactionSelectionResults,
                 new BlockCreationTiming(),
                 Optional.empty()));
+    final QbftBlockCreatorAdaptor qbftBlockCreator =
+        new QbftBlockCreatorAdaptor(blockCreator, qbftExtraDataCodec, validatedBlockCache);
 
-    new QbftBlockCreatorAdaptor(blockCreator, qbftExtraDataCodec, validatedBlockCache)
-        .createBlock(10, new QbftBlockHeaderAdaptor(besuParentHeader));
+    final QbftBlock proposal =
+        qbftBlockCreator.createBlock(10, new QbftBlockHeaderAdaptor(besuParentHeader)).block();
 
-    assertThat(validatedBlockCache.get(besuBlock.getHash()))
+    // the importer looks up the committed block, whatever the commit round
+    final Block committedBlock =
+        AdaptorUtil.toBesuBlock(
+            qbftBlockCreator.createSealedBlock(
+                proposal, 3, List.of(new SECPSignature(BigInteger.ONE, BigInteger.ONE, (byte) 1))));
+    assertThat(committedBlock.getHash()).isNotEqualTo(besuBlock.getHash());
+    assertThat(validatedBlockCache.get(committedBlock.getHash()))
         .contains(
             new ValidatedBlockCache.ValidatedBlock(
                 besuBlock.getHeader().getNumber(),

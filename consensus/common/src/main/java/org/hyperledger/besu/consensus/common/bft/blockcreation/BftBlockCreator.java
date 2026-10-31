@@ -123,6 +123,12 @@ public class BftBlockCreator extends AbstractBlockCreator {
     return saveTrieLogOfCreatedBlocks;
   }
 
+  // the committed block hash, which ignores the round, so import finds it in any round
+  @Override
+  protected BlockHeader trieLogKeyHeader(final BlockHeader blockHeader) {
+    return BftHelpers.toOnchainHeader(bftExtraDataCodec, blockHeader);
+  }
+
   @Override
   public BlockCreationResult createBlock(final long timestamp, final BlockHeader parentHeader) {
     ProtocolSpec protocolSpec =

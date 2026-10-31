@@ -17,6 +17,7 @@ package org.hyperledger.besu.consensus.qbft.adaptor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.consensus.qbft.QbftExtraDataCodec;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockHeader;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImporter;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockValidator;
@@ -52,7 +53,10 @@ class QbftProtocolScheduleAdaptorTest {
 
     final QbftProtocolSchedule qbftProtocolSchedule =
         new QbftProtocolScheduleAdaptor(
-            besuProtocolSchedule, besuProtocolContext, new ValidatedBlockCache());
+            besuProtocolSchedule,
+            besuProtocolContext,
+            new QbftExtraDataCodec(),
+            new ValidatedBlockCache());
     final QbftBlockValidator qbftBlockValidator =
         qbftProtocolSchedule.getBlockValidator(qbftHeader);
     assertThat(qbftBlockValidator)
@@ -70,7 +74,10 @@ class QbftProtocolScheduleAdaptorTest {
 
     final QbftProtocolSchedule qbftProtocolSchedule =
         new QbftProtocolScheduleAdaptor(
-            besuProtocolSchedule, besuProtocolContext, new ValidatedBlockCache());
+            besuProtocolSchedule,
+            besuProtocolContext,
+            new QbftExtraDataCodec(),
+            new ValidatedBlockCache());
     final QbftBlockImporter qbftBlockImporter = qbftProtocolSchedule.getBlockImporter(qbftHeader);
     assertThat(qbftBlockImporter).hasFieldOrPropertyWithValue("blockImporter", besuBlockImporter);
   }

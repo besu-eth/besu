@@ -60,9 +60,9 @@ public class QbftBlockCreatorAdaptor implements QbftBlockCreator {
         besuBlockCreator.createBlock(
             headerTimeStampSeconds, AdaptorUtil.toBesuBlockHeader(parentHeader));
     final Block block = blockResult.getBlock();
-    // keep outputs, so proposal validation and import don't execute the block again
+    // keep outputs under the committed block hash, so validation and import don't execute it again
     validatedBlockCache.put(
-        block.getHash(),
+        BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec).hash(block.getHeader()),
         new ValidatedBlockCache.ValidatedBlock(
             block.getHeader().getNumber(),
             block.getBody(),

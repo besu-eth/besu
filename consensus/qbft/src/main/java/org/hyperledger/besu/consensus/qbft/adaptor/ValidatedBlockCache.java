@@ -17,6 +17,7 @@ package org.hyperledger.besu.consensus.qbft.adaptor;
 import org.hyperledger.besu.consensus.common.bft.SizeLimitedMap;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockBody;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
@@ -30,6 +31,9 @@ import java.util.Optional;
  *
  * <p>Block creation and proposal validation both save the block trie log. On commit, the importer
  * only needs the receipts, and moves the head world state with the trie log.
+ *
+ * <p>Keyed by the on-chain hash, which ignores round and commit seals, so a proposal of any round
+ * and its committed block share the entry.
  */
 public class ValidatedBlockCache {
 
@@ -51,15 +55,21 @@ public class ValidatedBlockCache {
       Optional<BlockAccessList> blockAccessList) {
 
     /**
-     * Check the body is the one executed. Same object and not equals, to not compare all the
-     * transactions. The proposal and the committed block share the same body object.
+     * Check the body is the one executed. A block received again from a peer, re-proposed or in a
+     * round change, is decoded again. Transactions are compared by hash, which covers their whole
+     * encoding, unlike {@code Transaction.equals}.
      *
      * @param blockBody the body of the block to validate or import
      * @return true if it is the executed body
      */
-    @SuppressWarnings("ReferenceEquality")
     public boolean isExecutedBody(final BlockBody blockBody) {
-      return body == blockBody;
+      return transactionHashes(body).equals(transactionHashes(blockBody))
+          && body.getOmmers().equals(blockBody.getOmmers())
+          && body.getWithdrawals().equals(blockBody.getWithdrawals());
+    }
+
+    private static List<Hash> transactionHashes(final BlockBody blockBody) {
+      return blockBody.getTransactions().stream().map(Transaction::getHash).toList();
     }
   }
 

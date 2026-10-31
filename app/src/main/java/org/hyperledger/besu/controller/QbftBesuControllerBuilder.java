@@ -211,7 +211,8 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
     // shared by block creation, validation and import
     final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
     QbftProtocolSchedule qbftProtocolSchedule =
-        new QbftProtocolScheduleAdaptor(bftProtocolSchedule, protocolContext, validatedBlockCache);
+        new QbftProtocolScheduleAdaptor(
+            bftProtocolSchedule, protocolContext, qbftExtraDataCodec, validatedBlockCache);
     final QbftBlockCreatorFactory blockCreatorFactory =
         new QbftBlockCreatorFactory(
             transactionPool,

@@ -90,10 +90,6 @@ public class QbftBlockImporterAdaptor implements QbftBlockImporter {
    * creation or validation saved its trie log, used to move the head world state after append, like
    * {@link org.hyperledger.besu.ethereum.mainnet.MainnetBlockImporter}.
    *
-   * <p>Cache and trie log use the proposal hash, which includes the round, and the lookup uses the
-   * on-chain hash, which sets the round to 0. So only a block first proposed in round 0 is found,
-   * even when it is committed in a later round.
-   *
    * @return false when the block must go through the regular import instead
    */
   private boolean importValidatedBlock(

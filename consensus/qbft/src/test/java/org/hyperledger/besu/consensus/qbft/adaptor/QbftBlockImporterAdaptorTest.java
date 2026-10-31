@@ -159,14 +159,34 @@ class QbftBlockImporterAdaptorTest {
   }
 
   @Test
-  void processesValidatedBlockAgainWhenBodyIsNotTheExecutedOne() {
+  void importsValidatedBlockWhenBodyIsAnEqualCopy() {
     recordValidation();
     stubFastPathPreconditions();
-    // same header and same transactions, but not the body object that was executed
+    // block decoded again from a peer re-proposal: new body object, same transactions
+    final Block decodedBlock =
+        new Block(
+            besuBlock.getHeader(),
+            new BlockBody(
+                besuBlock.getBody().getTransactions(),
+                besuBlock.getBody().getOmmers(),
+                besuBlock.getBody().getWithdrawals()));
+
+    assertThat(newImporter().importBlock(new QbftBlockAdaptor(decodedBlock), Optional.empty()))
+        .isTrue();
+
+    verify(blockchain).appendBlock(decodedBlock, receipts, Optional.empty());
+    verifyNoInteractions(blockImporter);
+  }
+
+  @Test
+  void processesValidatedBlockAgainWhenBodyDiffers() {
+    recordValidation();
+    stubFastPathPreconditions();
+    // same header, but not the transactions that were executed
     final Block otherBody =
         new Block(
             besuBlock.getHeader(),
-            new BlockBody(besuBlock.getBody().getTransactions(), besuBlock.getBody().getOmmers()));
+            new BlockBody(List.of(generator.transaction()), besuBlock.getBody().getOmmers()));
     when(blockImporter.importBlock(
             protocolContext,
             otherBody,

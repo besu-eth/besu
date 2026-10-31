@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.consensus.qbft.adaptor;
 
+import org.hyperledger.besu.consensus.common.bft.BftExtraDataCodec;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockHeader;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImporter;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockValidator;
@@ -29,6 +30,7 @@ public class QbftProtocolScheduleAdaptor implements QbftProtocolSchedule {
 
   private final ProtocolSchedule besuProtocolSchedule;
   private final ProtocolContext context;
+  private final BftExtraDataCodec bftExtraDataCodec;
   private final ValidatedBlockCache validatedBlockCache;
 
   /**
@@ -36,14 +38,17 @@ public class QbftProtocolScheduleAdaptor implements QbftProtocolSchedule {
    *
    * @param besuProtocolSchedule The Besu protocol schedule.
    * @param context The protocol context.
+   * @param bftExtraDataCodec the codec to compute the on-chain hash of validated blocks
    * @param validatedBlockCache outputs of created and validated blocks
    */
   public QbftProtocolScheduleAdaptor(
       final ProtocolSchedule besuProtocolSchedule,
       final ProtocolContext context,
+      final BftExtraDataCodec bftExtraDataCodec,
       final ValidatedBlockCache validatedBlockCache) {
     this.besuProtocolSchedule = besuProtocolSchedule;
     this.context = context;
+    this.bftExtraDataCodec = bftExtraDataCodec;
     this.validatedBlockCache = validatedBlockCache;
   }
 
@@ -60,7 +65,10 @@ public class QbftProtocolScheduleAdaptor implements QbftProtocolSchedule {
   @Override
   public QbftBlockValidator getBlockValidator(final QbftBlockHeader header) {
     return new QbftBlockValidatorAdaptor(
-        getProtocolSpecByBlockHeader(header).getBlockValidator(), context, validatedBlockCache);
+        getProtocolSpecByBlockHeader(header).getBlockValidator(),
+        context,
+        bftExtraDataCodec,
+        validatedBlockCache);
   }
 
   private ProtocolSpec getProtocolSpecByBlockHeader(final QbftBlockHeader header) {
