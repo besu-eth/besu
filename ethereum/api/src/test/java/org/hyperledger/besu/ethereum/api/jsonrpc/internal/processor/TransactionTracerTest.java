@@ -210,6 +210,8 @@ public class TransactionTracerTest {
 
     when(blockBody.getTransactions()).thenReturn(Collections.singletonList(otherTransaction));
     when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
+    final WorldUpdater updater = mock(WorldUpdater.class);
+    when(mutableWorldState.updater()).thenReturn(updater);
 
     final Optional<TransactionTrace> transactionTrace =
         transactionTracer.traceTransaction(mutableWorldState, blockHash, transactionHash, tracer);

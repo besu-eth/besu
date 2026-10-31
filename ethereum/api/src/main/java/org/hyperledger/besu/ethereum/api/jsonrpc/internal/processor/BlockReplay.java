@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -109,14 +110,20 @@ public class BlockReplay {
                   action.performAction(
                       transaction, i, block, blockchain, transactionProcessor, blobGasPrice));
             } else {
+              // Commit each earlier transaction into the world state, as block processing does.
+              // Forest returns a new, empty updater from every updater() call, so uncommitted
+              // changes would be lost before the target transaction runs.
+              final WorldUpdater updater = mutableWorldState.updater();
               transactionProcessor.processTransaction(
-                  mutableWorldState.updater(),
+                  updater,
                   header,
                   transaction,
                   protocolSpec.getMiningBeneficiaryCalculator().calculateBeneficiary(header),
                   blockHashLookup,
                   TransactionValidationParams.blockReplay(),
                   blobGasPrice);
+              updater.commit();
+              updater.markTransactionBoundary();
             }
           }
           return Optional.empty();
@@ -135,14 +142,17 @@ public class BlockReplay {
         (transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice) -> {
           final BlockHeader blockHeader = block.getHeader();
           final ProtocolSpec spec = protocolSchedule.getByBlockHeader(blockHeader);
+          final WorldUpdater updater = mutableWorldState.updater();
           transactionProcessor.processTransaction(
-              mutableWorldState.updater(),
+              updater,
               blockHeader,
               transaction,
               spec.getMiningBeneficiaryCalculator().calculateBeneficiary(blockHeader),
               spec.getPreExecutionProcessor().createBlockHashLookup(blockchain, blockHeader),
               TransactionValidationParams.blockReplay(),
               blobGasPrice);
+          updater.commit();
+          updater.markTransactionBoundary();
           return action.performAction(
               transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice);
         });
