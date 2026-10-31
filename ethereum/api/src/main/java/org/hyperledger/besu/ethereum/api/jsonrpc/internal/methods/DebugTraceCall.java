@@ -63,8 +63,14 @@ public class DebugTraceCall extends AbstractTraceCall {
   @Override
   protected TraceOptions getTraceOptions(final JsonRpcRequestContext requestContext) {
     try {
-      return requestContext
-          .getOptionalParameter(2, TransactionTraceParams.class)
+      final Optional<TransactionTraceParams> maybeTraceParams =
+          requestContext.getOptionalParameter(2, TransactionTraceParams.class);
+      if (maybeTraceParams.map(params -> params.blockOverrides() != null).orElse(false)) {
+        throw new InvalidJsonRpcParameters(
+            "Block overrides are not supported by this method",
+            RpcErrorType.INVALID_TRANSACTION_TRACE_PARAMS);
+      }
+      return maybeTraceParams
           .map(TransactionTraceParams::traceOptions)
           .orElse(TraceOptions.DEFAULT);
     } catch (JsonRpcParameterException e) {

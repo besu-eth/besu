@@ -26,6 +26,8 @@ import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import java.util.List;
 
 public class CallParameterUtil {
+  private static final int MAX_CALL_PARAMS = 3;
+
   private CallParameterUtil() {}
 
   public static CallParameter validateAndGetCallParams(final JsonRpcRequestContext request) {
@@ -38,7 +40,22 @@ public class CallParameterUtil {
     }
 
     rejectMixedFeeFields(callParams);
+    rejectBlockOverrides(request);
     return callParams;
+  }
+
+  /**
+   * Rejects a request with more than three parameters. A fourth parameter is how other clients
+   * accept block overrides, which are only supported by eth_simulateV1; ignoring it would return a
+   * result for the unmodified block with no sign that the overrides were not applied.
+   *
+   * @param request the JSON-RPC request
+   */
+  public static void rejectBlockOverrides(final JsonRpcRequestContext request) {
+    if (request.getRequest().getParamLength() > MAX_CALL_PARAMS) {
+      throw new InvalidJsonRpcParameters(
+          "Too many arguments: expected at most " + MAX_CALL_PARAMS, RpcErrorType.INVALID_PARAMS);
+    }
   }
 
   /**
