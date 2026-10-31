@@ -906,6 +906,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             ethProtocolManager,
             pivotBlockSelector,
             chainDataPruner);
+    configureSynchronizer(synchronizer);
 
     ethPeers.setTrailingPeerRequirementsSupplier(synchronizer::calculateTrailingPeerRequirements);
 
@@ -1170,6 +1171,14 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         chainDataPruner,
         genesisConfigOptions.getTerminalTotalDifficulty().map(Difficulty::of));
   }
+
+  /**
+   * Configure the synchronizer once created, for instance to leave the import of some blocks to the
+   * consensus layer. Builders wrapping other builders forward it to them.
+   *
+   * @param synchronizer the synchronizer
+   */
+  protected void configureSynchronizer(final DefaultSynchronizer synchronizer) {}
 
   private PivotBlockSelector createPivotSelector(
       final ProtocolSchedule protocolSchedule,

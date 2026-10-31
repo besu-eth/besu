@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
+import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -310,5 +311,19 @@ public class ConsensusScheduleBesuControllerBuilderTest {
     assertThat(result.getSubProtocols())
         .extracting(SubProtocol::getName)
         .containsExactlyInAnyOrder("IBF", "istanbul");
+  }
+
+  @Test
+  public void configuresSynchronizerThroughEveryScheduledBuilder() {
+    final ConsensusScheduleBesuControllerBuilder builder =
+        new ConsensusScheduleBesuControllerBuilder(
+            Map.of(0L, besuControllerBuilder1, 5L, besuControllerBuilder2));
+    final DefaultSynchronizer synchronizer = mock(DefaultSynchronizer.class);
+
+    builder.configureSynchronizer(synchronizer);
+
+    // e.g. a QBFT builder after an IBFT2 migration installs its consensus hooks
+    Mockito.verify(besuControllerBuilder1).configureSynchronizer(synchronizer);
+    Mockito.verify(besuControllerBuilder2).configureSynchronizer(synchronizer);
   }
 }

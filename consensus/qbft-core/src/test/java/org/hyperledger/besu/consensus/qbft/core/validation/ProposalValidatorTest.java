@@ -16,10 +16,14 @@ package org.hyperledger.besu.consensus.qbft.core.validation;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.consensus.qbft.core.validation.ValidationTestHelpers.createEmptyRoundChangePayloads;
 import static org.hyperledger.besu.consensus.qbft.core.validation.ValidationTestHelpers.createPreparePayloads;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.BftHelpers;
@@ -37,6 +41,7 @@ import org.hyperledger.besu.consensus.qbft.core.payload.RoundChangePayload;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCodec;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockHeader;
+import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImporter;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockInterface;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockValidator;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftProtocolSchedule;
@@ -51,6 +56,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -80,6 +86,7 @@ public class ProposalValidatorTest {
 
   private static final int VALIDATOR_COUNT = 4;
   @Mock private QbftBlockValidator blockValidator;
+  @Mock private QbftBlockImporter blockImporter;
   @Mock private QbftProtocolSchedule protocolSchedule;
   @Mock private QbftBlockCodec blockEncoder;
   @Mock private QbftBlockInterface blockInterface;
@@ -96,6 +103,7 @@ public class ProposalValidatorTest {
         .thenReturn(new QbftBlockValidator.ValidationResult(true, Optional.empty()));
 
     when(protocolSchedule.getBlockValidator(any())).thenReturn(blockValidator);
+    when(protocolSchedule.getBlockImporter(any())).thenReturn(blockImporter);
     when(proposerSelector.selectProposerForRound(any()))
         .thenReturn(validators.getNode(0).getAddress());
 
@@ -154,6 +162,63 @@ public class ProposalValidatorTest {
         .thenReturn(new QbftBlockValidator.ValidationResult(false, Optional.of("Failed")));
 
     assertThat(roundItem.messageValidator.validate(proposal)).isFalse();
+  }
+
+  @Test
+  public void claimsProposalBeforeExecutingItAndKeepsClaimWhenValid() {
+    final RoundSpecificItems roundItem = roundItems.get(ROUND_ID.ZERO);
+    final Proposal proposal = createProposal(roundItem, emptyList(), emptyList());
+
+    assertThat(roundItem.messageValidator.validate(proposal)).isTrue();
+
+    final InOrder inOrder = inOrder(blockImporter, blockValidator);
+    inOrder.verify(blockImporter).claim(roundItem.block);
+    inOrder.verify(blockValidator).validateBlock(any(), any());
+    verify(blockImporter, never()).releaseClaim(any());
+  }
+
+  @Test
+  public void releasesClaimWhenBlockIsInvalid() {
+    final RoundSpecificItems roundItem = roundItems.get(ROUND_ID.ZERO);
+    final Proposal proposal = createProposal(roundItem, emptyList(), emptyList());
+    reset(blockValidator);
+    when(blockValidator.validateBlock(any(), any()))
+        .thenReturn(new QbftBlockValidator.ValidationResult(false, Optional.of("Failed")));
+
+    assertThat(roundItem.messageValidator.validate(proposal)).isFalse();
+
+    verify(blockImporter).claim(roundItem.block);
+    verify(blockImporter).releaseClaim(roundItem.block);
+  }
+
+  @Test
+  public void releasesClaimWhenProposalIsRejectedAfterItsBlockExecuted() {
+    final RoundSpecificItems roundItem = roundItems.get(ROUND_ID.ZERO);
+    // a round zero proposal must not piggyback round changes: rejected once the block executed
+    final RoundChange roundChange =
+        validators
+            .getMessageFactory(1)
+            .createRoundChange(roundItem.roundIdentifier, Optional.empty());
+    final Proposal proposal =
+        createProposal(roundItem, List.of(roundChange.getSignedPayload()), emptyList());
+
+    assertThat(roundItem.messageValidator.validate(proposal)).isFalse();
+
+    verify(blockValidator).validateBlock(any(), any());
+    verify(blockImporter).releaseClaim(roundItem.block);
+  }
+
+  @Test
+  public void releasesClaimWhenBlockValidationThrows() {
+    final RoundSpecificItems roundItem = roundItems.get(ROUND_ID.ZERO);
+    final Proposal proposal = createProposal(roundItem, emptyList(), emptyList());
+    reset(blockValidator);
+    when(blockValidator.validateBlock(any(), any())).thenThrow(new IllegalStateException("boom"));
+
+    assertThatThrownBy(() -> roundItem.messageValidator.validate(proposal))
+        .isInstanceOf(IllegalStateException.class);
+
+    verify(blockImporter).releaseClaim(roundItem.block);
   }
 
   @Test

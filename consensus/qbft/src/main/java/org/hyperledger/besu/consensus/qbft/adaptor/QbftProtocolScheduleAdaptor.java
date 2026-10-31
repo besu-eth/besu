@@ -38,7 +38,7 @@ public class QbftProtocolScheduleAdaptor implements QbftProtocolSchedule {
    *
    * @param besuProtocolSchedule The Besu protocol schedule.
    * @param context The protocol context.
-   * @param bftExtraDataCodec the codec to compute the on-chain hash of validated blocks
+   * @param bftExtraDataCodec the codec to compute the on-chain hash of blocks
    * @param validatedBlockCache outputs of created and validated blocks
    */
   public QbftProtocolScheduleAdaptor(
@@ -59,6 +59,7 @@ public class QbftProtocolScheduleAdaptor implements QbftProtocolSchedule {
         protocolSpec.getBlockImporter(),
         protocolSpec.getBlockHeaderValidator(),
         context,
+        bftExtraDataCodec,
         validatedBlockCache);
   }
 

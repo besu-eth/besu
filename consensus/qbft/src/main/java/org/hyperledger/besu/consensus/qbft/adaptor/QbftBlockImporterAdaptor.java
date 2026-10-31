@@ -16,8 +16,11 @@ package org.hyperledger.besu.consensus.qbft.adaptor;
 
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 
+import org.hyperledger.besu.consensus.common.bft.BftBlockHeaderFunctions;
+import org.hyperledger.besu.consensus.common.bft.BftExtraDataCodec;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImporter;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -43,6 +46,7 @@ public class QbftBlockImporterAdaptor implements QbftBlockImporter {
   private final BlockImporter blockImporter;
   private final BlockHeaderValidator blockHeaderValidator;
   private final ProtocolContext context;
+  private final BftExtraDataCodec bftExtraDataCodec;
   private final ValidatedBlockCache validatedBlockCache;
 
   /**
@@ -51,16 +55,19 @@ public class QbftBlockImporterAdaptor implements QbftBlockImporter {
    * @param blockImporter The Besu block importer
    * @param blockHeaderValidator The header validator applied to blocks imported from the cache
    * @param context The protocol context
+   * @param bftExtraDataCodec the codec to compute the on-chain hash of claimed proposals
    * @param validatedBlockCache outputs of created and validated blocks
    */
   public QbftBlockImporterAdaptor(
       final BlockImporter blockImporter,
       final BlockHeaderValidator blockHeaderValidator,
       final ProtocolContext context,
+      final BftExtraDataCodec bftExtraDataCodec,
       final ValidatedBlockCache validatedBlockCache) {
     this.blockImporter = blockImporter;
     this.blockHeaderValidator = blockHeaderValidator;
     this.context = context;
+    this.bftExtraDataCodec = bftExtraDataCodec;
     this.validatedBlockCache = validatedBlockCache;
   }
 
@@ -83,6 +90,23 @@ public class QbftBlockImporterAdaptor implements QbftBlockImporter {
             HeaderValidationMode.FULL,
             blockAccessList);
     return blockImportResult.isImported();
+  }
+
+  @Override
+  public void claim(final QbftBlock proposal) {
+    validatedBlockCache.claim(
+        onchainHash(proposal), proposal.getHash(), proposal.getHeader().getNumber());
+  }
+
+  @Override
+  public void releaseClaim(final QbftBlock proposal) {
+    validatedBlockCache.release(onchainHash(proposal), proposal.getHash());
+  }
+
+  // NewBlock announcements carry the on-chain hash, which ignores round and commit seals
+  private Hash onchainHash(final QbftBlock proposal) {
+    return BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec)
+        .hash(AdaptorUtil.toBesuBlockHeader(proposal.getHeader()));
   }
 
   /**

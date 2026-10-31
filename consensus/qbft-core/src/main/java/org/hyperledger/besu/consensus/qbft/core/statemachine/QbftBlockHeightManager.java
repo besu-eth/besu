@@ -510,6 +510,8 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
         .flatMap(QbftRound::constructPreparedCertificate)
         .ifPresent(certificate -> latestPreparedCertificate = Optional.of(certificate));
 
+    // the round being replaced can no longer import its proposal
+    currentRound.ifPresent(QbftRound::releaseClaim);
     // validate the current round
     if (futureRoundStateBuffer.containsKey(roundNumber)) {
       currentRound =

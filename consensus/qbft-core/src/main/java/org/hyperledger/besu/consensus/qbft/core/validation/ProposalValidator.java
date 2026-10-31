@@ -26,6 +26,7 @@ import org.hyperledger.besu.consensus.qbft.core.payload.PreparePayload;
 import org.hyperledger.besu.consensus.qbft.core.payload.PreparedRoundMetadata;
 import org.hyperledger.besu.consensus.qbft.core.payload.RoundChangePayload;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
+import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImporter;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockInterface;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockValidator;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftProtocolSchedule;
@@ -79,13 +80,26 @@ public class ProposalValidator {
   }
 
   /**
-   * Validate.
+   * Validate, executing the proposed block. The block is claimed while it executes, so that block
+   * propagation does not execute it a second time: the round that accepts the proposal keeps the
+   * claim, a rejected proposal releases it.
    *
    * @param msg the Proposal msg
    * @return the boolean
    */
   public boolean validate(final Proposal msg) {
-    return validate(msg, true);
+    final QbftBlock block = msg.getBlock();
+    final QbftBlockImporter blockImporter = protocolSchedule.getBlockImporter(block.getHeader());
+    blockImporter.claim(block);
+    boolean valid = false;
+    try {
+      valid = validate(msg, true);
+      return valid;
+    } finally {
+      if (!valid) {
+        blockImporter.releaseClaim(block);
+      }
+    }
   }
 
   /**

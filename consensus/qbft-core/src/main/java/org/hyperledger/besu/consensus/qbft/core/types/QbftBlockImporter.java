@@ -29,4 +29,21 @@ public interface QbftBlockImporter {
    * @return true if the block was successfully imported, false otherwise
    */
   boolean importBlock(QbftBlock block, Optional<BlockAccessList> blockAccessList);
+
+  /**
+   * Claim a proposal: the current round is validating it, or has accepted it and will import it if
+   * the round commits. Block propagation does not import a claimed block, so that it is not
+   * executed a second time while the round imports it.
+   *
+   * @param proposal the proposed block
+   */
+  default void claim(final QbftBlock proposal) {}
+
+  /**
+   * Release a claim made by {@link #claim}: the proposal was rejected, its round ended, or its
+   * import was attempted.
+   *
+   * @param proposal the proposed block
+   */
+  default void releaseClaim(final QbftBlock proposal) {}
 }

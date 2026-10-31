@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
@@ -41,6 +42,7 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
+import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
@@ -266,5 +268,17 @@ public class TransitionControllerBuilderTest {
     assertThat(coordinator).isInstanceOf(TransitionCoordinator.class);
     var transCoordinator = (TransitionCoordinator) coordinator;
     return transCoordinator;
+  }
+
+  @Test
+  public void configuresSynchronizerThroughPreAndPostMergeBuilders() {
+    final BesuControllerBuilder preMerge = mock(BesuControllerBuilder.class);
+    final MergeBesuControllerBuilder postMerge = mock(MergeBesuControllerBuilder.class);
+    final DefaultSynchronizer synchronizer = mock(DefaultSynchronizer.class);
+
+    new TransitionBesuControllerBuilder(preMerge, postMerge).configureSynchronizer(synchronizer);
+
+    verify(preMerge).configureSynchronizer(synchronizer);
+    verify(postMerge).configureSynchronizer(synchronizer);
   }
 }

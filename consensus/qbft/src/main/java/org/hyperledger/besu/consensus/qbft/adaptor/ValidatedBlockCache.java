@@ -21,9 +21,12 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Outputs of blocks created or validated by this node, to not execute them again for validation or
@@ -75,8 +78,85 @@ public class ValidatedBlockCache {
 
   private final Map<Hash, ValidatedBlock> entries = new SizeLimitedMap<>(MAX_ENTRIES);
 
+  /**
+   * Claims of the current QBFT round, by on-chain hash. Kept apart from {@link #entries}: outputs
+   * outlive the round that produced them, a claim does not.
+   */
+  private final Map<Hash, Claim> claimed = new SizeLimitedMap<>(MAX_ENTRIES);
+
+  /**
+   * Proposals of different rounds share the on-chain hash, so a claim holds until all of them are
+   * released.
+   */
+  private record Claim(long blockNumber, Set<Hash> proposalHashes) {}
+
+  /** Told about released claims, so that block propagation imports a block consensus did not. */
+  private volatile Consumer<Hash> releaseListener = hash -> {};
+
   /** Creates an empty cache. */
   public ValidatedBlockCache() {}
+
+  /**
+   * Set the listener told about every released claim, outside of this cache's lock.
+   *
+   * @param releaseListener receives the hash of each released claim
+   */
+  public void setReleaseListener(final Consumer<Hash> releaseListener) {
+    this.releaseListener = releaseListener;
+  }
+
+  /**
+   * Record that the current QBFT round is validating this proposal, or has accepted it and will
+   * import it if the round commits. Until {@link #release}, {@link #isOwnedByConsensus} returns
+   * true, so a {@code NewBlock} announcement for that block is not imported by the ETH layer at the
+   * same time. Claims of lower heights are dropped, their blocks are already decided.
+   *
+   * @param blockHash the on-chain hash, the one {@code NewBlock} announcements carry
+   * @param proposalHash the proposal hash, which includes the round
+   * @param blockNumber the block number
+   */
+  public synchronized void claim(
+      final Hash blockHash, final Hash proposalHash, final long blockNumber) {
+    claimed.values().removeIf(claim -> claim.blockNumber() < blockNumber);
+    claimed
+        .computeIfAbsent(blockHash, hash -> new Claim(blockNumber, new HashSet<>()))
+        .proposalHashes()
+        .add(proposalHash);
+  }
+
+  /**
+   * Release the claim of a proposal: it was rejected, its round ended, or its import was attempted.
+   * The block stays claimed while a proposal of another round still claims it.
+   *
+   * @param blockHash the on-chain hash
+   * @param proposalHash the proposal hash
+   */
+  public void release(final Hash blockHash, final Hash proposalHash) {
+    final boolean released;
+    synchronized (this) {
+      final Claim claim = claimed.get(blockHash);
+      released =
+          claim != null
+              && claim.proposalHashes().remove(proposalHash)
+              && claim.proposalHashes().isEmpty();
+      if (released) {
+        claimed.remove(blockHash);
+      }
+    }
+    if (released) {
+      releaseListener.accept(blockHash);
+    }
+  }
+
+  /**
+   * Whether the current QBFT round claimed this block and will import it itself if it commits.
+   *
+   * @param blockHash the on-chain hash
+   * @return true if consensus owns the import of this block
+   */
+  public synchronized boolean isOwnedByConsensus(final Hash blockHash) {
+    return claimed.containsKey(blockHash);
+  }
 
   /**
    * Add outputs of a created or validated block.
