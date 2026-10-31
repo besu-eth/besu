@@ -34,6 +34,7 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionContext;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
@@ -46,6 +47,8 @@ import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
+import java.math.BigInteger;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
@@ -119,6 +122,58 @@ class BlobSizeTransactionSelectorTest {
             NEVER_CANCELLED);
     selectorsStateManager.blockSelectionStarted();
     evaluateAndAssertSelected(nonBlobTxEvaluationContext);
+  }
+
+  @Test
+  void frameTransactionsWithoutBlobsAreAlwaysSelected() {
+    // this tx fills all the available blob space
+    final var firstBlobTx = createBlobPendingTransaction(MAX_BLOBS);
+    final var txEvaluationContext =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(),
+            firstBlobTx,
+            null,
+            null,
+            null,
+            NEVER_CANCELLED);
+    selectorsStateManager.blockSelectionStarted();
+    evaluateAndAssertSelected(txEvaluationContext);
+
+    // a frame tx's type supports blobs, but one carrying none needs no blob space
+    final var frameTxEvaluationContext =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(),
+            PendingTransaction.newPendingTransaction(
+                createBlobLessFrameTransaction(), false, false, MAX_SCORE),
+            null,
+            null,
+            null,
+            NEVER_CANCELLED);
+    selectorsStateManager.blockSelectionStarted();
+    evaluateAndAssertSelected(frameTxEvaluationContext);
+  }
+
+  @Test
+  void frameTransactionsWithoutBlobsUseNoBlobGas() {
+    final var frameTxEvaluationContext =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(),
+            PendingTransaction.newPendingTransaction(
+                createBlobLessFrameTransaction(), false, false, MAX_SCORE),
+            null,
+            null,
+            null,
+            NEVER_CANCELLED);
+    selectorsStateManager.blockSelectionStarted();
+    evaluateAndAssertSelected(frameTxEvaluationContext);
+
+    // all the blob space is still available
+    final var blobTx = createBlobPendingTransaction(MAX_BLOBS);
+    final var txEvaluationContext =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(), blobTx, null, null, null, NEVER_CANCELLED);
+    selectorsStateManager.blockSelectionStarted();
+    evaluateAndAssertSelected(txEvaluationContext);
   }
 
   @Test
@@ -197,6 +252,22 @@ class BlobSizeTransactionSelectorTest {
   private PendingTransaction createBlobPendingTransaction(final int blobCount) {
     return PendingTransaction.newPendingTransaction(
         createTransaction(TransactionType.BLOB, blobCount), false, false, MAX_SCORE);
+  }
+
+  private static Transaction createBlobLessFrameTransaction() {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .sender(Address.fromHexString("0x634316eA0EE79c701c6F67C53A4C54cBAfd2316d"))
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_SENDER, 0, Optional.empty(), 21_000L, 0L, Wei.ZERO, Bytes.EMPTY)))
+        .maxFeePerGas(Wei.of(1000))
+        .maxPriorityFeePerGas(Wei.of(100))
+        .maxFeePerBlobGas(Wei.ZERO)
+        .build();
   }
 
   private Transaction createTransaction(final TransactionType type, final int blobCount) {

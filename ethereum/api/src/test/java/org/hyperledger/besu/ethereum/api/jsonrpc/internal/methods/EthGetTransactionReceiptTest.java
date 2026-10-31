@@ -43,6 +43,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -335,6 +336,28 @@ public class EthGetTransactionReceiptTest {
     assertThat(result.getBlobGasPrice()).isEqualTo("0x1");
   }
 
+  /**
+   * An EIP-8141 frame transaction's type supports blobs, but one that carries none reports no blob
+   * gas fields, like any other non-blob transaction.
+   */
+  @Test
+  public void shouldNotContainBlobGasFieldsWhenFrameTransactionCarriesNoBlobs() {
+    var hash = Hash.wrap(Bytes32.random());
+    mockBlockWithTransaction(hash, 1L, blobLessFrameTransaction());
+    when(blockchain.getTxReceipts(hash)).thenReturn(Optional.of(List.of(statusReceipt)));
+    when(blockchainQueries.transactionReceiptByTransactionHash(receiptHash, protocolSchedule))
+        .thenCallRealMethod();
+
+    final JsonRpcSuccessResponse response =
+        (JsonRpcSuccessResponse) ethGetTransactionReceipt.response(request);
+    final TransactionReceiptStatusResult result =
+        (TransactionReceiptStatusResult) response.getResult();
+
+    assertThat(result.getType()).isEqualTo("0x6");
+    assertThat(result.getBlobGasUsed()).isNull();
+    assertThat(result.getBlobGasPrice()).isNull();
+  }
+
   @Test
   public void shouldReturnRemovedTrueWhenBlockIsNotOnCanonicalChain() {
     when(blockchainQueries.headBlockNumber()).thenReturn(1L);
@@ -416,6 +439,27 @@ public class EthGetTransactionReceiptTest {
   }
 
   private void mockBlockWithBlobTransaction(final Hash blockHash, final long blockNumber) {
+    mockBlockWithTransaction(
+        blockHash, blockNumber, new BlockDataGenerator().transaction(TransactionType.BLOB));
+  }
+
+  private static Transaction blobLessFrameTransaction() {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_SENDER, 0, Optional.empty(), 21_000L, 0L, Wei.ZERO, Bytes.EMPTY)))
+        .maxPriorityFeePerGas(Wei.of(1))
+        .maxFeePerGas(Wei.of(10))
+        .build();
+  }
+
+  private void mockBlockWithTransaction(
+      final Hash blockHash, final long blockNumber, final Transaction transaction) {
     Hash parentHash = Hash.wrap(Bytes32.random());
     TransactionLocation transactionLocation = mock(TransactionLocation.class);
     Block block = mock(Block.class);
@@ -430,8 +474,7 @@ public class EthGetTransactionReceiptTest {
     when(blockchain.getBlockHeader(parentHash)).thenReturn(Optional.of(parentHeader));
     when(block.getHeader()).thenReturn(header);
     when(block.getBody()).thenReturn(body);
-    when(body.getTransactions())
-        .thenReturn(List.of(new BlockDataGenerator().transaction(TransactionType.BLOB)));
+    when(body.getTransactions()).thenReturn(List.of(transaction));
     when(parentHeader.getExcessBlobGas()).thenReturn(Optional.of(BlobGas.of(1000)));
     when(blockchain.getBlockByHash(blockHash)).thenReturn(Optional.of(block));
     mockProtocolSpec(header);

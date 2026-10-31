@@ -121,7 +121,9 @@ public class MainnetTransactionValidator implements TransactionValidator {
           "Transaction gas limit must be at most " + txGasLimitCap);
     }
 
-    if (transactionType.supportsBlob()) {
+    // Frame transactions are not required to carry blobs; blob rules apply only when they do.
+    if (transactionType.supportsBlob()
+        && (transactionType == TransactionType.BLOB || transaction.getBlobCount() > 0)) {
       final ValidationResult<TransactionInvalidReason> blobTransactionResult =
           blobsValidator.validate(transaction, transactionValidationParams);
       if (!blobTransactionResult.isValid()) {
@@ -227,7 +229,9 @@ public class MainnetTransactionValidator implements TransactionValidator {
       }
     }
 
-    if (transaction.getType().supportsBlob()) {
+    // EIP-8141: frame transactions are only blob-carrying when they declare versioned hashes;
+    // the blob fee rules apply only in that case.
+    if (transaction.getType().supportsBlob() && transaction.getBlobCount() > 0) {
       final long txTotalBlobGas = gasCalculator.blobGasCost(transaction.getBlobCount());
       if (txTotalBlobGas > gasLimitCalculator.currentBlobGasLimit()) {
         return ValidationResult.invalid(

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions;
 
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
@@ -44,7 +45,9 @@ public class BlobCache {
   }
 
   public void cacheBlobs(final Transaction t) {
-    if (t.getType().supportsBlob()) {
+    // Keyed on the blobs carried rather than the type: an EIP-8141 frame transaction's type
+    // supports blobs, but one that carries none has nothing to cache.
+    if (t.getBlobCount() > 0) {
       var bwc = t.getBlobsWithCommitments();
       if (bwc.isPresent() && !bwc.get().hasBlobData()) {
         // Only full blobs are cached. A bundle is kept per versioned hash, not per transaction, so
@@ -66,7 +69,10 @@ public class BlobCache {
   }
 
   public Optional<Transaction> restoreBlob(final Transaction transaction) {
-    if (transaction.getType().supportsBlob()) {
+    // An EIP-8141 frame transaction may carry blobs but is not required to; one that carries none
+    // has nothing to restore and is handled like any other non-blob transaction.
+    if (transaction.getType().supportsBlob()
+        && (transaction.getType() == TransactionType.BLOB || transaction.getBlobCount() > 0)) {
       Optional<List<VersionedHash>> maybeHashes = transaction.getVersionedHashes();
       if (maybeHashes.isPresent()) {
         if (!maybeHashes.get().isEmpty()) {

@@ -88,6 +88,59 @@ public class TransactionReplacementByFeeMarketRuleTest extends AbstractTransacti
           //            // blob tx must be replaced by blob tx only
           {blobTx(3L, 6L, 1L), eip1559Tx(3L, 6L), Optional.of(Wei.of(3L)), 0, 0, false},
           {eip1559Tx(3L, 6L), blobTx(3L, 6L, 1L), Optional.of(Wei.of(3L)), 0, 0, false},
+          // frame tx without blobs: priced like any non-blob tx, its blob fee cap is ignored
+          {
+            frameTx(10L, 200L, 5L, false),
+            frameTx(20L, 220L, 1L, false),
+            Optional.of(Wei.of(90L)),
+            10,
+            100,
+            true
+          },
+          {
+            frameTx(10L, 200L, 5L, false),
+            frameTx(10L, 200L, 9L, false),
+            Optional.of(Wei.of(90L)),
+            10,
+            100,
+            false
+          },
+          {eip1559Tx(3L, 6L), frameTx(3L, 6L, 1L, false), Optional.of(Wei.of(3L)), 0, 0, true},
+          {frameTx(3L, 6L, 1L, false), eip1559Tx(3L, 6L), Optional.of(Wei.of(3L)), 0, 0, true},
+          // frame tx carrying blobs: priced like a blob tx
+          {
+            frameTx(10L, 200L, 1L, true),
+            frameTx(20L, 220L, 2L, true),
+            Optional.of(Wei.of(90L)),
+            10,
+            100,
+            true
+          },
+          {
+            frameTx(10L, 200L, 1L, true),
+            frameTx(20L, 220L, 1L, true),
+            Optional.of(Wei.of(90L)),
+            10,
+            100,
+            false
+          },
+          {
+            blobTx(10L, 200L, 1L),
+            frameTx(20L, 220L, 2L, true),
+            Optional.of(Wei.of(90L)),
+            10,
+            100,
+            true
+          },
+          {frameTx(3L, 6L, 1L, true), eip1559Tx(3L, 6L), Optional.of(Wei.of(3L)), 0, 0, false},
+          {
+            frameTx(3L, 6L, 1L, true),
+            frameTx(3L, 6L, 1L, false),
+            Optional.of(Wei.of(3L)),
+            0,
+            0,
+            false
+          },
         });
   }
 
