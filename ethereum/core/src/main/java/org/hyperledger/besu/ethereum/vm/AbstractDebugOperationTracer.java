@@ -23,9 +23,11 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.TracedStack;
 
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * Base class for opcode-level operation tracers. Manages the per-frame state that must be captured
@@ -62,6 +64,15 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   /** Call depth before the operation executed, set in {@link #tracePreExecution}. */
   protected int depth;
 
+  /** The frame the current memory snapshot was taken on, set by subclasses when they snapshot. */
+  protected MessageFrame memorySnapshotFrame;
+
+  /** Whether memory has been written since the current snapshot was taken. */
+  protected boolean memoryDirty;
+
+  /** The slot key an SLOAD is about to read, set in {@link #tracePreExecution}. */
+  protected Optional<UInt256> preExecutionStorageKey = Optional.empty();
+
   /**
    * Whether the current opcode should be traced (respects the {@code traceOpcodes} filter). Set by
    * {@link #tracePreExecution}, cleared by a subclass's {@link #capturePreExecutionState} to skip
@@ -87,6 +98,14 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
     final Operation currentOperation = frame.getCurrentOperation();
     gasRemaining = frame.getRemainingGas();
     traceOpcode = shouldTraceOpcode(currentOperation);
+    preExecutionStorageKey =
+        traceOpcode
+                && options.traceStorage()
+                && currentOperation != null
+                && "SLOAD".equals(currentOperation.getName())
+                && TracedStack.size(frame) > 0
+            ? Optional.of(UInt256.fromBytes(TracedStack.item(frame, 0)))
+            : Optional.empty();
     if (!traceOpcode) {
       return;
     }
@@ -136,6 +155,39 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
       stackContents[i] = TracedStack.item(frame, stackContents.length - i - 1);
     }
     return Optional.of(stackContents);
+  }
+
+  /**
+   * Captures the storage slot touched by an SLOAD or SSTORE, or {@link Optional#empty()} for any
+   * other operation or when storage tracing is disabled.
+   */
+  protected Optional<Map<UInt256, UInt256>> captureStorage(
+      final MessageFrame frame,
+      final Operation currentOperation,
+      final OperationResult operationResult) {
+    if (!options.traceStorage()) {
+      return Optional.empty();
+    }
+    final String opName = currentOperation.getName();
+    if ("SSTORE".equals(opName)) {
+      return frame
+          .getMaybeUpdatedStorage()
+          .map(entry -> Map.of(entry.getOffset(), UInt256.fromBytes(entry.getValue())));
+    }
+    if ("SLOAD".equals(opName) && operationResult.getHaltReason() == null) {
+      return preExecutionStorageKey.flatMap(
+          key -> {
+            if (TracedStack.size(frame) == 0) {
+              return Optional.empty();
+            }
+            return Optional.of(Map.of(key, UInt256.fromBytes(TracedStack.item(frame, 0))));
+          });
+    }
+    return Optional.empty();
+  }
+
+  protected boolean memoryUnchangedSinceSnapshot(final MessageFrame frame) {
+    return memorySnapshotFrame == frame && !memoryDirty && frame.getMaybeUpdatedMemory().isEmpty();
   }
 
   private boolean shouldTraceOpcode(final Operation currentOpcode) {
