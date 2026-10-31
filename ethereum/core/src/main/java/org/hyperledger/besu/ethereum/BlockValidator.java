@@ -123,8 +123,11 @@ public interface BlockValidator {
   }
 
   /**
-   * Performs fast block validation appropriate for use during syncing skipping transaction receipt
-   * roots and receipts roots as these are done during the download of the blocks.
+   * Performs fast block validation appropriate for use during syncing skipping transactions roots
+   * and receipts roots as these are done during the download of the blocks.
+   *
+   * <p>From Amsterdam on, the gasUsed of a block with transactions cannot be derived from its
+   * receipts and is not validated, so the header must already be authenticated, as by its hash.
    *
    * @param context the protocol context
    * @param block the block to validate

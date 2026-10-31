@@ -48,6 +48,8 @@ import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -162,6 +164,32 @@ class MainnetBlockBodyValidatorTest {
                     NONE,
                     OptionalLong.empty()))
         .isFalse();
+  }
+
+  @ParameterizedTest
+  @CsvSource({"0, true", "1, false"})
+  void amsterdamLightValidationChecksGasUsedOfBlockWithoutTransactions(
+      final long gasUsed, final boolean expectedValid) {
+    when(protocolSpec.getBlockGasUsedValidator()).thenReturn(BlockGasUsedValidator.AMSTERDAM);
+    final Block block =
+        blockDataGenerator.block(
+            new BlockOptions()
+                .setBlockNumber(1)
+                .setGasUsed(gasUsed)
+                .hasTransactions(false)
+                .hasOmmers(false)
+                .setReceiptsRoot(BodyValidation.receiptsRoot(emptyList()))
+                .setLogsBloom(LogsBloomFilter.empty()));
+
+    assertThat(
+            new MainnetBlockBodyValidator(protocolSchedule)
+                .validateBodyLight(
+                    blockchainSetupUtil.getProtocolContext(),
+                    block,
+                    emptyList(),
+                    NONE,
+                    OptionalLong.empty()))
+        .isEqualTo(expectedValid);
   }
 
   @Test

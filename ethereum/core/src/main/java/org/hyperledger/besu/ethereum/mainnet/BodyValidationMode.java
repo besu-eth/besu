@@ -18,7 +18,10 @@ public enum BodyValidationMode {
   /** No Validation. data must be pre-validated */
   NONE,
 
-  /** Skip receipts and transactions root validation */
+  /**
+   * Skip receipts and transactions root validation. From Amsterdam on, the gasUsed of a block with
+   * transactions is only validated when the block gas from processing is supplied.
+   */
   LIGHT,
 
   /** Validate transactions, state, and receipts root */
