@@ -165,6 +165,17 @@ public interface FeeMarket {
   }
 
   /**
+   * Creates a fee market with a fixed base fee and blob fee support.
+   *
+   * @param londonForkBlockNumber the block number at which the London fork activates.
+   * @param fixedBaseFee the fixed base fee to use.
+   * @return a {@link BaseFeeMarket} instance with a fixed base fee and blob fee support.
+   */
+  static BaseFeeMarket fixedBlobFee(final long londonForkBlockNumber, final Wei fixedBaseFee) {
+    return new FixedBlobFeeMarket(londonForkBlockNumber, fixedBaseFee);
+  }
+
+  /**
    * Creates a legacy fee market.
    *
    * @return a {@link FeeMarket} instance for legacy transactions.
