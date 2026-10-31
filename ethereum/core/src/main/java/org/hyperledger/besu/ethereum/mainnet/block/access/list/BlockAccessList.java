@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
@@ -29,6 +30,7 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -37,13 +39,33 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiPredicate;
+import java.util.function.IntPredicate;
+import java.util.function.ToLongFunction;
+import java.util.stream.IntStream;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Bytes> rawRlp) {
+public final class BlockAccessList {
+
+  /**
+   * Lists of at least this many entries are compared in parallel, see {@link #hasSameChangesAs}.
+   */
+  private static final int MIN_ENTRIES_TO_COMPARE_IN_PARALLEL = 512;
+
+  private final List<AccountChanges> accountChanges;
+  private final Optional<Bytes> rawRlp;
+  // Hashed on first use and kept: a new block's list is hashed for its header and then checked
+  // against the header before and after the block is executed.
+  private volatile Hash hash;
+
+  public BlockAccessList(final List<AccountChanges> accountChanges, final Optional<Bytes> rawRlp) {
+    this.accountChanges = accountChanges;
+    this.rawRlp = rawRlp;
+  }
 
   public BlockAccessList(final List<AccountChanges> accountChanges) {
     this(accountChanges, Optional.empty());
@@ -58,6 +80,30 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     return BlockAccessListDecoder.decode(new BytesValueRLPInput(bytes, false));
   }
 
+  public List<AccountChanges> accountChanges() {
+    return accountChanges;
+  }
+
+  /** The bytes the list was decoded from, empty if it was not decoded. */
+  public Optional<Bytes> rawRlp() {
+    return rawRlp;
+  }
+
+  /**
+   * The hash of the list's encoding, which is the bytes it was decoded from if it was decoded, so
+   * that it is not encoded again.
+   *
+   * @return the hash of the encoded list
+   */
+  public Hash hash() {
+    Hash result = hash;
+    if (result == null) {
+      result = Hash.hash(rawRlp.orElseGet(this::encode));
+      hash = result;
+    }
+    return result;
+  }
+
   @Override
   public boolean equals(final Object o) {
     if (this == o) {
@@ -67,6 +113,48 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
       return false;
     }
     return Objects.equals(accountChanges, that.accountChanges);
+  }
+
+  /**
+   * Whether the list holds the same changes as {@code other}, as {@link #equals} compares them. A
+   * long list's accounts, and an account's changes when it has many, are compared in parallel: a
+   * block of many transfers has tens of thousands of accounts or one with a change per transaction.
+   *
+   * @param other the list to compare with
+   * @return whether the lists hold the same changes
+   */
+  @SuppressWarnings("ReferenceEquality") // a block's own list is often compared with itself
+  public boolean hasSameChangesAs(final BlockAccessList other) {
+    return other == this
+        || sameEntries(accountChanges, other.accountChanges, BlockAccessList::sameChanges);
+  }
+
+  private static boolean sameChanges(final AccountChanges a, final AccountChanges b) {
+    return a.address().equals(b.address())
+        && sameEntries(a.storageChanges(), b.storageChanges(), Object::equals)
+        && sameEntries(a.storageReads(), b.storageReads(), Object::equals)
+        && sameEntries(a.balanceChanges(), b.balanceChanges(), Object::equals)
+        && sameEntries(a.nonceChanges(), b.nonceChanges(), Object::equals)
+        && sameEntries(a.codeChanges(), b.codeChanges(), Object::equals);
+  }
+
+  private static <T> boolean sameEntries(
+      final List<T> a, final List<T> b, final BiPredicate<T, T> sameEntry) {
+    if (a.size() != b.size()) {
+      return false;
+    }
+    if (a.size() >= MIN_ENTRIES_TO_COMPARE_IN_PARALLEL) {
+      return IntStream.range(0, a.size())
+          .parallel()
+          .allMatch(i -> sameEntry.test(a.get(i), b.get(i)));
+    }
+    // a loop, not a stream: most lists are short and there are several per account
+    for (int i = 0; i < a.size(); i++) {
+      if (!sameEntry.test(a.get(i), b.get(i))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override
@@ -187,7 +275,12 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
   private record SortableSlotRead(byte[] sortKey, StorageSlotKey value) {}
 
+  private record SortableAccountChanges(byte[] sortKey, AccountChanges value) {}
+
   public static class BlockAccessListBuilder {
+    /** Lists of at least this many accounts are built in parallel, one account per task. */
+    private static final int MIN_ACCOUNTS_TO_BUILD_IN_PARALLEL = 512;
+
     private final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
 
     // Kept up to date on every change so a budget check per transaction does not walk the list.
@@ -295,16 +388,55 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
       }
     }
 
-    public BlockAccessList build() {
-      final List<AccountChanges> accountChanges = new ArrayList<>(accountChangesBuilders.size());
-      for (AccountBuilder accountBuilder : accountChangesBuilders.values()) {
-        accountChanges.add(accountBuilder.build());
+    /**
+     * Whether the list {@link #build()} returns would hold the same changes as {@code list},
+     * checked without building it: a block's list that matches its execution is then used as it is,
+     * rather than built, sorted and compared again. A list out of canonical order never matches.
+     *
+     * @param list the list to compare with
+     * @return whether the built list would hold the same changes
+     */
+    public boolean hasSameChangesAs(final BlockAccessList list) {
+      final List<AccountChanges> accounts = list.accountChanges();
+      if (accounts.size() != accountChangesBuilders.size()) {
+        return false;
       }
-      accountChanges.sort(
-          (left, right) ->
-              Arrays.compareUnsigned(
-                  left.address().getBytes().toArrayUnsafe(),
-                  right.address().getBytes().toArrayUnsafe()));
+      final IntStream indices = IntStream.range(0, accounts.size());
+      return (accounts.size() >= MIN_ACCOUNTS_TO_BUILD_IN_PARALLEL ? indices.parallel() : indices)
+          .allMatch(
+              i -> {
+                final AccountChanges account = accounts.get(i);
+                final AccountBuilder builder = accountChangesBuilders.get(account.address());
+                return builder != null
+                    && (i == 0
+                        || accounts
+                                .get(i - 1)
+                                .address()
+                                .getBytes()
+                                .compareTo(account.address().getBytes())
+                            < 0)
+                    && builder.hasSameChangesAs(account);
+              });
+    }
+
+    public BlockAccessList build() {
+      final Collection<AccountBuilder> accountBuilders = accountChangesBuilders.values();
+      // Sorted on a copy of each address taken once: an address that wraps part of a larger
+      // array, like a recovered sender's, would be copied by each of the sort's comparisons.
+      final SortableAccountChanges[] entries =
+          (accountBuilders.size() >= MIN_ACCOUNTS_TO_BUILD_IN_PARALLEL
+                  ? accountBuilders.parallelStream()
+                  : accountBuilders.stream())
+              .map(
+                  accountBuilder ->
+                      new SortableAccountChanges(
+                          accountBuilder.address.getBytes().toArray(), accountBuilder.build()))
+              .toArray(SortableAccountChanges[]::new);
+      Arrays.parallelSort(entries, (a, b) -> Arrays.compareUnsigned(a.sortKey(), b.sortKey()));
+      final List<AccountChanges> accountChanges = new ArrayList<>(entries.length);
+      for (SortableAccountChanges entry : entries) {
+        accountChanges.add(entry.value());
+      }
       final BlockAccessList blockAccessList = new BlockAccessList(accountChanges);
       checkState(
           itemCount == blockAccessList.eip7928ItemCount(),
@@ -457,6 +589,82 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
       void addCodeChange(final long txIndex, final Bytes code) {
         codes.add(new CodeChange(txIndex, code));
+      }
+
+      /**
+       * Whether {@link #build()} would return the same changes as {@code changes}, which match only
+       * in canonical order. The changes were added in transaction order, so a canonical account's
+       * lists match them as they are.
+       */
+      boolean hasSameChangesAs(final AccountChanges changes) {
+        return sameChangesInOrder(balances, changes.balanceChanges(), BalanceChange::txIndex)
+            && sameChangesInOrder(nonces, changes.nonceChanges(), NonceChange::txIndex)
+            && sameChangesInOrder(codes, changes.codeChanges(), CodeChange::txIndex)
+            && hasSameSlotWrites(changes.storageChanges())
+            && hasSameSlotReads(changes.storageReads());
+      }
+
+      private boolean hasSameSlotWrites(final List<SlotChanges> slotChanges) {
+        if (slotChanges.size() != slotWrites.size()) {
+          return false;
+        }
+        UInt256 previous = null;
+        for (final SlotChanges slot : slotChanges) {
+          final UInt256 key = slot.slot().getSlotKey().orElse(null);
+          if (key == null || (previous != null && previous.compareTo(key) >= 0)) {
+            return false;
+          }
+          previous = key;
+          if (!sameChangesInOrder(
+              slotWrites.get(slot.slot()), slot.changes(), StorageChange::txIndex)) {
+            return false;
+          }
+        }
+        return true;
+      }
+
+      private boolean hasSameSlotReads(final List<SlotRead> reads) {
+        if (reads.size() != slotReads.size()) {
+          return false;
+        }
+        UInt256 previous = null;
+        for (final SlotRead read : reads) {
+          final UInt256 key = read.slot().getSlotKey().orElse(null);
+          if (key == null
+              || (previous != null && previous.compareTo(key) >= 0)
+              || !slotReads.contains(read.slot())) {
+            return false;
+          }
+          previous = key;
+        }
+        return true;
+      }
+
+      /**
+       * Whether the changes added equal {@code changes} and those are in ascending order of
+       * transaction index, as {@link #build()} sorts them. A long list, like the coinbase's with a
+       * change per transaction, is compared in parallel.
+       */
+      private static <T> boolean sameChangesInOrder(
+          final List<T> added, final List<T> changes, final ToLongFunction<T> txIndex) {
+        if (added == null || added.size() != changes.size()) {
+          return false;
+        }
+        final IntPredicate same =
+            i ->
+                changes.get(i).equals(added.get(i))
+                    && (i == 0
+                        || txIndex.applyAsLong(changes.get(i - 1))
+                            < txIndex.applyAsLong(changes.get(i)));
+        if (changes.size() >= MIN_ENTRIES_TO_COMPARE_IN_PARALLEL) {
+          return IntStream.range(0, changes.size()).parallel().allMatch(same);
+        }
+        for (int i = 0; i < changes.size(); i++) {
+          if (!same.test(i)) {
+            return false;
+          }
+        }
+        return true;
       }
 
       AccountChanges build() {

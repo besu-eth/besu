@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
@@ -42,8 +41,10 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 
@@ -57,17 +58,21 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       LoggerFactory.getLogger(BalConcurrentTransactionProcessor.class);
 
   private final MainnetTransactionProcessor transactionProcessor;
-  private final BlockAccessList blockAccessList;
   private final BlockAccessListAccountLookup blockAccessListAccountLookup;
   private final Optional<BalPrefetcher> maybePrefetcher;
+  // Two groups per thread of the pool, so that a group with a busy account does not hold the
+  // import back much.
+  private final PendingStateChanges pendingStateChanges =
+      new PendingStateChanges(2 * Runtime.getRuntime().availableProcessors());
+  private final Queue<BonsaiWorldState> idleWorldStates = new ConcurrentLinkedQueue<>();
+  private volatile boolean closed;
 
   public BalConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
-      final BlockAccessList blockAccessList,
+      final BlockAccessListAccountLookup blockAccessListAccountLookup,
       final BalConfiguration balConfiguration) {
     this.transactionProcessor = transactionProcessor;
-    this.blockAccessList = blockAccessList;
-    this.blockAccessListAccountLookup = BlockAccessListAccountLookup.of(blockAccessList);
+    this.blockAccessListAccountLookup = blockAccessListAccountLookup;
     this.maybePrefetcher =
         balConfiguration.isBalPreFetchReadingEnabled()
             ? Optional.of(
@@ -77,23 +82,55 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
             : Optional.empty();
   }
 
-  private Optional<BonsaiWorldState> getWorldStateForTransaction(
-      final ProtocolContext protocolContext,
-      final Optional<BlockHeader> maybeParentHeader,
-      final int transactionLocation) {
-    return maybeParentHeader.flatMap(
-        blockHeader ->
-            protocolContext
-                .getWorldStateArchive()
-                .getWorldState(
-                    WorldStateQueryParams.newBuilder()
-                        .withBlockHeader(blockHeader)
-                        .withShouldWorldStateUpdateHead(false)
-                        .withBalOverlay(
-                            new BlockAccessListOverlay(
-                                blockAccessListAccountLookup, (long) transactionLocation + 1L))
-                        .build())
-                .map(BonsaiWorldState.class::cast));
+  /**
+   * A world state at the parent block for a transaction: one left by a transaction that finished,
+   * or a new one. Each transaction puts its own overlay and accumulator on it, which costs less
+   * than opening a world state, so a block opens about one per thread that runs its transactions.
+   */
+  private Optional<BonsaiWorldState> acquireWorldState(
+      final ProtocolContext protocolContext, final Optional<BlockHeader> maybeParentHeader) {
+    final BonsaiWorldState idle = idleWorldStates.poll();
+    if (idle != null) {
+      return Optional.of(idle);
+    }
+    return maybeParentHeader
+        .flatMap(
+            parentHeader ->
+                protocolContext
+                    .getWorldStateArchive()
+                    .getWorldState(
+                        WorldStateQueryParams.newBuilder()
+                            .withBlockHeader(parentHeader)
+                            .withShouldWorldStateUpdateHead(false)
+                            .build())
+                    .map(BonsaiWorldState.class::cast))
+        .map(
+            worldState -> {
+              worldState.disableCacheMerkleTrieLoader();
+              return worldState;
+            });
+  }
+
+  private void releaseWorldState(final BonsaiWorldState worldState) {
+    idleWorldStates.offer(worldState);
+    if (closed) {
+      closeIdleWorldStates();
+    }
+  }
+
+  private void closeIdleWorldStates() {
+    BonsaiWorldState worldState;
+    while ((worldState = idleWorldStates.poll()) != null) {
+      worldState.close();
+    }
+  }
+
+  /** Also closes the world states the transactions ran on, or each as its transaction finishes. */
+  @Override
+  public void abort() {
+    super.abort();
+    closed = true;
+    closeIdleWorldStates();
   }
 
   @Override
@@ -125,7 +162,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
             balPrefetchMechanism
                 .prefetch(
                     maybeWorldState.get(),
-                    blockAccessList,
+                    blockAccessListAccountLookup,
                     BlockProcessingExecutors.ioExecutor(),
                     BlockProcessingExecutors.ioExecutor())
                 .exceptionally(
@@ -162,15 +199,15 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
-    final BonsaiWorldState ws =
-        getWorldStateForTransaction(protocolContext, maybeParentHeader, transactionLocation)
-            .orElse(null);
+    final BonsaiWorldState ws = acquireWorldState(protocolContext, maybeParentHeader).orElse(null);
     if (ws == null) {
       return null;
     }
 
     try {
-      ws.disableCacheMerkleTrieLoader();
+      ws.applyBlockAccessListOverlay(
+          new BlockAccessListOverlay(
+              blockAccessListAccountLookup, (long) transactionLocation + 1L));
       final ParallelizedTransactionContext.Builder ctxBuilder =
           new ParallelizedTransactionContext.Builder();
 
@@ -186,7 +223,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           transactionProcessor.processTransaction(
               txUpdater,
               blockHeader,
-              transaction.detachedCopy(),
+              detachedCopyWithSender(transaction),
               miningBeneficiary,
               OperationTracer.NO_TRACING,
               blockHashLookup.forkForParallelWorker(),
@@ -198,7 +235,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
       return ctxBuilder.build();
     } finally {
-      ws.close();
+      releaseWorldState(ws);
     }
   }
 
@@ -230,10 +267,6 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         return Optional.empty();
       }
 
-      final PathBasedWorldState pathWs = (PathBasedWorldState) worldState;
-      final PathBasedWorldStateUpdateAccumulator blockAccumulator =
-          (PathBasedWorldStateUpdateAccumulator) pathWs.updater();
-
       final TransactionProcessingResult result = ctx.transactionProcessingResult();
       final Optional<PartialBlockAccessView> maybePartialBlockAccessView =
           result.getPartialBlockAccessView();
@@ -242,9 +275,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         return Optional.empty();
       }
 
-      // Not caught: falling back would run the transaction again on top of a partial import.
-      blockAccumulator.importStateChangesFromPartialView(
-          maybePartialBlockAccessView.get(), transactionProcessor.getClearEmptyAccounts());
+      pendingStateChanges.add(maybePartialBlockAccessView.get());
 
       confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
       result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
@@ -254,5 +285,19 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
     LOG.error("No future found for transaction {}.", txIndex);
     return Optional.empty();
+  }
+
+  /**
+   * Imports the state changes of the results returned so far into the block's world state. Not
+   * caught by callers: running a transaction again on top of a partial import would apply it twice.
+   */
+  @Override
+  public void importPendingStateChanges(
+      final MutableWorldState worldState, final Executor executor) {
+    pendingStateChanges.importInto(
+        (PathBasedWorldStateUpdateAccumulator<?>) ((PathBasedWorldState) worldState).updater(),
+        transactionProcessor.getClearEmptyAccounts(),
+        blockAccessListAccountLookup,
+        executor);
   }
 }

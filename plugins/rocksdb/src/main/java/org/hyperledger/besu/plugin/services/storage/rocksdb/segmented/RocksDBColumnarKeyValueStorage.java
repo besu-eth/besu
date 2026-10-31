@@ -72,6 +72,7 @@ import org.rocksdb.LRUCache;
 import org.rocksdb.LiveFileMetaData;
 import org.rocksdb.Options;
 import org.rocksdb.OptionsUtil;
+import org.rocksdb.Priority;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -341,7 +342,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         .setCreateMissingColumnFamilies(true)
         .setLogFileTimeToRoll(TIME_TO_ROLL_LOG_FILE)
         .setKeepLogFileNum(NUMBER_OF_LOG_FILES_TO_KEEP)
-        .setEnv(Env.getDefault().setBackgroundThreads(configuration.getBackgroundThreadCount()))
+        // Compactions run at a low CPU priority, so that they take the cores block processing
+        // leaves idle rather than competing with it.
+        .setEnv(
+            Env.getDefault()
+                .setBackgroundThreads(configuration.getBackgroundThreadCount())
+                .lowerThreadPoolCPUPriority(Priority.LOW))
         .setMaxTotalWalSize(WAL_MAX_TOTAL_SIZE)
         .setRecycleLogFileNum(WAL_MAX_TOTAL_SIZE / EXPECTED_WAL_FILE_SIZE);
   }

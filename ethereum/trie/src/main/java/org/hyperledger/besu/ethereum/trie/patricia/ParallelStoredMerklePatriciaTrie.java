@@ -37,7 +37,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -334,57 +333,53 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
     final int pathDepth = location.size();
 
     // Group updates by next nibble to distribute across branch children
-    final Map<Byte, List<UpdateEntry<V>>> groupedUpdates = groupUpdatesByNibble(updates, pathDepth);
+    final List<UpdateEntry<V>>[] groupedUpdates = groupUpdatesByNibble(updates, pathDepth);
+    int groupCount = 0;
+    for (final List<UpdateEntry<V>> group : groupedUpdates) {
+      if (group != null) {
+        groupCount++;
+      }
+    }
 
     // Wrap the branch to allow concurrent child updates
     final BranchWrapper branchWrapper = new BranchWrapper(branchNode);
 
-    // Partition groups into large (parallel) and small (sequential)
-    final Map<Boolean, Map<Byte, List<UpdateEntry<V>>>> partitionedGroups =
-        groupedUpdates.entrySet().stream()
-            .peek(e -> branchWrapper.loadChild(e.getKey())) // force load lazy nodes
-            .collect(
-                Collectors.partitioningBy(
-                    entry -> entry.getValue().size() > 1 && groupedUpdates.size() > 1,
-                    Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
-    final Map<Byte, List<UpdateEntry<V>>> largeGroups = partitionedGroups.get(true);
-    final Map<Byte, List<UpdateEntry<V>>> smallGroups = partitionedGroups.get(false);
-
     final List<ForkJoinTask<Void>> forkJoinTasks = new ArrayList<>();
-
-    // Submit large groups to thread pool
-    if (!largeGroups.isEmpty()) {
-      for (final Map.Entry<Byte, List<UpdateEntry<V>>> entry : largeGroups.entrySet()) {
-        final byte nibble = entry.getKey();
-        final List<UpdateEntry<V>> childUpdates = entry.getValue();
-        final Bytes childLocation = TrieBytes.append(location, nibble);
-
-        ForkJoinTask<Void> task =
+    for (int nibble = 0; nibble < groupedUpdates.length; nibble++) {
+      final List<UpdateEntry<V>> childUpdates = groupedUpdates[nibble];
+      if (childUpdates == null) {
+        continue;
+      }
+      branchWrapper.loadChild(nibble); // force load lazy nodes
+      // Submit large groups to thread pool, process small groups in the current thread
+      final Bytes childLocation = TrieBytes.append(location, (byte) nibble);
+      final int child = nibble;
+      if (childUpdates.size() > 1 && groupCount > 1) {
+        final ForkJoinTask<Void> task =
             ForkJoinTask.adapt(
                 () -> {
-                  final Node<V> currentChild = branchWrapper.getPendingChildren().get(nibble);
-                  final Node<V> updatedChild =
+                  branchWrapper.setChild(
+                      child,
                       processNode(
-                          currentChild, childLocation, depth, childUpdates, maybeCommitCache);
-                  branchWrapper.setChild(nibble, updatedChild);
+                          branchWrapper.getChild(child),
+                          childLocation,
+                          depth,
+                          childUpdates,
+                          maybeCommitCache));
                   return null;
                 });
-
         task.fork();
         forkJoinTasks.add(task);
+      } else {
+        branchWrapper.setChild(
+            child,
+            processNode(
+                branchWrapper.getChild(child),
+                childLocation,
+                depth,
+                childUpdates,
+                maybeCommitCache));
       }
-    }
-
-    // Process small groups sequentially in current thread
-    for (final Map.Entry<Byte, List<UpdateEntry<V>>> entry : smallGroups.entrySet()) {
-      final byte nibble = entry.getKey();
-      final List<UpdateEntry<V>> childUpdates = entry.getValue();
-      final Bytes childLocation = TrieBytes.append(location, nibble);
-
-      final Node<V> currentChild = branchWrapper.getPendingChildren().get(nibble);
-      final Node<V> updatedChild =
-          processNode(currentChild, childLocation, depth, childUpdates, maybeCommitCache);
-      branchWrapper.setChild(nibble, updatedChild);
     }
 
     // Join all tasks
@@ -619,15 +614,25 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
   }
 
   /**
-   * Groups updates by their nibble at the specified depth.
+   * Groups updates by their nibble at the specified depth, which is a child's index or, for a path
+   * that ends at this depth, the leaf terminator.
    *
    * @param updates the updates to group
    * @param depth the depth at which to extract the nibble
-   * @return map of nibble -> list of updates
+   * @return the updates of each nibble, null for a nibble without any
    */
-  private Map<Byte, List<UpdateEntry<V>>> groupUpdatesByNibble(
+  @SuppressWarnings("unchecked")
+  private List<UpdateEntry<V>>[] groupUpdatesByNibble(
       final List<UpdateEntry<V>> updates, final int depth) {
-    return updates.stream().collect(Collectors.groupingBy(entry -> entry.getNibble(depth)));
+    final List<UpdateEntry<V>>[] grouped = new List[NB_CHILD + 1];
+    for (final UpdateEntry<V> entry : updates) {
+      final byte nibble = entry.getNibble(depth);
+      if (grouped[nibble] == null) {
+        grouped[nibble] = new ArrayList<>();
+      }
+      grouped[nibble].add(entry);
+    }
+    return grouped;
   }
 
   /**
@@ -780,22 +785,23 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
 
   private class BranchWrapper {
     private final BranchNode<V> originalBranch;
+    // Each child is set by one task, which the parent joins before it reads the children.
     private final List<Node<V>> pendingChildren;
 
     BranchWrapper(final BranchNode<V> branch) {
       this.originalBranch = branch;
-      this.pendingChildren = Collections.synchronizedList(new ArrayList<>(branch.getChildren()));
+      this.pendingChildren = new ArrayList<>(branch.getChildren());
     }
 
-    void loadChild(final byte index) {
+    void loadChild(final int index) {
       pendingChildren.set(index, loadNode(pendingChildren.get(index)));
     }
 
-    List<Node<V>> getPendingChildren() {
-      return pendingChildren;
+    Node<V> getChild(final int index) {
+      return pendingChildren.get(index);
     }
 
-    void setChild(final byte index, final Node<V> child) {
+    void setChild(final int index, final Node<V> child) {
       pendingChildren.set(index, child);
     }
 

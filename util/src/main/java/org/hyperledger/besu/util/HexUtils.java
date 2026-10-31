@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.util;
 
+import java.util.HexFormat;
+
 import org.apache.tuweni.bytes.Bytes;
 
 /** Utility class for Hexadecimal operations. */
@@ -54,5 +56,24 @@ public class HexUtils {
     }
 
     return new String(result);
+  }
+
+  /**
+   * Faster version of {@link Bytes#fromHexString} for the form the JSON-RPC APIs use: a 0x prefix
+   * and an even number of digits. Any other string, including one with a character that is not a
+   * hex digit, is decoded, or rejected, by {@link Bytes#fromHexString}.
+   *
+   * @param hex the hex string
+   * @return the bytes
+   */
+  public static Bytes fromHexString(final String hex) {
+    if (hex.length() % 2 == 0 && hex.startsWith("0x")) {
+      try {
+        return Bytes.wrap(HexFormat.of().parseHex(hex, 2, hex.length()));
+      } catch (final IllegalArgumentException e) {
+        // not all hex digits, rejected below with tuweni's message
+      }
+    }
+    return Bytes.fromHexString(hex);
   }
 }

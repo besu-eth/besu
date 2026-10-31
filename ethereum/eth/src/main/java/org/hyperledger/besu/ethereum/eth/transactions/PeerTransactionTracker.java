@@ -43,6 +43,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import org.apache.commons.collections4.map.LRUMap;
@@ -528,16 +529,19 @@ public class PeerTransactionTracker
    * calculated from {@code maxEntries * loadFactor}). This subclass prevents that by:
    *
    * <ul>
-   *   <li>Overriding {@link #calculateNewCapacity} to pre-size the backing array to exactly {@code
-   *       proposedCapacity / loadFactor} buckets so no rehash is ever triggered.
+   *   <li>Overriding {@link #calculateNewCapacity} to pre-size the backing array to at least {@code
+   *       proposedCapacity / loadFactor} buckets so no rehash is ever triggered. The number of
+   *       buckets stays a power of two: the parent masks hash codes with it minus one, so any other
+   *       number leaves most buckets unused and chains the entries in the others.
    *   <li>Making {@link #checkCapacity} a no-op, because the map will never grow past {@code
    *       maxEntries} entries and a capacity check would be misleading.
    * </ul>
    *
    * <p>The {@link #DEFAULT_LOAD_FACTOR load factor} of {@code 0.8} keeps hash-collision probability
-   * low while limiting memory overhead to ~25 % over the theoretical minimum.
+   * low.
    */
-  private static class FixedCapacityLRUMap<K, V> extends LRUMap<K, V> {
+  @VisibleForTesting
+  static class FixedCapacityLRUMap<K, V> extends LRUMap<K, V> {
     private static final float DEFAULT_LOAD_FACTOR = 0.8f;
 
     public FixedCapacityLRUMap(final int maxEntries) {
@@ -546,7 +550,8 @@ public class PeerTransactionTracker
 
     @Override
     protected int calculateNewCapacity(final int proposedCapacity) {
-      return (int) Math.ceil(proposedCapacity / DEFAULT_LOAD_FACTOR);
+      final int buckets = (int) Math.ceil(proposedCapacity / DEFAULT_LOAD_FACTOR);
+      return buckets <= 1 ? 1 : Integer.highestOneBit(buckets - 1) << 1;
     }
 
     @Override

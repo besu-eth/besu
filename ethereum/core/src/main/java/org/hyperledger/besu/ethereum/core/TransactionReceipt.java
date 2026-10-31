@@ -43,6 +43,9 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
 
   private static final int NONEXISTENT = -1;
 
+  // Shared by the receipts without logs, like those of transfers, rather than one per receipt.
+  private static final LogsBloomFilter NO_LOGS_BLOOM_FILTER = LogsBloomFilter.empty();
+
   private final TransactionType transactionType;
   private final Hash stateRoot;
   private final long cumulativeGasUsed;
@@ -71,7 +74,7 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
         NONEXISTENT,
         cumulativeGasUsed,
         logs,
-        LogsBloomFilter.builder().insertLogs(logs).build(),
+        bloomFilterOf(logs),
         revertReason);
   }
 
@@ -111,7 +114,7 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
         status,
         cumulativeGasUsed,
         logs,
-        LogsBloomFilter.builder().insertLogs(logs).build(),
+        bloomFilterOf(logs),
         revertReason);
   }
 
@@ -131,13 +134,13 @@ public class TransactionReceipt implements org.hyperledger.besu.plugin.data.Tran
       final long cumulativeGasUsed,
       final List<Log> logs,
       final Optional<Bytes> maybeRevertReason) {
-    this(
-        transactionType,
-        status,
-        cumulativeGasUsed,
-        logs,
-        LogsBloomFilter.builder().insertLogs(logs).build(),
-        maybeRevertReason);
+    this(transactionType, status, cumulativeGasUsed, logs, bloomFilterOf(logs), maybeRevertReason);
+  }
+
+  private static LogsBloomFilter bloomFilterOf(final List<Log> logs) {
+    return logs.isEmpty()
+        ? NO_LOGS_BLOOM_FILTER
+        : LogsBloomFilter.builder().insertLogs(logs).build();
   }
 
   /** Private constructor used by all public constructors. */

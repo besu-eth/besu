@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
@@ -165,7 +166,7 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup,
       final Optional<BlockHeader> maybeParentHeader) {
     if (!(protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider)) {
       return Optional.empty();
@@ -173,10 +174,11 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
 
     final ParallelBlockTransactionProcessor parallelProcessor;
 
-    if (isBalPerfectParallelization(blockAccessList)) {
+    if (isBalPerfectParallelization(
+        blockAccessListAccountLookup.map(BlockAccessListAccountLookup::blockAccessList))) {
       parallelProcessor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList.get(), balConfiguration);
+              transactionProcessor, blockAccessListAccountLookup.get(), balConfiguration);
     } else {
       parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }
@@ -217,17 +219,31 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
                     confirmedParallelizedTransactionCounter,
                     conflictingButCachedTransactionCounter))
         // No usable parallel result (a conflict, or nothing ran in parallel): process it
-        // sequentially.
+        // sequentially, on the state the transactions before it left.
         .orElseGet(
-            () ->
-                processTransactionSequentially(
-                    blockProcessingContext,
-                    transactionUpdater,
-                    blobGasPrice,
-                    miningBeneficiary,
-                    transaction,
-                    blockHashLookup,
-                    accessLocationTracker));
+            () -> {
+              parallelProcessor.ifPresent(
+                  processor ->
+                      processor.importPendingStateChanges(
+                          blockProcessingContext.getWorldState(), Runnable::run));
+              return processTransactionSequentially(
+                  blockProcessingContext,
+                  transactionUpdater,
+                  blobGasPrice,
+                  miningBeneficiary,
+                  transaction,
+                  blockHashLookup,
+                  accessLocationTracker);
+            });
+  }
+
+  @Override
+  protected void completeParallelExecution(
+      final Optional<ParallelBlockTransactionProcessor> parallelProcessor,
+      final MutableWorldState worldState) {
+    // the workers are done with the transactions, so the import gets their threads
+    parallelProcessor.ifPresent(
+        processor -> processor.importPendingStateChanges(worldState, executor));
   }
 
   public static class ParallelBlockProcessorBuilder

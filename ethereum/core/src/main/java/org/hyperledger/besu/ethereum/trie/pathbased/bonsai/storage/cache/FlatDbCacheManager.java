@@ -19,6 +19,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -95,6 +96,15 @@ public interface FlatDbCacheManager {
 
   default void removeFromCache(
       final SegmentIdentifier segment, final Bytes key, final long version) {
+    // No-op
+  }
+
+  /**
+   * Caches what a commit wrote to the flat accounts and storage, by segment, a null value for a
+   * removal. Called for every version, in order. The maps are not kept.
+   */
+  default void putCommittedWrites(
+      final Map<SegmentIdentifier, Map<Bytes, Bytes>> writes, final long version) {
     // No-op
   }
 

@@ -49,7 +49,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
-import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -149,6 +148,10 @@ public sealed class EngineNewPayloadV1<
       return new JsonRpcErrorResponse(reqId, parameterValidationResult.getInvalidReason());
     }
 
+    // Started before the block hash check and the transactions root it needs, so the senders are
+    // recovered on the cores that are otherwise idle until the block is executed
+    asyncPrecomputeSenders(blockParam.getTransactions());
+
     // 2. Client software MUST validate blockHash value as being equivalent to
     // Keccak256(RLP(ExecutionBlockHeader)), where ExecutionBlockHeader is the execution layer block
     // header (the former PoW block header structure). Fields of this object are set to the
@@ -156,8 +159,11 @@ public sealed class EngineNewPayloadV1<
     // EIP-3675, extended with the corresponding section of EIP-4399. Client software MUST run this
     // validation in all cases even if this branch or any other branches of the block tree are in an
     // active sync process.
+    final BlockBody blockBody = createBlockBody(blockParam);
     final BlockHeaderBuilder blockHeaderBuilder = BlockHeaderBuilder.create();
     setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    // From the body, which keeps it for the body validation after execution
+    blockHeaderBuilder.transactionsRoot(blockBody.getTransactionsRoot());
     final BlockHeader newBlockHeader = blockHeaderBuilder.buildBlockHeader();
 
     // ensure the block hash matches the blockParam hash
@@ -199,7 +205,7 @@ public sealed class EngineNewPayloadV1<
           maybeBadBlockError.get());
     }
 
-    final var unvalidatedBlock = new Block(newBlockHeader, createBlockBody(blockParam));
+    final var unvalidatedBlock = new Block(newBlockHeader, blockBody);
 
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
@@ -266,9 +272,6 @@ public sealed class EngineNewPayloadV1<
                 () ->
                     new IllegalStateException(
                         "Internal error: latestValidAncestor should always be present at this point"));
-
-    // async precompute sender to improve performance during transaction processing
-    asyncPrecomputeSenders(blockParam.getTransactions());
 
     // execute block and return result response
     final long startTimeNs = System.nanoTime();
@@ -339,25 +342,27 @@ public sealed class EngineNewPayloadV1<
   }
 
   private void asyncPrecomputeSenders(final List<Transaction> transactions) {
-    transactions.forEach(
-        transaction -> {
-          mergeCoordinator
-              .getEthScheduler()
-              .scheduleComputationTask(
-                  () -> {
-                    final var sender = transaction.getSender();
-                    logger()
-                        .atTrace()
-                        .setMessage("The sender for transaction {} is calculated : {}")
-                        .addArgument(transaction::getHash)
-                        .addArgument(sender)
-                        .log();
-                    return sender;
-                  });
-          if (transaction.getType().supportsDelegateCode()) {
-            asyncPrecomputeAuthorities(transaction);
-          }
-        });
+    // The parallel execution recovers senders from the first transaction on; starting from the
+    // last keeps the two from contending for the same transactions.
+    for (int i = transactions.size() - 1; i >= 0; i--) {
+      final Transaction transaction = transactions.get(i);
+      mergeCoordinator
+          .getEthScheduler()
+          .scheduleComputationTask(
+              () -> {
+                final var sender = transaction.getSender();
+                logger()
+                    .atTrace()
+                    .setMessage("The sender for transaction {} is calculated : {}")
+                    .addArgument(transaction::getHash)
+                    .addArgument(sender)
+                    .log();
+                return sender;
+              });
+      if (transaction.getType().supportsDelegateCode()) {
+        asyncPrecomputeAuthorities(transaction);
+      }
+    }
   }
 
   private void asyncPrecomputeAuthorities(final Transaction transaction) {
@@ -542,7 +547,6 @@ public sealed class EngineNewPayloadV1<
         .ommersHash(OMMERS_HASH_CONSTANT)
         .coinbase(blockParam.getFeeRecipient())
         .stateRoot(blockParam.getStateRoot())
-        .transactionsRoot(BodyValidation.transactionsRoot(blockParam.getTransactions()))
         .receiptsRoot(blockParam.getReceiptsRoot())
         .logsBloom(blockParam.getLogsBloom())
         .difficulty(Difficulty.ZERO)

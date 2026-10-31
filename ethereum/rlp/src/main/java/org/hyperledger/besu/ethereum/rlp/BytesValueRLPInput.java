@@ -22,6 +22,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.function.Function;
+import java.util.function.LongUnaryOperator;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -40,6 +41,9 @@ public class BytesValueRLPInput implements RLPInput {
 
   // The RLP encoded data.
   private final Bytes value;
+
+  // Created once, rather than for every item that is read.
+  private final LongUnaryOperator byteGetter = this::inputByte;
 
   private long size; // The number of bytes in this rlp-encoded byte string
 
@@ -163,12 +167,17 @@ public class BytesValueRLPInput implements RLPInput {
   private void prepareCurrentItem() {
     // Sets the kind of the item, the offset at which his payload starts and the size of this
     // payload.
+    // Computed without RLPDecodingHelpers.rlpElementMetadata: every item read goes through here,
+    // and the object it returns is allocated whenever the compiler does not inline it.
     try {
-      final RLPDecodingHelpers.RLPElementMetadata elementMetadata =
-          RLPDecodingHelpers.rlpElementMetadata(this::inputByte, size, currentItem);
-      currentKind = elementMetadata.kind;
-      currentPayloadOffset = elementMetadata.payloadStart;
-      currentPayloadSize = elementMetadata.payloadSize;
+      final int prefix = RLPDecodingHelpers.prefix(byteGetter, currentItem);
+      final RLPDecodingHelpers.Kind kind = RLPDecodingHelpers.Kind.of(prefix);
+      final long payloadStart = RLPDecodingHelpers.payloadStart(kind, prefix, currentItem);
+      final int payloadSize =
+          RLPDecodingHelpers.payloadSize(byteGetter, size, kind, prefix, currentItem);
+      currentKind = kind;
+      currentPayloadOffset = payloadStart;
+      currentPayloadSize = payloadSize;
       currentRlpSize = Math.toIntExact(currentPayloadOffset - currentItem) + currentPayloadSize;
     } catch (final RLPException exception) {
       final String message =
@@ -392,17 +401,20 @@ public class BytesValueRLPInput implements RLPInput {
     return UInt64.fromBytes(readBytes8Scalar());
   }
 
-  private Bytes32 readBytes32Scalar() {
-    checkScalar("32-bytes scalar", 32);
-    final MutableBytes32 res = MutableBytes32.create();
-    payloadSlice().copyTo(res, res.size() - currentPayloadSize);
-    setTo(nextItem());
-    return res;
-  }
-
   @Override
   public UInt256 readUInt256Scalar() {
-    return UInt256.fromBytes(readBytes32Scalar());
+    checkScalar("32-bytes scalar", 32);
+    final UInt256 res;
+    if (currentPayloadSize < Long.BYTES) {
+      // most amounts fit a long, which saves copying them to a 32-byte array first
+      res = UInt256.valueOf(readGenericLongScalar());
+    } else {
+      final MutableBytes32 bytes = MutableBytes32.create();
+      payloadSlice().copyTo(bytes, bytes.size() - currentPayloadSize);
+      res = UInt256.fromBytes(bytes);
+    }
+    setTo(nextItem());
+    return res;
   }
 
   @Override

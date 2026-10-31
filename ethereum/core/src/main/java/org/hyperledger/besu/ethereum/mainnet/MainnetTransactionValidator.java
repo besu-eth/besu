@@ -209,8 +209,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
           && transaction
                   .getMaxPriorityFeePerGas()
                   .get()
-                  .getAsBigInteger()
-                  .compareTo(transaction.getMaxFeePerGas().get().getAsBigInteger())
+                  .compareTo(transaction.getMaxFeePerGas().get())
               > 0) {
         return ValidationResult.invalid(
             TransactionInvalidReason.MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS,

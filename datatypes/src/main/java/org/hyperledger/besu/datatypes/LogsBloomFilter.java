@@ -20,6 +20,9 @@ import static org.hyperledger.besu.crypto.Hash.keccak256;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.Collection;
 import java.util.List;
 
@@ -151,6 +154,9 @@ public class LogsBloomFilter extends BytesHolder {
 
   /** The Builder. */
   public static final class Builder {
+    private static final VarHandle LONG_VIEW =
+        MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+
     /** The Data. */
     final MutableBytes data;
 
@@ -165,8 +171,17 @@ public class LogsBloomFilter extends BytesHolder {
      * @return the builder
      */
     public Builder insertFilter(final LogsBloomFilter other) {
-      for (int i = 0; i < data.size(); ++i) {
-        data.set(i, (byte) ((data.get(i) | other.getBytes().get(i)) & 0xff));
+      // A block's bloom merges one filter per transaction, most of them without a bit set, so the
+      // filter is read eight bytes at a time and only bytes that have a bit set are merged.
+      final byte[] otherBits = other.getBytes().toArrayUnsafe();
+      for (int i = 0; i < otherBits.length; i += Long.BYTES) {
+        if ((long) LONG_VIEW.get(otherBits, i) != 0) {
+          for (int j = i; j < i + Long.BYTES; ++j) {
+            if (otherBits[j] != 0) {
+              data.set(j, (byte) (data.get(j) | otherBits[j]));
+            }
+          }
+        }
       }
       return this;
     }

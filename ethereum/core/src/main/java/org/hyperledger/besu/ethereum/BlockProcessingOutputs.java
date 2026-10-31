@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -25,6 +26,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
+
+import com.google.common.base.Suppliers;
 
 /** Contains the outputs of processing a block. */
 public class BlockProcessingOutputs {
@@ -37,6 +41,7 @@ public class BlockProcessingOutputs {
   private final Map<Long, Hash> accessedAncestors;
   private final InclusionListValidationResult inclusionListValidationResult;
   private final Runnable trieLogWrite;
+  private final Supplier<Hash> receiptsRoot;
 
   /**
    * Creates a new instance.
@@ -159,6 +164,43 @@ public class BlockProcessingOutputs {
       final Map<Long, Hash> accessedAncestors,
       final InclusionListValidationResult inclusionListValidationResult,
       final Runnable trieLogWrite) {
+    this(
+        worldState,
+        receipts,
+        maybeRequests,
+        blockAccessList,
+        cumulativeBlockGasUsed,
+        accessedAncestors,
+        inclusionListValidationResult,
+        trieLogWrite,
+        Suppliers.memoize(() -> BodyValidation.receiptsRoot(receipts)));
+  }
+
+  /**
+   * Creates a new instance for a block whose receipts root processing computes.
+   *
+   * @param worldState the world state after processing the block
+   * @param receipts the receipts produced by processing the block
+   * @param maybeRequests the requests produced by processing the block
+   * @param blockAccessList the block-level access list produced by processing the block
+   * @param cumulativeBlockGasUsed the cumulative block gas used (pre-refund for EIP-7778)
+   * @param accessedAncestors the ancestor blocks resolved via BLOCKHASH during processing, keyed by
+   *     block number; always at least the parent
+   * @param inclusionListValidationResult whether the block satisfies the inclusion list it was
+   *     processed with (EIP-7805), valid if it was processed without one
+   * @param trieLogWrite writes the block's trie log
+   * @param receiptsRoot the root of the receipts
+   */
+  public BlockProcessingOutputs(
+      final MutableWorldState worldState,
+      final List<TransactionReceipt> receipts,
+      final Optional<List<Request>> maybeRequests,
+      final Optional<BlockAccessList> blockAccessList,
+      final long cumulativeBlockGasUsed,
+      final Map<Long, Hash> accessedAncestors,
+      final InclusionListValidationResult inclusionListValidationResult,
+      final Runnable trieLogWrite,
+      final Supplier<Hash> receiptsRoot) {
     this.worldState = worldState;
     this.receipts = receipts;
     this.maybeRequests = maybeRequests;
@@ -169,6 +211,7 @@ public class BlockProcessingOutputs {
         Objects.requireNonNull(
             inclusionListValidationResult, "inclusionListValidationResult must not be null");
     this.trieLogWrite = trieLogWrite;
+    this.receiptsRoot = receiptsRoot;
   }
 
   /**
@@ -196,6 +239,16 @@ public class BlockProcessingOutputs {
    */
   public List<TransactionReceipt> getReceipts() {
     return receipts;
+  }
+
+  /**
+   * Returns the root of the receipts produced by processing the block, which processing may have
+   * computed while it processed the rest of the block.
+   *
+   * @return the root of the receipts
+   */
+  public Hash getReceiptsRoot() {
+    return receiptsRoot.get();
   }
 
   /**

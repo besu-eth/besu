@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.AssertionsForClassTypes;
 import org.junit.jupiter.api.Test;
 
@@ -633,6 +634,18 @@ public class BytesValueRLPInputTest {
         .isInstanceOf(RLPException.class)
         .hasMessageContaining(
             "RLP item at offset 1 with size value consuming 5 bytes exceeds max supported size of 2147483647");
+  }
+
+  @Test
+  public void decodesUInt256ScalarsOfEverySize() {
+    for (int size = 0; size <= 32; size++) {
+      final Bytes value =
+          size == 0 ? Bytes.EMPTY : Bytes.concatenate(Bytes.of(0x80), Bytes.random(size - 1));
+      final BytesValueRLPOutput out = new BytesValueRLPOutput();
+      out.writeBytes(value);
+
+      assertThat(RLP.input(out.encoded()).readUInt256Scalar()).isEqualTo(UInt256.fromBytes(value));
+    }
   }
 
   @SuppressWarnings("ReturnValueIgnored")

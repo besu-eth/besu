@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.util.HexUtils;
 
 import java.io.IOException;
 
@@ -63,7 +64,7 @@ public final class BlockAccessListJson {
     public BlockAccessList deserialize(
         final JsonParser jsonParser, final DeserializationContext context) throws IOException {
       final Bytes rawBlockAccessList =
-          Bytes.fromHexString(jsonParser.getCodec().readValue(jsonParser, String.class));
+          HexUtils.fromHexString(jsonParser.getCodec().readValue(jsonParser, String.class));
       return BlockAccessListDecoder.decode(new BytesValueRLPInput(rawBlockAccessList, false));
     }
   }

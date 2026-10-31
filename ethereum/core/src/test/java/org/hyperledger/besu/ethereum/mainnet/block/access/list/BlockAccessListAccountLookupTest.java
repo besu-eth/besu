@@ -17,13 +17,18 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
@@ -74,5 +79,49 @@ class BlockAccessListAccountLookupTest {
     assertThat(index.getAccountChanges(ABSENT_ADDRESS)).isEmpty();
     assertThat(index.getAddressHash(ABSENT_ADDRESS)).isEmpty();
     assertThat(index.getSlotChanges(ABSENT_ADDRESS, SLOT)).isEmpty();
+  }
+
+  @Test
+  void readsAListedParentAccountOnceAndAnUnlistedOneEveryTime() {
+    final BlockAccessListAccountLookup index =
+        BlockAccessListAccountLookup.of(
+            new BlockAccessList(
+                List.of(
+                    new AccountChanges(
+                        ADDRESS, List.of(), List.of(), List.of(), List.of(), List.of()))));
+    final AtomicInteger reads = new AtomicInteger();
+    final Function<Hash, Optional<Bytes>> reader =
+        hash -> {
+          reads.incrementAndGet();
+          return hash.equals(ADDRESS.addressHash()) ? Optional.of(Bytes.of(1)) : Optional.empty();
+        };
+
+    assertThat(index.parentAccount(ADDRESS, reader)).contains(Bytes.of(1));
+    assertThat(index.parentAccount(ADDRESS, reader)).contains(Bytes.of(1));
+    assertThat(reads).hasValue(1);
+
+    assertThat(index.parentAccount(ABSENT_ADDRESS, reader)).isEmpty();
+    assertThat(index.parentAccount(ABSENT_ADDRESS, reader)).isEmpty();
+    assertThat(reads).hasValue(3);
+  }
+
+  @Test
+  void keepsTheFirstParentAccountPut() {
+    final BlockAccessListAccountLookup index =
+        BlockAccessListAccountLookup.of(
+            new BlockAccessList(
+                List.of(
+                    new AccountChanges(
+                        ADDRESS, List.of(), List.of(), List.of(), List.of(), List.of()))));
+
+    index.putParentAccount(ADDRESS, Optional.of(Bytes.of(1)));
+    index.putParentAccount(ADDRESS, Optional.of(Bytes.of(2)));
+    index.putParentAccount(ABSENT_ADDRESS, Optional.of(Bytes.of(3)));
+
+    final Function<Hash, Optional<Bytes>> noRead =
+        hash -> {
+          throw new AssertionError("account read");
+        };
+    assertThat(index.parentAccount(ADDRESS, noRead)).contains(Bytes.of(1));
   }
 }

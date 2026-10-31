@@ -473,4 +473,16 @@ public class PeerTransactionTrackerTest {
     when(peer.getConnection()).thenReturn(connection);
     return peer;
   }
+
+  @Test
+  void seenTransactionsMapHasAPowerOfTwoOfBuckets() {
+    // its parent masks hash codes with the number of buckets minus one
+    for (final int maxEntries : new int[] {1, 2, 3, 1_000, 300_000}) {
+      final int buckets =
+          new PeerTransactionTracker.FixedCapacityLRUMap<Hash, Integer>(maxEntries)
+              .calculateNewCapacity(maxEntries);
+      assertThat(Integer.bitCount(buckets)).as("%d entries", maxEntries).isEqualTo(1);
+      assertThat(buckets).as("%d entries", maxEntries).isGreaterThanOrEqualTo(maxEntries);
+    }
+  }
 }

@@ -22,6 +22,7 @@ import org.hyperledger.besu.plugin.services.trielogs.TrieLogAccumulator;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -41,11 +42,27 @@ record TrieLogChanges(
     Map<Address, ? extends Map<StorageSlotKey, ? extends TrieLog.LogTuple<UInt256>>> storage)
     implements TrieLogAccumulator {
 
+  /**
+   * Maps of at least this many entries are copied on several threads: the copy is made on the
+   * thread that imports the block, before it replies, and a block of many transfers changes tens of
+   * thousands of accounts.
+   */
+  private static final int MIN_ENTRIES_TO_COPY_IN_PARALLEL = 512;
+
   static TrieLogChanges copyOf(final TrieLogAccumulator accumulator) {
     return new TrieLogChanges(
-        new HashMap<>(accumulator.getAccountsToUpdate()),
-        new HashMap<>(accumulator.getCodeToUpdate()),
-        new HashMap<>(accumulator.getStorageToUpdate()));
+        copy(accumulator.getAccountsToUpdate()),
+        copy(accumulator.getCodeToUpdate()),
+        copy(accumulator.getStorageToUpdate()));
+  }
+
+  private static <K, V> Map<K, V> copy(final Map<K, V> map) {
+    if (map.size() < MIN_ENTRIES_TO_COPY_IN_PARALLEL) {
+      return new HashMap<>(map);
+    }
+    final Map<K, V> copy = new ConcurrentHashMap<>(map.size());
+    map.entrySet().parallelStream().forEach(entry -> copy.put(entry.getKey(), entry.getValue()));
+    return copy;
   }
 
   @Override

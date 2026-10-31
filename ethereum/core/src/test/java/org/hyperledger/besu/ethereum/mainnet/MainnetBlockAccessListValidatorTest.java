@@ -546,4 +546,64 @@ class MainnetBlockAccessListValidatorTest {
           .isFalse();
     }
   }
+
+  @Nested
+  class AfterExecution {
+
+    private final List<BlockAccessList.AccountChanges> changes =
+        List.of(
+            new BlockAccessList.AccountChanges(
+                ADDR_1,
+                List.of(),
+                List.of(),
+                List.of(new BlockAccessList.BalanceChange(1, Wei.ONE)),
+                List.of(new BlockAccessList.NonceChange(1, 1L)),
+                List.of()));
+
+    @Test
+    void executedListEqualToTheSuppliedOneTakesTheSuppliedListsHash() {
+      // supplied bytes that are not the encoding of the changes: only their hash matches
+      final Bytes suppliedRlp = Bytes.of(1, 2, 3);
+      final BlockAccessList supplied = new BlockAccessList(changes, Optional.of(suppliedRlp));
+      final BlockHeader header =
+          new BlockHeaderTestFixture()
+              .gasLimit(30_000_000L)
+              .balHash(Hash.hash(suppliedRlp))
+              .buildHeader();
+
+      Assertions.assertThat(
+              validator()
+                  .validateExecutedBlockAccessListAfterBuild(
+                      new BlockAccessList(changes), header, Optional.of(supplied), false))
+          .isEmpty();
+    }
+
+    @Test
+    void executedListThatDiffersFromTheSuppliedOneIsHashed() {
+      final Bytes suppliedRlp = Bytes.of(1, 2, 3);
+      final BlockAccessList supplied = new BlockAccessList(changes, Optional.of(suppliedRlp));
+      final BlockHeader header =
+          new BlockHeaderTestFixture()
+              .gasLimit(30_000_000L)
+              .balHash(Hash.hash(suppliedRlp))
+              .buildHeader();
+
+      Assertions.assertThat(
+              validator()
+                  .validateExecutedBlockAccessListAfterBuild(
+                      new BlockAccessList(List.of()), header, Optional.of(supplied), false))
+          .isPresent();
+    }
+
+    @Test
+    void executedListWithoutASuppliedOneIsHashed() {
+      final BlockAccessList executed = new BlockAccessList(changes);
+
+      Assertions.assertThat(
+              validator()
+                  .validateExecutedBlockAccessListAfterBuild(
+                      executed, headerWithBal(executed, 30_000_000L), Optional.empty(), false))
+          .isEmpty();
+    }
+  }
 }

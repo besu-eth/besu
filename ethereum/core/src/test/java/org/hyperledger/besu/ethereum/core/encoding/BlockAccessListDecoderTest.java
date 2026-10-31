@@ -150,4 +150,42 @@ class BlockAccessListDecoderTest {
         .isInstanceOf(RLPException.class)
         .hasMessageContaining("leading zero");
   }
+
+  @Test
+  void rejectsANonMinimallyEncodedScalarInALongList() {
+    // long enough for its balance changes to be decoded in parallel
+    final Bytes encoded =
+        RLP.encode(
+            out -> {
+              out.startList();
+              out.startList();
+              out.writeBytes(ADDRESS.getBytes());
+              out.startList(); // storage changes
+              out.endList();
+              out.startList(); // storage reads
+              out.endList();
+              out.startList(); // balance changes
+              for (int i = 1; i <= 1000; i++) {
+                out.startList();
+                out.writeUnsignedInt(i);
+                if (i == 700) {
+                  writeNonMinimal(out, BALANCE);
+                } else {
+                  out.writeUInt256Scalar(BALANCE);
+                }
+                out.endList();
+              }
+              out.endList();
+              out.startList(); // nonce changes
+              out.endList();
+              out.startList(); // code changes
+              out.endList();
+              out.endList();
+              out.endList();
+            });
+
+    assertThatThrownBy(() -> decode(encoded))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("leading zero");
+  }
 }

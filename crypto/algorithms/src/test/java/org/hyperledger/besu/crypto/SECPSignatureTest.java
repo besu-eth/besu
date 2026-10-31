@@ -18,7 +18,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigInteger;
+import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.bouncycastle.asn1.sec.SECNamedCurves;
 import org.bouncycastle.asn1.x9.X9ECParameters;
 import org.bouncycastle.crypto.params.ECDomainParameters;
@@ -57,5 +60,33 @@ public class SECPSignatureTest {
   public void createSignature_NoS() {
     assertThatThrownBy(() -> SECPSignature.create(BigInteger.ZERO, null, (byte) 27, curveOrder))
         .isInstanceOf(NullPointerException.class);
+  }
+
+  @Test
+  public void encodesRAndSAs32BytesEach() {
+    for (final BigInteger value :
+        List.of(
+            BigInteger.ONE,
+            BigInteger.valueOf(0x7f),
+            BigInteger.valueOf(0x80),
+            BigInteger.TWO.pow(255),
+            curveOrder.subtract(BigInteger.ONE))) {
+      final SECPSignature signature =
+          SECPSignature.create(
+              value, value.shiftRight(1).max(BigInteger.ONE), (byte) 1, curveOrder);
+      assertThat(signature.encodedBytes())
+          .isEqualTo(
+              Bytes.concatenate(
+                  UInt256.valueOf(signature.getR()),
+                  UInt256.valueOf(signature.getS()),
+                  Bytes.of(1)));
+    }
+  }
+
+  @Test
+  public void encodingRejectsValuesThatDoNotFit256Bits() {
+    final SECPSignature signature =
+        new SECPSignature(BigInteger.TWO.pow(256), BigInteger.ONE, (byte) 0);
+    assertThatThrownBy(signature::encodedBytes).isInstanceOf(IllegalArgumentException.class);
   }
 }

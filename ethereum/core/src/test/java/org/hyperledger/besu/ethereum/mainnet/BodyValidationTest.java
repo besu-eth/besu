@@ -97,4 +97,12 @@ public final class BodyValidationTest {
     Assertions.assertThat(BodyValidation.balHash(decoded))
         .isEqualTo(BodyValidation.balHash(notDecoded));
   }
+
+  @Test
+  public void blockAccessListKeepsItsHash() {
+    final BlockAccessList bal =
+        new BlockAccessList(new BlockDataGenerator().blockAccessList(3).accountChanges());
+
+    Assertions.assertThat(bal.hash()).isEqualTo(Hash.hash(bal.encode())).isSameAs(bal.hash());
+  }
 }

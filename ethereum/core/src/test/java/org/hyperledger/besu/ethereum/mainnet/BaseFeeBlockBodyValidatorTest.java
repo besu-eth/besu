@@ -25,9 +25,11 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -111,5 +113,22 @@ public class BaseFeeBlockBodyValidatorTest {
                 Collections.emptyList()));
 
     assertThat(blockBodyValidator.validateTransactionGasPrice(block)).isFalse();
+  }
+
+  @Test
+  public void BlockBodyValidatorFail_OneUnderpricedTransactionInALargeBlock() {
+    when(blockHeader.getBaseFee()).thenReturn(Optional.of(Wei.of(10L)));
+    final Transaction priced =
+        new TransactionTestFixture().gasPrice(Wei.of(10L)).createTransaction(keyPair);
+    final List<Transaction> transactions = new ArrayList<>(Collections.nCopies(1000, priced));
+    // checked in parallel: the underpriced transaction is one of many
+    transactions.set(
+        700, new TransactionTestFixture().gasPrice(Wei.of(9L)).createTransaction(keyPair));
+    when(block.getBody()).thenReturn(new BlockBody(transactions, Collections.emptyList()));
+
+    assertThat(blockBodyValidator.validateTransactionGasPrice(block)).isFalse();
+
+    transactions.set(700, priced);
+    assertThat(blockBodyValidator.validateTransactionGasPrice(block)).isTrue();
   }
 }

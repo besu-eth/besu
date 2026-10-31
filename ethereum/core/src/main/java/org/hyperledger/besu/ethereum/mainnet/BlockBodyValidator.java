@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 
 import java.util.List;
 import java.util.OptionalLong;
+import java.util.function.Supplier;
 
 /** Validates block bodies. */
 public interface BlockBodyValidator {
@@ -69,10 +70,47 @@ public interface BlockBodyValidator {
    *     from receipts.
    * @return {@code true} if valid; otherwise {@code false}
    */
+  default boolean validateBody(
+      final ProtocolContext context,
+      final Block block,
+      final List<TransactionReceipt> receipts,
+      final Hash worldStateRootHash,
+      final HeaderValidationMode ommerValidationMode,
+      final BodyValidationMode bodyValidationMode,
+      final OptionalLong cumulativeBlockGasUsed) {
+    return validateBody(
+        context,
+        block,
+        receipts,
+        () -> BodyValidation.receiptsRoot(receipts),
+        worldStateRootHash,
+        ommerValidationMode,
+        bodyValidationMode,
+        cumulativeBlockGasUsed);
+  }
+
+  /**
+   * Validates that the block body is valid.
+   *
+   * @param context The context to validate against
+   * @param block The block to validate
+   * @param receipts The receipts that correspond to the blocks transactions
+   * @param receiptsRoot The root of the receipts, which processing the block may have computed
+   *     while it processed the rest of the block
+   * @param worldStateRootHash The rootHash defining the world state after processing this block and
+   *     all of its transactions.
+   * @param ommerValidationMode The validation mode to use for ommer headers
+   * @param bodyValidationMode The validation mode to use for the body
+   * @param cumulativeBlockGasUsed The cumulative block gas used from block processing (pre-refund
+   *     for EIP-7778). When provided, this value is used for gas validation instead of deriving
+   *     from receipts.
+   * @return {@code true} if valid; otherwise {@code false}
+   */
   boolean validateBody(
       final ProtocolContext context,
       final Block block,
       final List<TransactionReceipt> receipts,
+      final Supplier<Hash> receiptsRoot,
       final Hash worldStateRootHash,
       final HeaderValidationMode ommerValidationMode,
       final BodyValidationMode bodyValidationMode,

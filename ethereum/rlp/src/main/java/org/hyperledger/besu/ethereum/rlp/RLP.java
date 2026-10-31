@@ -195,6 +195,30 @@ public abstract class RLP {
   }
 
   /**
+   * Returns the size (in bytes) of the encoding of a list whose encoded content has the given size.
+   *
+   * @param payloadSize The total size (in bytes) of the encoded list content.
+   * @return The size of the encoded list, header included.
+   */
+  public static int encodedListSize(final int payloadSize) {
+    return RLPEncodingHelpers.listSize(payloadSize);
+  }
+
+  /**
+   * Returns the size (in bytes) of the encoding of a byte string of the given length, for a string
+   * of any length but one: a single byte below 0x80 encodes as itself.
+   *
+   * @param length The length of the byte string, not 1.
+   * @return The size of the encoded byte string, header included.
+   */
+  public static int encodedBytesSize(final int length) {
+    if (length == 1) {
+      throw new IllegalArgumentException("The encoded size of a single byte depends on its value");
+    }
+    return length <= 55 ? 1 + length : 1 + RLPEncodingHelpers.sizeLength(length) + length;
+  }
+
+  /**
    * Returns the RLP list header bytes for a list whose encoded content has the given length.
    *
    * @param payloadSize The total size (in bytes) of the already-encoded list content.

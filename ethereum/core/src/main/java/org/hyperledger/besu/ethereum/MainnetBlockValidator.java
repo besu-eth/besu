@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -349,10 +350,16 @@ public class MainnetBlockValidator implements BlockValidator {
             result.getYield().map(BlockProcessingOutputs::getAccessedAncestors).orElse(Map.of());
         long cumulativeBlockGasUsed =
             result.getYield().map(BlockProcessingOutputs::getCumulativeBlockGasUsed).orElse(0L);
+        final Supplier<Hash> receiptsRoot =
+            result
+                .getYield()
+                .<Supplier<Hash>>map(outputs -> outputs::getReceiptsRoot)
+                .orElse(() -> BodyValidation.receiptsRoot(receipts));
         if (!blockBodyValidator.validateBody(
             context,
             block,
             receipts,
+            receiptsRoot,
             worldState.rootHash(),
             ommerValidationMode,
             BodyValidationMode.FULL,
