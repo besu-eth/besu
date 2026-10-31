@@ -50,7 +50,7 @@ public class DebugStandardTraceBlockToFileTest {
   private final BlockchainQueries blockchainQueries = mock(BlockchainQueries.class);
   private final TransactionTracer transactionTracer = mock(TransactionTracer.class);
   private final DebugStandardTraceBlockToFile debugStandardTraceBlockToFile =
-      new DebugStandardTraceBlockToFile(() -> transactionTracer, blockchainQueries, folder);
+      new DebugStandardTraceBlockToFile(() -> transactionTracer, blockchainQueries, folder, 1000L);
 
   @Test
   public void nameShouldBeDebugTraceTransaction() {
@@ -87,7 +87,7 @@ public class DebugStandardTraceBlockToFileTest {
             });
 
     when(transactionTracer.traceTransactionToFile(
-            any(MutableWorldState.class), eq(block.getHash()), any(), any()))
+            any(MutableWorldState.class), eq(block.getHash()), any(), any(), eq(1000L)))
         .thenReturn(paths);
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse) debugStandardTraceBlockToFile.response(request);
