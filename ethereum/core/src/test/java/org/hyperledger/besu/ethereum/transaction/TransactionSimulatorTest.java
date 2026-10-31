@@ -21,8 +21,10 @@ import static org.hyperledger.besu.evm.tracing.OperationTracer.NO_TRACING;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -52,6 +54,9 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidator;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidatorFactory;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -117,6 +122,8 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
   @Mock private ProtocolSpec protocolSpec;
   @Mock private MainnetTransactionProcessor transactionProcessor;
   @Mock private GasLimitCalculator gasLimitCalculator;
+  @Mock private TransactionValidatorFactory transactionValidatorFactory;
+  @Mock private TransactionValidator transactionValidator;
   private final BlockHeaderTestFixture blockHeaderTestFixture = new BlockHeaderTestFixture();
 
   @BeforeEach
@@ -1137,6 +1144,96 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
     assertThat(result.get().transaction().getType()).isEqualTo(TransactionType.DELEGATE_CODE);
   }
 
+  @ParameterizedTest
+  @MethodSource("signedGasLimits")
+  public void shouldPreserveSignedGasOrRejectAboveCap(
+      final long cap, final long gasLimit, final boolean rejected) {
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.FRONTIER)
+            .nonce(42L)
+            .gasPrice(Wei.ONE)
+            .gasLimit(gasLimit)
+            .to(DEFAULT_FROM)
+            .sender(DEFAULT_FROM)
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .signature(FAKE_SIGNATURE)
+            .build();
+    final BlockHeader header = mockBlockHeader(Hash.ZERO, 1L, Wei.ONE, DEFAULT_BLOCK_GAS_LIMIT);
+    mockWorldStateForAccount(header, DEFAULT_FROM, 1L);
+    mockProcessorStatusForTransaction(transaction, Status.SUCCESSFUL);
+    final TransactionSimulator simulator =
+        new TransactionSimulator(
+            blockchain,
+            worldStateArchive,
+            protocolSchedule,
+            MiningConfiguration.newDefault().setCoinbase(Address.ZERO),
+            cap);
+    final TransactionValidationParams params = TransactionValidationParams.blockReplay();
+    final Optional<TransactionSimulatorResult> result =
+        simulator.process(transaction, params, NO_TRACING, (state, value) -> value, header);
+    assertThat(result).isPresent();
+    assertThat(result.orElseThrow().transaction()).isSameAs(transaction);
+    if (rejected) {
+      assertThat(result.orElseThrow().getValidationResult().getInvalidReason())
+          .isEqualTo(TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT);
+      verifyNoInteractions(transactionProcessor);
+    } else {
+      assertThat(result.orElseThrow().isSuccessful()).isTrue();
+      verify(transactionProcessor)
+          .processTransaction(
+              any(),
+              same(header),
+              same(transaction),
+              any(),
+              same(NO_TRACING),
+              any(),
+              same(params),
+              any(Wei.class),
+              any());
+    }
+  }
+
+  @Test
+  public void shouldReportSignedTransactionValidityBeforeGasCap() {
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.FRONTIER)
+            .nonce(42L)
+            .gasPrice(Wei.ONE)
+            .gasLimit(RPC_GAS_CAP + 1)
+            .to(DEFAULT_FROM)
+            .sender(DEFAULT_FROM)
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .signature(FAKE_SIGNATURE)
+            .build();
+    final BlockHeader header = mockBlockHeader(Hash.ZERO, 1L, Wei.ONE, DEFAULT_BLOCK_GAS_LIMIT);
+    mockWorldStateForAccount(header, DEFAULT_FROM, 1L);
+    mockProtocolSpecForProcessWithWorldUpdater();
+    final TransactionValidationParams params = TransactionValidationParams.blockReplay();
+    // Only the arguments normal processing passes reach the rejecting stub.
+    when(transactionValidator.validate(
+            same(transaction), eq(header.getBaseFee()), any(), same(params)))
+        .thenReturn(ValidationResult.invalid(TransactionInvalidReason.INVALID_SIGNATURE));
+    final Optional<TransactionSimulatorResult> result =
+        cappedTransactionSimulator.process(
+            transaction, params, NO_TRACING, (state, value) -> value, header);
+    assertThat(result.orElseThrow().getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INVALID_SIGNATURE);
+    verifyNoInteractions(transactionProcessor);
+  }
+
+  private static Stream<Arguments> signedGasLimits() {
+    return Stream.of(
+        Arguments.of(0L, RPC_GAS_CAP + 1, false),
+        Arguments.of(RPC_GAS_CAP, RPC_GAS_CAP - 1, false),
+        Arguments.of(RPC_GAS_CAP, RPC_GAS_CAP, false),
+        Arguments.of(RPC_GAS_CAP, RPC_GAS_CAP + 1, true),
+        Arguments.of(RPC_GAS_CAP, Long.MIN_VALUE, true));
+  }
+
   @ParameterizedTest(name = "{0}")
   @MethodSource("feeFieldCases")
   public void shouldTypeAndPriceCallFromItsFeeFields(
@@ -1321,6 +1418,10 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(protocolSpec.getTransactionProcessor()).thenReturn(transactionProcessor);
+    when(protocolSpec.getTransactionValidatorFactory()).thenReturn(transactionValidatorFactory);
+    when(transactionValidatorFactory.get()).thenReturn(transactionValidator);
+    when(transactionValidator.validate(any(), any(), any(), any()))
+        .thenReturn(ValidationResult.valid());
     when(protocolSpec.getMiningBeneficiaryCalculator()).thenReturn(BlockHeader::getCoinbase);
     when(protocolSpec.getBlockHeaderFunctions()).thenReturn(blockHeaderFunctions);
     when(protocolSpec.getFeeMarket()).thenReturn(FeeMarket.london(0));

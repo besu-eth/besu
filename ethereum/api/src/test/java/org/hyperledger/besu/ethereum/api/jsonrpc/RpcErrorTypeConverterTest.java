@@ -68,7 +68,14 @@ public class RpcErrorTypeConverterTest {
             RpcErrorType.BLOB_GAS_PRICE_BELOW_CURRENT_BLOB_BASE_FEE
           },
           {TransactionInvalidReason.TOTAL_BLOB_GAS_TOO_HIGH, RpcErrorType.TOTAL_BLOB_GAS_TOO_HIGH},
-          {TransactionInvalidReason.INVALID_BLOBS, RpcErrorType.INVALID_BLOBS}
+          {TransactionInvalidReason.INVALID_BLOBS, RpcErrorType.INVALID_BLOBS},
+          {TransactionInvalidReason.INVALID_BLOB_COUNT, RpcErrorType.INVALID_BLOB_COUNT},
+          {TransactionInvalidReason.INITCODE_TOO_LARGE, RpcErrorType.INVALID_TRANSACTION_PARAMS},
+          {TransactionInvalidReason.NONCE_OVERFLOW, RpcErrorType.INVALID_TRANSACTION_PARAMS},
+          {
+            TransactionInvalidReason.UPFRONT_COST_EXCEEDS_UINT256,
+            RpcErrorType.INVALID_TRANSACTION_PARAMS
+          }
         });
   }
 
