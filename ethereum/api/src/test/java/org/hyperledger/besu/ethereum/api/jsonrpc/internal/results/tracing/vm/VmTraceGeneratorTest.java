@@ -84,6 +84,18 @@ class VmTraceGeneratorTest {
   }
 
   @Test
+  void mcopyBeforeUnpaidCodeDepositReportsDestinationWrite() {
+    // MSTORE8(0, 0x2a); MCOPY(dst=0x20, src=0, len=1); RETURN(0, 0x400): the 204,800 gas code
+    // deposit fails after MCOPY copied its byte
+    final VmTrace trace = vmTrace("0x602a600053" + "61040060006001600060205e" + "f3");
+
+    final Mem mem = memAt(trace, 16);
+    assertThat(mem).isNotNull();
+    assertThat(mem.getOff()).isEqualTo(0x20);
+    assertThat(mem.getData()).isEqualTo("0x2a");
+  }
+
+  @Test
   void zeroLengthMcopyAfterCallReportsNoMemoryWrite() {
     // MSTORE(0, 0x2a); push MCOPY len=0, src=0;
     // CALL(GAS, identity, 0, in=0..0x20, out=0x20..0x40); MCOPY(dst=success, src=0, len=0); STOP

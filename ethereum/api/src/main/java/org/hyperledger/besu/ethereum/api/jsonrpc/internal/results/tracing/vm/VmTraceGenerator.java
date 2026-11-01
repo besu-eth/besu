@@ -91,7 +91,7 @@ public class VmTraceGenerator {
       initStep(frame);
       final VmOperation op = buildVmOperation();
       final VmOperationExecutionReport report = generateExecutionReport();
-      generateTracingMemory(report);
+      generateTracingMemory(report, nextTraceFrame);
       generateTracingPush(report);
       generateTracingStorage(report);
       handleDepthIncreased(op, report, nextTraceFrame);
@@ -227,7 +227,8 @@ public class VmTraceGenerator {
     return report;
   }
 
-  private void generateTracingMemory(final VmOperationExecutionReport report) {
+  private void generateTracingMemory(
+      final VmOperationExecutionReport report, final Optional<TraceFrame> nextTraceFrame) {
     switch (currentOperation) {
       case "CALLDATACOPY":
       case "CODECOPY":
@@ -239,7 +240,7 @@ public class VmTraceGenerator {
         addUpdatedMemory(report);
         break;
       case "MCOPY":
-        if (mcopyWroteMemory()) {
+        if (mcopyWroteMemory(nextTraceFrame)) {
           addUpdatedMemory(report);
         }
         break;
@@ -262,8 +263,13 @@ public class VmTraceGenerator {
    * frame's updated memory may still hold the write of a preceding CALL's return data. Only trust
    * it when this MCOPY actually copied bytes.
    */
-  private boolean mcopyWroteMemory() {
-    if (currentTraceFrame.getExceptionalHaltReason().isPresent()) {
+  private boolean mcopyWroteMemory(final Optional<TraceFrame> nextTraceFrame) {
+    // A failed code deposit marks the last opcode before the init code's RETURN as halted too, but
+    // only an opcode that really halted ends its call context.
+    if (currentTraceFrame.getExceptionalHaltReason().isPresent()
+        && nextTraceFrame
+            .map(next -> next.getDepth() < currentTraceFrame.getDepth())
+            .orElse(true)) {
       return false;
     }
     // the traced stack is the pre-execution snapshot, bottom to top: [..., length, src, dst]
