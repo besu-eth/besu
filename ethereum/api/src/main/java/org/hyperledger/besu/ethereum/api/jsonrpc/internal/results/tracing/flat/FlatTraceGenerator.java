@@ -154,7 +154,8 @@ public class FlatTraceGenerator {
 
       } else if ("CALLDATALOAD".equals(opcodeString)) {
         currentContext = handleCallDataLoad(currentContext, traceFrame);
-      } else if ("RETURN".equals(opcodeString) || "STOP".equals(opcodeString)) {
+      } else if (("RETURN".equals(opcodeString) || "STOP".equals(opcodeString))
+          && traceFrame.getExceptionalHaltReason().isEmpty()) {
         currentContext =
             handleReturn(
                 protocolSchedule,
@@ -187,10 +188,11 @@ public class FlatTraceGenerator {
                 cumulativeGasCost,
                 tracesContexts,
                 smartContractAddress);
-      } else if ("REVERT".equals(opcodeString)) {
+      } else if ("REVERT".equals(opcodeString) && traceFrame.getExceptionalHaltReason().isEmpty()) {
         currentContext = handleRevert(tracesContexts, currentContext);
       }
 
+      // A halted RETURN or REVERT, including a failed code deposit, ends only its own frame.
       // A precompile's halt is recorded on the caller's CALL opcode, but the caller continues.
       if (traceFrame.getExceptionalHaltReason().isPresent()
           && !(isCall && traceFrame.isPrecompile())) {
