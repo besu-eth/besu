@@ -21,112 +21,107 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 
 import org.apache.tuweni.units.bigints.UInt256;
 
 public class TransactionCollisionDetector {
 
   /**
-   * Checks if there is a conflict between the current block's state and the given transaction.
+   * Checks whether the block changed state that the transaction read or wrote while it executed
+   * speculatively against the parent state.
    *
-   * <p>This method detects conflicts between the transaction and the block's state by checking if
-   * the transaction modifies the same addresses and storage slots that are already modified by the
-   * block. A conflict occurs in two cases: 1. If the transaction touches an address that is also
-   * modified in the block, and the account details (excluding storage) are identical. In this case,
-   * it checks if there is an overlap in the storage slots affected by both the transaction and the
-   * block. 2. If the account details differ between the transaction and the block (excluding
-   * storage), it immediately detects a conflict.
+   * <p>The transaction collides when it touched the mining beneficiary, an account whose nonce,
+   * balance or code the block changed, or a slot of an account whose slot the block changed or
+   * whose storage the block cleared.
    *
-   * <p>The method returns `true` if any such conflict is found, otherwise `false`.
-   *
-   * @param transaction The transaction to check for conflicts with the block's state.
-   * @param parallelizedTransactionContext The context for the parallelized execution of the
-   *     transaction.
-   * @param blockAccumulator The accumulator containing the state updates of the current block.
-   * @return true if there is a conflict between the transaction and the block's state, otherwise
-   *     false.
+   * @param transaction the transaction that executed speculatively
+   * @param miningBeneficiary the mining beneficiary of the block
+   * @param parallelizedTransactionContext the speculative result with the state it read and wrote
+   * @param blockAccumulator the state changes of the earlier transactions of the block
+   * @return true if the speculative result must not be used
    */
   public boolean hasCollision(
       final Transaction transaction,
       final Address miningBeneficiary,
       final ParallelizedTransactionContext parallelizedTransactionContext,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
-    final Set<Address> addressesTouchedByTransaction =
-        getAddressesTouchedByTransaction(
-            transaction, Optional.of(parallelizedTransactionContext.transactionAccumulator()));
-    if (addressesTouchedByTransaction.contains(miningBeneficiary)) {
-      return true;
-    }
     final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
         parallelizedTransactionContext.transactionAccumulator();
-    for (final Address next : addressesTouchedByTransaction) {
-      final BonsaiValue<? extends BonsaiAccount> inBlock =
-          blockAccumulator.getAccountsToUpdate().get(next);
-      if (inBlock == null) {
-        continue;
-      }
-      if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
+    if (isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)) {
+      return true;
+    }
+    for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
+      if (hasCollision(address, transactionAccumulator, blockAccumulator)) {
         return true;
-      }
-      final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
-          transactionAccumulator.getStorageToUpdate().get(next);
-      if (slots == null || slots.isEmpty()) {
-        continue;
-      }
-      // re-creating an account drops the block's entries of the slots it cleared, so the
-      // transaction's slots can't be compared with them
-      if (blockAccumulator.getStorageToClear().contains(next)) {
-        return true;
-      }
-      final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> blockSlots =
-          blockAccumulator.getStorageToUpdate().get(next);
-      if (blockSlots == null) {
-        continue;
-      }
-      // the block may have changed many slots of a popular contract, the transaction few
-      for (final StorageSlotKey slot : slots.keySet()) {
-        final BonsaiValue<UInt256> inBlockSlot = blockSlots.get(slot);
-        if (inBlockSlot != null && !inBlockSlot.isUnchanged()) {
-          return true;
-        }
       }
     }
-    return false;
+    for (final Address address : transactionAccumulator.getDeletedAccountAddresses()) {
+      if (hasCollision(address, transactionAccumulator, blockAccumulator)) {
+        return true;
+      }
+    }
+    return hasCollision(transaction.getSender(), transactionAccumulator, blockAccumulator)
+        || transaction
+            .getTo()
+            .filter(to -> hasCollision(to, transactionAccumulator, blockAccumulator))
+            .isPresent();
   }
 
   /**
-   * Retrieves the set of addresses that were touched by a transaction. This includes the sender and
-   * recipient of the transaction, as well as any addresses that were read from or written to by the
-   * transaction's execution.
+   * Checks whether the transaction touched the address: its sender, its recipient, or an account
+   * its execution read, wrote or deleted.
    *
-   * @param transaction The transaction to analyze.
-   * @param accumulator An optional accumulator containing state changes made by the transaction.
-   * @return A set of addresses touched by the transaction.
+   * @param transaction the transaction that executed speculatively
+   * @param transactionAccumulator the state the transaction read and wrote
+   * @param address the address to look for
+   * @return true if the transaction touched the address
    */
-  public Set<Address> getAddressesTouchedByTransaction(
+  public boolean isAddressTouchedByTransaction(
       final Transaction transaction,
-      final Optional<PathBasedWorldStateUpdateAccumulator<?>> accumulator) {
-    HashSet<Address> addresses = new HashSet<>();
-    addresses.add(transaction.getSender());
-    if (transaction.getTo().isPresent()) {
-      addresses.add(transaction.getTo().get());
-    }
-    accumulator.ifPresent(
-        pathBasedWorldStateUpdateAccumulator -> {
-          pathBasedWorldStateUpdateAccumulator
-              .getAccountsToUpdate()
-              .forEach(
-                  (address, pathBasedValue) -> {
-                    addresses.add(address);
-                  });
-          addresses.addAll(pathBasedWorldStateUpdateAccumulator.getDeletedAccountAddresses());
-        });
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final Address address) {
+    return address.equals(transaction.getSender())
+        || transaction.getTo().filter(address::equals).isPresent()
+        || transactionAccumulator.getAccountsToUpdate().containsKey(address)
+        || transactionAccumulator.getDeletedAccountAddresses().contains(address);
+  }
 
-    return addresses;
+  private boolean hasCollision(
+      final Address address,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
+    final BonsaiValue<? extends BonsaiAccount> inBlock =
+        blockAccumulator.getAccountsToUpdate().get(address);
+    if (inBlock == null) {
+      return false;
+    }
+    if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
+      return true;
+    }
+    final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
+        transactionAccumulator.getStorageToUpdate().get(address);
+    if (slots == null || slots.isEmpty()) {
+      return false;
+    }
+    // re-creating an account drops the block's entries of the slots it cleared, so the
+    // transaction's slots can't be compared with them
+    if (blockAccumulator.getStorageToClear().contains(address)) {
+      return true;
+    }
+    final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> blockSlots =
+        blockAccumulator.getStorageToUpdate().get(address);
+    if (blockSlots == null) {
+      return false;
+    }
+    // the block may have changed many slots of a popular contract, the transaction few
+    for (final StorageSlotKey slot : slots.keySet()) {
+      final BonsaiValue<UInt256> inBlockSlot = blockSlots.get(slot);
+      if (inBlockSlot != null && inBlockSlot.isChanged()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -130,10 +130,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                    * it means that the value is necessary for the proper execution of the transaction and will therefore be considered in collision detection.
                    * If this is not the case, we can ignore this address during conflict detection.
                    */
-                  if (transactionCollisionDetector
-                      .getAddressesTouchedByTransaction(
-                          transaction, Optional.of(roundWorldStateUpdater))
-                      .contains(miningBeneficiary)) {
+                  if (transactionCollisionDetector.isAddressTouchedByTransaction(
+                      transaction, roundWorldStateUpdater, miningBeneficiary)) {
                     contextBuilder.isMiningBeneficiaryTouchedPreRewardByTransaction(true);
                   }
                   contextBuilder.miningBeneficiaryReward(miningReward);
