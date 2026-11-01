@@ -165,7 +165,7 @@ public class BytesValueRLPInput implements RLPInput {
     // payload.
     try {
       final RLPDecodingHelpers.RLPElementMetadata elementMetadata =
-          RLPDecodingHelpers.rlpElementMetadata(value, size, currentItem);
+          RLPDecodingHelpers.rlpElementMetadata(this::inputByte, size, currentItem);
       currentKind = elementMetadata.kind;
       currentPayloadOffset = elementMetadata.payloadStart;
       currentPayloadSize = elementMetadata.payloadSize;

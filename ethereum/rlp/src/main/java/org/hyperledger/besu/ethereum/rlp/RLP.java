@@ -236,6 +236,7 @@ public abstract class RLP {
    * @return the length of the encoded data, according to the prefixed metadata
    */
   public static int calculateSize(final Bytes value) {
-    return RLPDecodingHelpers.rlpElementMetadata(value, value.size(), 0).getEncodedSize();
+    return RLPDecodingHelpers.rlpElementMetadata((index) -> value.get((int) index), value.size(), 0)
+        .getEncodedSize();
   }
 }

@@ -43,7 +43,7 @@ class NewPooledTransactionHashesMessageSender {
 
   public void sendTransactionAnnouncementsToPeer(final EthPeer peer) {
     final Capability capability = peer.getConnection().capability(EthProtocol.NAME);
-    final List<Transaction> txBatch = new ArrayList<>();
+    final List<Transaction> txBatch = new ArrayList<>(maxAnnouncementsPerMessage);
     Transaction announcementToSend;
     while ((announcementToSend = transactionTracker.claimAnnouncementToSendToPeer(peer)) != null) {
       if (!transactionTracker.hasPeerSeenTransactionOrAnnouncement(
