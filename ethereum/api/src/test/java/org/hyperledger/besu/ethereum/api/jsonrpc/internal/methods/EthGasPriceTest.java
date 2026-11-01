@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -51,6 +52,7 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -170,6 +172,24 @@ public class EthGasPriceTest {
     // getBlockBody. The exact number of getBlockBody calls is bounded by the window size.
     verify(blockchain).getChainHeadHeader();
     verify(blockchain).getBlockHeaders(anyLong(), eq(100));
+  }
+
+  @Test
+  public void newHeadReadsOnlyTheBodyOfTheBlockEnteringTheWindow() {
+    mockBaseFeeMarket();
+    final Map<Long, Block> blocks = mockBlockchain(1001L, 1);
+    when(blockchain.getChainHeadHeader()).thenReturn(blocks.get(1000L).getHeader());
+    method.response(requestWithParams());
+
+    when(blockchain.getChainHeadHeader()).thenReturn(blocks.get(1001L).getHeader());
+    final JsonRpcRequestContext request = requestWithParams();
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    // 9.52 mwei, gas prices are 9.02-10.01 mwei.
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), "0x914380");
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(blockchain, times(101)).getBlockBody(any(Hash.class));
   }
 
   @Test
@@ -374,11 +394,11 @@ public class EthGasPriceTest {
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
   }
 
-  private void mockBlockchain(final long chainHeadBlockNumber, final int txsNum) {
-    mockBlockchain(DEFAULT_BASE_FEE, chainHeadBlockNumber, txsNum);
+  private Map<Long, Block> mockBlockchain(final long chainHeadBlockNumber, final int txsNum) {
+    return mockBlockchain(DEFAULT_BASE_FEE, chainHeadBlockNumber, txsNum);
   }
 
-  private void mockBlockchain(
+  private Map<Long, Block> mockBlockchain(
       final Wei genesisBaseFee, final long chainHeadBlockNumber, final int txsNum) {
     final var blocksByNumber = new HashMap<Long, Block>();
     final var blocksByHash = new HashMap<Hash, Block>();
@@ -424,6 +444,7 @@ public class EthGasPriceTest {
               final Hash hash = invocation.getArgument(0, Hash.class);
               return Optional.ofNullable(blocksByHash.get(hash)).map(Block::getBody);
             });
+    return blocksByNumber;
   }
 
   private Block createFakeBlock(final long height, final int txsNum, final Wei baseFee) {
