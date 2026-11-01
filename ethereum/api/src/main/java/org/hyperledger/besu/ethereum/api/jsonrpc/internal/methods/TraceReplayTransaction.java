@@ -39,9 +39,9 @@ import org.hyperledger.besu.ethereum.chain.TransactionLocation;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
@@ -189,7 +189,7 @@ public class TraceReplayTransaction implements JsonRpcMethod {
                   header.getCoinbase(),
                   OperationTracer.NO_TRACING,
                   blockHashLookup,
-                  ImmutableTransactionValidationParams.builder().build(),
+                  TransactionValidationParams.blockReplay(),
                   blobGasPrice));
     }
 

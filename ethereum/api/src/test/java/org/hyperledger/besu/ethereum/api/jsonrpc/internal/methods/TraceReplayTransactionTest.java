@@ -61,6 +61,7 @@ import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -232,6 +233,17 @@ class TraceReplayTransactionTest {
         .isEqualTo(BigInteger.TWO);
     assertThat(Bytes32.fromHexString(slot.at("/*/to").asText()).toUnsignedBigInteger())
         .isEqualTo(BigInteger.valueOf(3));
+  }
+
+  @Test
+  void shouldReplayAfterSenderLeavesLocalAllowlist() {
+    final List<String> types = List.of("trace", "stateDiff");
+    final List<JsonNode> expected = IntStream.range(0, 3).mapToObj(i -> replay(i, types)).toList();
+    schedule.setPermissionTransactionFilter((transaction, checkLocalPermissions) -> false);
+    for (int i = 0; i < 3; i++) {
+      assertThat(replay(i, types)).isEqualTo(expected.get(i));
+    }
+    shouldMatchBlockReplayForEveryTransactionAndSelection(types);
   }
 
   @Test
