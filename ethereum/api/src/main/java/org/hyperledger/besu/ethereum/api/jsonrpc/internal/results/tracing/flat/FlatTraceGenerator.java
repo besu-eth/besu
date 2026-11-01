@@ -167,7 +167,8 @@ public class FlatTraceGenerator {
 
       } else if ("CALLDATALOAD".equals(opcodeString)) {
         currentContext = handleCallDataLoad(currentContext, traceFrame);
-      } else if ("RETURN".equals(opcodeString) || "STOP".equals(opcodeString)) {
+      } else if (("RETURN".equals(opcodeString) || "STOP".equals(opcodeString))
+          && traceFrame.getExceptionalHaltReason().isEmpty()) {
         currentContext =
             handleReturn(
                 protocolSchedule,
@@ -205,6 +206,7 @@ public class FlatTraceGenerator {
         currentContext = handleRevert(tracesContexts, currentContext);
       }
 
+      // A RETURN whose code deposit fails ends its own frame here rather than returning.
       if (traceFrame.getExceptionalHaltReason().isPresent()) {
         currentContext = handleHalt(flatTraces, tracesContexts, currentContext, traceFrame);
       }

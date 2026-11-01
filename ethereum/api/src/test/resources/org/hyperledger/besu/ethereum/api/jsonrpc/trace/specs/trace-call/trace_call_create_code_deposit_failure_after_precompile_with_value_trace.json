@@ -1,0 +1,53 @@
+{
+  "comment" : "The constructor sends 1 wei to the identity precompile and then returns code it lacks the gas to deposit; the precompile call succeeds and the failed code deposit belongs to the creation",
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "trace_call",
+    "params" : [ {
+      "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+      "gas" : "0x1d4c0",
+      "gasPrice" : "0xef",
+      "value" : "0x1",
+      "data" : "0x61020060006000600060006001600461fffff1f3"
+    }, [ "trace" ], "latest" ],
+    "id" : 55
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "result" : {
+      "output" : "0x",
+      "stateDiff" : null,
+      "trace" : [ {
+        "action" : {
+          "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas" : "0x104b4",
+          "init" : "0x61020060006000600060006001600461fffff1f3",
+          "value" : "0x1"
+        },
+        "error" : "out of gas",
+        "subtraces" : 1,
+        "traceAddress" : [ ],
+        "type" : "create"
+      }, {
+        "action" : {
+          "callType" : "call",
+          "from" : "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+          "gas" : "0x8418",
+          "input" : "0x",
+          "to" : "0x0000000000000000000000000000000000000004",
+          "value" : "0x1"
+        },
+        "result" : {
+          "gasUsed" : "0xf",
+          "output" : "0x"
+        },
+        "subtraces" : 0,
+        "traceAddress" : [ 0 ],
+        "type" : "call"
+      } ],
+      "vmTrace" : null
+    },
+    "id" : 55
+  },
+  "statusCode" : 200
+}
