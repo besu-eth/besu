@@ -203,10 +203,11 @@ public class RpcWebsocketOptions {
   private String rpcWsTrustStoreType = null;
 
   @CommandLine.ArgGroup(exclusive = true, multiplicity = "1")
-  private KeystorePasswordOptions keystorePasswordOptions;
+  private final KeystorePasswordOptions keystorePasswordOptions = new KeystorePasswordOptions();
 
   @CommandLine.ArgGroup(exclusive = true, multiplicity = "1")
-  private TruststorePasswordOptions truststorePasswordOptions;
+  private final TruststorePasswordOptions truststorePasswordOptions =
+      new TruststorePasswordOptions();
 
   /** Default Constructor. */
   public RpcWebsocketOptions() {}
