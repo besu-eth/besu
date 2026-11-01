@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.blockcreation;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
@@ -164,6 +165,8 @@ public class MempoolPrewarmer implements AutoCloseable {
       final int gasLimitMultiplier,
       final MetricsSystem metricsSystem,
       final Clock clock) {
+    checkArgument(threads > 0, "threads must be positive");
+    checkArgument(gasLimitMultiplier > 0, "gasLimitMultiplier must be positive");
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
     this.transactionPool = transactionPool;
@@ -273,8 +276,8 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
-   * Stops prewarming for good and waits until the running executions have stopped, so that none of
-   * them reads the state after its storage is closed.
+   * Stops prewarming for good and waits up to five seconds for the running pass and executions to
+   * stop, so that none of them reads the chain or the state after its storage is closed.
    */
   @Override
   public void close() {
@@ -283,8 +286,10 @@ public class MempoolPrewarmer implements AutoCloseable {
     coordinator.shutdownNow();
     executors.shutdown();
     try {
-      if (!executors.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-        LOG.debug("Prewarming executions still running after {} s", CLOSE_TIMEOUT_SECONDS);
+      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(CLOSE_TIMEOUT_SECONDS);
+      if (!coordinator.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+          || !executors.awaitTermination(deadline - System.nanoTime(), TimeUnit.NANOSECONDS)) {
+        LOG.debug("Prewarming still running after {} s", CLOSE_TIMEOUT_SECONDS);
       }
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -482,15 +487,9 @@ public class MempoolPrewarmer implements AutoCloseable {
     if (!isWarming(warming)) {
       return;
     }
-    final Optional<MutableWorldState> maybeWorldState =
-        protocolContext
-            .getWorldStateArchive()
-            .getWorldState(withBlockHeaderAndNoUpdateNodeHead(warming.head()));
-    if (maybeWorldState.isEmpty()) {
-      return;
-    }
+    // a sender that fails is not tried again until it has new transactions
     transactions.forEach(transaction -> warming.attempted().add(transaction.getHash()));
-    try (final MutableWorldState worldState = maybeWorldState.get()) {
+    try (final MutableWorldState worldState = headWorldState(warming.head())) {
       if (worldState instanceof BonsaiWorldState bonsaiWorldState) {
         // the state root of these executions is never computed
         bonsaiWorldState.disableCacheMerkleTrieLoader();
@@ -532,10 +531,9 @@ public class MempoolPrewarmer implements AutoCloseable {
         updater.commit();
         updater.markTransactionBoundary();
         executedTransactions.inc();
-        // a transaction warmed again for the sender's new ones reads what is cached already
-        if (warming.warmed().add(transaction.getHash())) {
-          warming.gasBudget().addAndGet(result.getGasRemaining() - transaction.getGasLimit());
-        }
+        warming.warmed().add(transaction.getHash());
+        // runs for a sender's new transactions are charged again, so the budget caps the work
+        warming.gasBudget().addAndGet(result.getGasRemaining() - transaction.getGasLimit());
       }
       // the import of a block with an access list does not read the trie nodes the loader caches
       if (isCurrent(warming) && execution.protocolSpec().getBlockAccessListFactory().isEmpty()) {
@@ -548,6 +546,13 @@ public class MempoolPrewarmer implements AutoCloseable {
           .setCause(e)
           .log();
     }
+  }
+
+  private MutableWorldState headWorldState(final BlockHeader head) {
+    return protocolContext
+        .getWorldStateArchive()
+        .getWorldState(withBlockHeaderAndNoUpdateNodeHead(head))
+        .orElseThrow(() -> new IllegalStateException("No world state for " + head.toLogString()));
   }
 
   /**
@@ -572,7 +577,7 @@ public class MempoolPrewarmer implements AutoCloseable {
                         changedAccounts.add(address);
                         if (warming.preloadedSlots().add(new ChangedSlot(address, slotKey))) {
                           loader.preLoadStorageSlot(
-                              storage, address, startingStorageRoot(accumulator, address), slotKey);
+                              storage, address, accumulator.startingStorageRoot(address), slotKey);
                         }
                       }
                     }));
@@ -580,7 +585,7 @@ public class MempoolPrewarmer implements AutoCloseable {
         .getAccountsToUpdate()
         .forEach(
             (address, value) -> {
-              if (changesTrieValue(value.getPrior(), value.getUpdated())) {
+              if (!BonsaiAccount.trieValueEquals(value.getPrior(), value.getUpdated())) {
                 changedAccounts.add(address);
               }
             });
@@ -589,34 +594,6 @@ public class MempoolPrewarmer implements AutoCloseable {
         loader.preLoadAccount(storage, warming.head().getStateRoot(), address);
       }
     }
-  }
-
-  /** Whether the account trie stores a different value for the two versions of an account. */
-  /**
-   * The account's storage root at the head, or null when the accumulator has not loaded the
-   * account, so the loader reads it.
-   */
-  private static @Nullable Hash startingStorageRoot(
-      final PathBasedWorldStateUpdateAccumulator<?> accumulator, final Address address) {
-    if (accumulator.getStorageToClear().contains(address)) {
-      return Hash.EMPTY_TRIE_HASH;
-    }
-    final var accountValue = accumulator.getAccountsToUpdate().get(address);
-    if (accountValue == null) {
-      return null;
-    }
-    final var prior = accountValue.getPrior();
-    return prior == null ? Hash.EMPTY_TRIE_HASH : prior.getStorageRoot();
-  }
-
-  private static boolean changesTrieValue(final BonsaiAccount prior, final BonsaiAccount updated) {
-    if (prior == null || updated == null) {
-      return prior != updated;
-    }
-    return prior.getNonce() != updated.getNonce()
-        || !prior.getBalance().equals(updated.getBalance())
-        || !prior.getStorageRoot().equals(updated.getStorageRoot())
-        || !prior.getCodeHash().equals(updated.getCodeHash());
   }
 
   private record Execution(
@@ -641,7 +618,8 @@ public class MempoolPrewarmer implements AutoCloseable {
 
   /**
    * Stops an execution once its warming is over. It looks when a call starts or ends rather than at
-   * every operation, so that the EVM keeps the loop it runs without a tracer.
+   * every operation, so that EVM v2 leaves out its per-operation tracer calls. EVM v1 makes them
+   * for every tracer but {@link OperationTracer#NO_TRACING}.
    */
   private final class StoppingTracer implements OperationTracer {
     private final Warming warming;
