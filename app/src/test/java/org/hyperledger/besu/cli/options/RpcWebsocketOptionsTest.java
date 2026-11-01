@@ -23,6 +23,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import org.hyperledger.besu.cli.CommandTestAbstract;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.JwtAlgorithm;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -300,6 +301,43 @@ public class RpcWebsocketOptionsTest extends CommandTestAbstract {
     verify(mockRunnerBuilder).build();
 
     assertThat(wsRpcConfigArgumentCaptor.getValue().isEnabled()).isFalse();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsSslPasswordFilesFromTomlMustBeUsed() throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "keystorePassword");
+    final Path truststorePasswordFile = createTempFile("truststore-password", "truststorePassword");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            rpc-ws-enabled = true
+            rpc-ws-ssl-enabled = true
+            rpc-ws-ssl-client-auth-enabled = true
+            rpc-ws-ssl-keystore-file = '/tmp/keystore.p12'
+            rpc-ws-ssl-keystore-password-file = '%s'
+            rpc-ws-ssl-truststore-file = '/tmp/truststore.p12'
+            rpc-ws-ssl-truststore-password-file = '%s'
+            """
+                .formatted(keystorePasswordFile, truststorePasswordFile));
+
+    parseCommand("--config-file", toml.toString());
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    final WebSocketConfiguration webSocketConfiguration = wsRpcConfigArgumentCaptor.getValue();
+    assertThat(webSocketConfiguration.getKeyStorePath()).contains("/tmp/keystore.p12");
+    assertThat(webSocketConfiguration.getKeyStorePasswordFile())
+        .contains(keystorePasswordFile.toString());
+    assertThat(webSocketConfiguration.getKeyStorePassword()).contains("keystorePassword");
+    assertThat(webSocketConfiguration.getTrustStorePath()).contains("/tmp/truststore.p12");
+    assertThat(webSocketConfiguration.getTrustStorePasswordFile())
+        .contains(truststorePasswordFile.toString());
+    assertThat(webSocketConfiguration.getTrustStorePassword()).contains("truststorePassword");
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();

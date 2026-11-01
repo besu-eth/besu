@@ -19,6 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.cli.CommandTestAbstract;
+import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
+
+import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -126,5 +129,40 @@ public class GraphQlOptionsTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains("--graphql-max-blocks-range must be >= 0 (0 specifies no limit)");
+  }
+
+  @Test
+  public void graphQLTlsPasswordFilesFromTomlMustBeUsed() throws Exception {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "keystorePassword");
+    final Path truststorePasswordFile = createTempFile("truststore-password", "truststorePassword");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            graphql-http-enabled = true
+            graphql-tls-enabled = true
+            graphql-tls-keystore-file = '/tmp/keystore.p12'
+            graphql-tls-keystore-password-file = '%s'
+            graphql-mtls-enabled = true
+            graphql-tls-truststore-file = '/tmp/truststore.p12'
+            graphql-tls-truststore-password-file = '%s'
+            """
+                .formatted(keystorePasswordFile, truststorePasswordFile));
+
+    parseCommand("--config-file", toml.toString());
+
+    verify(mockRunnerBuilder).graphQLConfiguration(graphQLConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    final GraphQLConfiguration graphQLConfiguration = graphQLConfigArgumentCaptor.getValue();
+    assertThat(graphQLConfiguration.isTlsEnabled()).isTrue();
+    assertThat(graphQLConfiguration.getTlsKeyStorePath()).isEqualTo("/tmp/keystore.p12");
+    assertThat(graphQLConfiguration.getTlsKeyStorePassword()).isEqualTo("keystorePassword");
+    assertThat(graphQLConfiguration.isMtlsEnabled()).isTrue();
+    assertThat(graphQLConfiguration.getTlsTrustStorePath()).isEqualTo("/tmp/truststore.p12");
+    assertThat(graphQLConfiguration.getTlsTrustStorePassword()).isEqualTo("truststorePassword");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 }
