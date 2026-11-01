@@ -459,8 +459,7 @@ class TransactionCollisionDetectorTest {
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater);
 
-    assertTrue(
-        hasCollision, "Expected collision when tx read a slot of storage the block cleared");
+    assertTrue(hasCollision, "Expected collision when tx read a slot of storage the block cleared");
   }
 
   @Test

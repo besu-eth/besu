@@ -20,13 +20,18 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
 
+import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 
+import java.math.BigInteger;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -121,6 +126,14 @@ class OptimisticParallelBlockProcessorIntegrationTest {
   @DisplayName("Reuse of Speculative Results")
   class SpeculativeResultReuse extends AbstractParallelBlockProcessorIntegrationTest {
 
+    /** Sets slot 0 when called without call data, else reverts while slot 0 is unset. */
+    private static final Address SLOT_GATE =
+        Address.fromHexStringStrict("0x0000000000000000000000000000000000001111");
+
+    /** Calls the slot gate with call data and reverts if that call reverts. */
+    private static final Address SLOT_GATE_CALLER =
+        Address.fromHexStringStrict("0x0000000000000000000000000000000000002222");
+
     @Override
     protected String getVariantName() {
       return getVariant();
@@ -151,6 +164,54 @@ class OptimisticParallelBlockProcessorIntegrationTest {
           result.parWorldState(),
           Address.fromHexStringStrict(ACCOUNT_GENESIS_2));
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A transaction that reverted on a slot an earlier one set is executed again")
+    void revertedTransactionReadingChangedSlotIsExecutedAgain() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              call(SLOT_GATE, Bytes.EMPTY, ACCOUNT_GENESIS_1_KEYPAIR),
+              call(SLOT_GATE, Bytes.of(0), ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertSecondTransactionExecutedAgain(result);
+    }
+
+    @Test
+    @DisplayName(
+        "A transaction whose nested call reverted on a slot an earlier one set is executed again")
+    void transactionRevertedInNestedCallIsExecutedAgain() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              call(SLOT_GATE, Bytes.EMPTY, ACCOUNT_GENESIS_1_KEYPAIR),
+              call(SLOT_GATE_CALLER, Bytes.EMPTY, ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertSecondTransactionExecutedAgain(result);
+    }
+
+    private void assertSecondTransactionExecutedAgain(final ComparisonResult result) {
+      assertThat(result.parResult().getYield().orElseThrow().getReceipts().get(1).getStatus())
+          .as("the second transaction passes the gate once the first one set the slot")
+          .isEqualTo(1);
+      assertThat(result.parResult().getNbParallelizedTransactions())
+          .as("only the speculative result of the first transaction is kept")
+          .contains(1);
+    }
+
+    private Transaction call(final Address to, final Bytes payload, final KeyPair keyPair) {
+      return Transaction.builder()
+          .type(TransactionType.EIP1559)
+          .nonce(0)
+          .maxPriorityFeePerGas(Wei.ZERO)
+          .maxFeePerGas(Wei.of(5))
+          .gasLimit(1_000_000L)
+          .to(to)
+          .value(Wei.ZERO)
+          .payload(payload)
+          .chainId(BigInteger.valueOf(42))
+          .signAndBuild(keyPair);
     }
   }
 }
