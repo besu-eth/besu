@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
@@ -38,6 +40,21 @@ class TransitionCoordinatorTest {
     verify(preMergeCoordinator).stop();
     verify(mergeCoordinator).stop();
     verify(preMergeCoordinator).awaitStop();
+    verify(mergeCoordinator).awaitStop();
+  }
+
+  @Test
+  void awaitsTheMergeCoordinatorWhenWaitingForThePreMergeOneIsInterrupted()
+      throws InterruptedException {
+    final MiningCoordinator preMergeCoordinator = mock(MiningCoordinator.class);
+    final MergeMiningCoordinator mergeCoordinator = mock(MergeMiningCoordinator.class);
+    doThrow(new InterruptedException()).when(preMergeCoordinator).awaitStop();
+    final TransitionCoordinator coordinator =
+        new TransitionCoordinator(
+            preMergeCoordinator, mergeCoordinator, mock(PostMergeContext.class));
+
+    assertThatThrownBy(coordinator::awaitStop).isInstanceOf(InterruptedException.class);
+
     verify(mergeCoordinator).awaitStop();
   }
 }

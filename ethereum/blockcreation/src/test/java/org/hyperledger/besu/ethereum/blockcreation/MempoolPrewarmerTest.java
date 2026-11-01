@@ -15,10 +15,15 @@
 package org.hyperledger.besu.ethereum.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
@@ -30,6 +35,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -42,6 +48,8 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -58,9 +66,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.tuweni.bytes.Bytes32;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
@@ -388,7 +399,7 @@ class MempoolPrewarmerTest {
   }
 
   @Test
-  void chargesTheGasBudgetOnceForATransactionWarmedAgain() throws IOException {
+  void chargesTheGasBudgetForEachRunOfATransaction() throws IOException {
     // a budget of three transfers and a bit
     useDevGenesisWith("0x10000", "0x0", 1);
     addCandidate(transfer(0));
@@ -396,12 +407,89 @@ class MempoolPrewarmerTest {
     prewarmer.start(head());
     awaitExecuted(2);
 
-    // warmed again from the sender's first transaction
+    // warmed again from the sender's first transaction, until the budget is used
     addCandidate(transfer(2));
-    awaitExecuted(5);
+    awaitExecuted(4);
     addCandidate(transfer(OTHER_SENDER, 0, 21_000, Wei.of(1_000_000_000_000L)));
 
-    awaitExecuted(6);
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 4);
+    assertThat(prewarmer.prewarmedTransactions()).doesNotContain(transfer(2).getHash());
+  }
+
+  @Test
+  void triesASenderWhoseStateCannotBeReadAgainOnlyForNewTransactions() {
+    final WorldStateArchive archive = mock(WorldStateArchive.class);
+    when(archive.getWorldState(any(WorldStateQueryParams.class)))
+        .thenThrow(new IllegalStateException("state"));
+    final ProtocolContext protocolContext = spy(fixture.getProtocolContext());
+    when(protocolContext.getWorldStateArchive()).thenReturn(archive);
+    prewarmer.close();
+    prewarmer =
+        new MempoolPrewarmer(
+            protocolContext,
+            fixture.getProtocolSchedule(),
+            transactionPool,
+            MiningConfiguration.newDefault(),
+            2,
+            4,
+            metricsSystem,
+            clock);
+    addCandidate(transfer(0));
+    prewarmer.start(head());
+    verify(archive, timeout(10_000)).getWorldState(any(WorldStateQueryParams.class));
+
+    addCandidate(transfer(OTHER_SENDER, 0, 21_000, Wei.of(1_000_000_000_000L)));
+
+    verify(archive, timeout(10_000).times(2)).getWorldState(any(WorldStateQueryParams.class));
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> mockingDetails(archive).getInvocations().size() == 2);
+  }
+
+  @Test
+  void closingWaitsForAPassThatIsCopyingThePool() {
+    final CountDownLatch copying = new CountDownLatch(1);
+    final AtomicBoolean copied = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              copying.countDown();
+              // reading the pool and the chain does not stop at an interrupt
+              Uninterruptibles.sleepUninterruptibly(Duration.ofMillis(500));
+              copied.set(true);
+              return null;
+            })
+        .when(transactionPool)
+        .selectTransactions(any());
+    prewarmer.start(head());
+    Uninterruptibles.awaitUninterruptibly(copying);
+
+    prewarmer.close();
+
+    assertThat(copied).isTrue();
+  }
+
+  @Test
+  void rejectsNoThreadsAndNoGas() {
+    assertThatThrownBy(() -> prewarmerWith(0, 4)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> prewarmerWith(2, 0)).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  private MempoolPrewarmer prewarmerWith(final int threads, final int gasLimitMultiplier) {
+    return new MempoolPrewarmer(
+        fixture.getProtocolContext(),
+        fixture.getProtocolSchedule(),
+        transactionPool,
+        MiningConfiguration.newDefault(),
+        threads,
+        gasLimitMultiplier,
+        metricsSystem,
+        clock);
   }
 
   @Test

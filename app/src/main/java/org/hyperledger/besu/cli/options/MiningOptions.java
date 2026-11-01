@@ -175,7 +175,7 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
         hidden = true,
         names = {"--Xmempool-prewarm-gas-limit-multiplier"},
         description =
-            "Gas of the pending transactions prewarmed between two blocks, as a multiple of the block gas limit (default: ${DEFAULT-VALUE})")
+            "Gas the prewarming executes between two blocks, as a multiple of the block gas limit (default: ${DEFAULT-VALUE})")
     Integer mempoolPrewarmGasLimitMultiplier = DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER;
   }
 

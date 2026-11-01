@@ -251,7 +251,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public void stop() {
-    // mining can be started again, so the prewarmer's threads stay
+    // the next forkchoiceUpdated starts prewarming again; only the node's shutdown closes it
     mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.empty()));
   }
 

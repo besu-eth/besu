@@ -81,8 +81,12 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
 
   @Override
   public void awaitStop() throws InterruptedException {
-    miningCoordinator.awaitStop();
-    mergeCoordinator.awaitStop();
+    try {
+      miningCoordinator.awaitStop();
+    } finally {
+      // closes the mempool prewarmer before the storage closes
+      mergeCoordinator.awaitStop();
+    }
   }
 
   @Override
