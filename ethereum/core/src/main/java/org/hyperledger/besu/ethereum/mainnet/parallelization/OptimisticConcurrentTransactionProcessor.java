@@ -37,6 +37,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 
 import com.google.common.annotations.VisibleForTesting;
 
@@ -208,7 +209,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     final CompletableFuture<ParallelizedTransactionContext> future =
         removeFuture(transactionLocation);
 
-    if (future != null && future.isDone()) {
+    if (future != null && future.state() == Future.State.SUCCESS) {
       final ParallelizedTransactionContext parallelizedTransactionContext = future.resultNow();
       if (parallelizedTransactionContext == null) {
         return Optional.empty();
