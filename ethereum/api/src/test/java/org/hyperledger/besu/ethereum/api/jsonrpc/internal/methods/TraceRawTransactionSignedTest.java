@@ -26,6 +26,8 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -34,6 +36,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -43,11 +46,12 @@ class TraceRawTransactionSignedTest extends AbstractJsonRpcHttpServiceTest {
   private static final String MARKER = "0x0000000000000000000000000000000000001002";
   private static final String WORD_42 = "0x" + "0".repeat(62) + "2a";
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private BlockchainSetupUtil chain;
 
   @Override
   @BeforeEach
   public void setup() {
-    startServiceWithEmptyChain(DataStorageFormat.BONSAI);
+    chain = startServiceWithEmptyChain(DataStorageFormat.BONSAI);
   }
 
   @Override
@@ -143,6 +147,31 @@ class TraceRawTransactionSignedTest extends AbstractJsonRpcHttpServiceTest {
         .isEqualTo("0xa");
     assertThat(rpc("eth_getStorageAt", List.of(MARKER, "0x0", "latest")).path("result").asText())
         .isEqualTo("0x" + "0".repeat(64));
+  }
+
+  @Test
+  void shouldValidateASignedTransactionOnce() throws Exception {
+    final AtomicInteger validations = new AtomicInteger();
+    chain
+        .getProtocolSchedule()
+        .getByBlockHeader(chain.getBlockchain().getChainHeadHeader())
+        .getTransactionValidatorFactory()
+        .setAdditionalValidationRules(
+            List.of(
+                transaction -> {
+                  validations.incrementAndGet();
+                  return Optional.empty();
+                }));
+    final SignedCase transaction =
+        transactions()
+            .map(arguments -> (SignedCase) arguments.get()[0])
+            .filter(signedCase -> signedCase.name().equals("type-2-valid"))
+            .findFirst()
+            .orElseThrow();
+    final JsonNode response =
+        rpc("trace_rawTransaction", List.of(transaction.raw(), List.of("trace")));
+    assertThat(response.path("result").path("output").asText()).isEqualTo(WORD_42);
+    assertThat(validations).hasValue(1);
   }
 
   private JsonNode rpc(final String method, final List<?> params) throws Exception {

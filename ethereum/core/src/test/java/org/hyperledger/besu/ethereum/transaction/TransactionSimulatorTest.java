@@ -1126,6 +1126,8 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
       verifyNoInteractions(transactionProcessor);
     } else {
       assertThat(result.orElseThrow().isSuccessful()).isTrue();
+      // The transaction processor validates the transaction itself.
+      verifyNoInteractions(transactionValidator);
       verify(transactionProcessor)
           .processTransaction(
               any(),
