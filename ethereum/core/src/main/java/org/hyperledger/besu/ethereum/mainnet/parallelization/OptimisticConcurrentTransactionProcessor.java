@@ -222,8 +222,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           parallelizedTransactionContext.transactionAccumulator();
       final TransactionProcessingResult transactionProcessingResult =
           parallelizedTransactionContext.transactionProcessingResult();
-      // a reverted execution is as repeatable as a successful one when nothing it read changed;
-      // an invalid result is replayed anyway, and its sender may not even be recoverable
+      // a reverted or halted execution is as repeatable as a successful one when nothing it read
+      // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
       if (!transactionProcessingResult.isInvalid()
           && !transactionCollisionDetector.hasCollision(
               transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator)) {
