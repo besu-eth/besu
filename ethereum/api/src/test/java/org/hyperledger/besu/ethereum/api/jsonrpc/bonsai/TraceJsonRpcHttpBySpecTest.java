@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -63,6 +64,32 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
     assertThat(root.get("ops").isEmpty()).isTrue();
     assertThat(root.get("code").asText()).isEqualTo("0x" + childOpcode);
     assertThat(child.get("code").asText()).isEqualTo(root.get("code").asText());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"fe", "50"})
+  void calledCodeIsKeptWhenItsFirstOpcodeHalts(final String opcode) throws Exception {
+    // Deploy a single INVALID or stack-underflowing POP, then call it.
+    final String sender = "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73";
+    final Address target =
+        Address.contractAddress(Address.fromHexString(sender), transactionCount(sender));
+    final JsonNode results =
+        traceCallMany(
+            "[{\"from\":\""
+                + sender
+                + "\",\"data\":\"0x60"
+                + opcode
+                + "60005360016000f3\"},[\"trace\"]],"
+                + "[{\"from\":\""
+                + sender
+                + "\",\"to\":\""
+                + target
+                + "\"},[\"vmTrace\"]]");
+    assertThat(results.get(0).get("trace").get(0).get("result").get("address").asText())
+        .isEqualTo(target.toHexString());
+    final JsonNode root = results.get(1).get("vmTrace");
+    assertThat(root.get("code").asText()).isEqualTo("0x" + opcode);
+    assertThat(root.get("ops").isEmpty()).isTrue();
   }
 
   @Test
@@ -137,6 +164,21 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
               .get("*");
       assertThat(slot.get("from").asText()).isEqualTo(String.format("0x%064x", 3 + i));
       assertThat(slot.get("to").asText()).isEqualTo(String.format("0x%064x", 4 + i));
+    }
+  }
+
+  private long transactionCount(final String address) throws Exception {
+    final String request =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionCount\",\"params\":[\""
+            + address
+            + "\",\"latest\"]}";
+    try (Response response =
+        client
+            .newCall(
+                new Request.Builder().url(baseUrl).post(RequestBody.create(request, JSON)).build())
+            .execute()) {
+      return Long.decode(
+          new ObjectMapper().readTree(response.body().string()).get("result").asText());
     }
   }
 

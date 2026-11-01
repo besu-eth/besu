@@ -63,9 +63,12 @@ public class VmTraceGenerator {
   private Trace generateTrace() {
     parentTraces.add(rootVmTrace);
     if (transactionTrace != null && !transactionTrace.getTraceFrames().isEmpty()) {
+      // The first opcode may be omitted from the operation list, so take the called code from its
+      // frame rather than from the first reported operation.
       transactionTrace
           .getTransaction()
           .getInit()
+          .or(() -> transactionTrace.getTraceFrames().get(0).getMaybeCode().map(Code::getBytes))
           .map(Bytes::toHexString)
           .ifPresent(rootVmTrace::setCode);
       final Iterator<TraceFrame> iter = transactionTrace.getTraceFrames().iterator();
