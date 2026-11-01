@@ -85,6 +85,7 @@
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, including after a round change, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469) [#11817](https://github.com/besu-eth/besu/pull/11817)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
+- The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` reads only the new block's body on a new chain head. [#11825](https://github.com/besu-eth/besu/pull/11825)
 
 ## 26.10.2
 
