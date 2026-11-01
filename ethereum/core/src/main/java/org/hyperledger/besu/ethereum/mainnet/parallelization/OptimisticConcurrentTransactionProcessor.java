@@ -252,11 +252,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
 
-        if (confirmedParallelizedTransactionCounter.isPresent()) {
-          confirmedParallelizedTransactionCounter.get().inc();
-          transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
-          transactionProcessingResult.accumulator = transactionAccumulator;
-        }
+        confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
+        transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
         return Optional.of(transactionProcessingResult);
       } else {
         blockAccumulator.importPriorStateFromSource(transactionAccumulator);
