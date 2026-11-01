@@ -74,9 +74,17 @@ public class TransactionCollisionDetector {
       }
       final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
           transactionAccumulator.getStorageToUpdate().get(next);
+      if (slots == null || slots.isEmpty()) {
+        continue;
+      }
+      // re-creating an account drops the block's entries of the slots it cleared, so the
+      // transaction's slots can't be compared with them
+      if (blockAccumulator.getStorageToClear().contains(next)) {
+        return true;
+      }
       final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> blockSlots =
           blockAccumulator.getStorageToUpdate().get(next);
-      if (slots == null || blockSlots == null) {
+      if (blockSlots == null) {
         continue;
       }
       // the block may have changed many slots of a popular contract, the transaction few
