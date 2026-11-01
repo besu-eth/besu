@@ -23,8 +23,11 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -50,6 +53,7 @@ public class TraceFilterBlockTagTest {
 
   @Mock ProtocolSchedule protocolSchedule;
   @Mock BlockchainQueries blockchainQueries;
+  @Mock Blockchain blockchain;
 
   private TraceFilter method;
 
@@ -106,6 +110,29 @@ public class TraceFilterBlockTagTest {
             e ->
                 assertThat(e.getRpcErrorType())
                     .isEqualTo(RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS));
+  }
+
+  // the tag can advance between lookups, so equal bounds resolve it once and select one block
+  @ParameterizedTest
+  @ValueSource(strings = {"safe", "finalized"})
+  public void resolvesEqualTagBoundsOnce(final String tag) {
+    final Optional<BlockHeader> first =
+        Optional.of(new BlockHeaderTestFixture().number(FINALIZED).buildHeader());
+    final Optional<BlockHeader> advanced =
+        Optional.of(new BlockHeaderTestFixture().number(SAFE).buildHeader());
+    lenient().when(blockchainQueries.safeBlockHeader()).thenReturn(first).thenReturn(advanced);
+    lenient().when(blockchainQueries.finalizedBlockHeader()).thenReturn(first).thenReturn(advanced);
+    lenient().when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    final TraceFilter limited =
+        new TraceFilter(
+            protocolSchedule,
+            blockchainQueries,
+            1L,
+            new NoOpMetricsSystem(),
+            new DeterministicEthScheduler());
+
+    assertThat(limited.response(request(new BlockParameter(tag), new BlockParameter(tag))))
+        .isInstanceOf(JsonRpcSuccessResponse.class);
   }
 
   private void stubTags() {

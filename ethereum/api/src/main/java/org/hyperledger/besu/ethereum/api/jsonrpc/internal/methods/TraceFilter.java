@@ -102,8 +102,12 @@ public class TraceFilter extends TraceBlock {
           "Invalid filter parameter (index 0)", RpcErrorType.INVALID_FILTER_PARAMS, e);
     }
 
-    final long fromBlock = resolveBlockNumber(filterParameter.getFromBlock());
-    final long toBlock = resolveBlockNumber(filterParameter.getToBlock());
+    final BlockParameter fromParameter = filterParameter.getFromBlock();
+    final BlockParameter toParameter = filterParameter.getToBlock();
+    final long fromBlock = resolveBlockNumber(fromParameter);
+    // a tag can advance between lookups, so a tag used for both bounds is resolved once
+    final long toBlock =
+        toParameter.equals(fromParameter) ? fromBlock : resolveBlockNumber(toParameter);
     LOG.trace("Received RPC rpcName={} fromBlock={} toBlock={}", getName(), fromBlock, toBlock);
 
     FilterParameter.validateBlockRange(
