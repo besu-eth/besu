@@ -44,17 +44,21 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"f1,0", "f1,4", "f4,0", "f4,4"})
-  void callMemoryDoesNotIncludeLaterParentReturn(final String opcode, final int outputSize)
-      throws Exception {
-    // Store input, call identity with output at offset 32, then return unrelated bytes at offset 0.
+  @CsvSource({
+    "f1,0,50", "f1,4,50", "f4,0,50", "f4,4,50",
+    "f1,0,53", "f1,4,53", "f4,0,53", "f4,4,53"
+  })
+  void callMemoryHoldsOnlyCopiedOutput(
+      final String opcode, final int outputSize, final String afterCall) throws Exception {
+    // Store input, call identity with output at offset 32, then either POP the result or MSTORE8
+    // 0xaa at the result as offset, and return unrelated bytes at offset 0.
     final String beforeCall =
-        "63deadbeef600052600"
+        "63deadbeef60005260aa600"
             + outputSize
             + "60206004601c"
             + (opcode.equals("f1") ? "6000" : "")
             + "6004615000";
-    final String code = beforeCall + opcode + "5063cafebabe6000526004601cf3";
+    final String code = beforeCall + opcode + afterCall + "63cafebabe6000526004601cf3";
     final String request =
         "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"trace_call\",\"params\":[{"
             + "\"from\":\"0x627306090abab3a6e1400e9345bc60c78a8bef57\","

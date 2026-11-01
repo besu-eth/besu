@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.vm;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedToLong;
+
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.Trace;
@@ -25,6 +27,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -142,9 +145,11 @@ public class VmTraceGenerator {
       case "CALL":
       case "CREATE":
       case "CREATE2":
-        findLastFrameInCall(currentTraceFrame, currentIndex)
+        findLastFrameIndexInCall(currentTraceFrame, currentIndex)
             .ifPresent(
-                lastFrameInCall -> {
+                lastFrameIndex -> {
+                  final TraceFrame lastFrameInCall =
+                      transactionTrace.getTraceFrames().get(lastFrameIndex);
                   report.setUsed(lastFrameInCall.getGasRemaining());
                   lastFrameInCall
                       .getStack()
@@ -153,9 +158,7 @@ public class VmTraceGenerator {
                       .map(last -> Quantity.create(UInt256.fromHexString(last.toHexString())))
                       .ifPresent(report::singlePush);
                   if (!currentOperation.startsWith("CREATE")) {
-                    lastFrameInCall
-                        .getMaybeUpdatedMemory()
-                        .map(mem -> new Mem(mem.getValue().toHexString(), mem.getOffset()))
+                    callOutputMemory(transactionTrace.getTraceFrames().get(lastFrameIndex - 1))
                         .ifPresent(report::setMem);
                   }
                 });
@@ -286,22 +289,55 @@ public class VmTraceGenerator {
   }
 
   /**
-   * Find the last frame in the call.
+   * The memory a CALL-family operation wrote: its output window, filled with as much of the
+   * callee's output as fits. The frame the caller resumes with reports only the last memory write
+   * before it, which is its own if that opcode writes memory.
+   *
+   * @param calleeLastFrame the frame preceding the caller's resumption: the callee's last opcode,
+   *     or the CALL itself when no callee opcode ran
+   * @return the written memory, empty when nothing was copied
+   */
+  private Optional<Mem> callOutputMemory(final TraceFrame calleeLastFrame) {
+    final Bytes output =
+        calleeLastFrame.getDepth() > currentTraceFrame.getDepth()
+            ? calleeLastFrame.getOutputData()
+            : currentTraceFrame.getPrecompileOutputData().orElse(Bytes.EMPTY);
+    // the traced stack is the pre-execution snapshot, bottom to top:
+    // [..., outSize, outOffset, inSize, inOffset, (value,) address, gas]
+    final int outOffsetDepth =
+        currentOperation.equals("CALL") || currentOperation.equals("CALLCODE") ? 6 : 5;
+    return currentTraceFrame
+        .getStack()
+        .filter(stack -> stack.length > outOffsetDepth)
+        .flatMap(
+            stack -> {
+              final long copied =
+                  Math.min(clampedToLong(stack[stack.length - outOffsetDepth - 1]), output.size());
+              return copied == 0
+                  ? Optional.empty()
+                  : Optional.of(
+                      new Mem(
+                          output.slice(0, (int) copied).toHexString(),
+                          clampedToLong(stack[stack.length - outOffsetDepth])));
+            });
+  }
+
+  /**
+   * Find the index of the last frame in the call.
    *
    * @param callFrame the CALL frame
    * @param callIndex the CALL frame index
-   * @return an {@link Optional} of {@link TraceFrame} containing the last frame in the call.
+   * @return the index of the frame the caller resumes with, if any.
    */
-  private Optional<TraceFrame> findLastFrameInCall(
-      final TraceFrame callFrame, final int callIndex) {
+  private OptionalInt findLastFrameIndexInCall(final TraceFrame callFrame, final int callIndex) {
     for (int i = callIndex; i < transactionTrace.getTraceFrames().size(); i++) {
       if (i + 1 < transactionTrace.getTraceFrames().size()) {
         final TraceFrame next = transactionTrace.getTraceFrames().get(i + 1);
         if (next.getPc() == (callFrame.getPc() + 1) && next.getDepth() == callFrame.getDepth()) {
-          return Optional.of(next);
+          return OptionalInt.of(i + 1);
         }
       }
     }
-    return Optional.empty();
+    return OptionalInt.empty();
   }
 }
