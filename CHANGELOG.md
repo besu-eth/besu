@@ -21,6 +21,7 @@
 - Strict transaction replay protection (`--strict-tx-replay-protection-enabled`) no longer rejects transactions from priority senders received from peers; it applies only to transactions submitted via JSON-RPC, as documented. [#11466](https://github.com/besu-eth/besu/pull/11466)
 - With `--cache-last-blocks` set, RPC methods return the total difficulty of recently imported blocks instead of their own difficulty, which is 0 after the merge. [#11790](https://github.com/besu-eth/besu/pull/11790)
 - Block access lists of the last blocks are now cached as RLP, at most 128 MiB by default (`--cache-last-blocks-max-capacity`), and `--cache-last-blocks` now defaults to 128. [#11455](https://github.com/besu-eth/besu/pull/11455)
+- The WebSocket RPC SSL keystore and truststore password options (`--rpc-ws-ssl-keystore-password[-file]`, `--rpc-ws-ssl-truststore-password[-file]`) set in the config file are no longer ignored, including when other `--rpc-ws-*` options are passed on the command line. Passing both a password and its password file on the command line is now rejected; when both are set in the config file, the password takes preference. [#11839](https://github.com/besu-eth/besu/pull/11839)
 
 ### Additions and Improvements
 - With `--Xevm-v2`, `MessageFrame.getMaybeUpdatedMemory` and `getMaybeUpdatedStorage` are recorded only while a tracer that traces operations runs. [#11690](https://github.com/besu-eth/besu/pull/11690)
