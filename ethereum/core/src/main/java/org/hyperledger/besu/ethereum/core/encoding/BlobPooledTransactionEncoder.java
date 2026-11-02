@@ -33,6 +33,8 @@ public class BlobPooledTransactionEncoder {
       "Transaction with no blobsWithCommitments cannot be encoded for Pooled Transaction";
   static final String NO_BLOBS_ERROR =
       "Transaction with no blobs data cannot be encoded for Pooled Transaction";
+  static final String NOT_CELL_PROOFS_ERROR =
+      "Transaction without cell proofs cannot be encoded for Pooled Transaction with elided blobs";
 
   public static void encode(
       final Transaction transaction, final boolean elideBlobs, final RLPOutput out) {
@@ -47,6 +49,11 @@ public class BlobPooledTransactionEncoder {
     // transaction is encodable with EncodingContext#canEncode; this is the backstop.
     if (!elideBlobs && !blobsWithCommitments.get().hasBlobData()) {
       throw new InvalidParameterException(NO_BLOBS_ERROR);
+    }
+    if (elideBlobs && blobsWithCommitments.get().getBlobType() != KZG_CELL_PROOFS) {
+      // Nothing to fetch in place of the payloads, and no version marker is written for a v0
+      // sidecar, so the result would not decode anywhere.
+      throw new InvalidParameterException(NOT_CELL_PROOFS_ERROR);
     }
     out.startList();
     BlobTransactionEncoder.encode(transaction, out);

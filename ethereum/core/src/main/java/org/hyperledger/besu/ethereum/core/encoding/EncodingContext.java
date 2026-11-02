@@ -14,8 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.core.encoding;
 
+import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 
 /**
  * Enum representing the context in which a transaction is being encoded. This context is used to
@@ -82,15 +82,25 @@ public enum EncodingContext {
    * @return true if this context can encode it
    */
   public boolean canEncode(final Transaction transaction) {
-    if (encodeForBlock || elideBlobs) {
+    if (encodeForBlock) {
+      // a block body carries no sidecar at all, so the transaction body is always enough
       return true;
     }
     if (!transaction.getType().supportsBlob()) {
       return true;
     }
-    return transaction
-        .getBlobsWithCommitments()
-        .map(BlobsWithCommitments::hasBlobData)
-        .orElse(false);
+    final var sidecar = transaction.getBlobsWithCommitments();
+    if (sidecar.isEmpty()) {
+      // Every pooled form carries a sidecar, elided or not. A blob transaction decoded from a block
+      // has none, so it cannot be put back on the wire as a pooled one.
+      return false;
+    }
+    if (elideBlobs) {
+      // Eliding the payloads leaves the receiver to fetch the cells instead, which exist only for a
+      // cell proof sidecar. Eliding a v0 one would send commitments and a single proof per blob,
+      // with nothing to fetch and no version marker, which no decoder accepts.
+      return sidecar.get().getBlobType() == BlobType.KZG_CELL_PROOFS;
+    }
+    return sidecar.get().hasBlobData();
   }
 }

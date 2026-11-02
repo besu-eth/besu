@@ -30,6 +30,9 @@ import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
 import org.hyperledger.besu.ethereum.core.kzg.Cell;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
+import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 
@@ -90,6 +93,101 @@ class BlobPooledTransactionElidedDecodingTest extends TrustedSetupClassLoaderExt
     assertThat(bwc.getBlobProofBundles()).hasSize(BLOB_COUNT);
     assertThat(bwc.getKzgCommitments())
         .isEqualTo(tx.getBlobsWithCommitments().get().getKzgCommitments());
+  }
+
+  /** The same transaction with a v0 sidecar, which has one proof per blob and no cells. */
+  private static Transaction v0BlobTransaction() {
+    final BlobsWithCommitments withBlobs = new BlobTestFixture().createBlobsWithCommitments(1);
+    return Transaction.builder()
+        .type(TransactionType.BLOB)
+        .chainId(java.math.BigInteger.ONE)
+        .nonce(1)
+        .maxPriorityFeePerGas(Wei.of(1))
+        .maxFeePerGas(Wei.of(10))
+        .maxFeePerBlobGas(Wei.of(10))
+        .gasLimit(100_000)
+        .to(org.hyperledger.besu.datatypes.Address.ZERO)
+        .value(Wei.ZERO)
+        .payload(Bytes.EMPTY)
+        .versionedHashes(withBlobs.getVersionedHashes())
+        .blobsWithCommitments(withBlobs)
+        .signAndBuild(KEYS);
+  }
+
+  @Test
+  void refusesThePayloadsWhereTheContextElides() {
+    // The form is fixed in both directions: an eth/72 response always elides, so payloads arriving
+    // from an eth/72 peer are malformed. Were they accepted, the size check would compare the
+    // announced elided size against a response a blob's worth larger per blob and see no problem.
+    final Bytes withPayloads =
+        TransactionEncoder.encodeOpaqueBytes(blobTransaction(), EncodingContext.POOLED_TRANSACTION);
+
+    assertThatExceptionOfType(RLPException.class)
+        .isThrownBy(
+            () ->
+                TransactionDecoder.decodeOpaqueBytes(
+                    withPayloads, EncodingContext.POOLED_TRANSACTION_ETH_72))
+        .withMessageContaining("never sends");
+  }
+
+  @Test
+  void reportsASidecarTheCountsRejectAsAMalformedBody() {
+    // The proof count has to divide by the commitment count. A peer getting that wrong is sending a
+    // malformed body, and its callers only treat RLPException as the peer's fault, so the factory's
+    // own IllegalArgumentException must not be what escapes.
+    final Transaction tx = blobTransaction();
+    final BlobsWithCommitments sidecar = tx.getBlobsWithCommitments().orElseThrow();
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    BlobTransactionEncoder.encode(tx, out);
+    out.writeIntScalar(BlobType.KZG_CELL_PROOFS.getVersionId());
+    out.startList();
+    out.endList();
+    out.writeList(sidecar.getKzgCommitments(), KZGCommitment::writeTo);
+    // one proof short of a whole number of blobs
+    out.writeList(
+        sidecar.getKzgProofs().subList(0, sidecar.getKzgProofs().size() - 1), KZGProof::writeTo);
+    out.endList();
+    final Bytes body =
+        Bytes.concatenate(Bytes.of(TransactionType.BLOB.getEthSerializedType()), out.encoded());
+
+    assertThatExceptionOfType(RLPException.class)
+        .isThrownBy(
+            () ->
+                TransactionDecoder.decodeOpaqueBytes(
+                    body, EncodingContext.POOLED_TRANSACTION_ETH_72))
+        .withMessageContaining("Invalid blob sidecar");
+  }
+
+  @Test
+  void aV0SidecarCannotBeElided() {
+    // Eliding leaves the receiver to fetch cells, and a v0 sidecar has none: it would go out as
+    // commitments and one proof per blob, with no version marker, which nothing decodes.
+    final Transaction v0 = v0BlobTransaction();
+
+    assertThat(EncodingContext.POOLED_TRANSACTION_ETH_72.canEncode(v0)).isFalse();
+    assertThat(EncodingContext.POOLED_TRANSACTION.canEncode(v0)).isTrue();
+
+    assertThatExceptionOfType(InvalidParameterException.class)
+        .isThrownBy(
+            () ->
+                TransactionEncoder.encodeOpaqueBytes(
+                    v0, EncodingContext.POOLED_TRANSACTION_ETH_72));
+  }
+
+  @Test
+  void neitherPooledFormCanEncodeABlobTransactionWithoutASidecar() {
+    // What a blob transaction decoded from a block body looks like. Both pooled forms carry a
+    // sidecar, so saying yes here would promise an encoding the encoder refuses to produce.
+    final Bytes inBlock =
+        TransactionEncoder.encodeOpaqueBytes(blobTransaction(), EncodingContext.BLOCK_BODY);
+    final Transaction noSidecar =
+        TransactionDecoder.decodeOpaqueBytes(inBlock, EncodingContext.BLOCK_BODY);
+    assertThat(noSidecar.getBlobsWithCommitments()).isEmpty();
+
+    assertThat(EncodingContext.POOLED_TRANSACTION.canEncode(noSidecar)).isFalse();
+    assertThat(EncodingContext.POOLED_TRANSACTION_ETH_72.canEncode(noSidecar)).isFalse();
+    assertThat(EncodingContext.BLOCK_BODY.canEncode(noSidecar)).isTrue();
   }
 
   @Test

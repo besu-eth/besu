@@ -73,26 +73,40 @@ public class BlobPooledTransactionDecoder {
     // list in their place. The transaction is then held as cells, none of which are known yet, so
     // each blob starts with its own empty cell set for the blobpool to fill in via GetCells.
     // One cell set per blob, i.e. one per commitment: proofs.size() is 128x that for cell proofs.
-    if (blobs.isEmpty()) {
-      if (!elidedBlobs) {
-        // Only a peer this node negotiated eth/72 with may leave the payloads out. Accepting the
-        // elided form from any other peer would take a malformed response for a valid one, and
-        // leave a transaction whose pre-eth/72 announced size cannot even be computed.
-        throw new RLPException(
-            "Blob payloads are absent, which is only valid for an eth/72 peer's response");
+    // Which form is valid is fixed by the context, in both directions: an eth/72 response always
+    // elides the payloads, and no earlier version ever does. go-ethereum keys its pooled encoding
+    // on the same thing, serving the full form below version 72 and the elided one at or above it.
+    // Taking either form from the wrong peer would also decouple the announced size from what
+    // arrived: the two differ by the payloads, so the size check could no longer catch a peer
+    // sending far more than it announced.
+    if (elidedBlobs != blobs.isEmpty()) {
+      throw new RLPException(
+          elidedBlobs
+              ? "Blob payloads are present, which an eth/72 response never sends"
+              : "Blob payloads are absent, which is only valid for an eth/72 peer's response");
+    }
+
+    // The sidecar factories reject what the counts can get wrong, with IllegalArgumentException.
+    // Everything they check is peer controlled, so it is reported as RLPException like the rest of
+    // a malformed body: that is the only failure the callers of this decoder treat as the peer's
+    // fault, rather than as an internal error that leaves it connected.
+    try {
+      if (elidedBlobs) {
+        if (KZG_CELL_PROOFS.getVersionId() != versionId) {
+          throw new RLPException(
+              "Unsupported blob type, expected %d but got %d"
+                  .formatted(KZG_CELL_PROOFS.getVersionId(), versionId));
+        }
+        final List<CellsWithMask> cells =
+            Collections.nCopies(commitments.size(), CellsWithMask.EMPTY);
+        builder.kzgBlobCells(commitments, cells, proofs).sizeForEth72Announcement(input.size());
+      } else {
+        builder
+            .kzgBlobs(BlobType.of(versionId), commitments, blobs, proofs)
+            .sizeForAnnouncement(input.size());
       }
-      if (KZG_CELL_PROOFS.getVersionId() != versionId) {
-        throw new RLPException(
-            "Unsupported blob type, expected %d but got %d"
-                .formatted(KZG_CELL_PROOFS.getVersionId(), versionId));
-      }
-      final List<CellsWithMask> cells =
-          Collections.nCopies(commitments.size(), CellsWithMask.EMPTY);
-      builder.kzgBlobCells(commitments, cells, proofs).sizeForEth72Announcement(input.size());
-    } else {
-      builder
-          .kzgBlobs(BlobType.of(versionId), commitments, blobs, proofs)
-          .sizeForAnnouncement(input.size());
+    } catch (final IllegalArgumentException e) {
+      throw new RLPException("Invalid blob sidecar: " + e.getMessage());
     }
 
     final Transaction transaction = builder.build();
