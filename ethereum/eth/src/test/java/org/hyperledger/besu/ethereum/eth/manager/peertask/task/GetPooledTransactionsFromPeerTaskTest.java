@@ -125,9 +125,11 @@ public class GetPooledTransactionsFromPeerTaskTest {
             TransactionEncoder.encodeRLP(tx, rlp, EncodingContext.POOLED_TRANSACTION_ETH_72));
     final PooledTransactionsMessage message = PooledTransactionsMessage.createUnsafe(out.encoded());
 
+    // Named explicitly rather than taken from AGREED_CAPABILITIES, which is EthProtocol.LATEST:
+    // that is eth/71 only until eth/72 is advertised, after which this would assert nothing.
     Assertions.assertThrows(
         MalformedRlpFromPeerException.class,
-        () -> task.processResponse(message, AGREED_CAPABILITIES));
+        () -> task.processResponse(message, Set.of(EthProtocolVersion.V71.getCapability())));
   }
 
   @Test
