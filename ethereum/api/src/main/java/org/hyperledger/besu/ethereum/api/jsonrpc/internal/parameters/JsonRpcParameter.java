@@ -68,6 +68,12 @@ public class JsonRpcParameter {
       // If we're dealing with a simple type, just cast the value
       param = paramClass.cast(rawParam);
     } else {
+      if (paramClass == Boolean.class && !(rawParam instanceof Boolean)) {
+        throw new JsonRpcParameterException(
+            String.format(
+                "Invalid json rpc parameter at index %d. Supplied value was: '%s' of type: '%s' - expected type: '%s'",
+                index, rawParam, rawParam.getClass().getName(), paramClass.getName()));
+      }
       try {
         param = mapper.convertValue(rawParam, paramClass);
       } catch (final Exception e) {
@@ -76,6 +82,12 @@ public class JsonRpcParameter {
                 "Invalid json rpc parameter at index %d. Supplied value was: '%s' of type: '%s' - expected type: '%s'",
                 index, rawParam, rawParam.getClass().getName(), paramClass.getName()),
             e);
+      }
+      if (param == null) {
+        throw new JsonRpcParameterException(
+            String.format(
+                "Invalid json rpc parameter at index %d. Supplied value was: '%s' of type: '%s' - expected type: '%s'",
+                index, rawParam, rawParam.getClass().getName(), paramClass.getName()));
       }
     }
 

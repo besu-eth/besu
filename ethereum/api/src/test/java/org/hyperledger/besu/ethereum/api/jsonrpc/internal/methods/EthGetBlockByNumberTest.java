@@ -146,6 +146,36 @@ public class EthGetBlockByNumberTest {
   }
 
   @Test
+  public void exceptionWhenIntegerPassedAsBoolParam() {
+    assertThatThrownBy(() -> method.response(requestWithParams("0x0", 1)))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessage("Invalid return complete transaction parameter (index 1)")
+        .hasFieldOrPropertyWithValue(
+            "rpcErrorType", RpcErrorType.INVALID_RETURN_COMPLETE_TRANSACTION_PARAMS);
+    verifyNoMoreInteractions(blockchainQueries);
+  }
+
+  @Test
+  public void exceptionWhenStringTruePassedAsBoolParam() {
+    assertThatThrownBy(() -> method.response(requestWithParams("0x0", "true")))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessage("Invalid return complete transaction parameter (index 1)")
+        .hasFieldOrPropertyWithValue(
+            "rpcErrorType", RpcErrorType.INVALID_RETURN_COMPLETE_TRANSACTION_PARAMS);
+    verifyNoMoreInteractions(blockchainQueries);
+  }
+
+  @Test
+  public void exceptionWhenEmptyStringPassedAsBoolParam() {
+    assertThatThrownBy(() -> method.response(requestWithParams("0x0", "")))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessage("Invalid return complete transaction parameter (index 1)")
+        .hasFieldOrPropertyWithValue(
+            "rpcErrorType", RpcErrorType.INVALID_RETURN_COMPLETE_TRANSACTION_PARAMS);
+    verifyNoMoreInteractions(blockchainQueries);
+  }
+
+  @Test
   public void errorWhenAskingFinalizedButFinalizedIsNotPresent() {
     JsonRpcResponse resp = method.response(requestWithParams("finalized", "false"));
     assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
