@@ -71,7 +71,7 @@ public class NativeLibraryOptions {
           "Load the KZG trusted setup on a background thread while the rest of the node starts. "
               + "Every KZG operation waits for the load. If the load fails, the node stops, "
               + "possibly after its services have opened (default: ${DEFAULT-VALUE})",
-      arity = "1")
+      arity = "0..1")
   private final Boolean kzgTrustedSetupBackgroundLoad = Boolean.FALSE;
 
   /** Default constructor. */
