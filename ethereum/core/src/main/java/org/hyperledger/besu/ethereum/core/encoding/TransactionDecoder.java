@@ -43,7 +43,12 @@ public class TransactionDecoder {
               TransactionType.BLOB, BlobTransactionDecoder::decode,
               TransactionType.DELEGATE_CODE, CodeDelegationTransactionDecoder::decode));
 
-  private static final EnumMap<TransactionType, Decoder> POOLED_TRANSACTION_DECODERS =
+  @FunctionalInterface
+  interface PooledDecoder {
+    Transaction decode(Bytes input, boolean elidedBlobs);
+  }
+
+  private static final EnumMap<TransactionType, PooledDecoder> POOLED_TRANSACTION_DECODERS =
       new EnumMap<>(Map.of(TransactionType.BLOB, BlobPooledTransactionDecoder::decode));
 
   /**
@@ -182,7 +187,13 @@ public class TransactionDecoder {
       final TransactionType transactionType, final EncodingContext encodingContext) {
     if (!encodingContext.encodeForBlock()) {
       if (POOLED_TRANSACTION_DECODERS.containsKey(transactionType)) {
-        return POOLED_TRANSACTION_DECODERS.get(transactionType);
+        // Whether the blob payloads may be absent is a property of the context, so the decoder is
+        // told rather than left to infer it from the bytes: only a peer this node negotiated eth/72
+        // with can elide them, and the bytes alone do not say which peer sent them.
+        return input ->
+            POOLED_TRANSACTION_DECODERS
+                .get(transactionType)
+                .decode(input, encodingContext.elideBlobs());
       }
     }
     return checkNotNull(

@@ -65,12 +65,24 @@ public final class PooledTransactionsMessage extends AbstractMessageData {
   }
 
   public List<Transaction> transactions(final int maxTransactions) {
+    return transactions(maxTransactions, EncodingContext.POOLED_TRANSACTION);
+  }
+
+  /**
+   * The transactions in this response, decoded in the given context.
+   *
+   * <p>The context has to come from the version negotiated with the peer that sent this: only an
+   * eth/72 peer may elide the blob payloads, and the bytes alone do not say who sent them.
+   *
+   * @param maxTransactions the most transactions this response may carry
+   * @param context the context to decode in
+   * @return the decoded transactions
+   */
+  public List<Transaction> transactions(final int maxTransactions, final EncodingContext context) {
     if (pooledTransactions == null) {
       final BytesValueRLPInput in = new BytesValueRLPInput(getData(), false);
       pooledTransactions =
-          in.readList(
-              input -> TransactionDecoder.decodeRLP(input, EncodingContext.POOLED_TRANSACTION),
-              maxTransactions);
+          in.readList(input -> TransactionDecoder.decodeRLP(input, context), maxTransactions);
     } else if (pooledTransactions.size() > maxTransactions) {
       throw new RLPException(
           String.format(

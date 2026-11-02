@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.core.encoding;
 
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
-import org.hyperledger.besu.plugin.data.p2p.Capability;
 
 /**
  * Enum representing the context in which a transaction is being encoded. This context is used to
@@ -93,12 +92,5 @@ public enum EncodingContext {
         .getBlobsWithCommitments()
         .map(BlobsWithCommitments::hasBlobData)
         .orElse(false);
-  }
-
-  public static EncodingContext pooledTransactionByCapability(final Capability cap) {
-    if (cap.getVersion() >= 72) {
-      return POOLED_TRANSACTION_ETH_72;
-    }
-    return POOLED_TRANSACTION;
   }
 }

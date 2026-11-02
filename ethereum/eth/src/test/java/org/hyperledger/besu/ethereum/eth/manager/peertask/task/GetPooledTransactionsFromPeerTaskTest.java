@@ -110,6 +110,27 @@ public class GetPooledTransactionsFromPeerTaskTest {
   }
 
   @Test
+  public void testProcessResponseRejectsTheElidedFormFromAPreEth72Peer() throws Exception {
+    // Eliding the blob payloads is an eth/72 answer. From a peer that negotiated anything earlier
+    // it is a malformed response, which is what the executor needs to be told so the peer is
+    // charged for it, rather than an encoder failure logged far from here.
+    final Transaction transaction = new CellsOnlyBlobTransactionFixture().create(1, CellMask.FULL);
+    final GetPooledTransactionsFromPeerTask task =
+        new GetPooledTransactionsFromPeerTask(List.of(transaction.getHash()));
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeList(
+        List.of(transaction),
+        (tx, rlp) ->
+            TransactionEncoder.encodeRLP(tx, rlp, EncodingContext.POOLED_TRANSACTION_ETH_72));
+    final PooledTransactionsMessage message = PooledTransactionsMessage.createUnsafe(out.encoded());
+
+    Assertions.assertThrows(
+        MalformedRlpFromPeerException.class,
+        () -> task.processResponse(message, AGREED_CAPABILITIES));
+  }
+
+  @Test
   public void testProcessResponseAcceptsAnEth72AnnouncedBlobTransaction()
       throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
     // An eth/72 peer announces, and returns, the blob-elided form. Sizing the received

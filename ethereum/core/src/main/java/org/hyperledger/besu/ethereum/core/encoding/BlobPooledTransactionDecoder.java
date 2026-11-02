@@ -49,9 +49,11 @@ public class BlobPooledTransactionDecoder {
    * Decodes a blob transaction from the provided RLP input.
    *
    * @param input the RLP input to decode
+   * @param elidedBlobs whether the context this is decoded in may omit the blob payloads, which
+   *     only an eth/72 peer's PooledTransactions response does
    * @return the decoded transaction
    */
-  public static Transaction decode(final Bytes input) {
+  public static Transaction decode(final Bytes input, final boolean elidedBlobs) {
     final RLPInput txRlp = RLP.input(input.slice(1)); // Skip the transaction type byte
     txRlp.enterList();
     int versionId = 0;
@@ -72,6 +74,13 @@ public class BlobPooledTransactionDecoder {
     // each blob starts with its own empty cell set for the blobpool to fill in via GetCells.
     // One cell set per blob, i.e. one per commitment: proofs.size() is 128x that for cell proofs.
     if (blobs.isEmpty()) {
+      if (!elidedBlobs) {
+        // Only a peer this node negotiated eth/72 with may leave the payloads out. Accepting the
+        // elided form from any other peer would take a malformed response for a valid one, and
+        // leave a transaction whose pre-eth/72 announced size cannot even be computed.
+        throw new RLPException(
+            "Blob payloads are absent, which is only valid for an eth/72 peer's response");
+      }
       if (KZG_CELL_PROOFS.getVersionId() != versionId) {
         throw new RLPException(
             "Unsupported blob type, expected %d but got %d"

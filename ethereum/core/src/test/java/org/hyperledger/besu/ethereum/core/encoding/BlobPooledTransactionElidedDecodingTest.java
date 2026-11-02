@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
 import org.hyperledger.besu.ethereum.core.kzg.Cell;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 
 import java.security.InvalidParameterException;
@@ -89,6 +90,22 @@ class BlobPooledTransactionElidedDecodingTest extends TrustedSetupClassLoaderExt
     assertThat(bwc.getBlobProofBundles()).hasSize(BLOB_COUNT);
     assertThat(bwc.getKzgCommitments())
         .isEqualTo(tx.getBlobsWithCommitments().get().getKzgCommitments());
+  }
+
+  @Test
+  void refusesTheElidedFormWhereTheContextDoesNotElide() {
+    // Only an eth/72 peer may leave the payloads out, and the bytes alone do not say which peer
+    // sent them, so the context decides. A pre-eth/72 peer sending this is sending a malformed
+    // response, and taking it for a valid one would also leave a transaction whose pre-eth/72
+    // announced size cannot be computed at all.
+    final Bytes elided =
+        TransactionEncoder.encodeOpaqueBytes(
+            blobTransaction(), EncodingContext.POOLED_TRANSACTION_ETH_72);
+
+    assertThatExceptionOfType(RLPException.class)
+        .isThrownBy(
+            () -> TransactionDecoder.decodeOpaqueBytes(elided, EncodingContext.POOLED_TRANSACTION))
+        .withMessageContaining("only valid for an eth/72 peer");
   }
 
   @Test
