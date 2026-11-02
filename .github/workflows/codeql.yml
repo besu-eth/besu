@@ -42,7 +42,10 @@ jobs:
         if [ "$EVENT" != "schedule" ]; then
           echo "scan=true" >> "$GITHUB_OUTPUT"; exit 0
         fi
-        last=$(gh run list -R "$REPO" -w codeql.yml -b main -s success -L 1 --json headSha --jq '.[0].headSha // ""')
+        if ! last=$(gh run list -R "$REPO" -w codeql.yml -b main -s success -L 1 --json headSha --jq '.[0].headSha // ""'); then
+          echo "Could not look up previous CodeQL runs; scanning."
+          echo "scan=true" >> "$GITHUB_OUTPUT"; exit 0
+        fi
         if [ -z "$last" ]; then
           echo "No previous successful scan found; scanning."
           echo "scan=true" >> "$GITHUB_OUTPUT"; exit 0
@@ -52,12 +55,13 @@ jobs:
           echo "scan=false" >> "$GITHUB_OUTPUT"; exit 0
         fi
         # Compare lists at most 300 files; treat a truncated or failed compare as changed.
-        if ! files=$(gh api "repos/$REPO/compare/$last...$SHA" --jq '.files[].filename'); then
+        # Include a rename's previous path so moving a source out of the build counts.
+        if ! files=$(gh api "repos/$REPO/compare/$last...$SHA" --jq '.files[] | .filename, (.previous_filename // empty)'); then
           echo "Could not compare $last...$SHA; scanning."
           echo "scan=true" >> "$GITHUB_OUTPUT"; exit 0
         fi
         if [ "$(printf '%s\n' "$files" | grep -c .)" -ge 300 ] || \
-           printf '%s\n' "$files" | grep -qE '\.(java|kt|kts|gradle)$|^gradle/|^gradle\.properties$|^\.github/workflows/codeql\.yml$'; then
+           printf '%s\n' "$files" | grep -qE '\.(java|kt|kts|gradle|sol)$|^gradle/|^gradle\.properties$|^\.github/workflows/codeql\.yml$'; then
           echo "Source or build changes since $last; scanning."
           echo "scan=true" >> "$GITHUB_OUTPUT"
         else
