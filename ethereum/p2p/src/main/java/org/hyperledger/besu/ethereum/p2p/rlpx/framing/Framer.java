@@ -288,7 +288,17 @@ public class Framer {
     // Write message data to ByteBuf, decompressing as necessary
     if (compressionEnabled) {
       final byte[] compressedMessageData = Arrays.copyOfRange(frameData, 1, frameData.length - pad);
-      final int uncompressedLength = compressor.uncompressedLength(compressedMessageData);
+      final int uncompressedLength;
+      try {
+        uncompressedLength = compressor.uncompressedLength(compressedMessageData);
+      } catch (final FramingException fe) {
+        if (compressionSuccessful) {
+          throw fe;
+        }
+        // snappy-java rejects an implausible declared length before decompressing,
+        // so this is also where a non-Snappy peer is first detected
+        return downgradeToUncompressed(id, frameData, frameSize);
+      }
       if (uncompressedLength >= LENGTH_MAX_MESSAGE_FRAME) {
         throw error("Message size %s in excess of maximum length.", uncompressedLength);
       }
@@ -301,10 +311,7 @@ public class Framer {
           compressionSuccessful = true;
           return new RawMessage(id, Bytes.wrap(decompressedMessageData));
         } catch (final FramingException fe) {
-          compressionEnabled = false;
-          LOG.debug("Snappy decompression failed: downgrading to uncompressed");
-          final int messageLength = frameSize - LENGTH_MESSAGE_ID;
-          return new RawMessage(id, Bytes.wrap(frameData, 1, messageLength));
+          return downgradeToUncompressed(id, frameData, frameSize);
         }
       } else {
         // Subsequent messages: store compressed, decompress lazily on getData()
@@ -315,6 +322,14 @@ public class Framer {
       final Bytes data = Bytes.wrap(frameData, 1, messageLength);
       return new RawMessage(id, data);
     }
+  }
+
+  private MessageData downgradeToUncompressed(
+      final int id, final byte[] frameData, final int frameSize) {
+    compressionEnabled = false;
+    LOG.debug("Snappy decompression failed: downgrading to uncompressed");
+    final int messageLength = frameSize - LENGTH_MESSAGE_ID;
+    return new RawMessage(id, Bytes.wrap(frameData, 1, messageLength));
   }
 
   private void validateMac(final byte[] candidateMac, final byte[] expectedMac) {
