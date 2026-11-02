@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BERLIN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO1;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO2;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO3;
@@ -44,6 +45,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.config.BlobSchedule;
 import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.config.QbftConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.MainnetBlockValidator;
@@ -53,6 +55,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MilestoneStreamingProtocolSchedule;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -61,9 +64,16 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -107,10 +117,11 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getOsakaTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 7));
     when(configOptions.getBpo1Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 9));
     when(configOptions.getBpo2Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 11));
-    when(configOptions.getBpo3Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 13));
-    when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 15));
-    when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 17));
-    when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 19));
+    when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 13));
+    when(configOptions.getBpo3Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 15));
+    when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 17));
+    when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 19));
+    when(configOptions.getBogotaTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 21));
     when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
     when(configOptions.getConsolidationRequestContractAddress())
         .thenReturn(Optional.of(Address.ZERO));
@@ -176,30 +187,38 @@ class ProtocolScheduleBuilderTest {
         .isEqualTo(BPO2);
     assertThat(
             protocolSchedule
-                .getByBlockHeader(blockHeader(59, PRE_SHANGHAI_TIMESTAMP + 13))
+                .getByBlockHeader(blockHeader(62, PRE_SHANGHAI_TIMESTAMP + 13))
+                .getHardforkId())
+        .isEqualTo(AMSTERDAM);
+    assertThat(
+            protocolSchedule
+                .getByBlockHeader(blockHeader(59, PRE_SHANGHAI_TIMESTAMP + 15))
                 .getHardforkId())
         .isEqualTo(BPO3);
     assertThat(
             protocolSchedule
-                .getByBlockHeader(blockHeader(60, PRE_SHANGHAI_TIMESTAMP + 15))
+                .getByBlockHeader(blockHeader(60, PRE_SHANGHAI_TIMESTAMP + 17))
                 .getHardforkId())
         .isEqualTo(BPO4);
     assertThat(
             protocolSchedule
-                .getByBlockHeader(blockHeader(61, PRE_SHANGHAI_TIMESTAMP + 17))
+                .getByBlockHeader(blockHeader(61, PRE_SHANGHAI_TIMESTAMP + 19))
                 .getHardforkId())
         .isEqualTo(BPO5);
     assertThat(
             protocolSchedule
-                .getByBlockHeader(blockHeader(62, PRE_SHANGHAI_TIMESTAMP + 19))
+                .getByBlockHeader(blockHeader(63, PRE_SHANGHAI_TIMESTAMP + 21))
                 .getHardforkId())
-        .isEqualTo(AMSTERDAM);
+        .isEqualTo(BOGOTA);
   }
 
   @Test
   void milestoneForShouldQueryAllAvailableHardforks() {
-    final long BPO5_TIME = 1722333828L;
-    final long AMSTERDAM_TIME = BPO5_TIME + 1L;
+    final long AMSTERDAM_TIME = 1722333828L;
+    final long BPO3_TIME = AMSTERDAM_TIME + 1L;
+    final long BPO4_TIME = BPO3_TIME + 1L;
+    final long BPO5_TIME = BPO4_TIME + 1L;
+    final long BOGOTA_TIME = BPO5_TIME + 1L;
 
     when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(0));
     when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(0));
@@ -214,10 +233,11 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getOsakaTime()).thenReturn(OptionalLong.of(0));
     when(configOptions.getBpo1Time()).thenReturn(OptionalLong.of(0));
     when(configOptions.getBpo2Time()).thenReturn(OptionalLong.of(0));
-    when(configOptions.getBpo3Time()).thenReturn(OptionalLong.of(0));
-    when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(0));
-    when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(BPO5_TIME));
     when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(AMSTERDAM_TIME));
+    when(configOptions.getBpo3Time()).thenReturn(OptionalLong.of(BPO3_TIME));
+    when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(BPO4_TIME));
+    when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(BPO5_TIME));
+    when(configOptions.getBogotaTime()).thenReturn(OptionalLong.of(BOGOTA_TIME));
     when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
     when(configOptions.getConsolidationRequestContractAddress())
         .thenReturn(Optional.of(Address.ZERO));
@@ -256,21 +276,25 @@ class ProtocolScheduleBuilderTest {
     assertThat(maybeBpo2MileStone).isPresent();
     assertThat(maybeBpo2MileStone.get()).isEqualTo(0);
 
+    final Optional<Long> maybeAmsterdamMileStone = protocolSchedule.milestoneFor(AMSTERDAM);
+    assertThat(maybeAmsterdamMileStone).isPresent();
+    assertThat(maybeAmsterdamMileStone.get()).isEqualTo(AMSTERDAM_TIME);
+
     final Optional<Long> maybeBpo3MileStone = protocolSchedule.milestoneFor(BPO3);
     assertThat(maybeBpo3MileStone).isPresent();
-    assertThat(maybeBpo3MileStone.get()).isEqualTo(0);
+    assertThat(maybeBpo3MileStone.get()).isEqualTo(BPO3_TIME);
 
     final Optional<Long> maybeBpo4MileStone = protocolSchedule.milestoneFor(BPO4);
     assertThat(maybeBpo4MileStone).isPresent();
-    assertThat(maybeBpo4MileStone.get()).isEqualTo(0);
+    assertThat(maybeBpo4MileStone.get()).isEqualTo(BPO4_TIME);
 
     final Optional<Long> maybeBpo5MileStone = protocolSchedule.milestoneFor(BPO5);
     assertThat(maybeBpo5MileStone).isPresent();
     assertThat(maybeBpo5MileStone.get()).isEqualTo(BPO5_TIME);
 
-    final Optional<Long> maybeAmsterdamMileStone = protocolSchedule.milestoneFor(AMSTERDAM);
-    assertThat(maybeAmsterdamMileStone).isPresent();
-    assertThat(maybeAmsterdamMileStone.get()).isEqualTo(AMSTERDAM_TIME);
+    final Optional<Long> maybeBogotaMileStone = protocolSchedule.milestoneFor(BOGOTA);
+    assertThat(maybeBogotaMileStone).isPresent();
+    assertThat(maybeBogotaMileStone.get()).isEqualTo(BOGOTA_TIME);
   }
 
   @Test
@@ -404,9 +428,6 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getOsakaTime()).thenReturn(OptionalLong.of(0));
     when(configOptions.getBpo1Time()).thenReturn(OptionalLong.of(0));
     when(configOptions.getBpo2Time()).thenReturn(OptionalLong.of(0));
-    when(configOptions.getBpo3Time()).thenReturn(OptionalLong.of(0));
-    when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(0));
-    when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(0));
     when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(0));
     when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
     when(configOptions.getConsolidationRequestContractAddress())
@@ -423,6 +444,118 @@ class ProtocolScheduleBuilderTest {
   }
 
   @Test
+  void amsterdamOnPoaWarnsWhenBuilderRequestAddressesAreDefaulted() {
+    stubAllForksAtGenesis();
+    stubSystemContractAddresses();
+    stubQbft();
+
+    final List<LogEvent> events = captureWarnings(() -> builder.createProtocolSchedule());
+
+    assertThat(events)
+        .anySatisfy(
+            event ->
+                assertThat(event.getMessage().getFormattedMessage())
+                    .contains("builderDepositRequestContractAddress")
+                    .contains(
+                        RequestContractAddresses.DEFAULT_BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS
+                            .toHexString())
+                    .contains(
+                        RequestContractAddresses.DEFAULT_BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS
+                            .toHexString()));
+  }
+
+  @Test
+  void amsterdamOnPoaDoesNotWarnWhenBuilderRequestAddressesAreConfigured() {
+    stubAllForksAtGenesis();
+    stubSystemContractAddresses();
+    stubQbft();
+    when(configOptions.getBuilderDepositRequestContractAddress())
+        .thenReturn(Optional.of(Address.fromHexString("0x04")));
+    when(configOptions.getBuilderExitRequestContractAddress())
+        .thenReturn(Optional.of(Address.fromHexString("0x05")));
+
+    final List<LogEvent> events = captureWarnings(() -> builder.createProtocolSchedule());
+
+    assertThat(events)
+        .noneSatisfy(
+            event ->
+                assertThat(event.getMessage().getFormattedMessage())
+                    .contains("builderDepositRequestContractAddress"));
+  }
+
+  @Test
+  void amsterdamOnNonPoaDoesNotWarnAboutDefaultedBuilderRequestAddresses() {
+    stubAllForksAtGenesis();
+    stubSystemContractAddresses();
+
+    final List<LogEvent> events = captureWarnings(() -> builder.createProtocolSchedule());
+
+    assertThat(events)
+        .noneSatisfy(
+            event ->
+                assertThat(event.getMessage().getFormattedMessage())
+                    .contains("builderDepositRequestContractAddress"));
+  }
+
+  private void stubQbft() {
+    final QbftConfigOptions qbftConfigOptions = mock(QbftConfigOptions.class);
+    when(qbftConfigOptions.getBlockPeriodSeconds()).thenReturn(1);
+    when(configOptions.isQbft()).thenReturn(true);
+    when(configOptions.getQbftConfigOptions()).thenReturn(qbftConfigOptions);
+  }
+
+  private void stubSystemContractAddresses() {
+    when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
+    when(configOptions.getConsolidationRequestContractAddress())
+        .thenReturn(Optional.of(Address.ZERO));
+    when(configOptions.getWithdrawalRequestContractAddress()).thenReturn(Optional.of(Address.ZERO));
+  }
+
+  private void stubAllForksAtGenesis() {
+    when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getConstantinopleBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getPetersburgBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getIstanbulBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBerlinBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getLondonBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getShanghaiTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getCancunTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getPragueTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getOsakaTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo1Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo2Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo3Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(0));
+  }
+
+  @SuppressWarnings("BannedMethod")
+  private static List<LogEvent> captureWarnings(final Runnable action) {
+    final Logger logger = (Logger) LogManager.getLogger(MainnetProtocolSpecs.class);
+    final List<LogEvent> events = new CopyOnWriteArrayList<>();
+    final AbstractAppender appender =
+        new AbstractAppender("test-capture", null, null, false, Property.EMPTY_ARRAY) {
+          @Override
+          public void append(final LogEvent event) {
+            if (event.getLevel().equals(Level.WARN)) {
+              events.add(event.toImmutable());
+            }
+          }
+        };
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      action.run();
+    } finally {
+      logger.removeAppender(appender);
+      appender.stop();
+    }
+    return events;
+  }
+
+  @Test
   void balIsValidatedForAmsterdamButNotForOsaka() throws Exception {
     when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(1L));
     when(configOptions.getDaoForkBlock()).thenReturn(OptionalLong.of(2L));
@@ -434,10 +567,7 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getOsakaTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 7));
     when(configOptions.getBpo1Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 9));
     when(configOptions.getBpo2Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 11));
-    when(configOptions.getBpo3Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 13));
-    when(configOptions.getBpo4Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 15));
-    when(configOptions.getBpo5Time()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 17));
-    when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 19));
+    when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP + 13));
     when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
     when(configOptions.getConsolidationRequestContractAddress())
         .thenReturn(Optional.of(Address.ZERO));
@@ -446,7 +576,7 @@ class ProtocolScheduleBuilderTest {
 
     final BlockValidator amsterdamBlockValidator =
         protocolSchedule
-            .getByBlockHeader(blockHeader(62, PRE_SHANGHAI_TIMESTAMP + 19))
+            .getByBlockHeader(blockHeader(62, PRE_SHANGHAI_TIMESTAMP + 13))
             .getBlockValidator();
     final BlockValidator osakaBlockValidator =
         protocolSchedule

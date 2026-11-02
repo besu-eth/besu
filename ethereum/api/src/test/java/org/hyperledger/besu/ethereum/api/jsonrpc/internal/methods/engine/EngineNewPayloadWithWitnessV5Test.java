@@ -28,7 +28,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPa
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadPostExecutionValidationResultV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -41,6 +44,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.BeforeEach;
@@ -104,7 +108,11 @@ class EngineNewPayloadWithWitnessV5Test {
   void shouldReturnInternalErrorWhenImportProducedNoBlockAccessList() {
     final JsonRpcResponse resp =
         method.respondWithValid(
-            REQUEST_ID, param, newBlockHeader, new BlockProcessingResult(Optional.empty()));
+            REQUEST_ID,
+            param,
+            newBlockHeader,
+            new BlockProcessingResult(Optional.empty()),
+            PayloadPostExecutionValidationResultV1.SUCCESS);
 
     assertInternalError(resp);
   }
@@ -120,9 +128,25 @@ class EngineNewPayloadWithWitnessV5Test {
 
     final JsonRpcResponse resp =
         method.respondWithValid(
-            REQUEST_ID, param, newBlockHeader, new BlockProcessingResult(Optional.of(outputs)));
+            REQUEST_ID,
+            param,
+            newBlockHeader,
+            new BlockProcessingResult(Optional.of(outputs)),
+            PayloadPostExecutionValidationResultV1.SUCCESS);
 
     assertInternalError(resp);
+  }
+
+  @Test
+  void shouldStoreTheBlockBeforeReplying() {
+    final AtomicBoolean stored = new AtomicBoolean();
+
+    method
+        .writeAfterReply(new Block(newBlockHeader, BlockBody.empty()))
+        .execute(() -> stored.set(true));
+
+    // the witness is built from the block's trie log
+    assertThat(stored).isTrue();
   }
 
   private static void assertInternalError(final JsonRpcResponse resp) {

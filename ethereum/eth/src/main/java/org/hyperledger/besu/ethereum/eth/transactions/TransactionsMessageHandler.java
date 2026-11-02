@@ -36,25 +36,25 @@ class TransactionsMessageHandler implements EthMessages.MessageCallback {
   private final TransactionsMessageProcessor transactionsMessageProcessor;
   private final EthScheduler scheduler;
   private final Duration txMsgKeepAlive;
-  private final int maxMessageSize;
+  private final int maxTransactionsMessageSize;
   private final AtomicBoolean isEnabled = new AtomicBoolean(false);
 
   public TransactionsMessageHandler(
       final EthScheduler scheduler,
       final TransactionsMessageProcessor transactionsMessageProcessor,
       final int txMsgKeepAliveSeconds,
-      final int maxMessageSize) {
+      final int maxTransactionsMessageSize) {
     this.scheduler = scheduler;
     this.transactionsMessageProcessor = transactionsMessageProcessor;
     this.txMsgKeepAlive = Duration.ofSeconds(txMsgKeepAliveSeconds);
-    this.maxMessageSize = maxMessageSize;
+    this.maxTransactionsMessageSize = maxTransactionsMessageSize;
   }
 
   @Override
   public void exec(final EthMessage message) {
     if (isEnabled.get()) {
       final MessageData rawMessage = message.getData();
-      if (rawMessage.getSize() > maxMessageSize) {
+      if (rawMessage.getSize() > maxTransactionsMessageSize) {
         LOG.debug(
             "Oversized transactions message received ({} bytes), disconnecting: {}",
             rawMessage.getSize(),

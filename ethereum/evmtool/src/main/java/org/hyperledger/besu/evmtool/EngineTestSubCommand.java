@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evmtool;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
@@ -70,6 +71,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -87,6 +89,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Option;
@@ -126,7 +129,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
       description =
           "Limit execution to tests whose name contains the given substring, or matches the given"
               + " pattern (a regex, with * and ? as wildcards).")
-  private String testName = null;
+  private @Nullable String testName = null;
 
   @Option(
       names = {"--test-name-regex"},
@@ -135,10 +138,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
               + " hive --sim.limit value: anchored at the start of the id, open at the end and"
               + " case-sensitive, as re.match is. Nothing is escaped or rewritten, so a published"
               + " hive filter can be passed exactly as it appears.")
-  private String testNameRegex = null;
+  private @Nullable String testNameRegex = null;
 
   // Compiled up front so a malformed expression fails before any fixture is read
-  private TestNameFilter nameFilter;
+  private @Nullable TestNameFilter nameFilter;
 
   @Option(
       names = {"--workers"},
@@ -167,7 +170,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   @Parameters private final List<Path> engineTestFiles = new ArrayList<>();
 
   /** Required by PicoCLI, which instantiates subcommands reflectively with no arguments. */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public EngineTestSubCommand() {
     this(null);
   }
@@ -205,7 +208,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           if (fileName == null) break;
           final File file = new File(fileName);
           if (file.isFile()) {
-            runFile(file.toPath(), mapper, javaType, results);
+            // No stdin: these are file names, and the stream is the list still being read.
+            runFile(file.toPath(), null, mapper, javaType, results);
           } else {
             parentCommand.out.println("File not found: " + fileName);
           }
@@ -214,11 +218,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         FixtureRunner.runFiles(
             FixtureRunner.collectFiles(engineTestFiles),
             workers,
-            file -> runFile(file, mapper, javaType, results));
+            file -> runFile(file, parentCommand.in, mapper, javaType, results));
       }
-    } catch (final JsonProcessingException jpe) {
-      setupFailed = true;
-      parentCommand.out.println("File content error: " + jpe);
     } catch (final IOException e) {
       setupFailed = true;
       System.err.println("Unable to read test file: " + e.getMessage());
@@ -244,11 +245,15 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         }
       }
       if (jsonArray) {
+        results.addNotRunRows(jsonArrayResults, "fork", "lastBlockHash", "lastPayloadStatus");
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-      } else if (results.hasTests()) {
+      } else if (results.hasTests() || results.unaccountedCases() > 0) {
         results.printSummary(parentCommand.out);
       }
-      exitCode = results.failed() > 0 || setupFailed || ranNothing ? 1 : 0;
+      exitCode =
+          results.failed() > 0 || setupFailed || ranNothing || results.unaccountedCases() > 0
+              ? 1
+              : 0;
       // The Vertx event loop and the scheduler pools are not daemon threads, so leaving them
       // running keeps a JVM that does not exit alive for good. EvmTool.main does exit, but an
       // in-process caller — a future unit test, as EvmToolSpecTests already is for state-test —
@@ -266,21 +271,24 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
    */
   private void runFile(
       final Path file,
+      final @Nullable InputStream stdin,
       final ObjectMapper mapper,
       final JavaType javaType,
       final FixtureRunner.TestResults results) {
-    final Map<String, EngineTestCaseSpec> tests;
-    try {
-      // FixtureRunner.collectFiles passes the literal path "stdin" through unresolved, as the
-      // signal to read the fixture from standard input. block-test and state-test both honour it.
-      tests =
-          "stdin".equals(file.toString())
-              ? mapper.readValue(parentCommand.in, javaType)
-              : mapper.readValue(file.toFile(), javaType);
-    } catch (final Exception e) {
-      results.recordUnreadable(file.toString(), "not readable as an engine test fixture: " + e);
+    final Map<String, EngineTestCaseSpec> tests =
+        FixtureRunner.readTests(
+            file,
+            stdin,
+            mapper,
+            javaType,
+            test -> nameFilter == null || requireNonNull(nameFilter).matches(test),
+            (cases, e) ->
+                results.recordUnreadable(
+                    file.toString(), "not readable as an engine test fixture: " + e, cases));
+    if (tests == null) {
       return;
     }
+    results.recordDeclaredCases(tests.size());
     executeEngineTests(tests, results);
   }
 
@@ -376,7 +384,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private void executeEngineTests(
       final Map<String, EngineTestCaseSpec> tests, final FixtureRunner.TestResults results) {
     for (final Map.Entry<String, EngineTestCaseSpec> entry : tests.entrySet()) {
-      if (nameFilter != null && !nameFilter.matches(entry.getKey())) continue;
+      if (nameFilter != null && !requireNonNull(nameFilter).matches(entry.getKey())) {
+        results.recordFiltered();
+        continue;
+      }
       try {
         runSingleEngineTest(entry.getKey(), entry.getValue(), results);
       } catch (final RuntimeException e) {
@@ -398,8 +409,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
    * @param actualCode the error code the engine method returned
    * @return {@code null} when the outcome matches expectations, otherwise a failure reason
    */
-  private static String checkExpectedErrorCode(
-      final int payloadIndex, final String expectedErrorCode, final int actualCode) {
+  private static @Nullable String checkExpectedErrorCode(
+      final int payloadIndex, final @Nullable String expectedErrorCode, final int actualCode) {
     if (expectedErrorCode == null) {
       return String.format(
           "payload %d: unexpected Engine API error code %d", payloadIndex, actualCode);
@@ -821,7 +832,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private void recordResult(
       final String test,
       final EngineTestCaseSpec spec,
-      final MutableBlockchain blockchain,
+      final @Nullable MutableBlockchain blockchain,
       final boolean testPassed,
       final String failureReason,
       final FixtureRunner.TestResults results) {
@@ -841,10 +852,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private void recordResult(
       final String test,
       final EngineTestCaseSpec spec,
-      final MutableBlockchain blockchain,
+      final @Nullable MutableBlockchain blockchain,
       final boolean testPassed,
       final String failureReason,
-      final EngineStatus lastPayloadStatus,
+      final @Nullable EngineStatus lastPayloadStatus,
       final FixtureRunner.TestResults results) {
     if (testPassed) {
       if (verbose) {

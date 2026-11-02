@@ -17,6 +17,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
+
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
@@ -40,6 +43,22 @@ class ArchiveNodeKeyTest {
     final Bytes32 acct = Bytes32.repeat((byte) 0x11);
     assertThat(ArchiveNodeKey.storage(acct, Bytes.of(0x0e)))
         .isEqualTo(Bytes.concatenate(acct, Bytes.of(0x01, 0x0e)));
+  }
+
+  @Test
+  void trieNodeKeyWithoutTriePrefixMapsToAccountKey() {
+    final Bytes location = Bytes.of(0x0e, 0x01);
+    assertThat(ArchiveNodeKey.of(location)).isEqualTo(ArchiveNodeKey.account(location));
+  }
+
+  @Test
+  void trieNodeKeyWithTriePrefixMapsToStorageKey() {
+    final Hash accountHash = Hash.hash(Bytes.of(0xAA));
+    final Bytes location = Bytes.of(0x0e, 0x01);
+    assertThat(ArchiveNodeKey.of(TrieNodeKey.of(accountHash, location)))
+        .isEqualTo(ArchiveNodeKey.storage(accountHash.getBytes(), location));
+    assertThat(ArchiveNodeKey.of(TrieNodeKey.of(accountHash, Bytes.EMPTY)))
+        .isEqualTo(ArchiveNodeKey.storage(accountHash.getBytes(), Bytes.EMPTY));
   }
 
   @Test

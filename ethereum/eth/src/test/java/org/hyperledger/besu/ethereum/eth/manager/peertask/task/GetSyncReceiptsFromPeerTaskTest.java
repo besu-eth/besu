@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceip
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.core.Utils;
 import org.hyperledger.besu.ethereum.eth.manager.ChainState;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
@@ -83,7 +84,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 public class GetSyncReceiptsFromPeerTaskTest {
-  private static final Set<Capability> AGREED_CAPABILITIES_ETH69 = Set.of(EthProtocol.ETH69);
+  private static final Set<Capability> AGREED_CAPABILITIES_ETH69 =
+      Set.of(EthProtocolVersion.V69.getCapability());
   private static final Set<Capability> AGREED_CAPABILITIES_LATEST = Set.of(EthProtocol.LATEST);
   private static ProtocolSchedule protocolSchedule;
 
@@ -281,6 +283,24 @@ public class GetSyncReceiptsFromPeerTaskTest {
     assertThat(response.lastBlockPartialReceipts()).isEmpty();
     assertThat(response.completeReceiptsByBlock()).containsKey(block.block);
     assertThat(response.completeReceiptsByBlock().get(block.block)).hasSize(3);
+  }
+
+  // a receipt larger than the page of the peer: none of the rest of the block comes
+  @Test
+  public void validateResultFailsWhenTheRestOfACutBlockBringsNoReceipt()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    final MockedBlock block = mockBlock(1, 3);
+    final GetSyncReceiptsFromPeerTask task =
+        createTask(
+            new Request(
+                List.of(block.block), List.of(toResponseReceipt(block.receipts.getFirst()))),
+            protocolSchedule);
+
+    final Response response =
+        task.processResponse(
+            buildEth70ReceiptsMessage(List.of(List.of()), true), AGREED_CAPABILITIES_LATEST);
+
+    assertEquals(PeerTaskValidationResponse.NO_RESULTS_RETURNED, task.validateResult(response));
   }
 
   @Test
@@ -487,6 +507,24 @@ public class GetSyncReceiptsFromPeerTaskTest {
     assertEquals(
         PeerTaskValidationResponse.INVALID_RECEIPT_RETURNED,
         task.validateResult(new Response(Map.of(), List.of(oversizedReceipt))));
+  }
+
+  @Test
+  public void validateResultAcceptsPartialReceiptAbove45MGasBoundWhenBlockGasLimitAllowsIt() {
+    // blockGasLimit=60M with no per-tx cap → per-receipt threshold = 7.5M bytes, so the receipt of
+    // a tx using more than 45M gas must be accepted
+    final MockedBlock block = mockBlockWithGasLimit(1, 1, 60_000_000L);
+    final GetSyncReceiptsFromPeerTask task =
+        createTask(
+            new Request(List.of(block.block), List.of()),
+            createProtocolScheduleWithTxGasLimitCap(Long.MAX_VALUE));
+
+    final SyncTransactionReceipt largeReceipt =
+        new SyncTransactionReceipt(Bytes.of(new byte[45_000_000 / 8 + 1]));
+
+    assertEquals(
+        PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD,
+        task.validateResult(new Response(Map.of(), List.of(largeReceipt))));
   }
 
   @Test

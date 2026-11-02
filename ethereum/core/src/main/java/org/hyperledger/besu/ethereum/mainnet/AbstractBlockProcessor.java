@@ -29,13 +29,15 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
-import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.PreprocessingFunction.NoPreprocessing;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
-import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidator;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
@@ -52,6 +54,7 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
@@ -61,6 +64,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,15 +83,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractBlockProcessor.class);
 
-  static final int MAX_GENERATION = 6;
-
   protected final MainnetTransactionProcessor transactionProcessor;
 
   protected final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory;
 
-  final Wei blockReward;
-
-  protected final boolean skipZeroBlockRewards;
   private final ProtocolSchedule protocolSchedule;
   protected final BalConfiguration balConfiguration;
   private final BlockProcessingMetrics blockProcessingMetrics;
@@ -98,36 +97,32 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   protected AbstractBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionReceiptFactory transactionReceiptFactory,
-      final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-      final boolean skipZeroBlockRewards,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration) {
     this(
         transactionProcessor,
         transactionReceiptFactory,
-        blockReward,
         miningBeneficiaryCalculator,
-        skipZeroBlockRewards,
         protocolSchedule,
         balConfiguration,
         new NoOpMetricsSystem());
   }
 
+  /**
+   * Creates a processor with its own {@link BlockProcessingMetrics}. Each instance registers the
+   * block processing gauges again, and the metrics system keeps only the last registration.
+   */
   protected AbstractBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionReceiptFactory transactionReceiptFactory,
-      final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-      final boolean skipZeroBlockRewards,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
     this.transactionProcessor = transactionProcessor;
     this.transactionReceiptFactory = transactionReceiptFactory;
-    this.blockReward = blockReward;
     this.miningBeneficiaryCalculator = miningBeneficiaryCalculator;
-    this.skipZeroBlockRewards = skipZeroBlockRewards;
     this.protocolSchedule = protocolSchedule;
     this.balConfiguration = balConfiguration;
     this.blockProcessingMetrics = new BlockProcessingMetrics(metricsSystem);
@@ -156,60 +151,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     return blockImportTracerProvider.getBlockImportTracer(header);
   }
 
-  /**
-   * Processes the block with no privateMetadata and no preprocessor.
-   *
-   * @param protocolContext the current context of the protocol
-   * @param blockchain the blockchain to append the block to
-   * @param worldState the world state to apply changes to
-   * @param block the block to process
-   * @return the block processing result
-   */
   @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block) {
-    return processBlock(
-        protocolContext, blockchain, worldState, block, Optional.empty(), new NoPreprocessing());
-  }
-
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final PreprocessingFunction preprocessingBlockFunction) {
-    return processBlock(
-        protocolContext,
-        blockchain,
-        worldState,
-        block,
-        Optional.empty(),
-        preprocessingBlockFunction);
-  }
-
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList) {
-    return processBlock(
-        protocolContext, blockchain, worldState, block, blockAccessList, new NoPreprocessing());
-  }
-
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList,
-      final PreprocessingFunction preprocessingBlockFunction) {
+  public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    final ProtocolContext protocolContext = context.getProtocolContext();
+    final Blockchain blockchain = protocolContext.getBlockchain();
+    final MutableWorldState worldState = context.getWorldState();
+    final Block block = context.getBlock();
+    final Optional<BlockAccessList> blockAccessList = context.getBlockAccessList();
     final List<TransactionReceipt> receipts = new ArrayList<>();
     // EIP-7778: Track two separate cumulative gas values
     // cumulativeExecutionGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
@@ -232,7 +180,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         protocolSpec.getPreExecutionProcessor().createBlockHashLookup(blockchain, blockHeader);
 
     final BlockAwareOperationTracer blockTracer =
-        getBlockImportTracer(protocolContext, blockHeader);
+        context
+            .getBlockTracer()
+            .orElseGet(() -> getBlockImportTracer(protocolContext, blockHeader));
 
     final Address miningBeneficiary = miningBeneficiaryCalculator.calculateBeneficiary(blockHeader);
 
@@ -246,11 +196,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
     final Optional<BlockAccessListBuilder> blockAccessListBuilder =
-        protocolSpec
-            .getBlockAccessListFactory()
+        context
+            .getBlockAccessListFactory(protocolSpec)
             .map(BlockAccessListFactory::newBlockAccessListBuilder);
 
-    Optional<PreprocessingContext> preProcessingContext = Optional.empty();
+    Optional<ParallelBlockTransactionProcessor> parallelProcessor = Optional.empty();
     try {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
@@ -280,17 +230,19 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                               calculateExcessBlobGasForParent(protocolSpec, parentHeader)))
               .orElse(Wei.ZERO);
 
-      preProcessingContext =
-          preprocessingBlockFunction.run(
-              protocolContext,
-              blockHeader,
-              transactions,
-              miningBeneficiary,
-              blockHashLookup,
-              blobGasPrice,
-              blockAccessListBuilder,
-              blockAccessList,
-              maybeParentHeader);
+      if (!context.isSequentialExecutionRequested()) {
+        parallelProcessor =
+            startParallelExecution(
+                protocolContext,
+                blockHeader,
+                transactions,
+                miningBeneficiary,
+                blockHashLookup,
+                blobGasPrice,
+                blockAccessListBuilder,
+                blockAccessList,
+                maybeParentHeader);
+      }
 
       boolean parallelizedTxFound = false;
       int nbParallelTx = 0;
@@ -316,8 +268,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         final Optional<AccessLocationTracker> transactionLocationTracker =
             createTransactionAccessLocationTracker(blockAccessListBuilder, i);
         TransactionProcessingResult transactionProcessingResult =
-            getTransactionProcessingResult(
-                preProcessingContext,
+            processTransaction(
+                parallelProcessor,
                 blockProcessingContext,
                 transactionUpdater,
                 blobGasPrice,
@@ -393,6 +345,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           nbParallelTx++;
         }
       }
+
       final var optionalHeaderBlobGasUsed = blockHeader.getBlobGasUsed();
       if (optionalHeaderBlobGasUsed.isPresent()) {
         final long headerBlobGasUsed = optionalHeaderBlobGasUsed.get();
@@ -408,6 +361,20 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
       }
+
+      // EIP-7805: validated against the state after the block txs, before withdrawals
+      final InclusionListTransactions inclusionListTransactions =
+          context.getInclusionListTransactions();
+      final InclusionListValidationResult inclusionListValidationResult =
+          inclusionListTransactions.isEmpty()
+              ? InclusionListValidationResult.valid()
+              : InclusionListValidator.validate(
+                  protocolSpec,
+                  worldState.updater(),
+                  blockHeader,
+                  cumulativeExecutionGasUsed,
+                  cumulativeStateGasUsed,
+                  inclusionListTransactions.notIncludedIn(transactions));
 
       final Optional<AccessLocationTracker> postExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
@@ -490,8 +457,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       }
 
-      if (!rewardCoinbase(worldState, blockHeader, ommers, skipZeroBlockRewards)) {
-        // no need to log, rewardCoinbase logs the error.
+      if (!protocolSpec
+          .getBlockRewardProcessor()
+          .rewardBeneficiaries(worldState, blockHeader, ommers, miningBeneficiary)) {
+        // no need to log, rewardBeneficiaries logs the error.
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -539,14 +508,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       try {
         worldState.persist(blockHeader, stateRootCommitter);
       } catch (MerkleTrieException e) {
-        LOG.trace("Merkle trie exception during Transaction processing ", e);
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
-        @SuppressWarnings(
-            "java:S2139") // Exception is logged and rethrown to preserve original behavior
-        RuntimeException rethrown = e;
-        throw rethrown;
+        // kept out of the catch below, the outer catch resets the accumulator and rethrows it
+        throw e;
       } catch (StateRootMismatchException ex) {
         LOG.info(
             "failed persisting block due to stateroot mismatch; expected {}, actual {}",
@@ -569,31 +532,81 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   maybeRequests,
                   maybeBlockAccessList,
                   gasMetered,
-                  blockHashLookup.getAccessedAncestors())),
+                  blockHashLookup.getAccessedAncestors(),
+                  inclusionListValidationResult)),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
+    } catch (final MerkleTrieException | StorageException e) {
+      // the block may be processed again on this world state, without the transactions before
+      if (worldState instanceof BonsaiWorldState) {
+        ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+      }
+      throw e;
     } finally {
       stateRootCommitter.cancel();
-      preProcessingContext.ifPresent(
-          ctx -> {
+      parallelProcessor.ifPresent(
+          processor -> {
             try {
               // Cancel any speculative futures not yet consumed by the main loop.
-              ctx.processor().abort();
+              processor.abort();
             } catch (final Exception e) {
-              LOG.debug("Error aborting parallel transaction preprocessing futures", e);
+              LOG.debug("Error aborting parallel transaction execution futures", e);
             }
           });
     }
   }
 
-  @SuppressWarnings("unused") // preProcessingContext and location are used by subclasses
-  protected TransactionProcessingResult getTransactionProcessingResult(
-      final Optional<PreprocessingContext> preProcessingContext,
+  /**
+   * Starts executing the block's transactions speculatively in parallel, before they are executed
+   * in order. The returned processor is handed to {@link #processTransaction} for each transaction
+   * and aborted once the block is processed. Not called when the {@link BlockExecutionContext}
+   * requests sequential execution. Starts nothing by default.
+   */
+  @SuppressWarnings("unused") // the parameters are used by subclasses
+  protected Optional<ParallelBlockTransactionProcessor> startParallelExecution(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockHeader> maybeParentHeader) {
+    return Optional.empty();
+  }
+
+  /**
+   * Processes a transaction of the block, by default sequentially. Subclasses may instead return
+   * the result {@code parallelProcessor} computed for it.
+   */
+  @SuppressWarnings("unused") // parallelProcessor and location are used by subclasses
+  protected TransactionProcessingResult processTransaction(
+      final Optional<ParallelBlockTransactionProcessor> parallelProcessor,
       final BlockProcessingContext blockProcessingContext,
       final WorldUpdater transactionUpdater,
       final Wei blobGasPrice,
       final Address miningBeneficiary,
       final Transaction transaction,
       final int location,
+      final BlockHashLookup blockHashLookup,
+      final Optional<AccessLocationTracker> accessLocationTracker) {
+    return processTransactionSequentially(
+        blockProcessingContext,
+        transactionUpdater,
+        blobGasPrice,
+        miningBeneficiary,
+        transaction,
+        blockHashLookup,
+        accessLocationTracker);
+  }
+
+  /** Processes a transaction on the state left by the transactions before it. */
+  protected final TransactionProcessingResult processTransactionSequentially(
+      final BlockProcessingContext blockProcessingContext,
+      final WorldUpdater transactionUpdater,
+      final Wei blobGasPrice,
+      final Address miningBeneficiary,
+      final Transaction transaction,
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
     return transactionProcessor.processTransaction(
@@ -608,9 +621,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         accessLocationTracker);
   }
 
+  @VisibleForTesting
   @SuppressWarnings(
       "java:S2629") // INFO level logging rarely disabled in this project per maintainer feedback
-  protected boolean hasAvailableBlockBudget(
+  final boolean hasAvailableBlockBudget(
       final BlockHeader blockHeader,
       final Transaction transaction,
       final long cumulativeExecutionGasUsed,
@@ -661,45 +675,5 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
     partialBlockAccessView.ifPresent(
         view -> blockAccessListBuilder.ifPresent(builder -> builder.apply(view)));
-  }
-
-  protected MiningBeneficiaryCalculator getMiningBeneficiaryCalculator() {
-    return miningBeneficiaryCalculator;
-  }
-
-  abstract boolean rewardCoinbase(
-      final MutableWorldState worldState,
-      final BlockHeader header,
-      final List<BlockHeader> ommers,
-      final boolean skipZeroBlockRewards);
-
-  public interface PreprocessingFunction {
-    Optional<PreprocessingContext> run(
-        final ProtocolContext protocolContext,
-        final BlockHeader blockHeader,
-        final List<Transaction> transactions,
-        final Address miningBeneficiary,
-        final BlockHashLookup blockHashLookup,
-        final Wei blobGasPrice,
-        final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> maybeBlockBal,
-        final Optional<BlockHeader> maybeParentHeader);
-
-    class NoPreprocessing implements PreprocessingFunction {
-
-      @Override
-      public Optional<PreprocessingContext> run(
-          final ProtocolContext protocolContext,
-          final BlockHeader blockHeader,
-          final List<Transaction> transactions,
-          final Address miningBeneficiary,
-          final BlockHashLookup blockHashLookup,
-          final Wei blobGasPrice,
-          final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-          final Optional<BlockAccessList> maybeBlockBal,
-          final Optional<BlockHeader> maybeParentHeader) {
-        return Optional.empty();
-      }
-    }
   }
 }

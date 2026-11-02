@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 
@@ -34,7 +36,8 @@ public final class BlobAndProofV2 extends BlobAndProofV1 {
   private final List<KZGProof> cellProofs;
 
   public BlobAndProofV2(final BlobProofBundle blobProofBundle) {
-    super(blobProofBundle.getBlob());
+    checkArgument(blobProofBundle.getBlob().isPresent(), "Blob must be present for BlobAndProofV2");
+    super(blobProofBundle.getBlob().get());
     this.cellProofs = blobProofBundle.getKzgProof();
   }
 

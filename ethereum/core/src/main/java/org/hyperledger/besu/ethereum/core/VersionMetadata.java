@@ -19,6 +19,7 @@ import org.hyperledger.besu.util.BesuVersionUtils;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -66,6 +67,17 @@ public class VersionMetadata implements Comparable<VersionMetadata> {
 
   public void writeToDirectory(final Path dataDir) throws IOException {
     MAPPER.writeValue(getDefaultMetadataFile(dataDir), this);
+  }
+
+  /**
+   * Forgets the Besu version that last started, so that any version, also an older one, starts on
+   * the data directory as on one without version data.
+   *
+   * @param dataDir the data directory
+   * @throws IOException if the metadata file cannot be deleted
+   */
+  public static void deleteFrom(final Path dataDir) throws IOException {
+    Files.deleteIfExists(dataDir.resolve(METADATA_FILENAME));
   }
 
   private static File getDefaultMetadataFile(final Path dataDir) throws IOException {

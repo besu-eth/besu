@@ -91,7 +91,13 @@ public class TransactionEncoder {
       final Transaction transaction, final EncodingContext encodingContext) {
     final TransactionType transactionType = getTransactionType(transaction);
     if (TransactionType.FRONTIER.equals(transactionType)) {
-      return RLP.encode(rlpOutput -> FrontierTransactionEncoder.encode(transaction, rlpOutput));
+      // a decoded transaction keeps the bytes it was decoded from, as typed ones do below
+      return transaction
+          .getRawRlp()
+          .orElseGet(
+              () ->
+                  RLP.encode(
+                      rlpOutput -> FrontierTransactionEncoder.encode(transaction, rlpOutput)));
     } else {
       final Encoder encoder = getEncoder(transactionType, encodingContext);
       final BytesValueRLPOutput out = new BytesValueRLPOutput();

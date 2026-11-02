@@ -1,0 +1,18 @@
+{
+  "comment" : "A block number beyond the chain head returns an error, not a null result.",
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "trace_replayBlockTransactions",
+    "params" : [ "0xffff", [ "trace" ] ],
+    "id" : 1
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "id" : 1,
+    "error" : {
+      "code" : -32000,
+      "message" : "Block not found"
+    }
+  },
+  "statusCode" : 200
+}

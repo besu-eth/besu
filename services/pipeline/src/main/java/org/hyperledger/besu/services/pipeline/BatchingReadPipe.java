@@ -14,12 +14,16 @@
  */
 package org.hyperledger.besu.services.pipeline;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.Function;
+
+import org.jspecify.annotations.Nullable;
 
 /**
  * The Batching read pipe.
@@ -58,6 +62,7 @@ public class BatchingReadPipe<T> implements ReadPipe<List<T>> {
       final int maximumBatchSize,
       final Counter batchCounter,
       final Function<List<T>, Integer> batchEndCondition) {
+    checkArgument(maximumBatchSize > 0, "Maximum batch size must be greater than 0");
     this.input = input;
     this.maximumBatchSize = maximumBatchSize;
     this.batchCounter = batchCounter;
@@ -75,7 +80,7 @@ public class BatchingReadPipe<T> implements ReadPipe<List<T>> {
   }
 
   @Override
-  public List<T> get() {
+  public @Nullable List<T> get() {
     final T firstItem = input.get();
     if (firstItem == null) {
       // Contract of get is to explicitly return null when no more items are available.
@@ -98,7 +103,7 @@ public class BatchingReadPipe<T> implements ReadPipe<List<T>> {
   }
 
   @Override
-  public List<T> poll() {
+  public @Nullable List<T> poll() {
     final List<T> batch = new ArrayList<>();
     Integer remainingData = stopBatchCondition.apply(batch);
     while (remainingData > 0

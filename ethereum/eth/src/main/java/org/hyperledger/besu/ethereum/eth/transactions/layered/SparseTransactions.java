@@ -20,11 +20,11 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason;
@@ -69,13 +69,13 @@ public class SparseTransactions extends AbstractTransactionsLayer {
 
   public SparseTransactions(
       final TransactionPoolConfiguration poolConfig,
-      final EthScheduler ethScheduler,
       final TransactionsLayer nextLayer,
       final TransactionPoolMetrics metrics,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
           transactionReplacementTester,
-      final BlobCache blobCache) {
-    super(poolConfig, ethScheduler, nextLayer, transactionReplacementTester, metrics, blobCache);
+      final BlobCache blobCache,
+      final TransactionEventNotifier.Emitter eventEmitter) {
+    super(poolConfig, nextLayer, transactionReplacementTester, metrics, blobCache, eventEmitter);
     orderByGap = new ArrayList<>(poolConfig.getMaxFutureBySender());
     IntStream.range(0, poolConfig.getMaxFutureBySender())
         .forEach(i -> orderByGap.add(new SendersByPriority()));
@@ -189,7 +189,7 @@ public class SparseTransactions extends AbstractTransactionsLayer {
       }
     }
 
-    // remove promoted txs from this layer
+    // remove promoted txs from this layer, the gap of their senders is kept by internalRemove
     promotedTxs.forEach(
         promotedTx -> {
           final var sender = promotedTx.getSender();
@@ -198,14 +198,6 @@ public class SparseTransactions extends AbstractTransactionsLayer {
           processRemove(senderTxs, promotedTx.getTransaction(), PROMOTED);
           if (senderTxs.isEmpty()) {
             txsBySender.remove(sender);
-            orderByGap.get(0).remove(sender);
-            gapBySender.remove(sender);
-          } else {
-            final long firstNonce = senderTxs.firstKey();
-            final int newGap = (int) (firstNonce - (promotedTx.getNonce() + 1));
-            if (newGap != 0) {
-              updateGap(sender, 0, newGap);
-            }
           }
         });
 

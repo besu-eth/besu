@@ -22,6 +22,7 @@ import static org.hyperledger.besu.ethereum.mainnet.ValidationResult.valid;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_TOO_LOW;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_SIGNATURE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_LOW;
@@ -30,9 +31,11 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TRANSACTION_REPLACEMENT_UNDERPRICED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TX_FEECAP_EXCEEDED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -40,6 +43,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.quality.Strictness.LENIENT;
 
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -56,13 +60,17 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
+import org.hyperledger.besu.testutil.MockExecutorService;
 import org.hyperledger.besu.util.number.Percentage;
 
+import java.math.BigInteger;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -75,6 +83,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 
@@ -132,6 +141,64 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     appendBlock(transaction0);
 
     assertTransactionNotPending(transaction0);
+  }
+
+  @Test
+  public void actionRunAfterBlockAddedEventsSeesPoolWithoutConfirmedTransactions() {
+    givenTransactionIsValid(transaction0);
+    givenTransactionIsValid(transaction1);
+
+    addAndAssertRemoteTransactionsValid(transaction0);
+    addAndAssertRemoteTransactionsValid(transaction1);
+
+    final DeterministicEthScheduler ethScheduler =
+        (DeterministicEthScheduler) ethContext.getScheduler();
+    ethScheduler.disableAutoRun();
+
+    appendBlock(transaction0);
+
+    final AtomicInteger countSeenByAction = new AtomicInteger(-1);
+    transactionPool.runAfterBlockAddedEventsProcessed(
+        () -> countSeenByAction.set(transactionPool.count()));
+
+    // the block added event is still queued, so the confirmed transaction is still counted
+    assertThat(transactionPool.count()).isEqualTo(2);
+    assertThat(countSeenByAction).hasValue(-1);
+
+    ethScheduler.runPendingFutures();
+
+    assertThat(countSeenByAction).hasValue(1);
+    assertTransactionNotPending(transaction0);
+    assertTransactionPending(transaction1);
+  }
+
+  @Test
+  public void throwingActionDoesNotPreventSubsequentBlockAddedEventsOrActions() {
+    givenTransactionIsValid(transaction0);
+    givenTransactionIsValid(transaction1);
+
+    addAndAssertRemoteTransactionsValid(transaction0);
+    addAndAssertRemoteTransactionsValid(transaction1);
+
+    final DeterministicEthScheduler ethScheduler =
+        (DeterministicEthScheduler) ethContext.getScheduler();
+    ethScheduler.disableAutoRun();
+
+    transactionPool.runAfterBlockAddedEventsProcessed(
+        () -> {
+          throw new RuntimeException("boom");
+        });
+    appendBlock(transaction0);
+
+    final AtomicInteger countSeenBySecondAction = new AtomicInteger(-1);
+    transactionPool.runAfterBlockAddedEventsProcessed(
+        () -> countSeenBySecondAction.set(transactionPool.count()));
+
+    ethScheduler.runPendingFutures();
+
+    assertThat(countSeenBySecondAction).hasValue(1);
+    assertTransactionNotPending(transaction0);
+    assertTransactionPending(transaction1);
   }
 
   @Test
@@ -427,6 +494,198 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     addAndAssertRemoteTransactionInvalid(transaction0b);
   }
 
+  @Test
+  public void addedAndDroppedListenersAreNotifiedSynchronouslyInEventOrder() {
+    final Transaction transaction0a = createTransaction(0, Wei.of(50));
+    final Transaction transaction0b = createTransaction(0, Wei.of(100));
+
+    givenTransactionIsValid(transaction0a);
+    givenTransactionIsValid(transaction0b);
+
+    final PendingTransactionDroppedListener droppedListener =
+        mock(PendingTransactionDroppedListener.class);
+    transactionPool.subscribePendingTransactions(listener);
+    transactionPool.subscribeDroppedTransactions(droppedListener);
+
+    // sync listeners do not depend on the services executor
+    ((DeterministicEthScheduler) ethScheduler).mockServiceExecutor().setAutoRun(false);
+
+    addAndAssertRemoteTransactionsValid(transaction0a);
+    // replaces transaction0a
+    addAndAssertRemoteTransactionsValid(transaction0b);
+    assertTransactionNotPending(transaction0a);
+
+    verifyAddedThenReplacedNotifications(listener, droppedListener, transaction0a, transaction0b);
+  }
+
+  @Test
+  public void addedAndDroppedAsyncListenersAreNotifiedAsynchronouslyInEventOrder() {
+    final Transaction transaction0a = createTransaction(0, Wei.of(50));
+    final Transaction transaction0b = createTransaction(0, Wei.of(100));
+
+    givenTransactionIsValid(transaction0a);
+    givenTransactionIsValid(transaction0b);
+
+    final PendingTransactionDroppedListener droppedListener =
+        mock(PendingTransactionDroppedListener.class);
+    transactionPool.subscribePendingTransactionsAsync(listener);
+    transactionPool.subscribeDroppedTransactionsAsync(droppedListener);
+
+    final MockExecutorService servicesExecutor =
+        ((DeterministicEthScheduler) ethScheduler).mockServiceExecutor();
+    servicesExecutor.setAutoRun(false);
+
+    addAndAssertRemoteTransactionsValid(transaction0a);
+    // replaces transaction0a
+    addAndAssertRemoteTransactionsValid(transaction0b);
+    assertTransactionNotPending(transaction0a);
+
+    // async listeners are not called on the thread that modifies the pool
+    verifyNoInteractions(listener, droppedListener);
+
+    servicesExecutor.runPendingFutures();
+
+    verifyAddedThenReplacedNotifications(listener, droppedListener, transaction0a, transaction0b);
+  }
+
+  @Test
+  public void asyncListenersAreNotNotifiedAfterUnsubscribe() {
+    final Transaction transaction0a = createTransaction(0, Wei.of(50));
+    final Transaction transaction0b = createTransaction(0, Wei.of(100));
+    final Transaction transaction0c = createTransaction(0, Wei.of(200));
+
+    givenTransactionIsValid(transaction0a);
+    givenTransactionIsValid(transaction0b);
+    givenTransactionIsValid(transaction0c);
+
+    final PendingTransactionDroppedListener droppedListener =
+        mock(PendingTransactionDroppedListener.class);
+    final long addedId = transactionPool.subscribePendingTransactionsAsync(listener);
+    final long droppedId = transactionPool.subscribeDroppedTransactionsAsync(droppedListener);
+
+    addAndAssertRemoteTransactionsValid(transaction0a);
+    addAndAssertRemoteTransactionsValid(transaction0b);
+    verifyAddedThenReplacedNotifications(listener, droppedListener, transaction0a, transaction0b);
+
+    transactionPool.unsubscribePendingTransactions(addedId);
+    transactionPool.unsubscribeDroppedTransactions(droppedId);
+    addAndAssertRemoteTransactionsValid(transaction0c);
+
+    verifyNoMoreInteractions(listener, droppedListener);
+  }
+
+  @Test
+  public void asyncListenersDoNotReceiveEventsQueuedBeforeThePoolWasDisabled() {
+    final Transaction transactionBeforeDisable = createTransaction(0, Wei.of(50));
+    final Transaction transactionAfterReEnable = createTransaction(0, Wei.of(100));
+
+    givenTransactionIsValid(transactionBeforeDisable);
+    givenTransactionIsValid(transactionAfterReEnable);
+
+    transactionPool.subscribePendingTransactionsAsync(listener);
+
+    final MockExecutorService servicesExecutor =
+        ((DeterministicEthScheduler) ethScheduler).mockServiceExecutor();
+    servicesExecutor.setAutoRun(false);
+
+    addAndAssertRemoteTransactionsValid(transactionBeforeDisable);
+    transactionPool.setDisabled();
+    transactionPool.setEnabled();
+    addAndAssertRemoteTransactionsValid(transactionAfterReEnable);
+
+    servicesExecutor.runPendingFutures();
+
+    verify(listener).onTransactionAdded(transactionAfterReEnable);
+    verifyNoMoreInteractions(listener);
+  }
+
+  @Test
+  public void eventsFromThePendingTransactionsOfADisabledPoolAreNotNotified() {
+    final Transaction transaction = createTransaction(0, Wei.of(50));
+
+    final PendingTransactionDroppedListener droppedListener =
+        mock(PendingTransactionDroppedListener.class);
+    final PendingTransactionAddedListener asyncListener =
+        mock(PendingTransactionAddedListener.class);
+    transactionPool.subscribePendingTransactions(listener);
+    transactionPool.subscribeDroppedTransactions(droppedListener);
+    transactionPool.subscribePendingTransactionsAsync(asyncListener);
+
+    final PendingTransactions disabledPendingTransactions = lastCreatedPendingTransactions;
+    transactionPool.setDisabled();
+
+    // a late add to the pending transactions instance that was discarded when disabling the pool
+    assertThat(
+            disabledPendingTransactions.addTransaction(
+                new PendingTransaction.Remote(transaction), Optional.empty()))
+        .isEqualTo(TransactionAddedResult.ADDED);
+    transactionPool.setEnabled();
+
+    verifyNoInteractions(listener, droppedListener, asyncListener);
+  }
+
+  @Test
+  public void unsubscribingAsyncListenersDoesNotUnsubscribeInternalListeners() {
+    final Transaction transaction0a = createTransaction(0, Wei.of(50));
+    final Transaction transaction0b = createTransaction(0, Wei.of(100));
+
+    givenTransactionIsValid(transaction0a);
+    givenTransactionIsValid(transaction0b);
+
+    // the pool subscribes the broadcaster as dropped listener, it must survive unsubscribing
+    // listeners subscribed later
+    transactionPool.unsubscribeDroppedTransactions(
+        transactionPool.subscribeDroppedTransactionsAsync(
+            mock(PendingTransactionDroppedListener.class)));
+    transactionPool.unsubscribeDroppedTransactions(
+        transactionPool.subscribeDroppedTransactionsAsync(
+            mock(PendingTransactionDroppedListener.class)));
+
+    addAndAssertRemoteTransactionsValid(transaction0a);
+    addAndAssertRemoteTransactionsValid(transaction0b);
+
+    verify(transactionBroadcaster)
+        .onTransactionDropped(eq(transaction0a), argThat(r -> r.label().equals("replaced")));
+  }
+
+  private static void verifyAddedThenReplacedNotifications(
+      final PendingTransactionAddedListener addedListener,
+      final PendingTransactionDroppedListener droppedListener,
+      final Transaction replacedTx,
+      final Transaction replacementTx) {
+    final InOrder inOrder = inOrder(addedListener, droppedListener);
+    inOrder.verify(addedListener).onTransactionAdded(replacedTx);
+    inOrder
+        .verify(droppedListener)
+        .onTransactionDropped(eq(replacedTx), argThat(r -> r.label().equals("replaced")));
+    inOrder.verify(addedListener).onTransactionAdded(replacementTx);
+    inOrder.verifyNoMoreInteractions();
+  }
+
+  @Test
+  public void droppedListenerIsNotNotifiedAfterUnsubscribe() {
+    final Transaction transaction0a = createTransaction(0, Wei.of(50));
+    final Transaction transaction0b = createTransaction(0, Wei.of(100));
+    final Transaction transaction0c = createTransaction(0, Wei.of(200));
+
+    givenTransactionIsValid(transaction0a);
+    givenTransactionIsValid(transaction0b);
+    givenTransactionIsValid(transaction0c);
+
+    final PendingTransactionDroppedListener droppedListener =
+        mock(PendingTransactionDroppedListener.class);
+    final long id = transactionPool.subscribeDroppedTransactions(droppedListener);
+
+    addAndAssertRemoteTransactionsValid(transaction0a);
+    addAndAssertRemoteTransactionsValid(transaction0b);
+    verify(droppedListener).onTransactionDropped(eq(transaction0a), any());
+
+    transactionPool.unsubscribeDroppedTransactions(id);
+    addAndAssertRemoteTransactionsValid(transaction0c);
+
+    verifyNoMoreInteractions(droppedListener);
+  }
+
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
   public void shouldNotNotifyBatchListenerWhenLocalTransactionDoesNotReplaceExisting(
@@ -576,6 +835,28 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     givenTransactionIsValid(transactionFarFuture);
 
     addAndAssertTransactionViaApiInvalid(transactionFarFuture, NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  public void shouldRejectLocalTransactionWithUnrecoverableSignature(
+      final boolean noLocalPriority) {
+    transactionPool = createTransactionPool(b -> b.noLocalPriority(noLocalPriority));
+    // r = 5 is a valid scalar but not the x-coordinate of any curve point
+    final Transaction transaction =
+        Transaction.builder()
+            .copiedFrom(createTransaction(0))
+            .sender(null)
+            .signature(
+                SignatureAlgorithmFactory.getInstance()
+                    .createSignature(BigInteger.valueOf(5), BigInteger.ONE, (byte) 0))
+            .build();
+    when(transactionValidatorFactory
+            .get()
+            .validate(eq(transaction), any(Optional.class), any(Optional.class), any()))
+        .thenReturn(ValidationResult.invalid(INVALID_SIGNATURE));
+
+    addAndAssertTransactionViaApiInvalid(transaction, INVALID_SIGNATURE);
   }
 
   @Test
@@ -877,6 +1158,22 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     givenTransactionIsValid(tx);
 
     addAndAssertRemoteTransactionsValid(tx);
+  }
+
+  @Test
+  @DisabledIf("isBaseFeeMarket")
+  public void
+      addRemotePriorityTransactions_strictReplayProtectionOn_txWithoutChainId_chainIdIsConfigured() {
+    protocolSupportsTxReplayProtection(1337, true);
+    final Transaction tx = createTransactionWithoutChainId(1);
+    transactionPool =
+        createTransactionPool(
+            b ->
+                b.strictTransactionReplayProtectionEnabled(true)
+                    .prioritySenders(List.of(tx.getSender())));
+    givenTransactionIsValid(tx);
+
+    addAndAssertRemotePriorityTransactionsValid(tx);
   }
 
   @ParameterizedTest

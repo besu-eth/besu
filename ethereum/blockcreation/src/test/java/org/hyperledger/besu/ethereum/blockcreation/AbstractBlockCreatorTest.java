@@ -15,11 +15,18 @@
 package org.hyperledger.besu.ethereum.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
+import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,9 +47,11 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
@@ -63,11 +72,13 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.AbstractPendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.GasPricePendingTransactionsSorter;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -85,19 +96,37 @@ import org.hyperledger.besu.ethereum.mainnet.requests.DepositRequestProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.data.TransactionProcessingResult;
+import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
+import org.hyperledger.besu.plugin.services.TransactionSelectionService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
+import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelectorFactory;
+import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
+import org.hyperledger.besu.plugin.services.txselection.TransactionEvaluationContext;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
+import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.math.BigInteger;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.UnaryOperator;
 
 import com.google.common.base.Suppliers;
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt64;
@@ -291,6 +320,10 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
   }
 
   private CreateOn blockCreatorWithBlobGasSupport() {
+    return blockCreatorWithBlobGasSupport(false);
+  }
+
+  private CreateOn blockCreatorWithBlobGasSupport(final boolean saveTrieLog) {
     final var alwaysValidTransactionValidatorFactory = mock(TransactionValidatorFactory.class);
     when(alwaysValidTransactionValidatorFactory.get())
         .thenReturn(new AlwaysValidTransactionValidator());
@@ -304,7 +337,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
                   (evm, gasLimitCalculator, feeMarket) -> alwaysValidTransactionValidatorFactory);
               return specBuilder;
             });
-    return createBlockCreator(protocolSpecAdapters);
+    return createBlockCreator(protocolSpecAdapters, saveTrieLog);
   }
 
   private CreateOn blockCreatorWithBalSupport() {
@@ -394,6 +427,257 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     assertThat(maybeBlockAccessList).isEmpty();
   }
 
+  @Test
+  void savedTrieLogMovesHeadWorldStateToCreatedBlock() {
+    final CreateOn miningOn = blockCreatorWithBlobGasSupport(true);
+    final ProtocolContext protocolContext = miningOn.blockCreator.protocolContext;
+    final PathBasedWorldStateProvider worldStateArchive =
+        (PathBasedWorldStateProvider) protocolContext.getWorldStateArchive();
+    final Hash headStateRoot = worldStateArchive.getWorldState().rootHash();
+
+    final BlockCreationResult blockCreationResult =
+        miningOn.blockCreator.createBlock(
+            Optional.of(List.of(transferTransaction())),
+            Optional.empty(),
+            System.currentTimeMillis(),
+            miningOn.parentHeader);
+    final Block block = blockCreationResult.getBlock();
+
+    assertThat(block.getBody().getTransactions()).hasSize(1);
+    assertThat(block.getHeader().getStateRoot()).isNotEqualTo(headStateRoot);
+    assertThat(worldStateArchive.getTrieLogManager().getTrieLogLayer(block.getHash())).isPresent();
+    assertThat(worldStateArchive.getWorldState().rootHash()).isEqualTo(headStateRoot);
+
+    protocolContext
+        .getBlockchain()
+        .appendBlock(block, blockCreationResult.getTransactionSelectionResults().getReceipts());
+    assertThat(
+            worldStateArchive
+                .getWorldState(withBlockHeaderAndUpdateNodeHead(block.getHeader()))
+                .map(MutableWorldState::rootHash))
+        .contains(block.getHeader().getStateRoot());
+  }
+
+  @Test
+  void trieLogFromBlockCreationEqualsTrieLogFromBlockProcessing() throws Exception {
+    final CreateOn miningOn = blockCreatorWithBlobGasSupport(true);
+    final ProtocolContext protocolContext = miningOn.blockCreator.protocolContext;
+    final PathBasedWorldStateProvider worldStateArchive =
+        (PathBasedWorldStateProvider) protocolContext.getWorldStateArchive();
+    final BonsaiWorldStateKeyValueStorage storage =
+        worldStateArchive.getWorldStateKeyValueStorage();
+    final GenesisAccount sender = accounts.get(1);
+    final KeyPair keyPair =
+        SIGNATURE_ALGORITHM.createKeyPair(SECPPrivateKey.create(sender.privateKey(), "ECDSA"));
+    // PUSH1 1 PUSH1 0 SSTORE: the new contract stores 1 in slot 0
+    final Transaction storageWrite =
+        new TransactionTestFixture()
+            .sender(sender.address())
+            .to(Optional.empty())
+            .payload(Bytes.fromHexString("0x6001600055"))
+            .gasLimit(100_000L)
+            .nonce(sender.nonce() + 1)
+            .createTransaction(keyPair);
+
+    final Block block =
+        miningOn
+            .blockCreator
+            .createBlock(
+                Optional.of(List.of(transferTransaction(), storageWrite)),
+                Optional.empty(),
+                System.currentTimeMillis(),
+                miningOn.parentHeader)
+            .getBlock();
+    assertThat(block.getBody().getTransactions()).hasSize(2);
+    final byte[] savedAtCreation = storage.getTrieLog(block.getHash()).orElseThrow();
+
+    // remove it, then process the block like a validator, which saves the trie log again
+    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
+    updater.getTrieLogStorageTransaction().remove(block.getHash().getBytes().toArrayUnsafe());
+    updater.commitTrieLogOnly();
+    assertThat(storage.getTrieLog(block.getHash())).isEmpty();
+    try (MutableWorldState worldState =
+        worldStateArchive
+            .getWorldState(withBlockHeaderAndNoUpdateNodeHead(miningOn.parentHeader))
+            .orElseThrow()) {
+      assertThat(
+              miningOn
+                  .blockCreator
+                  .protocolSchedule
+                  .getByBlockHeader(block.getHeader())
+                  .getBlockProcessor()
+                  .processBlock(
+                      BlockExecutionContext.builder()
+                          .protocolContext(protocolContext)
+                          .worldState(worldState)
+                          .block(block)
+                          .blockAccessList(Optional.empty())
+                          .build())
+                  .isSuccessful())
+          .isTrue();
+    }
+
+    assertThat(storage.getTrieLog(block.getHash())).hasValue(savedAtCreation);
+  }
+
+  @Test
+  void doesNotSaveTrieLogOfCreatedBlockByDefault() {
+    final CreateOn miningOn = blockCreatorWithBlobGasSupport();
+    final PathBasedWorldStateProvider worldStateArchive =
+        (PathBasedWorldStateProvider) miningOn.blockCreator.protocolContext.getWorldStateArchive();
+
+    final Block block =
+        miningOn
+            .blockCreator
+            .createBlock(
+                Optional.of(List.of(transferTransaction())),
+                Optional.empty(),
+                System.currentTimeMillis(),
+                miningOn.parentHeader)
+            .getBlock();
+
+    assertThat(block.getBody().getTransactions()).hasSize(1);
+    assertThat(worldStateArchive.getTrieLogManager().getTrieLogLayer(block.getHash())).isEmpty();
+  }
+
+  @Test
+  void doesNotSaveTrieLogOfCreatedBlockWithoutTransactions() {
+    final CreateOn miningOn =
+        createBlockCreator(ProtocolSpecAdapters.create(0, specBuilder -> specBuilder), true);
+    final PathBasedWorldStateProvider worldStateArchive =
+        (PathBasedWorldStateProvider) miningOn.blockCreator.protocolContext.getWorldStateArchive();
+
+    final Block block =
+        miningOn
+            .blockCreator
+            .createBlock(
+                Optional.of(List.of()),
+                Optional.empty(),
+                System.currentTimeMillis(),
+                miningOn.parentHeader)
+            .getBlock();
+
+    assertThat(block.getBody().getTransactions()).isEmpty();
+    assertThat(worldStateArchive.getTrieLogManager().getTrieLogLayer(block.getHash())).isEmpty();
+  }
+
+  private Transaction transferTransaction() {
+    final GenesisAccount sender = accounts.get(1);
+    final KeyPair keyPair =
+        SIGNATURE_ALGORITHM.createKeyPair(SECPPrivateKey.create(sender.privateKey(), "ECDSA"));
+    return new TransactionTestFixture()
+        .sender(sender.address())
+        .to(Optional.of(accounts.get(2).address()))
+        .value(Wei.fromEth(1))
+        .gasLimit(21_000L)
+        .nonce(sender.nonce())
+        .createTransaction(keyPair);
+  }
+
+  @Test
+  public void worldStateIsClosedOnlyOnceTimedOutSelectionStops() throws Exception {
+    final CountDownLatch txEvaluationStarted = new CountDownLatch(1);
+    final CountDownLatch releaseTxEvaluation = new CountDownLatch(1);
+    final TransactionSelectionService transactionSelectionService =
+        new TransactionSelectionServiceImpl();
+    transactionSelectionService.registerPluginTransactionSelectorFactory(
+        new PluginTransactionSelectorFactory() {
+          @Override
+          public PluginTransactionSelector create(
+              final org.hyperledger.besu.plugin.data.ProcessableBlockHeader pendingBlockHeader,
+              final SelectorsStateManager selectorsStateManager) {
+            return new PluginTransactionSelector() {
+              @Override
+              public TransactionSelectionResult evaluateTransactionPreProcessing(
+                  final TransactionEvaluationContext evaluationContext) {
+                txEvaluationStarted.countDown();
+                // keeps running past the selection timeout and ignores the interrupt
+                Uninterruptibles.awaitUninterruptibly(releaseTxEvaluation);
+                return SELECTED;
+              }
+
+              @Override
+              public TransactionSelectionResult evaluateTransactionPostProcessing(
+                  final TransactionEvaluationContext evaluationContext,
+                  final TransactionProcessingResult processingResult) {
+                return SELECTED;
+              }
+            };
+          }
+        });
+    final MiningConfiguration miningConfiguration =
+        ImmutableMiningConfiguration.builder()
+            .mutableInitValues(
+                MutableInitValues.builder()
+                    .minTransactionGasPrice(Wei.ONE)
+                    .coinbase(Address.ZERO)
+                    .build())
+            .transactionSelectionService(transactionSelectionService)
+            .posBlockTxsSelectionMaxTime(PositiveNumber.fromInt(100))
+            .build();
+
+    final AtomicReference<MutableWorldState> blockWorldState = new AtomicReference<>();
+    final EthScheduler asyncEthScheduler = new EthScheduler(1, 1, 1, new NoOpMetricsSystem());
+    try {
+      final CreateOn miningOn =
+          createBlockCreator(
+              ProtocolSpecAdapters.create(0, specBuilder -> specBuilder),
+              miningConfiguration,
+              asyncEthScheduler,
+              protocolContext -> spyBlockWorldState(protocolContext, blockWorldState),
+              false);
+
+      final GenesisAccount sender = accounts.get(1);
+      final Transaction tx =
+          new TransactionTestFixture()
+              .sender(sender.address())
+              .to(Optional.of(accounts.get(2).address()))
+              .gasLimit(21_000L)
+              .gasPrice(Wei.of(100))
+              .chainId(Optional.of(BigInteger.valueOf(42)))
+              .nonce(sender.nonce())
+              .createTransaction(
+                  SIGNATURE_ALGORITHM.createKeyPair(
+                      SECPPrivateKey.create(sender.privateKey(), "ECDSA")));
+      assertThat(miningOn.transactionPool.addTransactionViaApi(tx).isValid()).isTrue();
+
+      final BlockCreationResult result =
+          miningOn.blockCreator.createBlock(
+              Optional.empty(), Optional.empty(), 1L, miningOn.parentHeader);
+
+      assertThat(txEvaluationStarted.await(5, TimeUnit.SECONDS)).isTrue();
+      assertThat(result.getBlock().getBody().getTransactions()).isEmpty();
+      verify(blockWorldState.get(), never()).close();
+
+      releaseTxEvaluation.countDown();
+      verify(blockWorldState.get(), timeout(5_000)).close();
+    } finally {
+      releaseTxEvaluation.countDown();
+      asyncEthScheduler.stop();
+      asyncEthScheduler.awaitStop();
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static ProtocolContext spyBlockWorldState(
+      final ProtocolContext protocolContext,
+      final AtomicReference<MutableWorldState> blockWorldState) {
+    final ProtocolContext spiedContext = spy(protocolContext);
+    final WorldStateArchive spiedArchive = spy(protocolContext.getWorldStateArchive());
+    doReturn(spiedArchive).when(spiedContext).getWorldStateArchive();
+    doAnswer(
+            invocation ->
+                ((Optional<MutableWorldState>) invocation.callRealMethod())
+                    .map(
+                        worldState -> {
+                          blockWorldState.set(spy(worldState));
+                          return blockWorldState.get();
+                        }))
+        .when(spiedArchive)
+        .getWorldState(any(WorldStateQueryParams.class));
+    return spiedContext;
+  }
+
   private CreateOn blockCreatorWithWithdrawalsProcessor() {
     final ProtocolSpecAdapters protocolSpecAdapters =
         ProtocolSpecAdapters.create(
@@ -407,9 +691,40 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     return createBlockCreator(protocolSpecAdapters);
   }
 
-  record CreateOn(AbstractBlockCreator blockCreator, BlockHeader parentHeader) {}
+  record CreateOn(
+      AbstractBlockCreator blockCreator,
+      BlockHeader parentHeader,
+      TransactionPool transactionPool) {}
 
   private CreateOn createBlockCreator(final ProtocolSpecAdapters protocolSpecAdapters) {
+    return createBlockCreator(protocolSpecAdapters, false);
+  }
+
+  private CreateOn createBlockCreator(
+      final ProtocolSpecAdapters protocolSpecAdapters, final boolean saveTrieLog) {
+    final MiningConfiguration miningConfiguration =
+        ImmutableMiningConfiguration.builder()
+            .mutableInitValues(
+                MutableInitValues.builder()
+                    .extraData(Bytes.fromHexString("deadbeef"))
+                    .minTransactionGasPrice(Wei.ONE)
+                    .coinbase(Address.ZERO)
+                    .build())
+            .build();
+    return createBlockCreator(
+        protocolSpecAdapters,
+        miningConfiguration,
+        ethScheduler,
+        UnaryOperator.identity(),
+        saveTrieLog);
+  }
+
+  private CreateOn createBlockCreator(
+      final ProtocolSpecAdapters protocolSpecAdapters,
+      final MiningConfiguration miningConfiguration,
+      final EthScheduler ethScheduler,
+      final UnaryOperator<ProtocolContext> protocolContextDecorator,
+      final boolean saveTrieLog) {
 
     final ExecutionContextTestFixture executionContextTestFixture =
         ExecutionContextTestFixture.builder(genesisConfig)
@@ -433,12 +748,15 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     BlockHeader parentHeader = blockchain.getChainHeadHeader();
     final TransactionPoolConfiguration poolConf =
         ImmutableTransactionPoolConfiguration.builder().txPoolMaxSize(100).build();
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(new DeterministicEthScheduler());
     final AbstractPendingTransactionsSorter sorter =
         new GasPricePendingTransactionsSorter(
             poolConf,
             Clock.systemUTC(),
             new NoOpMetricsSystem(),
-            Suppliers.ofInstance(parentHeader));
+            Suppliers.ofInstance(parentHeader),
+            transactionEventNotifier.newEmitter());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -452,18 +770,9 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             ethContext,
             new TransactionPoolMetrics(new NoOpMetricsSystem()),
             poolConf,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
     transactionPool.setEnabled();
-
-    final MiningConfiguration miningConfiguration =
-        ImmutableMiningConfiguration.builder()
-            .mutableInitValues(
-                MutableInitValues.builder()
-                    .extraData(Bytes.fromHexString("deadbeef"))
-                    .minTransactionGasPrice(Wei.ONE)
-                    .coinbase(Address.ZERO)
-                    .build())
-            .build();
 
     return new CreateOn(
         new TestBlockCreator(
@@ -471,13 +780,17 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             (__, ___) -> Address.ZERO,
             __ -> Bytes.fromHexString("deadbeef"),
             transactionPool,
-            executionContextTestFixture.getProtocolContext(),
+            protocolContextDecorator.apply(executionContextTestFixture.getProtocolContext()),
             executionContextTestFixture.getProtocolSchedule(),
-            ethScheduler),
-        parentHeader);
+            ethScheduler,
+            saveTrieLog),
+        parentHeader,
+        transactionPool);
   }
 
   static class TestBlockCreator extends AbstractBlockCreator {
+
+    private final boolean saveTrieLog;
 
     protected TestBlockCreator(
         final MiningConfiguration miningConfiguration,
@@ -486,7 +799,8 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
         final TransactionPool transactionPool,
         final ProtocolContext protocolContext,
         final ProtocolSchedule protocolSchedule,
-        final EthScheduler ethScheduler) {
+        final EthScheduler ethScheduler,
+        final boolean saveTrieLog) {
       super(
           miningConfiguration,
           miningBeneficiaryCalculator,
@@ -495,6 +809,12 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
           protocolContext,
           protocolSchedule,
           ethScheduler);
+      this.saveTrieLog = saveTrieLog;
+    }
+
+    @Override
+    protected boolean savesTrieLogOfCreatedBlocks() {
+      return saveTrieLog;
     }
 
     @Override

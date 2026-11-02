@@ -18,6 +18,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.concurrent.TimeUnit;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
@@ -27,6 +33,7 @@ import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import picocli.CommandLine;
 
 @ExtendWith(MockitoExtension.class)
 class T8nServerSubCommandTest {
@@ -54,5 +61,53 @@ class T8nServerSubCommandTest {
 
     assertThat(responseCodeCaptor.getValue()).isEqualTo(500);
     assertThat(responseStringCaptor.getValue()).doesNotContain("\\t");
+  }
+
+  @Test
+  void runKeepsServingAfterServerStarts() throws Exception {
+    final int port = freePort();
+    final T8nServerSubCommand subject = new T8nServerSubCommand();
+    new CommandLine(subject).parseArgs("--host", "127.0.0.1", "--port", String.valueOf(port));
+    final Thread serverThread = new Thread(subject::call);
+    serverThread.start();
+    try {
+      awaitListening(port);
+
+      // EvmTool.main exits the JVM when call() returns, which would stop the server.
+      assertThat(serverThread.isAlive()).isTrue();
+    } finally {
+      serverThread.interrupt();
+      serverThread.join(TimeUnit.SECONDS.toMillis(10));
+    }
+    assertThat(serverThread.isAlive()).isFalse();
+  }
+
+  @Test
+  void callReturnsNonZeroWhenPortIsTaken() throws Exception {
+    try (ServerSocket taken = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+      final T8nServerSubCommand subject = new T8nServerSubCommand();
+      new CommandLine(subject)
+          .parseArgs("--host", "127.0.0.1", "--port", String.valueOf(taken.getLocalPort()));
+
+      assertThat(subject.call()).isEqualTo(1);
+    }
+  }
+
+  private static int freePort() throws IOException {
+    try (ServerSocket socket = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+      return socket.getLocalPort();
+    }
+  }
+
+  private static void awaitListening(final int port) throws InterruptedException {
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+    while (System.nanoTime() < deadline) {
+      try (Socket ignored = new Socket(InetAddress.getLoopbackAddress(), port)) {
+        return;
+      } catch (IOException e) {
+        Thread.sleep(50);
+      }
+    }
+    throw new AssertionError("t8n-server did not start listening on port " + port);
   }
 }

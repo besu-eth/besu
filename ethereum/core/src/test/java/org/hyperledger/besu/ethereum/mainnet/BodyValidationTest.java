@@ -17,8 +17,10 @@ package org.hyperledger.besu.ethereum.mainnet;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.ethereum.core.BlockBody;
+import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Request;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -84,5 +86,15 @@ public final class BodyValidationTest {
         .isEqualTo(
             Bytes32.fromHexString(
                 "0x0e53a6857da18cf29c6ae28be10a333fc0eaafbd3f425f09e5e81f29e4d3d766"));
+  }
+
+  @Test
+  public void balHashOfADecodedBlockAccessListIsTheHashOfItsEncoding() {
+    final BlockAccessList generated = new BlockDataGenerator().blockAccessList(3);
+    final BlockAccessList decoded = BlockAccessList.fromBytes(generated.rawRlp().orElseThrow());
+    final BlockAccessList notDecoded = new BlockAccessList(generated.accountChanges());
+
+    Assertions.assertThat(BodyValidation.balHash(decoded))
+        .isEqualTo(BodyValidation.balHash(notDecoded));
   }
 }

@@ -1,0 +1,71 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [
+      {
+        "fromBlock": "0x13",
+        "toBlock": "0x13",
+        "after": 1,
+        "count": 2,
+        "toAddress": [
+          "0x00a0000000000000000000000000000000000000"
+        ]
+      }
+    ],
+    "id": 415
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": [
+      {
+        "action": {
+          "callType": "callcode",
+          "from": "0x30753e4a8aad7f8597332e813735def5dd395028",
+          "gas": "0xfb18a5",
+          "input": "0x",
+          "to": "0x00a0000000000000000000000000000000000000",
+          "value": "0x0"
+        },
+        "blockHash": "0x7291c59f71b42ae905cc864a4c24485c3494cfd7bb20e6efaa01895ad62cf936",
+        "blockNumber": 19,
+        "result": {
+          "gasUsed": "0x30b",
+          "output": "0x"
+        },
+        "subtraces": 0,
+        "traceAddress": [
+          1
+        ],
+        "transactionHash": "0x4c253746668dca6ac3f7b9bc18248b558a95b5fc881d140872c2dff984d344a7",
+        "transactionPosition": 3,
+        "type": "call"
+      },
+      {
+        "action": {
+          "callType": "delegatecall",
+          "from": "0xaa588d3737b611bafd7bd713445b314bd453a5c8",
+          "gas": "0xfb18d2",
+          "input": "0x",
+          "to": "0x00a0000000000000000000000000000000000000",
+          "value": "0x0"
+        },
+        "blockHash": "0x7291c59f71b42ae905cc864a4c24485c3494cfd7bb20e6efaa01895ad62cf936",
+        "blockNumber": 19,
+        "result": {
+          "gasUsed": "0x30b",
+          "output": "0x"
+        },
+        "subtraces": 0,
+        "traceAddress": [
+          1
+        ],
+        "transactionHash": "0xb795475e8f1820b683b60eb1a366bdc23e29f9cdf9639f7768c6644d20e3bbd1",
+        "transactionPosition": 5,
+        "type": "call"
+      }
+    ],
+    "id": 415
+  },
+  "statusCode": 200
+}

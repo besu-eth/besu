@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
+import static java.util.Objects.requireNonNull;
+
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.util.Objects;
@@ -65,7 +67,7 @@ public class RocksDbSegmentIdentifier {
    * @return the column family handle
    */
   public ColumnFamilyHandle get() {
-    return reference.get();
+    return requireNonNull(reference.get());
   }
 
   @Override
@@ -82,6 +84,6 @@ public class RocksDbSegmentIdentifier {
 
   @Override
   public int hashCode() {
-    return reference.get().hashCode();
+    return get().hashCode();
   }
 }

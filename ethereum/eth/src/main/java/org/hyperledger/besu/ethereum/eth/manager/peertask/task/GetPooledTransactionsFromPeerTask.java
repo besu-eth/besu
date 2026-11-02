@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -64,10 +65,15 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
    */
   public static GetPooledTransactionsFromPeerTask fromAnnouncements(
       final List<TransactionAnnouncement> announcements) {
-    return new GetPooledTransactionsFromPeerTask(
+    final Map<Hash, TransactionAnnouncement> announcementsByHash =
         announcements.stream()
             .collect(
-                Collectors.toMap(TransactionAnnouncement::hash, Function.identity(), (a, b) -> a)));
+                Collectors.toMap(
+                    TransactionAnnouncement::hash,
+                    Function.identity(),
+                    (a, b) -> a,
+                    LinkedHashMap::new));
+    return new GetPooledTransactionsFromPeerTask(announcementsByHash);
   }
 
   @Override
@@ -88,14 +94,11 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
         PooledTransactionsMessage.readFrom(messageData);
     final List<Transaction> responseTransactions;
     try {
-      responseTransactions = pooledTransactionsMessage.transactions();
+      responseTransactions = pooledTransactionsMessage.transactions(hashes.size());
     } catch (RLPException e) {
       throw new MalformedRlpFromPeerException(e, messageData.getData());
     }
-    if (responseTransactions.size() > hashes.size()) {
-      throw new InvalidPeerTaskResponseException(
-          "Response transaction count does not match request hash count");
-    }
+
     if (!announcementsByHash.isEmpty()) {
       for (final Transaction tx : responseTransactions) {
         final TransactionAnnouncement ann = announcementsByHash.get(tx.getHash());
@@ -134,9 +137,13 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
 
   @Override
   public PeerTaskValidationResponse validateResult(final List<Transaction> result) {
-    if (!result.stream().allMatch((t) -> hashes.contains(t.getHash()))) {
-      return PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
-    }
-    return PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD;
+    // Unavailable transactions may be omitted, but responses must preserve request order.
+    final List<Hash> responseHashes = result.stream().map(Transaction::getHash).toList();
+    final Set<Hash> responseHashSet = Set.copyOf(responseHashes);
+    final List<Hash> requestedHashesInResponse =
+        hashes.stream().filter(responseHashSet::contains).toList();
+    return requestedHashesInResponse.equals(responseHashes)
+        ? PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD
+        : PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
   }
 }

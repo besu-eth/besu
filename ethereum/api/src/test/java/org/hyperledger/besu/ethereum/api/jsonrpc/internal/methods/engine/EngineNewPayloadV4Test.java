@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -173,7 +174,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
     assertThat(fromErrorResp(resp).getMessage())
         .isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
-    verify(mergeCoordinator, never()).rememberBlock(any(), any());
+    verify(mergeCoordinator, never()).rememberBlock(any(), any(), any(Executor.class));
   }
 
   @Test
@@ -242,7 +243,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
 
     var result = fromSuccessResp(resp);
     assertThat(result.getStatus()).isEqualTo(INVALID);
-    assertThat(result.getLatestValidHash().get()).isEqualTo(mockHash);
+    assertThat(result.getLatestValidHash()).isEqualTo(mockHash);
     // The validationError is the only diagnostic the consensus client receives.
     assertThat(result.getError())
         .isEqualTo("Invalid execution requests: Unsupported request type: 0xFF");

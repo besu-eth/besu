@@ -1,0 +1,21 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [
+      {
+        "blockHash": "0xabababababababababababababababababababababababababababababababab"
+      }
+    ],
+    "id": 415
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "error": {
+      "code": -32000,
+      "message": "Block not found"
+    },
+    "id": 415
+  },
+  "statusCode": 200
+}

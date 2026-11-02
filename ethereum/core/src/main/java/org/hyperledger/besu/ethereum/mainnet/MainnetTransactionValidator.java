@@ -123,7 +123,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     if (transactionType.supportsBlob()) {
       final ValidationResult<TransactionInvalidReason> blobTransactionResult =
-          blobsValidator.validate(transaction);
+          blobsValidator.validate(transaction, transactionValidationParams);
       if (!blobTransactionResult.isValid()) {
         if (LOG.isDebugEnabled()) {
           LOG.debug(
@@ -203,16 +203,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
       final TransactionValidationParams transactionValidationParams) {
 
     if (maybeBaseFee.isPresent()) {
-      final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
-      if (!transactionValidationParams.allowUnderpricedGas()
-          && !transactionValidationParams.isAllowExceedingBalance()
-          && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
-        return ValidationResult.invalid(
-            TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE,
-            "gasPrice is less than the current BaseFee");
-      }
-
       // assert transaction.max_fee_per_gas >= transaction.max_priority_fee_per_gas
+      // checked first: a tip above the fee cap is invalid at any base fee
       if (transaction.getType().supports1559FeeMarket()
           && transaction
                   .getMaxPriorityFeePerGas()
@@ -223,6 +215,15 @@ public class MainnetTransactionValidator implements TransactionValidator {
         return ValidationResult.invalid(
             TransactionInvalidReason.MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS,
             "max priority fee per gas cannot be greater than max fee per gas");
+      }
+
+      final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
+      if (!transactionValidationParams.allowUnderpricedGas()
+          && !transactionValidationParams.isAllowExceedingBalance()
+          && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE,
+            "gasPrice is less than the current BaseFee");
       }
     }
 
@@ -262,7 +263,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     // EIP-8037: cap max(intrinsic_execution, calldata_floor) rather than tx.gas itself.
     final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
-    if (!transactionValidationParams.isAllowExceedingGasLimit()
+    if (!transactionValidationParams.isAllowExceedingIntrinsicGasLimit()
         && Long.compareUnsigned(intrinsicGasCostOrFloor, intrinsicGasLimitCap) > 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
@@ -334,7 +335,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
       }
     }
 
-    if (Long.compareUnsigned(transaction.getNonce(), senderNonce) < 0) {
+    if (!validationParams.isAllowPastNonce()
+        && Long.compareUnsigned(transaction.getNonce(), senderNonce) < 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.NONCE_TOO_LOW,
           String.format(
@@ -393,11 +395,10 @@ public class MainnetTransactionValidator implements TransactionValidator {
               halfCurveOrder, signature.getS()));
     }
 
-    // org.bouncycastle.math.ec.ECCurve.AbstractFp.decompressPoint throws an
-    // IllegalArgumentException for "Invalid point compression" for bad signatures.
+    // sender recovery throws for a signature that does not recover a public key
     try {
       transaction.getSender();
-    } catch (final IllegalArgumentException e) {
+    } catch (final IllegalArgumentException | IllegalStateException e) {
       return ValidationResult.invalid(
           TransactionInvalidReason.INVALID_SIGNATURE,
           "sender could not be extracted from transaction signature");

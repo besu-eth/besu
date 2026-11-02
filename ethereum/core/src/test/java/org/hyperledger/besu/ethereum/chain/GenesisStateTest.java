@@ -359,6 +359,25 @@ final class GenesisStateTest {
 
   @ParameterizedTest
   @ArgumentsSource(GenesisStateTestArguments.class)
+  void genesisFromBogotaWithoutEarlierForkTimes(
+      final DataStorageConfiguration dataStorageConfiguration) {
+    // Only bogotaTime is set: the fields of every earlier fork must still be present
+    final GenesisState genesisState =
+        GenesisState.fromJsonSource(
+            dataStorageConfiguration,
+            GenesisStateTest.class.getResource("genesis_bogota.json"),
+            ProtocolScheduleFixture.TESTING_NETWORK);
+    final BlockHeader header = genesisState.getBlock().getHeader();
+
+    assertThat(header.getWithdrawalsRoot()).contains(Hash.EMPTY_TRIE_HASH);
+    assertThat(header.getBlobGasUsed()).isPresent();
+    assertThat(header.getRequestsHash()).contains(Hash.EMPTY_REQUESTS_HASH);
+    assertThat(header.getOptionalSlotNumber()).contains(0x42L);
+    assertThat(header.getBalHash()).contains(Hash.EMPTY_BAL_HASH);
+  }
+
+  @ParameterizedTest
+  @ArgumentsSource(GenesisStateTestArguments.class)
   void genesisSlotNumberNotPresentPreAmsterdam(
       final DataStorageConfiguration dataStorageConfiguration) {
     // Prague genesis should NOT have slot number

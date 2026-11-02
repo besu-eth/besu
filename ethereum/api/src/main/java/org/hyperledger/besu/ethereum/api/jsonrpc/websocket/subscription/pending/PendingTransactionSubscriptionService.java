@@ -39,14 +39,16 @@ public class PendingTransactionSubscriptionService implements PendingTransaction
   private void notifySubscribers(final Transaction pendingTransaction) {
     final List<Subscription> subscriptions = pendingTransactionSubscriptions();
 
-    final PendingTransactionResult hashResult =
-        new PendingTransactionResult(pendingTransaction.getHash());
-    final TransactionBaseResult txResult = new TransactionBaseResult(pendingTransaction);
-    for (final Subscription subscription : subscriptions) {
-      if (Boolean.TRUE.equals(subscription.getIncludeTransaction())) {
-        subscriptionManager.sendMessage(subscription.getSubscriptionId(), txResult);
-      } else {
-        subscriptionManager.sendMessage(subscription.getSubscriptionId(), hashResult);
+    if (!subscriptions.isEmpty()) {
+      final PendingTransactionResult hashResult =
+          new PendingTransactionResult(pendingTransaction.getHash());
+      final TransactionBaseResult txResult = new TransactionBaseResult(pendingTransaction);
+      for (final Subscription subscription : subscriptions) {
+        if (Boolean.TRUE.equals(subscription.getIncludeTransaction())) {
+          subscriptionManager.sendMessage(subscription.getSubscriptionId(), txResult);
+        } else {
+          subscriptionManager.sendMessage(subscription.getSubscriptionId(), hashResult);
+        }
       }
     }
   }

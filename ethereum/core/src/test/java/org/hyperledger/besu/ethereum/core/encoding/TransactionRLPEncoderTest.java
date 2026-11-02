@@ -44,6 +44,19 @@ class TransactionRLPEncoderTest {
   }
 
   @Test
+  void decodedFrontierTxEncodesToTheBytesItWasDecodedFrom() {
+    final Transaction transaction = decodeRLP(RLP.input(Bytes.fromHexString(FRONTIER_TX_RLP)));
+
+    assertThat(TransactionEncoder.encodeOpaqueBytes(transaction, EncodingContext.BLOCK_BODY))
+        .isSameAs(transaction.getRawRlp().orElseThrow());
+    // which is what encoding it again yields
+    final Transaction withoutRawRlp = Transaction.builder().copiedFrom(transaction).build();
+    assertThat(withoutRawRlp.getRawRlp()).isEmpty();
+    assertThat(TransactionEncoder.encodeOpaqueBytes(withoutRawRlp, EncodingContext.BLOCK_BODY))
+        .isEqualTo(Bytes.fromHexString(FRONTIER_TX_RLP));
+  }
+
+  @Test
   void encodeEIP1559TxNominalCase() {
     final Transaction transaction = decodeRLP(RLP.input(Bytes.fromHexString(EIP1559_TX_RLP)));
     final BytesValueRLPOutput output = new BytesValueRLPOutput();

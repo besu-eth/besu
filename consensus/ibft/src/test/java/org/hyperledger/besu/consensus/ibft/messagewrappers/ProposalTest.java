@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
 import org.hyperledger.besu.consensus.common.bft.ProposedBlockHelpers;
+import org.hyperledger.besu.consensus.common.bft.payload.NonRecoverableSignature;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.ibft.payload.PreparePayload;
 import org.hyperledger.besu.consensus.ibft.payload.PreparedCertificate;
@@ -29,9 +30,12 @@ import org.hyperledger.besu.consensus.ibft.payload.RoundChangePayload;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.AddressHelpers;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.math.BigInteger;
@@ -41,6 +45,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -129,5 +134,38 @@ public class ProposalTest {
     final Proposal decoded = Proposal.decode(encoded);
 
     assertThat(decoded.getRoundChangeCertificate().get().getRoundChangePayloads()).hasSize(4);
+  }
+
+  @Test
+  public void decodeRejectsARoundChangeCertificateEntryWhoseSignatureDoesNotRecover() {
+    // The certificate is written after the outer signed payload, so its signature does not cover
+    // it: a peer can swap an entry into a genuine proposal without a validator key. Its author
+    // would be null and throw when looked up in the validator TreeSet, so decode must reject it.
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload proposalPayload = new ProposalPayload(ROUND_IDENTIFIER, Hash.ZERO);
+    final SignedData<ProposalPayload> topPayload =
+        SignedData.create(
+            proposalPayload,
+            nodeKey.sign(Bytes32.wrap(proposalPayload.hashForSignature().getBytes())));
+    final Block block =
+        ProposedBlockHelpers.createProposalBlock(
+            singletonList(AddressHelpers.ofValue(1)), ROUND_IDENTIFIER);
+
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    rlpOut.startList();
+    topPayload.writeTo(rlpOut);
+    block.writeTo(rlpOut);
+    rlpOut.startList(); // round change certificate
+    rlpOut.startList();
+    NonRecoverableSignature.writeSigned(
+        new RoundChangePayload(ROUND_IDENTIFIER, Optional.empty()), rlpOut);
+    rlpOut.endList();
+    rlpOut.endList();
+    rlpOut.writeNull(); // no block access list
+    rlpOut.endList();
+
+    assertThatThrownBy(() -> Proposal.decode(rlpOut.encoded(), 4))
+        .hasRootCauseInstanceOf(IllegalArgumentException.class)
+        .hasRootCauseMessage("Signature does not recover to an address");
   }
 }

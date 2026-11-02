@@ -42,9 +42,9 @@ class BonsaiTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x0e);
     final Bytes node = Bytes.of(0xAA, 0xBB);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, location, hash(node), node);
     tx.commit();
-    assertThat(strategy.getFlatAccountTrieNode(location, hash(node), storage)).contains(node);
+    assertThat(strategy.getTrieNode(storage, location, hash(node))).contains(node);
     // on-disk key is the bare location (format-compatible with legacy bonsai)
     assertThat(storage.get(KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE, location.toArrayUnsafe()))
         .isPresent();
@@ -55,11 +55,11 @@ class BonsaiTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x0e);
     final Bytes node = Bytes.of(0xAA);
     SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    strategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    strategy.putTrieNode(storage, tx, location, hash(node), node);
     tx.commit();
     tx = storage.startTransaction();
-    strategy.removeFlatAccountStateTrieNode(storage, tx, location);
+    strategy.removeTrieNode(storage, tx, location);
     tx.commit();
-    assertThat(strategy.getFlatAccountTrieNode(location, null, storage)).isEmpty();
+    assertThat(strategy.getTrieNode(storage, location, null)).isEmpty();
   }
 }

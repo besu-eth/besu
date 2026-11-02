@@ -210,7 +210,6 @@ public class SyncBlockBodyTest {
         null,
         null,
         new PrecompileContractRegistry(),
-        false,
         null,
         GasLimitCalculator.constant(),
         FeeMarket.legacy(),

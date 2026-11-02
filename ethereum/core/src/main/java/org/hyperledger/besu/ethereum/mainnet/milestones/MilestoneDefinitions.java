@@ -135,15 +135,17 @@ public class MilestoneDefinitions {
         createTimestampMilestone(
             MainnetHardforkId.BPO2, config.getBpo2Time(), specFactory::bpo2Definition),
         createTimestampMilestone(
+            MainnetHardforkId.AMSTERDAM,
+            config.getAmsterdamTime(),
+            specFactory::amsterdamDefinition),
+        createTimestampMilestone(
             MainnetHardforkId.BPO3, config.getBpo3Time(), specFactory::bpo3Definition),
         createTimestampMilestone(
             MainnetHardforkId.BPO4, config.getBpo4Time(), specFactory::bpo4Definition),
         createTimestampMilestone(
             MainnetHardforkId.BPO5, config.getBpo5Time(), specFactory::bpo5Definition),
         createTimestampMilestone(
-            MainnetHardforkId.AMSTERDAM,
-            config.getAmsterdamTime(),
-            specFactory::amsterdamDefinition),
+            MainnetHardforkId.BOGOTA, config.getBogotaTime(), specFactory::bogotaDefinition),
         createTimestampMilestone(
             MainnetHardforkId.FUTURE_EIPS,
             config.getFutureEipsTime(),

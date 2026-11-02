@@ -26,6 +26,7 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
@@ -38,6 +39,9 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
+import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
@@ -53,9 +57,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.fluent.SimpleAccount;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
-import org.hyperledger.besu.util.Subscribers;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -72,7 +74,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -88,6 +89,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -109,6 +111,9 @@ public class TransactionPool implements BlockAddedObserver {
   private final Supplier<PendingTransactions> pendingTransactionsSupplier;
   private final BlobCache cacheForBlobsOfTransactionsAddedToABlock;
   private volatile PendingTransactions pendingTransactions = new DisabledPendingTransactions();
+  // only for the pools that require it, it is an attack mitigation for the pools that are exposed
+  // to untrusted senders, and it is not applied to the ones that are not, as the gas-free ones
+  private volatile Optional<DelegationLimits> delegationLimits = Optional.empty();
   private final ProtocolSchedule protocolSchedule;
   private final ProtocolContext protocolContext;
   private final EthContext ethContext;
@@ -116,12 +121,12 @@ public class TransactionPool implements BlockAddedObserver {
   private final TransactionPoolMetrics metrics;
   private final TransactionPoolConfiguration configuration;
   private final AtomicBoolean isPoolEnabled = new AtomicBoolean(false);
-  private final PendingTransactionsListenersProxy pendingTransactionsListenersProxy =
-      new PendingTransactionsListenersProxy();
+  private final Object enableDisableLock = new Object();
+  private final TransactionEventNotifier eventNotifier;
   private volatile OptionalLong subscribeConnectId = OptionalLong.empty();
   private final SaveRestoreManager saveRestoreManager = new SaveRestoreManager();
   private final Set<Address> localSenders = ConcurrentHashMap.newKeySet();
-  private final EthScheduler.OrderedProcessor<BlockAddedEvent> blockAddedEventOrderedProcessor;
+  private final EthScheduler.OrderedProcessor<Runnable> blockAddedEventOrderedProcessor;
   private final ListMultimap<VersionedHash, BlobProofBundle> mapOfBlobsInTransactionPool =
       Multimaps.synchronizedListMultimap(
           Multimaps.newListMultimap(new HashMap<>(), () -> new ArrayList<>(1)));
@@ -135,7 +140,8 @@ public class TransactionPool implements BlockAddedObserver {
       final EthContext ethContext,
       final TransactionPoolMetrics metrics,
       final TransactionPoolConfiguration configuration,
-      final BlobCache blobCache) {
+      final BlobCache blobCache,
+      final TransactionEventNotifier eventNotifier) {
     this.pendingTransactionsSupplier = pendingTransactionsSupplier;
     this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
@@ -144,13 +150,14 @@ public class TransactionPool implements BlockAddedObserver {
     this.metrics = metrics;
     this.configuration = configuration;
     this.blockAddedEventOrderedProcessor =
-        ethContext.getScheduler().createOrderedProcessor(this::processBlockAddedEvent);
+        ethContext.getScheduler().createOrderedProcessor(Runnable::run);
     this.cacheForBlobsOfTransactionsAddedToABlock = blobCache;
+    this.eventNotifier = eventNotifier;
     initializeBlobMetrics();
-    subscribePendingTransactions(this::mapBlobsOnTransactionAdded);
-    subscribeDroppedTransactions(
-        (transaction, reason) -> unmapBlobsOnTransactionDropped(transaction));
-    subscribeDroppedTransactions(transactionBroadcaster);
+    eventNotifier.subscribePendingTransactionAdded(this::mapBlobsOnTransactionAdded);
+    eventNotifier.subscribePendingTransactionDropped(
+        (transaction, _) -> unmapBlobsOnTransactionDropped(transaction));
+    eventNotifier.subscribePendingTransactionDropped(transactionBroadcaster);
   }
 
   @VisibleForTesting
@@ -184,17 +191,7 @@ public class TransactionPool implements BlockAddedObserver {
     LOG.trace("Adding {} remote transactions", initialCount);
 
     // recover and cache tx sender:
-    var txStream =
-        transactions.stream()
-            .filter(
-                tx -> {
-                  try {
-                    tx.getSender();
-                    return true;
-                  } catch (IllegalArgumentException | IllegalStateException ex) {
-                    return false;
-                  }
-                });
+    var txStream = transactions.stream().filter(TransactionPool::hasRecoverableSender);
 
     final var validationResults =
         sortedBySenderAndNonce(txStream)
@@ -292,10 +289,26 @@ public class TransactionPool implements BlockAddedObserver {
         validateTransaction(transaction, isLocal, hasPriority);
 
     if (validationResult.result.isValid()) {
+      // recovering the authorities of the code delegations is expensive, and the result is cached
+      // in
+      // the transaction, so do it now, before the pool lock is taken to add the transaction
+      transaction
+          .getCodeDelegationList()
+          .ifPresent(codeDelegations -> codeDelegations.forEach(CodeDelegation::authorizer));
+
+      final PendingTransaction pendingTransaction =
+          PendingTransaction.newPendingTransaction(transaction, isLocal, hasPriority, score);
+      final Optional<DelegationLimits> limits = delegationLimits;
       final TransactionAddedResult status =
-          pendingTransactions.addTransaction(
-              PendingTransaction.newPendingTransaction(transaction, isLocal, hasPriority, score),
-              validationResult.maybeAccount);
+          limits.isPresent()
+              ? limits
+                  .get()
+                  .addTransaction(
+                      pendingTransaction,
+                      validationResult.maybeAccount,
+                      validationResult.chainHeadHash)
+              : pendingTransactions.addTransaction(
+                  pendingTransaction, validationResult.maybeAccount);
       if (status.isSuccess()) {
         LOG.atTrace()
             .setMessage("Added {} transaction {}")
@@ -354,24 +367,53 @@ public class TransactionPool implements BlockAddedObserver {
       // unless no-local-priority option is specified, senders of local sent txs are prioritized
       return true;
     }
-    // otherwise check if the sender belongs to the priority list
-    return configuration.getPrioritySenders().contains(transaction.getSender());
+    // otherwise check if the sender belongs to the priority list, an unrecoverable sender is left
+    // to the transaction validator to reject
+    return hasRecoverableSender(transaction)
+        && configuration.getPrioritySenders().contains(transaction.getSender());
+  }
+
+  private static boolean hasRecoverableSender(final Transaction transaction) {
+    try {
+      transaction.getSender();
+      return true;
+    } catch (final IllegalArgumentException | IllegalStateException e) {
+      return false;
+    }
   }
 
   public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
-    return pendingTransactionsListenersProxy.onAddedListeners.subscribe(listener);
+    return eventNotifier.subscribePendingTransactionAdded(listener);
+  }
+
+  public long subscribePendingTransactionsAsync(final PendingTransactionAddedListener listener) {
+    return eventNotifier.subscribePendingTransactionAddedAsync(listener);
+  }
+
+  public long subscribePendingTransactionsAsync(
+      final PendingTransactionAddedListener listener, final String listenerName) {
+    return eventNotifier.subscribePendingTransactionAddedAsync(listener, listenerName);
   }
 
   public void unsubscribePendingTransactions(final long id) {
-    pendingTransactionsListenersProxy.onAddedListeners.unsubscribe(id);
+    eventNotifier.unsubscribePendingTransactionAdded(id);
   }
 
   public long subscribeDroppedTransactions(final PendingTransactionDroppedListener listener) {
-    return pendingTransactionsListenersProxy.onDroppedListeners.subscribe(listener);
+    return eventNotifier.subscribePendingTransactionDropped(listener);
+  }
+
+  public long subscribeDroppedTransactionsAsync(final PendingTransactionDroppedListener listener) {
+    return eventNotifier.subscribePendingTransactionDroppedAsync(listener);
+  }
+
+  public long subscribeDroppedTransactionsAsync(
+      final PendingTransactionDroppedListener listener, final String listenerName) {
+    return eventNotifier.subscribePendingTransactionDroppedAsync(listener, listenerName);
   }
 
   public void unsubscribeDroppedTransactions(final long id) {
-    pendingTransactionsListenersProxy.onDroppedListeners.unsubscribe(id);
+    eventNotifier.unsubscribePendingTransactionDropped(id);
   }
 
   @Override
@@ -380,9 +422,27 @@ public class TransactionPool implements BlockAddedObserver {
       if (event.getEventType().equals(EventType.HEAD_ADVANCED)
           || event.getEventType().equals(EventType.CHAIN_REORG)) {
 
-        blockAddedEventOrderedProcessor.submit(event);
+        blockAddedEventOrderedProcessor.submit(() -> processBlockAddedEvent(event));
       }
     }
+  }
+
+  /**
+   * Block added events are applied to the pool asynchronously, so right after a block is imported
+   * the pool can still contain the transactions it confirmed. The action runs once every block
+   * added event received so far has been applied, so pool reads inside it reflect those blocks.
+   *
+   * @param action the action to run after the pending block added events
+   */
+  public void runAfterBlockAddedEventsProcessed(final Runnable action) {
+    blockAddedEventOrderedProcessor.submit(
+        () -> {
+          try {
+            action.run();
+          } catch (final Throwable t) {
+            LOG.warn("Failed to run post-block-added action", t);
+          }
+        });
   }
 
   private void processBlockAddedEvent(final BlockAddedEvent e) {
@@ -392,6 +452,8 @@ public class TransactionPool implements BlockAddedObserver {
         e.getAddedTransactions(),
         e.getRemovedTransactions(),
         protocolSchedule.getByBlockHeader(e.getHeader()).getFeeMarket());
+    delegationLimits.ifPresent(
+        limits -> limits.blockAdded(e.getHeader(), e.getAddedTransactions()));
     reAddTransactions(e.getRemovedTransactions());
     LOG.atTrace()
         .setMessage("Block added event {} processed in {}ms")
@@ -490,7 +552,8 @@ public class TransactionPool implements BlockAddedObserver {
       return new ValidationResultAndAccount(basicValidationResult);
     }
 
-    if (hasPriority
+    if (isLocal
+        && hasPriority
         && strictReplayProtectionShouldBeEnforcedLocally(chainHeadBlockHeader)
         && transaction.getChainId().isEmpty()) {
       // Strict replay protection is enabled but the tx is not replay-protected
@@ -536,6 +599,7 @@ public class TransactionPool implements BlockAddedObserver {
       final Account senderAccount = worldState.get(transaction.getSender());
       return new ValidationResultAndAccount(
           senderAccount,
+          chainHeadBlockHeader.getHash(),
           getTransactionValidator()
               .validateForSender(
                   transaction, senderAccount, TransactionValidationParams.transactionPool()));
@@ -621,6 +685,10 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.size();
   }
 
+  public TransactionPoolConfiguration getConfiguration() {
+    return configuration;
+  }
+
   public Collection<PendingTransaction> getPendingTransactions() {
     return pendingTransactions.getPendingTransactions();
   }
@@ -665,6 +733,11 @@ public class TransactionPool implements BlockAddedObserver {
   }
 
   @VisibleForTesting
+  public int trackedDelegationTransactionCount() {
+    return delegationLimits.map(DelegationLimits::trackedTransactionCount).orElse(0);
+  }
+
+  @VisibleForTesting
   Class<? extends PendingTransactions> pendingTransactionsImplementation() {
     return pendingTransactions.getClass();
   }
@@ -677,19 +750,22 @@ public class TransactionPool implements BlockAddedObserver {
   private static class ValidationResultAndAccount {
     final ValidationResult<TransactionInvalidReason> result;
     final Optional<Account> maybeAccount;
+    // the hash of the chain head that the account was read from
+    final Hash chainHeadHash;
 
     ValidationResultAndAccount(
-        final Account account, final ValidationResult<TransactionInvalidReason> result) {
+        final Account account,
+        final Hash chainHeadHash,
+        final ValidationResult<TransactionInvalidReason> result) {
       this.result = result;
-      this.maybeAccount =
-          Optional.ofNullable(account)
-              .map(
-                  acct -> new SimpleAccount(acct.getAddress(), acct.getNonce(), acct.getBalance()));
+      this.maybeAccount = Optional.ofNullable(account).map(DelegationLimits::detach);
+      this.chainHeadHash = chainHeadHash;
     }
 
     ValidationResultAndAccount(final ValidationResult<TransactionInvalidReason> result) {
       this.result = result;
       this.maybeAccount = Optional.empty();
+      this.chainHeadHash = null;
     }
 
     static ValidationResultAndAccount invalid(
@@ -703,23 +779,28 @@ public class TransactionPool implements BlockAddedObserver {
   }
 
   public CompletableFuture<Void> setEnabled() {
-    if (!isEnabled()) {
-      logStart(configuration, getChainHeadBlockHeader());
-      pendingTransactions = pendingTransactionsSupplier.get();
-      pendingTransactionsListenersProxy.subscribe();
-      isPoolEnabled.set(true);
-      subscribeConnectId =
-          OptionalLong.of(ethContext.getEthPeers().subscribeConnect(this::handleConnect));
-      return saveRestoreManager
-          .loadFromDisk()
-          .whenComplete(
-              (_, t) -> {
-                if (t != null) {
-                  LOG.error("Error while restoring transaction pool from disk", t);
-                }
-              });
+    synchronized (enableDisableLock) {
+      if (!isEnabled()) {
+        logStart(configuration, getChainHeadBlockHeader());
+        pendingTransactions = pendingTransactionsSupplier.get();
+        delegationLimits =
+            pendingTransactions.requiresDelegationLimits()
+                ? Optional.of(new DelegationLimits(pendingTransactions, protocolContext))
+                : Optional.empty();
+        isPoolEnabled.set(true);
+        subscribeConnectId =
+            OptionalLong.of(ethContext.getEthPeers().subscribeConnect(this::handleConnect));
+        return saveRestoreManager
+            .loadFromDisk()
+            .whenComplete(
+                (_, t) -> {
+                  if (t != null) {
+                    LOG.error("Error while restoring transaction pool from disk", t);
+                  }
+                });
+      }
+      return CompletableFuture.completedFuture(null);
     }
-    return CompletableFuture.completedFuture(null);
   }
 
   /**
@@ -738,25 +819,30 @@ public class TransactionPool implements BlockAddedObserver {
    * @return a {@link CompletableFuture} that completes once the save-to-disk operation finishes
    */
   public CompletableFuture<Void> setDisabled() {
-    if (isEnabled()) {
-      isPoolEnabled.set(false);
-      subscribeConnectId.ifPresent(ethContext.getEthPeers()::unsubscribeConnect);
-      pendingTransactionsListenersProxy.unsubscribe();
-      mapOfBlobsInTransactionPool.clear();
-      final CompletableFuture<Void> saveOperation =
-          saveRestoreManager
-              .saveToDisk(pendingTransactions)
-              .whenComplete(
-                  (_, t) -> {
-                    if (t != null) {
-                      LOG.error("Error while saving transaction pool to disk", t);
-                    }
-                  });
-      pendingTransactions = new DisabledPendingTransactions();
-      logStop();
-      return saveOperation;
+    synchronized (enableDisableLock) {
+      if (isEnabled()) {
+        isPoolEnabled.set(false);
+        subscribeConnectId.ifPresent(ethContext.getEthPeers()::unsubscribeConnect);
+        // ignore any further event from the current pending transactions instance, including the
+        // async notifications not yet delivered, so the blob map is not modified after clearing it
+        eventNotifier.invalidateEmitters();
+        mapOfBlobsInTransactionPool.clear();
+        final CompletableFuture<Void> saveOperation =
+            saveRestoreManager
+                .saveToDisk(pendingTransactions)
+                .whenComplete(
+                    (_, t) -> {
+                      if (t != null) {
+                        LOG.error("Error while saving transaction pool to disk", t);
+                      }
+                    });
+        pendingTransactions = new DisabledPendingTransactions();
+        delegationLimits = Optional.empty();
+        logStop();
+        return saveOperation;
+      }
+      return CompletableFuture.completedFuture(null);
     }
-    return CompletableFuture.completedFuture(null);
   }
 
   private void mapBlobsOnTransactionAdded(final Transaction transaction) {
@@ -781,14 +867,141 @@ public class TransactionPool implements BlockAddedObserver {
     blobProofBundles.forEach(bq -> mapOfBlobsInTransactionPool.remove(bq.getVersionedHash(), bq));
   }
 
+  /**
+   * Retrieves a {@link BlobProofBundle} associated with the given {@link VersionedHash}. The blob
+   * could be part of different transactions, and its presence in each transaction is optional. This
+   * method searches the first transaction that contains a blob from the transaction pool. If no
+   * such transaction exists, it checks the cache for transactions that have been added to a block.
+   *
+   * @param vh the {@link VersionedHash} used to locate the associated {@link BlobProofBundle}.
+   * @return the {@link BlobProofBundle} if a blob is present in the transaction pool or cache,
+   *     otherwise returns null.
+   */
   public BlobProofBundle getBlobProofBundle(final VersionedHash vh) {
-    try {
-      // returns an empty list if the key is not present, so getFirst() will throw
-      return mapOfBlobsInTransactionPool.get(vh).getFirst();
-    } catch (NoSuchElementException e) {
-      // do nothing
+    // the same blob could be part of different txs, and blob presence is optional for each one,
+    // so we try searching for the first one with a blob present
+    final Optional<BlobProofBundle> maybeInPool;
+    synchronized (mapOfBlobsInTransactionPool) {
+      maybeInPool =
+          mapOfBlobsInTransactionPool.get(vh).stream()
+              .filter(b -> b.getBlob().isPresent())
+              .findFirst();
     }
-    return cacheForBlobsOfTransactionsAddedToABlock.get(vh);
+    return maybeInPool.orElseGet(
+        () -> {
+          final BlobProofBundle maybeCached = cacheForBlobsOfTransactionsAddedToABlock.get(vh);
+          if (maybeCached != null && maybeCached.getBlob().isPresent()) {
+            return maybeCached;
+          }
+          return null;
+        });
+  }
+
+  /**
+   * Retrieves a {@link BlobProofBundle} that matches the specified {@link VersionedHash} and holds
+   * as many of the requested cells as are available. This method searches for the blob within the
+   * transaction pool, and in the cache of blobs for transactions added to a block. The returned
+   * bundle need not hold every requested cell: engine_getBlobsV4 answers a cell it cannot serve
+   * with a null in place, so the caller has to ask the bundle which cells it holds. Only when none
+   * of the requested cells is held does this return null, as for an unknown blob; an empty request
+   * for a blob some transaction holds cells of returns a bundle, to answer with no cells.
+   *
+   * <p>Where no single transaction holds every requested cell, the cells of several are merged into
+   * one bundle. That is sound because the versioned hash is the hash of the commitment, so any two
+   * transactions carrying it carry the same blob, and the cell at a given index of that blob is the
+   * same cell whichever transaction it came with.
+   *
+   * @param vh the {@link VersionedHash} used to locate the associated {@link BlobProofBundle}.
+   * @param cellIndexes the indexes of the cells requested.
+   * @return a {@link BlobProofBundle} holding every requested cell that is available, or null if no
+   *     transaction holds any cells of the blob or none of the requested ones.
+   */
+  public BlobProofBundle getBlobProofBundle(
+      final VersionedHash vh, final List<Integer> cellIndexes) {
+    // the same blob could be part of different txs, and cells presence is optional for each one,
+    // so we gather each requested cell from whichever of them holds it
+    final List<BlobProofBundle> bundlesWithCells;
+    synchronized (mapOfBlobsInTransactionPool) {
+      bundlesWithCells =
+          mapOfBlobsInTransactionPool.get(vh).stream()
+              .filter(b -> b.getCellsWithMask().isPresent())
+              .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    final BlobProofBundle maybeCached = cacheForBlobsOfTransactionsAddedToABlock.get(vh);
+    if (maybeCached != null && maybeCached.getCellsWithMask().isPresent()) {
+      bundlesWithCells.add(maybeCached);
+    }
+
+    if (bundlesWithCells.isEmpty()) {
+      // nothing holds any cells of this blob
+      return null;
+    }
+
+    // usually a single transaction carries the blob, so try the first bundle on its own
+    final BlobProofBundle firstBundle = bundlesWithCells.getFirst();
+    if (cellIndexes.stream().allMatch(firstBundle.getCellsWithMask().orElseThrow()::hasCell)) {
+      return firstBundle;
+    }
+
+    // Which bundles a requested cell was found in, tracked by position: a set would deduplicate by
+    // equality, and a bundle's equality now covers its cells, so every insertion would hash them.
+    final boolean[] contributes = new boolean[bundlesWithCells.size()];
+
+    // A cell no bundle holds is left out rather than failing the request: the caller answers it
+    // with a null in place.
+    for (final Integer cellIndex : cellIndexes) {
+      for (int i = 0; i < bundlesWithCells.size(); i++) {
+        if (bundlesWithCells.get(i).getCellsWithMask().orElseThrow().hasCell(cellIndex)) {
+          contributes[i] = true;
+          break;
+        }
+      }
+    }
+
+    final List<BlobProofBundle> matchingBundles =
+        IntStream.range(0, bundlesWithCells.size())
+            .filter(i -> contributes[i])
+            .mapToObj(bundlesWithCells::get)
+            .toList();
+
+    if (matchingBundles.isEmpty()) {
+      // none of the requested cells is held, which is no different from not knowing the blob
+      return null;
+    }
+
+    if (matchingBundles.size() == 1) {
+      return matchingBundles.getFirst();
+    }
+
+    // Merging in order keeps, at each index, the cell of the first bundle that holds it.
+    final CellsWithMask mergedCells =
+        matchingBundles.stream()
+            .map(BlobProofBundle::getCellsWithMask)
+            .map(Optional::orElseThrow)
+            .reduce(CellsWithMask::merge)
+            .orElseThrow();
+
+    // A partial bundle's proofs are verified only where it holds the cell, so each proof has to
+    // come from the same bundle as the cell at its index. Where no bundle holds the cell there is
+    // nothing for the proof to vouch for, and any bundle's will do.
+    final List<KZGProof> proofs = new ArrayList<>(CKZG4844Helper.CELL_PROOFS_PER_BLOB);
+    for (int index = 0; index < CKZG4844Helper.CELL_PROOFS_PER_BLOB; index++) {
+      final int cellIndex = index;
+      final BlobProofBundle supplier =
+          matchingBundles.stream()
+              .filter(b -> b.getCellsWithMask().orElseThrow().hasCell(cellIndex))
+              .findFirst()
+              .orElse(firstBundle);
+      proofs.add(supplier.getKzgProof().get(index));
+    }
+
+    return new BlobProofBundle(
+        firstBundle.getBlobType(),
+        mergedCells,
+        firstBundle.getKzgCommitment(),
+        proofs,
+        firstBundle.getVersionedHash());
   }
 
   /**
@@ -820,36 +1033,6 @@ public class TransactionPool implements BlockAddedObserver {
   private void initializeBlobMetrics() {
     metrics.createBlobCacheSizeMetric(this::getBlobCacheSize);
     metrics.createBlobMapSizeMetric(this::getBlobMapSize);
-  }
-
-  class PendingTransactionsListenersProxy {
-    private final Subscribers<PendingTransactionAddedListener> onAddedListeners =
-        Subscribers.create();
-    private final Subscribers<PendingTransactionDroppedListener> onDroppedListeners =
-        Subscribers.create();
-
-    private volatile long onAddedListenerId;
-    private volatile long onDroppedListenerId;
-
-    void subscribe() {
-      onAddedListenerId = pendingTransactions.subscribePendingTransactions(this::onAdded);
-      onDroppedListenerId =
-          pendingTransactions.subscribeDroppedTransactions(
-              (transaction, reason) -> onDropped(transaction, reason));
-    }
-
-    void unsubscribe() {
-      pendingTransactions.unsubscribePendingTransactions(onAddedListenerId);
-      pendingTransactions.unsubscribeDroppedTransactions(onDroppedListenerId);
-    }
-
-    private void onDropped(final Transaction transaction, final RemovalReason reason) {
-      onDroppedListeners.forEach(listener -> listener.onTransactionDropped(transaction, reason));
-    }
-
-    private void onAdded(final Transaction transaction) {
-      onAddedListeners.forEach(listener -> listener.onTransactionAdded(transaction));
-    }
   }
 
   class SaveRestoreManager {

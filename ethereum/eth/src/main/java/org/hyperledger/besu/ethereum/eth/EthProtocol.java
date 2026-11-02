@@ -29,10 +29,6 @@ import java.util.Set;
 public class EthProtocol implements SubProtocol {
   public static final String NAME = "eth";
   private static final EthProtocol INSTANCE = new EthProtocol();
-  public static final Capability ETH68 = Capability.create(NAME, EthProtocolVersion.V68);
-  public static final Capability ETH69 = Capability.create(NAME, EthProtocolVersion.V69);
-  public static final Capability ETH70 = Capability.create(NAME, EthProtocolVersion.V70);
-  public static final Capability ETH71 = Capability.create(NAME, EthProtocolVersion.V71);
   public static final BitSet REQUEST_ID_MESSAGES;
 
   static {
@@ -47,14 +43,16 @@ public class EthProtocol implements SubProtocol {
             EthProtocolMessages.GET_RECEIPTS,
             EthProtocolMessages.RECEIPTS,
             EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
-            EthProtocolMessages.BLOCK_ACCESS_LISTS);
+            EthProtocolMessages.BLOCK_ACCESS_LISTS,
+            EthProtocolMessages.GET_CELLS,
+            EthProtocolMessages.CELLS);
     REQUEST_ID_MESSAGES =
         new BitSet(requestIdMessages.stream().mapToInt(i -> i).max().getAsInt() + 1);
     requestIdMessages.forEach(REQUEST_ID_MESSAGES::set);
   }
 
   // Latest version of the Eth protocol
-  public static final Capability LATEST = ETH71;
+  public static final Capability LATEST = EthProtocolVersion.latest().getCapability();
 
   public static boolean requestIdCompatible(final int code) {
     return REQUEST_ID_MESSAGES.get(code);
@@ -67,17 +65,14 @@ public class EthProtocol implements SubProtocol {
 
   @Override
   public int messageSpace(final int protocolVersion) {
-    return switch (protocolVersion) {
-      case EthProtocolVersion.V68 -> 17;
-      case EthProtocolVersion.V69, EthProtocolVersion.V70 -> 18;
-      case EthProtocolVersion.V71 -> 20;
-      default -> 0;
-    };
+    final EthProtocolVersion version = EthProtocolVersion.fromVersion(protocolVersion);
+    return version == null ? 0 : version.getMessageSpace();
   }
 
   @Override
   public boolean isValidMessageCode(final int protocolVersion, final int code) {
-    return EthProtocolVersion.getSupportedMessages(protocolVersion).contains(code);
+    final EthProtocolVersion version = EthProtocolVersion.fromVersion(protocolVersion);
+    return version != null && version.getSupportedMessages().contains(code);
   }
 
   @Override
@@ -99,6 +94,8 @@ public class EthProtocol implements SubProtocol {
       case EthProtocolMessages.BLOCK_RANGE_UPDATE -> "BlockRangeUpdate";
       case EthProtocolMessages.GET_BLOCK_ACCESS_LISTS -> "GetBlockAccessLists";
       case EthProtocolMessages.BLOCK_ACCESS_LISTS -> "BlockAccessLists";
+      case EthProtocolMessages.GET_CELLS -> "GetCells";
+      case EthProtocolMessages.CELLS -> "Cells";
       default -> INVALID_MESSAGE_NAME;
     };
   }
@@ -108,14 +105,22 @@ public class EthProtocol implements SubProtocol {
   }
 
   public static boolean isEth69Compatible(final Capability capability) {
-    return NAME.equals(capability.getName()) && capability.getVersion() >= ETH69.getVersion();
+    return NAME.equals(capability.getName())
+        && EthProtocolVersion.hasBlockRange(capability.getVersion());
   }
 
   public static boolean isEth70Compatible(final Capability capability) {
-    return NAME.equals(capability.getName()) && capability.getVersion() >= ETH70.getVersion();
+    return NAME.equals(capability.getName())
+        && capability.getVersion() >= EthProtocolVersion.V70.getVersion();
   }
 
   public static boolean isEth71Compatible(final Capability capability) {
-    return NAME.equals(capability.getName()) && capability.getVersion() >= ETH71.getVersion();
+    return NAME.equals(capability.getName())
+        && capability.getVersion() >= EthProtocolVersion.V71.getVersion();
+  }
+
+  public static boolean isEth72Compatible(final Capability capability) {
+    return NAME.equals(capability.getName())
+        && capability.getVersion() >= EthProtocolVersion.V72.getVersion();
   }
 }

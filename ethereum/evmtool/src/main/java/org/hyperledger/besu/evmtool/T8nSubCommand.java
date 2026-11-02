@@ -50,6 +50,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.jspecify.annotations.Nullable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.IParameterConsumer;
 import picocli.CommandLine.Model.ArgSpec;
@@ -90,7 +91,7 @@ public class T8nSubCommand implements Runnable {
       names = {"--state.fork"},
       paramLabel = "fork name",
       description = "The fork to run the transition against")
-  private String fork = null;
+  private @Nullable String fork = null;
 
   @Option(
       names = {"--input.env"},
@@ -145,7 +146,7 @@ public class T8nSubCommand implements Runnable {
       names = {"--state.reward"},
       paramLabel = "block mining reward",
       description = "The block reward to use in block tess")
-  private String rewardString = null;
+  private @Nullable String rewardString = null;
 
   @ParentCommand private final EvmToolCommand parentCommand;
 
@@ -171,7 +172,7 @@ public class T8nSubCommand implements Runnable {
    * Default constructor for the T8nSubCommand class. This constructor is required by PicoCLI and
    * assigns parent command to 'null'.
    */
-  @SuppressWarnings("unused")
+  @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public T8nSubCommand() {
     // PicoCLI requires this
     parentCommand = null;

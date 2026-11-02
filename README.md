@@ -77,16 +77,17 @@ Instructions for how to get started with developing on the Besu codebase. Please
 This project uses [Gradle dependency verification](https://docs.gradle.org/current/userguide/dependency_verification.html). Whenever you add or update a dependency or a Gradle plugin (including the `apiBaselineVersion` bump), regenerate `gradle/verification-metadata.xml` with:
 
 ```shell
-./gradlew --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks updateVerificationMetadata
+./gradlew --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks --no-parallel updateVerificationMetadata
 ```
 
 and commit the updated file. The `updateVerificationMetadata` task resolves everything the build and the IDE need, so that their checksums get recorded:
 
 * the binary and source JARs of every project's dependencies; the source JARs are required for IDE sync, since IntelliJ automatically downloads sources and fails the sync on missing checksums;
+* the `.pom` of every dependency, resolved via `generateLicenseReport`; normal resolution prefers Gradle Module Metadata (`.module`) over the `.pom`, so without the license report those POM checksums are never recorded and `checkLicense` fails verification on a fresh clone;
 * the binary and source JARs of every project's Gradle plugins, including the ones declared in subproject `plugins {}` blocks;
 * the released Plugin API baseline and the tooling used by `:plugin-api:checkAPICompatibility`.
 
-All three flags are required, and the task fails fast if any of them is missing. `--refresh-dependencies` and `--rerun-tasks` make the regeneration behave like a clean checkout: without them, cached dependency metadata and cached task results can produce a silently incomplete file that passes locally but fails on a fresh clone.
+All four flags are required, and the task fails fast if any of them is missing. `--refresh-dependencies` and `--rerun-tasks` make the regeneration behave like a clean checkout: without them, cached dependency metadata and cached task results can produce a silently incomplete file that passes locally but fails on a fresh clone. `--no-parallel` is required because `generateLicenseReport` resolves cross-project configurations under an exclusive lock that only serial execution provides.
 
 To check that the metadata is complete without modifying it (this is what CI runs), use:
 

@@ -208,6 +208,8 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
     return nonce;
   }
 
+  // null marks a contract creation; JsonRpcResult's NON_ABSENT inclusion would drop it.
+  @JsonInclude(JsonInclude.Include.ALWAYS)
   @JsonGetter(value = "to")
   public String getTo() {
     return to;
@@ -255,21 +257,25 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
     return authorizationList;
   }
 
+  @JsonInclude(JsonInclude.Include.ALWAYS)
   @JsonGetter(value = "blockHash")
   public String getBlockHash() {
     return null;
   }
 
+  @JsonInclude(JsonInclude.Include.ALWAYS)
   @JsonGetter(value = "blockNumber")
   public String getBlockNumber() {
     return null;
   }
 
+  @JsonInclude(JsonInclude.Include.ALWAYS)
   @JsonGetter(value = "blockTimestamp")
   public String getBlockTimestamp() {
     return null;
   }
 
+  @JsonInclude(JsonInclude.Include.ALWAYS)
   @JsonGetter(value = "transactionIndex")
   public String getTransactionIndex() {
     return null;

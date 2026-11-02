@@ -481,6 +481,16 @@ public class PeerDiscoveryController {
               (pc, th) -> {
                 if (th == null || !(th.getCause() instanceof TimeoutException)) {
                   markBondedAndAddToPeerTable(peer);
+                } else if (isBootstrapNode(peer)) {
+                  // A configured bootnode that is busy (e.g. at its peer limit) must not have its
+                  // IP invalidated for 15 minutes because of a handshake timeout: on a small
+                  // network it may be the only way to find any peers at all.
+                  if (LOG.isDebugEnabled()) {
+                    LOG.debug(
+                        "Handshake timed out with bootnode {}, keeping it in the peer table",
+                        peer.getLoggableId());
+                  }
+                  markBondedAndAddToPeerTable(peer);
                 } else {
                   if (LOG.isTraceEnabled()) {
                     LOG.trace(
@@ -499,6 +509,10 @@ public class PeerDiscoveryController {
       peer.setStatus(PeerDiscoveryStatus.BONDED);
       addToPeerTable(peer);
     }
+  }
+
+  private boolean isBootstrapNode(final DiscoveryPeerV4 peer) {
+    return bootstrapNodes.stream().anyMatch(b -> b.getId().equals(peer.getId()));
   }
 
   private void markBondedAndAddToPeerTable(final DiscoveryPeerV4 peer) {
@@ -547,11 +561,37 @@ public class PeerDiscoveryController {
     final long now = System.currentTimeMillis();
     if (lastRefreshTime + tableRefreshIntervalMs <= now) {
       LOG.debug("Refreshing peer table after {} ms", tableRefreshIntervalMs);
-      refreshTable();
+      refreshTable(includeBootnodesOnPeerRefresh);
     } else if (!peerRequirement.hasSufficientPeers()) {
       LOG.debug("Refreshing peer table: seeking more peers. peer count < max");
-      refreshTable();
+      // An under-peered node always falls back to its bootnodes, regardless of network type:
+      // without this, a bootnode that was slow, full or offline during the single bonding
+      // round at startup is never contacted again until the node restarts.
+      if (recursivePeerRefreshState.isSearchInProgress()) {
+        // The iterative search can run for minutes (up to 100 rounds), and a new search cannot
+        // start until it finishes. Don't wait for it: bond with the bootnodes directly.
+        retryUnbondedBootnodes();
+      } else {
+        refreshTable(true);
+      }
     }
+  }
+
+  private void retryUnbondedBootnodes() {
+    final List<DiscoveryPeerV4> unbonded =
+        bootstrapNodes.stream()
+            .filter(p -> p.getStatus() != PeerDiscoveryStatus.BONDED)
+            .filter(peerPermissions::allowOutboundBonding)
+            .toList();
+    if (unbonded.isEmpty()) {
+      return;
+    }
+    LOG.debug("Retrying bonding with {} unbonded bootnodes", unbonded.size());
+    unbonded.forEach(
+        p -> {
+          p.setStatus(PeerDiscoveryStatus.KNOWN);
+          bond(p);
+        });
   }
 
   private void cleanPeerTableIfRequired() {
@@ -568,18 +608,19 @@ public class PeerDiscoveryController {
   /**
    * Refreshes the peer table by generating a random ID and interrogating the closest nodes for it.
    * Currently the refresh process is NOT recursive.
+   *
+   * @param retryBootnodes whether to include the configured bootnodes in the peers that seed the
+   *     refresh, re-bonding with any that are not currently bonded
    */
-  private void refreshTable() {
+  private void refreshTable(final boolean retryBootnodes) {
     final Bytes target = Peer.randomId();
 
     final List<DiscoveryPeerV4> initialPeers = peerTable.nearestBondedPeers(Peer.randomId(), 16);
-    if (includeBootnodesOnPeerRefresh) {
+    if (retryBootnodes) {
       bootstrapNodes.stream()
           .filter(p -> p.getStatus() != PeerDiscoveryStatus.BONDED)
           .forEach(p -> p.setStatus(PeerDiscoveryStatus.KNOWN));
 
-      // If configured to retry bootnodes during peer table refresh, include them
-      // in the initial peers list.
       initialPeers.addAll(bootstrapNodes);
     }
     recursivePeerRefreshState.start(initialPeers, target);

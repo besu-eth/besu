@@ -28,7 +28,9 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class BlobsWithCommitmentsTest {
@@ -207,6 +209,112 @@ public class BlobsWithCommitmentsTest {
     assertEquals("BlobProofBundles must all be non null", exception.getMessage());
   }
 
+  @Test
+  public void shouldAcceptBlobProofBundlesSharingOneCellMask() {
+    final CellMask mask = CellMask.fromBytes(Bytes.fromHexString("0x05" + "00".repeat(15)));
+    final BlobsWithCommitments bwc =
+        BlobsWithCommitments.createFromBundles(
+            List.of(
+                mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, mask),
+                mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, mask)));
+
+    // With the invariant enforced, the shared mask can be read from the first bundle alone.
+    assertThat(bwc.getCellMask()).isEqualTo(mask);
+    assertThat(bwc.allCellsPresent()).isFalse();
+  }
+
+  @Test
+  public void shouldThrowExceptionWhenBlobProofBundlesHaveDifferentCellMasks() {
+    // A cell index is transaction level, referring to the same cell of every blob, so per-blob
+    // divergence is not representable on the wire and must not be constructible.
+    final CellMask indexZero = CellMask.fromBytes(Bytes.fromHexString("0x01" + "00".repeat(15)));
+    final CellMask indexTwo = CellMask.fromBytes(Bytes.fromHexString("0x04" + "00".repeat(15)));
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                BlobsWithCommitments.createFromBundles(
+                    List.of(
+                        mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, indexZero),
+                        mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, indexTwo))));
+    assertEquals("Cells must have the same cell mask", exception.getMessage());
+  }
+
+  @Test
+  public void shouldThrowExceptionWhenOnlySomeBlobProofBundlesHaveCells() {
+    // Mixing a bundle that carries cells with one that does not is just as invalid as two
+    // differing masks, in either order.
+    final CellMask mask = CellMask.fromBytes(Bytes.fromHexString("0x01" + "00".repeat(15)));
+
+    assertEquals(
+        "BlobProofBundles must either all carry cells or none of them",
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                    BlobsWithCommitments.createFromBundles(
+                        List.of(
+                            mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, mask),
+                            mockBlobProofBundle(BlobType.KZG_CELL_PROOFS))))
+            .getMessage());
+
+    assertEquals(
+        "BlobProofBundles must either all carry cells or none of them",
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                    BlobsWithCommitments.createFromBundles(
+                        List.of(
+                            mockBlobProofBundle(BlobType.KZG_CELL_PROOFS),
+                            mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, mask))))
+            .getMessage());
+  }
+
+  @Test
+  public void shouldThrowExceptionWhenOnlySomeBlobProofBundlesCarryTheirBlob() {
+    // Blob presence reflects how the transaction reached this node, which is the same for all of
+    // its blobs, in either order. Both bundles share a mask, so only the payloads differ.
+    assertEquals(
+        "BlobProofBundles must either all carry their blob payload or none of them",
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                    BlobsWithCommitments.createFromBundles(
+                        List.of(
+                            mockBlobProofBundleWithBlob(),
+                            mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, CellMask.FULL))))
+            .getMessage());
+
+    assertEquals(
+        "BlobProofBundles must either all carry their blob payload or none of them",
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                    BlobsWithCommitments.createFromBundles(
+                        List.of(
+                            mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, CellMask.FULL),
+                            mockBlobProofBundleWithBlob())))
+            .getMessage());
+  }
+
+  @Test
+  public void hasBlobDataAnswersForEveryBundle() {
+    // With the invariant enforced, the first bundle answers for all of them.
+    assertThat(
+            BlobsWithCommitments.createFromBundles(
+                    List.of(mockBlobProofBundleWithBlob(), mockBlobProofBundleWithBlob()))
+                .hasBlobData())
+        .isTrue();
+
+    assertThat(
+            BlobsWithCommitments.createFromBundles(
+                    List.of(
+                        mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, CellMask.FULL),
+                        mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, CellMask.FULL)))
+                .hasBlobData())
+        .isFalse();
+  }
+
   /** One full group of cell proofs per blob, as a type 1 sidecar carries them. */
   private List<List<KZGProof>> cellProofGroups(final int blobCount) {
     return Collections.nCopies(
@@ -216,6 +324,22 @@ public class BlobsWithCommitmentsTest {
   private BlobProofBundle mockBlobProofBundle(final BlobType blobType) {
     BlobProofBundle bundle = mock(BlobProofBundle.class);
     when(bundle.getBlobType()).thenReturn(blobType);
+    return bundle;
+  }
+
+  /** A bundle holding its blob payload, and the full cell mask a computed bundle would have. */
+  private BlobProofBundle mockBlobProofBundleWithBlob() {
+    final BlobProofBundle bundle = mockBlobProofBundle(BlobType.KZG_CELL_PROOFS, CellMask.FULL);
+    when(bundle.getBlob()).thenReturn(Optional.of(mock(Blob.class)));
+    return bundle;
+  }
+
+  /** A bundle holding the given cell mask, as a sparsely sampled one does. */
+  private BlobProofBundle mockBlobProofBundle(final BlobType blobType, final CellMask cellMask) {
+    BlobProofBundle bundle = mockBlobProofBundle(blobType);
+    final CellsWithMask cellsWithMask = mock(CellsWithMask.class);
+    when(cellsWithMask.getCellMask()).thenReturn(cellMask);
+    when(bundle.getCellsWithMask()).thenReturn(Optional.of(cellsWithMask));
     return bundle;
   }
 }

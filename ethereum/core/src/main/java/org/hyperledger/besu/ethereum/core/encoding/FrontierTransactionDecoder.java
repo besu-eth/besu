@@ -62,7 +62,14 @@ public class FrontierTransactionDecoder {
             .sizeForAnnouncement(size)
             .hash(Hash.hash(transactionRlp.raw()));
 
-    final BigInteger v = transactionRlp.readBigIntegerScalar();
+    // Bound the width of v so an unbounded, attacker-chosen v cannot carry its full width into
+    // chainId = (v-35)/2, which later renders via superlinear BigInteger.toString() in error/log
+    // messages; reject an oversized v at the RLP layer before that work can happen. The bound is 33
+    // bytes, not 32: EIP-155 encodes v = 2*chainId + 35 + recId, so a near-256-bit chainId (which
+    // is
+    // valid; cf. the chainId < 2^256 rule for EIP-7702) yields a v that needs one byte more than
+    // r/s.
+    final BigInteger v = transactionRlp.readBigIntegerScalar(33);
     final byte recId;
     Optional<BigInteger> chainId = Optional.empty();
     if (v.equals(REPLAY_UNPROTECTED_V_BASE) || v.equals(REPLAY_UNPROTECTED_V_BASE_PLUS_1)) {

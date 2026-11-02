@@ -22,7 +22,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
@@ -159,10 +159,10 @@ public class BonsaiTrieLogFactory implements TrieLogFactory {
         input.skipNext();
       } else {
         input.enterList();
-        final PmtStateTrieAccountValue oldValue =
-            nullOrValue(input, PmtStateTrieAccountValue::readFrom);
-        final PmtStateTrieAccountValue newValue =
-            nullOrValue(input, PmtStateTrieAccountValue::readFrom);
+        final PatriciaTrieAccountValue oldValue =
+            nullOrValue(input, PatriciaTrieAccountValue::readFrom);
+        final PatriciaTrieAccountValue newValue =
+            nullOrValue(input, PatriciaTrieAccountValue::readFrom);
         final boolean isCleared = getOptionalIsCleared(input);
         input.leaveList();
         newLayer.getAccountChanges().put(address, new BonsaiValue<>(oldValue, newValue, isCleared));

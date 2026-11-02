@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -98,7 +99,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
         (location, hash, value) -> {
           applyForStrategy(
               updater,
-              onBonsai -> onBonsai.putAccountStorageTrieNode(accountHash, location, hash, value),
+              onBonsai -> onBonsai.putTrieNode(TrieNodeKey.of(accountHash, location), hash, value),
               onForest -> onForest.putAccountStorageTrieNode(hash, value));
           nbNodesSaved.incrementAndGet();
         };

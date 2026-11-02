@@ -108,12 +108,12 @@ public class TraceBlock extends AbstractBlockParameterMethod {
     }
     LOG.trace("Received RPC rpcName={} block={}", getName(), blockNumber);
 
-    return getBlockchainQueries()
-        .getBlockchain()
-        .getBlockByNumber(blockNumber)
-        .map(block -> traceBlock(block, Optional.empty()))
-        .map(ArrayNodeWrapper::getArrayNode)
-        .orElse(null);
+    final Optional<Block> maybeBlock =
+        getBlockchainQueries().getBlockchain().getBlockByNumber(blockNumber);
+    if (maybeBlock.isEmpty()) {
+      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND);
+    }
+    return traceBlock(maybeBlock.get(), Optional.empty()).getArrayNode();
   }
 
   protected ArrayNodeWrapper traceBlock(

@@ -261,10 +261,6 @@ public class RangeManager {
     return path;
   }
 
-  public static Bytes32 prevKey(final Bytes32 key) {
-    return UInt256.fromBytes(key).subtract(UInt256.ONE);
-  }
-
   public static Bytes32 nextKey(final Bytes32 key) {
     final UInt256 next = UInt256.fromBytes(key).add(UInt256.ONE);
     if (next.isZero()) {

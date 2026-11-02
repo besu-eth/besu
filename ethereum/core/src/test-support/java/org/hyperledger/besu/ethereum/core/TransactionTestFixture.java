@@ -111,11 +111,9 @@ public class TransactionTestFixture {
                                 VersionedHash.SHA256_VERSION_ID, Sha256Hash.sha256(c.getData())))
                     .toList());
           }
-          builder.kzgBlobs(
-              blobs.get().getBlobType(),
-              blobs.get().getKzgCommitments(),
-              blobs.get().getBlobs(),
-              blobs.get().getKzgProofs());
+          // Passed through rather than decomposed and rebuilt through kzgBlobs: a sidecar holding
+          // only cells has no blobs to rebuild it from.
+          builder.blobsWithCommitments(blobs.get());
         }
         break;
       case DELEGATE_CODE:

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageStrategy;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -84,15 +85,37 @@ public abstract class FlatDbStrategy {
     return codeStorageStrategy instanceof CodeHashCodeStorageStrategy;
   }
 
+  /**
+   * The strategy the code column family was written by, for a flat database strategy built on the
+   * same storage to share.
+   *
+   * @return the code storage strategy
+   */
+  public CodeStorageStrategy getCodeStorageStrategy() {
+    return codeStorageStrategy;
+  }
+
   /*
    * Retrieves the code data for the given code hash and account hash.
    */
-  public Optional<Bytes> getFlatCode(
+  public Optional<Code> getFlatCode(
+      final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
+    if (codeHash.equals(Hash.EMPTY)) {
+      return Optional.of(Code.EMPTY_CODE);
+    } else {
+      return codeStorageStrategy.getFlatCode(codeHash, accountHash, storage);
+    }
+  }
+
+  /*
+   * Retrieves the bytes of the code for the given code hash and account hash, without its analysis.
+   */
+  public Optional<Bytes> getFlatCodeBytes(
       final Hash codeHash, final Hash accountHash, final SegmentedKeyValueStorage storage) {
     if (codeHash.equals(Hash.EMPTY)) {
       return Optional.of(Bytes.EMPTY);
     } else {
-      return codeStorageStrategy.getFlatCode(codeHash, accountHash, storage);
+      return codeStorageStrategy.getFlatCodeBytes(codeHash, accountHash, storage);
     }
   }
 

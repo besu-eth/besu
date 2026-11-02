@@ -16,9 +16,6 @@
     <Logger name="io.opentelemetry.extension.trace.propagation.B3PropagatorExtractorMultipleHeaders">
         <RegexFilter regex="Invalid TraceId in B3 header:.*" onMatch="DENY" onMismatch="NEUTRAL" />
     </Logger>
-    <Logger name="org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapshotWorldStateKeyValueStorage">
-        <StackTraceMatchFilter stackContains="BlockTransactionSelector" messageEquals="Attempting to access closed worldstate" onMatch="DENY" onMismatch="NEUTRAL"/>
-    </Logger>
     <Root level="${sys:root.log.level}">
         <AppenderRef ref="Console" />
         <AppenderRef ref="Router" />

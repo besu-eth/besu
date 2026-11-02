@@ -165,6 +165,7 @@ public class BenchmarkSubCommand implements Runnable {
    *
    * @param output the output stream to be used
    */
+  @SuppressWarnings("NullAway") // Picocli injects the parent command after construction.
   public BenchmarkSubCommand(final PrintStream output) {
     this.output = output;
   }

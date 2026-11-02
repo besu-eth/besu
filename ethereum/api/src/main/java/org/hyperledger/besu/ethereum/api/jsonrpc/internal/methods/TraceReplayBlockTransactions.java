@@ -103,7 +103,7 @@ public class TraceReplayBlockTransactions extends AbstractBlockParameterMethod {
   }
 
   @Override
-  protected ArrayNode resultByBlockNumber(
+  protected Object resultByBlockNumber(
       final JsonRpcRequestContext request, final long blockNumber) {
     final TraceTypeParameter traceTypeParameter;
     try {
@@ -124,11 +124,12 @@ public class TraceReplayBlockTransactions extends AbstractBlockParameterMethod {
       return emptyResult();
     }
 
-    return getBlockchainQueries()
-        .getBlockchain()
-        .getBlockByNumber(blockNumber)
-        .map(block -> traceBlock(block, traceTypeParameter))
-        .orElse(null);
+    final Optional<Block> maybeBlock =
+        getBlockchainQueries().getBlockchain().getBlockByNumber(blockNumber);
+    if (maybeBlock.isEmpty()) {
+      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND);
+    }
+    return traceBlock(maybeBlock.get(), traceTypeParameter);
   }
 
   private ArrayNode traceBlock(final Block block, final TraceTypeParameter traceTypeParameter) {

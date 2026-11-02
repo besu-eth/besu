@@ -146,13 +146,16 @@ public class BlockSimulatorServiceImpl implements BlockSimulationService {
       final List<? extends Transaction> transactions,
       final BlockOverrides blockOverrides,
       final StateOverrideMap stateOverrides) {
-    return processSimulation(
-        blockNumber,
-        transactions,
-        blockOverrides,
-        stateOverrides,
-        true,
-        OperationTracer.NO_TRACING);
+    // the simulation executes on the head world state and persists it
+    return worldStateArchive.withHeadWorldStateLock(
+        () ->
+            processSimulation(
+                blockNumber,
+                transactions,
+                blockOverrides,
+                stateOverrides,
+                true,
+                OperationTracer.NO_TRACING));
   }
 
   private PluginBlockSimulationResult processSimulation(

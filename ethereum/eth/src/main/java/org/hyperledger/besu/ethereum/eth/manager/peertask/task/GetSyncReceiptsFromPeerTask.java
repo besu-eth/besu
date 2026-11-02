@@ -197,7 +197,9 @@ public class GetSyncReceiptsFromPeerTask implements PeerTask<GetSyncReceiptsFrom
 
   @Override
   public PeerTaskValidationResponse validateResult(final Response result) {
-    if (result.isEmpty()) {
+    // the partial list includes the receipts already received, so it must grow
+    if (result.completeCount() == 0
+        && result.lastBlockPartialReceipts().size() <= request.firstBlockPartialReceipts().size()) {
       return PeerTaskValidationResponse.NO_RESULTS_RETURNED;
     }
 
@@ -252,15 +254,14 @@ public class GetSyncReceiptsFromPeerTask implements PeerTask<GetSyncReceiptsFrom
   }
 
   private long calculateTxGasLimitUpperBound(final SyncBlock lastBlockReceived) {
-    // to avoid having to deserialize the tx to get the actual gas limit we use an upper bound,
-    // for everything before Osaka we use the block gas limit of 45M and for Osaka onward
-    // we can use the max gas limit allowed per tx as specified by the protocol schedule
+    // to avoid having to deserialize the tx to get the actual gas limit we use an upper bound:
+    // no tx can use more gas than its block's gas limit or the protocol's per-tx cap
     return Math.min(
         protocolSchedule
             .getByBlockHeader(lastBlockReceived.getHeader())
             .getGasLimitCalculator()
             .transactionGasLimitCap(),
-        45_000_000L);
+        lastBlockReceived.getHeader().getGasLimit());
   }
 
   private boolean receiptsRootMatches(
@@ -310,10 +311,6 @@ public class GetSyncReceiptsFromPeerTask implements PeerTask<GetSyncReceiptsFrom
   public record Response(
       Map<SyncBlock, List<SyncTransactionReceipt>> completeReceiptsByBlock,
       List<SyncTransactionReceipt> lastBlockPartialReceipts) {
-    public boolean isEmpty() {
-      return completeReceiptsByBlock.isEmpty() && lastBlockPartialReceipts.isEmpty();
-    }
-
     public int completeCount() {
       return completeReceiptsByBlock.size();
     }

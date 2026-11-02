@@ -1,5 +1,5 @@
 {
-  "comment" : "An invalid call (value above the sender's balance) after a valid one returns a single JSON-RPC error, not an error envelope inside a successful result",
+  "comment" : "An invalid call (value above the sender's balance) after a valid one returns a single JSON-RPC error naming the invalid call's violation, not an error envelope inside a successful result",
   "request" : {
     "method" : "trace_callMany",
     "params" : [ [ [ {
@@ -22,8 +22,8 @@
     "jsonrpc" : "2.0",
     "id" : 1,
     "error" : {
-      "code" : -32603,
-      "message" : "Internal error"
+      "code" : -32004,
+      "message" : "Insufficient funds for transfer (transfer value 0x1000000000000000000000000000000000000000000 exceeds transaction sender account balance 0xffffffffffffffffffffffffffffffffd27a8e57b for sender 0xfe3b557e8fb62b89f4916b721be55ceb828dbd73)"
     }
   },
   "statusCode" : 200

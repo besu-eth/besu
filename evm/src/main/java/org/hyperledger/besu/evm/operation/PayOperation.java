@@ -28,8 +28,6 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
 
-import java.util.Objects;
-
 import org.apache.tuweni.bytes.Bytes;
 
 /** The PAY operation */
@@ -68,22 +66,26 @@ public class PayOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    if (!hasValue || Objects.equals(frame.getSenderAddress(), to)) {
+    if (!hasValue) {
       frame.popStackItems(getStackItemsConsumed());
       frame.pushStackItem(LEGACY_SUCCESS_STACK_ITEM);
       return new OperationResult(cost, null);
     }
 
-    final MutableAccount senderAccount = getSenderAccount(frame);
-    if (value.compareTo(senderAccount.getBalance()) > 0) {
+    // EIP-5920 pays from the current address, the one ADDRESS returns, not from the caller
+    final Address from = frame.getRecipientAddress();
+    final MutableAccount fromAccount = getMutableAccount(from, frame);
+    if (fromAccount == null || value.compareTo(fromAccount.getBalance()) > 0) {
       frame.popStackItems(getStackItemsConsumed());
       frame.pushStackItem(LEGACY_FAILURE_STACK_ITEM);
       return new OperationResult(cost, null);
     }
 
-    final MutableAccount recipientAccount = getOrCreateAccount(to, frame);
-    senderAccount.decrementBalance(value);
-    recipientAccount.incrementBalance(value);
+    if (!from.equals(to)) {
+      final MutableAccount recipientAccount = getOrCreateAccount(to, frame);
+      fromAccount.decrementBalance(value);
+      recipientAccount.incrementBalance(value);
+    }
 
     frame.popStackItems(getStackItemsConsumed());
     frame.pushStackItem(LEGACY_SUCCESS_STACK_ITEM);

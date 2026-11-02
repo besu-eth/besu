@@ -1,6 +1,8 @@
 {
   "cli": [
     "--notime",
+    "--fork",
+    "BPO2",
     "--json",
     "--code",
     "634E6F70656000526004601CFD"
@@ -13,6 +15,6 @@
     {"pc":8,"op":96,"gas":"0x2540be3f4","gasCost":"0x3","memSize":32,"stack":[],"depth":1,"refund":0,"opName":"PUSH1"},
     {"pc":10,"op":96,"gas":"0x2540be3f1","gasCost":"0x3","memSize":32,"stack":["0x4"],"depth":1,"refund":0,"opName":"PUSH1"},
     {"pc":12,"op":253,"gas":"0x2540be3ee","gasCost":"0x0","memSize":32,"stack":["0x4","0x1c"],"depth":1,"refund":0,"opName":"REVERT","error":"0x4e6f7065"},
-    {"stateRoot":"0x405bbd98da2aca6dff77f79e0b270270c48d6a3e07b76db675b20e454b50bbcb","output":"0x4e6f7065","gasUsed":"0x12","pass":true,"fork":"BPO5"}
+    {"stateRoot":"0x405bbd98da2aca6dff77f79e0b270270c48d6a3e07b76db675b20e454b50bbcb","output":"0x4e6f7065","gasUsed":"0x12","pass":true,"fork":"BPO2"}
   ]
 }

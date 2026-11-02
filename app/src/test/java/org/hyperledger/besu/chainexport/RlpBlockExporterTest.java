@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.util.RawBlockIterator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -282,6 +283,56 @@ public final class RlpBlockExporterTest {
   }
 
   @Test
+  public void exportBlocks_failedBalsOpenPreservesExistingOutput(final @TempDir Path outputDir)
+      throws IOException {
+    final Path outputPath = outputDir.resolve("output");
+    final Path balsPath = outputDir.resolve("output.bals");
+    Files.writeString(outputPath, "existing blocks");
+    Files.createDirectory(balsPath);
+
+    final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
+    assertThatThrownBy(
+            () ->
+                exporter.exportBlocks(
+                    outputPath.toFile(),
+                    Optional.of(balsPath.toFile()),
+                    Optional.empty(),
+                    Optional.of(1L)))
+        .isInstanceOf(IOException.class);
+
+    assertThat(Files.readString(outputPath)).isEqualTo("existing blocks");
+  }
+
+  @Test
+  public void exportBlocks_replacesExistingOutput(final @TempDir Path outputDir)
+      throws IOException {
+    final Path outputPath = outputDir.resolve("output");
+    Files.writeString(outputPath, "existing blocks");
+
+    final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
+    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.empty(), Optional.of(1L));
+
+    final Block genesisBlock = getBlock(blockchain, 0L);
+    assertThat(Files.readAllBytes(outputPath))
+        .isEqualTo(RLP.encode(genesisBlock::writeTo).toArrayUnsafe());
+  }
+
+  @Test
+  public void exportBlocks_appendsRangeToExistingOutput(final @TempDir Path outputDir)
+      throws IOException {
+    final Path outputPath = outputDir.resolve("output");
+    final RlpBlockExporter exporter = new RlpBlockExporter(blockchain);
+
+    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.empty(), Optional.of(1L));
+    exporter.exportBlocks(outputPath.toFile(), Optional.empty(), Optional.of(1L), Optional.of(2L));
+
+    final RawBlockIterator blocks = getBlockIterator(outputPath);
+    assertThat(blocks.next()).isEqualTo(getBlock(blockchain, 0L));
+    assertThat(blocks.next()).isEqualTo(getBlock(blockchain, 1L));
+    assertThat(blocks.hasNext()).isFalse();
+  }
+
+  @Test
   public void exportBlocks_writesOneFramePerBlock(final @TempDir Path outputDir)
       throws IOException {
     final Path outputPath = outputDir.resolve("output");
@@ -330,9 +381,6 @@ public final class RlpBlockExporterTest {
                     List.of(),
                     List.of())));
     final org.apache.tuweni.bytes.Bytes expectedPayload = bal.encode();
-    // Store the encoded bytes as rawRlp so exportBal() can retrieve them
-    final BlockAccessList balWithRaw = new BlockAccessList(bal.accountChanges(), expectedPayload);
-
     final Hash blockHash = Hash.fromHexString("0x" + "ab".repeat(32));
     final BlockHeader mockHeader = mock(BlockHeader.class);
     when(mockHeader.getNumber()).thenReturn(1L);
@@ -342,7 +390,7 @@ public final class RlpBlockExporterTest {
 
     final Blockchain mockBlockchain = mock(Blockchain.class);
     when(mockBlockchain.getBlockByNumber(0L)).thenReturn(Optional.of(mockBlock));
-    when(mockBlockchain.getBlockAccessList(blockHash)).thenReturn(Optional.of(balWithRaw));
+    when(mockBlockchain.getBlockAccessListRlp(blockHash)).thenReturn(Optional.of(expectedPayload));
 
     final Path outputPath = outputDir.resolve("output");
     final Path balsPath = outputDir.resolve("output.bals");

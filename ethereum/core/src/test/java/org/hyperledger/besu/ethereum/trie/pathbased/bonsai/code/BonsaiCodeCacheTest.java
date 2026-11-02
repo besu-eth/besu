@@ -22,7 +22,6 @@ import org.hyperledger.besu.evm.Code;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 class BonsaiCodeCacheTest {
 
@@ -44,8 +43,9 @@ class BonsaiCodeCacheTest {
 
   @Test
   void shouldReturnCodeAfterItIsPut() {
-    Hash codeHash = Hash.hash(Bytes.of(10, 20, 30));
-    Code code = Mockito.mock(Code.class);
+    Bytes bytes = Bytes.of(10, 20, 30);
+    Hash codeHash = Hash.hash(bytes);
+    Code code = new Code(bytes, codeHash);
 
     codeCache.put(codeHash, code);
 
@@ -56,9 +56,10 @@ class BonsaiCodeCacheTest {
 
   @Test
   void shouldOverwriteExistingCodeForSameHash() {
-    Hash codeHash = Hash.hash(Bytes.of(1, 2, 3));
-    Code originalCode = Mockito.mock(Code.class);
-    Code newCode = Mockito.mock(Code.class);
+    Bytes bytes = Bytes.of(1, 2, 3);
+    Hash codeHash = Hash.hash(bytes);
+    Code originalCode = new Code(bytes, codeHash);
+    Code newCode = new Code(bytes, codeHash);
 
     codeCache.put(codeHash, originalCode);
     codeCache.put(codeHash, newCode);
@@ -66,5 +67,21 @@ class BonsaiCodeCacheTest {
     Code retrieved = codeCache.getIfPresent(codeHash);
 
     assertThat(retrieved).isSameAs(newCode);
+  }
+
+  @Test
+  void shouldNotCacheEmptyCodeUnderNonEmptyHash() {
+    Hash codeHash = Hash.hash(Bytes.of(1, 2, 3));
+
+    codeCache.put(codeHash, new Code(Bytes.EMPTY, codeHash));
+
+    assertThat(codeCache.getIfPresent(codeHash)).isNull();
+  }
+
+  @Test
+  void shouldCacheEmptyCodeUnderEmptyHash() {
+    codeCache.put(Hash.EMPTY, Code.EMPTY_CODE);
+
+    assertThat(codeCache.getIfPresent(Hash.EMPTY)).isSameAs(Code.EMPTY_CODE);
   }
 }

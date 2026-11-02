@@ -14,7 +14,10 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
+import static java.util.Objects.requireNonNull;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_JUMPDEST_ANALYSIS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_RECEIPT_COMPACTION;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.BONSAI_WITH_VARIABLES;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat.FOREST_WITH_RECEIPT_COMPACTION;
@@ -46,10 +49,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,13 +68,21 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
   private static final EnumSet<BaseVersionedStorageFormat> SUPPORTED_VERSIONED_FORMATS =
       EnumSet.of(
           FOREST_WITH_RECEIPT_COMPACTION,
-          BONSAI_WITH_RECEIPT_COMPACTION,
-          BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION);
+          BONSAI_WITH_JUMPDEST_ANALYSIS,
+          BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS);
+  // upgrades that only need the metadata updated: Besu reads both receipt formats, and the world
+  // state storage migrates the code column family itself when it is opened
+  private static final Map<VersionedStorageFormat, VersionedStorageFormat> METADATA_ONLY_UPGRADES =
+      Map.of(
+          FOREST_WITH_VARIABLES, FOREST_WITH_RECEIPT_COMPACTION,
+          BONSAI_WITH_VARIABLES, BONSAI_WITH_JUMPDEST_ANALYSIS,
+          BONSAI_WITH_RECEIPT_COMPACTION, BONSAI_WITH_JUMPDEST_ANALYSIS,
+          BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION, BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS);
   private static final String NAME = "rocksdb";
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
-  private DatabaseMetadata databaseMetadata;
-  private RocksDBColumnarKeyValueStorage segmentedStorage;
-  private RocksDBConfiguration rocksDBConfiguration;
+  private @Nullable DatabaseMetadata databaseMetadata;
+  private @Nullable RocksDBColumnarKeyValueStorage segmentedStorage;
+  private @Nullable RocksDBConfiguration rocksDBConfiguration;
 
   private final Supplier<RocksDBFactoryConfiguration> configuration;
   private final List<SegmentIdentifier> configuredSegments;
@@ -129,6 +142,11 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
       final BesuConfiguration commonConfiguration,
       final MetricsSystem metricsSystem)
       throws StorageException {
+    if (segmentedStorage != null && segmentedStorage.isClosed()) {
+      // The database was closed (e.g. by KeyValueStorageProvider.close() when the node stopped).
+      // A closed RocksDB cannot be reused, so open it again for this caller.
+      segmentedStorage = null;
+    }
     if (requiresInit()) {
       init(commonConfiguration);
     }
@@ -144,24 +162,26 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
     }
 
     if (segmentedStorage == null) {
+      final DatabaseMetadata currentMetadata = requireNonNull(databaseMetadata);
+      final RocksDBConfiguration currentConfiguration = requireNonNull(rocksDBConfiguration);
       final List<SegmentIdentifier> segmentsForFormat =
           configuredSegments.stream()
               .filter(
                   segmentId ->
                       segmentId.includeInDatabaseFormat(
-                          databaseMetadata.getVersionedStorageFormat().getFormat()))
+                          currentMetadata.getVersionedStorageFormat().getFormat()))
               .toList();
 
       // It's probably a good idea for the creation logic to be entirely dependent on the database
       // version. Introducing intermediate booleans that represent database properties and
       // dispatching
       // creation logic based on them is error-prone.
-      switch (databaseMetadata.getVersionedStorageFormat().getFormat()) {
+      switch (currentMetadata.getVersionedStorageFormat().getFormat()) {
         case FOREST -> {
           LOG.debug("FOREST mode detected, using TransactionDB.");
           segmentedStorage =
               new TransactionDBRocksDBColumnarKeyValueStorage(
-                  rocksDBConfiguration,
+                  currentConfiguration,
                   segmentsForFormat,
                   ignorableSegments,
                   metricsSystem,
@@ -171,16 +191,16 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
           LOG.debug("BONSAI mode detected, Using OptimisticTransactionDB.");
           segmentedStorage =
               new OptimisticRocksDBColumnarKeyValueStorage(
-                  rocksDBConfiguration,
+                  currentConfiguration,
                   segmentsForFormat,
                   ignorableSegments,
                   metricsSystem,
                   rocksDBMetricsFactory);
         }
       }
-      segmentedStorage.warmUpAtStartup();
+      requireNonNull(segmentedStorage).warmUpAtStartup();
     }
-    return segmentedStorage;
+    return requireNonNull(segmentedStorage);
   }
 
   /**
@@ -353,19 +373,17 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
     // In case we do an automated upgrade, then we also need to update the metadata on disk to
     // reflect the change to the runtime version, and return it.
 
-    // Besu supports both formats of receipts so no upgrade is needed other than updating metadata
     final VersionedStorageFormat existingVersionedStorageFormat =
         existingMetadata.getVersionedStorageFormat();
-    if ((existingVersionedStorageFormat == BONSAI_WITH_VARIABLES
-            && runtimeVersion == BONSAI_WITH_RECEIPT_COMPACTION)
-        || (existingVersionedStorageFormat == FOREST_WITH_VARIABLES
-            && runtimeVersion == FOREST_WITH_RECEIPT_COMPACTION)) {
+    if (METADATA_ONLY_UPGRADES.get(existingVersionedStorageFormat) == runtimeVersion) {
       final DatabaseMetadata metadata = new DatabaseMetadata(runtimeVersion);
       try {
         metadata.writeToDirectory(dataDir);
+        codeFormatDowngradeWarning(dataDir, existingVersionedStorageFormat, runtimeVersion)
+            .ifPresent(LOG::warn);
         return Optional.of(metadata);
       } catch (IOException e) {
-        throw new StorageException("Database upgrade to use receipt compaction failed", e);
+        throw new StorageException("Database upgrade failed", e);
       }
     }
 
@@ -380,6 +398,29 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
             runtimeVersion.getVersion());
 
     throw new StorageException(error);
+  }
+
+  /**
+   * Tells the operator how to undo an upgrade to code stored with its analysis, which older Besu
+   * versions cannot. The arguments of this process are not repeated: they can hold secrets and miss
+   * the configuration given by environment variables.
+   */
+  static Optional<String> codeFormatDowngradeWarning(
+      final Path dataDir, final VersionedStorageFormat from, final BaseVersionedStorageFormat to) {
+    return to.withoutJumpDestAnalysis()
+        .map(
+            reverted ->
+                String.format(
+                    "The database in %1$s was upgraded from %2$s to %3$s, which Besu versions that"
+                        + " support %4$s at most cannot open. To downgrade to one of them, stop"
+                        + " Besu and first run `besu --data-path=%1$s <node options> storage"
+                        + " revert-code-format` as the user Besu runs as, with the node's config"
+                        + " file and BESU_* environment variables",
+                    dataDir.toAbsolutePath(), describe(from), describe(to), describe(reverted)));
+  }
+
+  private static String describe(final VersionedStorageFormat format) {
+    return format.getFormat() + " version " + format.getVersion();
   }
 
   private boolean isSupportedVersionedFormat(final VersionedStorageFormat versionedStorageFormat) {

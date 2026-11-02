@@ -29,13 +29,19 @@ import org.slf4j.Logger;
 
 public class BlobPooledTransactionEncoder {
   private static final Logger LOG = getLogger(BlobPooledTransactionEncoder.class);
-  static final String NO_BLOBS_ERROR =
+  static final String NO_BLOBS_WITH_COMMITMENTS_ERROR =
       "Transaction with no blobsWithCommitments cannot be encoded for Pooled Transaction";
+  static final String NO_BLOBS_ERROR =
+      "Transaction with no blobs data cannot be encoded for Pooled Transaction";
 
   public static void encode(final Transaction transaction, final RLPOutput out) {
     LOG.trace("Encoding transaction with blobs {}", transaction);
     var blobsWithCommitments = transaction.getBlobsWithCommitments();
-    if (blobsWithCommitments.isEmpty() || blobsWithCommitments.get().getBlobs().isEmpty()) {
+    if (blobsWithCommitments.isEmpty()) {
+      throw new InvalidParameterException(NO_BLOBS_WITH_COMMITMENTS_ERROR);
+    }
+    if (!blobsWithCommitments.get().hasBlobData()) {
+      // A sidecar holding only cells has no blob payload to write.
       throw new InvalidParameterException(NO_BLOBS_ERROR);
     }
     out.startList();

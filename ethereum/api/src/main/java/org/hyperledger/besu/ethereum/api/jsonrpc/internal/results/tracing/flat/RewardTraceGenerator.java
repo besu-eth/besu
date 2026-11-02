@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.Trace;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -47,23 +48,18 @@ public class RewardTraceGenerator {
     final BlockHeader blockHeader = block.getHeader();
     final List<BlockHeader> ommers = block.getBody().getOmmers();
     final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockHeader);
-    final Wei blockReward = protocolSpec.getBlockReward();
+    final BlockRewardProcessor blockRewardProcessor = protocolSpec.getBlockRewardProcessor();
     final MiningBeneficiaryCalculator miningBeneficiaryCalculator =
         protocolSpec.getMiningBeneficiaryCalculator();
 
-    final Wei coinbaseReward =
-        protocolSpec
-            .getBlockProcessor()
-            .getCoinbaseReward(blockReward, blockHeader.getNumber(), ommers.size());
+    final Wei coinbaseReward = blockRewardProcessor.getCoinbaseReward(ommers.size());
 
     // add uncle reward traces
     ommers.forEach(
         ommerBlockHeader -> {
           final Wei ommerReward =
-              protocolSpec
-                  .getBlockProcessor()
-                  .getOmmerReward(
-                      blockReward, blockHeader.getNumber(), ommerBlockHeader.getNumber());
+              blockRewardProcessor.getOmmerReward(
+                  blockHeader.getNumber(), ommerBlockHeader.getNumber());
           final Action.Builder uncleActionBuilder =
               Action.builder()
                   .author(

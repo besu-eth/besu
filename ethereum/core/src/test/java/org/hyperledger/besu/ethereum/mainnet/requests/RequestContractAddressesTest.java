@@ -75,4 +75,49 @@ public class RequestContractAddressesTest {
                     GenesisConfig.fromConfig("{\"config\": {}}").getConfigOptions()))
         .withMessageContaining("Deposit Contract Address not found");
   }
+
+  @Test
+  public void reportsDefaultBuilderAddressesWhenEitherIsAbsent() {
+    final String none = "{\"config\": {}}";
+    final String depositOnly =
+        """
+        {"config": {
+          "builderDepositRequestContractAddress": "0x0000000000000000000000000000000000000004"
+        }}
+        """;
+    final String exitOnly =
+        """
+        {"config": {
+          "builderExitRequestContractAddress": "0x0000000000000000000000000000000000000005"
+        }}
+        """;
+
+    for (final String json : new String[] {none, depositOnly, exitOnly}) {
+      assertThat(
+              RequestContractAddresses.usesDefaultBuilderAddresses(
+                  GenesisConfig.fromConfig(json).getConfigOptions()))
+          .as(json)
+          .isTrue();
+    }
+  }
+
+  @Test
+  public void doesNotReportDefaultsWhenBothBuilderAddressesAreConfigured() {
+    final String json =
+        """
+        {"config": {
+          "depositContractAddress": "0x0000000000000000000000000000000000000001",
+          "builderDepositRequestContractAddress": "0x0000000000000000000000000000000000000004",
+          "builderExitRequestContractAddress": "0x0000000000000000000000000000000000000005"
+        }}
+        """;
+    final var options = GenesisConfig.fromConfig(json).getConfigOptions();
+
+    assertThat(RequestContractAddresses.usesDefaultBuilderAddresses(options)).isFalse();
+    final RequestContractAddresses addresses = RequestContractAddresses.fromGenesis(options);
+    assertThat(addresses.getBuilderDepositRequestContractAddress())
+        .isEqualTo(Address.fromHexString("0x0000000000000000000000000000000000000004"));
+    assertThat(addresses.getBuilderExitRequestContractAddress())
+        .isEqualTo(Address.fromHexString("0x0000000000000000000000000000000000000005"));
+  }
 }

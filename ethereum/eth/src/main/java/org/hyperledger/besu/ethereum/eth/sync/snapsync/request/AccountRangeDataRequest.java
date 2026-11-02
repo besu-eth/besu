@@ -30,7 +30,7 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -127,7 +127,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
           applyForStrategy(
               updater,
               onBonsai -> {
-                onBonsai.putAccountStateTrieNode(location, hash, value);
+                onBonsai.putTrieNode(location, hash, value);
               },
               onForest -> {
                 onForest.putAccountStateTrieNode(hash, value);
@@ -217,8 +217,14 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
     // find missing storages and code
     for (Map.Entry<Bytes32, Bytes> account : taskElement.keys().entrySet()) {
-      final PmtStateTrieAccountValue accountValue =
-          PmtStateTrieAccountValue.readFrom(RLP.input(account.getValue()));
+      if (account.getKey().compareTo(endKeyHash) > 0) {
+        // A response can go past the end of the range by an account. That account belongs to the
+        // next range, which requests its storage itself: requested twice, perhaps for different
+        // pivot blocks, the older storage could be written over the newer.
+        break;
+      }
+      final PatriciaTrieAccountValue accountValue =
+          PatriciaTrieAccountValue.readFrom(RLP.input(account.getValue()));
       if (!accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
         childRequests.add(
             createStorageRangeDataRequest(

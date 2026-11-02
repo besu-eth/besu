@@ -16,6 +16,8 @@ package org.hyperledger.besu.services.pipeline;
 
 import java.util.Collection;
 
+import org.jspecify.annotations.Nullable;
+
 /**
  * The interface used to read items from a pipe.
  *
@@ -46,14 +48,14 @@ public interface ReadPipe<T> {
    *
    * @return the next item or <code>null</code> if the pipe is closed or the thread interrupted.
    */
-  T get();
+  @Nullable T get();
 
   /**
    * Get and remove the next item from this pipe without blocking if it is available.
    *
    * @return the next item or <code>null</code> if the pipe is empty.
    */
-  T poll();
+  @Nullable T poll();
 
   /**
    * Removes at most the given number of available elements from the pipe and adds them to the given
