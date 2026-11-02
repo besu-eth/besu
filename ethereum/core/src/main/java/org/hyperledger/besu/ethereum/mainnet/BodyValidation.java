@@ -52,11 +52,8 @@ public final class BodyValidation {
    * @return the transaction root
    */
   public static Hash transactionsRoot(final List<Transaction> transactions) {
-    final ArrayList<Bytes> bytesList = new ArrayList<>(transactions.size());
-    transactions.forEach(
-        t -> bytesList.add(TransactionEncoder.encodeOpaqueBytes(t, EncodingContext.BLOCK_BODY)));
-
-    return Util.getRootFromListOfBytes(bytesList);
+    return Util.getRootFromList(
+        transactions, t -> TransactionEncoder.encodeOpaqueBytes(t, EncodingContext.BLOCK_BODY));
   }
 
   /**
@@ -66,10 +63,7 @@ public final class BodyValidation {
    * @return the transaction root
    */
   public static Hash withdrawalsRoot(final List<Withdrawal> withdrawals) {
-    final ArrayList<Bytes> bytesList = new ArrayList<>(withdrawals.size());
-    withdrawals.forEach(w -> bytesList.add(WithdrawalEncoder.encodeOpaqueBytes(w)));
-
-    return Util.getRootFromListOfBytes(bytesList);
+    return Util.getRootFromList(withdrawals, WithdrawalEncoder::encodeOpaqueBytes);
   }
 
   /**
@@ -98,18 +92,13 @@ public final class BodyValidation {
    * @return the receipt root
    */
   public static Hash receiptsRoot(final List<TransactionReceipt> receipts) {
-    final ArrayList<Bytes> bytesList = new ArrayList<>(receipts.size());
-    receipts.forEach(
+    return Util.getRootFromList(
+        receipts,
         receipt ->
-            bytesList.add(
-                RLP.encode(
-                    rlpOutput ->
-                        TransactionReceiptEncoder.writeTo(
-                            receipt,
-                            rlpOutput,
-                            TransactionReceiptEncodingConfiguration.TRIE_ROOT))));
-
-    return Util.getRootFromListOfBytes(bytesList);
+            RLP.encode(
+                rlpOutput ->
+                    TransactionReceiptEncoder.writeTo(
+                        receipt, rlpOutput, TransactionReceiptEncodingConfiguration.TRIE_ROOT)));
   }
 
   /**
@@ -137,15 +126,13 @@ public final class BodyValidation {
   }
 
   /**
-   * Generates the block access list hash: the hash of its encoding, which is the bytes it was
-   * decoded from if it was decoded, so that it is not encoded again.
+   * Generates the block access list hash, see {@link BlockAccessList#hash()}.
    *
    * @param bal the block access list
    * @return the block access list hash
    */
   public static Hash balHash(final BlockAccessList bal) {
-    final Bytes encoded = bal.rawRlp().orElseGet(() -> RLP.encode(bal::writeTo));
-    return Hash.wrap(keccak256(encoded));
+    return bal.hash();
   }
 
   /**

@@ -16,6 +16,13 @@ package org.hyperledger.besu.ethereum.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class UtilTest {
@@ -31,5 +38,26 @@ public class UtilTest {
     assertThat(Util.fastDivCeiling(6, 3)).isEqualTo(2);
 
     assertThat(Util.fastDivCeiling(7, 3)).isEqualTo(3);
+  }
+
+  @Test
+  public void rootFromListOfBytesIsTheRootOfTheIndexedTrie() {
+    // around where the keys change length, from which the list is built in parallel, a large
+    // block's length, and past the indices of three-byte keys
+    for (final int size :
+        new int[] {1, 2, 127, 128, 129, 255, 256, 257, 511, 512, 513, 25_000, 70_000}) {
+      final Random random = new Random(size);
+      final List<Bytes> entries = new ArrayList<>(size);
+      final SimpleMerklePatriciaTrie<Bytes, Bytes> trie = new SimpleMerklePatriciaTrie<>(b -> b);
+      for (int i = 0; i < size; i++) {
+        final Bytes entry = Bytes.random(1 + random.nextInt(200), random);
+        entries.add(entry);
+        trie.put(Util.indexKey(i), entry);
+      }
+
+      assertThat(Util.getRootFromListOfBytes(entries).getBytes())
+          .as("size %d", size)
+          .isEqualTo(trie.getRootHash());
+    }
   }
 }

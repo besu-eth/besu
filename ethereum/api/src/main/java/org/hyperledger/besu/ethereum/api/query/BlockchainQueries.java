@@ -55,7 +55,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -163,22 +165,44 @@ public class BlockchainQueries {
 
   private final AtomicReference<FeeOracleSnapshot> feeOracleRef = new AtomicReference<>();
 
+  // The fee samples of the blocks in the last computed window, by block hash. A new head adds its
+  // own block's samples to them instead of reading and decoding every body in the window again.
+  private volatile Map<Hash, BlockFeeSamples> windowFeeSamples = Map.of();
+
+  /** The gas prices and priority fees of a block's transactions. */
+  private record BlockFeeSamples(Wei[] gasPrices, Wei[] priorityFees) {
+
+    static BlockFeeSamples of(final List<Transaction> transactions) {
+      final List<Wei> gasPrices = new ArrayList<>();
+      final List<Wei> priorityFees = new ArrayList<>();
+      for (final Transaction tx : transactions) {
+        tx.getGasPrice().ifPresent(gasPrices::add);
+        tx.getMaxPriorityFeePerGas().ifPresent(priorityFees::add);
+      }
+      return new BlockFeeSamples(gasPrices.toArray(Wei[]::new), priorityFees.toArray(Wei[]::new));
+    }
+  }
+
   private void refreshFeeOracleSnapshot(final BlockAddedEvent event) {
     if (!event.isNewCanonicalHead()) {
       return;
     }
     ethScheduler.ifPresent(
         scheduler ->
-            scheduler.scheduleServiceTask(() -> computeAndPublishSnapshot(event.getHeader())));
+            scheduler.scheduleServiceTask(() -> computeAndPublishSnapshot(event.getBlock())));
   }
 
-  private void computeAndPublishSnapshot(final BlockHeader chainHeadHeader) {
+  private void computeAndPublishSnapshot(final Block chainHead) {
+    final BlockHeader chainHeadHeader = chainHead.getHeader();
     try {
       final Hash headHash = chainHeadHeader.getBlockHash();
       if (!blockchain.getChainHeadHash().equals(headHash)) {
         return;
       }
-      final Optional<FeeOracleSnapshot> maybeSnapshot = computeSnapshot(chainHeadHeader);
+      final Optional<FeeOracleSnapshot> maybeSnapshot =
+          computeSnapshot(
+              chainHeadHeader,
+              Map.of(headHash, BlockFeeSamples.of(chainHead.getBody().getTransactions())));
       if (blockchain.getChainHeadHash().equals(headHash)) {
         maybeSnapshot.ifPresent(feeOracleRef::set);
       }
@@ -1211,37 +1235,64 @@ public class BlockchainQueries {
   // waste duplicate scans (last writer wins); they don't race, as each result is a function of the
   // immutable head hash.
   private Optional<FeeOracleSnapshot> computeAndCacheSnapshot(final BlockHeader chainHeadHeader) {
-    final Optional<FeeOracleSnapshot> snap = computeSnapshot(chainHeadHeader);
+    final Optional<FeeOracleSnapshot> snap = computeSnapshot(chainHeadHeader, Map.of());
     snap.ifPresent(feeOracleRef::set);
     return snap;
   }
 
-  private Optional<FeeOracleSnapshot> computeSnapshot(final BlockHeader chainHeadHeader) {
+  /**
+   * Samples the window of blocks up to the head, reading the bodies of the blocks that are neither
+   * in the last computed window nor in {@code knownSamples}.
+   */
+  private Optional<FeeOracleSnapshot> computeSnapshot(
+      final BlockHeader chainHeadHeader, final Map<Hash, BlockFeeSamples> knownSamples) {
     final long chainHeadNumber = chainHeadHeader.getNumber();
     final long startBlock = Math.max(0, chainHeadNumber - apiConfig.getGasPriceBlocks() + 1);
     final int blockCount = (int) (chainHeadNumber - startBlock + 1);
     final List<BlockHeader> headers = blockchain.getBlockHeaders(startBlock, blockCount);
-    final ArrayList<Wei> gasPriceSamples = new ArrayList<>();
-    final ArrayList<Wei> prioritySamples = new ArrayList<>();
+    final Map<Hash, BlockFeeSamples> lastWindow = windowFeeSamples;
+    final Map<Hash, BlockFeeSamples> window = HashMap.newHashMap(headers.size());
+    int gasPriceCount = 0;
+    int priorityFeeCount = 0;
     for (final BlockHeader header : headers) {
-      final Optional<BlockBody> maybeBody = blockchain.getBlockBody(header.getBlockHash());
-      if (maybeBody.isEmpty()) {
-        // A partial window would bias the percentile; return no snapshot so callers fall back to
-        // the configured lower bound.
-        return Optional.empty();
+      final Hash hash = header.getBlockHash();
+      BlockFeeSamples samples = knownSamples.getOrDefault(hash, lastWindow.get(hash));
+      if (samples == null) {
+        final Optional<BlockBody> maybeBody = blockchain.getBlockBody(hash);
+        if (maybeBody.isEmpty()) {
+          // A partial window would bias the percentile; return no snapshot so callers fall back to
+          // the configured lower bound.
+          return Optional.empty();
+        }
+        samples = BlockFeeSamples.of(maybeBody.get().getTransactions());
       }
-      final BlockBody body = maybeBody.get();
-      for (final Transaction tx : body.getTransactions()) {
-        tx.getGasPrice().ifPresent(gasPriceSamples::add);
-        tx.getMaxPriorityFeePerGas().ifPresent(prioritySamples::add);
-      }
+      window.put(hash, samples);
+      gasPriceCount += samples.gasPrices().length;
+      priorityFeeCount += samples.priorityFees().length;
     }
+    windowFeeSamples = window;
 
+    final Wei[] gasPriceSamples = new Wei[gasPriceCount];
+    final Wei[] prioritySamples = new Wei[priorityFeeCount];
+    int gasPriceOffset = 0;
+    int priorityFeeOffset = 0;
+    for (final BlockFeeSamples samples : window.values()) {
+      System.arraycopy(
+          samples.gasPrices(), 0, gasPriceSamples, gasPriceOffset, samples.gasPrices().length);
+      gasPriceOffset += samples.gasPrices().length;
+      System.arraycopy(
+          samples.priorityFees(),
+          0,
+          prioritySamples,
+          priorityFeeOffset,
+          samples.priorityFees().length);
+      priorityFeeOffset += samples.priorityFees().length;
+    }
     return Optional.of(
         new FeeOracleSnapshot(
             chainHeadHeader.getBlockHash(),
-            pickPercentileSample(gasPriceSamples.toArray(Wei[]::new)),
-            pickPercentileSample(prioritySamples.toArray(Wei[]::new))));
+            pickPercentileSample(gasPriceSamples),
+            pickPercentileSample(prioritySamples)));
   }
 
   /**

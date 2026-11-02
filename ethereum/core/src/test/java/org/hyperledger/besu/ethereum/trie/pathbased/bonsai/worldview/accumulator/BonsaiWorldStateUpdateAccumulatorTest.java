@@ -32,7 +32,10 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
@@ -48,6 +51,13 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -98,6 +108,176 @@ class BonsaiWorldStateUpdateAccumulatorTest {
       assertThat(trieLogSlot.getPrior()).isEqualTo(V0);
       assertThat(trieLogSlot.getUpdated()).isEqualTo(V2);
     }
+  }
+
+  @Test
+  void importAndCommitAccountChanges_leavesTheStateOfImportingEachTransactionInTurn() {
+    final List<PartialBlockAccessView> transactions =
+        List.of(
+            partialView(
+                1,
+                view -> {
+                  view.getOrCreateAccountBuilder(ACCOUNT)
+                      .withPostBalance(Wei.of(5))
+                      .withNonceChange(1L)
+                      .addStorageChange(SLOT, V0, V1);
+                  view.getOrCreateAccountBuilder(CREATED).withPostBalance(Wei.of(10));
+                }),
+            partialView(
+                2,
+                view -> {
+                  view.getOrCreateAccountBuilder(ACCOUNT)
+                      .withPostBalance(Wei.of(7))
+                      .addStorageChange(SLOT, V1, V2);
+                  view.getOrCreateAccountBuilder(CREATED).withNonceChange(3L);
+                }),
+            partialView(
+                3, view -> view.getOrCreateAccountBuilder(ABSENT).withPostBalance(Wei.of(4))));
+
+    assertThat(trieLogOfImportingTogether(transactions).dump())
+        .isEqualTo(trieLogOfImportingOneByOne(transactions).dump());
+  }
+
+  @Test
+  void importAndCommitAccountChanges_keepsTheStorageOfAnAccountDeletedAndCreatedAgainCleared() {
+    // the account has neither nonce nor code, so a zero balance empties it and deletes its slot
+    final List<PartialBlockAccessView> transactions =
+        List.of(
+            partialView(
+                1, view -> view.getOrCreateAccountBuilder(ACCOUNT).withPostBalance(Wei.ZERO)),
+            partialView(
+                2, view -> view.getOrCreateAccountBuilder(ACCOUNT).withPostBalance(Wei.of(3))));
+
+    final TrieLogLayer trieLog = trieLogOfImportingTogether(transactions);
+
+    assertThat(trieLog.dump()).isEqualTo(trieLogOfImportingOneByOne(transactions).dump());
+    assertThat(trieLog.getStorageChanges(ACCOUNT).get(SLOT).getUpdated()).isNull();
+    assertThat(trieLog.getAccountChanges().get(ACCOUNT).getUpdated().getBalance())
+        .isEqualTo(Wei.of(3));
+  }
+
+  @Test
+  void importAndCommitAccountChanges_mergesTheChangesBeforeAndAfterOneThatEmptiesTheAccount() {
+    // the slot is written before and after the account is emptied, and the account that ends
+    // non-empty is emptied by its last change
+    final List<PartialBlockAccessView> transactions =
+        List.of(
+            partialView(
+                1,
+                view ->
+                    view.getOrCreateAccountBuilder(ACCOUNT)
+                        .withPostBalance(Wei.of(5))
+                        .addStorageChange(SLOT, V0, V1)),
+            partialView(
+                2, view -> view.getOrCreateAccountBuilder(ACCOUNT).withPostBalance(Wei.of(6))),
+            partialView(
+                3, view -> view.getOrCreateAccountBuilder(ACCOUNT).withPostBalance(Wei.ZERO)),
+            partialView(
+                4,
+                view ->
+                    view.getOrCreateAccountBuilder(ACCOUNT)
+                        .withPostBalance(Wei.of(2))
+                        .addStorageChange(SLOT, UInt256.ZERO, V2)),
+            partialView(
+                5,
+                view -> {
+                  view.getOrCreateAccountBuilder(ACCOUNT).withPostBalance(Wei.of(1));
+                  view.getOrCreateAccountBuilder(CREATED).withPostBalance(Wei.of(10));
+                }),
+            partialView(
+                6, view -> view.getOrCreateAccountBuilder(CREATED).withPostBalance(Wei.ZERO)));
+
+    assertThat(trieLogOfImportingTogether(transactions).dump())
+        .isEqualTo(trieLogOfImportingOneByOne(transactions).dump());
+  }
+
+  @Test
+  void importAndCommitAccountChanges_readsTheAccountsThroughTheLookup() {
+    // the lookup holds an account that the world state does not, as if read for the block before
+    final BlockAccessListAccountLookup lookup =
+        BlockAccessListAccountLookup.of(
+            new BlockAccessList(
+                List.of(
+                    new BlockAccessList.AccountChanges(
+                        ABSENT, List.of(), List.of(), List.of(), List.of(), List.of()))));
+    lookup.putParentAccount(
+        ABSENT,
+        Optional.of(
+            RLP.encode(
+                new PatriciaTrieAccountValue(3L, Wei.of(42), Hash.EMPTY_TRIE_HASH, Hash.EMPTY)
+                    ::writeTo)));
+
+    try (BonsaiWorldState worldState = newEmptyWorldState()) {
+      final BonsaiWorldStateUpdateAccumulator accumulator = persistAccountWithSlot(worldState);
+      accumulator.importAndCommitAccountChanges(
+          byAccount(
+              partialView(
+                      1, view -> view.getOrCreateAccountBuilder(ABSENT).withPostBalance(Wei.of(5)))
+                  .accountChanges()),
+          true,
+          lookup);
+
+      final BonsaiValue<?> account = accumulator.getAccountsToUpdate().get(ABSENT);
+      assertThat(((BonsaiAccount) account.getPrior()).getBalance()).isEqualTo(Wei.of(42));
+      assertThat(((BonsaiAccount) account.getUpdated()).getBalance()).isEqualTo(Wei.of(5));
+      assertThat(((BonsaiAccount) account.getUpdated()).getNonce()).isEqualTo(3L);
+    }
+  }
+
+  /**
+   * Imports and commits the transactions one at a time, as the block's thread does. Trie logs are
+   * compared by their dump: their accounts compare by identity.
+   */
+  private static TrieLogLayer trieLogOfImportingOneByOne(
+      final List<PartialBlockAccessView> transactions) {
+    try (BonsaiWorldState worldState = newEmptyWorldState()) {
+      final BonsaiWorldStateUpdateAccumulator accumulator = persistAccountWithSlot(worldState);
+      for (final PartialBlockAccessView transaction : transactions) {
+        accumulator.importStateChangesFromPartialView(transaction, true);
+        accumulator.commit();
+        accumulator.markTransactionBoundary();
+      }
+      return trieLog(accumulator);
+    }
+  }
+
+  private static TrieLogLayer trieLogOfImportingTogether(
+      final List<PartialBlockAccessView> transactions) {
+    try (BonsaiWorldState worldState = newEmptyWorldState()) {
+      final BonsaiWorldStateUpdateAccumulator accumulator = persistAccountWithSlot(worldState);
+      accumulator.importAndCommitAccountChanges(
+          byAccount(transactions.stream().flatMap(t -> t.accountChanges().stream()).toList()),
+          true,
+          BlockAccessListAccountLookup.of(new BlockAccessList(List.of())));
+      return trieLog(accumulator);
+    }
+  }
+
+  /** The changes grouped by account, each account's in the order given. */
+  private static Map<Address, List<PartialBlockAccessView.AccountChanges>> byAccount(
+      final List<PartialBlockAccessView.AccountChanges> changes) {
+    return changes.stream()
+        .collect(
+            Collectors.groupingBy(
+                PartialBlockAccessView.AccountChanges::getAddress,
+                LinkedHashMap::new,
+                Collectors.toList()));
+  }
+
+  private static TrieLogLayer trieLog(final BonsaiWorldStateUpdateAccumulator accumulator) {
+    return new BonsaiTrieLogFactory()
+        .create(
+            accumulator,
+            new BlockHeaderTestFixture().number(1).stateRoot(Hash.EMPTY).buildHeader());
+  }
+
+  private static PartialBlockAccessView partialView(
+      final long txIndex,
+      final Consumer<PartialBlockAccessView.PartialBlockAccessViewBuilder> changes) {
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder builder =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex);
+    changes.accept(builder);
+    return builder.build();
   }
 
   @Test

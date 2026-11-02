@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.core;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
@@ -59,9 +60,34 @@ public class Block {
 
   public int getSize() {
     if (size < 0) {
-      size = toRlp().size();
+      size = calculateSize();
     }
     return size;
+  }
+
+  /**
+   * The size of {@link #toRlp()}, added up from the sizes of the block's parts: a decoded
+   * transaction keeps the size of its encoding, so a large block is not encoded again for it.
+   */
+  private int calculateSize() {
+    int transactionsSize = 0;
+    for (final Transaction transaction : body.getTransactions()) {
+      final int encodedSize = transaction.getSizeForBlockInclusion();
+      // a typed transaction is a byte string in the list, a legacy one is a list of its own
+      transactionsSize +=
+          transaction.getType() == TransactionType.FRONTIER
+              ? encodedSize
+              : RLP.encodedBytesSize(encodedSize);
+    }
+    int payloadSize =
+        RLP.encode(header::writeTo).size()
+            + RLP.encodedListSize(transactionsSize)
+            + RLP.encode(out -> out.writeList(body.getOmmers(), BlockHeader::writeTo)).size();
+    if (body.getWithdrawals().isPresent()) {
+      payloadSize +=
+          RLP.encode(out -> out.writeList(body.getWithdrawals().get(), Withdrawal::writeTo)).size();
+    }
+    return RLP.encodedListSize(payloadSize);
   }
 
   public void writeTo(final RLPOutput out) {

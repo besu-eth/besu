@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
@@ -63,6 +64,7 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -158,6 +160,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final MutableWorldState worldState = context.getWorldState();
     final Block block = context.getBlock();
     final Optional<BlockAccessList> blockAccessList = context.getBlockAccessList();
+    // Shared by the state root and the parallel execution, so the block's accounts are indexed and
+    // hashed once.
+    final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup =
+        blockAccessList.map(BlockAccessListAccountLookup::of);
     final List<TransactionReceipt> receipts = new ArrayList<>();
     // EIP-7778: Track two separate cumulative gas values
     // cumulativeExecutionGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
@@ -192,7 +198,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final StateRootCommitter stateRootCommitter =
         protocolSpec
             .getStateRootCommitterFactory()
-            .forBlock(protocolContext, blockHeader, blockAccessList, worldState.isStorageFrozen())
+            .forBlock(
+                protocolContext,
+                blockHeader,
+                blockAccessListAccountLookup,
+                worldState.isStorageFrozen())
             .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
     final Optional<BlockAccessListBuilder> blockAccessListBuilder =
@@ -240,7 +250,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 blockHashLookup,
                 blobGasPrice,
                 blockAccessListBuilder,
-                blockAccessList,
+                blockAccessListAccountLookup,
                 maybeParentHeader);
       }
 
@@ -345,6 +355,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           nbParallelTx++;
         }
       }
+      // The body validation after processing needs the receipts root, which is computed while the
+      // rest of the block is processed.
+      final CompletableFuture<Hash> receiptsRoot =
+          CompletableFuture.supplyAsync(() -> BodyValidation.receiptsRoot(receipts));
+      completeParallelExecution(parallelProcessor, worldState);
 
       final var optionalHeaderBlobGasUsed = blockHeader.getBlobGasUsed();
       if (optionalHeaderBlobGasUsed.isPresent()) {
@@ -470,7 +485,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<BlockAccessList> maybeBlockAccessList;
       try {
         if (blockAccessListBuilder.isPresent()) {
-          final BlockAccessList bal = blockAccessListBuilder.get().build();
+          final BlockAccessListBuilder builder = blockAccessListBuilder.get();
+          // a block's list that matches its execution is used as it is rather than built again
+          final BlockAccessList bal =
+              blockAccessList.filter(builder::hasSameChangesAs).orElseGet(builder::build);
           final Optional<BlockAccessListValidationError> constructedBalError =
               protocolSpec
                   .getBlockAccessListValidator()
@@ -533,7 +551,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   maybeBlockAccessList,
                   gasMetered,
                   blockHashLookup.getAccessedAncestors(),
-                  inclusionListValidationResult)),
+                  inclusionListValidationResult,
+                  () -> {},
+                  receiptsRoot::join)),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } catch (final MerkleTrieException | StorageException e) {
       // the block may be processed again on this world state, without the transactions before
@@ -570,10 +590,19 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup,
       final Optional<BlockHeader> maybeParentHeader) {
     return Optional.empty();
   }
+
+  /**
+   * Called once the block's transactions are processed, before the state they leave is read. A
+   * {@code parallelProcessor} that imports its results later does so here. Does nothing by default.
+   */
+  @SuppressWarnings("unused") // the parameters are used by subclasses
+  protected void completeParallelExecution(
+      final Optional<ParallelBlockTransactionProcessor> parallelProcessor,
+      final MutableWorldState worldState) {}
 
   /**
    * Processes a transaction of the block, by default sequentially. Subclasses may instead return

@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.trie.patricia;
 
 import static org.hyperledger.besu.crypto.Hash.keccak256;
 
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.LocationNodeVisitor;
 import org.hyperledger.besu.ethereum.trie.Node;
@@ -24,6 +23,7 @@ import org.hyperledger.besu.ethereum.trie.NodeFactory;
 import org.hyperledger.besu.ethereum.trie.NodeVisitor;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
+import org.hyperledger.besu.ethereum.trie.StoredNode;
 
 import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
@@ -42,6 +42,10 @@ public class BranchNode<V> implements Node<V> {
 
   @SuppressWarnings("rawtypes")
   protected static final Node NULL_NODE = NullNode.instance();
+
+  // A hash reference is the 32 bytes of the hash as an RLP string: its prefix, then the hash.
+  private static final byte HASH_REFERENCE_PREFIX = (byte) (0x80 + Bytes32.SIZE);
+  private static final int HASH_REFERENCE_SIZE = 1 + Bytes32.SIZE;
 
   private final Optional<Bytes> location;
   private final List<Node<V>> children;
@@ -127,20 +131,60 @@ public class BranchNode<V> implements Node<V> {
         return encoded;
       }
     }
-    final BytesValueRLPOutput out = new BytesValueRLPOutput();
-    out.startList();
-    for (int i = 0; i < maxChild(); ++i) {
-      out.writeRaw(children.get(i).getEncodedBytesRef());
-    }
-    if (value.isPresent()) {
-      out.writeBytes(valueSerializer.apply(value.get()));
-    } else {
-      out.writeNull();
-    }
-    out.endList();
-    final Bytes encoded = out.encoded();
+    final Bytes encoded = encode();
     encodedBytes = new WeakReference<>(encoded);
     return encoded;
+  }
+
+  /**
+   * The list of the children's references and the value, written into one array. A child referenced
+   * by hash, as most are, is written from its hash rather than from an encoding of the hash made
+   * for it, and the list is not assembled from parts.
+   */
+  private Bytes encode() {
+    final Bytes[] inlineChildren = new Bytes[maxChild()];
+    int payloadSize = 0;
+    for (int i = 0; i < maxChild(); ++i) {
+      final Node<V> child = children.get(i);
+      if (isReferencedByItsHash(child)) {
+        payloadSize += HASH_REFERENCE_SIZE;
+      } else {
+        inlineChildren[i] = child.getEncodedBytesRef();
+        payloadSize += inlineChildren[i].size();
+      }
+    }
+    final Bytes encodedValue =
+        value.isPresent() ? RLP.encodeOne(valueSerializer.apply(value.get())) : RLP.NULL;
+    payloadSize += encodedValue.size();
+
+    final Bytes header = RLP.listHeader(payloadSize);
+    final MutableBytes encoded = MutableBytes.create(header.size() + payloadSize);
+    header.copyTo(encoded, 0);
+    int offset = header.size();
+    for (int i = 0; i < maxChild(); ++i) {
+      if (inlineChildren[i] == null) {
+        encoded.set(offset, HASH_REFERENCE_PREFIX);
+        children.get(i).getHash().copyTo(encoded, offset + 1);
+        offset += HASH_REFERENCE_SIZE;
+      } else {
+        inlineChildren[i].copyTo(encoded, offset);
+        offset += inlineChildren[i].size();
+      }
+    }
+    encodedValue.copyTo(encoded, offset);
+    return encoded;
+  }
+
+  /**
+   * Whether the child's reference is the encoding of its hash, for the kinds of node whose
+   * reference is known to be: any other kind gives its own reference.
+   */
+  private static boolean isReferencedByItsHash(final Node<?> child) {
+    return child instanceof StoredNode
+        || ((child instanceof BranchNode
+                || child instanceof ExtensionNode
+                || child instanceof LeafNode)
+            && child.isReferencedByHash());
   }
 
   @Override

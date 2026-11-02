@@ -61,4 +61,28 @@ class LogsBloomFilterTest {
             Bytes.fromHexString(
                 "0x00000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000040000000000000000000000000000000000000000000000000000000"));
   }
+
+  @Test
+  void insertFilterMergesTheBitsOfEachFilter() {
+    final byte[] first = new byte[LogsBloomFilter.BYTE_SIZE];
+    final byte[] second = new byte[LogsBloomFilter.BYTE_SIZE];
+    final byte[] merged = new byte[LogsBloomFilter.BYTE_SIZE];
+    // bits in the first and last bytes, and in bytes of eight that hold other bits too
+    for (final int i : List.of(0, 7, 8, 100, 103, 255)) {
+      first[i] = (byte) 0x81;
+      second[(i + 3) % LogsBloomFilter.BYTE_SIZE] = 0x18;
+    }
+    for (int i = 0; i < merged.length; i++) {
+      merged[i] = (byte) (first[i] | second[i]);
+    }
+
+    final LogsBloomFilter bloom =
+        LogsBloomFilter.builder()
+            .insertFilter(new LogsBloomFilter(Bytes.wrap(first)))
+            .insertFilter(LogsBloomFilter.empty())
+            .insertFilter(new LogsBloomFilter(Bytes.wrap(second)))
+            .build();
+
+    Assertions.assertThat(bloom.getBytes()).isEqualTo(Bytes.wrap(merged));
+  }
 }

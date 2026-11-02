@@ -99,39 +99,42 @@ class RLPDecodingHelpers {
 
   static RLPElementMetadata rlpElementMetadata(
       final LongUnaryOperator byteGetter, final long size, final long elementStart) {
-    final int prefix = Math.toIntExact(byteGetter.applyAsLong(elementStart)) & 0xFF;
+    final int prefix = prefix(byteGetter, elementStart);
     final Kind kind = Kind.of(prefix);
-
-    final long payloadStart;
-    final int payloadSize;
-
-    switch (kind) {
-      case BYTE_ELEMENT -> {
-        payloadStart = elementStart;
-        payloadSize = 1;
-      }
-      case SHORT_ELEMENT -> {
-        payloadStart = elementStart + 1;
-        payloadSize = prefix - 0x80;
-      }
-      case LONG_ELEMENT -> {
-        final int sizeLength = prefix - 0xb7;
-        payloadStart = elementStart + 1 + sizeLength;
-        payloadSize = readLongSize(byteGetter, size, elementStart, sizeLength);
-      }
-      case SHORT_LIST -> {
-        payloadStart = elementStart + 1;
-        payloadSize = prefix - 0xc0;
-      }
-      case LONG_LIST -> {
-        final int sizeLength = prefix - 0xf7;
-        payloadStart = elementStart + 1 + sizeLength;
-        payloadSize = readLongSize(byteGetter, size, elementStart, sizeLength);
-      }
-      default -> throw new IllegalStateException("Unexpected RLP kind: " + kind);
-    }
-
+    final long payloadStart = payloadStart(kind, prefix, elementStart);
+    final int payloadSize = payloadSize(byteGetter, size, kind, prefix, elementStart);
     return new RLPElementMetadata(kind, elementStart, payloadStart, payloadSize);
+  }
+
+  /** The first byte of the element, which gives its kind and the size of its payload or size. */
+  static int prefix(final LongUnaryOperator byteGetter, final long elementStart) {
+    return Math.toIntExact(byteGetter.applyAsLong(elementStart)) & 0xFF;
+  }
+
+  /** The index at which the payload of the element of the given kind and prefix starts. */
+  static long payloadStart(final Kind kind, final int prefix, final long elementStart) {
+    return switch (kind) {
+      case BYTE_ELEMENT -> elementStart;
+      case SHORT_ELEMENT, SHORT_LIST -> elementStart + 1;
+      case LONG_ELEMENT -> elementStart + 1 + (prefix - 0xb7);
+      case LONG_LIST -> elementStart + 1 + (prefix - 0xf7);
+    };
+  }
+
+  /** The size of the payload of the element of the given kind and prefix. */
+  static int payloadSize(
+      final LongUnaryOperator byteGetter,
+      final long size,
+      final Kind kind,
+      final int prefix,
+      final long elementStart) {
+    return switch (kind) {
+      case BYTE_ELEMENT -> 1;
+      case SHORT_ELEMENT -> prefix - 0x80;
+      case SHORT_LIST -> prefix - 0xc0;
+      case LONG_ELEMENT -> readLongSize(byteGetter, size, elementStart, prefix - 0xb7);
+      case LONG_LIST -> readLongSize(byteGetter, size, elementStart, prefix - 0xf7);
+    };
   }
 
   /** The size of the item payload for a "long" item, given the length in bytes of the said size. */

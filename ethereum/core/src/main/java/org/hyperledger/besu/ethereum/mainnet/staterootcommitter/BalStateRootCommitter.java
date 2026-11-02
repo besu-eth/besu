@@ -208,8 +208,9 @@ public final class BalStateRootCommitter implements StateRootCommitter {
    *
    * @param root computed state root hash
    * @param writes deferred KV writes to apply at persist time (empty when storage is frozen)
-   * @param storageRoots new per-account storage roots, patched into the EVM accumulator by {@link
-   *     #compute}
+   * @param storageRoots new storage roots of the accounts whose storage the block changed, patched
+   *     into the EVM accumulator by {@link #compute}; every other account keeps the root it was
+   *     loaded with
    */
   private record BackgroundResult(
       Hash root,
@@ -228,7 +229,10 @@ public final class BalStateRootCommitter implements StateRootCommitter {
     private final ConcurrentLinkedQueue<StateRootComputations.UpdaterWrite> writes =
         new ConcurrentLinkedQueue<>();
 
-    /** Populated during account resolution once storage futures complete. */
+    /**
+     * Populated during account resolution once storage futures complete, for the accounts with
+     * storage changes only.
+     */
     private final Map<Address, Hash> storageRoots = new ConcurrentHashMap<>();
 
     /**
@@ -263,11 +267,11 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       for (final BlockAccessList.AccountChanges changes : accountLookup.accountChanges()) {
         if (!changes.storageChanges().isEmpty()) {
           final Address address = changes.address();
-          final Hash accountHash = address.addressHash();
+          final Hash accountHash = accountLookup.getAddressHash(address).orElseThrow();
           storageFutures.put(
               address,
               CompletableFuture.supplyAsync(
-                  () -> updateStorageTrie(address, accountHash, changes),
+                  () -> updateStorageTrie(accountHash, changes),
                   BlockProcessingExecutors.storageTrieExecutor()));
         }
       }
@@ -277,7 +281,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       for (final BlockAccessList.AccountChanges changes : accountLookup.accountChanges()) {
         if (changes.hasAnyChange()) {
           final Address address = changes.address();
-          final Hash accountHash = address.addressHash();
+          // the lookup hashes each address once for the block, for the transactions too
+          final Hash accountHash = accountLookup.getAddressHash(address).orElseThrow();
           accountTrie.putDeferred(
               accountHash.getBytes(),
               existingRlp -> resolveAccount(accountHash, address, changes, existingRlp));
@@ -342,8 +347,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       } else {
         // Join the pre-launched storage future; by now it is likely already complete.
         newStorageRoot = storageFutures.get(address).join();
+        storageRoots.put(address, newStorageRoot);
       }
-      storageRoots.put(address, newStorageRoot);
 
       final PatriciaTrieAccountValue updatedAccount =
           new PatriciaTrieAccountValue(newNonce, newBalance, newStorageRoot, newCodeHash);
@@ -363,11 +368,9 @@ public final class BalStateRootCommitter implements StateRootCommitter {
      * KV writes are not recorded.
      */
     private Hash updateStorageTrie(
-        final Address address,
-        final Hash accountHash,
-        final BlockAccessList.AccountChanges accountChanges) {
+        final Hash accountHash, final BlockAccessList.AccountChanges accountChanges) {
 
-      final Hash priorStorageRoot = priorStorageRoot(address);
+      final Hash priorStorageRoot = priorStorageRoot(accountHash);
 
       final MerkleTrie<Bytes, Bytes> storageTrie =
           worldState.createStorageTrie(accountHash, priorStorageRoot);
@@ -392,10 +395,10 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       return Hash.wrap(storageTrie.getRootHash());
     }
 
-    private Hash priorStorageRoot(final Address address) {
+    private Hash priorStorageRoot(final Hash accountHash) {
       return worldState
           .getWorldStateStorage()
-          .getAccount(address.addressHash())
+          .getAccount(accountHash)
           .map(rlp -> PatriciaTrieAccountValue.readFrom(RLP.input(rlp)).getStorageRoot())
           .orElse(Hash.EMPTY_TRIE_HASH);
     }

@@ -24,7 +24,6 @@ import java.util.function.Supplier;
 import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.MutableBytes;
-import org.apache.tuweni.units.bigints.UInt256;
 
 /** The Secp signature. */
 public class SECPSignature {
@@ -126,10 +125,26 @@ public class SECPSignature {
 
   private Bytes _encodedBytes() {
     final MutableBytes bytes = MutableBytes.create(BYTES_REQUIRED);
-    UInt256.valueOf(r).copyTo(bytes, 0);
-    UInt256.valueOf(s).copyTo(bytes, 32);
+    copyUnsigned256(r, bytes, 0);
+    copyUnsigned256(s, bytes, 32);
     bytes.set(64, recId);
     return bytes;
+  }
+
+  /**
+   * Writes the value as 32 big-endian bytes, which takes one array of its bytes where {@code
+   * UInt256.valueOf} takes a shifted copy of the value for each of its 32-bit words.
+   */
+  private static void copyUnsigned256(
+      final BigInteger value, final MutableBytes destination, final int offset) {
+    checkArgument(
+        value.signum() >= 0 && value.bitLength() <= 256,
+        "Signature value %s is not an unsigned 256-bit integer",
+        value);
+    // big-endian, with a leading zero byte when the top bit of the highest byte is set
+    final byte[] bytes = value.toByteArray();
+    final int length = Math.min(bytes.length, 32);
+    destination.set(offset + 32 - length, Bytes.wrap(bytes, bytes.length - length, length));
   }
 
   @Override

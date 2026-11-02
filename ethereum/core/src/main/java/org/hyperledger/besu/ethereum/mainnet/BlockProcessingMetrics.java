@@ -75,39 +75,28 @@ public class BlockProcessingMetrics {
   }
 
   public void recordBlockAccessListMetrics(final BlockAccessList bal) {
+    // One pass over the accounts: this runs on the thread that imports the block, before it
+    // replies,
+    // and a block of many transfers lists tens of thousands of them.
+    long storageSlots = 0;
+    long codeAccounts = 0;
+    long updatedAccounts = 0;
+    long updatedStorageSlots = 0;
+    for (final AccountChanges accountChanges : bal.accountChanges()) {
+      storageSlots += accountChanges.storageChanges().size() + accountChanges.storageReads().size();
+      if (!accountChanges.codeChanges().isEmpty()) {
+        codeAccounts++;
+      }
+      if (accountChanges.hasAnyChange()) {
+        updatedAccounts++;
+      }
+      updatedStorageSlots += accountChanges.storageChanges().size();
+    }
     blocksTotal.inc();
     accountsCount.set(bal.accountChanges().size());
-    storageSlotsCount.set(countStorageSlots(bal));
-    codeCount.set(countCodeAccounts(bal));
-    accountsUpdated.set(countUpdatedAccounts(bal));
-    storageSlotsUpdated.set(countUpdatedStorageSlots(bal));
-  }
-
-  private long countStorageSlots(final BlockAccessList bal) {
-    return bal.accountChanges().stream()
-        .mapToLong(
-            accountChanges ->
-                accountChanges.storageChanges().size() + accountChanges.storageReads().size())
-        .sum();
-  }
-
-  private long countCodeAccounts(final BlockAccessList bal) {
-    return bal.accountChanges().stream()
-        .filter(accountChanges -> !accountChanges.codeChanges().isEmpty())
-        .count();
-  }
-
-  private long countUpdatedAccounts(final BlockAccessList bal) {
-    return bal.accountChanges().stream().filter(this::hasAnyChange).count();
-  }
-
-  private long countUpdatedStorageSlots(final BlockAccessList bal) {
-    return bal.accountChanges().stream()
-        .mapToLong(accountChanges -> accountChanges.storageChanges().size())
-        .sum();
-  }
-
-  private boolean hasAnyChange(final AccountChanges accountChanges) {
-    return accountChanges.hasAnyChange();
+    storageSlotsCount.set(storageSlots);
+    codeCount.set(codeAccounts);
+    accountsUpdated.set(updatedAccounts);
+    storageSlotsUpdated.set(updatedStorageSlots);
   }
 }

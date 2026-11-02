@@ -14,12 +14,44 @@
  */
 package org.hyperledger.besu.util;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 class HexUtilsTest {
+
+  @Test
+  public void fromHexStringDecodesLikeTuweni() {
+    for (final String hex :
+        new String[] {"0x", "0x00", "0x0aFf", "0x" + Bytes.random(1000).toUnprefixedHexString()}) {
+      assertThat(HexUtils.fromHexString(hex)).isEqualTo(Bytes.fromHexString(hex));
+    }
+    // other forms are left to tuweni
+    for (final String hex : new String[] {"0a0b", ""}) {
+      assertThat(HexUtils.fromHexString(hex)).isEqualTo(Bytes.fromHexString(hex));
+    }
+  }
+
+  @Test
+  public void fromHexStringRejectsWhatTuweniRejects() {
+    for (final String hex : new String[] {"0x0g", "0x1", "0X0a"}) {
+      assertThatThrownBy(() -> HexUtils.fromHexString(hex))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage(catchMessage(() -> Bytes.fromHexString(hex)));
+    }
+  }
+
+  private static String catchMessage(final Runnable decode) {
+    try {
+      decode.run();
+      return null;
+    } catch (final IllegalArgumentException e) {
+      return e.getMessage();
+    }
+  }
 
   @Test
   public void testToFastHexEmptyWithPrefix() {

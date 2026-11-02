@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -37,6 +38,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
+import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -44,6 +47,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -52,6 +56,7 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -63,6 +68,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -170,6 +176,67 @@ public class EthGasPriceTest {
     // getBlockBody. The exact number of getBlockBody calls is bounded by the window size.
     verify(blockchain).getChainHeadHeader();
     verify(blockchain).getBlockHeaders(anyLong(), eq(100));
+  }
+
+  @Test
+  public void aNewHeadOnlyReadsTheBodiesTheLastWindowDidNotHave() {
+    final JsonRpcRequestContext request = requestWithParams();
+    final String expectedWei = "0x914380"; // 9.52 mwei, gas prices are 9.02-10.01 mwei.
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), expectedWei);
+
+    mockBaseFeeMarket();
+    mockBlockchain(1000L, 1);
+    method.response(request);
+    verify(blockchain, times(100)).getBlockBody(any(Hash.class));
+
+    mockBlockchain(1001L, 1);
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(blockchain, times(101)).getBlockBody(any(Hash.class));
+  }
+
+  @Test
+  public void aNewHeadIsSampledFromTheAddedBlock() {
+    final EthScheduler scheduler = mock(EthScheduler.class);
+    when(scheduler.scheduleServiceTask(any(Runnable.class)))
+        .thenAnswer(
+            invocation -> {
+              invocation.getArgument(0, Runnable.class).run();
+              return CompletableFuture.completedFuture(null);
+            });
+    final ApiConfiguration apiConfig = createDefaultApiConfiguration();
+    final EthGasPrice methodWithScheduler =
+        new EthGasPrice(
+            new BlockchainQueries(
+                protocolSchedule,
+                blockchain,
+                null,
+                Optional.empty(),
+                Optional.of(scheduler),
+                apiConfig,
+                miningConfiguration),
+            apiConfig);
+    final ArgumentCaptor<BlockAddedObserver> observer =
+        ArgumentCaptor.forClass(BlockAddedObserver.class);
+    verify(blockchain).observeBlockAdded(observer.capture());
+    final JsonRpcRequestContext request = requestWithParams();
+    final String expectedWei = "0x911c70"; // 9.51 mwei, gas prices are 9.01-10 mwei.
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), expectedWei);
+
+    mockBaseFeeMarket();
+    final Block head = mockBlockchain(1000L, 1);
+    when(blockchain.getChainHeadHash()).thenReturn(head.getHash());
+    observer
+        .getValue()
+        .onBlockAdded(BlockAddedEvent.createForHeadAdvancement(head, List.of(), List.of()));
+    final JsonRpcResponse actualResponse = methodWithScheduler.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(blockchain, times(99)).getBlockBody(any(Hash.class));
+    verify(blockchain, never()).getBlockBody(head.getHash());
   }
 
   @Test
@@ -374,11 +441,11 @@ public class EthGasPriceTest {
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
   }
 
-  private void mockBlockchain(final long chainHeadBlockNumber, final int txsNum) {
-    mockBlockchain(DEFAULT_BASE_FEE, chainHeadBlockNumber, txsNum);
+  private Block mockBlockchain(final long chainHeadBlockNumber, final int txsNum) {
+    return mockBlockchain(DEFAULT_BASE_FEE, chainHeadBlockNumber, txsNum);
   }
 
-  private void mockBlockchain(
+  private Block mockBlockchain(
       final Wei genesisBaseFee, final long chainHeadBlockNumber, final int txsNum) {
     final var blocksByNumber = new HashMap<Long, Block>();
     final var blocksByHash = new HashMap<Hash, Block>();
@@ -424,6 +491,7 @@ public class EthGasPriceTest {
               final Hash hash = invocation.getArgument(0, Hash.class);
               return Optional.ofNullable(blocksByHash.get(hash)).map(Block::getBody);
             });
+    return chainHeadBlock;
   }
 
   private Block createFakeBlock(final long height, final int txsNum, final Wei baseFee) {

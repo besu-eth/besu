@@ -24,7 +24,9 @@ import org.hyperledger.besu.ethereum.core.feemarket.TransactionPriceCalculator;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.stream.IntStream;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -32,6 +34,12 @@ import org.slf4j.LoggerFactory;
 
 public class BaseFeeBlockBodyValidator extends MainnetBlockBodyValidator {
   private static final Logger LOG = LoggerFactory.getLogger(BaseFeeBlockBodyValidator.class);
+
+  /**
+   * The prices of a block of at least this many transactions are checked in parallel: the check
+   * runs on the thread that imports the block, after its transactions ran.
+   */
+  private static final int MIN_TRANSACTIONS_TO_CHECK_IN_PARALLEL = 512;
 
   public BaseFeeBlockBodyValidator(final ProtocolSchedule protocolSchedule) {
     super(protocolSchedule);
@@ -61,16 +69,25 @@ public class BaseFeeBlockBodyValidator extends MainnetBlockBodyValidator {
             .getFeeMarket()
             .getTransactionPriceCalculator();
 
-    for (final Transaction transaction : transactions) {
-      final Optional<Wei> baseFee = block.getHeader().getBaseFee();
-      final Wei price = transactionPriceCalculator.price(transaction, baseFee);
-      if (price.compareTo(baseFee.orElseThrow()) < 0) {
-        LOG.warn(
-            "Invalid block: transaction gas price {} must be greater than base fee {}",
-            price.toString(),
-            baseFee.orElseThrow());
-        return false;
-      }
+    final Optional<Wei> baseFee = block.getHeader().getBaseFee();
+    final IntStream indices = IntStream.range(0, transactions.size());
+    final OptionalInt underpriced =
+        (transactions.size() >= MIN_TRANSACTIONS_TO_CHECK_IN_PARALLEL
+                ? indices.parallel()
+                : indices)
+            .filter(
+                i ->
+                    transactionPriceCalculator
+                            .price(transactions.get(i), baseFee)
+                            .compareTo(baseFee.orElseThrow())
+                        < 0)
+            .findFirst();
+    if (underpriced.isPresent()) {
+      LOG.warn(
+          "Invalid block: transaction gas price {} must be greater than base fee {}",
+          transactionPriceCalculator.price(transactions.get(underpriced.getAsInt()), baseFee),
+          baseFee.orElseThrow());
+      return false;
     }
     return true;
   }

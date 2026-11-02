@@ -681,6 +681,15 @@ public class Transaction
       return Wei.ZERO;
     }
 
+    // Every transaction's cost is checked with this more than once, and it rarely needs more than a
+    // long, which spares the conversions to and from BigInteger.
+    if (!transactionType.supportsBlob() && gasPrice.fitsLong() && getGasLimit() >= 0) {
+      final long price = gasPrice.toLong();
+      if (Math.multiplyHigh(getGasLimit(), price) == 0 && getGasLimit() * price >= 0) {
+        return Wei.of(getGasLimit() * price);
+      }
+    }
+
     final var cost = calculateUpfrontGasCost(gasPrice, blobGasPrice, totalBlobGas);
 
     if (cost.bitLength() > 256) {

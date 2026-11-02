@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
@@ -28,10 +29,13 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.function.BiConsumer;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,14 +70,15 @@ public class BalPrefetcher {
    * Prefetch world state data based on the block access list.
    *
    * @param worldState the world state to prefetch data into
-   * @param blockAccessList the block access list containing read operations
+   * @param accountLookup the block access list's lookup, which keeps the accounts read for the
+   *     block's transactions
    * @param orchestrationExecutor the executor that runs the prefetch orchestration task
    * @param fetchExecutor the executor for fetch operations
    * @return a completable future that completes when prefetching is done
    */
   public CompletableFuture<Void> prefetch(
       final BonsaiWorldState worldState,
-      final BlockAccessList blockAccessList,
+      final BlockAccessListAccountLookup accountLookup,
       final Executor orchestrationExecutor,
       final Executor fetchExecutor) {
 
@@ -82,7 +87,7 @@ public class BalPrefetcher {
               worldState.disableCacheMerkleTrieLoader();
 
               // Collect all keys to prefetch
-              final PrefetchKeys keys = collectKeys(blockAccessList.accountChanges());
+              final PrefetchKeys keys = collectKeys(accountLookup);
 
               LOG.debug(
                   "Prefetch: collected {} account keys and {} storage keys",
@@ -94,7 +99,7 @@ public class BalPrefetcher {
             orchestrationExecutor)
         .thenCompose(
             keys ->
-                fetchKeysAsync(worldState, keys, fetchExecutor)
+                fetchKeysAsync(worldState, accountLookup, keys, fetchExecutor)
                     .thenRun(
                         () ->
                             LOG.debug(
@@ -113,12 +118,17 @@ public class BalPrefetcher {
   }
 
   /** Collect all account and storage keys from the block access list. */
-  private PrefetchKeys collectKeys(final List<BlockAccessList.AccountChanges> accounts) {
+  private PrefetchKeys collectKeys(final BlockAccessListAccountLookup accountLookup) {
+    final List<BlockAccessList.AccountChanges> accounts = accountLookup.accountChanges();
+    final List<Address> accountAddresses = new ArrayList<>(accounts.size());
     final List<byte[]> accountKeys = new ArrayList<>(accounts.size());
     final List<byte[]> storageKeys = new ArrayList<>();
     for (final BlockAccessList.AccountChanges accountChanges : accounts) {
       final Address address = accountChanges.address();
-      final byte[] addressHash = address.addressHash().getBytes().toArrayUnsafe();
+      // the lookup hashes each address once for the block, for the transactions too
+      final byte[] addressHash =
+          accountLookup.getAddressHash(address).orElseThrow().getBytes().toArrayUnsafe();
+      accountAddresses.add(address);
       accountKeys.add(addressHash);
       final List<BlockAccessList.SlotChanges> storageChanges = accountChanges.storageChanges();
       final List<BlockAccessList.SlotRead> storageReads = accountChanges.storageReads();
@@ -146,7 +156,7 @@ public class BalPrefetcher {
         storageKeys.subList(rangeStart, storageKeys.size()).sort(STORAGE_KEY_COMPARATOR);
       }
     }
-    return new PrefetchKeys(accountKeys, storageKeys);
+    return new PrefetchKeys(accountAddresses, accountKeys, storageKeys);
   }
 
   /**
@@ -159,19 +169,40 @@ public class BalPrefetcher {
    * @return a future that completes when all fetch operations finish
    */
   private CompletableFuture<Void> fetchKeysAsync(
-      final BonsaiWorldState worldState, final PrefetchKeys keys, final Executor fetchExecutor) {
+      final BonsaiWorldState worldState,
+      final BlockAccessListAccountLookup accountLookup,
+      final PrefetchKeys keys,
+      final Executor fetchExecutor) {
 
-    // Fetch accounts (with optional batching)
+    // Fetch accounts (with optional batching), kept for the block's transactions to read
     final List<CompletableFuture<Void>> futures =
         new ArrayList<>(
             fetchSegmentKeys(
-                worldState, ACCOUNT_INFO_STATE, keys.accountKeys, "account", fetchExecutor));
+                worldState,
+                ACCOUNT_INFO_STATE,
+                keys.accountKeys,
+                "account",
+                fetchExecutor,
+                (offset, accounts) -> {
+                  for (int i = 0; i < accounts.size(); i++) {
+                    final Optional<Bytes> account = accounts.get(i);
+                    if (account != null) {
+                      accountLookup.putParentAccount(
+                          keys.accountAddresses.get(offset + i), account);
+                    }
+                  }
+                }));
 
     // Fetch storage (with optional batching)
     if (!keys.storageKeys.isEmpty()) {
       futures.addAll(
           fetchSegmentKeys(
-              worldState, ACCOUNT_STORAGE_STORAGE, keys.storageKeys, "storage", fetchExecutor));
+              worldState,
+              ACCOUNT_STORAGE_STORAGE,
+              keys.storageKeys,
+              "storage",
+              fetchExecutor,
+              (offset, slots) -> {}));
     }
 
     return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
@@ -185,6 +216,7 @@ public class BalPrefetcher {
    * @param keys the keys to fetch
    * @param segmentName human-readable segment name for logging
    * @param fetchExecutor the executor for fetch operations
+   * @param onFetched receives the offset of each batch in {@code keys} and its values
    * @return list of futures for all batch operations
    */
   private List<CompletableFuture<Void>> fetchSegmentKeys(
@@ -192,7 +224,8 @@ public class BalPrefetcher {
       final SegmentIdentifier segment,
       final List<byte[]> keys,
       final String segmentName,
-      final Executor fetchExecutor) {
+      final Executor fetchExecutor,
+      final BiConsumer<Integer, List<Optional<Bytes>>> onFetched) {
 
     final List<CompletableFuture<Void>> futures = new ArrayList<>();
 
@@ -201,7 +234,7 @@ public class BalPrefetcher {
       futures.add(
           CompletableFuture.runAsync(
               () -> {
-                prefetchKeys(worldState, segment, keys);
+                onFetched.accept(0, prefetchKeys(worldState, segment, keys));
                 LOG.debug("Prefetch: fetched {} {} keys in single batch", keys.size(), segmentName);
               },
               fetchExecutor));
@@ -215,7 +248,8 @@ public class BalPrefetcher {
         futures.add(
             CompletableFuture.runAsync(
                 () -> {
-                  prefetchKeys(worldState, segment, batch);
+                  onFetched.accept(
+                      batchNumber * batchSize, prefetchKeys(worldState, segment, batch));
                   LOG.trace(
                       "Prefetch: fetched {} batch {}/{} ({} keys)",
                       segmentName,
@@ -232,9 +266,9 @@ public class BalPrefetcher {
     return futures;
   }
 
-  private void prefetchKeys(
+  private List<Optional<Bytes>> prefetchKeys(
       final BonsaiWorldState worldState, final SegmentIdentifier segment, final List<byte[]> keys) {
-    worldState.getWorldStateStorage().getMultipleFlat(segment, keys);
+    return worldState.getWorldStateStorage().getMultipleFlat(segment, keys);
   }
 
   private boolean shouldBatch() {
@@ -252,5 +286,6 @@ public class BalPrefetcher {
   }
 
   /** Container for collected prefetch keys. */
-  private record PrefetchKeys(List<byte[]> accountKeys, List<byte[]> storageKeys) {}
+  private record PrefetchKeys(
+      List<Address> accountAddresses, List<byte[]> accountKeys, List<byte[]> storageKeys) {}
 }

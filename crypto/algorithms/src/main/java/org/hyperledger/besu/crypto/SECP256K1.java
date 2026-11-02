@@ -159,6 +159,9 @@ public class SECP256K1 extends AbstractSECP256 {
       if (!isRecoverable(signature)) {
         return Optional.empty();
       }
+      if (isNativeJniEnabled()) {
+        return recoverFromSignatureJni(dataHash, signature);
+      }
       try {
         return recoverFromSignatureNative(dataHash, signature);
       } catch (final IllegalArgumentException e) {
@@ -272,6 +275,22 @@ public class SECP256K1 extends AbstractSECP256 {
     } else {
       return super.recoverFromSignature(recId, r, s, dataHash);
     }
+  }
+
+  /**
+   * Recovers the public key in one native call, where the JNA path makes three and marshals a
+   * structure for each. Every failure, including a signature the library cannot parse, is empty.
+   */
+  private Optional<SECPPublicKey> recoverFromSignatureJni(
+      final Bytes32 dataHash, final SECPSignature signature) {
+    final Bytes encodedSig = signature.encodedBytes();
+    final LibSecp256k1JNI.ECRecoverResult result =
+        LibSecp256k1JNI.ecrecover(
+            dataHash.toArrayUnsafe(), encodedSig.slice(0, 64).toArrayUnsafe(), encodedSig.get(64));
+    if (result.status() != LibSecp256k1JNI.STATUS_SUCCESS) {
+      return Optional.empty();
+    }
+    return result.publicKey().map(key -> SECPPublicKey.create(Bytes.wrap(key), ALGORITHM));
   }
 
   private Optional<SECPPublicKey> recoverFromSignatureNative(

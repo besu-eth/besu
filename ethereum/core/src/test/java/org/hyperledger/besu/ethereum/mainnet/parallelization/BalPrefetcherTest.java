@@ -20,9 +20,11 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapshotWorldStateKeyValueStorage;
@@ -41,7 +43,9 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.io.Closeable;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -128,12 +132,21 @@ public class BalPrefetcherTest {
                 accountChanges(address2, List.of(), List.of()),
                 accountChanges(address1, List.of(), List.of())));
 
+    final BlockAccessListAccountLookup accountLookup =
+        BlockAccessListAccountLookup.of(blockAccessList);
     new BalPrefetcher(sortingEnabled, batchSize)
-        .prefetch(worldState, blockAccessList, SYNC_EXECUTOR, SYNC_EXECUTOR)
+        .prefetch(worldState, accountLookup, SYNC_EXECUTOR, SYNC_EXECUTOR)
         .join();
 
     assertCachedAccount(address1, accountData1);
     assertCachedAccount(address2, accountData2);
+    // kept for the block's transactions, which do not read them again
+    final Function<Hash, Optional<Bytes>> noRead =
+        hash -> {
+          throw new AssertionError("account read again");
+        };
+    assertThat(accountLookup.parentAccount(address1, noRead)).contains(accountData1);
+    assertThat(accountLookup.parentAccount(address2, noRead)).contains(accountData2);
     worldState.close();
   }
 
@@ -164,7 +177,11 @@ public class BalPrefetcherTest {
                     List.of(new BlockAccessList.SlotRead(slot2)))));
 
     new BalPrefetcher(sortingEnabled, batchSize)
-        .prefetch(worldState, blockAccessList, SYNC_EXECUTOR, SYNC_EXECUTOR)
+        .prefetch(
+            worldState,
+            BlockAccessListAccountLookup.of(blockAccessList),
+            SYNC_EXECUTOR,
+            SYNC_EXECUTOR)
         .join();
 
     assertCachedStorage(address, slot1, storageValue1);

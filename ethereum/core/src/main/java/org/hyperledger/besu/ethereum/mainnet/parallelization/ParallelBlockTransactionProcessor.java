@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public abstract class ParallelBlockTransactionProcessor {
 
@@ -42,6 +43,13 @@ public abstract class ParallelBlockTransactionProcessor {
     return future;
   }
 
+  /**
+   * Runs the block's transactions on the executor, completing the future of each with its result.
+   * Rather than a task per transaction, which the threads of a pool would take from its queue one
+   * at a time, contending for the queue's lock with transactions that run in a few microseconds,
+   * one task per processor takes the next transaction from a shared counter, so the transactions
+   * still start in block order.
+   */
   @SuppressWarnings({"unchecked", "rawtypes"})
   public void runAsyncBlock(
       final ProtocolContext protocolContext,
@@ -54,26 +62,42 @@ public abstract class ParallelBlockTransactionProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
-    futures = new CompletableFuture[transactions.size()];
-
-    for (int i = 0; i < transactions.size(); i++) {
-      final int txIndex = i;
-      final Transaction transaction = transactions.get(i);
-
-      futures[i] =
-          CompletableFuture.supplyAsync(
-              () ->
+    final int transactionCount = transactions.size();
+    futures = new CompletableFuture[transactionCount];
+    for (int i = 0; i < transactionCount; i++) {
+      futures[i] = new CompletableFuture<>();
+    }
+    // the slots of futures are cleared as the results are consumed
+    final CompletableFuture<ParallelizedTransactionContext>[] results = futures.clone();
+    final AtomicInteger nextTransaction = new AtomicInteger();
+    final Runnable runner =
+        () -> {
+          int txIndex;
+          while ((txIndex = nextTransaction.getAndIncrement()) < transactionCount) {
+            final CompletableFuture<ParallelizedTransactionContext> result = results[txIndex];
+            if (result.isDone()) {
+              continue; // cancelled
+            }
+            try {
+              result.complete(
                   runTransaction(
                       protocolContext,
                       blockHeader,
                       txIndex,
-                      transaction,
+                      transactions.get(txIndex),
                       miningBeneficiary,
                       blockHashLookup,
                       blobGasPrice,
                       blockAccessListBuilder,
-                      maybeParentHeader),
-              executor);
+                      maybeParentHeader));
+            } catch (final Throwable t) {
+              result.completeExceptionally(t);
+            }
+          }
+        };
+    final int runners = Math.min(transactionCount, Runtime.getRuntime().availableProcessors());
+    for (int i = 0; i < runners; i++) {
+      executor.execute(runner);
     }
   }
 
@@ -103,6 +127,19 @@ public abstract class ParallelBlockTransactionProcessor {
         .map(BonsaiWorldState.class::cast);
   }
 
+  /**
+   * Copies the transaction for a worker after recovering its sender on the block's own transaction,
+   * which newPayload's sender precompute also uses, so each sender is recovered once.
+   */
+  protected static Transaction detachedCopyWithSender(final Transaction transaction) {
+    try {
+      transaction.getSender();
+    } catch (final IllegalArgumentException | IllegalStateException e) {
+      // The copy's validation reports a signature that does not recover a sender
+    }
+    return transaction.detachedCopy();
+  }
+
   protected abstract ParallelizedTransactionContext runTransaction(
       ProtocolContext protocolContext,
       BlockHeader blockHeader,
@@ -113,6 +150,17 @@ public abstract class ParallelBlockTransactionProcessor {
       Wei blobGasPrice,
       Optional<BlockAccessListBuilder> blockAccessListBuilder,
       Optional<BlockHeader> maybeParentHeader);
+
+  /**
+   * Imports into the block's world state the state changes of results returned by {@link
+   * #getProcessingResult} but not imported yet, before anything else reads or changes that state.
+   * Nothing is pending by default: the results are imported as they are returned.
+   *
+   * @param worldState the block's world state
+   * @param executor runs the import, possibly in several tasks
+   */
+  public void importPendingStateChanges(
+      final MutableWorldState worldState, final Executor executor) {}
 
   public abstract Optional<TransactionProcessingResult> getProcessingResult(
       MutableWorldState worldState,

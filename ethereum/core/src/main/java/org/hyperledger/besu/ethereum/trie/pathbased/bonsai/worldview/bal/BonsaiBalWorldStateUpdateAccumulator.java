@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -59,6 +60,15 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
             wrappedWorldView(), getEvmConfiguration(), codeCache(), blockAccessListOverlay);
     copy.cloneFromUpdater(this);
     return copy;
+  }
+
+  /**
+   * Reads the account at the parent block once for the block, from the block access list lookup
+   * that all its transactions share, rather than once for every transaction that touches it.
+   */
+  @Override
+  protected Account loadAccountFromWorldView(final Address address) {
+    return loadParentAccount(blockAccessListOverlay.getAccountLookup(), address);
   }
 
   @Override

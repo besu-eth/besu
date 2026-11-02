@@ -814,16 +814,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     }
 
     protected void updateCache() {
-      pending.forEach(
-          (segment, updates) ->
-              updates.forEach(
-                  (key, value) -> {
-                    if (value == null) {
-                      cacheManager.removeFromCache(segment, key, cacheVersion);
-                    } else {
-                      cacheManager.putInCache(segment, key, value, cacheVersion);
-                    }
-                  }));
+      cacheManager.putCommittedWrites(pending, cacheVersion);
       cacheManager.putTrieNodes(pendingTrieNodes);
       clearStaged();
       cacheManager.scheduleAsyncMaintenance();

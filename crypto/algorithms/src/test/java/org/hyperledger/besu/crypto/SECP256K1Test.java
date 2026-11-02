@@ -181,6 +181,39 @@ public class SECP256K1Test {
   }
 
   @Test
+  public void nativeRecoveryMatchesJavaRecovery() {
+    assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
+    final SECP256K1 javaSecp256K1 = new SECP256K1();
+    javaSecp256K1.disableNative();
+
+    for (int i = 0; i < 100; i++) {
+      final KeyPair keyPair = secp256K1.generateKeyPair();
+      final Bytes32 dataHash = keccak256(Bytes.ofUnsignedInt(i));
+      final SECPSignature signature = secp256K1.sign(dataHash, keyPair);
+
+      assertThat(secp256K1.recoverPublicKeyFromSignature(dataHash, signature))
+          .contains(keyPair.getPublicKey())
+          .isEqualTo(javaSecp256K1.recoverPublicKeyFromSignature(dataHash, signature));
+    }
+  }
+
+  @Test
+  public void nativeRecoveryOfAZeroOrOutOfRangeSignatureIsEmpty() {
+    assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
+    final BigInteger n = secp256K1.getHalfCurveOrder().multiply(BigInteger.TWO).add(BigInteger.ONE);
+    final Bytes32 dataHash = keccak256(Bytes.wrap("test".getBytes(UTF_8)));
+
+    for (final SECPSignature signature :
+        new SECPSignature[] {
+          new SECPSignature(BigInteger.ZERO, BigInteger.ONE, (byte) 0),
+          new SECPSignature(BigInteger.ONE, BigInteger.ZERO, (byte) 0),
+          new SECPSignature(BigInteger.ONE, n, (byte) 0)
+        }) {
+      assertThat(secp256K1.recoverPublicKeyFromSignature(dataHash, signature)).isEmpty();
+    }
+  }
+
+  @Test
   public void nativeEcdhMatchesJavaEcdh() {
     assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
     final SECP256K1 javaSecp256K1 = new SECP256K1();
