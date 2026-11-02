@@ -25,10 +25,6 @@ public class TransactionPoolEvictionService {
   private final Duration evictionInterval;
   private Optional<Long> timerId = Optional.empty();
 
-  public TransactionPoolEvictionService(final Vertx vertx, final TransactionPool transactionPool) {
-    this(vertx, transactionPool, TransactionPoolConfiguration.DEFAULT_TX_EVICTION_INTERVAL);
-  }
-
   public TransactionPoolEvictionService(
       final Vertx vertx, final TransactionPool transactionPool, final Duration evictionInterval) {
     this.vertx = vertx;
