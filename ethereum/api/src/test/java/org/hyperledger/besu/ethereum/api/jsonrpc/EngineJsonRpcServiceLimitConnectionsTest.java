@@ -171,6 +171,9 @@ public class EngineJsonRpcServiceLimitConnectionsTest {
     // release held connections — if rejects leaked the counter, new accepts would still fail
     heldClients.forEach(client -> client.connectionPool().evictAll());
     heldClients.clear();
+    // the server releases the slots in its close handler on the event loop, after the client
+    // has closed; connecting before that gets rejected
+    awaitActiveConnectionCountZero();
 
     try (final Response resp = new OkHttpClient().newCall(readinessRequest()).execute()) {
       assertThat(resp.code()).isEqualTo(200);

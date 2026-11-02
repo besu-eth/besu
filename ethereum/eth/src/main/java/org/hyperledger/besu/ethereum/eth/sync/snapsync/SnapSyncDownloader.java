@@ -198,6 +198,10 @@ public class SnapSyncDownloader implements SnapSyncController {
     }
   }
 
+  // its pipelines run on the EthScheduler, which the node awaits before the storage closes
+  @Override
+  public void awaitStop() {}
+
   @Override
   public void deletePivotSyncState() {
     // Make sure downloader is stopped before we start cleaning up its dependencies

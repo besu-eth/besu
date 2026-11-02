@@ -25,20 +25,21 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
+import java.security.GeneralSecurityException;
 import java.util.Arrays;
+import javax.crypto.Cipher;
+import javax.crypto.ShortBufferException;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.errorprone.annotations.FormatMethod;
 import io.netty.buffer.ByteBuf;
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.MutableBytes;
 import org.bouncycastle.crypto.BlockCipher;
-import org.bouncycastle.crypto.StreamCipher;
 import org.bouncycastle.crypto.engines.AESEngine;
-import org.bouncycastle.crypto.modes.SICBlockCipher;
 import org.bouncycastle.crypto.params.KeyParameter;
-import org.bouncycastle.crypto.params.ParametersWithIV;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,8 +77,10 @@ public class Framer {
 
   private final HandshakeSecrets secrets;
   private static final SnappyCompressor compressor = new SnappyCompressor();
-  private final StreamCipher encryptor;
-  private final StreamCipher decryptor;
+  // AES in counter mode, which every byte that is sent or received goes through. The cipher of the
+  // JDK does it with the AES instructions of the processor.
+  private final Cipher encryptor;
+  private final Cipher decryptor;
   private final BlockCipher macEncryptor;
   private boolean headerProcessed;
   private int frameSize;
@@ -100,17 +103,45 @@ public class Framer {
   public Framer(final HandshakeSecrets secrets) {
     this.secrets = secrets;
 
-    final KeyParameter aesKey = new KeyParameter(secrets.getAesSecret());
     final KeyParameter macKey = new KeyParameter(secrets.getMacSecret());
 
-    encryptor = new SICBlockCipher(new AESEngine());
-    encryptor.init(true, new ParametersWithIV(aesKey, IV));
-
-    decryptor = new SICBlockCipher(new AESEngine());
-    decryptor.init(false, new ParametersWithIV(aesKey, IV));
+    encryptor = aesCounterMode(secrets.getAesSecret());
+    decryptor = aesCounterMode(secrets.getAesSecret());
 
     macEncryptor = new AESEngine();
     macEncryptor.init(true, macKey);
+  }
+
+  /** A key stream of AES in counter mode, which both encrypts and decrypts. */
+  @VisibleForTesting
+  static Cipher aesCounterMode(final byte[] key) {
+    try {
+      final Cipher cipher = Cipher.getInstance("AES/CTR/NoPadding");
+      cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new IvParameterSpec(IV));
+      return cipher;
+    } catch (final GeneralSecurityException e) {
+      throw new IllegalStateException("AES in counter mode is not available", e);
+    }
+  }
+
+  /**
+   * Applies the next bytes of the key stream of the cipher to the input and writes them to the
+   * output. The JDK copies the input of an update in place first, so only short ranges are done in
+   * place.
+   */
+  private static void applyKeyStream(
+      final Cipher cipher,
+      final byte[] input,
+      final int inputOffset,
+      final int length,
+      final byte[] output,
+      final int outputOffset) {
+    try {
+      cipher.update(input, inputOffset, length, output, outputOffset);
+    } catch (final ShortBufferException e) {
+      // every output has room for its input
+      throw new IllegalStateException(e);
+    }
   }
 
   public void enableCompression() {
@@ -212,7 +243,7 @@ public class Framer {
     validateMac(hMac, expectedMac);
 
     // Perform the header decryption.
-    decryptor.processBytes(hCipher, 0, hCipher.length, hCipher, 0);
+    applyKeyStream(decryptor, hCipher, 0, hCipher.length, hCipher, 0);
     final ByteBuf h = wrappedBuffer(hCipher);
 
     // Read the frame length.
@@ -278,8 +309,12 @@ public class Framer {
 
     validateMac(fMac, expectedMac);
 
-    // Decrypt frame data.
-    decryptor.processBytes(frameData, 0, frameData.length, frameData, 0);
+    // Decrypt frame data: the id, the message straight into its own array, then the padding, which
+    // only moves the key stream on.
+    applyKeyStream(decryptor, frameData, 0, LENGTH_MESSAGE_ID, frameData, 0);
+    final byte[] messageData = new byte[frameSize - LENGTH_MESSAGE_ID];
+    applyKeyStream(decryptor, frameData, LENGTH_MESSAGE_ID, messageData.length, messageData, 0);
+    applyKeyStream(decryptor, frameData, frameSize, pad, frameData, frameSize);
 
     // Read the id.
     final Bytes idbv = RLP.decodeOne(Bytes.of(frameData[0]));
@@ -287,8 +322,7 @@ public class Framer {
 
     // Write message data to ByteBuf, decompressing as necessary
     if (compressionEnabled) {
-      final byte[] compressedMessageData = Arrays.copyOfRange(frameData, 1, frameData.length - pad);
-      final int uncompressedLength = compressor.uncompressedLength(compressedMessageData);
+      final int uncompressedLength = compressor.uncompressedLength(messageData);
       if (uncompressedLength >= LENGTH_MAX_MESSAGE_FRAME) {
         throw error("Message size %s in excess of maximum length.", uncompressedLength);
       }
@@ -297,23 +331,20 @@ public class Framer {
         // First compressed message: decompress eagerly to validate and handle
         // the OpenEthereum/Parity fallback (non-Snappy peer detection via EIP-706)
         try {
-          final byte[] decompressedMessageData = compressor.decompress(compressedMessageData);
+          final byte[] decompressedMessageData = compressor.decompress(messageData);
           compressionSuccessful = true;
           return new RawMessage(id, Bytes.wrap(decompressedMessageData));
         } catch (final FramingException fe) {
           compressionEnabled = false;
           LOG.debug("Snappy decompression failed: downgrading to uncompressed");
-          final int messageLength = frameSize - LENGTH_MESSAGE_ID;
-          return new RawMessage(id, Bytes.wrap(frameData, 1, messageLength));
+          return new RawMessage(id, Bytes.wrap(messageData));
         }
       } else {
         // Subsequent messages: store compressed, decompress lazily on getData()
-        return new RawMessage(id, compressedMessageData);
+        return new RawMessage(id, messageData);
       }
     } else {
-      final int messageLength = frameSize - LENGTH_MESSAGE_ID;
-      final Bytes data = Bytes.wrap(frameData, 1, messageLength);
-      return new RawMessage(id, data);
+      return new RawMessage(id, Bytes.wrap(messageData));
     }
   }
 
@@ -361,7 +392,7 @@ public class Framer {
     h[2] = (byte) (frameSize & 0xff);
     System.arraycopy(PROTOCOL_HEADER, 0, h, LENGTH_FRAME_SIZE, PROTOCOL_HEADER.length);
     Arrays.fill(h, LENGTH_FRAME_SIZE + PROTOCOL_HEADER.length, h.length - 1, (byte) 0x00);
-    encryptor.processBytes(h, 0, LENGTH_HEADER_DATA, h, 0);
+    applyKeyStream(encryptor, h, 0, LENGTH_HEADER_DATA, h, 0);
 
     // Generate the header MAC.
     byte[] hMac = Arrays.copyOf(secrets.getEgressMac(), LENGTH_MAC);
@@ -370,25 +401,26 @@ public class Framer {
     hMac = Arrays.copyOf(hMac, LENGTH_MAC);
     buf.writeBytes(h).writeBytes(hMac);
 
-    // Encrypt payload.
-    final MutableBytes f = MutableBytes.create(frameSize + pad);
+    // Encrypt payload: the id, the message straight from its own array, then the zero padding to a
+    // 16-byte boundary.
+    final byte[] f = new byte[frameSize + pad];
 
     final Bytes bv = id == 0 ? RLP.NULL : RLP.encodeOne(Bytes.of(id));
     assert bv.size() == 1;
-    f.set(0, bv.get(0));
+    f[0] = bv.get(0);
+    applyKeyStream(encryptor, f, 0, LENGTH_MESSAGE_ID, f, 0);
 
-    // Zero-padded to 16-byte boundary.
-    message.getData().copyTo(f, 1);
-    encryptor.processBytes(f.toArrayUnsafe(), 0, f.size(), f.toArrayUnsafe(), 0);
+    final byte[] data = message.getData().toArrayUnsafe();
+    applyKeyStream(encryptor, data, 0, data.length, f, LENGTH_MESSAGE_ID);
+    applyKeyStream(encryptor, f, frameSize, pad, f, frameSize);
 
     // Calculate the frame MAC.
-    final byte[] fMacSeed =
-        Arrays.copyOf(secrets.updateEgress(f.toArrayUnsafe()).getEgressMac(), LENGTH_MAC);
+    final byte[] fMacSeed = Arrays.copyOf(secrets.updateEgress(f).getEgressMac(), LENGTH_MAC);
     byte[] fMac = new byte[16];
     macEncryptor.processBlock(fMacSeed, 0, fMac, 0);
     fMac = Arrays.copyOf(secrets.updateEgress(xor(fMac, fMacSeed)).getEgressMac(), LENGTH_MAC);
 
-    buf.writeBytes(f.toArrayUnsafe()).writeBytes(fMac);
+    buf.writeBytes(f).writeBytes(fMac);
   }
 
   private static int padding16(final int size) {

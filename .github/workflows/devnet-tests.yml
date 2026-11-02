@@ -19,7 +19,8 @@ permissions:
 
 jobs:
   devnetTests:
-    runs-on: besu-research-ubuntu-8 # the devnet fixtures need the extra disk space
+    name: devnetTests (${{ matrix.task }})
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
@@ -27,7 +28,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [consumeEngineTestsStable, consumeRlpTestsStable]
+        # The unpacked fixtures do not fit on a standard runner, so each job unpacks only the
+        # directory its task replays, as given to it in ethereum/evmtool/build.gradle.
+        include:
+          - task: consumeEngineTestsStable
+            fixtures: fixtures/blockchain_tests_engine/
+          - task: consumeRlpTestsStable
+            fixtures: fixtures/blockchain_tests/
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -44,7 +51,14 @@ jobs:
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Run ${{ matrix.task }}
-        run: ./gradlew :ethereum:evmtool:${{ matrix.task }} ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
+        run: |
+          echo "${{ matrix.fixtures }}" > fixtureSubset.txt
+          ./gradlew :ethereum:evmtool:${{ matrix.task }} -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
+      - name: report disk usage
+        if: always()
+        run: |
+          df -h /
+          du -sh ethereum/referencetests/build/execution-spec-tests ~/.gradle 2>/dev/null || true
 
   devnetTestsPassed:
     name: devnetTestsPassed

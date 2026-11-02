@@ -595,12 +595,7 @@ public final class BodyBackfill {
                 "receipts",
                 remaining.getLast().getHeader().getNumber(),
                 () -> new GetSyncReceiptsFromPeerTask(request, protocolSchedule, receiptEncoder));
-        if (completesNothing(response, partial)) {
-          throw new IllegalStateException(
-              "receipts from block "
-                  + remaining.getFirst().getHeader().getNumber()
-                  + " completed nothing");
-        }
+        // the task refuses an answer that completes no block and adds no receipt
         response
             .completeReceiptsByBlock()
             .forEach((block, blockReceipts) -> receipts.put(block.getHash(), blockReceipts));
@@ -612,14 +607,6 @@ public final class BodyBackfill {
     return blocks.stream()
         .map(block -> new SyncBlockWithReceipts(block, receipts.get(block.getHash())))
         .toList();
-  }
-
-  // no block completed and no more receipts of the one cut: asked again, it would loop
-  private static boolean completesNothing(
-      final GetSyncReceiptsFromPeerTask.Response response,
-      final List<SyncTransactionReceipt> partial) {
-    return response.completeCount() == 0
-        && response.lastBlockPartialReceipts().size() <= partial.size();
   }
 
   // the answer of the scheduler, which retries the request on other peers

@@ -119,7 +119,17 @@ public class BftBlockCreatorFactory<T extends BftConfigOptions> {
         protocolContext,
         protocolSchedule,
         bftExtraDataCodec,
-        ethScheduler);
+        ethScheduler,
+        savesTrieLogOfCreatedBlocks());
+  }
+
+  /**
+   * Save the trie log of created blocks, to import them without execution.
+   *
+   * @return false by default
+   */
+  protected boolean savesTrieLogOfCreatedBlocks() {
+    return false;
   }
 
   /**

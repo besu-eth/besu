@@ -47,7 +47,6 @@ import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.HeaderFetcher;
-import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.QueuedExecutor;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestFailedException;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestFailedException.Reason;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
@@ -111,6 +110,7 @@ class SyncChainTest {
     assertThat(chain.headersDone()).isCompleted();
     assertHeadersStored(1, PIVOT);
     assertThat(blockchain.getChainHeadBlockNumber()).isZero();
+    assertThat(blockchain.getSyncFloor()).contains(0L);
   }
 
   @Test
@@ -123,6 +123,7 @@ class SyncChainTest {
     assertThat(chain.headersDone()).isCompleted();
     // downloaded, then stored as the head until the bodies above it are stored
     assertThat(blockchain.getChainHeadHeader()).isEqualTo(header(MERGE));
+    assertThat(blockchain.getSyncFloor()).contains((long) MERGE);
     verify(blockchain, never()).unsafeSetChainHead(any(), any());
     assertHeadersStored(MERGE, PIVOT);
     assertThat(blockchain.getBlockHeader(MERGE - 1)).isEmpty();
@@ -286,6 +287,34 @@ class SyncChainTest {
     assertHeadersStored(1, PIVOT);
     assertThat(sender.requests().subList(asked, sender.requests().size()))
         .allMatch(message -> startOf(message).orElseThrow() < 12);
+  }
+
+  @Test
+  void countsTheHeadersOfAResumedDownloadFromTheFirstPivot() {
+    final SyncChain chain = chain(Optional.empty(), false);
+    sender.fail(message -> startOf(message).orElse(0) < 12);
+    chain.start(header(PIVOT));
+    executor.runAll();
+    // from 19 down to 12, 11 down to 1 left
+    assertThat(chain.headerProgress().stored()).isEqualTo(PIVOT - 12);
+    assertThat(chain.headerProgress().left()).isEqualTo(11);
+
+    sender.fail(message -> false);
+    resumes.runAll();
+    executor.runAll();
+
+    assertThat(chain.headerProgress().stored()).isEqualTo(PIVOT - 1);
+    assertThat(chain.headerProgress().left()).isZero();
+  }
+
+  @Test
+  void countsTheBodiesOfTheWindow() {
+    final SyncChain chain = chain(Optional.empty(), false);
+    assertThat(chain.windowProgress()).isZero();
+
+    synced(chain);
+
+    assertThat(chain.windowProgress()).isOne();
   }
 
   @Test

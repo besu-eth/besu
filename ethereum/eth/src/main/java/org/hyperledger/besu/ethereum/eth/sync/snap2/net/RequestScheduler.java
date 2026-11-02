@@ -98,6 +98,9 @@ public final class RequestScheduler implements RequestSender {
   private static final long RETRY_PAUSE_MILLIS = 1_000;
   // announced heights lag, so a peer that looks behind is only picked when no other peer can be
   private static final double BEHIND_PENALTY = 1e-3;
+  // the requests of the SNAP2 sync and of the back-fill: 15 s each, at most six a peer per protocol
+  private static final Duration SYNC_REQUEST_TIMEOUT = Duration.ofSeconds(15);
+  private static final int SYNC_REQUESTS_PER_PEER = 6;
 
   private enum AttemptState {
     PENDING,
@@ -176,6 +179,18 @@ public final class RequestScheduler implements RequestSender {
         Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().name("snap2-scheduler").daemon().factory()),
         System::nanoTime);
+  }
+
+  /** Creates the scheduler of the SNAP2 sync, or of a back-fill that runs without it. */
+  public static RequestScheduler forSync(
+      final EthPeers ethPeers, final MetricsSystem metricsSystem, final int workerThreads) {
+    return new RequestScheduler(
+        ethPeers,
+        metricsSystem,
+        SYNC_REQUEST_TIMEOUT,
+        SYNC_REQUESTS_PER_PEER,
+        SYNC_REQUESTS_PER_PEER,
+        workerThreads);
   }
 
   @VisibleForTesting

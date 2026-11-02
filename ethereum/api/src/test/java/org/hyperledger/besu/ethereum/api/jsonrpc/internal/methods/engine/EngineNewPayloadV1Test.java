@@ -70,6 +70,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.function.UnaryOperator;
 
 import io.vertx.core.Vertx;
@@ -300,7 +301,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   @Test
   public void shouldNotReturnInvalidOnThrownMerkleTrieException() {
     BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
-    when(mergeCoordinator.rememberBlock(any(), any(), any()))
+    when(mergeCoordinator.rememberBlock(any(), any(), any(Executor.class)))
         .thenThrow(new MerkleTrieException("missing leaf"));
 
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
@@ -566,7 +567,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
         .thenReturn(Optional.of(mock(BlockHeader.class)));
     when(mergeCoordinator.getLatestValidAncestor(any(BlockHeader.class)))
         .thenReturn(Optional.of(mockHash));
-    when(mergeCoordinator.rememberBlock(any(), any(), any())).thenReturn(value);
+    when(mergeCoordinator.rememberBlock(any(), any(), any(Executor.class))).thenReturn(value);
     return mockHeader;
   }
 
