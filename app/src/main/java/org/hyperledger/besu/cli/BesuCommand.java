@@ -122,6 +122,7 @@ import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
+import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningParametersMetrics;
@@ -668,13 +669,26 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   @CommandLine.Option(
       names = {"--cache-last-blocks"},
-      description = "Specifies the number of last blocks to cache  (default: ${DEFAULT-VALUE})")
-  private final Integer numberOfBlocksToCache = 0;
+      paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
+      description =
+          "Specifies the number of last blocks whose headers, bodies, receipts and block access"
+              + " lists to cache, 0 to disable (default: ${DEFAULT-VALUE})")
+  private final Integer numberOfBlocksToCache = DefaultBlockchain.DEFAULT_BLOCKS_TO_CACHE;
+
+  @CommandLine.Option(
+      names = {"--cache-last-blocks-max-capacity"},
+      paramLabel = MANDATORY_LONG_FORMAT_HELP,
+      description =
+          "Max amount of memory, in bytes, that the cache of the block access lists of the last"
+              + " blocks could occupy (default: ${DEFAULT-VALUE})")
+  private final Long lastBlocksCacheMaxCapacity =
+      DefaultBlockchain.DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY;
 
   @CommandLine.Option(
       names = {"--cache-last-block-headers"},
       description =
-          "Specifies the number of last block headers to cache  (default: ${DEFAULT-VALUE})")
+          "Specifies the number of last block headers to cache, raised to --cache-last-blocks if"
+              + " lower (default: ${DEFAULT-VALUE})")
   private final Integer numberOfBlockHeadersToCache = 0;
 
   @CommandLine.Option(
@@ -1592,6 +1606,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateAndResolveCheckpointRelatedConfig();
     validateTransactionPoolOptions();
     validateDataStorageOptions();
+    validateCacheOptions();
     validateGraphQlOptions();
     validatePluginOptions();
     validateUnstableNetworkingOptions();
@@ -1622,6 +1637,20 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       throw new ParameterException(
           commandLine,
           "--sync-mode=SNAP2 needs --data-storage-format=BONSAI or FOREST, not " + format);
+    }
+  }
+
+  private void validateCacheOptions() {
+    if (numberOfBlocksToCache < 0) {
+      throw new ParameterException(
+          this.commandLine, "--cache-last-blocks must be >= 0 (0 disables the caches)");
+    }
+    if (lastBlocksCacheMaxCapacity < 0) {
+      throw new ParameterException(
+          this.commandLine, "--cache-last-blocks-max-capacity must be >= 0");
+    }
+    if (numberOfBlockHeadersToCache < 0) {
+      throw new ParameterException(this.commandLine, "--cache-last-block-headers must be >= 0");
     }
   }
 
@@ -2207,6 +2236,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .randomPeerPriority(p2PDiscoveryOptions.randomPeerPriority)
             .chainPruningConfiguration(unstableChainPruningOptions.toDomainObject())
             .cacheLastBlocks(numberOfBlocksToCache)
+            .cacheLastBlocksMaxCapacity(lastBlocksCacheMaxCapacity)
             .cacheLastBlockHeaders(numberOfBlockHeadersToCache)
             .isCacheLastBlockHeadersPreloadEnabled(isCacheLastBlockHeadersPreloadEnabled)
             .senderNonceIndexingEnabled(txSenderNonceIndexEnabled)
