@@ -14,36 +14,29 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.proof;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
 class StorageEntryProofTest {
 
   @Test
-  public void testKey() {
-    // zero
-    testKey(UInt256.ZERO, "0x0");
-    testKey(UInt256.fromHexString("0x00"), "0x0");
-
-    // no leading zeros
-    testKey(UInt256.fromHexString("0x10"), "0x10");
-
-    // single leading zero, expect it to remain
-    testKey(UInt256.fromHexString("0x0aa0"), "0x0aa0");
-    testKey(UInt256.fromHexString("0x01"), "0x01");
-    testKey(UInt256.ONE, "0x01");
-
-    // multiple leading zeros, they should not
-    testKey(UInt256.fromHexString("0x00a2"), "0xa2");
-    testKey(UInt256.fromHexString("0x00a200"), "0xa200");
+  void returnsKeyAsGiven() {
+    assertThat(new StorageEntryProof("0x0", UInt256.ZERO, List.of()).getKey()).isEqualTo("0x0");
+    assertThat(new StorageEntryProof("0x1", UInt256.ZERO, List.of()).getKey()).isEqualTo("0x1");
+    final String fullKey = "0x0000000000000000000000000000000000000000000000000000000000000347";
+    assertThat(new StorageEntryProof(fullKey, UInt256.ZERO, List.of()).getKey()).isEqualTo(fullKey);
   }
 
-  void testKey(final UInt256 key, final String expected) {
-    StorageEntryProof s = new StorageEntryProof(key, UInt256.ZERO, List.of());
-    assertEquals(expected, s.getKey());
+  @Test
+  void returnsValueAsQuantityAndProofAsHex() {
+    final StorageEntryProof entry =
+        new StorageEntryProof("0x1", UInt256.valueOf(0x10), List.of(Bytes.fromHexString("0xab")));
+    assertThat(entry.getValue()).isEqualTo("0x10");
+    assertThat(entry.getStorageProof()).containsExactly("0xab");
   }
 }

@@ -6,10 +6,6 @@ on:
       version:
         required: true
         type: string
-      cache_scope:
-        required: false
-        type: string
-        default: 'docker-build'
     outputs:
       image_digest:
         description: "Published image digest"
@@ -92,7 +88,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           provenance: false
           push: true
-          cache-from: type=gha,scope=${{ inputs.cache_scope }}-amd64
           build-args: |
             VERSION=${{ inputs.version }}
             VCS_REF=${{ github.sha }}

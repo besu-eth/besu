@@ -263,7 +263,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     // EIP-8037: cap max(intrinsic_execution, calldata_floor) rather than tx.gas itself.
     final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
-    if (!transactionValidationParams.isAllowExceedingGasLimit()
+    if (!transactionValidationParams.isAllowExceedingIntrinsicGasLimit()
         && Long.compareUnsigned(intrinsicGasCostOrFloor, intrinsicGasLimitCap) > 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,

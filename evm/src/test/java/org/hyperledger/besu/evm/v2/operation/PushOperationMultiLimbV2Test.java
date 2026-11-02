@@ -17,6 +17,7 @@ package org.hyperledger.besu.evm.v2.operation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.v2.operation.AbstractOperationV2.OVERFLOW_RESPONSE;
 import static org.hyperledger.besu.evm.v2.operation.PushOperationV2.MultiLimb.staticOperation;
+import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.getV2StackItem;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -77,7 +78,7 @@ public class PushOperationMultiLimbV2Test {
     final byte[] code = generateCode(100);
     final int pc = 5;
     staticOperation(frame, code, pc, pushSize);
-    assertThat(frame.getStackItemV2(0))
+    assertThat(getV2StackItem(frame, 0))
         .as("pushSize=%d", pushSize)
         .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, pc + 1, pc + 1 + pushSize)));
   }
@@ -90,7 +91,7 @@ public class PushOperationMultiLimbV2Test {
     final byte[] code = new byte[12];
     for (int i = 0; i < code.length; i++) code[i] = (byte) (i + 1);
     staticOperation(frame, code, 0, 9);
-    assertThat(frame.getStackItemV2(0))
+    assertThat(getV2StackItem(frame, 0))
         .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, 1, 10)));
   }
 
@@ -99,7 +100,7 @@ public class PushOperationMultiLimbV2Test {
     final byte[] code = new byte[18];
     for (int i = 0; i < code.length; i++) code[i] = (byte) (i + 1);
     staticOperation(frame, code, 0, 16);
-    assertThat(frame.getStackItemV2(0))
+    assertThat(getV2StackItem(frame, 0))
         .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, 1, 17)));
   }
 
@@ -108,7 +109,7 @@ public class PushOperationMultiLimbV2Test {
     final byte[] code = new byte[26];
     for (int i = 0; i < code.length; i++) code[i] = (byte) (i + 1);
     staticOperation(frame, code, 0, 24);
-    assertThat(frame.getStackItemV2(0))
+    assertThat(getV2StackItem(frame, 0))
         .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, 1, 25)));
   }
 
@@ -118,7 +119,7 @@ public class PushOperationMultiLimbV2Test {
     final byte[] code = new byte[34];
     for (int i = 0; i < code.length; i++) code[i] = (byte) (i + 1);
     staticOperation(frame, code, 0, 32);
-    assertThat(frame.getStackItemV2(0))
+    assertThat(getV2StackItem(frame, 0))
         .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, 1, 33)));
   }
 
@@ -128,14 +129,14 @@ public class PushOperationMultiLimbV2Test {
     final byte[] code = new byte[34];
     Arrays.fill(code, (byte) 0xFF);
     staticOperation(frame, code, 0, 32);
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.MAX);
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.MAX);
   }
 
   @Test
   void push32Zero_allZeroBytes() {
     final byte[] code = new byte[34];
     staticOperation(frame, code, 0, 32);
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.ZERO);
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.ZERO);
   }
 
   // --- Truncation: push extends past end of code (zero-padding on the right) ---
@@ -145,14 +146,14 @@ public class PushOperationMultiLimbV2Test {
     // start == code.length: no bytes at all
     final byte[] code = {0x00};
     staticOperation(frame, code, 0, 9); // start = 1 == code.length
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.ZERO);
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.ZERO);
   }
 
   @Test
   void push32TruncatedNoBytesAvailable() {
     final byte[] code = {0x00};
     staticOperation(frame, code, 0, 32);
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.ZERO);
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.ZERO);
   }
 
   @Test
@@ -164,7 +165,7 @@ public class PushOperationMultiLimbV2Test {
     final byte[] expected = new byte[32];
     System.arraycopy(code, 1, expected, 0, 16); // first 16 bytes from code
     // expected[16..31] remain zero
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.fromBytesBE(expected));
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromBytesBE(expected));
   }
 
   @Test
@@ -175,7 +176,7 @@ public class PushOperationMultiLimbV2Test {
     // 0xBE shifted left 31 bytes (248 bits)
     final byte[] expected = new byte[32];
     expected[0] = (byte) 0xBE;
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.fromBytesBE(expected));
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromBytesBE(expected));
   }
 
   @Test
@@ -186,7 +187,7 @@ public class PushOperationMultiLimbV2Test {
     staticOperation(frame, code, 0, 32);
     final byte[] expected = new byte[32];
     System.arraycopy(code, 1, expected, 0, 9);
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.fromBytesBE(expected));
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromBytesBE(expected));
   }
 
   @ParameterizedTest
@@ -197,7 +198,7 @@ public class PushOperationMultiLimbV2Test {
     staticOperation(frame, code, 0, pushSize);
     final byte[] expected = new byte[pushSize];
     expected[0] = (byte) 0xCD;
-    assertThat(frame.getStackItemV2(0))
+    assertThat(getV2StackItem(frame, 0))
         .as("pushSize=%d", pushSize)
         .isEqualTo(UInt256.fromBytesBE(expected));
   }
@@ -211,7 +212,7 @@ public class PushOperationMultiLimbV2Test {
     staticOperation(frame, code, 0, 9);
     final byte[] expected = new byte[9];
     Arrays.fill(expected, (byte) 0x80);
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.fromBytesBE(expected));
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromBytesBE(expected));
   }
 
   @Test
@@ -220,7 +221,7 @@ public class PushOperationMultiLimbV2Test {
     for (int i = 0; i < code.length; i++) code[i] = (byte) (i | 0x80); // all high-bit set
     final int pc = 10;
     staticOperation(frame, code, pc, 20);
-    assertThat(frame.getStackItemV2(0))
+    assertThat(getV2StackItem(frame, 0))
         .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, pc + 1, pc + 21)));
   }
 
@@ -234,7 +235,7 @@ public class PushOperationMultiLimbV2Test {
     staticOperation(frame, code, pc, 32);
     final byte[] expected = new byte[32];
     System.arraycopy(code, pc + 1, expected, 0, 20);
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.fromBytesBE(expected));
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromBytesBE(expected));
   }
 
   @Test
@@ -245,7 +246,7 @@ public class PushOperationMultiLimbV2Test {
     staticOperation(frame, code, pc, 9);
     final byte[] expected = new byte[9];
     System.arraycopy(code, pc + 1, expected, 0, 6);
-    assertThat(frame.getStackItemV2(0)).isEqualTo(UInt256.fromBytesBE(expected));
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromBytesBE(expected));
   }
 
   // --- Stack interaction ---
@@ -256,9 +257,9 @@ public class PushOperationMultiLimbV2Test {
     staticOperation(frame, code, 0, 9); // pushes code[1..9]
     staticOperation(frame, code, 10, 32); // pushes code[11..42]
     assertThat(frame.stackTopV2()).isEqualTo(2);
-    assertThat(frame.getStackItemV2(0))
+    assertThat(getV2StackItem(frame, 0))
         .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, 11, 43)));
-    assertThat(frame.getStackItemV2(1))
+    assertThat(getV2StackItem(frame, 1))
         .isEqualTo(UInt256.fromBytesBE(Arrays.copyOfRange(code, 1, 10)));
   }
 
@@ -288,7 +289,7 @@ public class PushOperationMultiLimbV2Test {
         final byte[] expected = new byte[pushSize];
         final int available = Math.max(0, Math.min(pushSize, code.length - pc - 1));
         System.arraycopy(code, Math.min(pc + 1, code.length), expected, 0, available);
-        assertThat(frame.getStackItemV2(0))
+        assertThat(getV2StackItem(frame, 0))
             .as("pushSize=%d pc=%d", pushSize, pc)
             .isEqualTo(UInt256.fromBytesBE(expected));
       }

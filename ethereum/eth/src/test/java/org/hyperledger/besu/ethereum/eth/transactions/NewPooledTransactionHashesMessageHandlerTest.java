@@ -14,20 +14,25 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
+import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
+import org.hyperledger.besu.ethereum.eth.messages.NewPooledTransactionHashesMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,12 +46,19 @@ class NewPooledTransactionHashesMessageHandlerTest {
   @Mock private EthPeer peer;
   @Mock private PeerConnection peerConnection;
 
+  private final EthProtocolConfiguration ethProtocolConfiguration =
+      EthProtocolConfiguration.DEFAULT;
   private NewPooledTransactionHashesMessageHandler handler;
 
   @BeforeEach
   void setUp() {
     final DeterministicEthScheduler scheduler = new DeterministicEthScheduler();
-    handler = new NewPooledTransactionHashesMessageHandler(scheduler, processor, 300);
+    handler =
+        new NewPooledTransactionHashesMessageHandler(
+            scheduler,
+            processor,
+            300,
+            ethProtocolConfiguration.getMaxNewPooledTransactionHashesMessageSize());
     handler.setEnabled();
     when(peer.getConnection()).thenReturn(peerConnection);
     when(peerConnection.capability(EthProtocol.NAME))
@@ -63,5 +75,45 @@ class NewPooledTransactionHashesMessageHandlerTest {
 
     verify(peer).disconnect(eq(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED));
     verifyNoInteractions(processor);
+  }
+
+  @Test
+  void disconnectsPeerOnOversizedMessageWithoutQueueingIt() {
+    final int maxMessageSize = 16;
+    final NewPooledTransactionHashesMessageHandler strictHandler =
+        enabledHandlerWithMaxMessageSize(maxMessageSize);
+
+    strictHandler.exec(new EthMessage(peer, announcementMessageOfSize(maxMessageSize + 1)));
+
+    verify(peer).disconnect(eq(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED));
+    verifyNoInteractions(processor);
+  }
+
+  @Test
+  void processesMessageAtMaxMessageSize() {
+    final int maxMessageSize = 16;
+    final NewPooledTransactionHashesMessageHandler strictHandler =
+        enabledHandlerWithMaxMessageSize(maxMessageSize);
+
+    // the size check runs before decoding, so the payload does not have to be valid RLP
+    strictHandler.exec(new EthMessage(peer, announcementMessageOfSize(maxMessageSize)));
+
+    verify(processor)
+        .processNewPooledTransactionHashesMessage(
+            eq(peer), any(NewPooledTransactionHashesMessage.class), any(), any());
+  }
+
+  private NewPooledTransactionHashesMessageHandler enabledHandlerWithMaxMessageSize(
+      final int maxMessageSize) {
+    final NewPooledTransactionHashesMessageHandler strictHandler =
+        new NewPooledTransactionHashesMessageHandler(
+            new DeterministicEthScheduler(), processor, 300, maxMessageSize);
+    strictHandler.setEnabled();
+    return strictHandler;
+  }
+
+  private static RawMessage announcementMessageOfSize(final int size) {
+    return new RawMessage(
+        EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES, Bytes.wrap(new byte[size]));
   }
 }

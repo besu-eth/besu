@@ -111,10 +111,13 @@ public class RoundChangeMessageValidator {
   private boolean validateWithBlock(final RoundChange msg) {
     final QbftBlock block = msg.getProposedBlock().get();
 
-    if (!validateBlock(block, msg.getBlockAccessList())) {
-      return false;
-    }
-
+    // The metadata checks below are decidable from data already in hand and cost nothing, so they
+    // run before validateBlock, which executes every transaction in the block. The proposed block
+    // rides outside the payload signature, so without this ordering anyone who captures a single
+    // genuine validator-signed RoundChange can replay it with arbitrary blocks substituted, buying
+    // a full block execution on the BFT consensus thread per replay - no validator key required.
+    // MessageTracker de-duplicates on raw message bytes, so every substituted block is a fresh
+    // message and de-duplication does not bound this.
     if (msg.getPreparedRoundMetadata().isEmpty()) {
       LOG.info("{}: Prepared block specified, but prepared metadata absent", ERROR_PREFIX);
       return false;
@@ -124,6 +127,10 @@ public class RoundChangeMessageValidator {
 
     if (!metadata.getPreparedBlockHash().equals(block.getHash())) {
       LOG.info("{}: Prepared metadata hash does not match supplied block", ERROR_PREFIX);
+      return false;
+    }
+
+    if (!validateBlock(block, msg.getBlockAccessList())) {
       return false;
     }
 

@@ -113,6 +113,7 @@ import dagger.Module;
 import dagger.Provides;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.vertx.core.Vertx;
+import io.vertx.core.VertxOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -125,6 +126,26 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
   private final Map<String, Runner> besuRunners = new HashMap<>();
 
   private final Map<Node, BesuPluginContextImpl> besuPluginContextMap = new ConcurrentHashMap<>();
+
+  private final VertxOptions vertxOptions;
+
+  /** Instantiates a new Thread besu node runner with default Vertx options. */
+  public ThreadBesuNodeRunner() {
+    this(new VertxOptions());
+  }
+
+  /**
+   * Instantiates a new Thread besu node runner.
+   *
+   * <p>Each started node gets its own Vertx instance created from these options, since the node's
+   * Runner closes its Vertx on shutdown. Use smaller thread pools to reduce thread usage when
+   * running many nodes or tests in parallel.
+   *
+   * @param vertxOptions the Vertx options used to create each node's Vertx instance
+   */
+  public ThreadBesuNodeRunner(final VertxOptions vertxOptions) {
+    this.vertxOptions = new VertxOptions(vertxOptions);
+  }
 
   @Override
   public void startNode(final BesuNode node) {
@@ -184,7 +205,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     runnerBuilder.apiConfiguration(node.getApiConfiguration());
 
     runnerBuilder
-        .vertx(Vertx.vertx())
+        .vertx(Vertx.vertx(vertxOptions))
         .besuController(besuController)
         .ethNetworkConfig(ethNetworkConfig)
         .discoveryEnabled(node.isDiscoveryEnabled())

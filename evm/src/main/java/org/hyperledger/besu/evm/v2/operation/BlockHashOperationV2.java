@@ -42,11 +42,12 @@ public class BlockHashOperationV2 extends AbstractOperationV2 {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
-    if (!frame.stackHasItemsV2(1)) return UNDERFLOW_RESPONSE;
+    // gas before stack, as in v1, so that both halt for the same reason
     final long cost = gasCalculator().getBlockHashOperationGasCost();
     if (frame.getRemainingGas() < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
+    if (!frame.stackHasItemsV2(1)) return UNDERFLOW_RESPONSE;
 
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();

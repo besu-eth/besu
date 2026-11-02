@@ -105,7 +105,7 @@ class BlobHashOperationV2Test {
   }
 
   @Test
-  void shouldHaltOnInsufficientGasWithoutChangingStack() {
+  void leavesTheGasCheckToTheInterpreterLoopAsV1Does() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .initialGas(1)
@@ -115,8 +115,10 @@ class BlobHashOperationV2Test {
 
     final OperationResult result = operation.execute(frame, null);
 
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
-    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.ZERO);
+    assertThat(result.getHaltReason()).isNull();
+    assertThat(result.getGasCost()).isEqualTo(gasCalculator.getVeryLowTierGasCost());
+    assertThat(getV2StackItem(frame, 0))
+        .isEqualTo(UInt256.fromBytesBE(VERSIONED_HASH.getBytes().toArrayUnsafe()));
   }
 
   @Test

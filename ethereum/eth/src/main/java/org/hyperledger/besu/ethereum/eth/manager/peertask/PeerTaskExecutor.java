@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -147,7 +148,11 @@ public class PeerTaskExecutor {
             throw new InvalidPeerTaskResponseException("Null response");
           }
 
-          result = peerTask.processResponse(responseMessageData, agreedCapabilities);
+          try {
+            result = peerTask.processResponse(responseMessageData, agreedCapabilities);
+          } catch (final RLPException e) {
+            throw new MalformedRlpFromPeerException(e, responseMessageData.getData());
+          }
         } finally {
           inflightRequestCountForThisTaskClass.decrementAndGet();
         }

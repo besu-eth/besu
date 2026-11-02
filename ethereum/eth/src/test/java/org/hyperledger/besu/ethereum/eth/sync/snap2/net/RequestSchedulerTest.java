@@ -189,6 +189,8 @@ class RequestSchedulerTest {
 
   @Test
   void neverSendsARequestToAnExcludedPeer() {
+    // a clock that never reaches the queue timeout: the request fails at once
+    newScheduler(TIMEOUT, 4, clock::get);
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
         scheduler.submit(headers(1, 2), Set.of(peer.getEthPeer()));
 
