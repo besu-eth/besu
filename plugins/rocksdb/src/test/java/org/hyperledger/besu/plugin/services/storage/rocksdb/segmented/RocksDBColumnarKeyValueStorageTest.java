@@ -36,6 +36,7 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.SortedWriter;
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter;
 
 import java.io.IOException;
@@ -57,6 +58,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.rocksdb.ColumnFamilyHandle;
 
 public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValueStorageTest {
 
@@ -496,6 +498,57 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     assertThatThrownBy(
             () -> tx.put(TestSegment.FOO, bytesFromHexString("0001"), bytesFromHexString("0FFF")))
         .isInstanceOf(IllegalStateException.class);
+    store.close();
+  }
+
+  @Test
+  public void sortedWriterAddsItsEntriesAtOnceAsAFile() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesFromHexString("0001"), bytesFromHexString("0A"));
+    writer.put(bytesFromHexString("0002"), bytesFromHexString("0B"));
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0001"))).isEmpty();
+
+    writer.commit();
+
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0001")))
+        .contains(bytesFromHexString("0A"));
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0002")))
+        .contains(bytesFromHexString("0B"));
+    // added as a file, not through the memtable
+    final ColumnFamilyHandle foo = store.safeColumnHandle(TestSegment.FOO);
+    assertThat(store.getDB().getProperty(foo, "rocksdb.num-entries-active-mem-table"))
+        .isEqualTo("0");
+    store.close();
+  }
+
+  @Test
+  public void sortedWriterRefusesAKeyBelowThePreviousOne() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesFromHexString("0002"), bytesFromHexString("0B"));
+
+    assertThatThrownBy(() -> writer.put(bytesFromHexString("0001"), bytesFromHexString("0A")))
+        .isInstanceOf(StorageException.class);
+    writer.rollback();
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0002"))).isEmpty();
+    store.close();
+  }
+
+  @Test
+  public void sortedWriterOverridesOlderValuesOfItsKeys() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytesFromHexString("0001"), bytesFromHexString("0A"));
+    tx.commit();
+    final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesFromHexString("0001"), bytesFromHexString("0B"));
+
+    writer.commit();
+
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0001")))
+        .contains(bytesFromHexString("0B"));
     store.close();
   }
 
