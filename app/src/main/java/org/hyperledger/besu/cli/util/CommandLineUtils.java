@@ -106,6 +106,27 @@ public class CommandLineUtils {
   }
 
   /**
+   * Fail if both options are explicitly set on the command line. Values coming from a default value
+   * provider, such as the config file or environment variables, are not considered.
+   *
+   * @param commandLine the command line containing the options we want to check
+   * @param optionName the name of the first option
+   * @param otherOptionName the name of the option that can't be used at the same time
+   */
+  public static void failIfOptionsUsedTogether(
+      final CommandLine commandLine, final String optionName, final String otherOptionName) {
+    final CommandLine.ParseResult parseResult = commandLine.getParseResult();
+    if (parseResult.hasMatchedOption(optionName) && parseResult.hasMatchedOption(otherOptionName)) {
+      throw new CommandLine.ParameterException(
+          commandLine,
+          optionName
+              + " option and "
+              + otherOptionName
+              + " option can't be used at the same time.");
+    }
+  }
+
+  /**
    * Return all the option names declared in a class. Note this will recursively check in any inner
    * option class if present.
    *
