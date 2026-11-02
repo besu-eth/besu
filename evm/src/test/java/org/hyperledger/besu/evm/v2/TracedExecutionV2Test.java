@@ -183,13 +183,13 @@ class TracedExecutionV2Test {
   }
 
   @Test
-  void disabledTracerGetsNoOperationCalls() {
+  void tracerThatSkipsOperationsGetsNoOperationCalls() {
     // like the parallel block processor's tracer, which only implements a reward hook
     final List<String> calls = new ArrayList<>();
     final OperationTracer tracer =
         new OperationTracer() {
           @Override
-          public boolean isEnabled() {
+          public boolean tracesOperations() {
             return false;
           }
 
@@ -231,12 +231,12 @@ class TracedExecutionV2Test {
   }
 
   @Test
-  void disabledTracerRecordsNoMemoryOrStorageUpdates() {
-    // like the parallel block processor's tracer, which only implements a reward hook
+  void enabledTracerWithoutOperationsRecordsNoMemoryOrStorageUpdates() {
+    // enabled, but only for transaction and call hooks, as in parallel transaction execution
     final OperationTracer tracer =
         new OperationTracer() {
           @Override
-          public boolean isEnabled() {
+          public boolean tracesOperations() {
             return false;
           }
         };
