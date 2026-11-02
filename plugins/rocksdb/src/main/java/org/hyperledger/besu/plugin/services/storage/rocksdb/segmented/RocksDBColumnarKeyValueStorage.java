@@ -21,6 +21,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
+import org.hyperledger.besu.plugin.services.storage.SegmentBulkLoad;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
@@ -44,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -110,12 +112,18 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /** Number of threads used to parallelize table cache warm-up seeks */
   private static final int TABLE_CACHE_WARMUP_THREAD_COUNT = 8;
 
+  /** Values from this size on go to blob files, in the column families that use them */
+  static final long MIN_BLOB_SIZE = 100;
+
   static {
     RocksDbUtil.loadNativeLibrary();
   }
 
   /** atomic boolean to track if the storage is closed */
   protected final AtomicBoolean closed = new AtomicBoolean(false);
+
+  // work on the database that has to end before it is closed
+  private final List<Runnable> closeHooks = new CopyOnWriteArrayList<>();
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
@@ -252,6 +260,9 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         new ColumnFamilyOptions()
             .setTtl(0)
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
+            // for a bulk load that switches blob files on: RocksJava cannot set it on an open
+            // database
+            .setBlobCompressionType(CompressionType.LZ4_COMPRESSION)
             .setTableFormatConfig(basedTableConfig)
             .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
     columnFamilyOptionsList.add(cfOptions);
@@ -270,7 +281,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         .setEnableBlobFiles(true)
         .setEnableBlobGarbageCollection(
             isStaticDataGarbageCollectionEnabled(segment, configuration))
-        .setMinBlobSize(100)
+        .setMinBlobSize(MIN_BLOB_SIZE)
         .setBlobCompressionType(CompressionType.LZ4_COMPRESSION);
     if (configuration.getBlobGarbageCollectionAgeCutoff().isPresent()) {
       // fraction of file age to be considered eligible for GC;
@@ -723,6 +734,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   @Override
   public void close() {
     if (closed.compareAndSet(false, true)) {
+      closeHooks.forEach(Runnable::run);
       txOptions.close();
       tryDeleteOptions.close();
       getColumnHandlesBySegmentIdentifier().values().stream()
@@ -740,6 +752,11 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     return closed.get();
   }
 
+  // runs the hook when the storage starts closing, before the database is closed
+  void onClose(final Runnable hook) {
+    closeHooks.add(hook);
+  }
+
   // writes that never conflict skip the conflict checks of a transaction
   @Override
   public SegmentedKeyValueStorageTransaction startBatchTransaction() throws StorageException {
@@ -750,6 +767,19 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         new RocksDBWriteBatchTransaction(
             this::safeColumnHandle, getDB(), writeOptions, getMetrics()),
         this.closed::get);
+  }
+
+  @Override
+  public SegmentBulkLoad startBulkLoad(final List<SegmentIdentifier> segmentIdentifiers) {
+    return startBulkLoad(segmentIdentifiers, List.of());
+  }
+
+  @Override
+  public SegmentBulkLoad startBulkLoad(
+      final List<SegmentIdentifier> segmentIdentifiers,
+      final List<SegmentIdentifier> separateValueSegments) {
+    throwIfClosed();
+    return new RocksDBSegmentBulkLoad(this, segmentIdentifiers, separateValueSegments);
   }
 
   @Override
