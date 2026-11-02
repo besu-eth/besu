@@ -45,6 +45,8 @@ public final class SyncStorageFixture {
   /** Storage format under test. */
   public enum Format {
     BONSAI,
+    // Bonsai with the downloaded state written as sorted files
+    BONSAI_SORTED,
     FOREST
   }
 
@@ -71,12 +73,17 @@ public final class SyncStorageFixture {
   public static Storages create(final Format format) {
     final InMemoryKeyValueStorageProvider provider = new InMemoryKeyValueStorageProvider();
     return switch (format) {
-      case BONSAI -> {
+      case BONSAI, BONSAI_SORTED -> {
         final BonsaiWorldStateKeyValueStorage bonsai =
             (BonsaiWorldStateKeyValueStorage)
                 provider.createWorldStateStorage(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
-        yield new Storages(
-            new BonsaiSyncStateStorage(bonsai), new WorldStateStorageCoordinator(bonsai));
+        final BonsaiSyncStateStorage sync =
+            new BonsaiSyncStateStorage(bonsai, format == Format.BONSAI_SORTED, true);
+        if (format == Format.BONSAI_SORTED) {
+          // starts the sorted writes, as a sync does
+          sync.prepareForSync();
+        }
+        yield new Storages(sync, new WorldStateStorageCoordinator(bonsai));
       }
       case FOREST -> {
         final ForestWorldStateKeyValueStorage forest =
@@ -86,6 +93,17 @@ public final class SyncStorageFixture {
             new ForestSyncStateStorage(forest, provider), new WorldStateStorageCoordinator(forest));
       }
     };
+  }
+
+  /** A sorted Bonsai storage that sorts at most the given bytes of nodes of one storage. */
+  public static Storages createBonsai(final long maxSortedStorageBytes) {
+    final BonsaiWorldStateKeyValueStorage bonsai =
+        (BonsaiWorldStateKeyValueStorage)
+            new InMemoryKeyValueStorageProvider()
+                .createWorldStateStorage(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+    return new Storages(
+        new BonsaiSyncStateStorage(bonsai, maxSortedStorageBytes),
+        new WorldStateStorageCoordinator(bonsai));
   }
 
   /** Returns the slots stored for an account, keyed by slot hash, by a scan of its key alone. */

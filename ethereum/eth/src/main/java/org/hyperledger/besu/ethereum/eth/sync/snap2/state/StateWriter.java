@@ -82,28 +82,50 @@ final class StateWriter {
         (int) hashes.stream().takeWhile(hash -> hash.compareTo(request.limit) <= 0).count();
     final List<StorageTask> storageTasks = new ArrayList<>();
     final Set<Bytes32> codeHashes = new LinkedHashSet<>();
+    final Optional<SyncStateStorage.SortedWrites> sorted = storage.sortedWrites();
     storage.write(
-        batch -> {
-          for (int i = 0; i < count; i++) {
-            final Bytes account = result.accounts().get(i);
-            batch.putAccount(hashes.get(i), account);
-            final PatriciaTrieAccountValue value = Accounts.decode(account);
-            if (!value.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
-              storageTasks.add(
-                  new StorageTask(hashes.get(i), Bytes32.wrap(value.getStorageRoot().getBytes())));
-            }
-            if (!value.getCodeHash().equals(Hash.EMPTY)) {
-              codeHashes.add(Bytes32.wrap(value.getCodeHash().getBytes()));
-            }
-          }
-        });
+        batch ->
+            writeAccounts(
+                result, count, sorted.isEmpty() ? batch : null, storageTasks, codeHashes));
     final boolean done = reachesLimit(hashes, result.hasMore(), request.limit);
+    sorted.ifPresent(
+        writes ->
+            writes.accounts(
+                request.limit,
+                hashes.subList(0, count),
+                result.accounts().subList(0, count),
+                storageTasks.stream().map(StorageTask::accountHash).toList(),
+                done));
     // a copy, as keys decoded from a response slice the whole message
     final Bytes32 end = coveredEnd(hashes, result.hasMore(), request.limit).copy();
     storageTasks.forEach(coverage::addStorageTask);
     coverage.accounts().add(request.origin, end);
     accountsWritten.addAndGet(count);
     return new AccountsWritten(end, done, storageTasks, codeHashes);
+  }
+
+  // the accounts go into the batch, or into the sorted files without one
+  private static void writeAccounts(
+      final AccountRangeRequest.Result result,
+      final int count,
+      final SyncStateStorage.Batch batch,
+      final List<StorageTask> storageTasks,
+      final Set<Bytes32> codeHashes) {
+    final List<Bytes32> hashes = result.hashes();
+    for (int i = 0; i < count; i++) {
+      final Bytes account = result.accounts().get(i);
+      if (batch != null) {
+        batch.putAccount(hashes.get(i), account);
+      }
+      final PatriciaTrieAccountValue value = Accounts.decode(account);
+      if (!value.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
+        storageTasks.add(
+            new StorageTask(hashes.get(i), Bytes32.wrap(value.getStorageRoot().getBytes())));
+      }
+      if (!value.getCodeHash().equals(Hash.EMPTY)) {
+        codeHashes.add(Bytes32.wrap(value.getCodeHash().getBytes()));
+      }
+    }
   }
 
   /**
@@ -208,19 +230,31 @@ final class StateWriter {
 
   private record Covered(StorageTask task, Bytes32 end, int slots) {}
 
+  // slots of one storage for the sorted files
+  private record SortedSlots(StorageTask task, List<Bytes32> hashes, List<Bytes32> values) {}
+
   // stores the slots of each pending storage served and the trie nodes of its range
   private List<Covered> storeRanges(
       final StorageRangesRequest request,
       final StorageRangesRequest.Result result,
       final SyncStateStorage.TrieWriter writer) {
     final List<Covered> covered = new ArrayList<>();
+    final Optional<SyncStateStorage.SortedWrites> sorted = storage.sortedWrites();
+    final List<SortedSlots> sortedSlots = new ArrayList<>();
     storage.write(
         batch -> {
           for (int i = 0; i < result.accounts().size(); i++) {
             final StorageTask task = request.tasks.get(i);
             final StorageRangesRequest.Slots slots = result.accounts().get(i);
             if (coverage.isPending(task)) {
-              final int stored = storeSlots(task, slots, request.limit, batch);
+              final int stored;
+              if (sorted.isPresent()) {
+                final SortedSlots kept = sortedSlots(task, slots, request.limit);
+                sortedSlots.add(kept);
+                stored = kept.hashes().size();
+              } else {
+                stored = storeSlots(task, slots, request.limit, batch);
+              }
               writeTrie(task, slots, writer);
               final Bytes32 end = coveredEnd(slots.hashes(), !slots.complete(), request.limit);
               covered.add(new Covered(task, end, stored));
@@ -229,6 +263,16 @@ final class StateWriter {
           // the nodes first: if their commit fails, the slots are dropped too
           writer.commit();
         });
+    // the slots of a chunk follow each other, so do those of the first request of a storage
+    sorted.ifPresent(
+        writes ->
+            sortedSlots.forEach(
+                slots ->
+                    writes.storage(
+                        slots.task().accountHash(),
+                        request.chunk != null ? request.chunk : slots.task(),
+                        slots.hashes(),
+                        slots.values())));
     return covered;
   }
 
@@ -247,6 +291,21 @@ final class StateWriter {
       }
     }
     return stored;
+  }
+
+  // the non-zero slots up to the limit
+  private static SortedSlots sortedSlots(
+      final StorageTask task, final StorageRangesRequest.Slots slots, final Bytes32 limit) {
+    final List<Bytes32> hashes = new ArrayList<>();
+    final List<Bytes32> values = new ArrayList<>();
+    for (int i = 0; i < slots.hashes().size() && slots.hashes().get(i).compareTo(limit) <= 0; i++) {
+      final Bytes32 value = Bytes32.leftPad(RLP.decodeOne(slots.values().get(i)));
+      if (!value.isZero()) {
+        hashes.add(slots.hashes().get(i));
+        values.add(value);
+      }
+    }
+    return new SortedSlots(task, hashes, values);
   }
 
   // whether no key is left up to the limit; the last key returned may lie past it
@@ -291,6 +350,8 @@ final class StateWriter {
         slotsWritten.addAndGet(range.slots());
       }
       if (outcome == COMPLETED) {
+        // its slots can go into the sorted files once those of the accounts before it are in
+        storage.sortedWrites().ifPresent(writes -> writes.storageComplete(task.accountHash()));
         coverage.removeStorageTask(task);
         completed.add(task);
       }

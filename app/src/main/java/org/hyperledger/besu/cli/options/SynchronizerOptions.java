@@ -91,6 +91,9 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private static final String SNAP_TRANSACTION_INDEXING_ENABLED_FLAG =
       "--snapsync-synchronizer-transaction-indexing-enabled";
   private static final String SNAP2_BACKFILL_ENABLED_FLAG = "--Xsnap2-backfill-enabled";
+  private static final String SNAP2_SORTED_INGEST_ENABLED_FLAG = "--Xsnap2-sorted-ingest-enabled";
+  private static final String SNAP2_SORTED_INGEST_TRIE_HELD_BACK_FLAG =
+      "--Xsnap2-sorted-ingest-trie-held-back";
 
   private static final String SNAP_FLAT_ACCOUNT_HEALED_COUNT_PER_REQUEST_FLAG =
       "--Xsnapsync-synchronizer-flat-account-healed-count-per-request";
@@ -421,6 +424,28 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
           "From the lowest block whose body a SNAP2 sync stored, download in the background the bodies and receipts of the blocks below it, down to the block above the checkpoint, or above genesis without one, and never below the blocks the chain pruner keeps. Turned off, the node only stores those of the blocks the sync downloaded and of the blocks it imports. (default: ${DEFAULT-VALUE})")
   private Boolean snap2BackfillEnabled = SnapSyncConfiguration.DEFAULT_SNAP2_BACKFILL_ENABLED;
 
+  @CommandLine.Option(
+      names = {SNAP2_SORTED_INGEST_ENABLED_FLAG},
+      hidden = true,
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      fallbackValue = "true",
+      description =
+          "Write the state downloaded by the SNAP2 sync as sorted files that the storage keeps as they are, instead of through its regular write path. Needs Bonsai. (default: ${DEFAULT-VALUE})")
+  private Boolean snap2SortedIngestEnabled =
+      SnapSyncConfiguration.DEFAULT_SNAP2_SORTED_INGEST_ENABLED;
+
+  @CommandLine.Option(
+      names = {SNAP2_SORTED_INGEST_TRIE_HELD_BACK_FLAG},
+      hidden = true,
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      fallbackValue = "true",
+      description =
+          "With the sorted ingest, hold back the compaction of the trie node segment too until the sync is complete. (default: ${DEFAULT-VALUE})")
+  private Boolean snap2SortedIngestTrieHeldBack =
+      SnapSyncConfiguration.DEFAULT_SNAP2_SORTED_INGEST_TRIE_HELD_BACK;
+
   /**
    * @deprecated No longer used. Accepted for backwards compatibility. The flag will be removed in a
    *     future release.
@@ -553,6 +578,10 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.snapTransactionIndexingEnabled =
         config.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled();
     options.snap2BackfillEnabled = config.getSnapSyncConfiguration().isSnap2BackfillEnabled();
+    options.snap2SortedIngestEnabled =
+        config.getSnapSyncConfiguration().isSnap2SortedIngestEnabled();
+    options.snap2SortedIngestTrieHeldBack =
+        config.getSnapSyncConfiguration().isSnap2SortedIngestTrieHeldBack();
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
@@ -599,6 +628,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             .maxConcurrentSnapRequestsGlobal(snapsyncServerMaxConcurrentRequests)
             .isSnapSyncTransactionIndexingEnabled(snapTransactionIndexingEnabled)
             .isSnap2BackfillEnabled(snap2BackfillEnabled)
+            .isSnap2SortedIngestEnabled(snap2SortedIngestEnabled)
+            .isSnap2SortedIngestTrieHeldBack(snap2SortedIngestTrieHeldBack)
             .build());
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);
     builder.backwardHeadersDownloadStepTimeoutMillis(backwardHeadersDownloadStepTimeoutMillis);
@@ -678,6 +709,10 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(snapTransactionIndexingEnabled),
             SNAP2_BACKFILL_ENABLED_FLAG,
             OptionParser.format(snap2BackfillEnabled),
+            SNAP2_SORTED_INGEST_ENABLED_FLAG,
+            OptionParser.format(snap2SortedIngestEnabled),
+            SNAP2_SORTED_INGEST_TRIE_HELD_BACK_FLAG,
+            OptionParser.format(snap2SortedIngestTrieHeldBack),
             ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
             OptionParser.format(era1ImportPrepipelineEnabled),
             ERA1_DATA_URI_FLAG,

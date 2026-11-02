@@ -216,6 +216,13 @@ public final class StateSync {
         () -> {
           RangeManager.generateAllRanges(settings.accountChunks())
               .forEach((from, to) -> accountTasks.add(new RangeTask(from, to)));
+          storage
+              .sortedWrites()
+              .ifPresent(
+                  sorted ->
+                      sorted.start(
+                          accountTasks.stream().map(task -> task.limit).toList(),
+                          hash -> coverage.storageTask(hash) != null));
           LOG.info(
               "SNAP2 state download started at {} | {} account ranges",
               ProgressFormat.block(pivotHeader.getNumber()),
@@ -400,6 +407,8 @@ public final class StateSync {
       if (stopped) {
         throw new IllegalStateException("state download stopped");
       }
+      // a sorted file stored after the write, or a read before it is stored, would miss it
+      storage.sortedWrites().ifPresent(SyncStateStorage.SortedWrites::flush);
       return write.get();
     } finally {
       lock.writeLock().unlock();
@@ -427,6 +436,7 @@ public final class StateSync {
     // the requests the scheduler still holds no longer go out, before the wait for the updates
     submitted.forEach(request -> request.cancel(false));
     trieUpdater.stop();
+    storage.sortedWrites().ifPresent(SyncStateStorage.SortedWrites::close);
     // last, as a callback may start a new download
     completion.completeExceptionally(cause);
   }
@@ -655,7 +665,8 @@ public final class StateSync {
             chunk.next,
             chunk.limit,
             settings.responseBytes(),
-            "storage_chunk");
+            "storage_chunk",
+            chunk);
     sendStorage(request, written -> afterChunk(chunk, written));
   }
 
@@ -870,6 +881,8 @@ public final class StateSync {
   }
 
   private void complete() {
+    // the final build reads what was written
+    storage.sortedWrites().ifPresent(SyncStateStorage.SortedWrites::flush);
     LOG.info(
         "SNAP2 state download complete at {} in {} | accounts {} | slots {} | bytecodes {}"
             + " | storage tries {} built, {} left to the final build",

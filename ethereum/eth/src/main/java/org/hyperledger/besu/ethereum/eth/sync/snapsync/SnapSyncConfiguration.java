@@ -72,6 +72,8 @@ public class SnapSyncConfiguration {
   public static final Boolean DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED = Boolean.FALSE;
   public static final Boolean DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED = Boolean.TRUE;
   public static final Boolean DEFAULT_SNAP2_BACKFILL_ENABLED = Boolean.TRUE;
+  public static final Boolean DEFAULT_SNAP2_SORTED_INGEST_ENABLED = Boolean.FALSE;
+  public static final Boolean DEFAULT_SNAP2_SORTED_INGEST_TRIE_HELD_BACK = Boolean.TRUE;
 
   public static SnapSyncConfiguration getDefault() {
     return ImmutableSnapSyncConfiguration.builder().build();
@@ -135,5 +137,26 @@ public class SnapSyncConfiguration {
   @Value.Default
   public Boolean isSnap2BackfillEnabled() {
     return DEFAULT_SNAP2_BACKFILL_ENABLED;
+  }
+
+  /**
+   * Whether the SNAP2 sync writes the downloaded accounts and slots as sorted files, with the
+   * compaction of the state segments held back until the sync is complete.
+   *
+   * @return whether the state is written as sorted files
+   */
+  @Value.Default
+  public Boolean isSnap2SortedIngestEnabled() {
+    return DEFAULT_SNAP2_SORTED_INGEST_ENABLED;
+  }
+
+  /**
+   * Whether the sorted ingest also holds back the compaction of the trie node segment.
+   *
+   * @return whether the trie node segment waits too
+   */
+  @Value.Default
+  public Boolean isSnap2SortedIngestTrieHeldBack() {
+    return DEFAULT_SNAP2_SORTED_INGEST_TRIE_HELD_BACK;
   }
 }
