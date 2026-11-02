@@ -230,7 +230,17 @@ public abstract class BaseBftController implements BftEventHandler {
   private void startNewHeightManager(final BlockHeader parentHeader) {
     createNewHeightManager(parentHeader);
     final long newChainHeight = getCurrentHeightManager().getChainHeight();
-    futureMessageBuffer.retrieveMessagesForHeight(newChainHeight).forEach(this::handleMessage);
+    // one buffered message that fails must not drop the ones after it for this height
+    futureMessageBuffer
+        .retrieveMessagesForHeight(newChainHeight)
+        .forEach(
+            msg -> {
+              try {
+                handleMessage(msg);
+              } catch (final Exception e) {
+                LOG.debug("Failed to process future message", e);
+              }
+            });
   }
 
   private boolean processMessage(final BftMessage<?> msg, final Message rawMsg) {

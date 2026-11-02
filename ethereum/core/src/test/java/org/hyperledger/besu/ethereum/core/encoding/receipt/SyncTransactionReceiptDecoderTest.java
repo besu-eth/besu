@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.core.encoding.receipt;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
@@ -24,16 +26,20 @@ import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
+import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 public class SyncTransactionReceiptDecoderTest {
@@ -249,8 +255,8 @@ public class SyncTransactionReceiptDecoderTest {
    * The eth/69 type field is peer-supplied and was taken verbatim. That matters because {@code
    * SyncTransactionReceiptEncoder.encodeForRootCalculation} treats both {@code 0x00} and {@code
    * 0xf8} as "legacy" and drops the prefix — so a value like {@code 0xf8}, which is not a
-   * transaction type at all but the RLP long-list prefix, would make a receipt hash as legacy for
-   * the receipts-root check while being stored with the bogus byte.
+   * transaction type at all but the RLP long-list prefix, would be silently reinterpreted as legacy
+   * instead of being rejected as malformed.
    */
   @ParameterizedTest(name = "eth/69 type field {0}")
   @ValueSource(ints = {0x05, 0x06, 0x7f, 0xc0, 0xf8, 0xfe, 0xff})
@@ -287,5 +293,153 @@ public class SyncTransactionReceiptDecoderTest {
 
     Assertions.assertEquals(
         Bytes.of(txType.getEthSerializedType()), decoded.getTransactionTypeCode());
+  }
+
+  private static final Bytes TRAILING = Bytes.fromHexString("0x8302beef");
+
+  private static final List<Log> ONE_LOG =
+      List.of(
+          new Log(
+              Address.fromHexString("03"),
+              Bytes.fromHexStringLenient("04"),
+              List.of(LogTopic.fromHexString("05"))));
+
+  private static void writeOneLog(final RLPOutput out) {
+    out.startList(); // logs
+    out.startList(); // one log: address, topics, data
+    out.writeBytes(Address.fromHexString("03").getBytes());
+    out.startList();
+    out.writeBytes(LogTopic.fromHexString("05").getBytes());
+    out.endList();
+    out.writeBytes(Bytes.fromHexStringLenient("04"));
+    out.endList();
+    out.endList();
+  }
+
+  /** The compacted fields every shape below shares: status, cumulative gas used and logs. */
+  private static Bytes compactedList(final Optional<Bytes> leadingTypeField, final boolean extra) {
+    return RLP.encode(
+        (out) -> {
+          out.startList();
+          leadingTypeField.ifPresent(out::writeBytes);
+          out.writeBytes(Bytes.of(1));
+          out.writeLongScalar(2);
+          writeOneLog(out);
+          if (extra) {
+            out.writeRLPBytes(TRAILING);
+          }
+          out.endList();
+        });
+  }
+
+  private static Bytes eth69Receipt(final Bytes typeField, final boolean extraField) {
+    return compactedList(Optional.of(typeField), extraField);
+  }
+
+  private static Bytes compactedLegacyReceipt(final boolean extraField) {
+    return compactedList(Optional.empty(), extraField);
+  }
+
+  /** {@code type || rlp(list)}, the payload {@code ReceiptsMessage} hands the decoder. */
+  private static Bytes compactedTypedReceipt(final boolean extraField) {
+    return Bytes.concatenate(
+        Bytes.of(TransactionType.EIP1559.getSerializedType()),
+        compactedList(Optional.empty(), extraField));
+  }
+
+  private static Bytes withTrailingBytes(final Bytes receipt) {
+    return Bytes.concatenate(receipt, TRAILING);
+  }
+
+  private static Bytes asRlpString(final Bytes payload) {
+    return RLP.encode((out) -> out.writeBytes(payload));
+  }
+
+  /** What every compacted shape below must be stored as: the canonical eth/69 encoding. */
+  private static Bytes canonicalEth69(final TransactionType type) {
+    final TransactionReceipt receipt =
+        new TransactionReceipt(type, 1, 2, ONE_LOG, Optional.empty());
+    return RLP.encode(
+        (out) ->
+            TransactionReceiptEncoder.writeTo(
+                receipt, out, TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION));
+  }
+
+  /**
+   * A peer receipt carrying anything past its last field is malformed and must be refused, with the
+   * error coming from the end-of-receipt checks rather than from some other parse failure.
+   */
+  static Stream<Arguments> compactedReceiptsWithTrailingData() {
+    final String notAtEndOfList = "Not at the end of the current list";
+    return Stream.of(
+        Arguments.of("eth/69 legacy, extra field", eth69Receipt(Bytes.EMPTY, true), notAtEndOfList),
+        Arguments.of(
+            "eth/69 typed, extra field",
+            eth69Receipt(Bytes.of(TransactionType.EIP1559.getSerializedType()), true),
+            notAtEndOfList),
+        Arguments.of("compacted legacy, extra field", compactedLegacyReceipt(true), notAtEndOfList),
+        Arguments.of("compacted typed, extra field", compactedTypedReceipt(true), notAtEndOfList),
+        Arguments.of(
+            "compacted typed, bytes after the list",
+            withTrailingBytes(compactedTypedReceipt(false)),
+            "Unexpected trailing data after receipt"),
+        Arguments.of(
+            "compacted typed in an RLP string, bytes after the string",
+            withTrailingBytes(asRlpString(compactedTypedReceipt(false))),
+            "Unexpected trailing data after receipt"),
+        Arguments.of(
+            "compacted typed in an RLP string, bytes inside the string after the list",
+            asRlpString(withTrailingBytes(compactedTypedReceipt(false))),
+            "Input has extra data after RLP encoding"));
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("compactedReceiptsWithTrailingData")
+  public void compactedReceiptWithTrailingDataIsRejected(
+      final String description, final Bytes encodedReceipt, final String expectedMessage) {
+    final RLPException e =
+        Assertions.assertThrows(
+            RLPException.class, () -> syncTransactionReceiptDecoder.decode(encodedReceipt));
+    assertThat(e).hasMessageContaining(expectedMessage);
+  }
+
+  static Stream<Arguments> compactedReceipts() {
+    return Stream.of(
+        Arguments.of("eth/69 legacy", eth69Receipt(Bytes.EMPTY, false), TransactionType.FRONTIER),
+        Arguments.of(
+            "eth/69 legacy, non-canonical 0x00 type field",
+            eth69Receipt(Bytes.of(0), false),
+            TransactionType.FRONTIER),
+        Arguments.of(
+            "eth/69 typed",
+            eth69Receipt(Bytes.of(TransactionType.EIP1559.getSerializedType()), false),
+            TransactionType.EIP1559),
+        Arguments.of("compacted legacy", compactedLegacyReceipt(false), TransactionType.FRONTIER),
+        Arguments.of("compacted typed", compactedTypedReceipt(false), TransactionType.EIP1559),
+        Arguments.of(
+            "compacted typed in an RLP string",
+            asRlpString(compactedTypedReceipt(false)),
+            TransactionType.EIP1559));
+  }
+
+  /**
+   * A compacted receipt is checked against the receipts root through its parsed fields, so it must
+   * be stored as those fields re-encoded, never as the bytes the peer sent: every accepted shape
+   * comes out as the canonical eth/69 encoding, and reads back from storage as the receipt the root
+   * covered, with no revert reason.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("compactedReceipts")
+  public void compactedReceiptIsStoredAsItsCanonicalReEncoding(
+      final String description, final Bytes encodedReceipt, final TransactionType type) {
+    final SyncTransactionReceipt decoded = syncTransactionReceiptDecoder.decode(encodedReceipt);
+
+    assertThat(decoded.isFormattedForRootCalculation()).isFalse();
+    assertThat(decoded.getRlpBytes()).isEqualTo(canonicalEth69(type));
+    final TransactionReceipt stored =
+        TransactionReceiptDecoder.readFrom(RLP.input(decoded.getRlpBytes()), true);
+    assertThat(stored).isEqualTo(new TransactionReceipt(type, 1, 2, ONE_LOG, Optional.empty()));
+    assertThat(stored.getTransactionType()).isEqualTo(type);
+    assertThat(stored.getRevertReason()).isEmpty();
   }
 }
