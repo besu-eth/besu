@@ -15,6 +15,8 @@
 package org.hyperledger.besu.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.cli.util.CommandLineUtils.DEPENDENCY_WARNING_MSG;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -108,6 +110,46 @@ public class CommandLineUtilsTest {
       CommandLineUtils.checkOptionDependencies(
           logger, commandLine, "--option-enabled", !optionEnabled, new ArrayList<>());
     }
+  }
+
+  private static class TestCommandWithExclusiveOptions extends AbstractTestCommand {
+
+    TestCommandWithExclusiveOptions(final Logger logger) {
+      super(logger);
+    }
+
+    @Override
+    public void run() {
+      CommandLineUtils.failIfOptionsUsedTogether(commandLine, "--option2", "--option3");
+    }
+  }
+
+  @Test
+  public void optionsUsedTogetherMustFail() {
+    final AbstractTestCommand testCommand = new TestCommandWithExclusiveOptions(mockLogger);
+    testCommand.commandLine.parseArgs("--option2", "20", "--option3", "30");
+
+    assertThatThrownBy(testCommand::run)
+        .isInstanceOf(CommandLine.ParameterException.class)
+        .hasMessage("--option2 option and --option3 option can't be used at the same time.");
+  }
+
+  @Test
+  public void optionUsedAloneIsAccepted() {
+    final AbstractTestCommand testCommand = new TestCommandWithExclusiveOptions(mockLogger);
+    testCommand.commandLine.parseArgs("--option2", "20", "--option4", "40");
+
+    assertThatCode(testCommand::run).doesNotThrowAnyException();
+  }
+
+  @Test
+  public void optionsUsedTogetherFromDefaultValueProviderAreAccepted() {
+    final AbstractTestCommand testCommand = new TestCommandWithExclusiveOptions(mockLogger);
+    testCommand.environment.put("BESU_OPTION3", "30");
+    testCommand.commandLine.parseArgs("--option2", "20");
+
+    assertThatCode(testCommand::run).doesNotThrowAnyException();
+    assertThat(testCommand.option3).isEqualTo(30);
   }
 
   @Test
