@@ -19,22 +19,32 @@ import org.hyperledger.besu.plugin.services.storage.SegmentBulkLoad;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.CompactionOptions;
+import org.rocksdb.LevelMetaData;
 import org.rocksdb.MutableColumnFamilyOptions;
 import org.rocksdb.MutableDBOptions;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.SstFileMetaData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,6 +69,12 @@ import org.slf4j.LoggerFactory;
  * <p>A column family can be let go before the others, when it is read much before the load ends and
  * its regular writes piled up in level 0, where a read checks every file.
  *
+ * <p>Only the small files of the bottom level are merged, in the background once level 0 of their
+ * column family is merged down. RocksDB never rewrites a file there on its own, and a load that
+ * ends many files early leaves thousands of them, which a regular write of the same entries would
+ * not have. A small file that has no small neighbour is merged with the smaller of its neighbours,
+ * so that no file of less than a quarter of the target size stays behind.
+ *
  * <p>The column families of large values written in no particular key order keep compacting, but
  * put their values in blob files until the load is closed. Each compaction on the way to the bottom
  * level would otherwise rewrite the values along with their keys. Their compaction is not held back
@@ -74,6 +90,11 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
   private static final int NO_LEVEL0_LIMIT = Integer.MAX_VALUE;
   private static final long NO_PENDING_COMPACTION_LIMIT = 0;
   private static final long LEVEL0_POLL_MILLIS = 500;
+  // a file of less than this share of the target size counts as small
+  private static final int SMALL_FILE_SHARE = 4;
+  // the most target sizes of small files merged in one go
+  private static final int MAX_MERGE_TARGETS = 8;
+  private static final int MERGE_THREADS = 4;
   // the buffers of a thousand files in level 0 then take 256 MB, against 2 GB at RocksDB's default
   private static final long DRAIN_READAHEAD_BYTES = 256 * 1024;
   // the merge of a level 0 is one compaction that keeps its thread until it is done, which can take
@@ -88,6 +109,8 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
   private final AtomicBoolean closed = new AtomicBoolean(false);
   // the segments whose level 0 is still merged down with its limits lifted
   private final List<Draining> draining = new ArrayList<>();
+  // the segments whose small files are merged once their level 0 is merged down
+  private final List<SegmentIdentifier> toMerge = new ArrayList<>();
   // the segments let go before the load was closed
   private final Set<SegmentIdentifier> ended = ConcurrentHashMap.newKeySet();
   private final AtomicInteger drainsRunning = new AtomicInteger();
@@ -102,6 +125,10 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
       long softPendingLimit,
       long hardPendingLimit,
       long startNanos) {}
+
+  /** Files of the bottom level merged in one go, and the size of the files written. */
+  @VisibleForTesting
+  record Merge(List<SstFileMetaData> files, long outputFileBytes) {}
 
   RocksDBSegmentBulkLoad(
       final RocksDBColumnarKeyValueStorage storage,
@@ -149,6 +176,7 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
       }
       try {
         resumeCompaction(segment).ifPresent(draining::add);
+        toMerge.add(segment);
       } catch (final RuntimeException e) {
         if (storage.isClosed()) {
           return;
@@ -333,9 +361,10 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
             || pendingCompactionBytes(segment) < softPendingLimit);
   }
 
-  // puts the limits of each segment back once its level 0 is merged down
+  // puts the limits of each segment back once its level 0 is merged down, and merges its small
+  // files then
   private void startBackgroundWork() {
-    if (draining.isEmpty()) {
+    if (toMerge.isEmpty()) {
       done.countDown();
       return;
     }
@@ -348,17 +377,31 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
   }
 
   private void runBackgroundWork() {
+    final ExecutorService workers =
+        Executors.newFixedThreadPool(
+            MERGE_THREADS,
+            Thread.ofPlatform().daemon().name("rocksdb-small-file-merge-", 0).factory());
+    final List<Future<?>> merges = new ArrayList<>();
     try {
+      final List<SegmentIdentifier> drainingSegments =
+          draining.stream().map(Draining::segment).toList();
+      for (final SegmentIdentifier segment : toMerge) {
+        if (!drainingSegments.contains(segment)) {
+          merges.add(workers.submit(() -> mergeSmallFiles(segment)));
+        }
+      }
       while (!draining.isEmpty() && !stopping && !storage.isClosed()) {
         for (final Draining segment : List.copyOf(draining)) {
           if (restoreIfDrained(segment)) {
             draining.remove(segment);
+            merges.add(workers.submit(() -> mergeSmallFiles(segment.segment())));
           }
         }
         if (!draining.isEmpty()) {
           Thread.sleep(LEVEL0_POLL_MILLIS);
         }
       }
+      awaitAll(merges);
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
     } catch (final RuntimeException e) {
@@ -366,6 +409,7 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
         LOG.warn("Watching level 0 after the bulk load failed, its limits stay lifted", e);
       }
     } finally {
+      workers.shutdown();
       done.countDown();
     }
   }
@@ -389,7 +433,7 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
     return true;
   }
 
-  // the database waits until the watch has stopped, which uses its column families
+  // the database waits for the merges under way, and no other starts
   private void stopBackgroundWork() {
     stopping = true;
     try {
@@ -401,9 +445,216 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
     }
   }
 
-  /** Returns once the limits of every segment are back, or the storage closed. */
+  /**
+   * Returns once the limits of every segment are back and its small files are merged, or the
+   * storage closed.
+   */
   void awaitBackgroundWork() throws InterruptedException {
     done.await();
+  }
+
+  private void mergeSmallFiles(final SegmentIdentifier segment) {
+    if (stopping || storage.isClosed()) {
+      return;
+    }
+    final ColumnFamilyHandle handle = storage.safeColumnHandle(segment);
+    final LevelMetaData bottom =
+        storage.getDB().getColumnFamilyMetaData(handle).levels().stream()
+            .filter(level -> !level.files().isEmpty())
+            .reduce((a, b) -> b)
+            .orElse(null);
+    if (bottom == null) {
+      return;
+    }
+    final long targetBytes = storage.columnFamilyOptions(segment).targetFileSizeBase();
+    final List<Merge> merges = merges(bottom.files(), targetBytes);
+    if (merges.isEmpty()) {
+      return;
+    }
+    final long start = System.nanoTime();
+    int files = 0;
+    long bytes = 0;
+    int written = 0;
+    for (final Merge merge : merges) {
+      if (stopping || storage.isClosed()) {
+        return;
+      }
+      final int outputs = merge(handle, merge, bottom.level());
+      if (outputs > 0) {
+        files += merge.files().size();
+        bytes += merge.files().stream().mapToLong(SstFileMetaData::size).sum();
+        written += outputs;
+      }
+    }
+    LOG.info(
+        "Merged {} files ({} MB) of the {} segment into {} files in {} s, {} small files left",
+        files,
+        bytes >> 20,
+        segment.getName(),
+        written,
+        TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start),
+        smallFiles(segment, targetBytes));
+  }
+
+  /**
+   * The merges that leave no file of less than a quarter of the target size in the bottom level.
+   *
+   * <p>Neighbouring small files are merged together. Those that are too few to make up a quarter of
+   * the target size, or a small file on its own, take the smaller of their neighbours along. A file
+   * that is being compacted stays as it is and is no neighbour.
+   */
+  @VisibleForTesting
+  static List<Merge> merges(final List<SstFileMetaData> bottomFiles, final long targetBytes) {
+    final long smallBytes = targetBytes / SMALL_FILE_SHARE;
+    final List<SstFileMetaData> files = new ArrayList<>(bottomFiles);
+    files.sort(Comparator.comparing(SstFileMetaData::smallestKey, Arrays::compareUnsigned));
+    final boolean[] taken = new boolean[files.size()];
+    final List<Merge> merges = new ArrayList<>();
+    int i = 0;
+    while (i < files.size()) {
+      if (!isSmall(files.get(i), smallBytes)) {
+        i++;
+        continue;
+      }
+      int end = i;
+      while (end + 1 < files.size() && isSmall(files.get(end + 1), smallBytes)) {
+        end++;
+      }
+      for (final List<Integer> chunk : chunks(files, i, end, targetBytes, smallBytes)) {
+        final List<Integer> merged = new ArrayList<>(chunk);
+        if (bytes(files, merged) < smallBytes || merged.size() == 1) {
+          final int neighbour = smallerNeighbour(files, taken, chunk.getFirst(), chunk.getLast());
+          if (neighbour >= 0) {
+            merged.add(neighbour < chunk.getFirst() ? 0 : merged.size(), neighbour);
+          }
+        }
+        if (merged.size() > 1) {
+          merged.forEach(index -> taken[index] = true);
+          final long total = bytes(files, merged);
+          merges.add(
+              new Merge(
+                  merged.stream().map(files::get).toList(),
+                  outputFileBytes(total, targetBytes, smallBytes)));
+        }
+      }
+      i = end + 1;
+    }
+    return merges;
+  }
+
+  private static boolean isSmall(final SstFileMetaData file, final long smallBytes) {
+    return !file.beingCompacted() && file.size() < smallBytes;
+  }
+
+  // a run of small files in pieces of at most the most merged in one go, the last one large enough
+  // to stand alone unless the run is not
+  private static List<List<Integer>> chunks(
+      final List<SstFileMetaData> files,
+      final int first,
+      final int last,
+      final long targetBytes,
+      final long smallBytes) {
+    final List<List<Integer>> chunks = new ArrayList<>();
+    List<Integer> chunk = new ArrayList<>();
+    long chunkBytes = 0;
+    for (int index = first; index <= last; index++) {
+      chunk.add(index);
+      chunkBytes += files.get(index).size();
+      if (chunkBytes >= MAX_MERGE_TARGETS * targetBytes) {
+        chunks.add(chunk);
+        chunk = new ArrayList<>();
+        chunkBytes = 0;
+      }
+    }
+    if (!chunk.isEmpty()) {
+      if (chunkBytes < smallBytes && !chunks.isEmpty()) {
+        chunks.getLast().addAll(chunk);
+      } else {
+        chunks.add(chunk);
+      }
+    }
+    return chunks;
+  }
+
+  // -1 when neither neighbour can be merged
+  private static int smallerNeighbour(
+      final List<SstFileMetaData> files, final boolean[] taken, final int first, final int last) {
+    final int before = first - 1;
+    final int after = last + 1;
+    final boolean beforeFree = before >= 0 && !taken[before] && !files.get(before).beingCompacted();
+    final boolean afterFree =
+        after < files.size() && !taken[after] && !files.get(after).beingCompacted();
+    if (beforeFree && afterFree) {
+      return files.get(before).size() <= files.get(after).size() ? before : after;
+    }
+    return beforeFree ? before : afterFree ? after : -1;
+  }
+
+  // the files written are as even in size as the count closest to the target size allows, so that
+  // the last one is not small: halfway between the even share and the size that would leave
+  // exactly a small file last
+  @VisibleForTesting
+  static long outputFileBytes(final long total, final long targetBytes, final long smallBytes) {
+    final long count = Math.max(1, Math.round((double) total / targetBytes));
+    if (count == 1) {
+      return 2 * total;
+    }
+    final long even = total / count;
+    final long mostThatLeavesASmallFile = (total - smallBytes) / (count - 1);
+    return (even + mostThatLeavesASmallFile) / 2;
+  }
+
+  private static long bytes(final List<SstFileMetaData> files, final List<Integer> indexes) {
+    return indexes.stream().mapToLong(index -> files.get(index).size()).sum();
+  }
+
+  // returns the number of files written, 0 when RocksDB turned the merge down
+  private int merge(final ColumnFamilyHandle handle, final Merge merge, final int level) {
+    try (CompactionOptions options =
+        new CompactionOptions().setOutputFileSizeLimit(merge.outputFileBytes())) {
+      return storage
+          .getDB()
+          .compactFiles(
+              options,
+              handle,
+              merge.files().stream().map(SstFileMetaData::fileName).toList(),
+              level,
+              -1,
+              null)
+          .size();
+    } catch (final RocksDBException e) {
+      // a compaction that started meanwhile took one of the files
+      LOG.debug("Could not merge {} files: {}", merge.files().size(), e.getMessage());
+      return 0;
+    }
+  }
+
+  private void awaitAll(final List<Future<?>> futures) throws InterruptedException {
+    for (final Future<?> future : futures) {
+      try {
+        future.get();
+      } catch (final ExecutionException e) {
+        if (!storage.isClosed()) {
+          LOG.warn("Merging the small files left by the bulk load failed", e.getCause());
+        }
+      }
+    }
+  }
+
+  private long smallFiles(final SegmentIdentifier segment, final long targetBytes) {
+    return storage
+        .getDB()
+        .getColumnFamilyMetaData(storage.safeColumnHandle(segment))
+        .levels()
+        .stream()
+        .filter(level -> !level.files().isEmpty())
+        .reduce((a, b) -> b)
+        .map(
+            bottom ->
+                bottom.files().stream()
+                    .filter(file -> file.size() < targetBytes / SMALL_FILE_SHARE)
+                    .count())
+        .orElse(0L);
   }
 
   private long level0Files(final SegmentIdentifier segment) {
