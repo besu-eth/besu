@@ -20,8 +20,7 @@ on:
 
 jobs:
   # Scheduled runs skip analysis when nothing compiled has changed since the
-  # last successful scan. Rescanning an unchanged tree is wasted work, and with
-  # every compile task restored from cache CodeQL sees no source and errors out.
+  # last successful scan, to avoid rescanning an unchanged tree.
   changes:
     name: Check for changes
     runs-on: ubuntu-latest
