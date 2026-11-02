@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -71,6 +72,23 @@ public interface SyncStateStorage {
 
   /** Creates a writer of trie nodes, not shared between threads. */
   TrieWriter trieWriter();
+
+  /**
+   * Creates the trie node writer of one partition of the final build, whose accounts come in key
+   * order, so that it can write sorted files; not shared between threads.
+   */
+  default TrieWriter partitionTrieWriter() {
+    return trieWriter();
+  }
+
+  /**
+   * Gets the storage ready for the reads of the final build, once the state is downloaded.
+   *
+   * @return completes once it is ready; cancelling it only stops the wait
+   */
+  default CompletableFuture<Void> prepareTrieBuild() {
+    return CompletableFuture.completedFuture(null);
+  }
 
   /** Records the world state root and the block it belongs to, once every node is written. */
   void saveWorldState(BlockHeader header, Bytes rootNode);
