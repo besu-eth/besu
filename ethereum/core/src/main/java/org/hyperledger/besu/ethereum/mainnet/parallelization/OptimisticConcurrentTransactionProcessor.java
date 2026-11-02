@@ -115,6 +115,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               miningBeneficiary,
               new OperationTracer() {
                 @Override
+                public boolean tracesOperations() {
+                  return false;
+                }
+
+                @Override
                 public void traceBeforeRewardTransaction(
                     final WorldView worldView,
                     final org.hyperledger.besu.datatypes.Transaction tx,

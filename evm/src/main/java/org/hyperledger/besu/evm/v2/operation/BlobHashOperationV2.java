@@ -18,16 +18,19 @@ import static org.hyperledger.besu.evm.v2.operation.StackUtil.setHash;
 import static org.hyperledger.besu.evm.v2.operation.StackUtil.setZero;
 
 import org.hyperledger.besu.datatypes.VersionedHash;
+import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import java.util.List;
 
 /** The Blob hash operation. */
-public class BlobHashOperationV2 extends AbstractFixedCostOperationV2 {
+public class BlobHashOperationV2 extends AbstractOperationV2 {
 
   /** The BLOBHASH opcode number. */
   public static final int OPCODE = 0x49;
+
+  private final OperationResult successResponse;
 
   /**
    * Instantiates a new Blob hash operation.
@@ -35,11 +38,13 @@ public class BlobHashOperationV2 extends AbstractFixedCostOperationV2 {
    * @param gasCalculator the gas calculator
    */
   public BlobHashOperationV2(final GasCalculator gasCalculator) {
-    super(OPCODE, "BLOBHASH", 1, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
+    super(OPCODE, "BLOBHASH", 1, 1, gasCalculator);
+    successResponse = new OperationResult(gasCalculator.getVeryLowTierGasCost(), null);
   }
 
   @Override
-  public OperationResult executeFixedCostOperation(final MessageFrame frame) {
+  public OperationResult execute(final MessageFrame frame, final EVM evm) {
+    // like v1, it leaves the gas check to the interpreter loop, after the operation has run
     if (!frame.stackHasItemsV2(1)) return UNDERFLOW_RESPONSE;
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();

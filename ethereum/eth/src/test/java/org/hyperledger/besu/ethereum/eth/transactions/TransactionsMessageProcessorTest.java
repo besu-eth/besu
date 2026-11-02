@@ -22,6 +22,7 @@ import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -162,6 +163,25 @@ public class TransactionsMessageProcessorTest {
     verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     verifyNoInteractions(transactionPool);
     verifyNoInteractions(transactionTracker);
+  }
+
+  @Test
+  public void shouldAcceptMessageWithExactlyMaxTransactions() {
+    final int maxPerMessage = 2;
+    final TransactionsMessageProcessor strictHandler =
+        new TransactionsMessageProcessor(
+            transactionTracker,
+            transactionPool,
+            new TransactionPoolMetrics(metricsSystem),
+            maxPerMessage);
+    when(transactionTracker.receivedTransactions(peer1, asList(transaction1, transaction2)))
+        .thenReturn(asList(transaction1, transaction2));
+
+    strictHandler.processTransactionsMessage(
+        peer1, TransactionsMessage.create(asList(transaction1, transaction2)), now(), ofMinutes(1));
+
+    verify(transactionPool).addRemoteTransactions(asList(transaction1, transaction2));
+    verify(peer1, never()).disconnect(any());
   }
 
   @Test

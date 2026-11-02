@@ -24,6 +24,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRem
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.REPLACED;
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.TIMED_EVICTION;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -68,6 +69,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 public abstract class AbstractPendingTransactionsTestBase {
 
@@ -250,15 +252,28 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   @Test
   public void shouldStartDroppingLocalTransactionsWhenPoolIsFullOfLocalTransactions() {
-    Transaction lastLocalTransactionForSender = null;
-
-    for (int i = 0; i <= MAX_TRANSACTIONS; i++) {
-      lastLocalTransactionForSender = createTransaction(i);
-      transactions.addTransaction(
-          createLocalPendingTransaction(lastLocalTransactionForSender), Optional.empty());
+    final List<Transaction> localTransactions = new ArrayList<>(MAX_TRANSACTIONS);
+    for (int i = 0; i < MAX_TRANSACTIONS; i++) {
+      final Transaction localTransaction = createTransaction(i);
+      localTransactions.add(localTransaction);
+      assertThat(
+              transactions.addTransaction(
+                  createLocalPendingTransaction(localTransaction), Optional.empty()))
+          .isEqualTo(ADDED);
     }
+
+    // use another sender, so the tx is not rejected for having a nonce too far in the future, and
+    // the same gas price, so the newest tx is the least priority one
+    final Transaction lastLocalTransaction = transactionWithNonceSenderAndGasPrice(0, KEYS2, 0L);
+    assertThat(
+            transactions.addTransaction(
+                createLocalPendingTransaction(lastLocalTransaction), Optional.empty()))
+        .isEqualTo(ADDED);
+
     assertThat(transactions.size()).isEqualTo(MAX_TRANSACTIONS);
-    assertTransactionNotPending(lastLocalTransactionForSender);
+    localTransactions.forEach(this::assertTransactionPending);
+    assertTransactionNotPending(lastLocalTransaction);
+    assertThat(metricsSystem.getCounterValue(REMOVED_COUNTER, LOCAL, DROPPED)).isEqualTo(1);
   }
 
   @Test
@@ -347,6 +362,69 @@ public abstract class AbstractPendingTransactionsTestBase {
     transactions.transactionAddedToBlock(transaction1);
 
     verifyNoInteractions(droppedListener);
+  }
+
+  @Test
+  public void shouldNotifyAddedBeforeDroppedWhenAddedTransactionIsEvicted() {
+    for (int i = 0; i < MAX_TRANSACTIONS; i++) {
+      transactions.addTransaction(
+          createRemotePendingTransaction(transactionWithNonceSenderAndGasPrice(i, KEYS1, 10L)),
+          Optional.empty());
+    }
+
+    transactionEventNotifier.subscribePendingTransactionAdded(listener);
+    transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
+
+    // the pool is full and the added tx is the least priority one, so it evicts itself
+    final Transaction evictedOnAdd = transactionWithNonceSenderAndGasPrice(0, KEYS2, 1L);
+    assertThat(
+            transactions.addTransaction(
+                createRemotePendingTransaction(evictedOnAdd), Optional.empty()))
+        .isEqualTo(ADDED);
+    assertTransactionNotPending(evictedOnAdd);
+
+    final InOrder inOrder = inOrder(listener, droppedListener);
+    inOrder.verify(listener).onTransactionAdded(evictedOnAdd);
+    inOrder.verify(droppedListener).onTransactionDropped(evictedOnAdd, EVICTED);
+    verifyNoMoreInteractions(listener, droppedListener);
+
+    assertThat(metricsSystem.getCounterValue(ADDED_COUNTER, REMOTE))
+        .isEqualTo(MAX_TRANSACTIONS + 1);
+    assertThat(metricsSystem.getCounterValue(REMOVED_COUNTER, REMOTE, DROPPED)).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldNotNotifyDroppedListenerWhenTransactionAlreadyRemoved() {
+    final PendingTransaction pendingTransaction1 = createRemotePendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
+
+    transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
+
+    transactions.removeTransaction(pendingTransaction1, REPLACED);
+    transactions.removeTransaction(pendingTransaction1, TIMED_EVICTION);
+
+    verify(droppedListener).onTransactionDropped(transaction1, REPLACED);
+    verifyNoMoreInteractions(droppedListener);
+    assertThat(metricsSystem.getCounterValue(REMOVED_COUNTER, REMOTE, DROPPED)).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldNotRemoveTransactionAddedAgainWhenRemovingItsPreviousPendingTransaction() {
+    final PendingTransaction pendingTransaction1 = createRemotePendingTransaction(transaction1);
+    transactions.addTransaction(pendingTransaction1, Optional.empty());
+    transactions.removeTransaction(pendingTransaction1, EVICTED);
+
+    final PendingTransaction addedAgain = createRemotePendingTransaction(transaction1);
+    transactions.addTransaction(addedAgain, Optional.empty());
+
+    transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
+
+    // like a timed eviction that found the previous pending tx before it was removed
+    transactions.removeTransaction(pendingTransaction1, TIMED_EVICTION);
+
+    assertTransactionPending(transaction1);
+    verifyNoInteractions(droppedListener);
+    assertThat(metricsSystem.getCounterValue(REMOVED_COUNTER, REMOTE, DROPPED)).isEqualTo(1);
   }
 
   @Test

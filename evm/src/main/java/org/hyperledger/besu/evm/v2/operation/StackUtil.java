@@ -33,7 +33,7 @@ import org.jspecify.annotations.Nullable;
  * where u3 is the most-significant limb. This class has a default modifier (package-private)
  * because it shouldn't be used outside the EVM operations
  */
-final class StackUtil {
+public final class StackUtil {
 
   private static final VarHandle LONG_BE =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
@@ -185,6 +185,163 @@ final class StackUtil {
     LONG_BE.set(bytes, 4, stack[off + 2]);
     LONG_BE.set(bytes, 12, stack[off + 3]);
     return Address.wrap(Bytes.wrap(bytes));
+  }
+
+  /**
+   * Writes a value of up to 32 bytes as a right-aligned 256-bit word at the given stack slot. A
+   * {@code null} value is written as a zero word.
+   *
+   * @param value the value to write, at most 32 bytes, or {@code null} for zero
+   * @param stack the flat limb array
+   * @param top the slot index to write to
+   */
+  static void setBytes(final @Nullable Bytes value, final long[] stack, final int top) {
+    if (value == null) {
+      setZero(stack, top);
+    } else if (value.size() == Bytes32.SIZE) {
+      setBytes32(Bytes32.wrap(value), stack, top);
+    } else {
+      setBytes32(Bytes32.leftPad(value), stack, top);
+    }
+  }
+
+  /**
+   * Reads the 256-bit word at the given depth below the top of the stack as 32 big-endian bytes.
+   *
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @param depth 0 for the topmost item, 1 for the item below, etc.
+   * @return the word as 32 bytes
+   */
+  public static Bytes32 readBytes32At(final long[] stack, final int top, final int depth) {
+    final int off = (top - 1 - depth) << 2;
+    final byte[] bytes = new byte[32];
+    LONG_BE.set(bytes, 0, stack[off]);
+    LONG_BE.set(bytes, 8, stack[off + 1]);
+    LONG_BE.set(bytes, 16, stack[off + 2]);
+    LONG_BE.set(bytes, 24, stack[off + 3]);
+    return Bytes32.wrap(bytes);
+  }
+
+  /**
+   * Returns whether the 256-bit word at the given depth below the top of the stack equals the given
+   * 32 big-endian bytes.
+   *
+   * @param bytes the bytes to compare with
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @param depth 0 for the topmost item, 1 for the item below, etc.
+   * @return true if the word equals the bytes
+   */
+  public static boolean wordEquals(
+      final Bytes32 bytes, final long[] stack, final int top, final int depth) {
+    final int off = (top - 1 - depth) << 2;
+    final byte[] array = bytes.toArrayUnsafe();
+    return (long) LONG_BE.get(array, 0) == stack[off]
+        && (long) LONG_BE.get(array, 8) == stack[off + 1]
+        && (long) LONG_BE.get(array, 16) == stack[off + 2]
+        && (long) LONG_BE.get(array, 24) == stack[off + 3];
+  }
+
+  /**
+   * Reads the 256-bit word at the given depth below the top of the stack as a {@link Wei} value.
+   *
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @param depth 0 for the topmost item, 1 for the item below, etc.
+   * @return the word as a Wei value
+   */
+  static Wei readWeiAt(final long[] stack, final int top, final int depth) {
+    return Wei.wrap(readBytes32At(stack, top, depth));
+  }
+
+  /**
+   * Returns whether the 256-bit word at the given depth below the top of the stack is zero.
+   *
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @param depth 0 for the topmost item, 1 for the item below, etc.
+   * @return true if all four limbs are zero
+   */
+  static boolean isZeroAt(final long[] stack, final int top, final int depth) {
+    final int off = (top - 1 - depth) << 2;
+    return (stack[off] | stack[off + 1] | stack[off + 2] | stack[off + 3]) == 0;
+  }
+
+  /**
+   * Reads the 256-bit word at the given depth below the top of the stack as a non-negative {@code
+   * long}, clamping every value that does not fit to {@link Long#MAX_VALUE}, as {@code
+   * Words.clampedToLong} does for the v1 stack.
+   *
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @param depth 0 for the topmost item, 1 for the item below, etc.
+   * @return the word as a long, or {@link Long#MAX_VALUE} if it does not fit
+   */
+  static long readClampedLongAt(final long[] stack, final int top, final int depth) {
+    final int off = (top - 1 - depth) << 2;
+    final long u0 = stack[off + 3];
+    if (u0 < 0 || (stack[off] | stack[off + 1] | stack[off + 2]) != 0) {
+      return Long.MAX_VALUE;
+    }
+    return u0;
+  }
+
+  /**
+   * Reads the 256-bit word at the given depth below the top of the stack as a non-negative {@code
+   * int}, clamping every value that does not fit to {@link Integer#MAX_VALUE}, as {@code
+   * Words.clampedToInt} does for the v1 stack.
+   *
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @param depth 0 for the topmost item, 1 for the item below, etc.
+   * @return the word as an int, or {@link Integer#MAX_VALUE} if it does not fit
+   */
+  static int readClampedIntAt(final long[] stack, final int top, final int depth) {
+    final int off = (top - 1 - depth) << 2;
+    final long u0 = stack[off + 3];
+    if ((u0 >>> 31) != 0 || (stack[off] | stack[off + 1] | stack[off + 2]) != 0) {
+      return Integer.MAX_VALUE;
+    }
+    return (int) u0;
+  }
+
+  /**
+   * Compares the words at two limb offsets as unsigned 256-bit integers.
+   *
+   * @param stack the flat limb array
+   * @param aOffset the limb offset of the first word
+   * @param bOffset the limb offset of the second word
+   * @return negative, zero or positive as the first word is less than, equal to or greater than the
+   *     second
+   */
+  static int compareUnsigned(final long[] stack, final int aOffset, final int bOffset) {
+    if (stack[aOffset] != stack[bOffset]) {
+      return Long.compareUnsigned(stack[aOffset], stack[bOffset]);
+    }
+    if (stack[aOffset + 1] != stack[bOffset + 1]) {
+      return Long.compareUnsigned(stack[aOffset + 1], stack[bOffset + 1]);
+    }
+    if (stack[aOffset + 2] != stack[bOffset + 2]) {
+      return Long.compareUnsigned(stack[aOffset + 2], stack[bOffset + 2]);
+    }
+    return Long.compareUnsigned(stack[aOffset + 3], stack[bOffset + 3]);
+  }
+
+  /**
+   * Compares the words at two limb offsets as two's complement signed 256-bit integers.
+   *
+   * @param stack the flat limb array
+   * @param aOffset the limb offset of the first word
+   * @param bOffset the limb offset of the second word
+   * @return negative, zero or positive as the first word is less than, equal to or greater than the
+   *     second
+   */
+  static int compareSigned(final long[] stack, final int aOffset, final int bOffset) {
+    if (stack[aOffset] != stack[bOffset]) {
+      return Long.compare(stack[aOffset], stack[bOffset]);
+    }
+    return compareUnsigned(stack, aOffset, bOffset);
   }
 
   /**

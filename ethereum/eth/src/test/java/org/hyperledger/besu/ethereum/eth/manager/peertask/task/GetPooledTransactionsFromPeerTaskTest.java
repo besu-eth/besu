@@ -22,8 +22,10 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskRespons
 import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
 import java.util.Set;
@@ -71,13 +73,32 @@ public class GetPooledTransactionsFromPeerTaskTest {
     PooledTransactionsMessage pooledTransactionsMessage =
         PooledTransactionsMessage.create(List.of(GENERATOR.transaction(), GENERATOR.transaction()));
 
-    InvalidPeerTaskResponseException exception =
+    // More transactions than requested hashes is rejected while counting, before decoding
+    final MalformedRlpFromPeerException exception =
         Assertions.assertThrows(
-            InvalidPeerTaskResponseException.class,
+            MalformedRlpFromPeerException.class,
             () -> task.processResponse(pooledTransactionsMessage, AGREED_CAPABILITIES));
 
-    Assertions.assertEquals(
-        "Response transaction count does not match request hash count", exception.getMessage());
+    Assertions.assertInstanceOf(RLPException.class, exception.getCause());
+    Assertions.assertTrue(
+        exception.getCause().getMessage().contains("exceeds the maximum permitted size"),
+        exception.getCause().getMessage());
+    Assertions.assertEquals(pooledTransactionsMessage.getData(), exception.getMessageData());
+  }
+
+  @Test
+  public void testProcessResponseWithFewerTransactionsThanRequested()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    // A peer may legitimately not have every requested transaction any more
+    final List<Hash> hashes = List.of(Hash.EMPTY, Hash.EMPTY_TRIE_HASH);
+    final GetPooledTransactionsFromPeerTask task = new GetPooledTransactionsFromPeerTask(hashes);
+    final Transaction transaction = GENERATOR.transaction();
+
+    final List<Transaction> result =
+        task.processResponse(
+            PooledTransactionsMessage.create(List.of(transaction)), AGREED_CAPABILITIES);
+
+    Assertions.assertEquals(List.of(transaction), result);
   }
 
   @Test
@@ -103,5 +124,45 @@ public class GetPooledTransactionsFromPeerTaskTest {
     PeerTaskValidationResponse validationResponse = task.validateResult(List.of(transaction));
     Assertions.assertEquals(
         PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY, validationResponse);
+  }
+
+  @Test
+  public void testValidateResultAcceptsOrderedSubset() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final Transaction third = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second, third)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD,
+        task.validateResult(List.of(first, third)));
+  }
+
+  @Test
+  public void testValidateResultRejectsOutOfOrderTransactions() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
+        task.validateResult(List.of(second, first)));
+  }
+
+  @Test
+  public void testValidateResultRejectsDuplicateTransactions() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
+        task.validateResult(List.of(first, first)));
   }
 }

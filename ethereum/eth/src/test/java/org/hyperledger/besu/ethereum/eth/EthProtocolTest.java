@@ -53,8 +53,11 @@ public class EthProtocolTest {
           EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
           EthProtocolMessages.BLOCK_ACCESS_LISTS);
 
+  private static final List<Integer> ETH72_MESSAGES =
+      concat(ETH71_MESSAGES, EthProtocolMessages.GET_CELLS, EthProtocolMessages.CELLS);
+
   // The highest message code in the protocol, one past it is never valid
-  private static final int MAX_CODE = EthProtocolMessages.BLOCK_ACCESS_LISTS;
+  private static final int MAX_CODE = EthProtocolMessages.CELLS;
 
   private static List<Integer> concat(final List<Integer> messages, final Integer... added) {
     return Stream.concat(messages.stream(), Stream.of(added)).toList();
@@ -67,7 +70,8 @@ public class EthProtocolTest {
         Arguments.of(69, 18, ETH69_MESSAGES),
         Arguments.of(70, 18, ETH69_MESSAGES),
         Arguments.of(71, 20, ETH71_MESSAGES),
-        Arguments.of(72, 0, List.of()));
+        Arguments.of(72, 22, ETH72_MESSAGES),
+        Arguments.of(73, 0, List.of()));
   }
 
   @ParameterizedTest(name = "eth/{0}")
@@ -88,8 +92,34 @@ public class EthProtocolTest {
   }
 
   @Test
-  void latestIsTheLastVersion() {
+  void latestIsTheLastAdvertisedVersion() {
     assertThat(EthProtocol.LATEST).isEqualTo(EthProtocolVersion.V71.getCapability());
+  }
+
+  @Test
+  void ethSeventyTwoIsKnownButNotAdvertised() {
+    // Its messages encode, decode and validate, so the wire format can be exercised, but no peer
+    // can negotiate it until the rest of the sparse blobpool is in place.
+    assertThat(EthProtocolVersion.V72.isAdvertised()).isFalse();
+    assertThat(EthProtocolVersion.latest()).isEqualTo(EthProtocolVersion.V71);
+    assertThat(EthProtocol.get().isValidMessageCode(72, EthProtocolMessages.GET_CELLS)).isTrue();
+  }
+
+  @Test
+  void theCellMessagesAreFramedWithARequestId() {
+    // GetCells and Cells are a request and its response, so they are framed with a request id like
+    // every other such pair. Without it EthProtocolManager hands the server the id as part of the
+    // request body and sends the response back with none, which no requester can match to its
+    // request.
+    assertThat(EthProtocol.requestIdCompatible(EthProtocolMessages.GET_CELLS)).isTrue();
+    assertThat(EthProtocol.requestIdCompatible(EthProtocolMessages.CELLS)).isTrue();
+  }
+
+  @Test
+  void theCellMessagesAreNamed() {
+    assertThat(EthProtocol.get().messageName(72, EthProtocolMessages.GET_CELLS))
+        .isEqualTo("GetCells");
+    assertThat(EthProtocol.get().messageName(72, EthProtocolMessages.CELLS)).isEqualTo("Cells");
   }
 
   @Test

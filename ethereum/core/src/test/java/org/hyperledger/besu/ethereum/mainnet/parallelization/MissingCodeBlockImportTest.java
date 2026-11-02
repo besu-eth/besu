@@ -195,7 +195,7 @@ class MissingCodeBlockImportTest extends AbstractParallelBlockProcessorIntegrati
   }
 
   @Test
-  void blockOnlyPayingTheFeeRecipientHealsItsCode() {
+  void blockOnlyPayingTheFeeRecipientImportsWithoutItsCode() {
     final Transaction delegation = delegate(MINING_BENEFICIARY_KEYPAIR, contract);
     final ExecutionContextTestFixture healthy = createFreshContext();
     importBlock(healthy, delegation);
@@ -207,7 +207,7 @@ class MissingCodeBlockImportTest extends AbstractParallelBlockProcessorIntegrati
     final Hash codeHash = Hash.hash(designator);
     removeCode(ctx, MINING_BENEFICIARY, codeHash);
 
-    // a tip never runs the fee recipient's code, but paying it reads the code
+    // a tip never runs the fee recipient's code, and paying it only needs its code hash
     final Transaction tip =
         createTransferTransaction(0, 1L, 300_000L, 2L, 10L, ACCOUNT_2, ACCOUNT_GENESIS_2_KEYPAIR);
     final Hash stateRoot =
@@ -223,17 +223,17 @@ class MissingCodeBlockImportTest extends AbstractParallelBlockProcessorIntegrati
             .getWorldState(WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead(parent))
             .orElseThrow();
     final Block block = createBlock(ctx, parent, stateRoot, Wei.of(5), MINING_BENEFICIARY, tip);
-    final BlockProcessor processor = createSequentialProcessor(ctx);
 
-    assertThatThrownBy(() -> process(processor, ctx, worldState, block))
-        .isInstanceOf(MissingCodeException.class);
-
-    archive.setCodeFetcher(hash -> Optional.of(designator));
-    assertThat(archive.healMissingCode(MINING_BENEFICIARY, codeHash)).isTrue();
-
-    final BlockProcessingResult result = process(processor, ctx, worldState, block);
+    final BlockProcessingResult result =
+        process(createSequentialProcessor(ctx), ctx, worldState, block);
     assertThat(result.isSuccessful()).as(result.errorMessage.orElse("")).isTrue();
     assertThat(worldState.rootHash()).isEqualTo(stateRoot);
+    // the code is still missing, it is healed by the first block that runs it
+    assertThat(
+            archive
+                .getWorldStateKeyValueStorage()
+                .getCodeBytes(codeHash, MINING_BENEFICIARY.addressHash()))
+        .isEmpty();
   }
 
   private void importBlock(final ExecutionContextTestFixture ctx, final Transaction... txs) {

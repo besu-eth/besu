@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.storage.keyvalue;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.CHAIN_HEAD_HASH;
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.FINALIZED_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.SAFE_BLOCK_HASH;
@@ -25,6 +26,8 @@ import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.getSampl
 import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.populateBlockchainStorage;
 import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.populateVariablesStorage;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -270,5 +273,21 @@ public class KeyValueStoragePrefixedKeyBlockchainStorageTest {
         loaded.rawRlp().isPresent(), "rawRlp must be present on BAL read from storage");
     Assertions.assertEquals(
         bal, loaded, "BAL round-trip through storage must preserve accountChanges");
+  }
+
+  @Test
+  public void batchUpdaterWritesTheBlockDataInABatch() {
+    final KeyValueStorage blockchainKv = spy(new InMemoryKeyValueStorage());
+    final var storage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            blockchainKv, variablesStorage, blockHeaderFunctions, false);
+    final Hash hash = Hash.hash(Bytes.of(1));
+
+    final Updater updater = storage.batchUpdater();
+    updater.putBlockHash(1, hash);
+    updater.commit();
+
+    verify(blockchainKv).startBatchTransaction();
+    assertThat(storage.getBlockHash(1)).contains(hash);
   }
 }

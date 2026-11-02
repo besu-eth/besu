@@ -69,7 +69,14 @@ class TransactionsMessageProcessor {
           .addArgument(latency)
           .addArgument(queueAt)
           .addArgument(keepAlive)
-          .addArgument(() -> toHashList(transactionsMessage.transactions()))
+          .addArgument(
+              () -> {
+                try {
+                  return toHashList(transactionsMessage.transactions(maxTransactionsPerMessage));
+                } catch (final RLPException e) {
+                  return e.getMessage();
+                }
+              })
           .log();
       metrics.incrementExpiredMessages(METRIC_LABEL);
     }
@@ -78,17 +85,8 @@ class TransactionsMessageProcessor {
   private void processTransactionsMessage(
       final EthPeer peer, final TransactionsMessage transactionsMessage) {
     try {
-      final List<Transaction> incomingTransactions = transactionsMessage.transactions();
-
-      if (incomingTransactions.size() > maxTransactionsPerMessage) {
-        LOG.debug(
-            "Transactions message contains too many transactions ({} > {}), disconnecting: {}",
-            incomingTransactions.size(),
-            maxTransactionsPerMessage,
-            peer);
-        peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
-        return;
-      }
+      final List<Transaction> incomingTransactions =
+          transactionsMessage.transactions(maxTransactionsPerMessage);
 
       final Collection<Transaction> freshTransactions =
           transactionTracker.receivedTransactions(peer, incomingTransactions);

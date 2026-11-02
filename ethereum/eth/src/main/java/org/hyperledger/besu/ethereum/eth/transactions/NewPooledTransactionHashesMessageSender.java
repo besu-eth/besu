@@ -32,17 +32,18 @@ import org.slf4j.LoggerFactory;
 class NewPooledTransactionHashesMessageSender {
   private static final Logger LOG =
       LoggerFactory.getLogger(NewPooledTransactionHashesMessageSender.class);
-  private static final int MAX_TRANSACTIONS_HASHES = 4096;
-
   private final PeerTransactionTracker transactionTracker;
+  private final int maxAnnouncementsPerMessage;
 
-  public NewPooledTransactionHashesMessageSender(final PeerTransactionTracker transactionTracker) {
+  public NewPooledTransactionHashesMessageSender(
+      final PeerTransactionTracker transactionTracker, final int maxAnnouncementsPerMessage) {
     this.transactionTracker = transactionTracker;
+    this.maxAnnouncementsPerMessage = maxAnnouncementsPerMessage;
   }
 
   public void sendTransactionAnnouncementsToPeer(final EthPeer peer) {
     final Capability capability = peer.getConnection().capability(EthProtocol.NAME);
-    final List<Transaction> txBatch = new ArrayList<>(MAX_TRANSACTIONS_HASHES);
+    final List<Transaction> txBatch = new ArrayList<>(maxAnnouncementsPerMessage);
     Transaction announcementToSend;
     while ((announcementToSend = transactionTracker.claimAnnouncementToSendToPeer(peer)) != null) {
       if (!transactionTracker.hasPeerSeenTransactionOrAnnouncement(
@@ -50,7 +51,7 @@ class NewPooledTransactionHashesMessageSender {
         txBatch.add(announcementToSend);
       }
 
-      if (txBatch.size() == MAX_TRANSACTIONS_HASHES) {
+      if (txBatch.size() == maxAnnouncementsPerMessage) {
         // send current batch and exit loop if peer no more connected
         final boolean connectionLost = !send(peer, txBatch, capability);
         txBatch.clear();

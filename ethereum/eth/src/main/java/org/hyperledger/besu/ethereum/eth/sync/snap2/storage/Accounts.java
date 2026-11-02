@@ -41,4 +41,16 @@ public final class Accounts {
     return new PatriciaTrieAccountValue(
         account.getNonce(), account.getBalance(), storageRoot, account.getCodeHash());
   }
+
+  /** Returns whether this storage root has a trie the sync may keep: neither empty nor unknown. */
+  public static boolean hasKnownStorageTrie(final Hash storageRoot) {
+    return !storageRoot.equals(Hash.EMPTY_TRIE_HASH) && !storageRoot.equals(UNKNOWN_STORAGE_ROOT);
+  }
+
+  /** Returns whether the account is empty in the EIP-161 sense. */
+  public static boolean isEmpty(final PatriciaTrieAccountValue account) {
+    return account.getNonce() == 0
+        && account.getBalance().isZero()
+        && account.getCodeHash().equals(Hash.EMPTY);
+  }
 }

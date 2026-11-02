@@ -89,4 +89,10 @@ public class QbftBlockCreatorFactoryTest {
     assertThat(bftExtraData.getVote()).isEmpty();
     assertThat(bftExtraData.getRound()).isEqualTo(3);
   }
+
+  @Test
+  public void createsBlockCreatorsThatSaveTheTrieLogOfCreatedBlocks() {
+    assertThat(qbftBlockCreatorFactory.create(0))
+        .hasFieldOrPropertyWithValue("saveTrieLogOfCreatedBlocks", true);
+  }
 }
