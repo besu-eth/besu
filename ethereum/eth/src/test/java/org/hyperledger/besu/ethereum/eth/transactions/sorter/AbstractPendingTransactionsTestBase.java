@@ -918,6 +918,7 @@ public abstract class AbstractPendingTransactionsTestBase {
               .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
           return Collections.emptyMap();
         });
+  }
 
   @Test
   public void shouldEvictTransactionsOlderThanRetentionSeconds() {
