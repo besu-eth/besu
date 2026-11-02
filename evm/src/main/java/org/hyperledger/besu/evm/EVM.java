@@ -94,6 +94,7 @@ import org.hyperledger.besu.evm.v2.operation.CountLeadingZerosOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DivOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DupNOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DupOperationV2;
+import org.hyperledger.besu.evm.v2.operation.EqOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ExchangeOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ExpOperationV2;
 import org.hyperledger.besu.evm.v2.operation.GtOperationV2;
@@ -699,10 +700,9 @@ public class EVM {
           result = SubOperationV2.staticOperation(frame);
           sp = frame.stackTopV2();
         }
-        case 0x14 -> { // EQ, whose execute checks the gas itself
+        case 0x14 -> { // EQ
           frame.setTopV2(base ^ 0x14);
-          frame.setGasRemaining(gas);
-          result = operationsV2[opcode].execute(frame, this);
+          result = EqOperationV2.staticOperation(frame, gas);
           sp = frame.stackTopV2();
         }
         case 0x10 -> { // LT
@@ -825,7 +825,7 @@ public class EVM {
       case 0x11 -> GtOperationV2.staticOperation(frame);
       case 0x12 -> SLtOperationV2.staticOperation(frame);
       case 0x13 -> SGtOperationV2.staticOperation(frame);
-      case 0x14 -> operationsV2[opcode].execute(frame, this);
+      case 0x14 -> EqOperationV2.staticOperation(frame, frame.getRemainingGas());
       case 0x15 -> IsZeroOperationV2.staticOperation(frame);
       case 0x16 -> AndOperationV2.staticOperation(frame);
       case 0x17 -> OrOperationV2.staticOperation(frame);
