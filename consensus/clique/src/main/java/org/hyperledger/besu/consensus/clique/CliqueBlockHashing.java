@@ -63,7 +63,11 @@ public class CliqueBlockHashing {
     }
     final SECPSignature proposerSeal = cliqueExtraData.getProposerSeal().get();
     final Hash proposerHash = calculateDataHashForProposerSeal(header, cliqueExtraData);
-    return Util.signatureToAddress(proposerSeal, proposerHash);
+    final Address proposer = Util.signatureToAddress(proposerSeal, proposerHash);
+    if (proposer == null) {
+      throw new IllegalArgumentException("Proposer seal did not recover to an address");
+    }
+    return proposer;
   }
 
   private static Bytes serializeHeaderWithoutProposerSeal(

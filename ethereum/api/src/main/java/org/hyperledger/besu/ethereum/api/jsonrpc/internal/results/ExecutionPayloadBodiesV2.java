@@ -16,36 +16,35 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import org.apache.tuweni.bytes.Bytes;
 
 @JsonPropertyOrder({"transactions", "withdrawals", "blockAccessList"})
 public final class ExecutionPayloadBodiesV2 extends ExecutionPayloadBodiesV1 {
-  private final BlockAccessList blockAccessList;
+  private final Bytes blockAccessListRlp;
 
   public ExecutionPayloadBodiesV2(
-      final ExecutionPayloadBodiesV1 executionPayloadBodiesV1,
-      final BlockAccessList blockAccessList) {
+      final ExecutionPayloadBodiesV1 executionPayloadBodiesV1, final Bytes blockAccessListRlp) {
     this(
         executionPayloadBodiesV1.getTransactions(),
         executionPayloadBodiesV1.getWithdrawals(),
-        blockAccessList);
+        blockAccessListRlp);
   }
 
   public ExecutionPayloadBodiesV2(
       final List<Transaction> transactions,
       final List<Withdrawal> withdrawals,
-      final BlockAccessList blockAccessList) {
+      final Bytes blockAccessListRlp) {
     super(transactions, withdrawals);
-    this.blockAccessList = blockAccessList;
+    this.blockAccessListRlp = blockAccessListRlp;
   }
 
   @JsonGetter(value = "blockAccessList")
-  public BlockAccessList getBlockAccessList() {
-    return blockAccessList;
+  public Bytes getBlockAccessList() {
+    return blockAccessListRlp;
   }
 }

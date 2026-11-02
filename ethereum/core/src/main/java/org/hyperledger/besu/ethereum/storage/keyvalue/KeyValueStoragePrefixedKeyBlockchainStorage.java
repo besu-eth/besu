@@ -163,8 +163,23 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   }
 
   @Override
+  public Optional<Bytes> getBlockBodyRlp(final Hash blockHash) {
+    return get(BLOCK_BODY_PREFIX, blockHash.getBytes());
+  }
+
+  @Override
   public Optional<BlockAccessList> getBlockAccessList(final Hash blockHash) {
-    return get(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes()).map(this::rlpDecodeBlockAccessList);
+    return get(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes()).map(this::decodeBlockAccessList);
+  }
+
+  @Override
+  public Optional<Bytes> getBlockAccessListRlp(final Hash blockHash) {
+    return get(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes());
+  }
+
+  @Override
+  public BlockAccessList decodeBlockAccessList(final Bytes rlp) {
+    return BlockAccessListDecoder.decode(RLP.input(rlp));
   }
 
   @Override
@@ -214,10 +229,6 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
 
   private List<TransactionReceipt> rlpDecodeTransactionReceipts(final Bytes bytes) {
     return RLP.input(bytes).readList(in -> TransactionReceiptDecoder.readFrom(in, true));
-  }
-
-  private BlockAccessList rlpDecodeBlockAccessList(final Bytes bytes) {
-    return BlockAccessListDecoder.decode(RLP.input(bytes));
   }
 
   private Hash bytesToHash(final Bytes bytes) {
@@ -368,8 +379,10 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     }
 
     @Override
-    public void putBlockAccessList(final Hash blockHash, final BlockAccessList blockAccessList) {
-      set(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes(), rlpEncode(blockAccessList));
+    public Bytes putBlockAccessList(final Hash blockHash, final BlockAccessList blockAccessList) {
+      final Bytes rlp = rlpEncode(blockAccessList);
+      set(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes(), rlp);
+      return rlp;
     }
 
     @Override
