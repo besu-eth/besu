@@ -2732,6 +2732,29 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void logWarnIfTxPoolRetentionHoursSetWithRetentionSeconds() {
+    parseCommand(
+        "--tx-pool=sequenced",
+        "--tx-pool-retention-seconds",
+        "30",
+        "--tx-pool-retention-hours",
+        "5");
+    verify(mockLogger)
+        .warn("--tx-pool-retention-hours is ignored when --tx-pool-retention-seconds is set");
+  }
+
+  @Test
+  public void noWarnIfTxPoolRetentionHoursSetWithRetentionSecondsDisabled() {
+    parseCommand(
+        "--tx-pool=sequenced",
+        "--tx-pool-retention-seconds",
+        "-1",
+        "--tx-pool-retention-hours",
+        "5");
+    verify(mockLogger, never()).warn(contains("--tx-pool-retention-hours"));
+  }
+
+  @Test
   public void logWarnIfCheckpointUsedWithFullSync() {
     final String hash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
     parseCommand("--sync-mode", "FULL", "--checkpoint=" + hash + ":12345678:1000000");
@@ -2942,14 +2965,40 @@ public class BesuCommandTest extends CommandTestAbstract {
 
   @Test
   public void cacheLastBlocksOptionShouldWork() {
-    int numberOfBlocksToCache = 512;
-    parseCommand("--cache-last-blocks", String.valueOf(numberOfBlocksToCache));
+    parseCommand("--cache-last-blocks", "512", "--cache-last-blocks-max-capacity", "1048576");
     verify(mockControllerBuilder).cacheLastBlocks(intArgumentCaptor.capture());
+    verify(mockControllerBuilder).cacheLastBlocksMaxCapacity(longArgumentCaptor.capture());
     verify(mockControllerBuilder).build();
 
-    assertThat(intArgumentCaptor.getValue()).isEqualTo(numberOfBlocksToCache);
+    assertThat(intArgumentCaptor.getValue()).isEqualTo(512);
+    assertThat(longArgumentCaptor.getValue()).isEqualTo(1048576L);
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void cacheLastBlocksOptionsDefaultToSnapServingWindowAnd128MiB() {
+    parseCommand();
+    verify(mockControllerBuilder).cacheLastBlocks(intArgumentCaptor.capture());
+    verify(mockControllerBuilder).cacheLastBlocksMaxCapacity(longArgumentCaptor.capture());
+
+    assertThat(intArgumentCaptor.getValue()).isEqualTo(128);
+    assertThat(longArgumentCaptor.getValue()).isEqualTo(128L * 1024 * 1024);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "--cache-last-blocks",
+        "--cache-last-blocks-max-capacity",
+        "--cache-last-block-headers"
+      })
+  public void cacheOptionsRejectNegativeValues(final String option) {
+    parseCommand(option, "-1");
+
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).contains(option + " must be >= 0");
   }
 
   @Test

@@ -29,6 +29,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
+
 public interface BlockchainStorage {
 
   Optional<Hash> getChainHead();
@@ -43,7 +45,19 @@ public interface BlockchainStorage {
 
   Optional<BlockBody> getBlockBody(Hash blockHash);
 
+  Optional<Bytes> getBlockBodyRlp(Hash blockHash);
+
   Optional<BlockAccessList> getBlockAccessList(Hash blockHash);
+
+  Optional<Bytes> getBlockAccessListRlp(Hash blockHash);
+
+  /**
+   * Decodes a block access list in the format {@link Updater#putBlockAccessList} stores it.
+   *
+   * @param rlp The stored RLP.
+   * @return The decoded block access list.
+   */
+  BlockAccessList decodeBlockAccessList(Bytes rlp);
 
   Optional<List<TransactionReceipt>> getTransactionReceipts(Hash blockHash);
 
@@ -79,7 +93,14 @@ public interface BlockchainStorage {
 
     void putSyncBlockBody(Hash blockHash, SyncBlockBody blockBody);
 
-    void putBlockAccessList(Hash blockHash, BlockAccessList blockAccessList);
+    /**
+     * Puts the supplied block access list in the database against the supplied block hash.
+     *
+     * @param blockHash The block hash to store the block access list against
+     * @param blockAccessList The block access list to be stored
+     * @return The RLP that was stored
+     */
+    Bytes putBlockAccessList(Hash blockHash, BlockAccessList blockAccessList);
 
     void putSyncBlockAccessList(Hash blockHash, SyncBlockAccessList syncBlockAccessList);
 
