@@ -147,19 +147,11 @@ public class EVM {
       new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
 
   /**
-   * Hides from C2, the JVM's optimizing JIT compiler, that every case of the untraced loop ({@link
-   * #runToHaltV2Untraced}) starts from the same stack top.
-   *
-   * <p>Stack items are 4 longs, so the operations compute offsets like {@code (top - 1) << 2}. C2
-   * rewrites that as {@code (top << 2) - 4}, sees {@code top << 2} in most cases, and computes it
-   * and the other shared offsets once before the switch, whichever case then runs. Those values
-   * take up registers, and C2 makes room by keeping the stack top, pc and gas in memory, which
-   * slows down every operation.
-   *
-   * <p>So the loop xors the opcode's entry into the stack top, and each case xors its own constant
-   * back out. C2 can't see that the two cancel, because the entry is loaded from this array, so
-   * each case's offsets stay in the case. It has to be an xor: C2 rewrites {@code (top + c) << 2}
-   * as {@code (top << 2) + 4c}, so with an addition {@code top << 2} is shared again.
+   * Per-opcode xor masks for the stack top in {@link #runToHaltV2Untraced}. The loop xors the
+   * opcode's entry in, and each case xors its own constant back out. Otherwise C2 computes the
+   * stack offsets most cases share once before the switch, and those values take the registers of
+   * the stack top, pc and gas. It has to be an xor: C2 rewrites {@code (top + c) << 2} as {@code
+   * (top << 2) + 4c}, so with an addition the offsets are shared again.
    */
   private static final int[] STACK_TOP_BIASES = new int[256];
 
@@ -184,6 +176,10 @@ public class EVM {
     biasCase(0x1b, 0x1b); // SHL
     biasCase(0x11, 0x11); // GT
     biasCase(0x5f, 0x5f); // PUSH0
+  }
+
+  private static void biasCase(final int firstOpcode, final int lastOpcode) {
+    Arrays.fill(STACK_TOP_BIASES, firstOpcode, lastOpcode + 1, firstOpcode);
   }
 
   private final OperationRegistry operations;
@@ -561,25 +557,13 @@ public class EVM {
     }
   }
 
-  private static void biasCase(final int firstOpcode, final int lastOpcode) {
-    Arrays.fill(STACK_TOP_BIASES, firstOpcode, lastOpcode + 1, firstOpcode);
-  }
-
   /**
-   * The v2 loop for untraced execution, such as block import. It runs once per EVM operation, so it
-   * is shaped around how C2 compiles it:
-   *
-   * <ul>
-   *   <li>C2 copies (inlines) the methods a method calls into it, up to 8000 bytes of bytecode. So
-   *       only the most frequent mainnet operations have a case here, and the rest go through
-   *       {@link #executeOperationV2}.
-   *   <li>The stack top, pc and gas are locals, because C2 can keep a local in a CPU register. The
-   *       frame's fields would be written to and read from memory on every operation.
-   *   <li>Two things make C2 keep a local in memory instead, which in this loop slows down every
-   *       operation: a call that C2 doesn't inline and that the local is still needed after, and
-   *       too many values needing a register at the same time. The comments below show where each
-   *       is avoided.
-   * </ul>
+   * The v2 loop for untraced execution, such as block import. Only the most frequent mainnet
+   * operations have a case here, so that C2 inlines them within its 8000-byte budget; the rest go
+   * through {@link #executeOperationV2}. The stack top, pc and gas are locals so that C2 keeps them
+   * in registers. C2 moves a local to memory when it is needed after a call that isn't inlined, or
+   * when too many values need a register at once, and the comments below show where each is
+   * avoided.
    */
   private void runToHaltV2Untraced(final MessageFrame frame) {
     // the loop checks the state only where an operation can change it
