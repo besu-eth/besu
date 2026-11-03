@@ -268,7 +268,17 @@ public class EVM {
     // optimization purposes
     assert operationTracer.isEnabled() || operationTracer == OperationTracer.NO_TRACING;
 
-    if (evmConfiguration.enableEvmV2()) {
+    final boolean evmV2 = evmConfiguration.enableEvmV2();
+    if (frame.runsOnEvmV2() != evmV2) {
+      // otherwise the first operation that touches the stack fails with a NullPointerException
+      throw new IllegalStateException(
+          "A frame built for EVM "
+              + (frame.runsOnEvmV2() ? "v2" : "v1")
+              + " cannot run on EVM "
+              + (evmV2 ? "v2" : "v1")
+              + ", build it with MessageFrame.Builder.enableEvmV2(evm.getEvmConfiguration().enableEvmV2())");
+    }
+    if (evmV2) {
       runToHaltV2(frame, operationTracer);
       return;
     }
