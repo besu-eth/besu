@@ -69,6 +69,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -96,6 +97,8 @@ public class MempoolPrewarmer implements AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger(MempoolPrewarmer.class);
 
   private static final long PASS_INTERVAL_MILLIS = 250;
+  // the longest a pass for an earlier head holds up the coordinator
+  private static final long STOP_CHECK_MILLIS = 10;
   // the pool announces the transactions added to it, but not those it promotes as the head moves
   private static final long POOL_COPY_INTERVAL_MILLIS = 1_000;
   // blocks arrive after the start of their slot, and transactions sent in that time are still in
@@ -377,12 +380,7 @@ public class MempoolPrewarmer implements AutoCloseable {
     }
     // a pass ends before the next one starts, so a slow pass cannot pile up work
     for (final Future<?> future : executions) {
-      try {
-        future.get();
-      } catch (final ExecutionException e) {
-        LOG.trace("Prewarming failed", e);
-      } catch (final InterruptedException e) {
-        Thread.currentThread().interrupt();
+      if (!awaitExecution(warming, future)) {
         return;
       }
     }
@@ -393,6 +391,30 @@ public class MempoolPrewarmer implements AutoCloseable {
       LOG.debug(
           "Prewarming for head {} ends, the prewarmer is closed", warming.head().toLogString());
     }
+  }
+
+  /**
+   * Waits for an execution while its warming is current. An execution that makes no calls runs on
+   * after a stop, and would otherwise hold up the warming for the next head.
+   *
+   * @return whether the warming is still current
+   */
+  private boolean awaitExecution(final Warming warming, final Future<?> future) {
+    while (isCurrent(warming)) {
+      try {
+        future.get(STOP_CHECK_MILLIS, TimeUnit.MILLISECONDS);
+        return true;
+      } catch (final TimeoutException e) {
+        // looks again whether the warming is still current
+      } catch (final ExecutionException e) {
+        LOG.trace("Prewarming failed", e);
+        return true;
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      }
+    }
+    return false;
   }
 
   private Execution execution(final BlockHeader head) {
