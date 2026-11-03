@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.eth.sync.snap2.state;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.TestWorld.hash;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.TestWorld.slotHash;
 import static org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStorageFixture.slots;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -183,33 +185,26 @@ class StateDiffApplierTest {
   }
 
   @Test
-  void abortsTheBatchOfAFailedWriteButNotOneWhoseCommitFailed() {
+  void abortsTheBatchOfAFailedWrite() {
     final SyncStateStorage storage = mock(SyncStateStorage.class);
     final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
     when(storage.batch()).thenReturn(batch);
-    final StateCoverage coverage = new StateCoverage();
-    coverage.accounts().add(hash(N), hash(N));
-    final StateDiff diff = new StateDiff();
-    diff.add(
-        new BlockAccessList(
-            List.of(
-                changes(
-                    N,
-                    List.of(),
-                    List.of(new BalanceChange(1, Wei.of(1))),
-                    List.of(),
-                    List.of()))));
-
-    // the commit of the transaction has started, it cannot be rolled back
-    doThrow(new IllegalStateException("disk full")).when(batch).commit();
-    assertThatThrownBy(() -> StateDiffApplier.apply(diff, storage, coverage, (a, r, s) -> {}))
-        .hasMessage("disk full");
-    verify(batch, never()).abort();
-
     doThrow(new IllegalStateException("write failed")).when(batch).putAccount(any(), any());
-    assertThatThrownBy(() -> StateDiffApplier.apply(diff, storage, coverage, (a, r, s) -> {}))
-        .hasMessage("write failed");
+
+    assertThatThrownBy(() -> applyAChangeOfN(storage, List.of())).hasMessage("write failed");
+    verify(batch, never()).commit();
     verify(batch).abort();
+  }
+
+  // StateDiffApplier commits its batches itself, not through SyncStateStorage.write
+  @Test
+  void throwsTheErrorOfAFailedCommit() {
+    final SyncStateStorage storage = mock(SyncStateStorage.class);
+    final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
+    when(storage.batch()).thenReturn(batch);
+    doThrow(new IllegalStateException("disk full")).when(batch).commit();
+
+    assertThatThrownBy(() -> applyAChangeOfN(storage, List.of())).hasMessage("disk full");
   }
 
   @Test
@@ -217,24 +212,30 @@ class StateDiffApplierTest {
     final SyncStateStorage storage = mock(SyncStateStorage.class);
     final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
     when(storage.batch()).thenReturn(batch);
-    final StateCoverage coverage = new StateCoverage();
-    coverage.accounts().add(hash(N), hash(N));
     final List<SlotChanges> slots =
         IntStream.range(0, StateDiffApplier.WRITES_PER_COMMIT)
             .mapToObj(i -> slot(UInt256.valueOf(i + 1), 1))
             .toList();
+
+    applyAChangeOfN(storage, slots);
+
+    // the account and its slots are one write more than a batch takes
+    verify(storage, times(2)).batch();
+    verify(batch, times(2)).commit();
+  }
+
+  // a change of the balance and of these slots of N, an account of the ranges
+  private static void applyAChangeOfN(
+      final SyncStateStorage storage, final List<SlotChanges> slots) {
+    final StateCoverage coverage = new StateCoverage();
+    coverage.accounts().add(hash(N), hash(N));
     final StateDiff diff = new StateDiff();
     diff.add(
         new BlockAccessList(
             List.of(
                 changes(
                     N, slots, List.of(new BalanceChange(1, Wei.of(1))), List.of(), List.of()))));
-
     StateDiffApplier.apply(diff, storage, coverage, (a, r, s) -> {});
-
-    // the account and its slots are one write more than a batch takes
-    verify(storage, times(2)).batch();
-    verify(batch, times(2)).commit();
   }
 
   private static PatriciaTrieAccountValue read(final SyncStateStorage storage, final Address a) {
@@ -263,13 +264,5 @@ class StateDiffApplierTest {
   private static SlotChanges slot(final UInt256 key, final long value) {
     return new SlotChanges(
         new StorageSlotKey(key), List.of(new StorageChange(1, UInt256.valueOf(value))));
-  }
-
-  private static Bytes32 hash(final Address address) {
-    return Bytes32.wrap(address.addressHash().getBytes());
-  }
-
-  private static Bytes32 slotHash(final UInt256 key) {
-    return Bytes32.wrap(new StorageSlotKey(key).getSlotHash().getBytes());
   }
 }

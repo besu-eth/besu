@@ -72,6 +72,17 @@ import org.slf4j.LoggerFactory;
  * left. A peer has one lane per protocol whose capacity grows with answers and halves on timeouts;
  * a timed out request keeps its slot until its late answer or one more timeout. One request of each
  * peer is always left to the other downloads.
+ *
+ * <p>The SNAP2 downloads go through it rather than the {@code PeerTaskExecutor}, and a merge of the
+ * two must keep what it does that the executor does not:
+ *
+ * <ul>
+ *   <li>an empty answer means the peer lacks the data, as pruned bodies, so the peer is not
+ *       punished, where the executor counts a useless response and five in a minute disconnect it;
+ *   <li>a request that failed on a peer goes to another peer, not to the best one again;
+ *   <li>a request waits for a peer with capacity instead of failing at once;
+ *   <li>peers are rated per kind of request, and the requests of a sync are served by priority.
+ * </ul>
  */
 public final class RequestScheduler implements RequestSender {
 
@@ -87,6 +98,9 @@ public final class RequestScheduler implements RequestSender {
   private static final long RETRY_PAUSE_MILLIS = 1_000;
   // announced heights lag, so a peer that looks behind is only picked when no other peer can be
   private static final double BEHIND_PENALTY = 1e-3;
+  // the requests of the SNAP2 sync and of the back-fill: 15 s each, at most six a peer per protocol
+  private static final Duration SYNC_REQUEST_TIMEOUT = Duration.ofSeconds(15);
+  private static final int SYNC_REQUESTS_PER_PEER = 6;
 
   private enum AttemptState {
     PENDING,
@@ -165,6 +179,18 @@ public final class RequestScheduler implements RequestSender {
         Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().name("snap2-scheduler").daemon().factory()),
         System::nanoTime);
+  }
+
+  /** Creates the scheduler of the SNAP2 sync, or of a back-fill that runs without it. */
+  public static RequestScheduler forSync(
+      final EthPeers ethPeers, final MetricsSystem metricsSystem, final int workerThreads) {
+    return new RequestScheduler(
+        ethPeers,
+        metricsSystem,
+        SYNC_REQUEST_TIMEOUT,
+        SYNC_REQUESTS_PER_PEER,
+        SYNC_REQUESTS_PER_PEER,
+        workerThreads);
   }
 
   @VisibleForTesting

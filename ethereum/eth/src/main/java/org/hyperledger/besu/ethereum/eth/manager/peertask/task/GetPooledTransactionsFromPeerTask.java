@@ -94,14 +94,11 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
         PooledTransactionsMessage.readFrom(messageData);
     final List<Transaction> responseTransactions;
     try {
-      responseTransactions = pooledTransactionsMessage.transactions();
+      responseTransactions = pooledTransactionsMessage.transactions(hashes.size());
     } catch (RLPException e) {
       throw new MalformedRlpFromPeerException(e, messageData.getData());
     }
-    if (responseTransactions.size() > hashes.size()) {
-      throw new InvalidPeerTaskResponseException(
-          "Response transaction count does not match request hash count");
-    }
+
     if (!announcementsByHash.isEmpty()) {
       for (final Transaction tx : responseTransactions) {
         final TransactionAnnouncement ann = announcementsByHash.get(tx.getHash());

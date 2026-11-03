@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender.Response;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.SyncRequest.Priority;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.util.FutureUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -67,7 +68,13 @@ public final class HeaderFetcher {
               // a head just announced is only known by the peers closest to the tip
               final long recent =
                   priority == Priority.PIVOT ? announced(sender.bestPeerHeight()) : 0;
-              return fetch(hash, 1, priority, recent).thenApply(List::getFirst);
+              final CompletableFuture<Response<List<BlockHeader>>> request =
+                  request(hash, 1, priority, recent);
+              final CompletableFuture<BlockHeader> header =
+                  request.thenApply(answer -> answer.value().getFirst());
+              // the scheduler retries the request until it is cancelled
+              FutureUtils.propagateCancellation(header, request);
+              return header;
             });
   }
 
@@ -125,17 +132,19 @@ public final class HeaderFetcher {
   // headers from the given hash going down, the first one checked against the hash
   private CompletableFuture<List<BlockHeader>> fetch(
       final Hash hash, final int count, final Priority priority, final long minimumPeerHeight) {
-    return sender
-        .submitWithRetries(
-            new PeerTaskRequest<>(
-                () ->
-                    new GetHeadersFromPeerTask(
-                        hash, count, 0, Direction.REVERSE, 0, protocolSchedule),
-                priority,
-                // peers are rated per name: short pivot lookups apart from full batches
-                priority == Priority.PIVOT ? "pivot_headers" : "headers",
-                minimumPeerHeight))
-        .thenApply(Response::value);
+    return request(hash, count, priority, minimumPeerHeight).thenApply(Response::value);
+  }
+
+  private CompletableFuture<Response<List<BlockHeader>>> request(
+      final Hash hash, final int count, final Priority priority, final long minimumPeerHeight) {
+    return sender.submitWithRetries(
+        new PeerTaskRequest<>(
+            () ->
+                new GetHeadersFromPeerTask(hash, count, 0, Direction.REVERSE, 0, protocolSchedule),
+            priority,
+            // peers are rated per name: short pivot lookups apart from full batches
+            priority == Priority.PIVOT ? "pivot_headers" : "headers",
+            minimumPeerHeight));
   }
 
   // a peer that holds this block may have announced a lower height, as announcements lag

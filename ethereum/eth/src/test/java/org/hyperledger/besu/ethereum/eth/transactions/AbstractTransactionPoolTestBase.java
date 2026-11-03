@@ -222,6 +222,10 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
 
   protected abstract FeeMarket getFeeMarket();
 
+  protected ExecutionContextTestFixture getExecutionContext() {
+    return executionContext;
+  }
+
   @BeforeEach
   public void setUp() {
     executionContext = createExecutionContextTestFixture();
@@ -265,7 +269,7 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
     return createTransactionPool(b -> b.minGasPrice(Wei.of(2)));
   }
 
-  TransactionPool createTransactionPool(
+  protected TransactionPool createTransactionPool(
       final Consumer<ImmutableTransactionPoolConfiguration.Builder> configConsumer) {
     final ImmutableTransactionPoolConfiguration.Builder configBuilder =
         ImmutableTransactionPoolConfiguration.builder();

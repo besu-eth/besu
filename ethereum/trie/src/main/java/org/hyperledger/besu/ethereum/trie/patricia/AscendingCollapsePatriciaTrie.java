@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.StoredNode;
+import org.hyperledger.besu.ethereum.trie.TrieBytes;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -249,17 +250,14 @@ public final class AscendingCollapsePatriciaTrie {
     if (top instanceof ExtensionNode<Bytes> extension) {
       return nodeFactory.createExtension(
           extension.getPath(),
-          collapsed(extension.getChild(), Bytes.concatenate(location, extension.getPath()), sink));
+          collapsed(extension.getChild(), TrieBytes.concat(location, extension.getPath()), sink));
     }
     if (top instanceof BranchNode<Bytes> branch) {
       final List<Node<Bytes>> children = new ArrayList<>(branch.maxChild());
       for (int i = 0; i < branch.maxChild(); i++) {
         children.add(
             AscendingCollapsePutVisitor.collapse(
-                nodeFactory,
-                sink,
-                branch.child((byte) i),
-                Bytes.concatenate(location, Bytes.of(i))));
+                nodeFactory, sink, branch.child((byte) i), TrieBytes.append(location, (byte) i)));
       }
       return nodeFactory.createBranch(children, branch.getValue());
     }

@@ -43,6 +43,7 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -83,6 +84,20 @@ public class SharedDiscoveryTransportTest {
 
   private static InetSocketAddress ephemeral() {
     return new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
+  }
+
+  private static Counter countingCounter(final AtomicLong counter) {
+    return new Counter() {
+      @Override
+      public void inc() {
+        counter.incrementAndGet();
+      }
+
+      @Override
+      public void inc(final long amount) {
+        counter.addAndGet(amount);
+      }
+    };
   }
 
   @Test
@@ -334,6 +349,8 @@ public class SharedDiscoveryTransportTest {
             any(),
             eq("protocol")))
         .thenReturn(demuxCounter);
+    when(metricsSystem.createCounter(eq(BesuMetricCategory.NETWORK), any(), any()))
+        .thenReturn(countingCounter(new AtomicLong()));
 
     transport1 =
         SharedDiscoveryTransport.builder()
@@ -412,6 +429,56 @@ public class SharedDiscoveryTransportTest {
         .atMost(2, TimeUnit.SECONDS)
         .untilAsserted(() -> assertThat(dispatchThreadName.get()).isNotNull());
     assertThat(dispatchThreadName.get()).isEqualTo("disc-v5-dispatch");
+  }
+
+  @Test
+  public void v5DispatchQueue_isBoundedAndDiscardsOverflow() throws Exception {
+    final AtomicLong dispatchDropped = new AtomicLong();
+    final MetricsSystem metricsSystem = mock(MetricsSystem.class);
+    when(metricsSystem.createLabelledCounter(any(), any(), any(), any()))
+        .thenReturn(labels -> countingCounter(new AtomicLong()));
+    when(metricsSystem.createCounter(eq(BesuMetricCategory.NETWORK), any(), any()))
+        .thenReturn(countingCounter(dispatchDropped));
+
+    transport1 =
+        SharedDiscoveryTransport.builder()
+            .ipv4BindAddress(ephemeral())
+            .maskingKey(MASKING_KEY)
+            .v4Enabled(true)
+            .v5Enabled(true)
+            .metricsSystem(metricsSystem)
+            .build();
+    transport1.start().get(5, TimeUnit.SECONDS);
+
+    final ThreadPoolExecutor executor =
+        (ThreadPoolExecutor) transport1.v5DispatchExecutorForTesting();
+    final CountDownLatch blockingTaskStarted = new CountDownLatch(1);
+    final CountDownLatch releaseBlockingTask = new CountDownLatch(1);
+    executor.execute(
+        () -> {
+          blockingTaskStarted.countDown();
+          try {
+            releaseBlockingTask.await(5, TimeUnit.SECONDS);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        });
+    assertThat(blockingTaskStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+    // Fill the queue, then push past its capacity. The rejection handler must discard the excess
+    // instead of growing the queue without bound or throwing out of a Netty thread (which would
+    // drop the whole channel), and it must count every drop.
+    final int capacity = SharedDiscoveryTransport.V5_DISPATCH_QUEUE_CAPACITY;
+    final int excess = 10;
+    try {
+      for (int i = 0; i < capacity + excess; i++) {
+        executor.execute(() -> {});
+      }
+      assertThat(executor.getQueue()).hasSize(capacity);
+      assertThat(dispatchDropped.get()).isEqualTo(excess);
+    } finally {
+      releaseBlockingTask.countDown();
+    }
   }
 
   @Test
