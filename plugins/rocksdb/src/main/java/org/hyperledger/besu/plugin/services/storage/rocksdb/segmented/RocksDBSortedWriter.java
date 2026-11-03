@@ -19,17 +19,17 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SortedWriter;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 import org.rocksdb.EnvOptions;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.SstFileWriter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Writes entries in key order to an SST file, then moves it into its column family, where it is
@@ -37,13 +37,17 @@ import org.rocksdb.SstFileWriter;
  */
 final class RocksDBSortedWriter implements SortedWriter {
 
+  private static final Logger LOG = LoggerFactory.getLogger(RocksDBSortedWriter.class);
+
   private final RocksDBColumnarKeyValueStorage storage;
   private final SegmentIdentifier segment;
   private final Path file;
   private final Options options;
-  private final EnvOptions envOptions = new EnvOptions();
+  private final EnvOptions envOptions;
   private final SstFileWriter writer;
   private boolean empty = true;
+  // the native writer is released once done, and using it after that would crash the JVM
+  private boolean done;
 
   RocksDBSortedWriter(
       final RocksDBColumnarKeyValueStorage storage,
@@ -52,7 +56,9 @@ final class RocksDBSortedWriter implements SortedWriter {
     this.storage = storage;
     this.segment = segment;
     this.file = directory.resolve(UUID.randomUUID() + ".sst");
+    // first, as it throws for a segment that is not open, before anything needs releasing
     this.options = storage.sstFileOptions(segment);
+    this.envOptions = new EnvOptions();
     this.writer = new SstFileWriter(envOptions, options);
     try {
       Files.createDirectories(directory);
@@ -73,20 +79,17 @@ final class RocksDBSortedWriter implements SortedWriter {
 
   static void deleteLeftovers(final Path databaseDir) {
     final Path directory = directory(databaseDir);
-    if (!Files.isDirectory(directory)) {
-      return;
-    }
-    try (final Stream<Path> files = Files.list(directory)) {
-      for (final Path leftover : files.toList()) {
-        Files.deleteIfExists(leftover);
-      }
+    try {
+      RocksDBSegmentRewrite.deleteTree(directory);
     } catch (final IOException e) {
-      throw new UncheckedIOException(e);
+      // they only take up space, which is no reason to keep the database closed
+      LOG.warn("The sorted files left in {} could not be removed", directory, e);
     }
   }
 
   @Override
   public void put(final byte[] key, final byte[] value) {
+    throwIfDone();
     try {
       writer.put(key, value);
       empty = false;
@@ -97,6 +100,7 @@ final class RocksDBSortedWriter implements SortedWriter {
 
   @Override
   public void commit() {
+    throwIfDone();
     try {
       // RocksDB refuses to finish a file without entries, and there is nothing to add anyway
       if (!empty) {
@@ -112,17 +116,27 @@ final class RocksDBSortedWriter implements SortedWriter {
 
   @Override
   public void rollback() {
-    close();
+    if (!done) {
+      close();
+    }
+  }
+
+  private void throwIfDone() {
+    if (done) {
+      throw new IllegalStateException("The sorted writer was already committed or rolled back");
+    }
   }
 
   private void close() {
+    done = true;
     writer.close();
     options.close();
     envOptions.close();
     try {
       Files.deleteIfExists(file);
     } catch (final IOException e) {
-      throw new UncheckedIOException(e);
+      // the entries are added or dropped either way, and the file goes when the database opens
+      LOG.warn("The sorted file {} could not be deleted", file, e);
     }
   }
 }

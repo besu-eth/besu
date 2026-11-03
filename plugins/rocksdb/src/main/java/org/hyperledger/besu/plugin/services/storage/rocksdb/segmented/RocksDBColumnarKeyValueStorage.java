@@ -453,6 +453,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   // adds SST files to the segment, moving them in when they may be
   void ingest(final SegmentIdentifier segment, final List<String> files, final boolean move)
       throws RocksDBException {
+    // RocksJava does not check its handles, so a closed database would crash the JVM
+    throwIfClosed();
     try (final IngestExternalFileOptions ingest =
         new IngestExternalFileOptions().setMoveFiles(move)) {
       getDB().ingestExternalFile(safeColumnHandle(segment), files, ingest);

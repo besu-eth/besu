@@ -14,13 +14,16 @@
  */
 package org.hyperledger.besu.plugin.services.storage;
 
+import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 /** Writer of entries in increasing key order, added to a segment at once when committed. */
+@Unstable
 public interface SortedWriter {
 
   /**
-   * Adds an entry, whose key is greater than every key added before.
+   * Adds an entry, whose key is greater than every key added before. The arrays may be kept until
+   * the commit, so they must not be changed before it.
    *
    * @param key the key
    * @param value the value

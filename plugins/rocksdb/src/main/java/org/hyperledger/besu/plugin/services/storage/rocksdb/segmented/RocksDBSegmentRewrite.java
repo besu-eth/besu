@@ -578,7 +578,7 @@ final class RocksDBSegmentRewrite {
     }
   }
 
-  private static void deleteTree(final Path directory) throws IOException {
+  static void deleteTree(final Path directory) throws IOException {
     if (!Files.isDirectory(directory)) {
       return;
     }
