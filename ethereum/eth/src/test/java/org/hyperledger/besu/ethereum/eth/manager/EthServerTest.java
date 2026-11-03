@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.manager;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
+import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -246,7 +247,7 @@ public class EthServerTest {
     final EthMessage ethMsg = new EthMessage(ethPeer, msgData);
 
     // Check response
-    final PooledTransactionsMessage expectedMsg = PooledTransactionsMessage.create(expectedResult);
+    final PooledTransactionsMessage expectedMsg = createPooledTransactionsMessage(expectedResult);
     final Optional<MessageData> result = ethMessages.dispatch(ethMsg, EthProtocol.LATEST);
     assertThat(result).contains(expectedMsg);
   }
@@ -267,7 +268,7 @@ public class EthServerTest {
     final EthMessage ethMsg = new EthMessage(ethPeer, msgData);
 
     // Check response
-    final PooledTransactionsMessage expectedMsg = PooledTransactionsMessage.create(expectedResult);
+    final PooledTransactionsMessage expectedMsg = createPooledTransactionsMessage(expectedResult);
     final Optional<MessageData> result = ethMessages.dispatch(ethMsg, EthProtocol.LATEST);
     assertThat(result).contains(expectedMsg);
   }
