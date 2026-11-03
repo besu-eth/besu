@@ -155,16 +155,7 @@ class MempoolPrewarmerTest {
         ExecutionContextTestFixture.builder(genesis)
             .dataStorageFormat(DataStorageFormat.BONSAI)
             .build();
-    prewarmer =
-        new MempoolPrewarmer(
-            fixture.getProtocolContext(),
-            fixture.getProtocolSchedule(),
-            transactionPool,
-            MiningConfiguration.newDefault(),
-            2,
-            gasLimitMultiplier,
-            metricsSystem,
-            clock);
+    prewarmer = prewarmerWith(2, gasLimitMultiplier);
   }
 
   private void useDevGenesisWith(final String gasLimit, final String baseFee, final int multiplier)
@@ -427,17 +418,7 @@ class MempoolPrewarmerTest {
         .thenThrow(new IllegalStateException("state"));
     final ProtocolContext protocolContext = spy(fixture.getProtocolContext());
     when(protocolContext.getWorldStateArchive()).thenReturn(archive);
-    prewarmer.close();
-    prewarmer =
-        new MempoolPrewarmer(
-            protocolContext,
-            fixture.getProtocolSchedule(),
-            transactionPool,
-            MiningConfiguration.newDefault(),
-            2,
-            4,
-            metricsSystem,
-            clock);
+    usePrewarmerOn(protocolContext);
     addCandidate(transfer(0));
     prewarmer.start(head());
     verify(archive, timeout(10_000)).getWorldState(any(WorldStateQueryParams.class));
@@ -467,7 +448,7 @@ class MempoolPrewarmerTest {
         .when(transactionPool)
         .selectTransactions(any());
     prewarmer.start(head());
-    Uninterruptibles.awaitUninterruptibly(copying);
+    assertThat(Uninterruptibles.awaitUninterruptibly(copying, Duration.ofSeconds(10))).isTrue();
 
     prewarmer.close();
 
@@ -480,9 +461,53 @@ class MempoolPrewarmerTest {
     assertThatThrownBy(() -> prewarmerWith(2, 0)).isInstanceOf(IllegalArgumentException.class);
   }
 
+  @Test
+  void warmsForANewHeadWhileAnExecutionForTheOldOneRunsOn() {
+    final CountDownLatch executing = new CountDownLatch(1);
+    final CountDownLatch release = new CountDownLatch(1);
+    final AtomicBoolean first = new AtomicBoolean(true);
+    final WorldStateArchive archive = spy(fixture.getStateArchive());
+    doAnswer(
+            invocation -> {
+              if (first.getAndSet(false)) {
+                executing.countDown();
+                // like an execution that makes no calls, it runs on after prewarming stops
+                Uninterruptibles.awaitUninterruptibly(release);
+              }
+              return invocation.callRealMethod();
+            })
+        .when(archive)
+        .getWorldState(any(WorldStateQueryParams.class));
+    final ProtocolContext protocolContext = spy(fixture.getProtocolContext());
+    when(protocolContext.getWorldStateArchive()).thenReturn(archive);
+    usePrewarmerOn(protocolContext);
+    addCandidate(transfer(0));
+    prewarmer.start(head());
+    assertThat(Uninterruptibles.awaitUninterruptibly(executing, Duration.ofSeconds(10))).isTrue();
+
+    prewarmer.stop(Optional.empty());
+    prewarmer.start(head());
+
+    try {
+      awaitExecuted(1);
+    } finally {
+      release.countDown();
+    }
+  }
+
+  private void usePrewarmerOn(final ProtocolContext protocolContext) {
+    prewarmer.close();
+    prewarmer = prewarmerWith(protocolContext, 2, 4);
+  }
+
   private MempoolPrewarmer prewarmerWith(final int threads, final int gasLimitMultiplier) {
+    return prewarmerWith(fixture.getProtocolContext(), threads, gasLimitMultiplier);
+  }
+
+  private MempoolPrewarmer prewarmerWith(
+      final ProtocolContext protocolContext, final int threads, final int gasLimitMultiplier) {
     return new MempoolPrewarmer(
-        fixture.getProtocolContext(),
+        protocolContext,
         fixture.getProtocolSchedule(),
         transactionPool,
         MiningConfiguration.newDefault(),
