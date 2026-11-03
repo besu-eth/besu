@@ -14,17 +14,21 @@
  */
 package org.hyperledger.besu.ethereum.core.encoding;
 
+import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
+
 import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -45,9 +49,11 @@ public class BlobPooledTransactionDecoder {
    * Decodes a blob transaction from the provided RLP input.
    *
    * @param input the RLP input to decode
+   * @param elidedBlobs whether the context this is decoded in may omit the blob payloads, which
+   *     only an eth/72 peer's PooledTransactions response does
    * @return the decoded transaction
    */
-  public static Transaction decode(final Bytes input) {
+  public static Transaction decode(final Bytes input, final boolean elidedBlobs) {
     final RLPInput txRlp = RLP.input(input.slice(1)); // Skip the transaction type byte
     txRlp.enterList();
     int versionId = 0;
@@ -58,16 +64,52 @@ public class BlobPooledTransactionDecoder {
     if (hasVersionId) {
       versionId = txRlp.readIntScalar();
     }
-    List<Blob> blobs = txRlp.readList(Blob::readFrom);
-    List<KZGCommitment> commitments = txRlp.readList(KZGCommitment::readFrom);
-    List<KZGProof> proofs = txRlp.readList(KZGProof::readFrom);
+    final List<Blob> blobs = txRlp.readList(Blob::readFrom);
+    final List<KZGCommitment> commitments = txRlp.readList(KZGCommitment::readFrom);
+    final List<KZGProof> proofs = txRlp.readList(KZGProof::readFrom);
     txRlp.leaveList();
 
-    final Transaction transaction =
+    // eth/72: a peer answering GetPooledTransactions elides the blob payloads, sending the empty
+    // list in their place. The transaction is then held as cells, none of which are known yet, so
+    // each blob starts with its own empty cell set for the blobpool to fill in via GetCells.
+    // One cell set per blob, i.e. one per commitment: proofs.size() is 128x that for cell proofs.
+    // Which form is valid is fixed by the context, in both directions: an eth/72 response always
+    // elides the payloads, and no earlier version ever does. go-ethereum keys its pooled encoding
+    // on the same thing, serving the full form below version 72 and the elided one at or above it.
+    // Taking either form from the wrong peer would also decouple the announced size from what
+    // arrived: the two differ by the payloads, so the size check could no longer catch a peer
+    // sending far more than it announced.
+    if (elidedBlobs != blobs.isEmpty()) {
+      throw new RLPException(
+          elidedBlobs
+              ? "Blob payloads are present, which an eth/72 response never sends"
+              : "Blob payloads are absent, which is only valid for an eth/72 peer's response");
+    }
+
+    // The sidecar factories reject what the counts can get wrong, with IllegalArgumentException.
+    // Everything they check is peer controlled, so it is reported as RLPException like the rest of
+    // a malformed body: that is the only failure the callers of this decoder treat as the peer's
+    // fault, rather than as an internal error that leaves it connected.
+    try {
+      if (elidedBlobs) {
+        if (KZG_CELL_PROOFS.getVersionId() != versionId) {
+          throw new RLPException(
+              "Unsupported blob type, expected %d but got %d"
+                  .formatted(KZG_CELL_PROOFS.getVersionId(), versionId));
+        }
+        final List<CellsWithMask> cells =
+            Collections.nCopies(commitments.size(), CellsWithMask.EMPTY);
+        builder.kzgBlobCells(commitments, cells, proofs).sizeForEth72Announcement(input.size());
+      } else {
         builder
             .kzgBlobs(BlobType.of(versionId), commitments, blobs, proofs)
-            .sizeForAnnouncement(input.size())
-            .build();
+            .sizeForAnnouncement(input.size());
+      }
+    } catch (final IllegalArgumentException e) {
+      throw new RLPException("Invalid blob sidecar: " + e.getMessage());
+    }
+
+    final Transaction transaction = builder.build();
 
     // Validate that each commitment hashes to the versioned hash declared in the tx body.
     // A mismatch means the peer sent a sidecar that does not correspond to the transaction.
