@@ -85,6 +85,12 @@ public class GetSyncReceiptsFromPeerTask implements PeerTask<GetSyncReceiptsFrom
   }
 
   @Override
+  public int getRetriesWithSamePeer() {
+    // a peer that sent back no receipts won't have them a second later, so ask another peer
+    return 0;
+  }
+
+  @Override
   public MessageData getRequestMessage(final Set<Capability> agreedCapabilities) {
     final List<Hash> blockHashes = requestedHeaders.stream().map(BlockHeader::getHash).toList();
     return agreedCapabilities.stream().anyMatch(EthProtocol::isEth70Compatible)
