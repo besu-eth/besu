@@ -14,8 +14,8 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushWei;
-import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushZero;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.setWei;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.setZero;
 
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -36,14 +36,14 @@ public class SelfBalanceOperationV2 extends AbstractFixedCostOperationV2 {
 
   @Override
   public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
-    if (!frame.stackHasSpaceV2(1)) return OVERFLOW_RESPONSE;
+    if (!frame.stackHasSpaceV2(1)) return overflowResponse;
     final long[] s = frame.stackDataV2();
     final int top = frame.stackTopV2();
     final Account account = getAccount(frame.getRecipientAddress(), frame);
     if (account == null) {
-      pushZero(s, top);
+      setZero(s, top);
     } else {
-      pushWei(account.getBalance(), s, top);
+      setWei(account.getBalance(), s, top);
     }
     frame.setTopV2(top + 1);
     return successResponse;

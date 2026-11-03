@@ -132,6 +132,19 @@ public interface SegmentedKeyValueStorage extends Closeable {
   }
 
   /**
+   * Begins a transaction committed as one write batch, for writers that never conflict: it skips
+   * the conflict checks of an optimistic transaction. Storage that locks keys, such as a
+   * pessimistic RocksDB transaction database, still locks them at commit. Storage without such
+   * checks falls back to {@link #startTransaction()}.
+   *
+   * @return An object representing the transaction.
+   * @throws StorageException the storage exception
+   */
+  default SegmentedKeyValueStorageTransaction startBatchTransaction() throws StorageException {
+    return startTransaction();
+  }
+
+  /**
    * Returns a stream of all keys for the segment.
    *
    * @param segmentIdentifier The segment identifier whose keys we want to stream.

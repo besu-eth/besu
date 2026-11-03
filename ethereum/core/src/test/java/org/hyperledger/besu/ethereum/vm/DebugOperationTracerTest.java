@@ -15,6 +15,11 @@
 package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -558,6 +563,58 @@ class DebugOperationTracerTest {
     assertThat(tracer.getTraceFrames()).hasSize(1);
     assertThat(tracer.getTraceFrames().get(0).getGasRemainingPostExecution())
         .isNotEqualTo(OptionalLong.empty());
+  }
+
+  @Test
+  void shouldKeepTheGasAfterTheLastCapturedFrameWhenOperationsRunPastTheLimit() {
+    final OpCodeTracerConfig config =
+        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+            .traceStorage(false)
+            .traceMemory(false)
+            .traceStack(false)
+            .limit(1)
+            .build();
+    final DebugOperationTracer tracer = new DebugOperationTracer(config, false);
+    final MessageFrame frame = validMessageFrame();
+
+    traceFrame(frame, tracer, anOperation);
+    frame.decrementRemainingGas(3);
+    final long gasAfterCapturedFrame = frame.getRemainingGas();
+    traceFrame(frame, tracer, anOperation);
+    frame.decrementRemainingGas(3);
+    traceFrame(frame, tracer, anOperation);
+
+    assertThat(tracer.getTraceFrames()).hasSize(1);
+    assertThat(tracer.getTraceFrames().get(0).getGasRemainingPostExecution())
+        .isEqualTo(gasAfterCapturedFrame);
+  }
+
+  @Test
+  void shouldNotReadTheStackOfOperationsPastTheLimit() {
+    final OpCodeTracerConfig config =
+        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+            .traceStorage(false)
+            .traceMemory(true)
+            .traceStack(true)
+            .limit(1)
+            .build();
+    final DebugOperationTracer tracer = new DebugOperationTracer(config, false);
+    final MessageFrame frame = spy(validMessageFrame());
+    frame.pushStackItem(UInt256.ONE);
+    frame.pushStackItem(UInt256.valueOf(2));
+    clearInvocations(frame);
+
+    for (int i = 0; i < 5; i++) {
+      traceFrame(frame, tracer, anOperation);
+    }
+
+    assertThat(tracer.getTraceFrames()).hasSize(1);
+    final TraceFrame recorded = tracer.getTraceFrames().get(0);
+    assertThat(recorded.getStack()).hasValueSatisfying(stack -> assertThat(stack).hasSize(2));
+    assertThat(recorded.getStackPostExecution())
+        .hasValueSatisfying(stack -> assertThat(stack).hasSize(2));
+    // only the recorded operation's stack is read: two items before and two after it
+    verify(frame, times(4)).getStackItem(anyInt());
   }
 
   @Test

@@ -116,22 +116,20 @@ public class KeyValueStorageProvider implements StorageProvider {
 
   @Override
   public void close() throws IOException {
-    storageInstances.entrySet().stream()
-        .filter(storage -> storage instanceof AutoCloseable)
-        .forEach(
-            storage -> {
-              try {
-                storage.getValue().close();
-              } catch (final IOException e) {
-                LOG.atWarn()
-                    .setMessage("Failed to close storage instance {}")
-                    .addArgument(
-                        storage.getKey().stream()
-                            .map(SegmentIdentifier::getName)
-                            .collect(Collectors.joining(",")))
-                    .setCause(e)
-                    .log();
-              }
-            });
+    storageInstances.forEach(
+        (segments, storage) -> {
+          try {
+            storage.close();
+          } catch (final IOException e) {
+            LOG.atWarn()
+                .setMessage("Failed to close storage instance {}")
+                .addArgument(
+                    segments.stream()
+                        .map(SegmentIdentifier::getName)
+                        .collect(Collectors.joining(",")))
+                .setCause(e)
+                .log();
+          }
+        });
   }
 }

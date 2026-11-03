@@ -21,7 +21,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Request;
-import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.Util;
@@ -157,15 +156,5 @@ public final class BodyValidation {
    */
   public static Hash balHash(final Bytes balRlp) {
     return Hash.wrap(keccak256(balRlp));
-  }
-
-  /**
-   * Generates the block access list hash from a sync block access list holder.
-   *
-   * @param syncBlockAccessList the sync block access list
-   * @return the block access list hash
-   */
-  public static Hash balHash(final SyncBlockAccessList syncBlockAccessList) {
-    return balHash(syncBlockAccessList.getRlp());
   }
 }

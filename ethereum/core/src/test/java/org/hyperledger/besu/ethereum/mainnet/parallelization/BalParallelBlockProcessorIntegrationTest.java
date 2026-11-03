@@ -39,7 +39,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
@@ -255,7 +254,8 @@ class BalParallelBlockProcessorIntegrationTest {
    * Parallel execution that injects a pre-computed BAL into the parallel run to force use of
    * BalConcurrentTransactionProcessor with applyWritesFromPriorTransactions.
    */
-  private static class ParallelExecutionWithPrecomputedBal extends MainnetParallelBlockProcessor {
+  private static class ParallelExecutionWithPrecomputedBal
+      extends NoFallbackParallelBlockProcessor {
 
     private final BlockAccessList preComputedBal;
 
@@ -277,10 +277,7 @@ class BalParallelBlockProcessorIntegrationTest {
           spec.getTransactionReceiptFactory(),
           BlockHeader::getCoinbase,
           protocolSchedule,
-          BalConfiguration.DEFAULT,
-          new NoOpMetricsSystem(),
-          Runnable::run,
-          Optional.empty());
+          BalConfiguration.DEFAULT);
       this.preComputedBal = preComputedBal;
     }
 
