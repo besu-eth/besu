@@ -32,6 +32,7 @@ import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
@@ -355,7 +356,15 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
       ranges.clear();
       storageOrder.clear();
     }
-    finisher.shutdownNow();
+    for (final Runnable notStarted : finisher.shutdownNow()) {
+      if (notStarted instanceof StoreFile file) {
+        // its writer still holds native memory and a file on disk
+        file.writer.rollback();
+      } else if (notStarted instanceof Future<?> await) {
+        // a flush waiting for it would wait forever
+        await.cancel(false);
+      }
+    }
     // a file stored after this returns could land in the state of the next sync attempt
     try {
       if (!finisher.awaitTermination(1, TimeUnit.MINUTES)) {
@@ -544,15 +553,26 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
   }
 
   private void store(final SortedWriter writer) {
-    finisher.execute(
-        () -> {
-          try {
-            writer.commit();
-          } catch (final RuntimeException e) {
-            LOG.error("Failed to store a sorted SNAP2 state file", e);
-            failure = e;
-          }
-        });
+    finisher.execute(new StoreFile(writer));
+  }
+
+  // a task of its own type, so that close finds the files it never got to
+  private final class StoreFile implements Runnable {
+    private final SortedWriter writer;
+
+    private StoreFile(final SortedWriter writer) {
+      this.writer = writer;
+    }
+
+    @Override
+    public void run() {
+      try {
+        writer.commit();
+      } catch (final RuntimeException e) {
+        LOG.error("Failed to store a sorted SNAP2 state file", e);
+        failure = e;
+      }
+    }
   }
 
   // returns once every file ended so far is stored
