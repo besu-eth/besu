@@ -28,6 +28,7 @@
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
+- Upgrade opentelemetry from 1.62.0 to 1.67.0, resolving CVE-2026-118259 [#11859](https://github.com/besu-eth/besu/pull/11859)
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
 
 ## 26.11.0
