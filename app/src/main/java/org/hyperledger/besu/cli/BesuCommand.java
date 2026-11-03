@@ -108,6 +108,7 @@ import org.hyperledger.besu.cryptoservices.KeyPairSecurityModule;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.pluginadapter.SecurityModuleServiceImpl;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
@@ -2215,7 +2216,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    */
   public BesuController buildController() {
     try {
-      return setupControllerBuilder().build();
+      final BesuController controller = setupControllerBuilder().build();
+      // the chain id is fixed for the life of the node: register it, so that every chain id with
+      // the same value, like the ones of the decoded transactions, shares the same instance
+      ChainId.initNetworkChainId(controller.getProtocolSchedule().getChainId());
+      return controller;
     } catch (final Exception e) {
       throw new ExecutionException(this.commandLine, e.getMessage(), e);
     }

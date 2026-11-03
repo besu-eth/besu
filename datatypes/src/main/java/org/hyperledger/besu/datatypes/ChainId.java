@@ -58,7 +58,17 @@ public final class ChainId {
   private record NetworkChainId(
       ChainId chainId, BigInteger asBigInteger, Optional<BigInteger> asOptional) {}
 
-  private static volatile @Nullable NetworkChainId network;
+  /**
+   * Set at startup, before the threads that handle chain ids start, so it does not need to be
+   * volatile: those threads see it through the happens-before of their start. A thread that sees a
+   * stale value, even after a reset, still gets a chain id equal to the one it asked for, just not
+   * the shared instance, while the final fields of the record guarantee that it is never seen
+   * partially built.
+   */
+  private static @Nullable NetworkChainId network;
+
+  /** Guarded by the class lock. */
+  private static boolean networkInitialized;
 
   /** The value when it fits in a non-negative long, otherwise one of the markers. */
   private final long longValue;
@@ -73,23 +83,40 @@ public final class ChainId {
 
   /**
    * Registers the chain id of the running network, so that the factory methods return the given
-   * instance every time they are asked for its value. It is meant to be called once at startup; a
-   * later call replaces the registered chain id, which only affects which instance gets shared, not
-   * the outcome of any comparison.
+   * instance every time they are asked for its value. It must be called only once, at startup,
+   * before the chain id is used by other threads, unless the registration is cleared first with
+   * {@link #resetNetworkChainId()}.
    *
-   * @param chainId the chain id of the running network, absent clears the registration
+   * @param chainId the chain id of the running network, absent if the network has none
    * @return the given chain id
+   * @throws IllegalStateException if the network chain id has already been registered
    */
-  public static ChainId initNetworkChainId(final ChainId chainId) {
+  public static synchronized ChainId initNetworkChainId(final ChainId chainId) {
     requireNonNull(chainId);
-    if (chainId.isAbsent()) {
-      network = null;
-    } else {
+    if (networkInitialized) {
+      throw new IllegalStateException(
+          "Network chain id already initialized to "
+              + (network != null ? network.chainId : ABSENT)
+              + ", cannot initialize it to "
+              + chainId);
+    }
+    if (chainId.isPresent()) {
       final BigInteger asBigInteger =
           chainId.bigValue != null ? chainId.bigValue : BigInteger.valueOf(chainId.longValue);
       network = new NetworkChainId(chainId, asBigInteger, Optional.of(asBigInteger));
     }
+    networkInitialized = true;
     return chainId;
+  }
+
+  /**
+   * Clears the registration of the network chain id, so that it can be registered again. It is
+   * meant only for when the node switches to another chain without restarting the process, like at
+   * the start of a new Ephemery cycle, and for tests that run more than one node in the same JVM.
+   */
+  public static synchronized void resetNetworkChainId() {
+    network = null;
+    networkInitialized = false;
   }
 
   /**
