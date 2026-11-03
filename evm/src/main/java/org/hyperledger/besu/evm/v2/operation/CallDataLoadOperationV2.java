@@ -14,18 +14,20 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import static org.hyperledger.besu.evm.v2.operation.StackUtil.setBytes32;
 import static org.hyperledger.besu.evm.v2.operation.StackUtil.setZero;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
-import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.bytes.MutableBytes32;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 
 /** The Call data load operation. */
 public class CallDataLoadOperationV2 extends AbstractFixedCostOperationV2 {
+
+  private static final VarHandle LONG_BE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
   /**
    * Instantiates a new Call data load operation.
@@ -50,14 +52,27 @@ public class CallDataLoadOperationV2 extends AbstractFixedCostOperationV2 {
       return successResponse;
     }
     final int start = (int) stack[offset + 3];
-    final Bytes data = frame.getInputData();
-    if (start >= data.size()) {
+    final byte[] data = frame.inputDataArrayV2();
+    final int size = data.length;
+    if (start >= size) {
       setZero(stack, top - 1);
-      return successResponse;
+    } else if (size - start >= 32) {
+      // the whole word lies in the call data
+      stack[offset] = (long) LONG_BE.get(data, start);
+      stack[offset + 1] = (long) LONG_BE.get(data, start + 8);
+      stack[offset + 2] = (long) LONG_BE.get(data, start + 16);
+      stack[offset + 3] = (long) LONG_BE.get(data, start + 24);
+    } else {
+      // the word runs past the end of the call data; the missing bytes read as zero
+      for (int limb = 0; limb < 4; limb++) {
+        long value = 0L;
+        for (int i = 0; i < 8; i++) {
+          final int index = start + (limb << 3) + i;
+          value = (value << 8) | (index < size ? (data[index] & 0xffL) : 0L);
+        }
+        stack[offset + limb] = value;
+      }
     }
-    final MutableBytes32 word = MutableBytes32.create();
-    data.slice(start, Math.min(Bytes32.SIZE, data.size() - start)).copyTo(word, 0);
-    setBytes32(word, stack, top - 1);
     return successResponse;
   }
 }
