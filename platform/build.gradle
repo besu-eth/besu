@@ -29,7 +29,7 @@ dependencies {
   api platform('com.fasterxml.jackson:jackson-bom:2.21.7')
   api platform('io.grpc:grpc-bom:1.79.0')
   api platform('io.netty:netty-bom:4.2.19.Final')
-  api platform('io.opentelemetry:opentelemetry-bom:1.62.0')
+  api platform('io.opentelemetry:opentelemetry-bom:1.67.0')
   api platform('io.prometheus:prometheus-metrics-bom:1.5.0')
   api platform('io.vertx:vertx-stack-depchain:5.2.2')
   api platform('org.apache.logging.log4j:log4j-bom:2.26.1')
@@ -121,10 +121,10 @@ dependencies {
     api 'info.picocli:picocli:4.7.7'
     api 'info.picocli:picocli-codegen:4.7.7'
 
-    api 'io.opentelemetry.instrumentation:opentelemetry-okhttp-3.0:2.25.0-alpha'
+    api 'io.opentelemetry.instrumentation:opentelemetry-okhttp-3.0:2.33.1-alpha'
     api 'io.opentelemetry.proto:opentelemetry-proto:1.9.0-alpha'
-    api 'io.opentelemetry.semconv:opentelemetry-semconv:1.40.0'
-    api 'io.opentelemetry.semconv:opentelemetry-semconv-incubating:1.40.0-alpha'
+    api 'io.opentelemetry.semconv:opentelemetry-semconv:1.44.0'
+    api 'io.opentelemetry.semconv:opentelemetry-semconv-incubating:1.44.0-alpha'
 
     api 'io.opentracing:opentracing-api:0.33.0'
     api 'io.opentracing:opentracing-util:0.33.0'
@@ -202,7 +202,7 @@ dependencies {
     api 'org.web3j:core:5.0.3'
     api 'org.web3j:crypto:5.0.3'
 
-    api 'org.xerial.snappy:snappy-java:1.1.10.7'
+    api 'org.xerial.snappy:snappy-java:1.1.10.9'
 
     api 'io.consensys.protocols:jc-kzg-4844:2.1.8'
 
