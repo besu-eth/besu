@@ -22,6 +22,7 @@ import static org.mockito.Answers.RETURNS_DEEP_STUBS;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -36,6 +37,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.messages.NewPooledTransactionHashesMessage;
 import org.hyperledger.besu.ethereum.eth.transactions.NewPooledTransactionHashesMessageProcessor.FetcherCreatorTask;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 
 import java.time.Duration;
@@ -72,6 +74,8 @@ class NewPooledTransactionHashesMessageProcessorTest {
   private final Transaction transaction3 = generator.transaction();
   private final List<Transaction> transactionList =
       List.of(transaction1, transaction2, transaction3);
+  private final EthProtocolConfiguration ethProtocolConfiguration =
+      EthProtocolConfiguration.DEFAULT;
   private NewPooledTransactionHashesMessageProcessor messageHandler;
   private StubMetricsSystem metricsSystem;
 
@@ -87,7 +91,8 @@ class NewPooledTransactionHashesMessageProcessorTest {
             transactionPoolConfiguration,
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
-            EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE);
+            EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE,
+            ethProtocolConfiguration.getMaxAnnouncementsPerMessage());
     when(ethContext.getScheduler()).thenReturn(ethScheduler);
   }
 
@@ -178,5 +183,52 @@ class NewPooledTransactionHashesMessageProcessorTest {
     verify(ethScheduler, times(1))
         .scheduleFutureTaskWithFixedDelay(
             any(FetcherCreatorTask.class), any(Duration.class), any(Duration.class));
+  }
+
+  @Test
+  void shouldDisconnectPeerWhenTooManyAnnouncementsInMessage() {
+    final int maxAnnouncements = transactionList.size() - 1;
+    final NewPooledTransactionHashesMessageProcessor strictHandler =
+        new NewPooledTransactionHashesMessageProcessor(
+            transactionTracker,
+            transactionPool,
+            transactionPoolConfiguration,
+            ethContext,
+            new TransactionPoolMetrics(metricsSystem),
+            EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE,
+            maxAnnouncements);
+
+    strictHandler.processNewPooledTransactionHashesMessage(
+        peer1,
+        NewPooledTransactionHashesMessage.create(transactionList, EthProtocol.LATEST),
+        now(),
+        ofMinutes(1));
+
+    verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    verifyNoInteractions(transactionTracker);
+    verifyNoInteractions(ethScheduler);
+  }
+
+  @Test
+  void shouldAcceptMessageWithExactlyMaxAnnouncements() {
+    final NewPooledTransactionHashesMessageProcessor strictHandler =
+        new NewPooledTransactionHashesMessageProcessor(
+            transactionTracker,
+            transactionPool,
+            transactionPoolConfiguration,
+            ethContext,
+            new TransactionPoolMetrics(metricsSystem),
+            EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE,
+            transactionList.size());
+
+    strictHandler.processNewPooledTransactionHashesMessage(
+        peer1,
+        NewPooledTransactionHashesMessage.create(transactionList, EthProtocol.LATEST),
+        now(),
+        ofMinutes(1));
+
+    verify(transactionTracker)
+        .receivedAnnouncements(eq(peer1), eq(TransactionAnnouncement.create(transactionList)));
+    verify(peer1, never()).disconnect(any());
   }
 }

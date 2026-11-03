@@ -88,4 +88,19 @@ class MessageFrameTest {
     assertThat(messageFrame.shadowReadMemory(32, Bytes32.SIZE)).isEqualTo(WORD2);
     assertThat(messageFrame.memoryWordSize()).isEqualTo(initialActiveWords);
   }
+
+  @Test
+  void releasedV2StackGoesBackToTheFrameDepthOnce() {
+    final MessageFrame messageFrame = messageFrameBuilder.enableEvmV2(true).build();
+    final long[] stack = messageFrame.stackDataV2();
+
+    // released while the frame is still on the frame stack, which is one deeper than its depth
+    messageFrame.releaseStackV2();
+    messageFrame.releaseStackV2();
+
+    assertThat(messageFrame.stackDataV2()).isNull();
+    assertThat(messageFrame.runsOnEvmV2()).isTrue();
+    assertThat(StacksV2.take(0, stack.length)).isSameAs(stack);
+    assertThat(StacksV2.take(0, stack.length)).isNotSameAs(stack);
+  }
 }

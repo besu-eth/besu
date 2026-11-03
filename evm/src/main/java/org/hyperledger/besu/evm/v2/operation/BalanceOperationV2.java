@@ -14,9 +14,9 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushWei;
-import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushZero;
 import static org.hyperledger.besu.evm.v2.operation.StackUtil.readAddressAt;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.setWei;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.setZero;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
@@ -52,7 +52,9 @@ public class BalanceOperationV2 extends AbstractOperationV2 {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
-    if (!frame.stackHasItemsV2(1)) return UNDERFLOW_RESPONSE;
+    if (!frame.stackHasItemsV2(1)) {
+      return new OperationResult(cost(true), ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+    }
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();
     final Address address = readAddressAt(stack, top, 0);
@@ -60,13 +62,14 @@ public class BalanceOperationV2 extends AbstractOperationV2 {
         frame.warmUpAddress(address) || gasCalculator().isPrecompile(address);
     final long cost = cost(accountIsWarm);
     if (frame.getRemainingGas() < cost) {
-      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+      return haltPopping(
+          frame, 1, new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS));
     }
     final Account account = getAccount(address, frame);
     if (account == null) {
-      pushZero(stack, top - 1);
+      setZero(stack, top - 1);
     } else {
-      pushWei(account.getBalance(), stack, top - 1);
+      setWei(account.getBalance(), stack, top - 1);
     }
     // no setTopV2 needed -- pop 1 + push 1 = net 0
     return new OperationResult(cost, null);

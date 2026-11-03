@@ -18,13 +18,35 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.crypto.KeyPair;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
+import org.hyperledger.besu.ethereum.referencetests.GeneralStateTestCaseSpec;
+import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.evmtool.exception.UnsupportedForkException;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import picocli.CommandLine;
 
 class StateTestSubCommandTest {
@@ -219,9 +241,294 @@ class StateTestSubCommandTest {
     final StateTestSubCommand stateTestSubCommand =
         new StateTestSubCommand(new EvmToolCommand(bais, new PrintWriter(baos, true, UTF_8)));
     stateTestSubCommand.run();
-    assertThat(baos.toString(UTF_8)).contains("File content error: ");
+    assertThat(baos.toString(UTF_8)).contains("not readable as state tests");
     // A fixture that could not be parsed has to fail the run.
     assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void anUnreadableFixtureInAFilenameListFailsTheRunEvenBesideAPassingOne() {
+    // The filename-list mode used to bypass the declared-case count, so reconciliation was off.
+    final String filenames =
+        resourcePath("access-list.json") + "\n" + resourcePath("bogus-test.json") + "\n";
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(
+            new EvmToolCommand(
+                new ByteArrayInputStream(filenames.getBytes(UTF_8)),
+                new PrintWriter(baos, true, UTF_8)));
+    stateTestSubCommand.run();
+    assertThat(baos.toString(UTF_8)).contains("\"pass\":true").contains("NOT RUN:");
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void aCaseWithNoVariantsInAFilenameListIsNotRun(@TempDir final Path dir) throws IOException {
+    final Path fixture = writeFixture(dir, Map.of("emptyPost", Map.of()));
+    final String filenames = resourcePath("access-list.json") + "\n" + fixture + "\n";
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(
+            new EvmToolCommand(
+                new ByteArrayInputStream(filenames.getBytes(UTF_8)),
+                new PrintWriter(baos, true, UTF_8)));
+    stateTestSubCommand.run();
+    assertThat(baos.toString(UTF_8)).contains("NOT RUN: 1 of 2 declared case(s) never executed");
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void anUndeserializableStdinFixtureIsCountedBesideAPassingFile() {
+    // Standard input cannot be re-read, so the count has to come from the same buffered content.
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(
+            new EvmToolCommand(
+                new ByteArrayInputStream("{\"a\": 1, \"b\": 2}".getBytes(UTF_8)),
+                new PrintWriter(baos, true, UTF_8)));
+    new CommandLine(stateTestSubCommand).parseArgs("stdin", resourcePath("access-list.json"));
+    stateTestSubCommand.run();
+    assertThat(baos.toString(UTF_8)).contains("NOT RUN: 2 of 3 declared case(s) never executed");
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void aStdinFixtureThatIsNotJsonStillCountsAsACaseNotRun() {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(
+            new EvmToolCommand(
+                new ByteArrayInputStream("not json".getBytes(UTF_8)),
+                new PrintWriter(baos, true, UTF_8)));
+    new CommandLine(stateTestSubCommand).parseArgs("stdin", resourcePath("access-list.json"));
+    stateTestSubCommand.run();
+    assertThat(baos.toString(UTF_8)).contains("NOT RUN: 1 of 2 declared case(s) never executed");
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void aCaseWhollyExcludedByForkIndexIsFilteredRatherThanNotRun(@TempDir final Path dir)
+      throws IOException {
+    // Selecting one fork from a mixed tree is ordinary use; the cases without it must not fail it.
+    final Map<String, Object> berlin = accessListCase();
+    final Map<String, Object> cancunOnly = accessListCase();
+    cancunOnly.put("post", Map.of("Cancun", ((Map<?, ?>) berlin.get("post")).get("Berlin")));
+    final Path fixture = writeFixture(dir, Map.of("berlin", berlin, "cancunOnly", cancunOnly));
+
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8)));
+    new CommandLine(stateTestSubCommand).parseArgs("--fork-index", "Berlin", fixture.toString());
+    stateTestSubCommand.run();
+    assertThat(baos.toString(UTF_8)).contains("\"pass\":true").doesNotContain("NOT RUN");
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(0);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"legacy-fork-tangerinewhistle.json", "legacy-fork-spuriousdragon.json"})
+  void legacyForkNamesRunUnderTheirEipSchedules(final String fixture) {
+    // The stable fixtures name these forks TangerineWhistle and SpuriousDragon, which the schedules
+    // know as EIP150 and EIP158. A touch test, so the two expect different roots: it only passes
+    // if each alias also picks up its fork's empty-account rule (EIP-161 from SpuriousDragon).
+    assertThat(runWithArgs("--summary-only", fixture))
+        .contains("State test summary: 1 passed, 0 failed")
+        .doesNotContain("NOT RUN");
+  }
+
+  @Test
+  void aCaseWithNoVariantsIsNotRunRatherThanExecuted(@TempDir final Path dir) throws IOException {
+    final Map<String, Object> emptyPost = accessListCase();
+    emptyPost.put("post", Map.of());
+    final Path fixture =
+        writeFixture(dir, Map.of("accessList", accessListCase(), "emptyPost", emptyPost));
+
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand stateTestSubCommand =
+        new StateTestSubCommand(new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8)));
+    new CommandLine(stateTestSubCommand).parseArgs(fixture.toString());
+    stateTestSubCommand.run();
+    assertThat(baos.toString(UTF_8)).contains("NOT RUN: 1 of 2 declared case(s) never executed");
+    assertThat(stateTestSubCommand.getExitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void anOversizedScalarIsDecodedFromTheRawTransactionBytes() throws IOException {
+    // No builder can hold a 33-byte gas price, so only Besu's own decoder can say whether it
+    // rejects one. Resolving the variant to no transaction at all would pass it unchecked.
+    final KeyPair keys = SignatureAlgorithmFactory.getInstance().generateKeyPair();
+    final Transaction raw =
+        Transaction.builder()
+            .type(TransactionType.FRONTIER)
+            .nonce(0)
+            .gasPrice(Wei.ONE)
+            .gasLimit(400_000)
+            .to(Address.fromHexString("0x095e7baea6a6c7c4c2dfeb977efac326af552d87"))
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .signAndBuild(keys);
+    final Map<String, Object> overflow = accessListCase();
+    final Map<String, Object> transaction = mutableMap(overflow.get("transaction"));
+    transaction.put("gasPrice", "0x01" + "00".repeat(32));
+    overflow.put("transaction", transaction);
+    final Map<String, Object> variant =
+        mutableMap(((List<?>) ((Map<?, ?>) overflow.get("post")).get("Berlin")).getFirst());
+    variant.put(
+        "txbytes",
+        TransactionEncoder.encodeOpaqueBytes(raw, EncodingContext.BLOCK_BODY).toHexString());
+    overflow.put("post", Map.of("Berlin", List.of(variant)));
+
+    final GeneralStateTestCaseSpec spec =
+        JsonUtils.createObjectMapper().convertValue(overflow, GeneralStateTestCaseSpec.class);
+    assertThat(spec.finalStateSpecs().get("Berlin").getFirst().getTransaction(0)).isEqualTo(raw);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"nonce", "to"})
+  void aMissingNonceOrMalformedFieldMakesTheFixtureUnreadable(
+      final String field, @TempDir final Path dir) throws IOException {
+    // Neither is a bounds test. Run as one, a missing nonce became 0 and a non-hex recipient an
+    // invalid transaction, so a broken fixture passed.
+    final Map<String, Object> broken = accessListCase();
+    final Map<String, Object> transaction = mutableMap(broken.get("transaction"));
+    if ("nonce".equals(field)) {
+      transaction.remove("nonce");
+    } else {
+      transaction.put("to", "0xnothex");
+    }
+    broken.put("transaction", transaction);
+    final Run run = run(writeFixture(dir, Map.of("broken", broken)));
+    assertThat(run.out()).contains("not readable as state tests").contains("NOT RUN:");
+    assertThat(run.exitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void anUnreadableFixtureWhoseCasesAreAllUnselectedDoesNotFailAFilteredRun(@TempDir final Path dir)
+      throws IOException {
+    // A run filtered to some tests is not failed by an unreadable fixture it would not have run.
+    final Path unreadable = dir.resolve("unreadable.json");
+    Files.writeString(unreadable, "{\"otherTest\": 1}");
+    final Run run =
+        run("--test-name", "accessList", resourcePath("access-list.json"), unreadable.toString());
+    assertThat(run.out()).contains("\"pass\":true").doesNotContain("NOT RUN");
+    assertThat(run.exitCode()).isEqualTo(0);
+  }
+
+  @Test
+  void jsonArrayCarriesAFailingRowForEveryUnreadableFileAndTheCasesNotRun() throws IOException {
+    // The run exits 1, so the array alone has to say why: every executed row here passes.
+    final Run run =
+        run("--json-array", resourcePath("access-list.json"), resourcePath("bogus-test.json"));
+    final List<Map<String, Object>> rows =
+        JsonUtils.createObjectMapper().readValue(run.out(), new TypeReference<>() {});
+    assertThat(rows)
+        .filteredOn(row -> Boolean.FALSE.equals(row.get("pass")))
+        .extracting(row -> row.get("name"))
+        .containsExactly(resourcePath("bogus-test.json"), "NOT RUN");
+    assertThat(run.exitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void anExecutionErrorFailsOnlyItsOwnVariant(@TempDir final Path dir) throws IOException {
+    // An excess blob gas this large prices blob gas beyond what Wei can hold, which throws outside
+    // the transaction processor. It used to abandon every later variant in that fork, so the
+    // second variant here, an expected rejection, never ran.
+    final Map<String, Map<String, Object>> fixture =
+        JsonUtils.createObjectMapper()
+            .readValue(new File(resourcePath("excess-blob-gas.json")), new TypeReference<>() {});
+    final Map<String, Object> broken = new LinkedHashMap<>(fixture.get("excessBlobGasTest"));
+    final Map<String, Object> env = mutableMap(broken.get("env"));
+    env.put("currentExcessBlobGas", "0x40000000");
+    broken.put("env", env);
+    final Object throwing = ((List<?>) ((Map<?, ?>) broken.get("post")).get("Cancun")).getFirst();
+    final Map<String, Object> rejected = mutableMap(throwing);
+    rejected.put("indexes", Map.of("data", 0, "gas", 0, "value", 9));
+    rejected.put("expectException", "TransactionException.INTRINSIC_GAS_TOO_LOW");
+    broken.put("post", Map.of("Cancun", List.of(throwing, rejected)));
+
+    final Run run = run(writeFixture(dir, Map.of("broken", broken)));
+    assertThat(run.out())
+        .contains("FAIL: broken [Cancun d=0 g=0 v=0] - execution error")
+        .contains("1 passed, 1 failed");
+    assertThat(run.exitCode()).isEqualTo(1);
+  }
+
+  @Test
+  void variantsOverTheBlockGasLimitAreListedAsSkipped(@TempDir final Path dir) throws IOException {
+    final Map<String, Object> oversized = accessListCase();
+    final Map<String, Object> transaction = mutableMap(oversized.get("transaction"));
+    transaction.put("gasLimit", List.of("0xffffffffffffff"));
+    oversized.put("transaction", transaction);
+    final Run run =
+        run(
+            "--summary-only",
+            writeFixture(dir, Map.of("accessList", accessListCase(), "oversized", oversized))
+                .toString());
+    assertThat(run.out())
+        .contains("Filtered out: 1 case(s)")
+        .contains("2 variant(s) skipped, their transaction exceeding the block gas limit")
+        .contains("  - oversized [Berlin d=0 g=0 v=0]");
+    assertThat(run.exitCode()).isEqualTo(0);
+  }
+
+  @Test
+  void forkIndexMatchesAForkByEitherOfItsNames() {
+    assertThat(runWithArgs("--fork-index", "EIP150", "legacy-fork-tangerinewhistle.json"))
+        .contains("\"pass\":true");
+    assertThat(runWithArgs("--fork-index", "eip158", "legacy-fork-spuriousdragon.json"))
+        .contains("\"pass\":true");
+  }
+
+  @Test
+  void forkOverridesTheEmptyAccountRulesAsWellAsTheSchedule() {
+    // SpuriousDragon's expected root assumes EIP-161 clears the touched empty account. Run under
+    // TangerineWhistle it is kept, so the roots differ and the variant has to fail.
+    assertThat(
+            runWithArgs(
+                "--summary-only", "--fork", "TangerineWhistle", "legacy-fork-spuriousdragon.json"))
+        .contains("0 passed, 1 failed");
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"Frontier", "homestead", "EIP150", "eip150", "TangerineWhistle"})
+  void forksBeforeSpuriousDragonKeepEmptyAccountsWhateverTheCase(final String fork) {
+    assertThat(ReferenceTestProtocolSchedules.shouldClearEmptyAccounts(fork)).isFalse();
+  }
+
+  private record Run(String out, int exitCode) {}
+
+  private static Run run(final Path fixture) {
+    return run(fixture.toString());
+  }
+
+  private static Run run(final String... args) {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final StateTestSubCommand command =
+        new StateTestSubCommand(new EvmToolCommand(System.in, new PrintWriter(baos, true, UTF_8)));
+    new CommandLine(command).parseArgs(args);
+    command.run();
+    return new Run(baos.toString(UTF_8), command.getExitCode());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> mutableMap(final Object map) {
+    return new LinkedHashMap<>((Map<String, Object>) map);
+  }
+
+  private static String resourcePath(final String resource) {
+    return StateTestSubCommandTest.class.getResource(resource).getPath();
+  }
+
+  private static Map<String, Object> accessListCase() throws IOException {
+    final Map<String, Map<String, Object>> fixture =
+        JsonUtils.createObjectMapper()
+            .readValue(new File(resourcePath("access-list.json")), new TypeReference<>() {});
+    return new LinkedHashMap<>(fixture.get("accessList"));
+  }
+
+  private static Path writeFixture(final Path dir, final Map<String, ?> cases) throws IOException {
+    final Path fixture = dir.resolve("fixture.json");
+    JsonUtils.createObjectMapper().writeValue(fixture.toFile(), cases);
+    return fixture;
   }
 
   @Test

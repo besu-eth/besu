@@ -91,4 +91,18 @@ class OptimisticParallelBlockProcessorIntegrationTest {
       return OPTIMISTIC_CONFIG;
     }
   }
+
+  @Nested
+  @DisplayName("Fee Recipient Delegation")
+  class FeeRecipientDelegation extends AbstractFeeRecipientDelegationTest {
+    @Override
+    protected String getVariantName() {
+      return getVariant();
+    }
+
+    @Override
+    protected BalConfiguration getBalConfiguration() {
+      return OPTIMISTIC_CONFIG;
+    }
+  }
 }

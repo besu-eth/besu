@@ -27,7 +27,8 @@ import java.util.OptionalLong;
  * <p>Prior to EIP-7778: Block gas equals the last receipt's cumulativeGasUsed (post-refund).
  *
  * <p>EIP-7778 (Amsterdam+): Block gas is pre-refund and may differ from receipt's
- * cumulativeGasUsed. Validation requires the cumulativeBlockGasUsed from block processing.
+ * cumulativeGasUsed. Validating a block with transactions requires the cumulativeBlockGasUsed from
+ * block processing.
  */
 @FunctionalInterface
 public interface BlockGasUsedValidator {
@@ -57,17 +58,19 @@ public interface BlockGasUsedValidator {
 
   /**
    * Amsterdam (EIP-7778 + EIP-8037): Validates header.gasUsed against cumulativeBlockGasUsed when
-   * available. Header.gasUsed is pre-refund gas, while receipt.cumulativeGasUsed is post-refund
-   * gas, so they differ when refunds apply.
+   * available. Header.gasUsed is the larger of the block's pre-refund execution gas and its state
+   * gas, while receipt.cumulativeGasUsed is the post-refund sum of both, so the receipts do not
+   * determine it.
    *
-   * <p>During full block processing, cumulativeBlockGasUsed is provided and must match
-   * header.gasUsed. During light validation (sync), cumulativeBlockGasUsed is empty and validation
-   * is skipped - the receiptsRoot already validates receipt integrity.
+   * <p>During light validation (sync), cumulativeBlockGasUsed is empty and only a block without
+   * transactions is checked, which must have a gasUsed of 0. The gasUsed of any other block is not
+   * validated, so the caller must have authenticated the header.
    */
   BlockGasUsedValidator AMSTERDAM =
       (header, receipts, blockGas) -> {
-        // If we have block gas from processing, validate against it
-        // Otherwise (light validation during sync), skip - receiptsRoot validates receipts
-        return blockGas.isEmpty() || header.getGasUsed() == blockGas.getAsLong();
+        if (blockGas.isPresent()) {
+          return header.getGasUsed() == blockGas.getAsLong();
+        }
+        return !receipts.isEmpty() || header.getGasUsed() == 0;
       };
 }

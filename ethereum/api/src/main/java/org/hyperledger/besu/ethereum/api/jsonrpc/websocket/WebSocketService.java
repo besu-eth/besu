@@ -28,7 +28,10 @@ import java.net.InetSocketAddress;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.AsyncResult;
@@ -62,6 +65,10 @@ public class WebSocketService {
 
   private final int maxActiveConnections;
   private final AtomicInteger activeConnectionsCount = new AtomicInteger();
+
+  /** Remote address → once-only release for accepted TCP connections (Layer B / abrupt WS). */
+  private final ConcurrentHashMap<SocketAddress, Runnable> connectionReleases =
+      new ConcurrentHashMap<>();
 
   private final Vertx vertx;
   private final WebSocketConfiguration configuration;
@@ -239,6 +246,7 @@ public class WebSocketService {
 
                 websocket.closeHandler(
                     v -> {
+                      releaseActiveConnection(socketAddress);
                       LOG.debug(
                           "Websocket Disconnected ({})", socketAddressAsString(socketAddress));
                       vertx
@@ -248,13 +256,18 @@ public class WebSocketService {
                               connectionId);
                     });
 
+                websocket.endHandler(v -> releaseActiveConnection(socketAddress));
+
                 websocket.exceptionHandler(
                     t -> {
                       LOG.debug(
                           "Unrecoverable error on Websocket: {} ({})",
                           t.getMessage(),
                           socketAddressAsString(socketAddress));
-                      websocket.close();
+                      releaseActiveConnection(socketAddress);
+                      if (!websocket.isClosed()) {
+                        websocket.close();
+                      }
                     });
               })
           .onFailure(t -> LOG.debug("Failed to accept websocket handshake", t));
@@ -262,31 +275,61 @@ public class WebSocketService {
   }
 
   private Handler<HttpConnection> connectionHandler() {
-
     return connection -> {
-      if (activeConnectionsCount.get() >= maxActiveConnections) {
+      if (maxActiveConnections > 0 && activeConnectionsCount.get() >= maxActiveConnections) {
         // disallow new connections to prevent DoS
         LOG.warn(
             "Rejecting new connection from {}. {}/{} max active connections limit reached.",
             connection.remoteAddress(),
-            activeConnectionsCount.getAndIncrement(),
+            activeConnectionsCount.get(),
             maxActiveConnections);
         connection.close();
       } else {
+        final SocketAddress remoteAddress = connection.remoteAddress();
+        final int activeConnections = activeConnectionsCount.incrementAndGet();
         LOG.debug(
             "Opened connection from {}. Total of active connections: {}/{}",
-            connection.remoteAddress(),
-            activeConnectionsCount.incrementAndGet(),
+            remoteAddress,
+            activeConnections,
             maxActiveConnections);
+        final AtomicBoolean released = new AtomicBoolean(false);
+        // Holder so the lambda can pass itself to ConcurrentHashMap.remove(key, value) without
+        // referencing the still-initializing local (javac: "might not have been initialized").
+        final AtomicReference<Runnable> releaseRef = new AtomicReference<>();
+        final Runnable releaseOnce =
+            () -> {
+              if (released.compareAndSet(false, true)) {
+                connectionReleases.remove(remoteAddress, releaseRef.get());
+                final int remainingConnections = activeConnectionsCount.decrementAndGet();
+                LOG.debug(
+                    "Connection closed from {}. Total of active connections: {}/{}",
+                    remoteAddress,
+                    remainingConnections,
+                    maxActiveConnections);
+              }
+            };
+        releaseRef.set(releaseOnce);
+        connectionReleases.put(remoteAddress, releaseOnce);
+        connection.closeHandler(c -> releaseOnce.run());
+        connection.exceptionHandler(
+            t -> {
+              LOG.debug("Connection exception from {}: {}", remoteAddress, t.toString());
+              releaseOnce.run();
+            });
       }
-      connection.closeHandler(
-          c ->
-              LOG.debug(
-                  "Connection closed from {}. Total of active connections: {}/{}",
-                  connection.remoteAddress(),
-                  activeConnectionsCount.decrementAndGet(),
-                  maxActiveConnections));
     };
+  }
+
+  /**
+   * Decrements the active-connection counter at most once per accepted TCP connection. Vert.x may
+   * not fire {@link HttpConnection#closeHandler} on abrupt WebSocket resets; WS close / end /
+   * exception handlers call this as a backstop.
+   */
+  private void releaseActiveConnection(final SocketAddress remoteAddress) {
+    final Runnable releaseOnce = connectionReleases.get(remoteAddress);
+    if (releaseOnce != null) {
+      releaseOnce.run();
+    }
   }
 
   private Handler<HttpServerRequest> httpHandler() {

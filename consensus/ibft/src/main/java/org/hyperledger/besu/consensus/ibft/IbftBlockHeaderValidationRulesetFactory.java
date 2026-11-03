@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.mainnet.AbstractGasLimitSpecificatio
 import static org.hyperledger.besu.ethereum.mainnet.AbstractGasLimitSpecification.DEFAULT_MIN_GAS_LIMIT;
 
 import org.hyperledger.besu.consensus.common.bft.BftHelpers;
+import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftBaseFeeFitsLongValidationRule;
 import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftCoinbaseValidationRule;
 import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftCommitSealsValidationRule;
 import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftValidatorsValidationRule;
@@ -59,6 +60,7 @@ public class IbftBlockHeaderValidationRulesetFactory {
             .addRule(
                 new GasLimitRangeAndDeltaValidationRule(
                     DEFAULT_MIN_GAS_LIMIT, DEFAULT_MAX_GAS_LIMIT, baseFeeMarket))
+            .addRule(new BftBaseFeeFitsLongValidationRule())
             .addRule(new TimestampBoundedByFutureParameter(1))
             .addRule(
                 new ConstantFieldValidationRule<>(

@@ -33,8 +33,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
 public class AccessLocationTracker implements Eip7928AccessList {
@@ -72,7 +72,8 @@ public class AccessLocationTracker implements Eip7928AccessList {
 
   public static final class AccountAccessList {
     private final Address address;
-    private final Set<UInt256> slots = ConcurrentHashMap.newKeySet();
+
+    private final Set<UInt256> slots = new ConcurrentSkipListSet<>();
 
     public AccountAccessList(final Address address) {
       this.address = address;
@@ -159,7 +160,6 @@ public class AccessLocationTracker implements Eip7928AccessList {
       final Account wrappedAccount = account.getWrappedAccount();
       final Wei newBalance = account.getBalance();
       final long newNonce = account.getNonce();
-      final Bytes newCode = account.getCode();
 
       if (wrappedAccount != null) {
         if (!newBalance.equals(wrappedAccount.getBalance())) {
@@ -168,8 +168,9 @@ public class AccessLocationTracker implements Eip7928AccessList {
         if (Long.compareUnsigned(newNonce, wrappedAccount.getNonce()) > 0) {
           accountBuilder.withNonceChange(newNonce);
         }
-        if (!newCode.equals(wrappedAccount.getCode())) {
-          accountBuilder.withNewCode(newCode);
+        if (account.codeWasUpdated()
+            && !account.getCodeHash().equals(wrappedAccount.getCodeHash())) {
+          accountBuilder.withNewCode(account.getCode());
         }
       } else {
         if (!newBalance.isZero()) {
@@ -178,8 +179,8 @@ public class AccessLocationTracker implements Eip7928AccessList {
         if (newNonce != 0L) {
           accountBuilder.withNonceChange(newNonce);
         }
-        if (!newCode.isEmpty()) {
-          accountBuilder.withNewCode(newCode);
+        if (account.hasCode()) {
+          accountBuilder.withNewCode(account.getCode());
         }
       }
 
