@@ -20,6 +20,7 @@ import org.hyperledger.besu.cli.BesuCommand;
 import org.hyperledger.besu.cli.options.PluginsConfigurationOptions;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.crypto.KeyPairUtil;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLHttpService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.EngineJsonRpcService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcHttpService;
@@ -262,6 +263,9 @@ public class Runner implements AutoCloseable {
   public void stopEphemery(final BesuCommand besuCommand) throws IOException, InterruptedException {
     if (besuController != null) {
       stopServices();
+      // the next cycle is a new chain, with a new chain id, that is registered when its controller
+      // is built
+      ChainId.resetNetworkChainId();
       clearDirectory(dataDir);
       besuCommand.setDataPathToParent();
       besuCommand.clearAllocatedPorts();

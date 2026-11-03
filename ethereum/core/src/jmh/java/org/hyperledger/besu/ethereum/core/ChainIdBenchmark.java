@@ -41,6 +41,7 @@ import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
+import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 
 /**
@@ -120,6 +121,12 @@ public class ChainIdBenchmark {
         TransactionEncoder.encodeOpaqueBytes(
             builder.signAndBuild(keys), EncodingContext.POOLED_TRANSACTION);
     transaction = TransactionDecoder.decodeOpaqueBytes(encoded, EncodingContext.POOLED_TRANSACTION);
+  }
+
+  @TearDown
+  public void tearDown() {
+    // with no fork, the next trial runs in the same JVM and registers its own chain id
+    ChainId.resetNetworkChainId();
   }
 
   @Benchmark

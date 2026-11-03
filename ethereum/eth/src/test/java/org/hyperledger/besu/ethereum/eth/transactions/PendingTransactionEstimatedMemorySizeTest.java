@@ -235,7 +235,7 @@ public class PendingTransactionEstimatedMemorySizeTest extends BaseTransactionPo
       assertThat(codeDelegations.get(0).chainIdentifier()).isSameAs(networkChainId);
       assertThat(codeDelegations.get(1).chainIdentifier()).isSameAs(ChainId.of(0));
     } finally {
-      ChainId.initNetworkChainId(ChainId.absent());
+      ChainId.resetNetworkChainId();
     }
   }
 

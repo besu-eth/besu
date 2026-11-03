@@ -38,8 +38,8 @@ class ChainIdTest {
       BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
 
   @AfterEach
-  void clearNetworkChainId() {
-    ChainId.initNetworkChainId(ChainId.absent());
+  void resetNetworkChainId() {
+    ChainId.resetNetworkChainId();
   }
 
   static Stream<BigInteger> values() {
@@ -204,10 +204,30 @@ class ChainIdTest {
   }
 
   @Test
-  void clearingTheNetworkChainIdStopsSharing() {
-    final ChainId network = ChainId.initNetworkChainId(ChainId.of(560048));
+  void networkChainIdCanBeInitializedOnlyOnce() {
+    ChainId.initNetworkChainId(ChainId.of(560048));
+
+    assertThatThrownBy(() -> ChainId.initNetworkChainId(ChainId.of(560048)))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> ChainId.initNetworkChainId(ChainId.of(1)))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void absentNetworkChainIdCanBeInitializedOnlyOnce() {
     ChainId.initNetworkChainId(ChainId.absent());
 
+    assertThat(ChainId.of(1)).isNotSameAs(ChainId.of(1));
+    assertThatThrownBy(() -> ChainId.initNetworkChainId(ChainId.of(1)))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void resettingTheNetworkChainIdStopsSharing() {
+    final ChainId network = ChainId.initNetworkChainId(ChainId.of(560048));
+    ChainId.resetNetworkChainId();
+
     assertThat(ChainId.of(560048)).isNotSameAs(network).isEqualTo(network);
+    assertThat(ChainId.initNetworkChainId(ChainId.of(1))).isSameAs(ChainId.of(1));
   }
 }
