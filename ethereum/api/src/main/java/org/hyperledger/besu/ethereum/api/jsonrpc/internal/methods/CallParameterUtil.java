@@ -23,6 +23,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 
+import java.util.List;
+
 public class CallParameterUtil {
   private CallParameterUtil() {}
 
@@ -53,6 +55,37 @@ public class CallParameterUtil {
           "both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified",
           RpcErrorType.INVALID_PARAMS);
     }
+  }
+
+  /**
+   * Rejects a call that sets maxFeePerBlobGas without blob versioned hashes, or that sets an empty
+   * blobVersionedHashes list. A blob transaction carries at least one blob versioned hash.
+   *
+   * @param callParams the call parameters
+   */
+  public static void rejectBlobFieldsWithoutHashes(final CallParameter callParams) {
+    rejectEmptyBlobHashes(callParams);
+    if (callParams.getMaxFeePerBlobGas().isPresent()
+        && callParams.getBlobVersionedHashes().isEmpty()) {
+      throw invalidBlobCount();
+    }
+  }
+
+  /**
+   * Rejects a call that sets an empty blobVersionedHashes list. A blob transaction carries at least
+   * one blob versioned hash.
+   *
+   * @param callParams the call parameters
+   */
+  public static void rejectEmptyBlobHashes(final CallParameter callParams) {
+    if (callParams.getBlobVersionedHashes().map(List::isEmpty).orElse(false)) {
+      throw invalidBlobCount();
+    }
+  }
+
+  private static InvalidJsonRpcParameters invalidBlobCount() {
+    return new InvalidJsonRpcParameters(
+        "blob transaction needs at least one blob versioned hash", RpcErrorType.INVALID_BLOB_COUNT);
   }
 
   public static boolean isAllowExceedingBalance(

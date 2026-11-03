@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -23,6 +24,7 @@ import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulationResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 
 import java.util.List;
 import java.util.Optional;
@@ -149,7 +151,7 @@ public class BlockStateCallResult extends BlockResult {
   /**
    * Determines the appropriate {@link JsonRpcError} based on the transaction processing result.
    *
-   * <p>This method checks for revert reasons and exceptional halt reasons to construct an
+   * <p>This method checks for exceptional halt reasons and revert reasons to construct an
    * appropriate error message.
    *
    * @param result the result of processing a transaction
@@ -157,13 +159,32 @@ public class BlockStateCallResult extends BlockResult {
    *     processing, or {@code null} if no error occurred
    */
   private static JsonRpcError getError(final TransactionProcessingResult result) {
-    if (result.getRevertReason().isPresent()) {
+    // A failing precompile sets a revert reason and also halts, so the halt must win.
+    if (result.getExceptionalHaltReason().isPresent()) {
+      final ExceptionalHaltReason haltReason = result.getExceptionalHaltReason().get();
+      final String message =
+          haltReason == ExceptionalHaltReason.INSUFFICIENT_GAS
+              ? "out of gas"
+              : "vm execution error: " + haltReason.getDescription();
+      return new JsonRpcError(-32015, message, null);
+    } else if (result.getRevertReason().isPresent()) {
+      final Bytes revertReason = result.getRevertReason().get();
+      final String message =
+          decodeRevertReason(revertReason)
+              .map(reason -> "execution reverted: " + reason)
+              .orElse("execution reverted");
       return new JsonRpcError(
-          RpcErrorType.REVERT_ERROR, result.getRevertReason().get().toHexString());
-    } else if (result.getExceptionalHaltReason().isPresent()) {
-      return new JsonRpcError(
-          -32015, result.getExceptionalHaltReason().get().getDescription(), null);
+          RpcErrorType.REVERT_ERROR.getCode(), message, revertReason.toHexString());
     }
     return null;
+  }
+
+  private static Optional<String> decodeRevertReason(final Bytes revertReason) {
+    try {
+      return JsonRpcErrorResponse.decodeRevertReason(revertReason)
+          .filter(reason -> !reason.equals("ABI decode error"));
+    } catch (final RuntimeException e) {
+      return Optional.empty();
+    }
   }
 }

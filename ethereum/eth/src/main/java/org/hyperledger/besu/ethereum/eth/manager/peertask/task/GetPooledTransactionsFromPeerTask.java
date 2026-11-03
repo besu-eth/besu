@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
@@ -92,17 +93,24 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
       throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
     final PooledTransactionsMessage pooledTransactionsMessage =
         PooledTransactionsMessage.readFrom(messageData);
+    // Only an eth/72 peer may answer with the blob payloads elided, so the version negotiated with
+    // this peer decides whether that form is even decodable: from any other peer it is a malformed
+    // response.
+    final boolean eth72 = agreedCapabilities.stream().anyMatch(EthProtocol::isEth72Compatible);
     final List<Transaction> responseTransactions;
     try {
-      responseTransactions = pooledTransactionsMessage.transactions();
+      responseTransactions =
+          pooledTransactionsMessage.transactions(
+              hashes.size(),
+              eth72
+                  ? EncodingContext.POOLED_TRANSACTION_ETH_72
+                  : EncodingContext.POOLED_TRANSACTION);
     } catch (RLPException e) {
       throw new MalformedRlpFromPeerException(e, messageData.getData());
     }
-    if (responseTransactions.size() > hashes.size()) {
-      throw new InvalidPeerTaskResponseException(
-          "Response transaction count does not match request hash count");
-    }
+
     if (!announcementsByHash.isEmpty()) {
+      // An eth/72 peer announces the size of the blob-elided form, which is what it just sent us.
       for (final Transaction tx : responseTransactions) {
         final TransactionAnnouncement ann = announcementsByHash.get(tx.getHash());
         if (ann == null) {
@@ -118,14 +126,16 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
                   + tx.getType(),
               messageData.getData());
         }
-        if (ann.size() != tx.getSizeForAnnouncement()) {
+        final int receivedSize =
+            eth72 ? tx.getSizeForEth72Announcement() : tx.getSizeForAnnouncement();
+        if (ann.size() != receivedSize) {
           throw new MalformedRlpFromPeerException(
               "Transaction size mismatch for hash "
                   + tx.getHash()
                   + ": announced "
                   + ann.size()
                   + " but received "
-                  + tx.getSizeForAnnouncement(),
+                  + receivedSize,
               messageData.getData());
         }
       }
@@ -140,9 +150,13 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
 
   @Override
   public PeerTaskValidationResponse validateResult(final List<Transaction> result) {
-    if (!result.stream().allMatch((t) -> hashes.contains(t.getHash()))) {
-      return PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
-    }
-    return PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD;
+    // Unavailable transactions may be omitted, but responses must preserve request order.
+    final List<Hash> responseHashes = result.stream().map(Transaction::getHash).toList();
+    final Set<Hash> responseHashSet = Set.copyOf(responseHashes);
+    final List<Hash> requestedHashesInResponse =
+        hashes.stream().filter(responseHashSet::contains).toList();
+    return requestedHashesInResponse.equals(responseHashes)
+        ? PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD
+        : PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
   }
 }

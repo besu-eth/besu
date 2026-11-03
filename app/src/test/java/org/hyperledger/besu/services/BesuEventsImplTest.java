@@ -123,6 +123,7 @@ public class BesuEventsImplTest {
   private MutableBlockchain blockchain;
   private final BlockDataGenerator gen = new BlockDataGenerator();
   private final BadBlockManager badBlockManager = new BadBlockManager();
+  private final DeterministicEthScheduler ethScheduler = new DeterministicEthScheduler();
 
   @BeforeEach
   public void setUp() {
@@ -139,7 +140,7 @@ public class BesuEventsImplTest {
 
     when(mockEthContext.getEthMessages()).thenReturn(mockEthMessages);
     when(mockEthContext.getEthPeers()).thenReturn(mockEthPeers);
-    when(mockEthContext.getScheduler()).thenReturn(new DeterministicEthScheduler());
+    when(mockEthContext.getScheduler()).thenReturn(ethScheduler);
     lenient().when(mockEthPeers.streamAvailablePeers()).thenAnswer(z -> Stream.empty());
     when(mockProtocolContext.getBlockchain()).thenReturn(blockchain);
     lenient().when(mockProtocolContext.getWorldStateArchive()).thenReturn(mockWorldStateArchive);
@@ -165,7 +166,7 @@ public class BesuEventsImplTest {
     lenient().when(mockWorldState.get(any())).thenReturn(mockSenderAccount);
     lenient().when(mockSenderAccount.getBalance()).thenReturn(Wei.of(10_000_000_000_000_000L));
 
-    blockBroadcaster = new BlockBroadcaster(mockEthContext, 10 * ByteUnits.MEGABYTE);
+    blockBroadcaster = new BlockBroadcaster(mockEthContext, 10 * ByteUnits.MEBIBYTE);
     syncState = new SyncState(blockchain, mockEthPeers);
     TransactionPoolConfiguration txPoolConfig =
         ImmutableTransactionPoolConfiguration.builder()
@@ -527,6 +528,19 @@ public class BesuEventsImplTest {
   }
 
   @Test
+  public void transactionAddedEventIsNotFiredOnTheCallerThread() {
+    final AtomicReference<Transaction> result = new AtomicReference<>();
+    serviceImpl.addTransactionAddedListener(result::set);
+    ethScheduler.mockServiceExecutor().setAutoRun(false);
+
+    transactionPool.addTransactionViaApi(TX1);
+    assertThat(result.get()).isNull();
+
+    ethScheduler.mockServiceExecutor().runPendingFutures();
+    assertThat(result.get()).isEqualTo(TX1);
+  }
+
+  @Test
   public void transactionAddedEventUselessUnsubscribesCompletes() {
     serviceImpl.removeTransactionAddedListener(5);
     serviceImpl.removeTransactionAddedListener(5L);
@@ -544,6 +558,22 @@ public class BesuEventsImplTest {
         bumpTransactionGasPrice(TX1, TX1.getGasPrice().get().multiply(2)));
 
     assertThat(result.get()).isNotNull();
+  }
+
+  @Test
+  public void transactionDroppedEventIsNotFiredOnTheCallerThread() {
+    final AtomicReference<Transaction> result = new AtomicReference<>();
+    serviceImpl.addTransactionDroppedListener((tx, reason) -> result.set(tx));
+    ethScheduler.mockServiceExecutor().setAutoRun(false);
+
+    // sending a replacement with higher gas should drop the previous one
+    transactionPool.addTransactionViaApi(TX1);
+    transactionPool.addTransactionViaApi(
+        bumpTransactionGasPrice(TX1, TX1.getGasPrice().get().multiply(2)));
+    assertThat(result.get()).isNull();
+
+    ethScheduler.mockServiceExecutor().runPendingFutures();
+    assertThat(result.get()).isEqualTo(TX1);
   }
 
   @Test

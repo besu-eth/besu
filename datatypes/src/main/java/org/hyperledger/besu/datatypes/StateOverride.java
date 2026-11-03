@@ -22,18 +22,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-import com.fasterxml.jackson.annotation.JsonAnySetter;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** Account Override parameter class */
-@JsonIgnoreProperties(ignoreUnknown = true)
 @JsonDeserialize(builder = StateOverride.Builder.class)
 public class StateOverride {
-  private static final Logger LOG = LoggerFactory.getLogger(StateOverride.class);
-
   private final Optional<Wei> balance;
   private final Optional<Long> nonce;
   private final Optional<String> code;
@@ -120,7 +113,6 @@ public class StateOverride {
   }
 
   /** Builder class for Account overrides */
-  @JsonIgnoreProperties(ignoreUnknown = true)
   public static class Builder {
     private Optional<Wei> balance = Optional.empty();
     private Optional<Long> nonce = Optional.empty();
@@ -207,21 +199,6 @@ public class StateOverride {
       checkState(state.isEmpty() || stateDiff.isEmpty(), "Cannot set both state and stateDiff");
       return new StateOverride(balance, nonce, code, state, stateDiff, movePrecompileToAddress);
     }
-  }
-
-  /**
-   * utility method to log unknown properties
-   *
-   * @param key key for the unrecognized value
-   * @param value the unrecognized value
-   */
-  @JsonAnySetter
-  public void withUnknownProperties(final String key, final Object value) {
-    LOG.debug(
-        "unknown property - {} with value - {} and type - {} caught during serialization",
-        key,
-        value,
-        value != null ? value.getClass() : "NULL");
   }
 
   @Override

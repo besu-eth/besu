@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.core.kzg;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.hyperledger.besu.datatypes.BlobType;
@@ -104,6 +105,55 @@ public final class BlobProofBundle {
     this.kzgCommitment = kzgCommitment;
     this.kzgProof = kzgProof;
     this.versionedHash = versionedHash;
+  }
+
+  /**
+   * A bundle holding a blob and the cells of it that the caller already has, for a blob recovered
+   * from its cells: recovery yields the whole cell set, so extending the blob to compute them again
+   * would be one extension per blob for a result already in hand.
+   *
+   * @param blobType the type of the blob, which has to be {@link BlobType#KZG_CELL_PROOFS}
+   * @param blob the blob being proven
+   * @param extendedCells every cell of the blob, one after another
+   * @param kzgCommitment the KZG commitment for the blob
+   * @param kzgProof the cell proofs for the blob
+   * @param versionedHash the versioned hash of the blob
+   */
+  public BlobProofBundle(
+      final BlobType blobType,
+      final Blob blob,
+      final Bytes extendedCells,
+      final KZGCommitment kzgCommitment,
+      final List<KZGProof> kzgProof,
+      final VersionedHash versionedHash) {
+    checkNotNull(blob, "blob must not be null");
+    checkNotNull(extendedCells, "extendedCells must not be null");
+    checkNotNull(kzgCommitment, "kzgCommitment must not be null");
+    checkNotNull(kzgProof, "kzgProof must not be null");
+    checkNotNull(versionedHash, "versionedHash must not be null");
+    checkArgument(
+        blobType == BlobType.KZG_CELL_PROOFS,
+        "A bundle given its cells requires blob type KZG_CELL_PROOFS");
+    checkArgument(
+        kzgProof.size() == CKZG4844Helper.CELL_PROOFS_PER_BLOB,
+        "Invalid kzgProof size for versionId 1, expected %s but got %s",
+        CKZG4844Helper.CELL_PROOFS_PER_BLOB,
+        kzgProof.size());
+    // Holding the blob means every cell of it can be computed, so anything less than the whole set
+    // would understate what this bundle can serve.
+    checkArgument(
+        extendedCells.size() == CKZG4844Helper.CELLS_PER_EXT_BLOB * Cell.SIZE,
+        "Expected all %s cells of the blob, got %s bytes",
+        CKZG4844Helper.CELLS_PER_EXT_BLOB,
+        extendedCells.size());
+
+    this(
+        blobType,
+        Optional.of(blob),
+        Optional.of(cellsOf(extendedCells)),
+        kzgCommitment,
+        kzgProof,
+        versionedHash);
   }
 
   /**
