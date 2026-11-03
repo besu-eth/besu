@@ -59,6 +59,15 @@ public class BadBlockManager {
    */
   public static final int MAX_BAD_DESCENDANT_BODIES = 20;
 
+  /**
+   * A rejected block access list can be arbitrarily large, and not only in its number of items:
+   * code changes carry whole contract bytecode. The retention caches are therefore bounded by the
+   * encoded size of the lists they hold rather than by entry count, so a single list larger than
+   * this budget is evicted straight away and the total stays bounded however large the rejected
+   * lists are, while a few normally sized lists are still kept for the debug RPCs.
+   */
+  public static final long MAX_BAD_BLOCK_ACCESS_LIST_BYTES = 16L * 1024 * 1024;
+
   /** A bad block and its cause are evicted together, so a tracked block never loses its cause. */
   private record BadBlock(Block block, BadBlockCause cause) {}
 
@@ -89,9 +98,17 @@ public class BadBlockManager {
   private final Cache<Hash, Hash> latestValidHashes =
       CacheBuilder.newBuilder().maximumSize(MAX_BAD_CHAIN_SIZE).concurrencyLevel(1).build();
   private final Cache<Hash, BlockAccessList> blockAccessLists =
-      CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
+      CacheBuilder.newBuilder()
+          .maximumWeight(MAX_BAD_BLOCK_ACCESS_LIST_BYTES)
+          .weigher(BadBlockManager::weighBlockAccessList)
+          .concurrencyLevel(1)
+          .build();
   private final Cache<Hash, BlockAccessList> generatedBlockAccessLists =
-      CacheBuilder.newBuilder().maximumSize(MAX_BAD_BLOCKS_SIZE).concurrencyLevel(1).build();
+      CacheBuilder.newBuilder()
+          .maximumWeight(MAX_BAD_BLOCK_ACCESS_LIST_BYTES)
+          .weigher(BadBlockManager::weighBlockAccessList)
+          .concurrencyLevel(1)
+          .build();
   private final Subscribers<BadBlockListener> badBlockSubscribers = Subscribers.create(true);
 
   /**
@@ -127,6 +144,11 @@ public class BadBlockManager {
     blockAccessList.ifPresent(bal -> this.blockAccessLists.put(badBlock.getHash(), bal));
     generatedBlockAccessList.ifPresent(
         bal -> this.generatedBlockAccessLists.put(badBlock.getHash(), bal));
+  }
+
+  private static int weighBlockAccessList(final Hash hash, final BlockAccessList blockAccessList) {
+    // a decoded list already holds its encoding, weigh that rather than encoding it again
+    return blockAccessList.rawRlp().orElseGet(blockAccessList::encode).size();
   }
 
   // subscribers are plugins, they must not run while the monitor blocks import and engine threads

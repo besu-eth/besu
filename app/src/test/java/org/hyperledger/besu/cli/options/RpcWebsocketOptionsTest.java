@@ -98,6 +98,23 @@ public class RpcWebsocketOptionsTest extends CommandTestAbstract {
   }
 
   @Test
+  public void rpcWsMaxActiveConnectionsAcceptsZero() {
+    parseCommand("--rpc-ws-max-active-connections", "0");
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    assertThat(wsRpcConfigArgumentCaptor.getValue().getMaxActiveConnections()).isEqualTo(0);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsMaxActiveConnectionsNegativeValueMustFail() {
+    parseCommand("--rpc-ws-max-active-connections", "-1");
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--rpc-ws-max-active-connections must be >= 0 (0 specifies no limit)");
+  }
+
+  @Test
   public void rpcWsMaxActiveSubscriptionsAcceptsZero() {
     parseCommand("--rpc-ws-max-active-subscriptions", "0");
 

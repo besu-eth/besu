@@ -42,7 +42,9 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 
 import org.slf4j.Logger;
@@ -201,7 +203,6 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   @Override
-  // TODO: Throw instead of returning Optional.empty()?
   public Optional<TransactionProcessingResult> getProcessingResult(
       final MutableWorldState worldState,
       final Address miningBeneficiary,
@@ -212,42 +213,43 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
     final CompletableFuture<ParallelizedTransactionContext> future = removeFuture(txIndex);
     if (future != null) {
+      final ParallelizedTransactionContext ctx;
       try {
-        final ParallelizedTransactionContext ctx = future.get();
-
-        if (ctx == null) {
-          LOG.trace("Transaction context for transaction {} is empty.", txIndex);
-          return Optional.empty();
-        }
-
-        final PathBasedWorldState pathWs = (PathBasedWorldState) worldState;
-        final PathBasedWorldStateUpdateAccumulator blockAccumulator =
-            (PathBasedWorldStateUpdateAccumulator) pathWs.updater();
-
-        final TransactionProcessingResult result = ctx.transactionProcessingResult();
-        final Optional<PartialBlockAccessView> maybePartialBlockAccessView =
-            result.getPartialBlockAccessView();
-        if (maybePartialBlockAccessView.isEmpty()) {
-          LOG.trace("Partial block access view for transaction {} is empty.", txIndex);
-          return Optional.empty();
-        }
-
-        blockAccumulator.importStateChangesFromPartialView(
-            maybePartialBlockAccessView.get(), transactionProcessor.getClearEmptyAccounts());
-
-        confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
-        result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
-
-        return Optional.of(result);
+        ctx = future.get();
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
         LOG.error("Interrupted while waiting for transaction {} processing result.", txIndex, e);
         return Optional.empty();
-      } catch (final Exception e) {
-        LOG.error(
-            "Error integrating transaction processing result for transaction {}.", txIndex, e);
+      } catch (final ExecutionException | CancellationException e) {
+        LOG.error("Error processing transaction {} in parallel.", txIndex, e);
         return Optional.empty();
       }
+
+      if (ctx == null) {
+        LOG.trace("Transaction context for transaction {} is empty.", txIndex);
+        return Optional.empty();
+      }
+
+      final PathBasedWorldState pathWs = (PathBasedWorldState) worldState;
+      final PathBasedWorldStateUpdateAccumulator blockAccumulator =
+          (PathBasedWorldStateUpdateAccumulator) pathWs.updater();
+
+      final TransactionProcessingResult result = ctx.transactionProcessingResult();
+      final Optional<PartialBlockAccessView> maybePartialBlockAccessView =
+          result.getPartialBlockAccessView();
+      if (maybePartialBlockAccessView.isEmpty()) {
+        LOG.trace("Partial block access view for transaction {} is empty.", txIndex);
+        return Optional.empty();
+      }
+
+      // Not caught: falling back would run the transaction again on top of a partial import.
+      blockAccumulator.importStateChangesFromPartialView(
+          maybePartialBlockAccessView.get(), transactionProcessor.getClearEmptyAccounts());
+
+      confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
+      result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
+
+      return Optional.of(result);
     }
 
     LOG.error("No future found for transaction {}.", txIndex);

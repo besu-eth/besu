@@ -18,11 +18,13 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface MutableBlockchain extends Blockchain {
@@ -104,6 +106,51 @@ public interface MutableBlockchain extends Blockchain {
   void unsafeImportSyncBodiesAndReceipts(
       List<SyncBlockWithReceipts> blocksAndReceipts, boolean indexTransactions);
 
+  /**
+   * Stores the bodies and receipts of blocks whose headers are stored, in any order and from any
+   * thread, without updating the chain state.
+   *
+   * @param blocksAndReceipts The blocks and receipts to store
+   * @param indexTransactions Boolean whether to index transactions
+   */
+  void unsafeStoreSyncBodiesAndReceipts(
+      List<SyncBlockWithReceipts> blocksAndReceipts, boolean indexTransactions);
+
+  /**
+   * Stores in one batch the block access lists of blocks whose headers a sync then stores, without
+   * updating the chain state.
+   *
+   * @param accessLists the access lists, by block hash, none of them unavailable
+   */
+  void unsafeStoreSyncBlockAccessLists(Map<Hash, SyncBlockAccessList> accessLists);
+
+  /**
+   * Writes in one batch the total difficulties of the canonical headers above block {@code parent}
+   * up to block {@code last}, each checked to be the child of the one before, for a sync that
+   * stored the headers without them.
+   *
+   * @param parent a block of the canonical index
+   * @param parentTotal the total difficulty of block {@code parent}
+   * @param last the highest block whose total difficulty is written, above {@code parent}
+   * @return the total difficulty of block {@code last}
+   */
+  Difficulty unsafeStoreSyncTotalDifficulties(long parent, Difficulty parentTotal, long last);
+
+  /**
+   * Records that every block from {@code blockNumber} up to the chain head, or up to the head a
+   * sync is about to set, has its body and receipts stored.
+   *
+   * @param blockNumber the lowest block whose body and receipts are stored
+   */
+  void unsafeSetBodiesFrom(long blockNumber);
+
+  /**
+   * Records the floor of a sync, which {@link #getSyncFloor} returns.
+   *
+   * @param blockNumber the floor
+   */
+  void unsafeSetSyncFloor(long blockNumber);
+
   void unsafeSetChainHead(final BlockHeader blockHeader, final Difficulty totalDifficulty);
 
   /**
@@ -112,6 +159,15 @@ public interface MutableBlockchain extends Blockchain {
    * @param blockHeaders The block headers to store.
    */
   void storeBlockHeaders(List<BlockHeader> blockHeaders);
+
+  /**
+   * Stores the headers of proof-of-stake blocks with their total difficulty, the same for all of
+   * them since their difficulty is zero, without updating the chain state.
+   *
+   * @param blockHeaders The block headers to store.
+   * @param totalDifficulty The total difficulty of every one of them.
+   */
+  void storeBlockHeaders(List<BlockHeader> blockHeaders, Difficulty totalDifficulty);
 
   /**
    * Removes the canonical blockNumber→blockHash index entries for the given block number range,

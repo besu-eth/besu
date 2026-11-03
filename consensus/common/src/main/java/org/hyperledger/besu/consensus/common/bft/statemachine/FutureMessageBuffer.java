@@ -46,7 +46,7 @@ public class FutureMessageBuffer<T> {
    * message-count limit alone does not bound memory, since an individual BFT message (e.g. a QBFT
    * PROPOSAL carrying a full block) can be several megabytes.
    */
-  @VisibleForTesting static final long DEFAULT_MAX_TOTAL_MESSAGE_BYTES = 64L * ByteUnits.MEGABYTE;
+  @VisibleForTesting static final long DEFAULT_MAX_TOTAL_MESSAGE_BYTES = 64L * ByteUnits.MEBIBYTE;
 
   private final NavigableMap<Long, List<T>> buffer = new TreeMap<>();
   private final long futureMessagesMaxDistance;

@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
@@ -81,6 +82,8 @@ public class ReplayTest {
   private final TransactionPoolMetrics txPoolMetrics = new TransactionPoolMetrics(metricsSystem);
   private final MiningConfiguration miningConfiguration = MiningConfiguration.newDefault();
   private final EthScheduler ethScheduler = new DeterministicEthScheduler();
+  private final TransactionEventNotifier transactionEventNotifier =
+      new TransactionEventNotifier(ethScheduler);
   private final SenderBalanceChecker senderBalanceChecker = mock(SenderBalanceChecker.class);
   private final Map<Address, Wei> recordedSenderBalances = new HashMap<>();
   private final Address senderToLog =
@@ -274,37 +277,38 @@ public class ReplayTest {
       final TransactionPoolConfiguration poolConfig,
       final TransactionPoolMetrics txPoolMetrics,
       final BaseFeeMarket baseFeeMarket) {
-    final EvictCollectorLayer evictCollector = new EvictCollectorLayer(txPoolMetrics);
+    final EvictCollectorLayer evictCollector =
+        new EvictCollectorLayer(txPoolMetrics, transactionEventNotifier.newEmitter());
     final BiFunction<PendingTransaction, PendingTransaction, Boolean> txReplacementTester =
         (tx1, tx2) -> transactionReplacementTester(poolConfig, tx1, tx2);
     final SparseTransactions sparseTransactions =
         new SparseTransactions(
             poolConfig,
-            ethScheduler,
             evictCollector,
             txPoolMetrics,
             txReplacementTester,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier.newEmitter());
 
     final ReadyTransactions readyTransactions =
         new ReadyTransactions(
             poolConfig,
-            ethScheduler,
             sparseTransactions,
             txPoolMetrics,
             txReplacementTester,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier.newEmitter());
     return new BaseFeePrioritizedTransactions(
         poolConfig,
         () -> currBlockHeader,
-        ethScheduler,
         readyTransactions,
         txPoolMetrics,
         txReplacementTester,
         baseFeeMarket,
         new BlobCache(),
         miningConfiguration,
-        senderBalanceChecker);
+        senderBalanceChecker,
+        transactionEventNotifier.newEmitter());
   }
 
   // ToDo: commented since not always working, needs fix

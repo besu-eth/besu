@@ -51,6 +51,11 @@ public final class EthProtocolMessages {
 
   public static final int BLOCK_ACCESS_LISTS = 0x13;
 
+  // Eth72 messages
+  public static final int GET_CELLS = 0x14;
+
+  public static final int CELLS = 0x15;
+
   private EthProtocolMessages() {
     // Holder for constants only
   }

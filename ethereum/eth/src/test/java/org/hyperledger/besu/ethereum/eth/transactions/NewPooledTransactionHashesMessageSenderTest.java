@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -40,6 +41,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -63,6 +65,10 @@ public class NewPooledTransactionHashesMessageSenderTest {
   private final Transaction transaction2 = generator.transaction();
   private final Transaction transaction3 = generator.transaction();
 
+  private final EthProtocolConfiguration ethProtocolConfiguration =
+      EthProtocolConfiguration.DEFAULT;
+  private final int maxAnnouncementsPerMessage =
+      ethProtocolConfiguration.getMaxAnnouncementsPerMessage();
   private PeerTransactionTracker transactionTracker;
   private NewPooledTransactionHashesMessageSender messageSender;
 
@@ -74,7 +80,9 @@ public class NewPooledTransactionHashesMessageSenderTest {
 
     transactionTracker =
         new PeerTransactionTracker(TransactionPoolConfiguration.DEFAULT, ethPeers, ethScheduler);
-    messageSender = new NewPooledTransactionHashesMessageSender(transactionTracker);
+    messageSender =
+        new NewPooledTransactionHashesMessageSender(
+            transactionTracker, ethProtocolConfiguration.getMaxAnnouncementsPerMessage());
 
     transactionTracker.onPeerConnected(peer1);
     transactionTracker.onPeerConnected(peer2);
@@ -122,8 +130,13 @@ public class NewPooledTransactionHashesMessageSenderTest {
 
     assertThat(sentMessages)
         .hasSize(2)
-        .allMatch(
-            message -> message.getCode() == EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES);
+        .allMatch(message -> message.getCode() == EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES)
+        // a full batch must be accepted by a peer using the same limits
+        .allSatisfy(
+            message ->
+                assertThat(message.getSize())
+                    .isLessThanOrEqualTo(
+                        ethProtocolConfiguration.getMaxNewPooledTransactionHashesMessageSize()));
     final Set<TransactionAnnouncement> firstBatch =
         getAnnouncementsFromMessage(sentMessages.get(0));
     final Set<TransactionAnnouncement> secondBatch =
@@ -217,6 +230,26 @@ public class NewPooledTransactionHashesMessageSenderTest {
   private Set<TransactionAnnouncement> getAnnouncementsFromMessage(final MessageData message) {
     final NewPooledTransactionHashesMessage transactionsMessage =
         NewPooledTransactionHashesMessage.readFrom(message, EthProtocol.LATEST);
-    return newHashSet(transactionsMessage.pendingTransactionAnnouncements());
+    return newHashSet(
+        transactionsMessage.pendingTransactionAnnouncements(maxAnnouncementsPerMessage));
+  }
+
+  @Test
+  public void shouldCapAnnouncementsPerMessageAtConfiguredMax() throws Exception {
+    final int maxAnnouncements = 2;
+    final NewPooledTransactionHashesMessageSender cappedSender =
+        new NewPooledTransactionHashesMessageSender(transactionTracker, maxAnnouncements);
+    final List<Transaction> transactions = new ArrayList<>(generator.transactions(5));
+    transactions.forEach(
+        transaction ->
+            transactionTracker.addToPeerAnnouncementsSendQueue(peer1, List.of(transaction)));
+
+    cappedSender.sendTransactionAnnouncementsToPeer(peer1);
+
+    final ArgumentCaptor<MessageData> sent = ArgumentCaptor.forClass(MessageData.class);
+    verify(peer1, times(3)).send(sent.capture());
+    assertThat(sent.getAllValues())
+        .extracting(message -> getAnnouncementsFromMessage(message).size())
+        .containsExactly(2, 2, 1);
   }
 }

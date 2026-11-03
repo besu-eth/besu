@@ -381,9 +381,6 @@ public final class RlpBlockExporterTest {
                     List.of(),
                     List.of())));
     final org.apache.tuweni.bytes.Bytes expectedPayload = bal.encode();
-    // Store the encoded bytes as rawRlp so exportBal() can retrieve them
-    final BlockAccessList balWithRaw = new BlockAccessList(bal.accountChanges(), expectedPayload);
-
     final Hash blockHash = Hash.fromHexString("0x" + "ab".repeat(32));
     final BlockHeader mockHeader = mock(BlockHeader.class);
     when(mockHeader.getNumber()).thenReturn(1L);
@@ -393,7 +390,7 @@ public final class RlpBlockExporterTest {
 
     final Blockchain mockBlockchain = mock(Blockchain.class);
     when(mockBlockchain.getBlockByNumber(0L)).thenReturn(Optional.of(mockBlock));
-    when(mockBlockchain.getBlockAccessList(blockHash)).thenReturn(Optional.of(balWithRaw));
+    when(mockBlockchain.getBlockAccessListRlp(blockHash)).thenReturn(Optional.of(expectedPayload));
 
     final Path outputPath = outputDir.resolve("output");
     final Path balsPath = outputDir.resolve("output.bals");

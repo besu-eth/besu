@@ -44,7 +44,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.google.common.collect.Streams;
-import com.google.common.util.concurrent.Atomics;
 import org.apache.tuweni.bytes.Bytes;
 
 public class FlatTraceGenerator {
@@ -382,7 +381,7 @@ public class FlatTraceGenerator {
             .type("suicide")
             .traceAddress(calculateSelfDescructAddress(tracesContexts));
 
-    final AtomicReference<Wei> weiBalance = Atomics.newReference(Wei.ZERO);
+    final AtomicReference<Wei> weiBalance = new AtomicReference<>(Wei.ZERO);
     traceFrame
         .getMaybeRefunds()
         .ifPresent(refunds -> weiBalance.set(refunds.getOrDefault(refundAddress, Wei.ZERO)));
