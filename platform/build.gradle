@@ -29,7 +29,7 @@ dependencies {
   api platform('com.fasterxml.jackson:jackson-bom:2.21.7')
   api platform('io.grpc:grpc-bom:1.79.0')
   api platform('io.netty:netty-bom:4.2.19.Final')
-  api platform('io.opentelemetry:opentelemetry-bom:1.62.0')
+  api platform('io.opentelemetry:opentelemetry-bom:1.67.0')
   api platform('io.prometheus:prometheus-metrics-bom:1.5.0')
   api platform('io.vertx:vertx-stack-depchain:5.2.2')
   api platform('org.apache.logging.log4j:log4j-bom:2.26.1')
