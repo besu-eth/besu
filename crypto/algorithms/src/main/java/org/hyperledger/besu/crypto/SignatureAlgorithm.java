@@ -47,6 +47,16 @@ public interface SignatureAlgorithm {
   boolean isNative();
 
   /**
+   * Whether the native ECDH and ecrecover can be used. They are in a second native library, which
+   * can fail to load on its own.
+   *
+   * @return true if the native library and its JNI functions are enabled
+   */
+  default boolean isNativeJniEnabled() {
+    return false;
+  }
+
+  /**
    * Sign secp signature.
    *
    * @param dataHash the data hash

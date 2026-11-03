@@ -12,6 +12,9 @@
     "id": 6,
     "result": {
       "accessList": [],
+      "blockHash": null,
+      "blockNumber": null,
+      "blockTimestamp": null,
       "from": "0x47b62d14c5d04d5b1489a4e46cee3ada098b1839",
       "gas": "0x186a0",
       "gasPrice": "0x6fc23ac00",
@@ -22,6 +25,7 @@
       "input": "0x",
       "nonce": "0x0",
       "to": "0x0000000000000000000000000000000000020000",
+      "transactionIndex": null,
       "type": "0x3",
       "value": "0x0",
       "yParity": "0x0",

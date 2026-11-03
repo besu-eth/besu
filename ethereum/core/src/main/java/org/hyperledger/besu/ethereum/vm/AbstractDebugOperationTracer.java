@@ -21,6 +21,7 @@ import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.tracing.TracedStack;
 
 import java.util.HashMap;
 import java.util.Locale;
@@ -54,7 +55,10 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   /** Pre-execution stack snapshot, set in {@link #tracePreExecution}. */
   protected Optional<Bytes[]> preExecutionStack;
 
-  /** Gas remaining before the operation executed, set in {@link #tracePreExecution}. */
+  /**
+   * Gas remaining before the operation executed, set in {@link #tracePreExecution} for every
+   * operation, traced or not.
+   */
   protected long gasRemaining;
 
   /** Program counter before the operation executed, set in {@link #tracePreExecution}. */
@@ -65,7 +69,8 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
 
   /**
    * Whether the current opcode should be traced (respects the {@code traceOpcodes} filter). Set by
-   * {@link #tracePreExecution}; checked by {@link #tracePostExecution} in subclasses.
+   * {@link #tracePreExecution}, cleared by a subclass's {@link #capturePreExecutionState} to skip
+   * the operation, and checked by {@link #tracePostExecution} in subclasses.
    */
   protected boolean traceOpcode;
 
@@ -88,10 +93,11 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   @Override
   public void tracePreExecution(final MessageFrame frame) {
     final Operation currentOperation = frame.getCurrentOperation();
+    gasRemaining = frame.getRemainingGas();
     if (options.traceStorage()
         && "SLOAD".equals(currentOperation.getName())
-        && frame.stackSize() > 0) {
-      preExecutionStorageKey = Optional.of(UInt256.fromBytes(frame.getStackItem(0)));
+        && TracedStack.size(frame) > 0) {
+      preExecutionStorageKey = Optional.of(UInt256.fromBytes(TracedStack.item(frame, 0)));
     } else {
       preExecutionStorageKey = Optional.empty();
     }
@@ -99,16 +105,17 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
     if (!traceOpcode) {
       return;
     }
-    preExecutionStack = captureStack(frame);
-    gasRemaining = frame.getRemainingGas();
     pc = frame.getPC();
     depth = frame.getDepth();
     capturePreExecutionState(frame);
+    preExecutionStack = traceOpcode ? captureStack(frame) : Optional.empty();
   }
 
   /**
    * Hook for subclasses to capture additional pre-execution state. Called only when {@link
-   * #traceOpcode} is {@code true}, after the common fields have been populated.
+   * #traceOpcode} is {@code true}, after the gas, program counter and depth have been populated and
+   * before the stack is captured. Clearing {@link #traceOpcode} here, for example past a step
+   * limit, skips the operation without taking its snapshots.
    */
   protected void capturePreExecutionState(final MessageFrame frame) {}
 
@@ -139,9 +146,9 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
     if (!options.traceStack()) {
       return Optional.empty();
     }
-    final Bytes[] stackContents = new Bytes[frame.stackSize()];
+    final Bytes[] stackContents = new Bytes[TracedStack.size(frame)];
     for (int i = 0; i < stackContents.length; i++) {
-      stackContents[i] = frame.getStackItem(stackContents.length - i - 1);
+      stackContents[i] = TracedStack.item(frame, stackContents.length - i - 1);
     }
     return Optional.of(stackContents);
   }
@@ -168,10 +175,10 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
       value = UInt256.fromBytes(frame.getMaybeUpdatedStorage().get().getValue());
     } else if ("SLOAD".equals(opName)
         && preExecutionStorageKey.isPresent()
-        && frame.stackSize() > 0) {
+        && TracedStack.size(frame) > 0) {
       // after SLOAD executes the loaded value sits at the top of the stack
       key = preExecutionStorageKey.get();
-      value = UInt256.fromBytes(frame.getStackItem(0));
+      value = UInt256.fromBytes(TracedStack.item(frame, 0));
     } else {
       return Optional.empty();
     }

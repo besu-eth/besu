@@ -14,6 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
@@ -185,7 +188,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
   private record SortableSlotRead(byte[] sortKey, StorageSlotKey value) {}
 
   public static class BlockAccessListBuilder {
-    final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
+    private final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
+
+    // Kept up to date on every change so a budget check per transaction does not walk the list.
+    private long itemCount;
 
     public static AccessLocationTracker createPreExecutionAccessLocationTracker() {
       return new AccessLocationTracker(0, true);
@@ -202,7 +208,12 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
 
     public AccountBuilder getOrCreateAccountBuilder(final Address address) {
-      return accountChangesBuilders.computeIfAbsent(address, __ -> new AccountBuilder(address));
+      return accountChangesBuilders.computeIfAbsent(
+          address,
+          a -> {
+            itemCount++;
+            return new AccountBuilder(this, a);
+          });
     }
 
     public void apply(
@@ -294,26 +305,65 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
               Arrays.compareUnsigned(
                   left.address().getBytes().toArrayUnsafe(),
                   right.address().getBytes().toArrayUnsafe()));
-      return new BlockAccessList(accountChanges);
+      final BlockAccessList blockAccessList = new BlockAccessList(accountChanges);
+      checkState(
+          itemCount == blockAccessList.eip7928ItemCount(),
+          "Block access list item count %s does not match the built list",
+          itemCount);
+      return blockAccessList;
     }
 
     public long eip7928ItemCount() {
-      long count = accountChangesBuilders.size();
-      for (AccountBuilder ab : accountChangesBuilders.values()) {
-        count += (long) ab.slotWrites.size() + ab.slotReads.size();
+      return itemCount;
+    }
+
+    /**
+     * Returns the {@link #eip7928ItemCount()} this builder would have after {@link
+     * #apply(PartialBlockAccessView)}, without changing the builder.
+     */
+    public long eip7928ItemCountIfApplied(final PartialBlockAccessView view) {
+      checkArgument(!view.isSharedIndex(), "Only transaction views can be counted before applying");
+      // Without a shared index applying only adds accounts and slots, and a slot counts once
+      // whether read or written, so only those not in the list yet add to the count.
+      long count = itemCount;
+      for (PartialBlockAccessView.AccountChanges account : view.accountChanges()) {
+        final AccountBuilder existing = accountChangesBuilders.get(account.getAddress());
+        if (existing == null) {
+          count++;
+        }
+        final Set<StorageSlotKey> newSlots = new HashSet<>();
+        for (PartialBlockAccessView.SlotChange change : account.getStorageChanges()) {
+          if (isNewSlot(existing, newSlots, change.slot())) {
+            count++;
+          }
+        }
+        for (StorageSlotKey read : account.getStorageReads()) {
+          if (isNewSlot(existing, newSlots, read)) {
+            count++;
+          }
+        }
       }
       return count;
     }
 
+    private static boolean isNewSlot(
+        final AccountBuilder existing,
+        final Set<StorageSlotKey> newSlots,
+        final StorageSlotKey slot) {
+      return (existing == null || !existing.hasSlot(slot)) && newSlots.add(slot);
+    }
+
     public static class AccountBuilder {
+      private final BlockAccessListBuilder owner;
       final Address address;
-      final Map<StorageSlotKey, List<StorageChange>> slotWrites = new HashMap<>();
-      final Set<StorageSlotKey> slotReads = new HashSet<>();
+      private final Map<StorageSlotKey, List<StorageChange>> slotWrites = new HashMap<>();
+      private final Set<StorageSlotKey> slotReads = new HashSet<>();
       final List<BalanceChange> balances = new ArrayList<>();
       final List<NonceChange> nonces = new ArrayList<>();
       final List<CodeChange> codes = new ArrayList<>();
 
-      AccountBuilder(final Address address) {
+      AccountBuilder(final BlockAccessListBuilder owner, final Address address) {
+        this.owner = owner;
         this.address = address;
       }
 
@@ -365,20 +415,33 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
       void addStorageWrite(final StorageSlotKey slot, final long txIndex, final UInt256 value) {
         final List<StorageChange> changes =
-            slotWrites.computeIfAbsent(slot, __ -> new ArrayList<>());
-        slotReads.remove(slot);
+            slotWrites.computeIfAbsent(
+                slot,
+                __ -> {
+                  owner.itemCount++;
+                  return new ArrayList<>();
+                });
+        if (slotReads.remove(slot)) {
+          owner.itemCount--;
+        }
         changes.add(new StorageChange(txIndex, value));
       }
 
       void addStorageRead(final StorageSlotKey slot) {
-        if (!slotWrites.containsKey(slot)) {
-          slotReads.add(slot);
+        if (!slotWrites.containsKey(slot) && slotReads.add(slot)) {
+          owner.itemCount++;
         }
+      }
+
+      boolean hasSlot(final StorageSlotKey slot) {
+        return slotWrites.containsKey(slot) || slotReads.contains(slot);
       }
 
       void removeChangesAt(final long txIndex) {
         slotWrites.values().forEach(changes -> changes.removeIf(c -> c.txIndex() == txIndex));
+        final int writtenSlots = slotWrites.size();
         slotWrites.values().removeIf(List::isEmpty);
+        owner.itemCount -= writtenSlots - slotWrites.size();
         balances.removeIf(c -> c.txIndex() == txIndex);
         nonces.removeIf(c -> c.txIndex() == txIndex);
         codes.removeIf(c -> c.txIndex() == txIndex);

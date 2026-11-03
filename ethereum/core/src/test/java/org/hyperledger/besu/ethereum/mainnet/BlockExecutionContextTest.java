@@ -15,17 +15,22 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -193,5 +198,46 @@ class BlockExecutionContextTest {
         .containsSame(blockAccessListFactory);
     assertThat(context.toBuilder().build().getBlockAccessListFactory(protocolSpec))
         .containsSame(blockAccessListFactory);
+  }
+
+  @Test
+  void inclusionListIsEmptyByDefault() {
+    final BlockExecutionContext context =
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(block)
+            .blockAccessList(Optional.empty())
+            .build();
+
+    assertThat(context.getInclusionListTransactions()).isSameAs(InclusionListTransactions.EMPTY);
+  }
+
+  @Test
+  void inclusionListIsKeptAndCopiedByToBuilder() {
+    final InclusionListTransactions inclusionListTransactions =
+        new InclusionListTransactions(
+            List.of(
+                new TransactionTestFixture()
+                    .createTransaction(SignatureAlgorithmFactory.getInstance().generateKeyPair())));
+    final BlockExecutionContext context =
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(block)
+            .blockAccessList(Optional.empty())
+            .inclusionListTransactions(inclusionListTransactions)
+            .build();
+
+    assertThat(context.getInclusionListTransactions()).isSameAs(inclusionListTransactions);
+    assertThat(context.toBuilder().build().getInclusionListTransactions())
+        .isSameAs(inclusionListTransactions);
+  }
+
+  @Test
+  void inclusionListCannotBeNull() {
+    assertThatNullPointerException()
+        .isThrownBy(() -> BlockExecutionContext.builder().inclusionListTransactions(null))
+        .withMessageContaining("inclusionListTransactions");
   }
 }

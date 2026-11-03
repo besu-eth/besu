@@ -21,6 +21,8 @@ import static org.hyperledger.besu.consensus.qbft.core.validation.ValidationTest
 import static org.hyperledger.besu.consensus.qbft.core.validation.ValidationTestHelpers.createPreparedCertificate;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.BftHelpers;
@@ -374,8 +376,6 @@ public class RoundChangeMessageValidatorTest {
   @Test
   public void validationFailsIfBlockExistsButNotPreparedMetadata() {
     when(payloadValidator.validate(any())).thenReturn(true);
-    when(blockValidator.validateBlock(any(), any()))
-        .thenReturn(new ValidationResult(true, Optional.empty()));
     messageValidator =
         new RoundChangeMessageValidator(
             payloadValidator,
@@ -404,13 +404,13 @@ public class RoundChangeMessageValidatorTest {
             emptyList());
 
     assertThat(messageValidator.validate(message)).isFalse();
+    // The absent-metadata check costs nothing and must reject before the block is executed.
+    verify(blockValidator, never()).validateBlock(any(), any());
   }
 
   @Test
   public void validationFailsIfBlockHashDoesNotMatchPreparedMetadata() {
     when(payloadValidator.validate(any())).thenReturn(true);
-    when(blockValidator.validateBlock(any(), any()))
-        .thenReturn(new ValidationResult(true, Optional.empty()));
     messageValidator =
         new RoundChangeMessageValidator(
             payloadValidator,
@@ -445,5 +445,10 @@ public class RoundChangeMessageValidatorTest {
                 roundIdentifier, block.getHash(), toArray(validators.getNodes(), QbftNode.class)));
 
     assertThat(messageValidator.validate(message)).isFalse();
+    // This is the substituted-block case: the proposed block rides outside the payload signature,
+    // so a non-validator can replay one captured signature with any block attached. The
+    // prepared-hash comparison costs nothing and must reject it before any transaction is
+    // executed, or each replay buys a full block execution on the BFT consensus thread.
+    verify(blockValidator, never()).validateBlock(any(), any());
   }
 }

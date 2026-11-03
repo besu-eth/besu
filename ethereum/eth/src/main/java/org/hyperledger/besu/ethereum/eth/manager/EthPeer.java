@@ -63,7 +63,8 @@ import org.slf4j.LoggerFactory;
 public class EthPeer implements Comparable<EthPeer> {
   private static final Logger LOG = LoggerFactory.getLogger(EthPeer.class);
 
-  private static final int MAX_OUTSTANDING_REQUESTS = 5;
+  /** A peer with this many outstanding requests is not picked for more. */
+  public static final int MAX_OUTSTANDING_REQUESTS = 5;
 
   private PeerConnection connection;
 

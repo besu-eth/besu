@@ -34,6 +34,9 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidator;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
@@ -51,6 +54,7 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
@@ -341,6 +345,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           nbParallelTx++;
         }
       }
+
       final var optionalHeaderBlobGasUsed = blockHeader.getBlobGasUsed();
       if (optionalHeaderBlobGasUsed.isPresent()) {
         final long headerBlobGasUsed = optionalHeaderBlobGasUsed.get();
@@ -356,6 +361,20 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
       }
+
+      // EIP-7805: validated against the state after the block txs, before withdrawals
+      final InclusionListTransactions inclusionListTransactions =
+          context.getInclusionListTransactions();
+      final InclusionListValidationResult inclusionListValidationResult =
+          inclusionListTransactions.isEmpty()
+              ? InclusionListValidationResult.valid()
+              : InclusionListValidator.validate(
+                  protocolSpec,
+                  worldState.updater(),
+                  blockHeader,
+                  cumulativeExecutionGasUsed,
+                  cumulativeStateGasUsed,
+                  inclusionListTransactions.notIncludedIn(transactions));
 
       final Optional<AccessLocationTracker> postExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
@@ -489,14 +508,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       try {
         worldState.persist(blockHeader, stateRootCommitter);
       } catch (MerkleTrieException e) {
-        LOG.trace("Merkle trie exception during Transaction processing ", e);
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
-        @SuppressWarnings(
-            "java:S2139") // Exception is logged and rethrown to preserve original behavior
-        RuntimeException rethrown = e;
-        throw rethrown;
+        // kept out of the catch below, the outer catch resets the accumulator and rethrows it
+        throw e;
       } catch (StateRootMismatchException ex) {
         LOG.info(
             "failed persisting block due to stateroot mismatch; expected {}, actual {}",
@@ -519,8 +532,15 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   maybeRequests,
                   maybeBlockAccessList,
                   gasMetered,
-                  blockHashLookup.getAccessedAncestors())),
+                  blockHashLookup.getAccessedAncestors(),
+                  inclusionListValidationResult)),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
+    } catch (final MerkleTrieException | StorageException e) {
+      // the block may be processed again on this world state, without the transactions before
+      if (worldState instanceof BonsaiWorldState) {
+        ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+      }
+      throw e;
     } finally {
       stateRootCommitter.cancel();
       parallelProcessor.ifPresent(

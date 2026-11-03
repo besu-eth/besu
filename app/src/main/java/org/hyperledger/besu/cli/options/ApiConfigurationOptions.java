@@ -122,8 +122,9 @@ public class ApiConfigurationOptions {
   @CommandLine.Option(
       names = {"--rpc-max-log-filter-addresses"},
       description =
-          "Maximum number of addresses permitted in a single eth_newFilter or eth_subscribe logs "
-              + "request. Must be >=0. 0 specifies no limit (default: ${DEFAULT-VALUE})")
+          "Maximum number of addresses permitted in a single eth_newFilter, eth_subscribe, "
+              + "eth_getLogs or GraphQL logs request. Must be >=0. 0 specifies no limit (default: "
+              + "${DEFAULT-VALUE})")
   private final Integer rpcMaxLogFilterAddresses = ApiConfiguration.DEFAULT_MAX_FILTER_ADDRESSES;
 
   /**

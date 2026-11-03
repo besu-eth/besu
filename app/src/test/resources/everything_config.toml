@@ -103,6 +103,7 @@ rpc-http-max-request-content-length = 5242880
 rpc-max-logs-range=100
 json-pretty-print-enabled=false
 cache-last-blocks=512
+cache-last-blocks-max-capacity=134217728
 cache-last-block-headers=5000
 cache-last-block-headers-preload-enabled=true
 tx-sender-nonce-index-enabled=false
@@ -210,6 +211,7 @@ tx-pool-max-future-by-sender=321
 tx-pool-enable-balance-check=false
 ## Legacy/Sequenced
 tx-pool-retention-hours=999
+tx-pool-retention-seconds=30
 tx-pool-max-size=1234
 tx-pool-limit-by-account-percentage=0.017
 tx-pool-min-gas-price=1000
