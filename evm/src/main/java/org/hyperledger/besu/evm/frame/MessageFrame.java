@@ -215,6 +215,9 @@ public class MessageFrame {
   // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
   // significant). Null once released, so that a completed frame cannot touch a later frame's stack
   private long[] stackDataV2;
+  // EVM v2: the input data as an array, materialised on the first CALLDATALOAD. Must not be
+  // modified
+  private byte[] inputDataArrayV2;
   // the call depth whose free v2 stack this frame takes and returns
   private final int stackDepthV2;
   private int stackTopV2;
@@ -556,6 +559,21 @@ public class MessageFrame {
    */
   public long[] stackDataV2() {
     return stackDataV2;
+  }
+
+  /**
+   * Returns the input data as an array, materialised on the first call. The array must not be
+   * modified.
+   *
+   * @return the input data
+   */
+  public byte[] inputDataArrayV2() {
+    byte[] array = inputDataArrayV2;
+    if (array == null) {
+      array = inputData.toArrayUnsafe();
+      inputDataArrayV2 = array;
+    }
+    return array;
   }
 
   /**
