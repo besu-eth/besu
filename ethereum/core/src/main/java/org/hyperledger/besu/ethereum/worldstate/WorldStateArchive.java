@@ -45,6 +45,17 @@ public interface WorldStateArchive extends Closeable {
       final BlockHeader blockHeader, final MutableWorldState worldState) {}
 
   /**
+   * Fetches and stores the missing code of a stored account.
+   *
+   * @param address the account whose code is missing
+   * @param codeHash the code hash of the stored account
+   * @return whether the code is now stored
+   */
+  default boolean healMissingCode(final Address address, final Hash codeHash) {
+    return false;
+  }
+
+  /**
    * Gets a mutable world state based on the provided query parameters.
    *
    * <p>This method retrieves the mutable world state using the provided query parameters. The query

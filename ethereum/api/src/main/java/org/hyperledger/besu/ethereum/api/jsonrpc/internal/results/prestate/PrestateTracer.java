@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.prestate;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Transaction;
@@ -23,10 +25,11 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
-import org.hyperledger.besu.evm.operation.AbstractCreateOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.tracing.TracedStack;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldView;
@@ -87,6 +90,7 @@ public class PrestateTracer implements OperationTracer {
   private final boolean eip6780;
   private final boolean eip7702;
   private final int maxInitcodeSize;
+  private final GasCalculator gasCalculator;
 
   private final Map<Address, AccountState> pre = new HashMap<>();
   private final Map<Address, AccountState> post = new HashMap<>();
@@ -110,6 +114,7 @@ public class PrestateTracer implements OperationTracer {
     this.eip6780 = evmVersion.compareTo(EvmSpecVersion.CANCUN) >= 0;
     this.eip7702 = evmVersion.compareTo(EvmSpecVersion.PRAGUE) >= 0;
     this.maxInitcodeSize = protocolSpec.getEvm().getMaxInitcodeSize();
+    this.gasCalculator = protocolSpec.getGasCalculator();
   }
 
   @Override
@@ -163,7 +168,7 @@ public class PrestateTracer implements OperationTracer {
   public void tracePreExecution(final MessageFrame frame) {
     pending = null;
     final Operation op = frame.getCurrentOperation();
-    if (op == null || frame.stackSize() < op.getStackItemsConsumed()) {
+    if (op == null || TracedStack.size(frame) < op.getStackItemsConsumed()) {
       return;
     }
     final WorldUpdater world = frame.getWorldUpdater();
@@ -173,7 +178,7 @@ public class PrestateTracer implements OperationTracer {
         if (disableStorage) {
           return;
         }
-        final UInt256 key = UInt256.fromBytes(frame.getStackItem(0));
+        final UInt256 key = UInt256.fromBytes(TracedStack.item(frame, 0));
         final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, self);
         final AccountState existing = pre.get(self);
@@ -185,20 +190,20 @@ public class PrestateTracer implements OperationTracer {
         pending = new Pending(accounts, self, key, value, null, null);
       }
       case EXTCODECOPY, EXTCODEHASH, EXTCODESIZE, BALANCE -> {
-        final Address target = Words.toAddress(frame.getStackItem(0));
+        final Address target = Words.toAddress(TracedStack.item(frame, 0));
         final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
         pending = new Pending(accounts, null, null, null, null, null);
       }
       case SELFDESTRUCT -> {
-        final Address target = Words.toAddress(frame.getStackItem(0));
+        final Address target = Words.toAddress(TracedStack.item(frame, 0));
         final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
         final Address deletedAddress = (!eip6780 || created.contains(self)) ? self : null;
         pending = new Pending(accounts, null, null, null, null, deletedAddress);
       }
       case CALL, CALLCODE, DELEGATECALL, STATICCALL -> {
-        final Address target = Words.toAddress(frame.getStackItem(1));
+        final Address target = Words.toAddress(TracedStack.item(frame, 1));
         final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
         // Lookup the delegation target
@@ -213,20 +218,19 @@ public class PrestateTracer implements OperationTracer {
         pending = new Pending(accounts, null, null, null, addr, null);
       }
       case CREATE2 -> {
-        // Mirror AbstractCreateOperation.execute's early aborts: Geth's OnOpcode fires only
-        // after gas and initcode-size validation, and reading initcode before it would allocate
-        // memory the EVM will refuse to expand. Neither CreateOperation nor Create2Operation
-        // consults the code supplier in cost(), so pass a null-returning one.
-        final AbstractCreateOperation createOp = (AbstractCreateOperation) op;
-        final int offset = Words.clampedToInt(frame.getStackItem(1));
-        final int size = Words.clampedToInt(frame.getStackItem(2));
-        if (frame.getRemainingGas() < createOp.cost(frame, () -> null)
-            || createOp.getInputSize(frame) > maxInitcodeSize
+        // Mirror the early aborts of the CREATE2 operation: Geth's OnOpcode fires only after gas
+        // and initcode-size validation, and reading initcode before it would allocate memory the
+        // EVM will refuse to expand. The cost is computed here rather than by the operation, which
+        // reads the stack of only one of the EVM versions.
+        final int offset = Words.clampedToInt(TracedStack.item(frame, 1));
+        final int size = Words.clampedToInt(TracedStack.item(frame, 2));
+        if (frame.getRemainingGas() < create2Cost(frame, offset, size)
+            || size > maxInitcodeSize
             || (long) offset + size > Integer.MAX_VALUE) {
           return;
         }
         final Bytes initCode = size == 0 ? Bytes.EMPTY : frame.shadowReadMemory(offset, size);
-        final Bytes32 salt = Bytes32.leftPad(frame.getStackItem(3));
+        final Bytes32 salt = Bytes32.leftPad(TracedStack.item(frame, 3));
         final Bytes32 create2Hash =
             Bytes32.wrap(
                 Hash.hash(
@@ -423,6 +427,14 @@ public class PrestateTracer implements OperationTracer {
     }
     state.storage = disableStorage ? null : new HashMap<>();
     return state;
+  }
+
+  private long create2Cost(final MessageFrame frame, final int offset, final int size) {
+    return clampedAdd(
+        clampedAdd(
+            gasCalculator.txCreateCost(),
+            gasCalculator.memoryExpansionGasCost(frame, offset, size)),
+        clampedAdd(gasCalculator.createKeccakCost(size), gasCalculator.initcodeCost(size)));
   }
 
   private Optional<Address> delegationTarget(final WorldView world, final Address addr) {

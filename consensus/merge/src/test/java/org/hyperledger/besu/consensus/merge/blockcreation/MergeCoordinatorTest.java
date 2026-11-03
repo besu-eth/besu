@@ -72,6 +72,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -85,6 +86,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
@@ -190,12 +192,15 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
           .txPoolMaxSize(10)
           .txPoolLimitByAccountPercentage(Fraction.fromPercentage(100))
           .build();
+  private final TransactionEventNotifier transactionEventNotifier =
+      new TransactionEventNotifier(new DeterministicEthScheduler());
   private final BaseFeePendingTransactionsSorter transactions =
       new BaseFeePendingTransactionsSorter(
           poolConf,
           TestClock.system(ZoneId.systemDefault()),
           metricsSystem,
-          MergeCoordinatorTest::mockBlockHeader);
+          MergeCoordinatorTest::mockBlockHeader,
+          transactionEventNotifier.newEmitter());
 
   private TransactionPool transactionPool;
 
@@ -242,7 +247,8 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConf,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
 
     this.transactionPool.setEnabled();
 
@@ -317,6 +323,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                   eq(Optional.empty()),
                   eq(Optional.empty()),
                   eq(Optional.empty()),
+                  any(),
                   any());
           return beingSpiedOn;
         };
@@ -409,7 +416,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                       parentHeader,
                       ethScheduler));
 
-          // First call (empty block, synchronous in preparePayload): run normally so that
+          // First call (minimal block, synchronous in preparePayload): run normally so that
           // preparePayload completes and the retry loop is started.
           // Second call (inside the retry loop): cancel block creation first so that
           // isBlockCreationCancelled is true when the RuntimeException reaches the catch block.
@@ -432,6 +439,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                   eq(Optional.empty()),
                   eq(Optional.empty()),
                   eq(Optional.empty()),
+                  any(),
                   any());
           return beingSpiedOn;
         };

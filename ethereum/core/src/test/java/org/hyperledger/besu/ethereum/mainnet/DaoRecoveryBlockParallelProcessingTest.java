@@ -51,6 +51,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -119,33 +120,32 @@ class DaoRecoveryBlockParallelProcessingTest {
   void parallelFallbackOnTheDaoBlockLosesTheDaoTransfers() {
     // What the sequential DAO processor prevents: DaoBlockProcessor applies the DAO transfers, then
     // delegates to a parallel processor whose parallel attempt fails. Its fallback resets the world
-    // state, dropping the transfers, and reruns the block directly on the sequential processor,
-    // so nothing applies them again and the block no longer matches its state root.
+    // state, dropping the transfers, and reruns the block sequentially on itself, below the DAO
+    // wrapper, so nothing applies them again and the block no longer matches its state root.
     final GenesisConfig genesis = genesis(1);
     final Hash expectedStateRoot = discoverStateRoot(genesis);
     final ExecutionContextTestFixture ctx = fixture(genesis, false);
     final ProtocolSpec spec = ctx.getProtocolSchedule().getByBlockHeader(blockOneHeader(ctx));
-    final BlockProcessor sequential =
-        new MainnetBlockProcessor(
-            spec.getTransactionProcessor(),
-            spec.getTransactionReceiptFactory(),
-            spec.getMiningBeneficiaryCalculator(),
-            ctx.getProtocolSchedule(),
-            BalConfiguration.DEFAULT);
-    final RecordingRerun rerun = new RecordingRerun(sequential);
-    final FailingInParallel parallel =
-        new FailingInParallel(spec, ctx.getProtocolSchedule(), rerun);
-    final BlockProcessor daoOverParallel = new MainnetProtocolSpecs.DaoBlockProcessor(parallel);
+    final FailingInParallel parallel = new FailingInParallel(spec, ctx.getProtocolSchedule());
+    // Records the world state the parallel processor receives, after the DAO transfers.
+    final AtomicReference<Wei> refundBalanceAtParallelAttempt = new AtomicReference<>();
+    final BlockProcessor recordingParallel =
+        context -> {
+          refundBalanceAtParallelAttempt.set(balance(context.getWorldState(), DAO_REFUND_CONTRACT));
+          return parallel.processBlock(context);
+        };
+    final BlockProcessor daoOverParallel =
+        new MainnetProtocolSpecs.DaoBlockProcessor(recordingParallel);
 
     final BlockProcessingResult result =
         processBlockOne(
             ctx, ctx.getStateArchive().getWorldState(), expectedStateRoot, daoOverParallel);
 
     // The DAO transfers were applied before the parallel attempt...
-    assertThat(parallel.refundBalanceAtParallelAttempt).isEqualTo(Wei.fromEth(3));
+    assertThat(refundBalanceAtParallelAttempt.get()).isEqualTo(Wei.fromEth(3));
     // ...and gone when the fallback reran the block: the reset dropped them.
-    assertThat(rerun.refundBalanceAtRerun).isEqualTo(Wei.ZERO);
-    assertThat(rerun.daoAccountBalanceAtRerun).isEqualTo(Wei.fromEth(1));
+    assertThat(parallel.refundBalanceAtRerun).isEqualTo(Wei.ZERO);
+    assertThat(parallel.daoAccountBalanceAtRerun).isEqualTo(Wei.fromEth(1));
     // So the rerun misses them, and the block no longer matches its state root.
     assertThat(result.isFailed()).isTrue();
     assertThat(result.errorMessage)
@@ -279,32 +279,10 @@ class DaoRecoveryBlockParallelProcessingTest {
         .orElse(Wei.ZERO);
   }
 
-  /** Records the world state the fallback reruns the block on, then reruns it. */
-  private static final class RecordingRerun implements BlockProcessor {
-
-    private final BlockProcessor delegate;
-    private Wei refundBalanceAtRerun;
-    private Wei daoAccountBalanceAtRerun;
-
-    RecordingRerun(final BlockProcessor delegate) {
-      this.delegate = delegate;
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(final BlockExecutionContext context) {
-      refundBalanceAtRerun = balance(context.getWorldState(), DAO_REFUND_CONTRACT);
-      daoAccountBalanceAtRerun = balance(context.getWorldState(), DAO_ACCOUNT_1);
-      return delegate.processBlock(context);
-    }
-  }
-
   /** A parallel processor whose parallel attempt always fails, so the block falls back. */
   private static final class FailingInParallel extends MainnetParallelBlockProcessor {
 
-    FailingInParallel(
-        final ProtocolSpec spec,
-        final ProtocolSchedule protocolSchedule,
-        final BlockProcessor sequentialBlockProcessor) {
+    FailingInParallel(final ProtocolSpec spec, final ProtocolSchedule protocolSchedule) {
       super(
           spec.getTransactionProcessor(),
           spec.getTransactionReceiptFactory(),
@@ -312,16 +290,17 @@ class DaoRecoveryBlockParallelProcessingTest {
           protocolSchedule,
           BalConfiguration.DEFAULT,
           new NoOpMetricsSystem(),
-          Runnable::run,
-          Optional.of(sequentialBlockProcessor));
+          Runnable::run);
     }
 
-    private Wei refundBalanceAtParallelAttempt;
+    private Wei refundBalanceAtRerun;
+    private Wei daoAccountBalanceAtRerun;
 
     @Override
-    public BlockProcessingResult processBlock(final BlockExecutionContext context) {
-      refundBalanceAtParallelAttempt = balance(context.getWorldState(), DAO_REFUND_CONTRACT);
-      return super.processBlock(context);
+    protected BlockProcessingResult processBlockSequentially(final BlockExecutionContext context) {
+      refundBalanceAtRerun = balance(context.getWorldState(), DAO_REFUND_CONTRACT);
+      daoAccountBalanceAtRerun = balance(context.getWorldState(), DAO_ACCOUNT_1);
+      return super.processBlockSequentially(context);
     }
 
     @Override

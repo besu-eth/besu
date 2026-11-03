@@ -32,7 +32,6 @@ import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2PivotCatchupListener;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -69,10 +68,7 @@ import org.slf4j.LoggerFactory;
  * avoiding re-downloading already synced data.
  */
 public class SnapSyncChainDownloader
-    implements ChainDownloader,
-        PivotUpdateListener,
-        WorldStateHealFinishedListener,
-        SnapV2PivotCatchupListener {
+    implements ChainDownloader, PivotUpdateListener, WorldStateHealFinishedListener {
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncChainDownloader.class);
   public static final int SMALL_DELAY_MILLISECONDS = 100;
   static final int NO_PEER_RETRY_DELAY_MILLISECONDS = 5_000;
@@ -96,8 +92,6 @@ public class SnapSyncChainDownloader
   private final AtomicBoolean cancelled = new AtomicBoolean(false);
   private final AtomicReference<ChainSyncState> chainSyncState = new AtomicReference<>(null);
   private final AtomicReference<BlockHeader> pendingPivotUpdate = new AtomicReference<>(null);
-  private final AtomicReference<SnapV2PivotCatchupRequest> pendingSnapV2PivotCatchup =
-      new AtomicReference<>(null);
   private volatile CompletableFuture<Void> pivotUpdateFuture = new CompletableFuture<>();
   private final CompletableFuture<Void> worldStateHealFinishedFuture = new CompletableFuture<>();
   private volatile SnapWorldDownloadState worldDownloadState;
@@ -118,11 +112,6 @@ public class SnapSyncChainDownloader
 
   private volatile CompletableFuture<Void> downloadResult;
   private Instant overallStartTime;
-
-  private record SnapV2PivotCatchupRequest(
-      BlockHeader currentPivotBlockHeader,
-      BlockHeader newPivotBlockHeader,
-      CompletableFuture<Void> completionFuture) {}
 
   /**
    * Creates a new TwoStageFastSyncChainDownloader. The first stage is to download all headers from
@@ -232,38 +221,6 @@ public class SnapSyncChainDownloader
       pivotUpdateFuture.complete(null);
     }
     LOG.info("Received pivot update to block no {}", newPivotBlockHeader.getNumber());
-  }
-
-  @Override
-  public CompletableFuture<Void> preparePivotCatchup(
-      final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
-    if (newPivotBlockHeader.getNumber() <= currentPivotBlockHeader.getNumber()) {
-      return CompletableFuture.failedFuture(
-          new IllegalArgumentException(
-              "snap/2 pivot catch-up requires an increasing pivot number"));
-    }
-
-    final CompletableFuture<Void> completionFuture = new CompletableFuture<>();
-    final SnapV2PivotCatchupRequest request =
-        new SnapV2PivotCatchupRequest(
-            currentPivotBlockHeader, newPivotBlockHeader, completionFuture);
-
-    synchronized (this) {
-      final SnapV2PivotCatchupRequest previousRequest = pendingSnapV2PivotCatchup.get();
-      if (previousRequest != null && !previousRequest.completionFuture().isDone()) {
-        return CompletableFuture.failedFuture(
-            new IllegalStateException("snap/2 pivot catch-up is already in progress"));
-      }
-      pendingSnapV2PivotCatchup.set(request);
-      pendingPivotUpdate.getAndSet(newPivotBlockHeader);
-      pivotUpdateFuture.complete(null); // Wake up chain download
-    }
-
-    LOG.info(
-        "Preparing snap/2 pivot catch-up from block {} to {}",
-        currentPivotBlockHeader.getNumber(),
-        newPivotBlockHeader.getNumber());
-    return completionFuture;
   }
 
   @Override
@@ -588,43 +545,6 @@ public class SnapSyncChainDownloader
     return highestCanonicalBody(state.bodyCheckpoint(), chainHead.getNumber()).getNumber();
   }
 
-  private CompletableFuture<Void> runBlockAccessListDownload(final ChainSyncState state) {
-    final BlockHeader pivotBlockHeader = state.pivotBlockHeader();
-    final long pivotBlockNumber = pivotBlockHeader.getNumber();
-
-    final long anchorNumber = forwardDownloadAnchor(state);
-
-    if (anchorNumber >= pivotBlockNumber) {
-      LOG.debug(
-          "snap/2 BAL download: anchor ({}) already at or past pivot ({}). Nothing to download.",
-          anchorNumber,
-          pivotBlockNumber);
-      return CompletableFuture.completedFuture(null);
-    }
-
-    LOG.debug(
-        "snap/2 BAL download: downloading BALs from {} to pivot {}",
-        anchorNumber,
-        pivotBlockNumber);
-
-    final Instant balStartTime = Instant.now();
-
-    final Pipeline<List<BlockHeader>> balPipeline =
-        pipelineFactory.createBlockAccessListDownloadPipeline(anchorNumber, pivotBlockHeader);
-    currentPipeline = balPipeline;
-
-    return ethContext
-        .getScheduler()
-        .startPipeline(balPipeline)
-        .thenApply(
-            ignore -> {
-              final Duration balDuration = Duration.between(balStartTime, Instant.now());
-              LOG.debug("snap/2 BAL download finished in {} seconds", balDuration.toSeconds());
-              completeSnapV2PivotCatchupIfNeeded(pivotBlockHeader);
-              return null;
-            });
-  }
-
   /**
    * Verifies that the header the backward Stage-1 download produced at the trusted checkpoint
    * height matches the checkpoint. A mismatch means the pivot is not on the checkpoint's chain, so
@@ -802,41 +722,8 @@ public class SnapSyncChainDownloader
               if (cancelled.get()) {
                 return CompletableFuture.failedFuture(new CancellationException());
               }
-              if (pipelineFactory.isSnap2Enabled()) {
-                return runBlockAccessListDownload(chainSyncState.get());
-              }
-              return CompletableFuture.completedFuture(null);
-            })
-        .thenCompose(
-            ignore -> {
-              if (cancelled.get()) {
-                return CompletableFuture.failedFuture(new CancellationException());
-              }
               return runStage2ForwardBodiesAndReceipts(chainSyncState.get());
-            })
-        .thenRun(
-            () -> {
-              completeSnapV2PivotCatchupIfNeeded(chainSyncState.get().pivotBlockHeader());
             });
-  }
-
-  private void completeSnapV2PivotCatchupIfNeeded(final BlockHeader completedPivotBlockHeader) {
-    final SnapV2PivotCatchupRequest request = pendingSnapV2PivotCatchup.get();
-    if (request != null
-        && request.newPivotBlockHeader().getHash().equals(completedPivotBlockHeader.getHash())
-        && pendingSnapV2PivotCatchup.compareAndSet(request, null)) {
-      LOG.info(
-          "snap/2 chain catch-up completed for pivot block {}",
-          completedPivotBlockHeader.getNumber());
-      request.completionFuture().complete(null);
-    }
-  }
-
-  private void failSnapV2PivotCatchupIfNeeded(final Throwable error) {
-    final SnapV2PivotCatchupRequest request = pendingSnapV2PivotCatchup.getAndSet(null);
-    if (request != null && !request.completionFuture().isDone()) {
-      request.completionFuture().completeExceptionally(error);
-    }
   }
 
   /**
@@ -854,7 +741,6 @@ public class SnapSyncChainDownloader
       // Non-retryable error - fail. The CHAIN_DOWNLOAD_DURATION timer is deliberately left
       // running: the phase is measured once across re-pivots, so a later successful cycle records
       // it (see SyncDurationMetrics).
-      failSnapV2PivotCatchupIfNeeded(failWith.get());
       overallResult.completeExceptionally(failWith.get());
     } else {
       logRetryFailure(error);
@@ -1018,7 +904,6 @@ public class SnapSyncChainDownloader
     if (pipeline != null) {
       pipeline.abort();
     }
-    failSnapV2PivotCatchupIfNeeded(new CancellationException());
 
     final CompletableFuture<Void> result = downloadResult;
     if (result != null) {

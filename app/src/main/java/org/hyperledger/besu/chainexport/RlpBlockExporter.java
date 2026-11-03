@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.io.DataOutputStream;
@@ -119,11 +118,7 @@ public class RlpBlockExporter {
   }
 
   private void exportBal(final DataOutputStream balsStream, final Block block) throws IOException {
-    final Bytes balRlp =
-        blockchain
-            .getBlockAccessList(block.getHash())
-            .flatMap(BlockAccessList::rawRlp)
-            .orElse(Bytes.EMPTY);
+    final Bytes balRlp = blockchain.getBlockAccessListRlp(block.getHash()).orElse(Bytes.EMPTY);
     if (balRlp.isEmpty()) {
       LOG.warn(
           "Block {} has no Block Access List — writing empty BAL frame"

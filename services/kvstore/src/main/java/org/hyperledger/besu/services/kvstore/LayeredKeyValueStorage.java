@@ -57,9 +57,14 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   private final SegmentedKeyValueStorage parent;
 
   /**
-   * Cached result of parent.isClosed(). The closed state transitions from false to true exactly
-   * once per process lifetime and never back, so caching the first true result is safe and converts
-   * the O(N) parent-chain walk into an O(1) check.
+   * The first storage below this layer that is not exactly a {@link LayeredKeyValueStorage}. Layers
+   * cannot be closed on their own, so its closed state is the closed state of the whole chain.
+   */
+  private final SegmentedKeyValueStorage baseStorage;
+
+  /**
+   * Cached result of baseStorage.isClosed(). The closed state transitions from false to true
+   * exactly once per process lifetime and never back, so caching the first true result is safe.
    */
   private volatile boolean closedCache = false;
 
@@ -83,6 +88,11 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
       final SegmentedKeyValueStorage parent) {
     super(map);
     this.parent = parent;
+    // a subclass parent may override isClosed(), so only skip over exact layers
+    this.baseStorage =
+        parent.getClass() == LayeredKeyValueStorage.class
+            ? ((LayeredKeyValueStorage) parent).baseStorage
+            : parent;
   }
 
   @Override
@@ -441,14 +451,10 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
   @Override
   public boolean isClosed() {
-    if (closedCache) {
-      return true;
-    }
-    if (parent.isClosed()) {
+    if (!closedCache && baseStorage.isClosed()) {
       closedCache = true;
-      return true;
     }
-    return false;
+    return closedCache;
   }
 
   @Override

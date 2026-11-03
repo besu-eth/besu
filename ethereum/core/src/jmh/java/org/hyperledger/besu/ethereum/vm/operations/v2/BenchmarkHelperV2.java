@@ -26,11 +26,16 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 
 import org.apache.tuweni.bytes.Bytes32;
 
 public class BenchmarkHelperV2 {
+  /** Number of pre-generated inputs a benchmark cycles through. */
+  static final int SAMPLE_SIZE = 30_000;
+
+  /** Seed for input pools, so the V1 and V2 benchmarks of an opcode see the same inputs. */
+  static final long SEED = 42L;
+
   /**
    * Creates a minimal {@link MessageFrame} suitable for opcode benchmarks.
    *
@@ -39,6 +44,17 @@ public class BenchmarkHelperV2 {
    * @return a message-call frame ready to use in benchmark setup
    */
   public static MessageFrame createMessageCallFrame() {
+    return messageCallFrameBuilder().build();
+  }
+
+  /**
+   * Returns a {@link MessageFrame.Builder} pre-populated with the defaults of {@link
+   * #createMessageCallFrame()}. Benchmarks override only what they need, such as block values, the
+   * block hash lookup, versioned hashes or the EVM version, before calling {@code build()}.
+   *
+   * @return a pre-populated message-call frame builder
+   */
+  static MessageFrame.Builder messageCallFrameBuilder() {
     return MessageFrame.builder()
         .enableEvmV2(true)
         .worldUpdater(mock(WorldUpdater.class))
@@ -57,8 +73,37 @@ public class BenchmarkHelperV2 {
         .value(Wei.ZERO)
         .apparentValue(Wei.ZERO)
         .code(Code.EMPTY_CODE)
-        .completer(__ -> {})
-        .build();
+        .completer(__ -> {});
+  }
+
+  /**
+   * Creates a pool of {@link #SAMPLE_SIZE} seeded random longs in {@code [origin, bound)}.
+   *
+   * @param origin the lowest value (inclusive)
+   * @param bound the upper bound (exclusive)
+   * @return the pool
+   */
+  static long[] randomLongPool(final long origin, final long bound) {
+    final Random random = new Random(SEED);
+    final long[] pool = new long[SAMPLE_SIZE];
+    for (int i = 0; i < pool.length; i++) {
+      pool[i] = random.nextLong(origin, bound);
+    }
+    return pool;
+  }
+
+  /**
+   * Converts a pool of UInt256 values to the {@link Bytes32} form used by the V1 benchmarks.
+   *
+   * @param pool the UInt256 pool
+   * @return the same values as Bytes32
+   */
+  static Bytes32[] toBytes32Pool(final UInt256[] pool) {
+    final Bytes32[] result = new Bytes32[pool.length];
+    for (int i = 0; i < pool.length; i++) {
+      result[i] = Bytes32.wrap(pool[i].toBytesBE());
+    }
+    return result;
   }
 
   /**
@@ -110,7 +155,7 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random UInt256 value
    */
-  static UInt256 randomUInt256Value(final ThreadLocalRandom random) {
+  static UInt256 randomUInt256Value(final Random random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
     return UInt256.fromBytesBE(value);
@@ -122,7 +167,7 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random positive UInt256 value
    */
-  static UInt256 randomPositiveUInt256Value(final ThreadLocalRandom random) {
+  static UInt256 randomPositiveUInt256Value(final Random random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
     value[0] = (byte) (value[0] & 0x7F);
@@ -135,7 +180,7 @@ public class BenchmarkHelperV2 {
    * @param random thread-local random source
    * @return random negative UInt256 value
    */
-  static UInt256 randomNegativeUInt256Value(final ThreadLocalRandom random) {
+  static UInt256 randomNegativeUInt256Value(final Random random) {
     final byte[] value = new byte[32];
     random.nextBytes(value);
     value[0] = (byte) (value[0] | 0x80);

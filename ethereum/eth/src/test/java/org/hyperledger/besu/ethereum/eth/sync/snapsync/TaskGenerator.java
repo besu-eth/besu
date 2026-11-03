@@ -27,7 +27,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
 import org.hyperledger.besu.ethereum.trie.TrieIterator;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -81,8 +81,8 @@ public class TaskGenerator {
       accountRangeDataRequest.addResponse(worldStateProofProvider, accounts, new ArrayDeque<>());
     }
 
-    final PmtStateTrieAccountValue stateTrieAccountValue =
-        PmtStateTrieAccountValue.readFrom(RLP.input(accounts.firstEntry().getValue()));
+    final PatriciaTrieAccountValue stateTrieAccountValue =
+        PatriciaTrieAccountValue.readFrom(RLP.input(accounts.firstEntry().getValue()));
     final Hash accountHash = Hash.wrap(accounts.firstKey());
 
     final StorageRangeDataRequest storageRangeDataRequest =

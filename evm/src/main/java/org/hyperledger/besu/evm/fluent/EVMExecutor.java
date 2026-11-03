@@ -160,6 +160,7 @@ public class EVMExecutor {
             .eip2930AccessListWarmStorage(accessListWarmStorage)
             .versionedHashes(versionedHashes)
             .completer(c -> {})
+            .enableEvmV2(evmSpec.getEvm().getEvmConfiguration().enableEvmV2())
             .build();
 
     final Deque<MessageFrame> messageFrameStack = initialMessageFrame.getMessageFrameStack();
