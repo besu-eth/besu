@@ -29,6 +29,8 @@
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
+- Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
+- The default JVM options no longer start JFR's in-process event logging, which formatted every recorded event as text. [#11824](https://github.com/besu-eth/besu/pull/11824)
 
 ## 26.11.0
 
@@ -73,7 +75,6 @@
 - Block import preloads and commits only the state a block changes, and builds trie keys without streams. [#11758](https://github.com/besu-eth/besu/pull/11758)
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, including after a round change, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469) [#11817](https://github.com/besu-eth/besu/pull/11817)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
-- Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
 
 ## 26.10.2
 
