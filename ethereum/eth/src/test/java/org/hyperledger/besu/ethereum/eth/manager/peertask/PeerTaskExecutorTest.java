@@ -14,25 +14,43 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.peertask;
 
+import static org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION;
+import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.SyncBlock;
+import org.hyperledger.besu.ethereum.core.SyncBlockBody;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetSyncReceiptsFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
+import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -48,6 +66,10 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 public class PeerTaskExecutorTest {
+  private static final Set<Capability> ETH69 = Set.of(EthProtocolVersion.V69.getCapability());
+  private static final TransactionReceipt RECEIPT =
+      new TransactionReceipt(1, 21_000L, List.of(), Optional.empty());
+
   private @Mock PeerSelector peerSelector;
   private @Mock PeerTaskRequestSender requestSender;
   private @Mock PeerTask<Object> peerTask;
@@ -399,5 +421,72 @@ public class PeerTaskExecutorTest {
     assertTrue(result.result().isPresent());
     assertSame(responseObject, result.result().get());
     assertEquals(PeerTaskExecutorResponseCode.SUCCESS, result.responseCode());
+  }
+
+  @Test
+  public void testExecuteAgainstPeerWithEmptyReceiptsResponseDoesNotRetrySamePeer()
+      throws PeerConnection.PeerNotConnected,
+          ExecutionException,
+          InterruptedException,
+          TimeoutException {
+    when(ethPeer.getAgreedCapabilities()).thenReturn(ETH69);
+    when(requestSender.sendRequest(any(), any(), eq(ethPeer)))
+        .thenReturn(receiptsMessage(List.of()));
+
+    PeerTaskExecutorResult<GetSyncReceiptsFromPeerTask.Response> result =
+        peerTaskExecutor.executeAgainstPeer(receiptsTask(), ethPeer);
+
+    assertEquals(PeerTaskExecutorResponseCode.INVALID_RESPONSE, result.responseCode());
+    verify(requestSender).sendRequest(any(), any(), eq(ethPeer));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testExecuteWithPeerSwitchingAfterEmptyReceiptsInEachBatch()
+      throws PeerConnection.PeerNotConnected,
+          ExecutionException,
+          InterruptedException,
+          TimeoutException {
+    EthPeer peer2 = Mockito.mock(EthPeer.class);
+    when(ethPeer.getAgreedCapabilities()).thenReturn(ETH69);
+    when(peer2.getAgreedCapabilities()).thenReturn(ETH69);
+    // the empty peer is ranked first for every batch, as on a tie in EthPeers.getPeer
+    when(peerSelector.getPeer(any(Predicate.class)))
+        .thenReturn(Optional.of(ethPeer))
+        .thenReturn(Optional.of(peer2))
+        .thenReturn(Optional.of(ethPeer))
+        .thenReturn(Optional.of(peer2));
+    when(requestSender.sendRequest(any(), any(), eq(ethPeer)))
+        .thenReturn(receiptsMessage(List.of()));
+    when(requestSender.sendRequest(any(), any(), eq(peer2)))
+        .thenAnswer(invocation -> receiptsMessage(List.of(List.of(RECEIPT))));
+
+    assertEquals(
+        PeerTaskExecutorResponseCode.SUCCESS,
+        peerTaskExecutor.execute(receiptsTask()).responseCode());
+    assertEquals(
+        PeerTaskExecutorResponseCode.SUCCESS,
+        peerTaskExecutor.execute(receiptsTask()).responseCode());
+
+    verify(requestSender, times(2)).sendRequest(any(), any(), eq(ethPeer));
+    verify(requestSender, times(2)).sendRequest(any(), any(), eq(peer2));
+  }
+
+  private static GetSyncReceiptsFromPeerTask receiptsTask() {
+    SyncBlockBody body = Mockito.mock(SyncBlockBody.class);
+    when(body.getTransactionCount()).thenReturn(1);
+    BlockHeader header =
+        new BlockHeaderTestFixture()
+            .receiptsRoot(BodyValidation.receiptsRoot(List.of(RECEIPT)))
+            .buildHeader();
+    return new GetSyncReceiptsFromPeerTask(
+        new GetSyncReceiptsFromPeerTask.Request(List.of(new SyncBlock(header, body)), List.of()),
+        Mockito.mock(ProtocolSchedule.class),
+        new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()));
+  }
+
+  private static MessageData receiptsMessage(final List<List<TransactionReceipt>> receipts) {
+    return ReceiptsMessage.createUnsafe(
+        serializeReceiptsList(receipts, ETH69_RECEIPT_CONFIGURATION));
   }
 }
