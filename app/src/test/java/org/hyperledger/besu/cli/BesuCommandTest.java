@@ -110,9 +110,11 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.json.jackson.DatabindCodec;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.toml.Toml;
 import org.apache.tuweni.toml.TomlParseResult;
@@ -2527,6 +2529,52 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void assertThatDefaultMaxRequestTokenCountIsApplied() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand();
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxTokenCount())
+          .isEqualTo(JsonRpcConfiguration.DEFAULT_MAX_REQUEST_TOKEN_COUNT);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
+  }
+
+  @Test
+  public void assertThatNonPositiveMaxRequestContentLengthDoesNotLimitStrings() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand("--rpc-http-max-request-content-length=-1");
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      verify(mockRunnerBuilder).build();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxStringLength())
+          .isEqualTo(Integer.MAX_VALUE);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
+  }
+
+  @Test
+  public void assertThatMaxRequestTokenCountWorks() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand("--Xrpc-max-request-token-count=4242");
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxTokenCount())
+          .isEqualTo(4242);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
+  }
+
+  @Test
   public void assertThatDiscoveryUdpAndMetricsTcpMaySharePort() {
     parseCommand("--p2p-discovery-port=44444", "--metrics-enabled", "--metrics-port=44444");
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -2729,6 +2777,29 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void logWarnIfFastSyncMinPeersUsedWithFullSync() {
     parseCommand("--sync-mode", "FULL", "--sync-min-peers", "1");
     verify(mockLogger).warn("--sync-min-peers is ignored in FULL sync-mode");
+  }
+
+  @Test
+  public void logWarnIfTxPoolRetentionHoursSetWithRetentionSeconds() {
+    parseCommand(
+        "--tx-pool=sequenced",
+        "--tx-pool-retention-seconds",
+        "30",
+        "--tx-pool-retention-hours",
+        "5");
+    verify(mockLogger)
+        .warn("--tx-pool-retention-hours is ignored when --tx-pool-retention-seconds is set");
+  }
+
+  @Test
+  public void noWarnIfTxPoolRetentionHoursSetWithRetentionSecondsDisabled() {
+    parseCommand(
+        "--tx-pool=sequenced",
+        "--tx-pool-retention-seconds",
+        "-1",
+        "--tx-pool-retention-hours",
+        "5");
+    verify(mockLogger, never()).warn(contains("--tx-pool-retention-hours"));
   }
 
   @Test
@@ -2942,14 +3013,40 @@ public class BesuCommandTest extends CommandTestAbstract {
 
   @Test
   public void cacheLastBlocksOptionShouldWork() {
-    int numberOfBlocksToCache = 512;
-    parseCommand("--cache-last-blocks", String.valueOf(numberOfBlocksToCache));
+    parseCommand("--cache-last-blocks", "512", "--cache-last-blocks-max-capacity", "1048576");
     verify(mockControllerBuilder).cacheLastBlocks(intArgumentCaptor.capture());
+    verify(mockControllerBuilder).cacheLastBlocksMaxCapacity(longArgumentCaptor.capture());
     verify(mockControllerBuilder).build();
 
-    assertThat(intArgumentCaptor.getValue()).isEqualTo(numberOfBlocksToCache);
+    assertThat(intArgumentCaptor.getValue()).isEqualTo(512);
+    assertThat(longArgumentCaptor.getValue()).isEqualTo(1048576L);
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void cacheLastBlocksOptionsDefaultToSnapServingWindowAnd128MiB() {
+    parseCommand();
+    verify(mockControllerBuilder).cacheLastBlocks(intArgumentCaptor.capture());
+    verify(mockControllerBuilder).cacheLastBlocksMaxCapacity(longArgumentCaptor.capture());
+
+    assertThat(intArgumentCaptor.getValue()).isEqualTo(128);
+    assertThat(longArgumentCaptor.getValue()).isEqualTo(128L * 1024 * 1024);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "--cache-last-blocks",
+        "--cache-last-blocks-max-capacity",
+        "--cache-last-block-headers"
+      })
+  public void cacheOptionsRejectNegativeValues(final String option) {
+    parseCommand(option, "-1");
+
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).contains(option + " must be >= 0");
   }
 
   @Test
