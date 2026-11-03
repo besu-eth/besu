@@ -827,12 +827,14 @@ public class BlockchainQueries {
    *
    * @param transaction the transaction to calculate the gas for
    * @param protocolSpec the protocol specification to use for gas calculation
-   * @return an Optional containing the blob gas used for data if the transaction type supports
-   *     blobs, otherwise returns an empty Optional
+   * @return an Optional containing the blob gas used for data if the transaction carries blobs,
+   *     otherwise returns an empty Optional
    */
   private Optional<Long> getBlobGasUsed(
       final Transaction transaction, final ProtocolSpec protocolSpec) {
-    return transaction.getType().supportsBlob()
+    // Keyed on the blobs carried: an EIP-8141 frame transaction's type supports blobs, but one
+    // that carries none reports no blob fields, like any other non-blob transaction.
+    return transaction.getBlobCount() > 0
         ? Optional.of(protocolSpec.getGasCalculator().blobGasCost(transaction.getBlobCount()))
         : Optional.empty();
   }
@@ -854,12 +856,12 @@ public class BlockchainQueries {
    * @param transaction the transaction to calculate the gas price for
    * @param header the block header of the current block
    * @param protocolSpec the protocol specification to use for gas price calculation
-   * @return an Optional containing the blob gas price for data if the transaction type supports
-   *     blobs, otherwise returns an empty Optional
+   * @return an Optional containing the blob gas price for data if the transaction carries blobs,
+   *     otherwise returns an empty Optional
    */
   private Optional<Wei> getBlobGasPrice(
       final Transaction transaction, final BlockHeader header, final ProtocolSpec protocolSpec) {
-    if (transaction.getType().supportsBlob()) {
+    if (transaction.getBlobCount() > 0) {
       return blockchain
           .getBlockHeader(header.getParentHash())
           .map(

@@ -82,11 +82,14 @@ public class TransactionReplacementByFeeMarketRule implements TransactionPoolRep
       final PendingTransaction existingPendingTransaction,
       final PendingTransaction newPendingTransaction) {
 
-    final var existingType = existingPendingTransaction.getTransaction().getType();
-    final var newType = newPendingTransaction.getTransaction().getType();
+    // Keyed on the blobs carried rather than the type: an EIP-8141 frame transaction's type
+    // supports blobs, but one that carries none is priced like any other non-blob transaction.
+    final boolean existingCarriesBlobs =
+        existingPendingTransaction.getTransaction().getBlobCount() > 0;
+    final boolean newCarriesBlobs = newPendingTransaction.getTransaction().getBlobCount() > 0;
 
-    if (existingType.supportsBlob() || newType.supportsBlob()) {
-      if (existingType.supportsBlob() && newType.supportsBlob()) {
+    if (existingCarriesBlobs || newCarriesBlobs) {
+      if (existingCarriesBlobs && newCarriesBlobs) {
         final Wei replacementThreshold =
             existingPendingTransaction
                 .getTransaction()

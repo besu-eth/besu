@@ -122,6 +122,9 @@ public class TransactionTestFixture {
         builder.accessList(accessListEntries.orElse(List.of()));
         builder.codeDelegations(codeDelegations.orElse(List.of(CODE_DELEGATION)));
         break;
+      case FRAME:
+        throw new UnsupportedOperationException(
+            "frame transactions are unsigned; build them with Transaction.builder()");
     }
 
     to.ifPresent(builder::to);

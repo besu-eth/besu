@@ -164,9 +164,11 @@ public sealed class EngineNewPayloadV3<
       final ProtocolSpec protocolSpec,
       final Optional<BlockHeader> maybeParentHeader,
       final NewPayloadRequestParametersV2<? extends EP> requestParameters) {
+    // Keyed on the blobs carried: an EIP-8141 frame transaction's type supports blobs, but one
+    // that carries none contributes no versioned hashes and must not fail the blob count check.
     final List<Transaction> blobTransactions =
         newBlock.getBody().getTransactions().stream()
-            .filter(transaction -> transaction.getType().supportsBlob())
+            .filter(transaction -> transaction.getBlobCount() > 0)
             .toList();
     return validateBlobTransactions(
         blobTransactions,
