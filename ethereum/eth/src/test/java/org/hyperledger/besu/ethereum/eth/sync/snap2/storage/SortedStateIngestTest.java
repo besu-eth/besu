@@ -33,7 +33,13 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.AfterEach;
@@ -138,6 +144,54 @@ class SortedStateIngestTest {
     assertThat(storage.get(ACCOUNT_STORAGE_STORAGE, slotKey(removed, firstSlot))).isEmpty();
   }
 
+  @Test
+  void closeEndsTheFilesNotYetStoredAndReleasesAWaitingFlush() throws Exception {
+    final Random random = new Random(3);
+    // the accounts and the slots are each enough for a file, both stored by the flush
+    final World world = World.sized(random, 12_000, 20, 1_000);
+    storage.holdCommits();
+    ingest = start(Long.MAX_VALUE, world);
+    for (int range = 0; range < RANGES; range++) {
+      handOverRange(world, range, random);
+    }
+    for (final Map.Entry<Bytes32, TreeMap<Bytes32, Bytes32>> account : world.storage.entrySet()) {
+      handOverStorage(account.getKey(), account.getValue(), random);
+    }
+    final AtomicReference<Throwable> flushFailure = new AtomicReference<>();
+    final Thread flush =
+        new Thread(
+            () -> {
+              try {
+                ingest.flush();
+              } catch (final RuntimeException e) {
+                flushFailure.set(e);
+              }
+            });
+    flush.start();
+    // the flush waits for the file being stored, which waits for the commits to be released
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (flush.getState() != Thread.State.WAITING && System.nanoTime() < deadline) {
+      Thread.onSpinWait();
+    }
+    final Thread release =
+        new Thread(
+            () -> {
+              storage.awaitRollback();
+              storage.releaseCommits();
+            });
+    release.start();
+
+    ingest.close();
+    flush.join(TimeUnit.SECONDS.toMillis(10));
+    release.join();
+
+    assertThat(flush.isAlive()).isFalse();
+    assertThat(flushFailure.get()).isInstanceOf(CancellationException.class);
+    assertThat(storage.rolledBack).isNotEmpty();
+    // every writer ended, none still holds its file
+    assertThat(storage.files.size() + storage.rolledBack.size()).isEqualTo(storage.started.get());
+  }
+
   private SortedStateIngest start(final long memoryLimit, final World world) {
     final SortedStateIngest started =
         new SortedStateIngest(
@@ -231,22 +285,64 @@ class SortedStateIngestTest {
           storage.put(hash, slots);
         }
       }
-      return new World(
-          accounts,
-          storage,
-          List.copyOf(
-              RangeManager.generateRanges(RangeManager.MIN_RANGE, RangeManager.MAX_RANGE, RANGES)
-                  .values()));
+      return new World(accounts, storage, rangeLimits());
+    }
+
+    // the first accounts have storage of the same size
+    static World sized(
+        final Random random, final int accountCount, final int storageCount, final int slotCount) {
+      final TreeMap<Bytes32, Bytes> accounts = new TreeMap<>();
+      final TreeMap<Bytes32, TreeMap<Bytes32, Bytes32>> storage = new TreeMap<>();
+      for (int i = 0; i < accountCount; i++) {
+        final Bytes32 hash = Bytes32.random(random);
+        accounts.put(hash, Bytes.random(70, random));
+        if (i < storageCount) {
+          final TreeMap<Bytes32, Bytes32> slots = new TreeMap<>();
+          for (int s = 0; s < slotCount; s++) {
+            slots.put(Bytes32.random(random), Bytes32.random(random));
+          }
+          storage.put(hash, slots);
+        }
+      }
+      return new World(accounts, storage, rangeLimits());
+    }
+
+    private static List<Bytes32> rangeLimits() {
+      return List.copyOf(
+          RangeManager.generateRanges(RangeManager.MIN_RANGE, RangeManager.MAX_RANGE, RANGES)
+              .values());
     }
   }
 
   // an in-memory storage whose sorted files insist on ascending keys, as the RocksDB ones do
   private static final class RecordingStorage extends SegmentedInMemoryKeyValueStorage {
     private final List<SegmentIdentifier> files = Collections.synchronizedList(new ArrayList<>());
+    private final List<SegmentIdentifier> rolledBack =
+        Collections.synchronizedList(new ArrayList<>());
+    private final AtomicInteger started = new AtomicInteger();
+    private final CountDownLatch rollback = new CountDownLatch(1);
+    private volatile CountDownLatch commits = new CountDownLatch(0);
+
+    void holdCommits() {
+      commits = new CountDownLatch(1);
+    }
+
+    void releaseCommits() {
+      commits.countDown();
+    }
+
+    void awaitRollback() {
+      try {
+        rollback.await(10, TimeUnit.SECONDS);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
 
     @Override
     public SortedWriter startSortedWriter(final SegmentIdentifier segment) {
       final SegmentedKeyValueStorageTransaction tx = startTransaction();
+      started.incrementAndGet();
       return new SortedWriter() {
         private byte[] last;
 
@@ -261,6 +357,8 @@ class SortedStateIngestTest {
 
         @Override
         public void commit() {
+          // a commit cannot be interrupted, as with the RocksDB files
+          Uninterruptibles.awaitUninterruptibly(commits);
           tx.commit();
           files.add(segment);
         }
@@ -268,6 +366,8 @@ class SortedStateIngestTest {
         @Override
         public void rollback() {
           tx.rollback();
+          rolledBack.add(segment);
+          rollback.countDown();
         }
       };
     }
