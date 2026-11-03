@@ -34,6 +34,7 @@ import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
+import org.hyperledger.besu.evm.testutils.TestEvmConfigurations;
 import org.hyperledger.besu.evm.toy.ToyWorld;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.TracedStack;
@@ -74,16 +75,8 @@ final class ProgramRun {
           "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728");
 
   // Both set the EVM explicitly, so the tests keep comparing v1 with v2 whatever the default is
-  static final EvmConfiguration V1 = withEvmV2(false);
-  static final EvmConfiguration V2 = withEvmV2(true);
-
-  private static EvmConfiguration withEvmV2(final boolean enableEvmV2) {
-    return new EvmConfiguration(
-        EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
-        EvmConfiguration.DEFAULT.worldUpdaterMode(),
-        EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
-        enableEvmV2);
-  }
+  static final EvmConfiguration V1 = TestEvmConfigurations.EVM_V1;
+  static final EvmConfiguration V2 = TestEvmConfigurations.EVM_V2;
 
   record Fork(String name, Function<EvmConfiguration, EVM> factory) {
     @Override

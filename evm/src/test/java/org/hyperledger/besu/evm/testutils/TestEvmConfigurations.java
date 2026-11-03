@@ -27,5 +27,13 @@ public final class TestEvmConfigurations {
           EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
           false);
 
+  /** Runs the frames the EVM v2 tests build. */
+  public static final EvmConfiguration EVM_V2 =
+      new EvmConfiguration(
+          EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
+          EvmConfiguration.DEFAULT.worldUpdaterMode(),
+          EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
+          true);
+
   private TestEvmConfigurations() {}
 }
