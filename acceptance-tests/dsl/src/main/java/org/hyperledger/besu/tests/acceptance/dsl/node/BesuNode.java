@@ -764,6 +764,9 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   public void ensureAdminRpcEnabled() {
     if (!jsonRpcConfiguration.isEnabled()) {
       jsonRpcConfiguration.setEnabled(true);
+      // Tests run in parallel forks on one host, and some expect nothing to listen on the
+      // default port, so the bootnode must not take it.
+      jsonRpcConfiguration.setPort(0);
     }
     if (!jsonRpcConfiguration.getRpcApis().contains("ADMIN")) {
       jsonRpcConfiguration.addRpcApi("ADMIN");

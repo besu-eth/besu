@@ -17,6 +17,7 @@ package org.hyperledger.besu.crypto;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assumptions.assumeThat;
 import static org.hyperledger.besu.crypto.Hash.keccak256;
 
 import java.io.File;
@@ -177,6 +178,65 @@ public class SECP256K1Test {
 
     // The x-coordinate in the compressed point (bytes 1-32) should match the uncompressed result
     assertThat(compressed.slice(1, 32)).isEqualTo(xOnly);
+  }
+
+  @Test
+  public void nativeEcdhMatchesJavaEcdh() {
+    assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
+    final SECP256K1 javaSecp256K1 = new SECP256K1();
+    javaSecp256K1.disableNative();
+
+    for (int i = 0; i < 100; i++) {
+      final KeyPair kp1 = secp256K1.generateKeyPair();
+      final KeyPair kp2 = secp256K1.generateKeyPair();
+
+      assertThat(secp256K1.calculateECDHKeyAgreement(kp1.getPrivateKey(), kp2.getPublicKey()))
+          .isEqualTo(
+              javaSecp256K1.calculateECDHKeyAgreement(kp1.getPrivateKey(), kp2.getPublicKey()));
+      assertThat(
+              secp256K1.calculateECDHKeyAgreementCompressed(
+                  kp1.getPrivateKey(), kp2.getPublicKey()))
+          .isEqualTo(
+              javaSecp256K1.calculateECDHKeyAgreementCompressed(
+                  kp1.getPrivateKey(), kp2.getPublicKey()));
+    }
+  }
+
+  @Test
+  public void ecdhWithPublicKeyNotOnCurveThrows() {
+    final KeyPair kp = secp256K1.generateKeyPair();
+    final SECPPublicKey notOnCurve =
+        SECPPublicKey.create(Bytes.repeat((byte) 1, 64), SignatureAlgorithm.ALGORITHM);
+
+    assertThatThrownBy(() -> secp256K1.calculateECDHKeyAgreement(kp.getPrivateKey(), notOnCurve))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(
+            () -> secp256K1.calculateECDHKeyAgreementCompressed(kp.getPrivateKey(), notOnCurve))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  public void ecdhWithZeroPrivateKeyThrows() {
+    final SECPPrivateKey zero = secp256K1.createPrivateKey(Bytes32.ZERO);
+    final SECPPublicKey pub = secp256K1.generateKeyPair().getPublicKey();
+
+    assertThatThrownBy(() -> secp256K1.calculateECDHKeyAgreement(zero, pub))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> secp256K1.calculateECDHKeyAgreementCompressed(zero, pub))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  public void nativeEcdhWithPrivateKeyAboveCurveOrderThrows() {
+    assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
+    final BigInteger n = secp256K1.getCurve().getN();
+    final SECPPrivateKey aboveOrder = secp256K1.createPrivateKey(n.add(BigInteger.ONE));
+    final SECPPublicKey pub = secp256K1.generateKeyPair().getPublicKey();
+
+    assertThatThrownBy(() -> secp256K1.calculateECDHKeyAgreement(aboveOrder, pub))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> secp256K1.calculateECDHKeyAgreementCompressed(aboveOrder, pub))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test

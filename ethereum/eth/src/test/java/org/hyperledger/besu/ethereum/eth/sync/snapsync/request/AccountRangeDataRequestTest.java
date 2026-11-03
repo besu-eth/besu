@@ -26,7 +26,7 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -95,8 +95,8 @@ public class AccountRangeDataRequestTest {
   }
 
   private static Bytes accountWithStorage() {
-    final PmtStateTrieAccountValue account =
-        new PmtStateTrieAccountValue(1L, Wei.ONE, Hash.hash(Bytes.of(7)), Hash.EMPTY);
+    final PatriciaTrieAccountValue account =
+        new PatriciaTrieAccountValue(1L, Wei.ONE, Hash.hash(Bytes.of(7)), Hash.EMPTY);
     return RLP.encode(account::writeTo);
   }
 }

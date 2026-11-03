@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Response;
@@ -34,24 +36,34 @@ public class LimitConnectionsJsonRpcHttpServiceTest extends JsonRpcHttpServiceTe
 
   @Test
   public void limitActiveConnections() throws Exception {
-    OkHttpClient newClient = new OkHttpClient();
-    int i;
-    for (i = 0; i < maxConnections; i++) {
+    final List<OkHttpClient> heldClients = new ArrayList<>();
+    for (int i = 0; i < maxConnections; i++) {
       // create a new client for each request because we want to test the limit
+      final OkHttpClient newClient = new OkHttpClient();
+      heldClients.add(newClient);
       try (final Response resp = newClient.newCall(buildGetRequest("/readiness")).execute()) {
         assertThat(resp.code()).isEqualTo(200);
       }
-      // new client for each request so that connection does NOT get reused
-      newClient = new OkHttpClient();
     }
-    // now we should get a rejected connection because we have hit the limit
-    assertThat(i).isEqualTo(maxConnections);
-    final OkHttpClient newClient2 = new OkHttpClient();
+    // keep clients reachable so their pooled connections stay open for the limit check
+    assertThat(heldClients).hasSize(maxConnections);
 
-    // end of stream gets wrapped locally by ConnectException with message "Connection refused"
-    // but in CI it comes through as is
-    assertThatThrownBy(() -> newClient2.newCall(buildGetRequest("/readiness")).execute())
-        .isInstanceOf(IOException.class)
-        .hasStackTraceContaining("unexpected end of stream");
+    // rejected connections must not inflate the active connection count
+    final int countRejections = 2;
+    for (int i = 0; i < countRejections; i++) {
+      final OkHttpClient rejectedClient = new OkHttpClient();
+      // end of stream gets wrapped locally by ConnectException with message "Connection refused"
+      // but in CI it comes through as is
+      assertThatThrownBy(() -> rejectedClient.newCall(buildGetRequest("/readiness")).execute())
+          .isInstanceOf(IOException.class)
+          .hasStackTraceContaining("unexpected end of stream");
+    }
+
+    assertThat(metricsSystem.getGaugeValue("active_http_connection_count"))
+        .as("rejected connections should not increase the active connection count")
+        .isEqualTo(maxConnections);
+
+    // retain until after the gauge assert so connections are not GC'd mid-test
+    assertThat(heldClients).hasSize(maxConnections);
   }
 }

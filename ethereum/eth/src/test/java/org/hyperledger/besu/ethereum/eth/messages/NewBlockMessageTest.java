@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
 
 public class NewBlockMessageTest {
   private static final ProtocolSchedule protocolSchedule = ProtocolScheduleFixture.TESTING_NETWORK;
-  private static final int maxMessageSize = 10 * ByteUnits.MEGABYTE;
+  private static final int maxMessageSize = 10 * ByteUnits.MEBIBYTE;
 
   @Test
   public void roundTripNewBlockMessage() {

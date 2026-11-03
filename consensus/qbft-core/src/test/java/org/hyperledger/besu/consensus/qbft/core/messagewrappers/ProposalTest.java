@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
 import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
+import org.hyperledger.besu.consensus.common.bft.payload.NonRecoverableSignature;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.qbft.core.QbftBlockTestFixture;
 import org.hyperledger.besu.consensus.qbft.core.messagedata.QbftV1;
@@ -339,6 +340,49 @@ public class ProposalTest {
     assertThatThrownBy(() -> Proposal.decode(oversized, blockEncoder))
         .isInstanceOf(RLPException.class)
         .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodeRejectsAnEmbeddedRoundChangeWhoseSignatureDoesNotRecover() {
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeNull();
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ProposalPayload payload = createProposalPayload(Optional.empty());
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final RoundChangePayload roundChangePayload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 0), Optional.empty());
+
+    // The round changes are written after the outer signed payload, so its signature does not
+    // cover them: a peer can swap one into a genuine proposal without a validator key. Its author
+    // would be null and throw when looked up in the validator TreeSet, so decode must reject it.
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    rlpOut.startList();
+    signedPayload.writeTo(rlpOut);
+    rlpOut.startList();
+    rlpOut.startList();
+    NonRecoverableSignature.writeSigned(roundChangePayload, rlpOut);
+    rlpOut.endList();
+    rlpOut.writeEmptyList(); // no prepares
+    rlpOut.endList();
+    rlpOut.endList();
+
+    assertThatThrownBy(() -> Proposal.decode(rlpOut.encoded(), blockEncoder))
+        .hasRootCauseInstanceOf(IllegalArgumentException.class)
+        .hasRootCauseMessage("Signature does not recover to an address");
   }
 
   @Test

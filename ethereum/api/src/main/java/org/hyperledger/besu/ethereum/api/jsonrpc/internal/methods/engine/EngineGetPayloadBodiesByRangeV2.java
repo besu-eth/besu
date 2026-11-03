@@ -19,7 +19,8 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ExecutionPayloadBodiesV2;
 import org.hyperledger.besu.ethereum.core.BlockBody;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+
+import org.apache.tuweni.bytes.Bytes;
 
 public final class EngineGetPayloadBodiesByRangeV2<EPB extends ExecutionPayloadBodiesV2>
     extends EngineGetPayloadBodiesByRangeV1<EPB> {
@@ -39,9 +40,9 @@ public final class EngineGetPayloadBodiesByRangeV2<EPB extends ExecutionPayloadB
   @Override
   @SuppressWarnings("unchecked")
   protected EPB fetchExecutionPayloadBody(final Hash blockHash, final BlockBody body) {
-    final BlockAccessList blockAccessList = blockchain.getBlockAccessList(blockHash).orElse(null);
+    final Bytes blockAccessListRlp = blockchain.getBlockAccessListRlp(blockHash).orElse(null);
     return (EPB)
         new ExecutionPayloadBodiesV2(
-            body.getTransactions(), body.getWithdrawals().orElse(null), blockAccessList);
+            body.getTransactions(), body.getWithdrawals().orElse(null), blockAccessListRlp);
   }
 }

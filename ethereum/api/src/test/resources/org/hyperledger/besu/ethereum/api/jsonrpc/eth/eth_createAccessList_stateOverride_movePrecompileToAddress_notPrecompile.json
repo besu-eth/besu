@@ -1,0 +1,29 @@
+{
+  "comment": "Moving an address that is not a precompile is rejected with the declared error",
+  "request": {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "method": "eth_createAccessList",
+    "params": [
+      {
+        "from": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "to": "0x0000000000000000000000000000000000c0de01"
+      },
+      "latest",
+      {
+        "0x00000000000000000000000000000000000000ff": {
+          "movePrecompileToAddress": "0x0000000000000000000000000000000000123456"
+        }
+      }
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "error": {
+      "code": -32000,
+      "message": "Address 0x00000000000000000000000000000000000000ff is not a precompile."
+    }
+  },
+  "statusCode": 200
+}

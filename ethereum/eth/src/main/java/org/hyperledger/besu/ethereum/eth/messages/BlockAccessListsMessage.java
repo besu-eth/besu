@@ -43,6 +43,12 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
         BlockAccessListsMessageData.encodeEthResponse(blockAccessLists));
   }
 
+  public static BlockAccessListsMessage createFromRlp(
+      final Iterable<Optional<Bytes>> blockAccessLists) {
+    return new BlockAccessListsMessage(
+        BlockAccessListsMessageData.encodeEthResponseFromRlp(blockAccessLists));
+  }
+
   public static BlockAccessListsMessage createFromBlockAccessLists(
       final Iterable<BlockAccessList> blockAccessLists) {
     return create(
