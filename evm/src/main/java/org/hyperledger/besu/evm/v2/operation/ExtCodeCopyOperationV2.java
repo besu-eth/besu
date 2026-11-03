@@ -80,7 +80,7 @@ public class ExtCodeCopyOperationV2 extends AbstractOperationV2 {
 
     final Account account = getAccount(address, frame);
     final Bytes code = account != null ? account.getCode() : Bytes.EMPTY;
-    frame.writeMemory(memOffset, sourceOffset, numBytes, code);
+    frame.writeMemoryV2(memOffset, sourceOffset, numBytes, code);
     frame.setTopV2(top - 4);
     return new OperationResult(cost, null);
   }

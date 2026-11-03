@@ -42,9 +42,11 @@ import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -402,6 +404,167 @@ public class DebugTraceBlockStreamerHexEncodingTest {
     assertThat(streamedRoot)
         .as("streaming and accumulating paths must produce identical JSON with memory enabled")
         .isEqualTo(accRoot);
+  }
+
+  /**
+   * Storage appears only on SLOAD and SSTORE steps as the cumulative slots of the current contract,
+   * and memory is the state before the opcode executes. Both paths must agree.
+   */
+  @Test
+  public void streamingAndAccumulatingPathsMatchForStorageAndPreExecutionMemory() throws Exception {
+    final TraceOptions withMemory =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceMemory(true)
+                .build(),
+            java.util.Map.of());
+    // SSTORE(2, 1) SLOAD(2) SLOAD(0) POP POP MSTORE(0, 5) STOP
+    final Transaction tx =
+        Transaction.builder()
+            .type(TransactionType.EIP1559)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(5))
+            .maxFeePerGas(Wei.of(7))
+            .gasLimit(200_000L)
+            .value(Wei.ZERO)
+            .payload(Bytes.fromHexString("0x60016002556002546000545050600560005200"))
+            .chainId(BigInteger.valueOf(42))
+            .signAndBuild(KEY_PAIR);
+    final DebugTraceBlockStreamer streamer =
+        new DebugTraceBlockStreamer(
+            buildBlock(tx), withMemory, fixture.getProtocolSchedule(), blockchainQueries);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer.streamTo(out, mapper, () -> true);
+    final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
+    final JsonNode accRoot =
+        mapper.readTree(mapper.writeValueAsBytes(streamer.accumulateAll(() -> true)));
+    assertThat(streamedRoot).isEqualTo(accRoot);
+
+    final String slot0 = "0x" + "00".repeat(32);
+    final String slot2 = "0x" + "00".repeat(31) + "02";
+    final String one = "0x" + "00".repeat(31) + "01";
+    final String five = "0x" + "00".repeat(31) + "05";
+    final JsonNode structLogs = getStructLogs(out);
+    final List<String> ops = new ArrayList<>();
+    for (final JsonNode log : structLogs) {
+      final String op = log.get("op").asText();
+      ops.add(op);
+      if (!op.equals("SLOAD") && !op.equals("SSTORE")) {
+        assertThat(log.has("storage")).as("storage on %s", op).isFalse();
+      }
+    }
+    final JsonNode sstore = structLogs.get(ops.indexOf("SSTORE"));
+    assertThat(sstore.get("storage").size()).isEqualTo(1);
+    assertThat(sstore.get("storage").get(slot2).asText()).isEqualTo(one);
+    final JsonNode lastSload = structLogs.get(ops.lastIndexOf("SLOAD"));
+    assertThat(lastSload.get("storage").size()).isEqualTo(2);
+    assertThat(lastSload.get("storage").get(slot0).asText()).isEqualTo(slot0);
+    assertThat(lastSload.get("storage").get(slot2).asText()).isEqualTo(one);
+
+    assertThat(structLogs.get(ops.indexOf("MSTORE")).has("memory")).isFalse();
+    final JsonNode stop = structLogs.get(ops.indexOf("STOP"));
+    assertThat(stop.get("memory").size()).isEqualTo(1);
+    assertThat(stop.get("memory").get(0).asText()).isEqualTo(five);
+  }
+
+  /**
+   * EXTCODECOPY into memory that does not grow must still give a fresh memory snapshot on the next
+   * step. Both paths must agree.
+   */
+  @Test
+  public void streamingAndAccumulatingPathsMatchAfterExtCodeCopy() throws Exception {
+    final TraceOptions withMemory =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceMemory(true)
+                .build(),
+            java.util.Map.of());
+    // MSTORE(0, 5) EXTCODECOPY(0x0030..., 0, 0, 14) STOP
+    final Transaction tx =
+        Transaction.builder()
+            .type(TransactionType.EIP1559)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(5))
+            .maxFeePerGas(Wei.of(7))
+            .gasLimit(200_000L)
+            .value(Wei.ZERO)
+            .payload(
+                Bytes.fromHexString(
+                    "0x6005600052600e600060007300300000000000000000000000000000000000003c00"))
+            .chainId(BigInteger.valueOf(42))
+            .signAndBuild(KEY_PAIR);
+    final DebugTraceBlockStreamer streamer =
+        new DebugTraceBlockStreamer(
+            buildBlock(tx), withMemory, fixture.getProtocolSchedule(), blockchainQueries);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer.streamTo(out, mapper, () -> true);
+    final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
+    final JsonNode accRoot =
+        mapper.readTree(mapper.writeValueAsBytes(streamer.accumulateAll(() -> true)));
+    assertThat(streamedRoot).isEqualTo(accRoot);
+
+    final JsonNode structLogs = getStructLogs(out);
+    final JsonNode stop = structLogs.get(structLogs.size() - 1);
+    assertThat(stop.get("op").asText()).isEqualTo("STOP");
+    assertThat(stop.get("memory").size()).isEqualTo(1);
+    assertThat(stop.get("memory").get(0).asText())
+        .isEqualTo("0x60003560010160005260206000f3" + "00".repeat(17) + "05");
+  }
+
+  /**
+   * With an opcode filter, an SSTORE that is not emitted still adds its slot to the storage of a
+   * later emitted SLOAD. Both paths must agree.
+   */
+  @Test
+  public void streamingAndAccumulatingPathsMatchForStorageWithOpcodeFilter() throws Exception {
+    final TraceOptions sloadOnly =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceOpcodes(Set.of("SLOAD"))
+                .build(),
+            java.util.Map.of());
+    // SSTORE(2, 1) SLOAD(2) SLOAD(0) POP POP MSTORE(0, 5) STOP
+    final Transaction tx =
+        Transaction.builder()
+            .type(TransactionType.EIP1559)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(5))
+            .maxFeePerGas(Wei.of(7))
+            .gasLimit(200_000L)
+            .value(Wei.ZERO)
+            .payload(Bytes.fromHexString("0x60016002556002546000545050600560005200"))
+            .chainId(BigInteger.valueOf(42))
+            .signAndBuild(KEY_PAIR);
+    final DebugTraceBlockStreamer streamer =
+        new DebugTraceBlockStreamer(
+            buildBlock(tx), sloadOnly, fixture.getProtocolSchedule(), blockchainQueries);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer.streamTo(out, mapper, () -> true);
+    final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
+    final JsonNode accRoot =
+        mapper.readTree(mapper.writeValueAsBytes(streamer.accumulateAll(() -> true)));
+    assertThat(streamedRoot).isEqualTo(accRoot);
+
+    final String slot0 = "0x" + "00".repeat(32);
+    final String slot2 = "0x" + "00".repeat(31) + "02";
+    final String one = "0x" + "00".repeat(31) + "01";
+    JsonNode lastSload = null;
+    for (final JsonNode log : getStructLogs(out)) {
+      assertThat(log.get("op").asText()).isNotEqualTo("SSTORE");
+      if (log.get("op").asText().equals("SLOAD")) {
+        lastSload = log;
+      }
+    }
+    assertThat(lastSload).isNotNull();
+    assertThat(lastSload.get("storage").size()).isEqualTo(2);
+    assertThat(lastSload.get("storage").get(slot0).asText()).isEqualTo(slot0);
+    assertThat(lastSload.get("storage").get(slot2).asText()).isEqualTo(one);
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────

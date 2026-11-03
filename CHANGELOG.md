@@ -25,6 +25,7 @@
 - Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
 - `eth_simulateV1` now rejects precompiles moved to their own address with error `-38022`. [#11793](https://github.com/besu-eth/besu/issues/11793)
 - Block access lists of the last blocks are now cached as RLP, at most 128 MiB by default (`--cache-last-blocks-max-capacity`), and `--cache-last-blocks` now defaults to 128. [#11455](https://github.com/besu-eth/besu/pull/11455)
+- The default opcode tracer of `debug_traceTransaction`, `debug_traceCall` and `debug_traceBlock*` now reports `memory` as it was before the opcode executes, as it already did for `stack` and `gas`. `storage` now appears only at `SLOAD` and `SSTORE` steps, as a snapshot of all slots the current contract accessed so far in the transaction. Previously `debug_traceBlock*` added `storage` to every step after the first `SSTORE`, and `debug_traceTransaction` showed only the one slot the step touched. The step after an `EXTCODECOPY` that does not grow memory no longer shows the memory from before the copy. `vmTrace` now reports the memory that `EXTCODECOPY` writes, as it does for `CODECOPY`. [#11636](https://github.com/besu-eth/besu/pull/11636)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)

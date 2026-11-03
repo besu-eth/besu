@@ -20,7 +20,10 @@ import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 
+import java.util.Map;
+
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * An {@link AbstractDebugOperationTracer} that streams trace data directly to a {@link FrameWriter}
@@ -32,6 +35,8 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
 
   /**
    * Functional interface for zero-allocation streaming of trace data directly from a MessageFrame.
+   * The {@code storage} map is the tracer's live map and is valid only during the call; copy it to
+   * retain it.
    */
   @FunctionalInterface
   public interface FrameWriter {
@@ -42,6 +47,8 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         long gasCost,
         int depth,
         Bytes[] preExecutionStack,
+        Bytes preExecutionMemory,
+        Map<UInt256, UInt256> storage,
         MessageFrame frame,
         ExceptionalHaltReason haltReason,
         Bytes revertReason);
@@ -50,6 +57,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
   private final FrameWriter frameWriter;
   private boolean hasEmittedFrame = false;
   private int stepCount = 0;
+  private Bytes preExecutionMemory;
 
   /**
    * Creates a streaming operation tracer.
@@ -74,14 +82,20 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
       return;
     }
     stepCount++;
+    preExecutionMemory =
+        options.traceMemory() && frame.memoryWordSize() > 0
+            ? frame.readMemory(0, frame.memoryWordSize() * 32L)
+            : null;
   }
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
+    final Operation currentOperation = frame.getCurrentOperation();
+    final Map<UInt256, UInt256> storage =
+        recordStorage(frame, currentOperation, operationResult).orElse(null);
     if (!traceOpcode) {
       return;
     }
-    final Operation currentOperation = frame.getCurrentOperation();
     final String opcode = currentOperation.getName();
     if (isSyntheticEmptyCodeStop(
         currentOperation.isVirtualOperation(), opcode, frame.getCode().getSize())) {
@@ -103,6 +117,8 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         thisGasCost,
         depth,
         preExecutionStack.orElse(null),
+        preExecutionMemory,
+        storage,
         frame,
         haltReason,
         revertReason);
@@ -121,6 +137,8 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
           frame.getRemainingGas(),
           0L,
           frame.getDepth(),
+          null,
+          null,
           null,
           frame,
           null,
