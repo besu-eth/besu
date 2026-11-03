@@ -41,9 +41,12 @@ import org.jspecify.annotations.Nullable;
  * <p>Values that fit in a {@code long}, which are the chain ids of all the known networks, are
  * stored as primitive, only larger values are backed by a {@link BigInteger}.
  *
- * <p>Instances must be compared with {@link #equals(Object)}, never by identity.
+ * <p>This class is a candidate to become a {@code value class} once Project Valhalla (JEP 401) is
+ * available: it is final with only final fields, its equality is based only on its value, and its
+ * instances are created only through factory methods, that are free to return a shared instance.
+ * For this reason, instances must be compared with {@link #equals(Object)}, never by identity, and
+ * must not be used for synchronization.
  */
-@ValueObject
 public final class ChainId {
   private static final long ABSENT_MARKER = -1L;
   private static final long BIG_MARKER = -2L;
