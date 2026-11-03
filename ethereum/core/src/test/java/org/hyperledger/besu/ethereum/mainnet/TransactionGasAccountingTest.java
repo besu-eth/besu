@@ -47,9 +47,9 @@ public class TransactionGasAccountingTest {
 
     // consumedGas = 100k - 30k - 0 = 70k
     // stateGas = 0, executionGas = 70k
-    // gasUsedByTransaction = max(70k, 0) + 0 = 70k
+    // totalGasBudget = max(consumedGas 70k, floor 0) = 70k
     // usedGas = 100k - 5k = 95k
-    assertThat(result.gasUsedByTransaction()).isEqualTo(70_000L);
+    assertThat(result.totalGasBudget()).isEqualTo(70_000L);
     assertThat(result.usedGas()).isEqualTo(95_000L);
   }
 
@@ -68,9 +68,9 @@ public class TransactionGasAccountingTest {
 
     // consumedGas = 100k - 20k - 10k = 70k
     // stateGas = 10k, executionGas = 70k - 10k = 60k
-    // gasUsedByTransaction = max(60k, 0) + 10k = 70k
+    // totalGasBudget = max(consumedGas 70k, floor 0) = 70k
     // usedGas = 100k - 5k = 95k
-    assertThat(result.gasUsedByTransaction()).isEqualTo(70_000L);
+    assertThat(result.totalGasBudget()).isEqualTo(70_000L);
     assertThat(result.usedGas()).isEqualTo(95_000L);
   }
 
@@ -86,9 +86,9 @@ public class TransactionGasAccountingTest {
             .calculate();
 
     // consumedGas = 100k - 60k - 0 = 40k
-    // executionGas = 40k, floorCost = 50k -> max(40k, 50k) = 50k
-    // gasUsedByTransaction = 50k + 0 = 50k
-    assertThat(result.gasUsedByTransaction()).isEqualTo(50_000L);
+    // floorCost = 50k
+    // totalGasBudget = max(consumedGas 40k, floor 50k) = 50k
+    assertThat(result.totalGasBudget()).isEqualTo(50_000L);
     assertThat(result.usedGas()).isEqualTo(100_000L);
   }
 
@@ -104,7 +104,7 @@ public class TransactionGasAccountingTest {
             .calculate();
 
     // consumedGas = 256,705; executionGas = 24,145 < floorCost 24,576 < consumedGas
-    assertThat(result.gasUsedByTransaction()).isEqualTo(256_705L);
+    assertThat(result.totalGasBudget()).isEqualTo(256_705L);
     assertThat(result.executionGas()).isEqualTo(24_576L);
     assertThat(result.effectiveStateGas()).isEqualTo(232_560L);
   }
@@ -120,8 +120,8 @@ public class TransactionGasAccountingTest {
             .calculate();
 
     // consumedGas = 100k - 40k = 60k
-    // executionGas = 60k, gasUsedByTransaction = 60k, usedGas = 100k - 10k = 90k
-    assertThat(result.gasUsedByTransaction()).isEqualTo(60_000L);
+    // executionGas = 60k, totalGasBudget = 60k, usedGas = 100k - 10k = 90k
+    assertThat(result.totalGasBudget()).isEqualTo(60_000L);
     assertThat(result.usedGas()).isEqualTo(90_000L);
   }
 

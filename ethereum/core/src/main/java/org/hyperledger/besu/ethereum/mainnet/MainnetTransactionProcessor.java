@@ -575,11 +575,11 @@ public class MainnetTransactionProcessor {
               .build()
               .calculate();
       final long stateGasUsed = gasResult.effectiveStateGas();
-      final long gasUsedByTransaction = gasResult.gasUsedByTransaction();
+      final long totalGasBudget = gasResult.totalGasBudget();
       final long usedGas = gasResult.usedGas();
       LOG.trace(
-          "EIP-8037 TX_END gasUsed={} stateGasUsed={} reservoir={}",
-          gasUsedByTransaction,
+          "EIP-8037 TX_END totalGasBudget={} stateGasUsed={} reservoir={}",
+          totalGasBudget,
           stateGasUsed,
           initialFrame.getStateGasReservoir());
       final Optional<CoinbaseFeePriceCalculator> coinbaseCalculator =
@@ -590,7 +590,7 @@ public class MainnetTransactionProcessor {
             accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
         final TransactionProcessingResult underpricedResult =
             TransactionProcessingResult.failed(
-                gasUsedByTransaction,
+                totalGasBudget,
                 refundedGas,
                 usedGas,
                 stateGasUsed,
@@ -632,7 +632,7 @@ public class MainnetTransactionProcessor {
           txSucceeded,
           initialFrame.getOutputData(),
           initialFrame.getLogs(),
-          gasUsedByTransaction,
+          totalGasBudget,
           effectiveSelfDestructs,
           0L);
 
@@ -649,7 +649,7 @@ public class MainnetTransactionProcessor {
         final TransactionProcessingResult successResult =
             TransactionProcessingResult.successful(
                 initialFrame.getLogs(),
-                gasUsedByTransaction,
+                totalGasBudget,
                 refundedGas,
                 usedGas,
                 stateGasUsed,
@@ -673,7 +673,7 @@ public class MainnetTransactionProcessor {
         }
         final TransactionProcessingResult failedResult =
             TransactionProcessingResult.failed(
-                gasUsedByTransaction,
+                totalGasBudget,
                 refundedGas,
                 usedGas,
                 stateGasUsed,
