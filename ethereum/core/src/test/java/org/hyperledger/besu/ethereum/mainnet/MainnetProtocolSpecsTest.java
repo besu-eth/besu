@@ -25,6 +25,7 @@ import org.hyperledger.besu.config.ImmutableCliqueConfigOptions;
 import org.hyperledger.besu.config.JsonBftConfigOptions;
 import org.hyperledger.besu.config.JsonQbftConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
@@ -37,7 +38,6 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -78,7 +78,7 @@ public class MainnetProtocolSpecsTest {
 
   private final EvmConfiguration evmConfiguration = EvmConfiguration.DEFAULT;
   private final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
-  private final Optional<BigInteger> chainId = Optional.of(BigInteger.ONE);
+  private final ChainId chainId = ChainId.of(1);
   private final boolean enableRevertReason = false;
   private final boolean isParallelTxProcessingEnabled = false;
   private final BalConfiguration balConfiguration = BalConfiguration.DEFAULT;
@@ -272,7 +272,7 @@ public class MainnetProtocolSpecsTest {
     final var miningConfiguration = MiningConfiguration.newDefault();
     final var protocolSpec =
         MainnetProtocolSpecs.parisDefinition(
-                Optional.of(BigInteger.ONE),
+                ChainId.of(1),
                 true,
                 genesisConfigOptions,
                 evmConfiguration,
@@ -295,7 +295,7 @@ public class MainnetProtocolSpecsTest {
             .build();
     final var protocolSpec =
         MainnetProtocolSpecs.cancunDefinition(
-                Optional.of(BigInteger.ONE),
+                ChainId.of(1),
                 true,
                 genesisConfigOptions,
                 evmConfiguration,

@@ -24,6 +24,7 @@ import org.hyperledger.besu.consensus.common.MigratingConsensusContext;
 import org.hyperledger.besu.consensus.common.MigratingMiningCoordinator;
 import org.hyperledger.besu.consensus.common.MigratingProtocolContext;
 import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -84,8 +85,7 @@ import com.google.common.base.Preconditions;
 public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilder {
 
   private final Map<Long, BesuControllerBuilder> besuControllerBuilderSchedule = new HashMap<>();
-  private final BiFunction<
-          NavigableSet<ForkSpec<ProtocolSchedule>>, Optional<BigInteger>, ProtocolSchedule>
+  private final BiFunction<NavigableSet<ForkSpec<ProtocolSchedule>>, ChainId, ProtocolSchedule>
       combinedProtocolScheduleFactory;
 
   /**
@@ -110,8 +110,7 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
   @VisibleForTesting
   protected ConsensusScheduleBesuControllerBuilder(
       final Map<Long, BesuControllerBuilder> besuControllerBuilderSchedule,
-      final BiFunction<
-              NavigableSet<ForkSpec<ProtocolSchedule>>, Optional<BigInteger>, ProtocolSchedule>
+      final BiFunction<NavigableSet<ForkSpec<ProtocolSchedule>>, ChainId, ProtocolSchedule>
           combinedProtocolScheduleFactory) {
     Preconditions.checkNotNull(
         besuControllerBuilderSchedule, "BesuControllerBuilder schedule can't be null");
@@ -164,7 +163,7 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
         besuControllerBuilderSchedule.entrySet().stream()
             .map(e -> new ForkSpec<>(e.getKey(), e.getValue().createProtocolSchedule()))
             .collect(Collectors.toCollection(() -> new TreeSet<>(ForkSpec.COMPARATOR)));
-    final Optional<BigInteger> chainId = genesisConfigOptions.getChainId();
+    final ChainId chainId = ChainId.fromOptional(genesisConfigOptions.getChainId());
     return combinedProtocolScheduleFactory.apply(protocolScheduleSpecs, chainId);
   }
 

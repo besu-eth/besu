@@ -35,6 +35,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
@@ -110,7 +111,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         gasLimitCalculator,
         feeMarket,
         checkSignatureMalleability,
-        chainId,
+        ChainId.fromOptional(chainId),
         acceptedTransactionTypes,
         Set.of(BlobType.KZG_PROOF),
         maxInitcodeSize);
@@ -621,7 +622,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             GasLimitCalculator.constant(),
             FeeMarket.london(0L),
             false,
-            Optional.of(BigInteger.ONE),
+            ChainId.of(1),
             Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
             Set.of(BlobType.KZG_PROOF),
             Integer.MAX_VALUE);

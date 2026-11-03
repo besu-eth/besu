@@ -25,6 +25,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -74,7 +75,7 @@ class CodeDelegationProcessorTest {
   @BeforeEach
   void setUp() {
     processor =
-        new CodeDelegationProcessor(Optional.of(CHAIN_ID), HALF_CURVE_ORDER, codeDelegationService);
+        new CodeDelegationProcessor(ChainId.of(CHAIN_ID), HALF_CURVE_ORDER, codeDelegationService);
     lenient().when(transaction.getSender()).thenReturn(TX_SENDER);
     lenient().when(transaction.getValue()).thenReturn(Wei.ZERO);
     lenient().when(transaction.getTo()).thenReturn(Optional.of(TX_TO));
@@ -264,7 +265,7 @@ class CodeDelegationProcessorTest {
   void shouldRejectDelegationWithInvalidSignature() {
     // Arrange
     CodeDelegation codeDelegation = mock(org.hyperledger.besu.ethereum.core.CodeDelegation.class);
-    when(codeDelegation.chainId()).thenReturn(CHAIN_ID);
+    when(codeDelegation.chainIdentifier()).thenReturn(ChainId.of(CHAIN_ID));
     when(codeDelegation.nonce()).thenReturn(1L);
     when(codeDelegation.signature())
         .thenReturn(new SECPSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0));
@@ -537,7 +538,7 @@ class CodeDelegationProcessorTest {
    */
   private CodeDelegation delegationForAuthority(final Address delegateAddress) {
     final CodeDelegation delegation = mock(CodeDelegation.class);
-    when(delegation.chainId()).thenReturn(CHAIN_ID);
+    when(delegation.chainIdentifier()).thenReturn(ChainId.of(CHAIN_ID));
     when(delegation.nonce()).thenReturn(0L);
     when(delegation.address()).thenReturn(delegateAddress);
     when(delegation.signature())

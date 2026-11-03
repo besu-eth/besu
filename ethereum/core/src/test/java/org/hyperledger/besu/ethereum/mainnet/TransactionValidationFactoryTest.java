@@ -16,12 +16,10 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.PermissionTransactionFilter;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-
-import java.math.BigInteger;
-import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,7 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class TransactionValidationFactoryTest {
-  private static final Optional<BigInteger> CHAIN_ID = Optional.of(BigInteger.ONE);
+  private static final ChainId CHAIN_ID = ChainId.of(1);
   @Mock GasCalculator gasCalculator;
   @Mock GasLimitCalculator gasLimitCalculator;
   @Mock PermissionTransactionFilter permissionTransactionFilter;

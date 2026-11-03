@@ -26,6 +26,7 @@ import org.hyperledger.besu.consensus.merge.NewPayloadListener;
 import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.consensus.qbft.BFTPivotSelectorFromPeers;
 import org.hyperledger.besu.cryptoservices.NodeKey;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ConsensusContext;
@@ -685,6 +686,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final List<Closeable> closeables = new ArrayList<>();
     final ProtocolSchedule protocolSchedule = createProtocolSchedule();
+    // the chain id is fixed for the life of the node: register it, so that every chain id with
+    // the same value, like the ones of the decoded transactions, shares the same instance
+    ChainId.initNetworkChainId(protocolSchedule.getChainId());
 
     final VariablesStorage variablesStorage = storageProvider.createVariablesStorage();
 

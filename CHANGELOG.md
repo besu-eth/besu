@@ -69,6 +69,7 @@
 - Block import computes logs blooms on the transaction workers and the transactions root only once. [#11529](https://github.com/besu-eth/besu/pull/11529)
 - Faster lookups of which peers have seen a transaction, reducing CPU use and lock contention in transaction gossip. [#11886](https://github.com/besu-eth/besu/pull/11886)
 - `--Xmempool-prewarm-enabled` prewarms the state for the next block from the transaction pool. [#11759](https://github.com/besu-eth/besu/pull/11759)
+- The chain id is represented by the new `ChainId` value object, that shares one instance for the chain id of the running network, so a pooled transaction uses 80 bytes and 3 objects less, plus 3 objects less for each EIP-7702 authorization, and a legacy transaction is decoded about 15% faster. Plugins can read it with the new `getChainIdentifier()` methods of `Transaction`, `CallParameter` and `BlockchainService` and `chainIdentifier()` of `CodeDelegation`; the methods returning `Optional<BigInteger>` are unchanged. [#11866](https://github.com/besu-eth/besu/pull/11866)
 
 ## 26.11.0
 

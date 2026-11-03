@@ -15,16 +15,14 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
-import java.math.BigInteger;
-import java.util.Optional;
-
 public class MainnetProtocolSpecFactory {
 
-  private final Optional<BigInteger> chainId;
+  private final ChainId chainId;
   private final boolean isRevertReasonEnabled;
   private final GenesisConfigOptions genesisConfigOptions;
   private final EvmConfiguration evmConfiguration;
@@ -34,7 +32,7 @@ public class MainnetProtocolSpecFactory {
   private final MetricsSystem metricsSystem;
 
   public MainnetProtocolSpecFactory(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean isRevertReasonEnabled,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.PermissionTransactionFilter;
@@ -22,9 +23,7 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.plugin.services.txvalidator.TransactionValidationRule;
 
-import java.math.BigInteger;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 import com.google.common.base.Supplier;
@@ -39,7 +38,7 @@ public class TransactionValidatorFactory {
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator,
       final boolean checkSignatureMalleability,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     this(
         gasCalculator,
         gasLimitCalculator,
@@ -52,7 +51,7 @@ public class TransactionValidatorFactory {
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator,
       final boolean checkSignatureMalleability,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Set<TransactionType> acceptedTransactionTypes) {
     this(
         gasCalculator,
@@ -69,7 +68,7 @@ public class TransactionValidatorFactory {
       final GasLimitCalculator gasLimitCalculator,
       final FeeMarket feeMarket,
       final boolean checkSignatureMalleability,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Set<TransactionType> acceptedTransactionTypes,
       final int maxInitcodeSize) {
     this(
@@ -88,7 +87,7 @@ public class TransactionValidatorFactory {
       final GasLimitCalculator gasLimitCalculator,
       final FeeMarket feeMarket,
       final boolean checkSignatureMalleability,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Set<TransactionType> acceptedTransactionTypes,
       final Set<BlobType> acceptedBlobVersions,
       final int maxInitcodeSize) {

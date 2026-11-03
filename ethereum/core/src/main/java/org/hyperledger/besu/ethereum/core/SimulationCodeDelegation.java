@@ -18,6 +18,7 @@ import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.json.ChainIdJson;
 
@@ -47,7 +48,7 @@ public class SimulationCodeDelegation implements CodeDelegation {
   private static final SECPSignature DUMMY_SIGNATURE =
       SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0);
 
-  private final BigInteger chainId;
+  private final ChainId chainId;
   private final Address address;
   private final long nonce;
   private final Address authority;
@@ -59,7 +60,7 @@ public class SimulationCodeDelegation implements CodeDelegation {
       @JsonProperty("address") final Address address,
       @JsonProperty("nonce") final String nonce,
       @JsonProperty("authority") final Address authority) {
-    this.chainId = chainId;
+    this.chainId = ChainId.of(chainId);
     this.address = address;
     this.nonce = Bytes.fromHexStringLenient(nonce).toLong();
     this.authority = authority;
@@ -68,6 +69,12 @@ public class SimulationCodeDelegation implements CodeDelegation {
   @Override
   @JsonProperty("chainId")
   public BigInteger chainId() {
+    return chainId.toBigInteger();
+  }
+
+  @Override
+  @JsonIgnore
+  public ChainId chainIdentifier() {
     return chainId;
   }
 
