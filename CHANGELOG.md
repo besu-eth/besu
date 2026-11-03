@@ -28,7 +28,7 @@
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
-- Upgrade Guava from 33.7.2-jre to 33.8.0-jre, resolving CVE-2026-118042
+- Upgrade Guava from 33.7.2-jre to 33.8.0-jre, resolving CVE-2026-118042 [#11860](https://github.com/besu-eth/besu/pull/11860)
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
 
 ## 26.11.0
