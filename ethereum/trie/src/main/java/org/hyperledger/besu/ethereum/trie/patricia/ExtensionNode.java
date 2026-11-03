@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.NodeFactory;
 import org.hyperledger.besu.ethereum.trie.NodeVisitor;
 import org.hyperledger.besu.ethereum.trie.PathNodeVisitor;
+import org.hyperledger.besu.ethereum.trie.TrieBytes;
 
 import java.lang.ref.SoftReference;
 import java.lang.ref.WeakReference;
@@ -151,7 +152,7 @@ public class ExtensionNode<V> implements Node<V> {
 
   public Node<V> replaceChild(final Node<V> updatedChild) {
     // collapse this extension - if the child is a branch, it will create a new extension
-    return updatedChild.replacePath(Bytes.concatenate(path, updatedChild.getPath()));
+    return updatedChild.replacePath(TrieBytes.concat(path, updatedChild.getPath()));
   }
 
   @Override

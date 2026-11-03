@@ -104,9 +104,6 @@ jobs:
     uses: ./.github/workflows/docker-build-test.yml
     with:
       version: ${{ github.ref_name }}
-      cache_scope: release-build
-      # Separate, low-volume scope used within the same release run; preserve its write.
-      write_cache: true
 
   draftRelease:
     needs: [build, dockerBuildTest]
@@ -220,7 +217,6 @@ jobs:
     uses: ./.github/workflows/docker-publish.yml
     with:
       version: ${{ github.ref_name }}
-      cache_scope: release-build
     secrets: inherit
 
 

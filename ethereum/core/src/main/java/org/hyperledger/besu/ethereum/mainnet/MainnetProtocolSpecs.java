@@ -1096,87 +1096,6 @@ public abstract class MainnetProtocolSpecs {
         BPO2);
   }
 
-  static ProtocolSpecBuilder bpo3Definition(
-      final Optional<BigInteger> chainId,
-      final boolean enableRevertReason,
-      final GenesisConfigOptions genesisConfigOptions,
-      final EvmConfiguration evmConfiguration,
-      final MiningConfiguration miningConfiguration,
-      final boolean isParallelTxProcessingEnabled,
-      final BalConfiguration balConfiguration,
-      final MetricsSystem metricsSystem) {
-    ProtocolSpecBuilder builder =
-        bpo2Definition(
-            chainId,
-            enableRevertReason,
-            genesisConfigOptions,
-            evmConfiguration,
-            miningConfiguration,
-            isParallelTxProcessingEnabled,
-            balConfiguration,
-            metricsSystem);
-    return applyBlobSchedule(
-        builder,
-        genesisConfigOptions,
-        BlobScheduleOptions::getBpo3,
-        GenesisConfigOptions::getBpo3Time,
-        BPO3);
-  }
-
-  static ProtocolSpecBuilder bpo4Definition(
-      final Optional<BigInteger> chainId,
-      final boolean enableRevertReason,
-      final GenesisConfigOptions genesisConfigOptions,
-      final EvmConfiguration evmConfiguration,
-      final MiningConfiguration miningConfiguration,
-      final boolean isParallelTxProcessingEnabled,
-      final BalConfiguration balConfiguration,
-      final MetricsSystem metricsSystem) {
-    ProtocolSpecBuilder builder =
-        bpo3Definition(
-            chainId,
-            enableRevertReason,
-            genesisConfigOptions,
-            evmConfiguration,
-            miningConfiguration,
-            isParallelTxProcessingEnabled,
-            balConfiguration,
-            metricsSystem);
-    return applyBlobSchedule(
-        builder,
-        genesisConfigOptions,
-        BlobScheduleOptions::getBpo4,
-        GenesisConfigOptions::getBpo4Time,
-        BPO4);
-  }
-
-  static ProtocolSpecBuilder bpo5Definition(
-      final Optional<BigInteger> chainId,
-      final boolean enableRevertReason,
-      final GenesisConfigOptions genesisConfigOptions,
-      final EvmConfiguration evmConfiguration,
-      final MiningConfiguration miningConfiguration,
-      final boolean isParallelTxProcessingEnabled,
-      final BalConfiguration balConfiguration,
-      final MetricsSystem metricsSystem) {
-    ProtocolSpecBuilder builder =
-        bpo4Definition(
-            chainId,
-            enableRevertReason,
-            genesisConfigOptions,
-            evmConfiguration,
-            miningConfiguration,
-            isParallelTxProcessingEnabled,
-            balConfiguration,
-            metricsSystem);
-    return applyBlobSchedule(
-        builder,
-        genesisConfigOptions,
-        BlobScheduleOptions::getBpo5,
-        GenesisConfigOptions::getBpo5Time,
-        BPO5);
-  }
-
   static ProtocolSpecBuilder amsterdamDefinition(
       final Optional<BigInteger> chainId,
       final boolean enableRevertReason,
@@ -1187,7 +1106,7 @@ public abstract class MainnetProtocolSpecs {
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
     final ProtocolSpecBuilder amsterdamSpecBuilder =
-        bpo5Definition(
+        bpo2Definition(
                 chainId,
                 enableRevertReason,
                 genesisConfigOptions,
@@ -1313,6 +1232,87 @@ public abstract class MainnetProtocolSpecs {
     return amsterdamSpecBuilder;
   }
 
+  static ProtocolSpecBuilder bpo3Definition(
+      final Optional<BigInteger> chainId,
+      final boolean enableRevertReason,
+      final GenesisConfigOptions genesisConfigOptions,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem) {
+    ProtocolSpecBuilder builder =
+        amsterdamDefinition(
+            chainId,
+            enableRevertReason,
+            genesisConfigOptions,
+            evmConfiguration,
+            miningConfiguration,
+            isParallelTxProcessingEnabled,
+            balConfiguration,
+            metricsSystem);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo3,
+        GenesisConfigOptions::getBpo3Time,
+        BPO3);
+  }
+
+  static ProtocolSpecBuilder bpo4Definition(
+      final Optional<BigInteger> chainId,
+      final boolean enableRevertReason,
+      final GenesisConfigOptions genesisConfigOptions,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem) {
+    ProtocolSpecBuilder builder =
+        bpo3Definition(
+            chainId,
+            enableRevertReason,
+            genesisConfigOptions,
+            evmConfiguration,
+            miningConfiguration,
+            isParallelTxProcessingEnabled,
+            balConfiguration,
+            metricsSystem);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo4,
+        GenesisConfigOptions::getBpo4Time,
+        BPO4);
+  }
+
+  static ProtocolSpecBuilder bpo5Definition(
+      final Optional<BigInteger> chainId,
+      final boolean enableRevertReason,
+      final GenesisConfigOptions genesisConfigOptions,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem) {
+    ProtocolSpecBuilder builder =
+        bpo4Definition(
+            chainId,
+            enableRevertReason,
+            genesisConfigOptions,
+            evmConfiguration,
+            miningConfiguration,
+            isParallelTxProcessingEnabled,
+            balConfiguration,
+            metricsSystem);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo5,
+        GenesisConfigOptions::getBpo5Time,
+        BPO5);
+  }
+
   static ProtocolSpecBuilder bogotaDefinition(
       final Optional<BigInteger> chainId,
       final boolean enableRevertReason,
@@ -1322,7 +1322,7 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return amsterdamDefinition(
+    return bpo5Definition(
             chainId,
             enableRevertReason,
             genesisConfigOptions,

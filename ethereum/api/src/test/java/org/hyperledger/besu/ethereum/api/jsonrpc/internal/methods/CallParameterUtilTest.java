@@ -70,6 +70,72 @@ class CallParameterUtilTest {
                         .build()));
   }
 
+  @ParameterizedTest
+  @MethodSource("blobFieldsWithoutHashes")
+  void rejectsBlobFieldsWithoutHashes(final UnaryOperator<ImmutableCallParameter.Builder> blob) {
+    assertThatThrownBy(
+            () ->
+                CallParameterUtil.rejectBlobFieldsWithoutHashes(
+                    blob.apply(ImmutableCallParameter.builder()).build()))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_BLOB_COUNT));
+  }
+
+  static Stream<UnaryOperator<ImmutableCallParameter.Builder>> blobFieldsWithoutHashes() {
+    return Stream.of(
+        params -> params.maxFeePerBlobGas(Wei.ZERO),
+        params -> params.maxFeePerBlobGas(Wei.ONE),
+        params -> params.maxFeePerBlobGas(Wei.ONE).blobVersionedHashes(List.of()),
+        params -> params.blobVersionedHashes(List.of()));
+  }
+
+  @ParameterizedTest
+  @MethodSource("blobFeeCaps")
+  void acceptsBlobHashesWithOrWithoutFee(final Optional<Wei> maxFeePerBlobGas) {
+    assertThatNoException()
+        .isThrownBy(
+            () ->
+                CallParameterUtil.rejectBlobFieldsWithoutHashes(
+                    ImmutableCallParameter.builder()
+                        .maxFeePerBlobGas(maxFeePerBlobGas)
+                        .blobVersionedHashes(List.of(VersionedHash.DEFAULT_VERSIONED_HASH))
+                        .build()));
+  }
+
+  @ParameterizedTest
+  @MethodSource("blobFeeCaps")
+  void rejectsEmptyBlobHashes(final Optional<Wei> maxFeePerBlobGas) {
+    assertThatThrownBy(
+            () ->
+                CallParameterUtil.rejectEmptyBlobHashes(
+                    ImmutableCallParameter.builder()
+                        .maxFeePerBlobGas(maxFeePerBlobGas)
+                        .blobVersionedHashes(List.of())
+                        .build()))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_BLOB_COUNT));
+  }
+
+  @Test
+  void emptyBlobHashesCheckAcceptsMaxFeePerBlobGasWithoutHashes() {
+    assertThatNoException()
+        .isThrownBy(
+            () ->
+                CallParameterUtil.rejectEmptyBlobHashes(
+                    ImmutableCallParameter.builder().maxFeePerBlobGas(Wei.ONE).build()));
+  }
+
+  @Test
+  void acceptsCallWithoutBlobFields() {
+    assertThatNoException()
+        .isThrownBy(
+            () ->
+                CallParameterUtil.rejectBlobFieldsWithoutHashes(
+                    ImmutableCallParameter.builder().maxFeePerGas(Wei.ONE).build()));
+  }
+
   @Test
   void allowsExceedingBalanceWhenAll1559FeesAreZero() {
     assertThat(isAllowExceedingBalance(params -> params)).isTrue();

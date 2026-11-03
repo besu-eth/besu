@@ -80,6 +80,14 @@ public class ReadinessCheck implements HealthService.HealthCheck {
       }
     }
 
+    // Checked separately, as snap sync reports no sync status in stage 1, which skips the
+    // block-distance check below.
+    final boolean initialSyncDone = synchronizer.isInitialSyncPhaseDone();
+    if (!initialSyncDone) {
+      checks.put("initialSync", new JsonObject().put("status", false).put("complete", false));
+      healthy = false;
+    }
+
     final Optional<SyncStatus> syncStatusOpt = synchronizer.getSyncStatus();
     if (syncStatusOpt.isPresent()) {
       final SyncStatus syncStatus = syncStatusOpt.get();

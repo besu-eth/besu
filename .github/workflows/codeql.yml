@@ -19,8 +19,59 @@ on:
     - cron: '0 0 * * *'
 
 jobs:
+  # Scheduled runs skip analysis when nothing compiled has changed since the
+  # last successful scan, to avoid rescanning an unchanged tree.
+  changes:
+    name: Check for changes
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      scan: ${{ steps.check.outputs.scan }}
+    steps:
+    - id: check
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        EVENT: ${{ github.event_name }}
+        SHA: ${{ github.sha }}
+      run: |
+        # Manual dispatch always scans (e.g. to pick up new CodeQL queries).
+        if [ "$EVENT" != "schedule" ]; then
+          echo "scan=true" >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        if ! last=$(gh run list -R "$REPO" -w codeql.yml -b main -s success -L 1 --json headSha --jq '.[0].headSha // ""'); then
+          echo "Could not look up previous CodeQL runs; scanning."
+          echo "scan=true" >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        if [ -z "$last" ]; then
+          echo "No previous successful scan found; scanning."
+          echo "scan=true" >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        if [ "$last" = "$SHA" ]; then
+          echo "Last successful scan was at $SHA; skipping."
+          echo "scan=false" >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        # Compare lists at most 300 files; treat a truncated or failed compare as changed.
+        # Include a rename's previous path so moving a source out of the build counts.
+        if ! files=$(gh api "repos/$REPO/compare/$last...$SHA" --jq '.files[] | .filename, (.previous_filename // empty)'); then
+          echo "Could not compare $last...$SHA; scanning."
+          echo "scan=true" >> "$GITHUB_OUTPUT"; exit 0
+        fi
+        if [ "$(printf '%s\n' "$files" | grep -c .)" -ge 300 ] || \
+           printf '%s\n' "$files" | grep -qE '\.(java|kt|kts|gradle|sol)$|^gradle/|^gradle\.properties$|^\.github/workflows/codeql\.yml$'; then
+          echo "Source or build changes since $last; scanning."
+          echo "scan=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "No source or build changes since $last; skipping."
+          echo "scan=false" >> "$GITHUB_OUTPUT"
+        fi
+
   analyze:
     name: Analyze
+    needs: changes
+    if: needs.changes.outputs.scan == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -52,8 +103,10 @@ jobs:
       uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
       with:
         cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+    # CodeQL only extracts sources javac actually compiles; outputs restored
+    # from the build cache would be missing from the database.
     - name: compileJava noscan
       run: |
-        JAVA_OPTS="-Xmx2048M" ./gradlew --no-scan compileJava
+        JAVA_OPTS="-Xmx2048M" ./gradlew --no-scan --no-build-cache compileJava
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@0e9f55954318745b37b7933c693bc093f7336125 # v4.35.1

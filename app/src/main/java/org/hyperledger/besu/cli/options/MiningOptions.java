@@ -108,16 +108,14 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
       names = {"--max-blobs-per-transaction"},
       description =
           "Maximum number of blobs allowed per transaction. "
-              + "Only applies from Osaka hardfork onwards. (default: 6)",
-      arity = "1")
+              + "Only applies from Osaka hardfork onwards. (default: 6)")
   private Integer maxBlobsPerTransaction = null;
 
   @Option(
       names = {"--max-blobs-per-block"},
       description =
           "Maximum number of blobs allowed per block when building blocks. "
-              + "Only applies from Osaka hardfork onwards. Values above the protocol maximum are clamped. (default: protocol maximum)",
-      arity = "1")
+              + "Only applies from Osaka hardfork onwards. Values above the protocol maximum are clamped. (default: protocol maximum)")
   private Integer maxBlobsPerBlock = null;
 
   @CommandLine.ArgGroup(validate = false)
@@ -211,10 +209,10 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
           commandLine, "--Xpos-block-creation-repetition-min-duration must be positive and ≤ 2000");
     }
 
-    if (unstableOptions.posBlockFinalizationTimeoutMs <= 0
+    if (unstableOptions.posBlockFinalizationTimeoutMs < 0
         || unstableOptions.posBlockFinalizationTimeoutMs > 12000) {
       throw new ParameterException(
-          commandLine, "--Xpos-block-finalization-timeout-ms must be positive and ≤ 12000");
+          commandLine, "--Xpos-block-finalization-timeout-ms must be non-negative and ≤ 12000");
     }
 
     CommandLineUtils.failIfOptionDoesntMeetRequirement(

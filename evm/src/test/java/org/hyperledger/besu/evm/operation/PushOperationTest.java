@@ -37,6 +37,7 @@ public class PushOperationTest {
   private static final byte[] byteCode = new byte[] {0x00, 0x01, 0x02, 0x03};
   private static final MessageFrame frame =
       MessageFrame.builder()
+          .enableEvmV2(false)
           .worldUpdater(new ToyWorld())
           .originator(Address.ZERO)
           .gasPrice(Wei.ONE)

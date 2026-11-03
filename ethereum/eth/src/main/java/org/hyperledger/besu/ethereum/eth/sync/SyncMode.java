@@ -22,7 +22,14 @@ public enum SyncMode {
   // Fully validate all blocks as they sync
   FULL,
   // Perform snapsync
-  SNAP;
+  SNAP,
+  // Download the chain and the state together, following the head through block access lists
+  SNAP2;
+
+  /** Returns whether the mode downloads the state from snap servers, SNAP and SNAP2 alike. */
+  public boolean usesSnap() {
+    return this == SNAP || this == SNAP2;
+  }
 
   public String normalize() {
     return StringUtils.capitalize(this.toString().toLowerCase(Locale.ROOT));

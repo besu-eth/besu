@@ -1,0 +1,17 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_getModifiedAccountsByNumber",
+    "params": ["0x2"],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+      "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73"
+    ]
+  },
+  "statusCode": 200
+}

@@ -15,11 +15,13 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -31,6 +33,7 @@ import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -184,6 +187,21 @@ public class EthEstimateGasTest {
         new JsonRpcErrorResponse(null, RpcErrorType.INTERNAL_ERROR);
 
     assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldRejectBlobFeeWithoutBlobHashes() {
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(
+            ImmutableCallParameter.copyOf(defaultLegacyTransactionCallParameter(Wei.ZERO))
+                .withMaxFeePerBlobGas(Wei.ONE),
+            "latest");
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_BLOB_COUNT));
+    verifyNoInteractions(transactionSimulator);
   }
 
   @Test
