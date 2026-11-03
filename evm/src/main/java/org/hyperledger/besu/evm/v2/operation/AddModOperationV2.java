@@ -43,7 +43,7 @@ public class AddModOperationV2 extends AbstractFixedCostOperationV2 {
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame) {
-    if (!frame.stackHasItemsV2(3)) return UNDERFLOW_RESPONSE;
+    if (!frame.stackHasItemsV2(3)) return haltPoppingAll(frame, UNDERFLOW_RESPONSE);
     int top = frame.stackTopV2();
     final int aOffset = (top - 1) << 2;
     final int bOffset = (top - 2) << 2;

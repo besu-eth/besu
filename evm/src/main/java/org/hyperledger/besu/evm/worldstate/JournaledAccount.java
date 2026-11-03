@@ -114,8 +114,9 @@ public class JournaledAccount implements MutableAccount, Undoable {
       this.nonce = UndoScalar.of(account.getNonce());
       this.balance = UndoScalar.of(account.getBalance());
 
-      this.code = UndoScalar.of(account.getCode());
-      this.codeHash = UndoScalar.of(account.getCodeHash());
+      final Hash initialCodeHash = account.getCodeHash();
+      this.code = UndoScalar.of(Hash.EMPTY.equals(initialCodeHash) ? Bytes.EMPTY : null);
+      this.codeHash = UndoScalar.of(initialCodeHash);
 
       this.deleted = UndoScalar.of(Boolean.FALSE);
 
@@ -154,7 +155,8 @@ public class JournaledAccount implements MutableAccount, Undoable {
    * @return {@code true} if the code was updated.
    */
   public boolean codeWasUpdated() {
-    return code.lastUpdate() >= transactionBoundaryMark;
+    // an update made after the boundary has a later mark, and no update at all has mark 0
+    return code.lastUpdate() > transactionBoundaryMark;
   }
 
   /**
@@ -211,17 +213,16 @@ public class JournaledAccount implements MutableAccount, Undoable {
 
   @Override
   public Bytes getCode() {
-    return code.get();
+    Bytes currentCode = code.get();
+    if (currentCode == null) {
+      currentCode = account == null ? Bytes.EMPTY : account.getCode();
+    }
+    return currentCode;
   }
 
   @Override
   public Hash getCodeHash() {
     return codeHash.get();
-  }
-
-  @Override
-  public boolean hasCode() {
-    return !code.get().isEmpty();
   }
 
   /**
@@ -250,8 +251,13 @@ public class JournaledAccount implements MutableAccount, Undoable {
     if (immutable) {
       throw new ModificationNotAllowedException();
     }
+    final Hash newCodeHash = code == null ? Hash.EMPTY : Hash.hash(code);
+    // the code may not be loaded, so compare hashes: setting the same code is not an update
+    if (newCodeHash.equals(codeHash.get())) {
+      return;
+    }
     this.code.set(code == null ? Bytes.EMPTY : code);
-    this.codeHash.set(code == null ? Hash.EMPTY : Hash.hash(code));
+    this.codeHash.set(newCodeHash);
   }
 
   /** Mark transaction boundary. */

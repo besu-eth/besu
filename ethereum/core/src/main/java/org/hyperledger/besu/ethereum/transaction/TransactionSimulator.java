@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -89,7 +90,7 @@ public class TransactionSimulator {
 
   // TODO: Identify a better default from account to use, such as the registered
   // coinbase or an account currently unlocked by the client.
-  private static final Address DEFAULT_FROM =
+  static final Address DEFAULT_FROM =
       Address.fromHexString("0x0000000000000000000000000000000000000000");
 
   private final Blockchain blockchain;
@@ -170,6 +171,8 @@ public class TransactionSimulator {
           updater,
           pendingBlockHeader.getCoinbase(),
           Optional.empty());
+    } catch (final BlockStateCallException e) {
+      throw e;
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
@@ -400,6 +403,8 @@ public class TransactionSimulator {
 
       return preWorldStateCloseGuard.apply(ws, processor.apply(updater, miningBeneficiary));
 
+    } catch (final BlockStateCallException e) {
+      throw e;
     } catch (final Exception e) {
       LOG.atDebug()
           .setMessage("Transaction simulation failed for block {}: {}")
@@ -742,6 +747,11 @@ public class TransactionSimulator {
               () ->
                   // needed to make some transactions valid
                   transactionBuilder.chainId(protocolSchedule.getChainId().orElse(BigInteger.ONE)));
+    } else if (callParams.getChainId().isPresent()
+        && !callParams.getChainId().equals(protocolSchedule.getChainId())) {
+      // a legacy call keeps a chainId for another chain, so that the transaction validator rejects
+      // it, as it rejects a typed call for another chain
+      transactionBuilder.chainId(callParams.getChainId().get());
     }
 
     final Transaction transaction = transactionBuilder.build();

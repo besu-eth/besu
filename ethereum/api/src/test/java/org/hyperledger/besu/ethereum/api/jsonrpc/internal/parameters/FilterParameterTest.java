@@ -18,6 +18,9 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toUnmodifiableList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter.TraceFilterMode.INTERSECTION;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter.TraceFilterMode.UNION;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -33,9 +36,12 @@ import java.util.Map;
 import java.util.Optional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class FilterParameterTest {
 
@@ -430,6 +436,65 @@ public class FilterParameterTest {
     final FilterParameter filterParameter = readJsonAsFilterParameter("{\"after\":1, \"count\":2}");
     assertThat(filterParameter.getAfter()).contains(1);
     assertThat(filterParameter.getCount()).contains(2);
+  }
+
+  @Test
+  public void omittedOrNullModeShouldDefaultToIntersection() throws java.io.IOException {
+    assertThat(readJsonAsFilterParameter("{}").getMode()).isEqualTo(INTERSECTION);
+    assertThat(readJsonAsFilterParameter("{\"mode\":null}").getMode()).isEqualTo(INTERSECTION);
+  }
+
+  @Test
+  public void intersectionAndUnionModesShouldDeserialize() throws java.io.IOException {
+    assertThat(readJsonAsFilterParameter("{\"mode\":\"intersection\"}").getMode())
+        .isEqualTo(INTERSECTION);
+    assertThat(readJsonAsFilterParameter("{\"mode\":\"union\"}").getMode()).isEqualTo(UNION);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"\"both\"", "\"UNION\"", "1", "0", "true"})
+  public void unknownModeShouldBeRejected(final String mode) {
+    assertThatThrownBy(() -> readJsonAsFilterParameter("{\"mode\":" + mode + "}"))
+        .isInstanceOf(JsonMappingException.class);
+  }
+
+  @Test
+  public void intersectionModeShouldMatchEveryPopulatedAddressList() throws java.io.IOException {
+    final FilterParameter both =
+        readJsonAsFilterParameter("{\"fromAddress\":[\"0x1\"], \"toAddress\":[\"0x2\"]}");
+    assertThat(both.matchesTraceAddresses(address("0x1"), address("0x2"))).isTrue();
+    assertThat(both.matchesTraceAddresses(address("0x1"), address("0x3"))).isFalse();
+    assertThat(both.matchesTraceAddresses(address("0x3"), address("0x2"))).isFalse();
+
+    final FilterParameter fromOnly = readJsonAsFilterParameter("{\"fromAddress\":[\"0x1\"]}");
+    assertThat(fromOnly.matchesTraceAddresses(address("0x1"), address("0x3"))).isTrue();
+    assertThat(fromOnly.matchesTraceAddresses(Optional.empty(), address("0x3"))).isFalse();
+  }
+
+  @Test
+  public void unionModeShouldMatchEitherPopulatedAddressList() throws java.io.IOException {
+    final FilterParameter both =
+        readJsonAsFilterParameter(
+            "{\"fromAddress\":[\"0x1\"], \"toAddress\":[\"0x2\"], \"mode\":\"union\"}");
+    assertThat(both.matchesTraceAddresses(address("0x1"), address("0x3"))).isTrue();
+    assertThat(both.matchesTraceAddresses(address("0x3"), address("0x2"))).isTrue();
+    assertThat(both.matchesTraceAddresses(address("0x3"), address("0x3"))).isFalse();
+    // a reward has no sender and matches through its author
+    assertThat(both.matchesTraceAddresses(Optional.empty(), address("0x2"))).isTrue();
+
+    // an empty list imposes no restriction, so it doesn't match every trace
+    final FilterParameter fromOnly =
+        readJsonAsFilterParameter("{\"fromAddress\":[\"0x1\"], \"mode\":\"union\"}");
+    assertThat(fromOnly.matchesTraceAddresses(address("0x1"), address("0x3"))).isTrue();
+    assertThat(fromOnly.matchesTraceAddresses(address("0x3"), address("0x3"))).isFalse();
+
+    final FilterParameter neither = readJsonAsFilterParameter("{\"mode\":\"union\"}");
+    assertThat(neither.matchesTraceAddresses(address("0x3"), address("0x3"))).isTrue();
+    assertThat(neither.matchesTraceAddresses(Optional.empty(), Optional.empty())).isTrue();
+  }
+
+  private static Optional<Address> address(final String hex) {
+    return Optional.of(Address.fromHexString(hex));
   }
 
   private <T> FilterParameter createFilterWithTopics(final T inputTopics)

@@ -43,7 +43,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BalanceChange;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -98,22 +97,18 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
 
   /**
    * Parallel execution on the calling thread, without block-level fallback: when parallel
-   * processing produces a wrong state root, the result is returned as-is rather than silently
-   * falling back to sequential.
+   * processing fails, the failure is returned rather than silently falling back to sequential.
    */
   protected BlockProcessor createParallelProcessor(final ExecutionContextTestFixture ctx) {
     final ProtocolSpec spec =
         ctx.getProtocolSchedule()
             .getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
-    return new MainnetParallelBlockProcessor(
+    return new NoFallbackParallelBlockProcessor(
         spec.getTransactionProcessor(),
         spec.getTransactionReceiptFactory(),
         BlockHeader::getCoinbase,
         ctx.getProtocolSchedule(),
-        getBalConfiguration(),
-        new NoOpMetricsSystem(),
-        Runnable::run,
-        Optional.empty());
+        getBalConfiguration());
   }
 
   // ==================== Block Construction ====================
@@ -156,11 +151,13 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
             .gasLimit(30_000_000L)
             .baseFeePerGas(baseFee)
             // Prague is active at genesis here, so the mandatory requestsHash field must be
-            // present. The system-contract predeploys deterministically yield this requests hash
-            // for these blocks (none of the test transactions enqueue new requests).
+            // present. The withdrawal request queued in the genesis is dequeued by the first block,
+            // later blocks carry no requests (none of the test transactions enqueue new requests).
             .requestsHash(
-                Hash.fromHexString(
-                    "0x5f7606bf4b9eb2a8414aaa53f4c84062ec8789d24c604453563dc26e4ae65837"))
+                parentHeader.getNumber() == 0L
+                    ? Hash.fromHexString(
+                        "0x5f7606bf4b9eb2a8414aaa53f4c84062ec8789d24c604453563dc26e4ae65837")
+                    : Hash.EMPTY_REQUESTS_HASH)
             .buildHeader();
     final BlockBody blockBody =
         new BlockBody(Arrays.asList(txs), Collections.emptyList(), Optional.empty());

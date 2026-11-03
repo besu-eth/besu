@@ -43,7 +43,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
@@ -591,8 +591,8 @@ public class BonsaiFlatDbToArchiveMigratorTest {
 
   private TrieLogLayer createAccountTrieLog(final Wei balance) {
     final TrieLogLayer trieLog = new TrieLogLayer();
-    final PmtStateTrieAccountValue value =
-        new PmtStateTrieAccountValue(1, balance, Hash.EMPTY, Hash.EMPTY);
+    final PatriciaTrieAccountValue value =
+        new PatriciaTrieAccountValue(1, balance, Hash.EMPTY, Hash.EMPTY);
     trieLog.addAccountChange(TEST_ADDRESS, null, value);
     return trieLog;
   }

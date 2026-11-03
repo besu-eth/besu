@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
+import org.hyperledger.besu.ethereum.trie.TrieBytes;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredNodeFactory;
@@ -124,7 +125,7 @@ public class BonsaiPartialFlatDbStrategy extends BonsaiFlatDbStrategy {
         storage
             .get(
                 ACCOUNT_STORAGE_STORAGE,
-                Bytes.concatenate(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes())
+                TrieBytes.concat(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes())
                     .toArrayUnsafe())
             .map(Bytes::wrap);
     if (response.isEmpty()) {

@@ -30,6 +30,7 @@ import org.hyperledger.besu.evm.frame.SoftFailureReason;
 import org.hyperledger.besu.evm.internal.Words;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.tracing.TracedStack;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 
 import java.nio.charset.StandardCharsets;
@@ -526,7 +527,7 @@ public class CallTracer implements OperationTracer {
   // ------------------------------------------------------------------------------------------
 
   private void capturePendingCall(final MessageFrame frame, final Operation op) {
-    if (frame.stackSize() < op.getStackItemsConsumed()) {
+    if (TracedStack.size(frame) < op.getStackItemsConsumed()) {
       pendingBuilder = null;
       pendingInOffset = 0L;
       pendingInLength = 0L;
@@ -534,21 +535,21 @@ public class CallTracer implements OperationTracer {
     }
     final String opcode = op.getName();
     final boolean hasValue = CALL.equals(opcode) || CALLCODE.equals(opcode);
-    final String toHex = Words.toAddress(frame.getStackItem(1)).getBytes().toHexString();
+    final String toHex = Words.toAddress(TracedStack.item(frame, 1)).getBytes().toHexString();
     pendingBuilder = CallTracerResult.builder().type(opcode).to(toHex);
     if (CALL.equals(opcode) || CALLCODE.equals(opcode)) {
-      pendingBuilder.value(Wei.wrap(frame.getStackItem(2)).toShortHexString());
+      pendingBuilder.value(Wei.wrap(TracedStack.item(frame, 2)).toShortHexString());
     } else if (DELEGATECALL.equals(opcode)) {
       pendingBuilder.value(frame.getApparentValue().toShortHexString());
     }
     final int offsetIdx = hasValue ? 3 : 2;
     final int lengthIdx = hasValue ? 4 : 3;
-    pendingInOffset = Words.clampedToLong(frame.getStackItem(offsetIdx));
-    pendingInLength = Words.clampedToLong(frame.getStackItem(lengthIdx));
+    pendingInOffset = Words.clampedToLong(TracedStack.item(frame, offsetIdx));
+    pendingInLength = Words.clampedToLong(TracedStack.item(frame, lengthIdx));
   }
 
   private void capturePendingCreate(final MessageFrame frame, final Operation op) {
-    if (frame.stackSize() < op.getStackItemsConsumed()) {
+    if (TracedStack.size(frame) < op.getStackItemsConsumed()) {
       pendingBuilder = null;
       pendingInOffset = 0L;
       pendingInLength = 0L;
@@ -558,19 +559,19 @@ public class CallTracer implements OperationTracer {
     pendingBuilder =
         CallTracerResult.builder()
             .type(opcode)
-            .value(Wei.wrap(frame.getStackItem(0)).toShortHexString());
-    pendingInOffset = Words.clampedToLong(frame.getStackItem(1));
-    pendingInLength = Words.clampedToLong(frame.getStackItem(2));
+            .value(Wei.wrap(TracedStack.item(frame, 0)).toShortHexString());
+    pendingInOffset = Words.clampedToLong(TracedStack.item(frame, 1));
+    pendingInLength = Words.clampedToLong(TracedStack.item(frame, 2));
   }
 
   private void capturePendingSelfDestruct(final MessageFrame frame, final Operation op) {
-    if (frame.stackSize() < op.getStackItemsConsumed()) {
+    if (TracedStack.size(frame) < op.getStackItemsConsumed()) {
       pendingBuilder = null;
       pendingInOffset = 0L;
       pendingInLength = 0L;
       return;
     }
-    final Address beneficiary = Words.toAddress(frame.getStackItem(0));
+    final Address beneficiary = Words.toAddress(TracedStack.item(frame, 0));
     pendingBuilder =
         CallTracerResult.builder().type(SELFDESTRUCT).to(beneficiary.getBytes().toHexString());
   }

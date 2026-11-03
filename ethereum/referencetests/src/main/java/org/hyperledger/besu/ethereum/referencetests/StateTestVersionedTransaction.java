@@ -60,6 +60,16 @@ import org.jspecify.annotations.Nullable;
 public class StateTestVersionedTransaction {
 
   private final long nonce;
+
+  /**
+   * Set when a scalar field held hex its type cannot represent. Fixtures deliberately carry values
+   * such as a 33-byte {@code maxFeePerGas} to check that they are rejected, so this is recorded
+   * rather than thrown during deserialization, which would take the whole fixture file down with
+   * it. Such a transaction cannot be signed into existence, so {@link #isSignable} sends it down
+   * the raw-bytes path, where Besu's own decoder has to reject it.
+   */
+  private final boolean outOfBoundsScalar;
+
   @Nullable private final BigInteger chainId;
   @Nullable private final Wei maxFeePerGas;
   @Nullable private final Wei maxPriorityFeePerGas;
@@ -116,16 +126,23 @@ public class StateTestVersionedTransaction {
       @JsonProperty("authorizationList")
           final List<org.hyperledger.besu.datatypes.CodeDelegation> authorizationList) {
 
-    this.nonce = Bytes.fromHexStringLenient(nonce).toLong();
+    final BoundsViolation violation = new BoundsViolation();
+
+    if (nonce == null) {
+      // Not a bounds test: a fixture without a nonce is broken, and defaulting it to 0 would let
+      // the case run against a transaction the fixture never described.
+      throw new IllegalArgumentException("transaction has no nonce");
+    }
+    final Long parsedNonce =
+        parseScalar(nonce, s -> Bytes.fromHexStringLenient(s).toLong(), violation);
+    this.nonce = parsedNonce == null ? 0L : parsedNonce;
     this.chainId =
-        Optional.ofNullable(chainId)
-            .map(id -> Bytes.fromHexStringLenient(id).toBigInteger())
-            .orElse(null);
-    this.gasPrice = Optional.ofNullable(gasPrice).map(Wei::fromHexString).orElse(null);
-    this.maxFeePerGas = Optional.ofNullable(maxFeePerGas).map(Wei::fromHexString).orElse(null);
-    this.maxPriorityFeePerGas =
-        Optional.ofNullable(maxPriorityFeePerGas).map(Wei::fromHexString).orElse(null);
-    this.to = (to == null || to.isEmpty()) ? null : Address.fromHexString(to);
+        parseScalar(chainId, id -> Bytes.fromHexStringLenient(id).toBigInteger(), violation);
+    this.gasPrice = parseScalar(gasPrice, Wei::fromHexString, violation);
+    this.maxFeePerGas = parseScalar(maxFeePerGas, Wei::fromHexString, violation);
+    this.maxPriorityFeePerGas = parseScalar(maxPriorityFeePerGas, Wei::fromHexString, violation);
+    this.to =
+        (to == null || to.isEmpty()) ? null : parseScalar(to, Address::fromHexString, violation);
 
     SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
     this.keys =
@@ -138,10 +155,54 @@ public class StateTestVersionedTransaction {
     this.values = parseArray(value, Wei::fromHexString);
     this.payloads = parseArray(data, Bytes::fromHexString);
     this.maybeAccessLists = Optional.ofNullable(maybeAccessLists);
-    this.maxFeePerBlobGas =
-        Optional.ofNullable(maxFeePerBlobGas).map(Wei::fromHexString).orElse(null);
+    this.maxFeePerBlobGas = parseScalar(maxFeePerBlobGas, Wei::fromHexString, violation);
     this.blobVersionedHashes = blobVersionedHashes;
     this.authorizationList = authorizationList;
+    this.outOfBoundsScalar = violation.occurred;
+  }
+
+  /** Mutable flag, so the parse helper can report back from inside the constructor. */
+  private static final class BoundsViolation {
+    private boolean occurred;
+  }
+
+  /**
+   * Parses a scalar field, treating well-formed hex the type cannot represent as a bounds violation
+   * rather than an error. This is the single-value counterpart of {@link #parseArray}.
+   *
+   * <p>Only well-formed hex counts: anything else is a malformed fixture, and is rethrown so the
+   * file is reported as unreadable rather than run as a deliberately invalid transaction.
+   */
+  @Nullable
+  private static <T> T parseScalar(
+      @Nullable final String value,
+      final Function<String, T> parseFct,
+      final BoundsViolation violation) {
+    if (value == null) {
+      return null;
+    }
+    try {
+      return parseFct.apply(value);
+    } catch (RuntimeException re) {
+      if (!isHex(value)) {
+        throw re;
+      }
+      violation.occurred = true;
+      return null;
+    }
+  }
+
+  /** Whether {@code value} is hex digits, with or without a {@code 0x} prefix. */
+  private static boolean isHex(final String value) {
+    final String digits =
+        value.startsWith("0x") || value.startsWith("0X") ? value.substring(2) : value;
+    for (int i = 0; i < digits.length(); i++) {
+      final char c = digits.charAt(i);
+      if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static <T> List<T> parseArray(final String[] array, final Function<String, T> parseFct) {
@@ -164,16 +225,18 @@ public class StateTestVersionedTransaction {
   /**
    * Whether this transaction can be assembled by signing. Fixtures for intentionally malformed
    * signatures omit the sender's secret key, because no signing key produces the signature they
-   * describe; the raw transaction bytes of the post section have to be used for those.
+   * describe; the raw transaction bytes of the post section have to be used for those. The same
+   * goes for a field too wide for its type: no builder can hold it, so only decoding the raw bytes
+   * tests whether Besu rejects it.
    *
-   * @return true if the fixture provides the sender's secret key
+   * @return true if the fixture provides the sender's secret key and every field is representable
    */
   public boolean isSignable() {
-    return keys != null;
+    return keys != null && !outOfBoundsScalar;
   }
 
   public Transaction get(final GeneralStateTestCaseSpec.Indexes indexes) {
-    if (keys == null) {
+    if (keys == null || outOfBoundsScalar) {
       return null;
     }
     Long gasLimit = gasLimits.get(indexes.gas);
