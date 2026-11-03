@@ -39,6 +39,15 @@ abstract class BinaryOperationV2Test {
     this.operation = operation;
   }
 
+  /**
+   * Returns the operands the v1 operation pops before it halts for gas.
+   *
+   * @return the operands popped before the gas check
+   */
+  protected int poppedOnInsufficientGas() {
+    return 0;
+  }
+
   @Test
   void shouldHaltOnInsufficientGas() {
     final MessageFrame frame =
@@ -49,7 +58,7 @@ abstract class BinaryOperationV2Test {
             .build();
     assertThat(frame.stackTopV2()).isEqualTo(2);
     final Operation.OperationResult result = operation.execute(frame, null);
-    assertThat(frame.stackTopV2()).isEqualTo(2);
+    assertThat(frame.stackTopV2()).isEqualTo(2 - poppedOnInsufficientGas());
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
   }
 
@@ -69,6 +78,7 @@ abstract class BinaryOperationV2Test {
     final Operation.OperationResult result = operation.execute(frame, null);
 
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+    assertThat(frame.stackTopV2()).isZero();
   }
 
   @Test

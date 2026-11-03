@@ -23,6 +23,7 @@ import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.TrieLogService;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
+import org.hyperledger.besu.plugin.services.trielogs.TrieLogAccumulator;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLogEvent;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLogFactory;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLogProvider;
@@ -47,6 +48,7 @@ public class TrieLogManager {
   protected final Subscribers<TrieLogEvent.TrieLogObserver> trieLogObservers = Subscribers.create();
 
   protected final TrieLogFactory trieLogFactory;
+  private final boolean canDeferTrieLog;
 
   public TrieLogManager(
       final Blockchain blockchain,
@@ -56,20 +58,58 @@ public class TrieLogManager {
     this.blockchain = blockchain;
     this.rootWorldStateStorage = worldStateKeyValueStorage;
     this.maxLayersToLoad = maxLayersToLoad;
-    this.trieLogFactory = setupTrieLogFactory(pluginContext);
+    final Optional<TrieLogFactory> pluginTrieLogFactory = setupTrieLogFactory(pluginContext);
+    this.trieLogFactory = pluginTrieLogFactory.orElseGet(BonsaiTrieLogFactory::new);
+    // a plugin's factory may read more of the block's state than the changes a deferred save keeps
+    this.canDeferTrieLog = pluginTrieLogFactory.isEmpty();
   }
 
-  public synchronized void saveTrieLog(
+  /**
+   * Whether a block's trie log can be saved after the world state it belongs to is closed.
+   *
+   * @return true if {@link #deferTrieLog} can be used
+   */
+  public boolean canDeferTrieLog() {
+    return canDeferTrieLog;
+  }
+
+  public void saveTrieLog(
       final PathBasedWorldStateUpdateAccumulator<?> localUpdater,
       final Hash forWorldStateRootHash,
       final BlockHeader forBlockHeader,
       final PathBasedWorldState forWorldState) {
+    storeTrieLog(
+        localUpdater, forWorldStateRootHash, forBlockHeader, forWorldState.getWorldStateStorage());
+  }
+
+  /**
+   * Prepares to save a block's trie log later: after the accumulator it is built from has been
+   * reset, and the world state it belongs to closed.
+   *
+   * @param localUpdater the block's updates
+   * @param forWorldStateRootHash the block's state root
+   * @param forBlockHeader the block
+   * @return the save, which skips a trie log that has been saved by then
+   */
+  public Runnable deferTrieLog(
+      final PathBasedWorldStateUpdateAccumulator<?> localUpdater,
+      final Hash forWorldStateRootHash,
+      final BlockHeader forBlockHeader) {
+    final TrieLogAccumulator changes = TrieLogChanges.copyOf(localUpdater);
+    return () ->
+        storeTrieLog(changes, forWorldStateRootHash, forBlockHeader, rootWorldStateStorage);
+  }
+
+  protected synchronized void storeTrieLog(
+      final TrieLogAccumulator localUpdater,
+      final Hash forWorldStateRootHash,
+      final BlockHeader forBlockHeader,
+      final BonsaiWorldStateKeyValueStorage storage) {
     // do not overwrite a trielog layer that already exists in the database.
     // if it's only in memory we need to save it
     // for example, in case of reorg we don't replace a trielog layer
     if (rootWorldStateStorage.getTrieLog(forBlockHeader.getBlockHash()).isEmpty()) {
-      final BonsaiWorldStateKeyValueStorage.Updater stateUpdater =
-          forWorldState.getWorldStateStorage().updater();
+      final BonsaiWorldStateKeyValueStorage.Updater stateUpdater = storage.updater();
       boolean success = false;
       try {
         final TrieLog trieLog = prepareTrieLog(forBlockHeader, localUpdater);
@@ -94,7 +134,7 @@ public class TrieLogManager {
   }
 
   private TrieLog prepareTrieLog(
-      final BlockHeader blockHeader, final PathBasedWorldStateUpdateAccumulator<?> localUpdater) {
+      final BlockHeader blockHeader, final TrieLogAccumulator localUpdater) {
     LOG.atDebug()
         .setMessage("Adding layered world state for {}")
         .addArgument(blockHeader::toLogString)
@@ -138,7 +178,7 @@ public class TrieLogManager {
     trieLogObservers.unsubscribe(id);
   }
 
-  private TrieLogFactory setupTrieLogFactory(final ServiceManager pluginContext) {
+  private Optional<TrieLogFactory> setupTrieLogFactory(final ServiceManager pluginContext) {
     // if we have a TrieLogService from pluginContext, use it.
     var trieLogServicez =
         Optional.ofNullable(pluginContext)
@@ -152,13 +192,10 @@ public class TrieLogManager {
       // configure plugin observers:
       trieLogService.getObservers().forEach(trieLogObservers::subscribe);
 
-      // return the TrieLogFactory implementation from the TrieLogService
-      if (trieLogService.getTrieLogFactory().isPresent()) {
-        return trieLogService.getTrieLogFactory().get();
-      }
+      // return the TrieLogFactory implementation from the TrieLogService, if it has one
+      return trieLogService.getTrieLogFactory();
     }
-    // Otherwise default to BonsaiTrieLogFactory
-    return new BonsaiTrieLogFactory();
+    return Optional.empty();
   }
 
   private TrieLogProvider getTrieLogProvider() {

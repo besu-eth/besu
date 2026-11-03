@@ -67,6 +67,19 @@ public class BlockStateCallSimulationResultTest {
   }
 
   @Test
+  public void amsterdamRemainingGasIsTheSmallerDimensionWithoutTheExecutionGasCap() {
+    BlockStateCallSimulationResult result =
+        resultWith(BlockGasAccountingStrategy.AMSTERDAM, 100_000_000L, Long.MAX_VALUE, true);
+
+    result.add(
+        call(10_000_000L, 10_000_000L, 0L),
+        mock(MutableWorldState.class),
+        OperationTracer.NO_TRACING);
+
+    assertThat(result.getRemainingGas()).isEqualTo(90_000_000L);
+  }
+
+  @Test
   public void amsterdamRemainingGasIsTheSmallerDimensionBelowTheCap() {
     BlockStateCallSimulationResult result =
         resultWith(BlockGasAccountingStrategy.AMSTERDAM, 20_000_000L);
@@ -111,6 +124,14 @@ public class BlockStateCallSimulationResultTest {
 
   private static BlockStateCallSimulationResult resultWith(
       final BlockGasAccountingStrategy strategy, final long blockGasLimit, final long gasBudget) {
+    return resultWith(strategy, blockGasLimit, gasBudget, false);
+  }
+
+  private static BlockStateCallSimulationResult resultWith(
+      final BlockGasAccountingStrategy strategy,
+      final long blockGasLimit,
+      final long gasBudget,
+      final boolean allowExceedingExecutionGasLimit) {
     ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
     AbstractBlockProcessor.TransactionReceiptFactory receiptFactory =
         mock(AbstractBlockProcessor.TransactionReceiptFactory.class);
@@ -124,7 +145,8 @@ public class BlockStateCallSimulationResultTest {
     when(protocolSpec.getTransactionReceiptFactory()).thenReturn(receiptFactory);
     when(protocolSpec.getBlockGasAccountingStrategy()).thenReturn(strategy);
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
-    return new BlockStateCallSimulationResult(protocolSpec, blockGasLimit, gasBudget);
+    return new BlockStateCallSimulationResult(
+        protocolSpec, blockGasLimit, gasBudget, allowExceedingExecutionGasLimit);
   }
 
   private static TransactionSimulatorResult call(

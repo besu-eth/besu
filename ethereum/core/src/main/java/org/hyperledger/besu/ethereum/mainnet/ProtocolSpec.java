@@ -419,10 +419,6 @@ public class ProtocolSpec {
     return blockAccessListFactory;
   }
 
-  public boolean isBlockAccessListEnabled() {
-    return blockAccessListFactory.isPresent();
-  }
-
   public BlockAccessListValidator getBlockAccessListValidator() {
     return blockAccessListValidator;
   }

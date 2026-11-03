@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryWorldStateArchive;
 import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
+import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -122,6 +123,7 @@ public class RespondingEthPeer {
       final EthProtocolManager ethProtocolManager,
       final Optional<SnapProtocolManager> snapProtocolManager,
       final Capability capability,
+      final Set<Capability> extraCapabilities,
       final Hash chainHeadHash,
       final Difficulty totalDifficulty,
       final OptionalLong estimatedHeight,
@@ -131,6 +133,7 @@ public class RespondingEthPeer {
     final EthPeers ethPeers = ethProtocolManager.ethContext().getEthPeers();
 
     final Set<Capability> caps = new HashSet<>(Collections.singletonList(capability));
+    caps.addAll(extraCapabilities);
     final BlockingQueue<OutgoingMessage> outgoingMessages = new ArrayBlockingQueue<>(1000);
     final MockPeerConnection peerConnection =
         new MockPeerConnection(
@@ -397,10 +400,12 @@ public class RespondingEthPeer {
           final PooledTransactionsMessage pooledTransactionsMessage =
               PooledTransactionsMessage.readFrom(originalResponse);
           final List<Transaction> originalPooledTx =
-              Lists.newArrayList(pooledTransactionsMessage.transactions());
+              Lists.newArrayList(
+                  pooledTransactionsMessage.transactions(
+                      EthProtocolConfiguration.DEFAULT_MAX_GET_POOLED_TRANSACTIONS));
           final List<Transaction> partialPooledTx =
               originalPooledTx.subList(0, (int) (originalPooledTx.size() * portion));
-          partialResponse = PooledTransactionsMessage.create(partialPooledTx);
+          partialResponse = createPooledTransactionsMessage(partialPooledTx);
           break;
       }
       return Optional.of(partialResponse);
@@ -425,7 +430,7 @@ public class RespondingEthPeer {
                       TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION));
           break;
         case EthProtocolMessages.GET_POOLED_TRANSACTIONS:
-          response = PooledTransactionsMessage.create(Collections.emptyList());
+          response = createPooledTransactionsMessage(Collections.emptyList());
           break;
         case EthProtocolMessages.GET_BLOCK_ACCESS_LISTS:
           response = BlockAccessListsMessage.create(Collections.emptyList());
@@ -445,6 +450,7 @@ public class RespondingEthPeer {
     private boolean isServingSnap = false;
     private boolean addToEthPeers = true;
     private Capability capability = EthProtocol.LATEST;
+    private final Set<Capability> extraCapabilities = new HashSet<>();
 
     public RespondingEthPeer build() {
       checkNotNull(ethProtocolManager, "Must configure EthProtocolManager");
@@ -454,6 +460,7 @@ public class RespondingEthPeer {
           ethProtocolManager,
           snapProtocolManager,
           capability,
+          extraCapabilities,
           chainHeadHash,
           totalDifficulty,
           estimatedHeight,
@@ -520,6 +527,12 @@ public class RespondingEthPeer {
 
     public Builder capability(final Capability capability) {
       this.capability = capability;
+      return this;
+    }
+
+    /** Adds a capability agreed with the peer besides its eth one, a snap version for instance. */
+    public Builder extraCapability(final Capability capability) {
+      this.extraCapabilities.add(capability);
       return this;
     }
   }

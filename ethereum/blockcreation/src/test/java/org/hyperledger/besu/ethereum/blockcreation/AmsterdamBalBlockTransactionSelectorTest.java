@@ -59,6 +59,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -87,6 +88,7 @@ import org.hyperledger.besu.plugin.services.TransactionSelectionService;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 import org.hyperledger.besu.util.number.PositiveNumber;
@@ -98,6 +100,7 @@ import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -224,12 +227,15 @@ class AmsterdamBalBlockTransactionSelectorTest {
             .txPoolLimitByAccountPercentage(Fraction.fromFloat(1f))
             .minGasPrice(Wei.ONE)
             .build();
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(new DeterministicEthScheduler());
     final PendingTransactions pendingTransactions =
         new BaseFeePendingTransactionsSorter(
             poolConf,
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
-            blockchain::getChainHeadHeader);
+            blockchain::getChainHeadHeader,
+            transactionEventNotifier.newEmitter());
 
     return new TransactionPool(
         () -> pendingTransactions,
@@ -239,7 +245,8 @@ class AmsterdamBalBlockTransactionSelectorTest {
         ethContext,
         new TransactionPoolMetrics(metricsSystem),
         poolConf,
-        new BlobCache());
+        new BlobCache(),
+        transactionEventNotifier);
   }
 
   private ProcessableBlockHeader createBlock(final long gasLimit, final Wei baseFee) {
@@ -280,7 +287,8 @@ class AmsterdamBalBlockTransactionSelectorTest {
             blockHeader, selectorsStateManager),
         ethScheduler,
         selectorsStateManager,
-        maybeBalBuilder);
+        maybeBalBuilder,
+        Set.of());
   }
 
   private Transaction createTransaction(
@@ -334,13 +342,16 @@ class AmsterdamBalBlockTransactionSelectorTest {
         .thenAnswer(
             inv -> {
               final int txIndex = evaluationOrder.getAndIncrement();
-              return TransactionProcessingResult.successful(
-                  List.of(),
-                  50_000L,
-                  50_000L,
-                  Bytes.EMPTY,
-                  Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
-                  ValidationResult.valid());
+              final TransactionProcessingResult result =
+                  TransactionProcessingResult.successful(
+                      List.of(),
+                      50_000L,
+                      50_000L,
+                      Bytes.EMPTY,
+                      Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
+                      ValidationResult.valid());
+              result.setExecutionGasUsedForBlock(50_000L);
+              return result;
             });
 
     transactionPool.addRemoteTransactions(List.of(tx1, tx2));
@@ -399,13 +410,16 @@ class AmsterdamBalBlockTransactionSelectorTest {
         .thenAnswer(
             inv -> {
               final int txIndex = evaluationOrder.getAndIncrement();
-              return TransactionProcessingResult.successful(
-                  List.of(),
-                  50_000L,
-                  50_000L,
-                  Bytes.EMPTY,
-                  Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
-                  ValidationResult.valid());
+              final TransactionProcessingResult result =
+                  TransactionProcessingResult.successful(
+                      List.of(),
+                      50_000L,
+                      50_000L,
+                      Bytes.EMPTY,
+                      Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
+                      ValidationResult.valid());
+              result.setExecutionGasUsedForBlock(50_000L);
+              return result;
             });
 
     transactionPool.addRemoteTransactions(List.of(tx1, tx2));

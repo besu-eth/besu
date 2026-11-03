@@ -25,7 +25,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContex
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -120,7 +120,7 @@ public class AccountTrieNodeHealingRequest extends TrieNodeHealingRequest {
                   getLocation().size(),
                   account.size() - getLocation().size()))
           .map(RLP::input)
-          .map(PmtStateTrieAccountValue::readFrom)
+          .map(PatriciaTrieAccountValue::readFrom)
           .filter(
               stateTrieAccountValue ->
                   // We need to ensure that the accounts to be healed do not have empty storage.
@@ -155,8 +155,8 @@ public class AccountTrieNodeHealingRequest extends TrieNodeHealingRequest {
       final Bytes path,
       final Bytes value) {
     final Stream.Builder<SnapDataRequest> builder = Stream.builder();
-    final PmtStateTrieAccountValue accountValue =
-        PmtStateTrieAccountValue.readFrom(RLP.input(value));
+    final PatriciaTrieAccountValue accountValue =
+        PatriciaTrieAccountValue.readFrom(RLP.input(value));
 
     // Retrieve account hash
     final Hash accountHash =

@@ -61,6 +61,33 @@ class BonsaiValueTest {
   }
 
   @Test
+  void lazyReadIsUnchangedWithoutLoading() {
+    final AtomicInteger loads = new AtomicInteger();
+    final Supplier<UInt256> loader =
+        Suppliers.memoize(
+            () -> {
+              loads.incrementAndGet();
+              return UInt256.valueOf(42);
+            });
+    final BonsaiValue<UInt256> value = BonsaiValue.withLazy(loader, loader);
+
+    assertThat(value.isChanged()).isFalse();
+    assertThat(loads).hasValue(0);
+  }
+
+  @Test
+  void isChangedComparesTheUpdatedValueWithThePrior() {
+    final BonsaiValue<UInt256> value = new BonsaiValue<>(UInt256.ONE, UInt256.ONE);
+    assertThat(value.isChanged()).isFalse();
+
+    value.setUpdated(UInt256.valueOf(2));
+    assertThat(value.isChanged()).isTrue();
+
+    value.setUpdated(UInt256.ONE);
+    assertThat(value.isChanged()).isFalse();
+  }
+
+  @Test
   void getPriorMaterializesLazyLoader() {
     final AtomicInteger loads = new AtomicInteger();
     final Supplier<UInt256> loader =

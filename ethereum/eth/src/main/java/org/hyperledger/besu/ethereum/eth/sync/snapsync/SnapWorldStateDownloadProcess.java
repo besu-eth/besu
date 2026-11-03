@@ -457,7 +457,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
                   outputCounter,
                   true,
                   "world_state_heal")
-              .thenProcessAsyncOrdered(
+              .thenProcessAsync(
                   "batchDownloadFlatStorageData",
                   requestTask -> requestDataStep.requestLocalFlatStorages(requestTask),
                   maxOutstandingRequests)

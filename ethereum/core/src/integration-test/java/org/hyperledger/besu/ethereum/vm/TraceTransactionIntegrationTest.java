@@ -312,9 +312,13 @@ public class TraceTransactionIntegrationTest {
   private void assertStackContainsExactly(
       final TraceFrame frame, final String... stackEntriesAsHex) {
     assertThat(frame.getStack()).isPresent();
-    final Bytes[] stackEntries =
-        Stream.of(stackEntriesAsHex).map(Bytes::fromHexString).toArray(Bytes[]::new);
-    assertThat(frame.getStack().get()).containsExactly(stackEntries);
+    // EVM v1 keeps the bytes an operation pushed and EVM v2 always 32 bytes
+    final Bytes32[] stackEntries =
+        Stream.of(stackEntriesAsHex)
+            .map(hex -> Bytes32.leftPad(Bytes.fromHexString(hex)))
+            .toArray(Bytes32[]::new);
+    assertThat(Stream.of(frame.getStack().get()).map(Bytes32::leftPad))
+        .containsExactly(stackEntries);
   }
 
   private void assertMemoryContainsExactly(

@@ -347,6 +347,38 @@ public class LayeredKeyValueStorageTest {
   }
 
   /**
+   * isClosed() on an open chain must check the base storage directly rather than walking the
+   * parents: get() calls it at every layer, so a walk made each key miss O(N²) in the chain depth.
+   * A chain deep enough to overflow the stack if isClosed() recursed asserts it does not.
+   */
+  @Test
+  void isClosedOnOpenDeepChainChecksBaseStorageDirectly() {
+    LayeredKeyValueStorage top = layeredKeyValueStorage;
+    for (int i = 0; i < 100_000; i++) {
+      top = new LayeredKeyValueStorage(top);
+    }
+    when(parentStorage.isClosed()).thenReturn(false);
+
+    assertFalse(top.isClosed());
+    verify(parentStorage, times(1)).isClosed();
+  }
+
+  @Test
+  void isClosedUsesOverrideOfSubclassParent() {
+    final LayeredKeyValueStorage closedSubclass =
+        new LayeredKeyValueStorage(parentStorage) {
+          @Override
+          public boolean isClosed() {
+            return true;
+          }
+        };
+    final LayeredKeyValueStorage top =
+        new LayeredKeyValueStorage(new LayeredKeyValueStorage(closedSubclass));
+
+    assertTrue(top.isClosed());
+  }
+
+  /**
    * Tests that the stream method correctly handles a parent layer and a current layer where the
    * current layer overrides the parent layer.
    */

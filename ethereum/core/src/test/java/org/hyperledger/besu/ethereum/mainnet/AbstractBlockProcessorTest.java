@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,11 +37,15 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
@@ -117,6 +122,61 @@ abstract class AbstractBlockProcessorTest {
             .blockAccessList(Optional.empty())
             .build());
     verify(withdrawalsProcessor, never()).processWithdrawals(any(), any(), any(), any());
+  }
+
+  @Test
+  void blockTracerFromContextIsUsedInsteadOfBlockImportTracer() {
+    final BlockAwareOperationTracer blockTracer = mock(BlockAwareOperationTracer.class);
+
+    blockProcessor.processBlock(
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(testBlockBuilder(emptyList()))
+            .blockAccessList(Optional.empty())
+            .sequentialExecutionRequested(true)
+            .blockTracer(blockTracer)
+            .build());
+
+    verify(blockTracer).traceStartBlock(any(), any(BlockHeader.class), any(Address.class));
+    verify(protocolContext, never()).getPluginServiceManager();
+  }
+
+  @Test
+  void blockImportTracerIsUsedWithoutBlockTracerInContext() {
+    final BlockAwareOperationTracer importTracer = mock(BlockAwareOperationTracer.class);
+    final ServiceManager serviceManager = mock(ServiceManager.class);
+    final BlockImportTracerProvider provider = header -> importTracer;
+    when(protocolContext.getPluginServiceManager()).thenReturn(serviceManager);
+    when(serviceManager.getService(BlockImportTracerProvider.class))
+        .thenReturn(Optional.of(provider));
+
+    blockProcessor.processBlock(
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(testBlockBuilder(emptyList()))
+            .blockAccessList(Optional.empty())
+            .build());
+
+    verify(importTracer).traceStartBlock(any(), any(BlockHeader.class), any(Address.class));
+  }
+
+  @Test
+  void blockAccessListFactoryFromContextIsUsedWhenTheForkHasNone() {
+    // The fork defines no block access list factory (the mocked spec returns empty).
+    final BlockAccessListFactory blockAccessListFactory = spy(new BlockAccessListFactory());
+
+    blockProcessor.processBlock(
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(testBlockBuilder(emptyList()))
+            .blockAccessList(Optional.empty())
+            .blockAccessListFactoryProvider(spec -> Optional.of(blockAccessListFactory))
+            .build());
+
+    verify(blockAccessListFactory).newBlockAccessListBuilder();
   }
 
   @Test

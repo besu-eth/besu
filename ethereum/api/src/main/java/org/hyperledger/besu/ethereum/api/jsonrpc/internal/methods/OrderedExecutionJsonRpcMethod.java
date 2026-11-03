@@ -21,11 +21,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import io.vertx.core.WorkerExecutor;
+import io.vertx.core.shareddata.Shareable;
 
 /**
  * Base class for engine methods the Engine API spec requires to be processed serially, in the same
@@ -46,6 +48,8 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
 
   // every instance gets its own wrapper, but all of them share the same named single-threaded pool
   private final WorkerExecutor orderedExecutor;
+  // shared like the pool, so that every ordered call runs the work queued before it
+  private final PendingWork pendingWork;
 
   protected OrderedExecutionJsonRpcMethod(
       final ConstructorArguments constructorArguments,
@@ -53,6 +57,11 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
       final HardforkId firstUnsupportedFork) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
     this.orderedExecutor = syncVertx.createSharedWorkerExecutor(ORDERED_EXECUTOR_NAME, 1);
+    this.pendingWork =
+        syncVertx
+            .sharedData()
+            .<String, PendingWork>getLocalMap(ORDERED_EXECUTOR_NAME)
+            .computeIfAbsent(ORDERED_EXECUTOR_NAME, name -> new PendingWork());
   }
 
   @Override
@@ -63,7 +72,12 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
     // submission preserves global arrival order across HTTP connections, while ordered=true
     // would only preserve it per calling context.
     orderedExecutor
-        .<JsonRpcResponse>executeBlocking(() -> computeResponseSafely(request), false)
+        .<JsonRpcResponse>executeBlocking(
+            () -> {
+              runPendingWork();
+              return computeResponseSafely(request);
+            },
+            false)
         .onComplete(
             result -> {
               // computeResponseSafely never throws, so a failure here means the executor could not
@@ -94,4 +108,39 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.INTERNAL_ERROR);
     }
   }
+
+  /**
+   * Queues work on the thread that ordered calls run on. Queued while a call runs, the work runs
+   * after that call returns, and before the next ordered call, even one received while the call
+   * ran.
+   *
+   * @param work the work to run
+   */
+  protected final void queueOnOrderedThread(final Runnable work) {
+    pendingWork.add(work);
+    // runs the work if no ordered call comes to run it first
+    orderedExecutor
+        .<Void>executeBlocking(
+            () -> {
+              runPendingWork();
+              return null;
+            },
+            false)
+        .onFailure(e -> logger().error("Work queued by {} failed", getName(), e));
+  }
+
+  private void runPendingWork() {
+    Runnable work;
+    while ((work = pendingWork.poll()) != null) {
+      try {
+        work.run();
+      } catch (final RuntimeException e) {
+        // the ordered call that runs it still has to be answered
+        logger().error("Work queued on the ordered thread failed", e);
+      }
+    }
+  }
+
+  private static final class PendingWork extends ConcurrentLinkedQueue<Runnable>
+      implements Shareable {}
 }

@@ -40,6 +40,11 @@ jobs:
           image-ref: hyperledger/besu:${{ steps.tag.outputs.TAG }}
           format: sarif
           output: 'trivy-results.sarif'
+          # Don't store the ~1 GiB vulnerability DB in the Actions cache. This is a
+          # once-daily scan, so a single DB download per run won't rate-limit, and the
+          # default date-keyed cache entries otherwise accumulate against the 10 GB
+          # repo cache budget (one new ~1 GiB entry per day until 7-day eviction).
+          cache: false
 
       # Check the vulnerabilities via GitHub security tab
       - name: Upload results

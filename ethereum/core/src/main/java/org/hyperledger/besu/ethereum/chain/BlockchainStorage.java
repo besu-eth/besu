@@ -29,6 +29,8 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
+
 public interface BlockchainStorage {
 
   Optional<Hash> getChainHead();
@@ -43,7 +45,19 @@ public interface BlockchainStorage {
 
   Optional<BlockBody> getBlockBody(Hash blockHash);
 
+  Optional<Bytes> getBlockBodyRlp(Hash blockHash);
+
   Optional<BlockAccessList> getBlockAccessList(Hash blockHash);
+
+  Optional<Bytes> getBlockAccessListRlp(Hash blockHash);
+
+  /**
+   * Decodes a block access list in the format {@link Updater#putBlockAccessList} stores it.
+   *
+   * @param rlp The stored RLP.
+   * @return The decoded block access list.
+   */
+  BlockAccessList decodeBlockAccessList(Bytes rlp);
 
   Optional<List<TransactionReceipt>> getTransactionReceipts(Hash blockHash);
 
@@ -55,7 +69,21 @@ public interface BlockchainStorage {
 
   Optional<Hash> getTransactionHashBySenderAndNonce(Address sender, long nonce);
 
+  /**
+   * Returns the block from which a sync stored every body and receipts up to the chain head, or
+   * empty when no sync recorded one.
+   */
+  Optional<Long> getBodiesFrom();
+
+  /** Returns the floor of the last sync, or empty when no sync recorded one. */
+  Optional<Long> getSyncFloor();
+
   Updater updater();
+
+  /** Returns an updater committed as one write batch, for writes that never conflict. */
+  default Updater batchUpdater() {
+    return updater();
+  }
 
   interface Updater {
 
@@ -65,7 +93,14 @@ public interface BlockchainStorage {
 
     void putSyncBlockBody(Hash blockHash, SyncBlockBody blockBody);
 
-    void putBlockAccessList(Hash blockHash, BlockAccessList blockAccessList);
+    /**
+     * Puts the supplied block access list in the database against the supplied block hash.
+     *
+     * @param blockHash The block hash to store the block access list against
+     * @param blockAccessList The block access list to be stored
+     * @return The RLP that was stored
+     */
+    Bytes putBlockAccessList(Hash blockHash, BlockAccessList blockAccessList);
 
     void putSyncBlockAccessList(Hash blockHash, SyncBlockAccessList syncBlockAccessList);
 
@@ -100,6 +135,12 @@ public interface BlockchainStorage {
     void setFinalized(Hash blockHash);
 
     void setSafeBlock(Hash blockHash);
+
+    /** Records that every block from this one up to the chain head has its body and receipts. */
+    void setBodiesFrom(long blockNumber);
+
+    /** Records the floor of a sync. */
+    void setSyncFloor(long blockNumber);
 
     void removeBlockHash(long blockNumber);
 

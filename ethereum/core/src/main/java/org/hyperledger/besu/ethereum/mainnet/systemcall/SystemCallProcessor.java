@@ -229,6 +229,7 @@ public class SystemCallProcessor {
             .inputData(inputData)
             .sender(SYSTEM_ADDRESS)
             .blockHashLookup(blockHashLookup)
+            .enableEvmV2(processor.runsOnEvmV2())
             // EIP-8037: seed the state-gas reservoir so state-gas growth alone cannot OOG the call.
             // The reservoir is sized to cover up to SYSTEM_MAX_SSTORES_PER_CALL storage-set
             // charges.
