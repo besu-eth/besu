@@ -57,9 +57,11 @@ class FeeOracleWindowTest {
   private final Blockchain blockchain = mock(Blockchain.class);
   private final Map<Hash, Block> blocksByHash = new HashMap<>();
   private final Set<Hash> missingBodies = new HashSet<>();
+  private Hash chainHeadHash = Hash.ZERO;
 
   @BeforeEach
   void setUp() {
+    when(blockchain.getChainHeadHash()).thenAnswer(invocation -> chainHeadHash);
     when(blockchain.getBlockHeader(any(Hash.class)))
         .thenAnswer(
             invocation ->
@@ -164,13 +166,43 @@ class FeeOracleWindowTest {
   void olderHeadDoesNotReplaceTheWindowOfANewerHead() {
     final List<Block> chain = chain(201);
     final FeeOracleWindow window = new FeeOracleWindow(blockchain, 100, 0.5);
+    chainHeadHash = chain.get(200).getHash();
     window.percentilesAt(chain.get(200).getHeader());
+    // A computation for head 150 that finishes after the chain reached head 200.
     window.percentilesAt(chain.get(150).getHeader());
+    chainHeadHash = chain.get(201).getHash();
     clearInvocations(blockchain);
 
     window.percentilesAt(chain.get(201).getHeader());
 
     verify(blockchain, times(1)).getBlockBody(any(Hash.class));
+  }
+
+  @Test
+  void lowerChainHeadAfterAReorgReplacesTheWindow() {
+    final List<Block> chain = chain(200);
+    final FeeOracleWindow window = new FeeOracleWindow(blockchain, 100, 0.5);
+    chainHeadHash = chain.get(200).getHash();
+    window.percentilesAt(chain.get(200).getHeader());
+    final List<Block> branch = new ArrayList<>();
+    Hash parentHash = chain.get(150).getHash();
+    for (int number = 151; number <= 161; number++) {
+      final Block block = block(parentHash, number, Wei.of(5L * number), Wei.of(2L * number), 1);
+      branch.add(block);
+      parentHash = block.getHash();
+    }
+    final Block branchHead = branch.get(9);
+    final Block nextBranchHead = branch.get(10);
+    chainHeadHash = branchHead.getHash();
+    window.percentilesAt(branchHead.getHeader());
+    chainHeadHash = nextBranchHead.getHash();
+    clearInvocations(blockchain);
+
+    final Optional<Percentiles> percentiles = window.percentilesAt(nextBranchHead.getHeader());
+
+    verify(blockchain).getBlockBody(nextBranchHead.getHash());
+    verify(blockchain, times(1)).getBlockBody(any(Hash.class));
+    assertThat(percentiles).isEqualTo(freshWindowAt(nextBranchHead, 100));
   }
 
   @Test

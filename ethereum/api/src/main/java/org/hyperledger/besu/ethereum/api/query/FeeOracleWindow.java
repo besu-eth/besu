@@ -108,10 +108,13 @@ final class FeeOracleWindow {
     }
 
     // A computation for an older head can finish after one for a newer head; keeping the older
-    // window would make the next head read blocks again.
+    // window would make the next head read blocks again. The chain head's window is always kept,
+    // so after a reorg to a lower head the next heads of that branch read only their own block.
+    final boolean isChainHead = head.getBlockHash().equals(blockchain.getChainHeadHash());
     retained.accumulateAndGet(
         new Window(head.getNumber(), retain),
-        (current, next) -> next.headNumber() >= current.headNumber() ? next : current);
+        (current, next) ->
+            isChainHead || next.headNumber() >= current.headNumber() ? next : current);
 
     return Optional.of(
         new Percentiles(
