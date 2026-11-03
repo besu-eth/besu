@@ -157,7 +157,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     final Optional<BlockHeader> maybeParentHeader = blockchain.getBlockHeader(parentBlockHash);
 
     if (maybeParentHeader.isEmpty()) {
-      return new JsonRpcErrorResponse(
+      return errorResponse(
           requestId,
           ValidationResult.invalid(
               RpcErrorType.INVALID_PARAMS, "Parent block not found: " + parentBlockHash));
@@ -166,7 +166,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     final BlockHeader parentHeader = maybeParentHeader.get();
 
     if (payloadAttributes == null) {
-      return new JsonRpcErrorResponse(
+      return errorResponse(
           requestId,
           ValidationResult.invalid(RpcErrorType.INVALID_PARAMS, "Missing payloadAttributes field"));
     }
@@ -174,7 +174,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     final ValidationResult<RpcErrorType> attributesValidation =
         validatePayloadAttributes(payloadAttributes);
     if (!attributesValidation.isValid()) {
-      return new JsonRpcErrorResponse(requestId, attributesValidation);
+      return errorResponse(requestId, attributesValidation);
     }
 
     final List<Transaction> transactions = new ArrayList<>();
@@ -183,7 +183,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
         transactions.add(DomainObjectDecodeUtils.decodeRawTransaction(rawTx));
       } catch (Exception e) {
         LOG.debug("Failed to decode transaction: {}", rawTx, e);
-        return new JsonRpcErrorResponse(
+        return errorResponse(
             requestId,
             ValidationResult.invalid(
                 RpcErrorType.INVALID_TRANSACTION_PARAMS,
@@ -270,7 +270,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
 
     } catch (Exception e) {
       LOG.error("Error building block", e);
-      return new JsonRpcErrorResponse(
+      return errorResponse(
           requestId,
           ValidationResult.invalid(
               RpcErrorType.INTERNAL_ERROR, "Error building block: " + e.getMessage()));
@@ -339,5 +339,16 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
           RpcErrorType.INVALID_PARAMS, "Missing suggestedFeeRecipient field");
     }
     return ValidationResult.valid();
+  }
+
+  private static JsonRpcErrorResponse errorResponse(
+      final Object requestId, final ValidationResult<RpcErrorType> validationResult) {
+    final RpcErrorType errorType = validationResult.getInvalidReason();
+    return new JsonRpcErrorResponse(
+        requestId,
+        new JsonRpcError(
+            errorType.getCode(),
+            errorType.getMessage() + ": " + validationResult.getErrorMessage(),
+            null));
   }
 }
