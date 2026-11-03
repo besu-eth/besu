@@ -58,14 +58,14 @@ public class CodeDelegationTransactionEncoder {
 
   private static void encodeAuthorizationDetails(
       final CodeDelegation payload, final RLPOutput rlpOutput) {
-    rlpOutput.writeBigIntegerScalar(payload.chainId());
+    payload.chainIdentifier().writeTo(rlpOutput);
     rlpOutput.writeBytes(payload.address().getBytes().copy());
     rlpOutput.writeLongScalar(payload.nonce());
   }
 
   public static void encode(final Transaction transaction, final RLPOutput out) {
     out.startList();
-    out.writeBigIntegerScalar(transaction.getChainId().orElseThrow());
+    transaction.getChainIdentifier().writeTo(out);
     out.writeLongScalar(transaction.getNonce());
     out.writeUInt256Scalar(transaction.getMaxPriorityFeePerGas().orElseThrow());
     out.writeUInt256Scalar(transaction.getMaxFeePerGas().orElseThrow());

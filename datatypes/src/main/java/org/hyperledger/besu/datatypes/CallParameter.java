@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
@@ -39,6 +40,16 @@ public interface CallParameter {
    * @return an {@link Optional} containing the chain ID, or empty if not specified
    */
   Optional<BigInteger> getChainId();
+
+  /**
+   * Returns the chain ID for the transaction as a {@link ChainId}.
+   *
+   * @return the chain ID, that is absent if not specified
+   */
+  @JsonIgnore
+  default ChainId getChainIdentifier() {
+    return ChainId.fromOptional(getChainId());
+  }
 
   /**
    * Returns the sender address of the transaction.

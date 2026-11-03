@@ -15,10 +15,12 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc;
 
 import static org.hyperledger.besu.datatypes.TransactionType.FRONTIER;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -78,6 +80,7 @@ public class SimpleTestTransactionBuilder {
     when(transaction.getPayload()).thenReturn(Bytes.fromHexString(input));
     when(transaction.getValue()).thenReturn(wei(value));
     when(transaction.getGasLimit()).thenReturn(unsignedLong(gas));
+    lenient().when(transaction.getChainIdentifier()).thenReturn(ChainId.absent());
     return transaction;
   }
 

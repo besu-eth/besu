@@ -35,6 +35,7 @@ import static org.mockito.quality.Strictness.LENIENT;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -465,11 +466,11 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
   protected void protocolSupportsTxReplayProtection(
       final long chainId, final boolean isSupportedAtCurrentBlock) {
     when(protocolSpec.isReplayProtectionSupported()).thenReturn(isSupportedAtCurrentBlock);
-    when(protocolSchedule.getChainId()).thenReturn(Optional.of(BigInteger.valueOf(chainId)));
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.of(chainId));
   }
 
   protected void protocolDoesNotSupportTxReplayProtection() {
-    when(protocolSchedule.getChainId()).thenReturn(Optional.empty());
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.absent());
   }
 
   protected Transaction createTransactionWithoutChainId(final int transactionNumber) {

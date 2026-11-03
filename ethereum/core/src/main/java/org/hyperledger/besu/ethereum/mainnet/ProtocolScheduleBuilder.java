@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -77,7 +78,7 @@ public class ProtocolScheduleBuilder {
   }
 
   public ProtocolSchedule createProtocolSchedule() {
-    final Optional<BigInteger> chainId = config.getChainId().or(() -> defaultChainId);
+    final ChainId chainId = ChainId.fromOptional(config.getChainId().or(() -> defaultChainId));
     DefaultProtocolSchedule protocolSchedule = new DefaultProtocolSchedule(chainId);
     initSchedule(protocolSchedule);
     return protocolSchedule;

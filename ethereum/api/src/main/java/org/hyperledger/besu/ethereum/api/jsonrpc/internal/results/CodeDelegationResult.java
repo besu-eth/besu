@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.CodeDelegation;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import org.apache.tuweni.units.bigints.UInt256;
 
 @JsonPropertyOrder({"chainId", "address", "nonce", "yParity", "r", "s"})
 public class CodeDelegationResult {
@@ -30,7 +29,7 @@ public class CodeDelegationResult {
   private final String s;
 
   public CodeDelegationResult(final CodeDelegation codeDelegation) {
-    chainId = Quantity.create(UInt256.valueOf(codeDelegation.chainId()));
+    chainId = codeDelegation.chainIdentifier().toHexString();
     address = codeDelegation.address().getBytes().toHexString();
     nonce = Quantity.create(codeDelegation.nonce());
     yParity = Quantity.create(codeDelegation.v());

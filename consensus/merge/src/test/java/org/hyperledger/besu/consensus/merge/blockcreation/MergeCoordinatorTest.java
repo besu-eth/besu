@@ -45,6 +45,7 @@ import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -1413,7 +1414,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     final MiningConfiguration mockMiningConfiguration = mock(MiningConfiguration.class);
     when(mockMiningConfiguration.getTargetGasLimit()).thenReturn(OptionalLong.empty());
-    when(protocolSchedule.getChainId()).thenReturn(Optional.of(BigInteger.valueOf(chainId)));
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.of(chainId));
     doNothing().when(backwardSyncContext).subscribeBadChainListener(any());
 
     MergeCoordinator testTargetGasLimitCoordinator =

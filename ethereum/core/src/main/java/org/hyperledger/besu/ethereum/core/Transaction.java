@@ -28,6 +28,7 @@ import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.BytesHolder;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -55,6 +56,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Lists;
@@ -85,6 +87,12 @@ public class Transaction
 
   public static final BigInteger TWO = BigInteger.valueOf(2);
 
+  private static final long REPLAY_UNPROTECTED_V_BASE_LONG = 27L;
+  private static final long REPLAY_PROTECTED_V_BASE_LONG = 35L;
+  // Largest chain id for which v = 2 * chainId + 35 + recId does not overflow a long
+  private static final long MAX_CHAIN_ID_FOR_LONG_V =
+      (Long.MAX_VALUE - REPLAY_PROTECTED_V_BASE_LONG - 1) / 2;
+
   private static final Cache<Hash, Address> senderCache =
       CacheBuilder.newBuilder()
           .concurrencyLevel(Runtime.getRuntime().availableProcessors())
@@ -112,7 +120,7 @@ public class Transaction
 
   private final Optional<List<AccessListEntry>> maybeAccessList;
 
-  private final Optional<BigInteger> chainId;
+  private final ChainId chainId;
 
   // Caches a "hash" of a portion of the transaction used for sender recovery.
   // Note that this hash does not include the transaction signature, so it does not
@@ -211,7 +219,7 @@ public class Transaction
       final Payload payload,
       final Optional<List<AccessListEntry>> maybeAccessList,
       final Address sender,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<VersionedHash>> versionedHashes,
       final Optional<BlobsWithCommitments> blobsWithCommitments,
       final Optional<List<CodeDelegation>> maybeCodeDelegationList,
@@ -464,6 +472,18 @@ public class Transaction
    */
   @Override
   public Optional<BigInteger> getChainId() {
+    return chainId.toOptionalBigInteger();
+  }
+
+  /**
+   * Return the transaction chain id, that is absent if the transaction is not tied to a specific
+   * chain.
+   *
+   * @return the transaction chain id
+   */
+  @Override
+  @JsonIgnore
+  public ChainId getChainIdentifier() {
     return chainId;
   }
 
@@ -576,10 +596,16 @@ public class Transaction
       // EIP-2718 typed transaction, use yParity:
       return null;
     } else {
-      final BigInteger recId = BigInteger.valueOf(signature.getRecId());
-      return chainId
-          .map(bigInteger -> recId.add(REPLAY_PROTECTED_V_BASE).add(TWO.multiply(bigInteger)))
-          .orElseGet(() -> recId.add(REPLAY_UNPROTECTED_V_BASE));
+      final int recId = signature.getRecId();
+      if (chainId.isAbsent()) {
+        return BigInteger.valueOf(REPLAY_UNPROTECTED_V_BASE_LONG + recId);
+      }
+      if (chainId.fitsLong() && chainId.toLong() <= MAX_CHAIN_ID_FOR_LONG_V) {
+        return BigInteger.valueOf(2 * chainId.toLong() + REPLAY_PROTECTED_V_BASE_LONG + recId);
+      }
+      return BigInteger.valueOf(recId)
+          .add(REPLAY_PROTECTED_V_BASE)
+          .add(TWO.multiply(chainId.toBigInteger()));
     }
   }
 
@@ -834,7 +860,7 @@ public class Transaction
       final Optional<List<AccessListEntry>> accessList,
       final List<VersionedHash> versionedHashes,
       final Optional<List<CodeDelegation>> codeDelegationList,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     if (transactionType.requiresChainId()) {
       checkArgument(chainId.isPresent(), "Transaction type %s requires chainId", transactionType);
     }
@@ -890,7 +916,7 @@ public class Transaction
       final Optional<List<AccessListEntry>> accessList,
       final List<VersionedHash> versionedHashes,
       final Optional<List<CodeDelegation>> codeDelegationList,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     final Bytes preimage =
         switch (transactionType) {
           case FRONTIER -> frontierPreimage(nonce, gasPrice, gasLimit, to, value, payload, chainId);
@@ -957,7 +983,7 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     return RLP.encode(
         rlpOutput -> {
           rlpOutput.startList();
@@ -968,7 +994,7 @@ public class Transaction
           rlpOutput.writeUInt256Scalar(value);
           rlpOutput.writeBytes(payload);
           if (chainId.isPresent()) {
-            rlpOutput.writeBigIntegerScalar(chainId.get());
+            chainId.writeTo(rlpOutput);
             rlpOutput.writeUInt256Scalar(UInt256.ZERO);
             rlpOutput.writeUInt256Scalar(UInt256.ZERO);
           }
@@ -984,7 +1010,7 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<AccessListEntry>> accessList) {
     final Bytes encoded =
         RLP.encode(
@@ -1014,10 +1040,10 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<AccessListEntry>> accessList,
       final RLPOutput rlpOutput) {
-    rlpOutput.writeBigIntegerScalar(chainId.orElseThrow());
+    chainId.writeTo(rlpOutput);
     rlpOutput.writeLongScalar(nonce);
     rlpOutput.writeUInt256Scalar(maxPriorityFeePerGas);
     rlpOutput.writeUInt256Scalar(maxFeePerGas);
@@ -1037,7 +1063,7 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<AccessListEntry>> accessList,
       final List<VersionedHash> versionedHashes) {
 
@@ -1071,7 +1097,7 @@ public class Transaction
       final Wei value,
       final Bytes payload,
       final List<AccessListEntry> accessList,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     final Bytes encode =
         RLP.encode(
             rlpOutput -> {
@@ -1091,7 +1117,7 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<AccessListEntry>> accessList,
       final List<CodeDelegation> authorizationList) {
     final Bytes encoded =
@@ -1179,7 +1205,7 @@ public class Transaction
     if (getTo().isPresent()) sb.append("to=").append(getTo().get()).append(", ");
     sb.append("value=").append(getValue()).append(", ");
     sb.append("sig=").append(getSignature()).append(", ");
-    if (chainId.isPresent()) sb.append("chainId=").append(getChainId().get()).append(", ");
+    if (chainId.isPresent()) sb.append("chainId=").append(chainId).append(", ");
     if (transactionType.equals(TransactionType.ACCESS_LIST)) {
       sb.append("accessList=").append(maybeAccessList).append(", ");
     }
@@ -1350,7 +1376,7 @@ public class Transaction
   private CodeDelegation codeDelegationDetachedCopy(final CodeDelegation codeDelegation) {
     final Address detachedAddress = Address.wrap(codeDelegation.address().getBytes().copy());
     return new org.hyperledger.besu.ethereum.core.CodeDelegation(
-        codeDelegation.chainId(),
+        codeDelegation.chainIdentifier(),
         detachedAddress,
         codeDelegation.nonce(),
         codeDelegation.signature());
@@ -1384,7 +1410,7 @@ public class Transaction
 
     protected Address sender;
 
-    protected Optional<BigInteger> chainId = Optional.empty();
+    protected ChainId chainId = ChainId.absent();
     protected Optional<BigInteger> v = Optional.empty();
     protected List<VersionedHash> versionedHashes = null;
     private BlobsWithCommitments blobsWithCommitments;
@@ -1422,7 +1448,12 @@ public class Transaction
     }
 
     public Builder chainId(final BigInteger chainId) {
-      this.chainId = Optional.of(chainId);
+      this.chainId = ChainId.of(chainId);
+      return this;
+    }
+
+    public Builder chainId(final ChainId chainId) {
+      this.chainId = chainId;
       return this;
     }
 
