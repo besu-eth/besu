@@ -27,8 +27,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.StorageConsumingMap;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.apache.tuweni.units.bigints.UInt256;
 
 public class BonsaiReferenceTestUpdateAccumulator extends BonsaiWorldStateUpdateAccumulator {
@@ -70,7 +68,7 @@ public class BonsaiReferenceTestUpdateAccumulator extends BonsaiWorldStateUpdate
         .forEach(
             (k, v) -> {
               StorageConsumingMap<StorageSlotKey, BonsaiValue<UInt256>> newMap =
-                  new StorageConsumingMap<>(k, new ConcurrentHashMap<>(), v.getConsumer());
+                  copy.newStorageMap(k);
               v.forEach((key, value) -> newMap.put(key, value.copy()));
               copy.getStorageToUpdate().put(k, newMap);
             });

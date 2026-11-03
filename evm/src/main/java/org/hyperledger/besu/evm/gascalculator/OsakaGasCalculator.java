@@ -100,10 +100,10 @@ public class OsakaGasCalculator extends PragueGasCalculator {
 
     final long maxLength = Math.max(modulusLength, baseLength);
     long multiplicationComplexity = 16;
-    long words = (maxLength + 7L) / 8L;
+    long words = clampedAdd(maxLength, 7L) / 8L;
     words = Words.clampedMultiply(words, words);
     if (maxLength > 32) {
-      multiplicationComplexity = words * 2;
+      multiplicationComplexity = clampedMultiply(words, 2L);
     }
 
     final long firstExponentBytesCap =

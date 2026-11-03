@@ -213,13 +213,18 @@ public class MessageFrame {
   // null on a frame EVM v2 runs, which only uses the v2 stack
   private final OperandStack stack;
   // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
-  // significant)
-  private final long[] stackDataV2;
+  // significant). Null once released, so that a completed frame cannot touch a later frame's stack
+  private long[] stackDataV2;
+  // the call depth whose free v2 stack this frame takes and returns
+  private final int stackDepthV2;
   private int stackTopV2;
   private final int stackMaxSizeV2;
   // Tracer view of the v2 stack: the item last handed out per slot, reused while the slot is
   // unchanged so that tracers snapshotting the stack every step share objects, as on v1
   private Bytes32[] stackViewV2;
+  // Only a tracer that traces operations reads the memory and storage updates operations record,
+  // so the v2 write methods record them only for one
+  private boolean recordsUpdatesForTracerV2 = true;
   private Bytes output = Bytes.EMPTY;
   private Bytes returnData = Bytes.EMPTY;
   private Code createdCode = null;
@@ -292,7 +297,9 @@ public class MessageFrame {
     this.worldUpdater = worldUpdater;
     this.gasRemaining = initialGas;
     this.stack = enableEvmV2 ? null : new OperandStack(txValues.maxStackSize());
-    this.stackDataV2 = enableEvmV2 ? new long[txValues.maxStackSize() * 4] : null;
+    this.stackDepthV2 = txValues.messageFrameStack().size();
+    this.stackDataV2 =
+        enableEvmV2 ? StacksV2.take(stackDepthV2, txValues.maxStackSize() * 4) : null;
     this.stackTopV2 = 0;
     this.stackMaxSizeV2 = txValues.maxStackSize();
     this.pc = 0;
@@ -510,10 +517,10 @@ public class MessageFrame {
    * Returns whether EVM v2 runs the frame, and so whether its stack is the v2 stack rather than the
    * one {@link #getStackItem} and {@link #stackSize} read.
    *
-   * @return true if the frame has a v2 stack
+   * @return true if EVM v2 runs the frame
    */
   public boolean runsOnEvmV2() {
-    return stackDataV2 != null;
+    return stack == null;
   }
 
   /**
@@ -587,6 +594,112 @@ public class MessageFrame {
    */
   public boolean stackHasSpaceV2(final int n) {
     return stackTopV2 + n <= stackMaxSizeV2;
+  }
+
+  /**
+   * Hands the v2 stack to the next frame at this frame's depth. Call it after the frame's
+   * completion has been notified; reading the frame's v2 stack afterwards fails.
+   */
+  public void releaseStackV2() {
+    if (stackDataV2 != null) {
+      StacksV2.release(stackDepthV2, stackDataV2);
+      stackDataV2 = null;
+    }
+  }
+
+  /**
+   * Sets whether the v2 write methods record their memory and storage updates, read through {@link
+   * #getMaybeUpdatedMemory} and {@link #getMaybeUpdatedStorage}.
+   *
+   * @param recordsUpdates true if the frame runs for a tracer that traces operations
+   */
+  public void setRecordsUpdatesForTracerV2(final boolean recordsUpdates) {
+    this.recordsUpdatesForTracerV2 = recordsUpdates;
+  }
+
+  /**
+   * As {@link #readMutableMemory(long, long, boolean)} for a memory opcode, recording the read only
+   * for a tracer that traces operations.
+   *
+   * @param offset The offset in memory
+   * @param length The length of the bytes to read
+   * @return The bytes in the specified range
+   */
+  public MutableBytes readMutableMemoryV2(final long offset, final long length) {
+    return readMutableMemory(offset, length, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #writeMemory(long, byte, boolean)} for a memory opcode, recording the update only for
+   * a tracer that traces operations.
+   *
+   * @param offset The offset in memory
+   * @param value The value to set in memory
+   */
+  public void writeMemoryV2(final long offset, final byte value) {
+    writeMemory(offset, value, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #writeMemory(long, long, Bytes, boolean)} for a memory opcode, recording the update
+   * only for a tracer that traces operations.
+   *
+   * @param offset The offset in memory
+   * @param length The length of the bytes to write
+   * @param value The value to write
+   */
+  public void writeMemoryV2(final long offset, final long length, final Bytes value) {
+    writeMemory(offset, length, value, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #writeMemoryRightAligned(long, long, Bytes, boolean)} for a memory opcode, recording
+   * the update only for a tracer that traces operations.
+   *
+   * @param offset The offset in memory
+   * @param length The length of the bytes to write
+   * @param value The value to write
+   */
+  public void writeMemoryRightAlignedV2(final long offset, final long length, final Bytes value) {
+    writeMemoryRightAligned(offset, length, value, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #writeMemory(long, long, long, Bytes, boolean)} for a memory opcode, recording the
+   * update only for a tracer that traces operations.
+   *
+   * @param offset The offset in memory to start writing
+   * @param sourceOffset The offset in the source value to start writing
+   * @param length The length of the bytes to write
+   * @param value The value to write
+   */
+  public void writeMemoryV2(
+      final long offset, final long sourceOffset, final long length, final Bytes value) {
+    writeMemory(offset, sourceOffset, length, value, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #copyMemory(long, long, long, boolean)} for a memory opcode, recording the update
+   * only for a tracer that traces operations.
+   *
+   * @param dst The destination address
+   * @param src The source address
+   * @param length the number of bytes to copy
+   */
+  public void copyMemoryV2(final long dst, final long src, final long length) {
+    copyMemory(dst, src, length, recordsUpdatesForTracerV2);
+  }
+
+  /**
+   * As {@link #storageWasUpdated}, recording the update only for a tracer that traces operations.
+   *
+   * @param storageAddress the storage address
+   * @param value the value
+   */
+  public void storageWasUpdatedV2(final UInt256 storageAddress, final Bytes value) {
+    if (recordsUpdatesForTracerV2) {
+      maybeUpdatedStorage = Optional.of(new StorageEntry(storageAddress, value));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1510,7 +1623,9 @@ public class MessageFrame {
   }
 
   /**
-   * Gets maybe updated memory.
+   * Gets the memory update recorded for tracers since the last {@link #reset}. On EVM v2 it is
+   * recorded only for a tracer that traces operations, so there an empty value can also mean that
+   * nothing was recorded.
    *
    * @return the maybe updated memory
    */
@@ -1519,7 +1634,9 @@ public class MessageFrame {
   }
 
   /**
-   * Gets maybe updated storage.
+   * Gets the storage update recorded for tracers since the last {@link #reset}. On EVM v2 it is
+   * recorded only for a tracer that traces operations, so there an empty value can also mean that
+   * nothing was recorded.
    *
    * @return the maybe updated storage
    */

@@ -43,7 +43,9 @@ public interface SyncRequest<T> {
     /** World state ranges and bytecodes. */
     STATE(1),
     /** Block headers below the pivot, which the bodies wait for. */
-    HEADERS(2);
+    HEADERS(2),
+    /** Block bodies and receipts, which nothing else waits for. */
+    BODIES(3);
 
     private final int rank;
 

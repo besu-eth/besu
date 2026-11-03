@@ -60,7 +60,10 @@ public interface RequestSender {
   /** Returns the number of usable peers for a protocol. */
   int peerCount(Protocol protocol);
 
-  /** Returns the highest chain height announced by a connected peer, 0 if unknown. */
+  /**
+   * Returns the highest chain height that two usable peers reach, that of the only one if alone,
+   * and 0 if no peer's height is known.
+   */
   default long bestPeerHeight() {
     return 0;
   }

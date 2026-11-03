@@ -42,6 +42,28 @@ public class JsonRpcConfigurationTest {
   }
 
   @Test
+  public void mainHttpDefaultBodyLimitIsSmall() {
+    // The main HTTP port is unauthenticated by default, so its request body limit is kept small to
+    // bound how large a request can be parsed into an in-memory node tree.
+    assertThat(JsonRpcConfiguration.createDefault().getMaxRequestContentLength())
+        .isEqualTo(JsonRpcConfiguration.DEFAULT_MAX_REQUEST_CONTENT_LENGTH)
+        .isEqualTo(10L * 1024 * 1024);
+  }
+
+  @Test
+  public void engineDefaultBodyLimitKeepsHeadroomForLargePayloads() {
+    final JsonRpcConfiguration engineConfig = JsonRpcConfiguration.createEngineDefault();
+
+    // The engine port must still accept large execution payloads (engine_newPayload)...
+    assertThat(engineConfig.getMaxRequestContentLength())
+        .isEqualTo(JsonRpcConfiguration.DEFAULT_ENGINE_MAX_REQUEST_CONTENT_LENGTH)
+        .isEqualTo(128L * 1024 * 1024);
+    // ...and must stay well above the small main-port default.
+    assertThat(engineConfig.getMaxRequestContentLength())
+        .isGreaterThan(JsonRpcConfiguration.createDefault().getMaxRequestContentLength());
+  }
+
+  @Test
   public void corsAllowedOriginsDefaultShouldBeEmptyList() {
     final JsonRpcConfiguration configuration = JsonRpcConfiguration.createDefault();
     assertThat(configuration.getCorsAllowedDomains()).isEmpty();

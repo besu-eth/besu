@@ -192,6 +192,7 @@ public abstract class AbstractMessageProcessor {
     traceFrameExit(frame, "SUCCESS");
     frame.getMessageFrameStack().removeFirst();
     frame.notifyCompletion();
+    frame.releaseStackV2();
   }
 
   private static void traceFrameExit(final MessageFrame frame, final String status) {
@@ -216,6 +217,7 @@ public abstract class AbstractMessageProcessor {
   private void completedFailed(final MessageFrame frame) {
     frame.getMessageFrameStack().removeFirst();
     frame.notifyCompletion();
+    frame.releaseStackV2();
   }
 
   /**

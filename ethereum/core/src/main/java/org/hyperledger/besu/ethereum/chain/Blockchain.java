@@ -24,11 +24,14 @@ import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+
+import org.apache.tuweni.bytes.Bytes;
 
 /** An interface for reading data from the blockchain. */
 public interface Blockchain {
@@ -59,6 +62,38 @@ public interface Blockchain {
    * @return The number of the earliest block in the chain.
    */
   Optional<Long> getEarliestBlockNumber();
+
+  /**
+   * Returns the number of the earliest block in the canonical chain, unless it is above the chain
+   * head the caller read and sends with it, as a sync may move the head up in between.
+   *
+   * @param chainHead the number of the chain head the caller read
+   * @return The number of the earliest block in the chain, at or below {@code chainHead}.
+   */
+  default Optional<Long> getEarliestBlockNumber(final long chainHead) {
+    return getEarliestBlockNumber().filter(earliest -> earliest <= chainHead);
+  }
+
+  /**
+   * Returns the block from which a sync stored every body and receipts up to the chain head. The
+   * blocks below may miss theirs, and a pruner may later remove some above it without moving it. A
+   * sync records the bodies below its final pivot before it moves the head up to them, so it may be
+   * above the head until then.
+   *
+   * @return the block, or empty when no sync recorded one
+   */
+  default Optional<Long> getBodiesFrom() {
+    return Optional.empty();
+  }
+
+  /**
+   * Returns the floor of the last sync: its checkpoint or genesis, above which it needs every body.
+   *
+   * @return the block, or empty when no sync recorded one
+   */
+  default Optional<Long> getSyncFloor() {
+    return Optional.empty();
+  }
 
   /**
    * Return the block number of the head of the canonical chain.
@@ -186,6 +221,17 @@ public interface Blockchain {
   Optional<BlockBody> getBlockBody(Hash blockHeaderHash);
 
   /**
+   * Returns the RLP of a block's body as it is sent to peers, without decoding it, for callers that
+   * only serve the encoded body.
+   *
+   * @param blockHeaderHash The hash of the block whose body should be returned.
+   * @return The RLP-encoded block body, if present.
+   */
+  default Optional<Bytes> getBlockBodyRlp(final Hash blockHeaderHash) {
+    return getBlockBody(blockHeaderHash).map(body -> RLP.encode(body::writeWrappedBodyTo));
+  }
+
+  /**
    * Safe version of {@code getBlockBody} (it should take any locks necessary to ensure any block
    * updates that might be taking place have been completed first)
    *
@@ -195,6 +241,18 @@ public interface Blockchain {
   Optional<BlockBody> getBlockBodySafe(Hash blockHeaderHash);
 
   Optional<BlockAccessList> getBlockAccessList(Hash blockHash);
+
+  /**
+   * Returns the RLP of a block's access list without decoding it, for callers that only serve the
+   * encoded list.
+   *
+   * @param blockHash The hash of the block whose access list should be returned.
+   * @return The RLP-encoded block access list, if present.
+   */
+  default Optional<Bytes> getBlockAccessListRlp(final Hash blockHash) {
+    return getBlockAccessList(blockHash)
+        .map(blockAccessList -> blockAccessList.rawRlp().orElseGet(blockAccessList::encode));
+  }
 
   /**
    * Given a block's hash, returns the list of transaction receipts associated with this block's

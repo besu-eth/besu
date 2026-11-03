@@ -28,7 +28,7 @@ public class TransactionAnnouncementDecoder {
 
   @FunctionalInterface
   public interface Decoder {
-    List<TransactionAnnouncement> decode(RLPInput input);
+    List<TransactionAnnouncement> decode(RLPInput input, final int maxAnnouncementsPerMessage);
   }
 
   /**
@@ -48,13 +48,23 @@ public class TransactionAnnouncementDecoder {
    *
    * @param input input used to decode the NewPooledTransactionHashesMessage after Eth/68
    *     <p>format: [[type_0: B_1, type_1: B_1, ...], [size_0: P, size_1: P, ...], ...]
+   * @param maxAnnouncementsPerMessage the maximum number of announcements allowed in a single
+   *     message.
    * @return the list of TransactionAnnouncement decoded from the message with size, type and hash
    */
-  private static List<TransactionAnnouncement> decodeForEth68(final RLPInput input) {
-    final int size = input.enterList();
+  private static List<TransactionAnnouncement> decodeForEth68(
+      final RLPInput input, final int maxAnnouncementsPerMessage) {
+    // three top level elements: types, sizes, hashes
+    input.enterList(3);
 
-    final List<TransactionType> types = new ArrayList<>(size);
     final byte[] bytes = input.readBytes().toArray();
+    if (bytes.length > maxAnnouncementsPerMessage) {
+      throw new RLPException(
+          "Too many transaction announcements: received %d, while max is %d"
+              .formatted(bytes.length, maxAnnouncementsPerMessage));
+    }
+
+    final List<TransactionType> types = new ArrayList<>(bytes.length);
     for (final byte b : bytes) {
       final var transactionType =
           TransactionType.fromEthSerializedType(b)
@@ -65,10 +75,11 @@ public class TransactionAnnouncementDecoder {
       types.add(transactionType);
     }
 
-    final List<Long> sizes = input.readList(RLPInput::readUnsignedIntScalar);
+    final List<Long> sizes = input.readList(RLPInput::readUnsignedIntScalar, bytes.length);
 
     // use Bytes32::copy to avoid keeping reference to underlying RLP byte array
-    final List<Hash> hashes = input.readList(rlp -> Hash.wrap(rlp.readBytes32().copy()));
+    final List<Hash> hashes =
+        input.readList(rlp -> Hash.wrap(rlp.readBytes32().copy()), bytes.length);
     input.leaveList();
     if (!(types.size() == hashes.size() && hashes.size() == sizes.size())) {
       throw new RLPException("Hashes, sizes and types must have the same number of elements");

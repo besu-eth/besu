@@ -27,10 +27,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -89,6 +91,7 @@ public final class SharedDiscoveryTransport {
       (signalType, result) -> result == Sinks.EmitResult.FAIL_NON_SERIALIZED;
 
   private final DemuxCounters demuxCounters;
+  private final Counter v5DispatchDroppedCounter;
 
   // Lazily created in start() - constructing it eagerly here would spawn a permanently-idle
   // thread whenever a transport is built but never started (e.g. discovery disabled).
@@ -106,6 +109,12 @@ public final class SharedDiscoveryTransport {
   // Bounded (not .all(), fed by untrusted external UDP input) so packets arriving before the
   // discv5 library subscribes are replayed instead of dropped, without unbounded growth.
   private static final int V5_REPLAY_HISTORY_SIZE = 256;
+
+  // Bounded so a UDP flood can't grow the dispatch queue without limit. At the 1280-byte discv5
+  // packet cap enforced by SharedDiscoveryDemuxHandler, this bounds queued payload to ~1.25MiB.
+  // Overflow is dropped rather than blocking the shared Netty thread: UDP discovery tolerates
+  // loss, and blocking here would also stall DiscV4 on the same event loop.
+  static final int V5_DISPATCH_QUEUE_CAPACITY = 1024;
   private final Sinks.Many<Envelope> ipv4V5Sink =
       Sinks.many().replay().limit(V5_REPLAY_HISTORY_SIZE);
   private final Sinks.Many<Envelope> ipv6V5Sink =
@@ -145,6 +154,7 @@ public final class SharedDiscoveryTransport {
                 ipv6BindAddress.get().getHostString(),
                 ipv6BindAddress.get().getPort());
     this.demuxCounters = buildDemuxCounters(builder.metricsSystem);
+    this.v5DispatchDroppedCounter = buildV5DispatchDroppedCounter(builder.metricsSystem);
   }
 
   private static DemuxCounters buildDemuxCounters(final MetricsSystem metricsSystem) {
@@ -161,6 +171,16 @@ public final class SharedDiscoveryTransport {
         demuxCounter.labels(DemuxProtocol.V4.label()),
         demuxCounter.labels(DemuxProtocol.V5.label()),
         demuxCounter.labels(DemuxProtocol.DROPPED.label()));
+  }
+
+  private static Counter buildV5DispatchDroppedCounter(final MetricsSystem metricsSystem) {
+    if (metricsSystem == null) {
+      return DemuxCounters.NO_OP_COUNTER;
+    }
+    return metricsSystem.createCounter(
+        BesuMetricCategory.NETWORK,
+        "discovery_v5_dispatch_dropped_total",
+        "DiscV5 packets dropped because the dispatch queue was full");
   }
 
   /**
@@ -198,7 +218,21 @@ public final class SharedDiscoveryTransport {
             NioIoHandler.newFactory());
     if (v5Enabled) {
       this.v5DispatchExecutor =
-          Executors.newSingleThreadExecutor((ThreadFactory) r -> new Thread(r, "disc-v5-dispatch"));
+          new ThreadPoolExecutor(
+              1,
+              1,
+              0L,
+              TimeUnit.MILLISECONDS,
+              new ArrayBlockingQueue<>(V5_DISPATCH_QUEUE_CAPACITY),
+              (ThreadFactory) r -> new Thread(r, "disc-v5-dispatch"),
+              (task, executor) -> {
+                if (executor.isShutdown()) {
+                  LOG.trace("Discarded V5 packet: dispatch executor is shutting down");
+                  return;
+                }
+                v5DispatchDroppedCounter.inc();
+                LOG.trace("Dropped V5 packet: dispatch queue is full");
+              });
     }
     if (stopped.get()) {
       // A concurrent stop() saw a null eventLoopGroup before we set it and won't run again -

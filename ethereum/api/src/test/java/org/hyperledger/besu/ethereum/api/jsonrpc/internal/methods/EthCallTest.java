@@ -431,6 +431,17 @@ public class EthCallTest {
   }
 
   @Test
+  public void revertErrorMessageIncludesPanicReason() {
+    final String panicHexString =
+        "0x4e487b710000000000000000000000000000000000000000000000000000000000000011";
+    final JsonRpcError error = new JsonRpcError(REVERT_ERROR, panicHexString);
+
+    assertThat(error.getMessage())
+        .isEqualTo("Execution reverted (arithmetic underflow or overflow)");
+    assertThat(error.getData()).isEqualTo(panicHexString);
+  }
+
+  @Test
   public void shouldUseCorrectBlockNumberWhenLatest() {
     final JsonRpcRequestContext request = ethCallRequest(callParameter(), "latest");
     when(blockchainQueries.getBlockchain()).thenReturn(blockchain);

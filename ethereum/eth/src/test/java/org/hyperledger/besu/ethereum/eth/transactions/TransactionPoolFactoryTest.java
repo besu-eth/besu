@@ -15,15 +15,20 @@
 package org.hyperledger.besu.ethereum.eth.transactions;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.eth.EthProtocolVersion.V68;
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Implementation.LAYERED;
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Implementation.LEGACY;
 import static org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule.DEFAULT_CHAIN_ID;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,14 +49,17 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -64,6 +72,9 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
+import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -340,6 +351,111 @@ public class TransactionPoolFactoryTest {
 
     syncState.onNewPayload(new BlockHeaderTestFixture().number(localHeight + 1).buildHeader());
     assertThat(pool.isEnabled()).isTrue();
+  }
+
+  @Test
+  public void transactionsMessageOverTransactionsMessageSizeIsRejectedBeforeBeingQueued() {
+    final TransactionsMessageHandler handler = enabledTransactionsMessageHandler();
+    final EthPeer peer = mock(EthPeer.class);
+
+    // Over the dedicated transactions-message limit, but well under the generic eth message limit
+    handler.exec(
+        new EthMessage(
+            peer,
+            transactionsMessageOfSize(
+                EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE + 1)));
+
+    verify(peer).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    verify(ethScheduler, never()).scheduleTxWorkerTask(any());
+  }
+
+  @Test
+  public void transactionsMessageAtTransactionsMessageSizeIsQueued() {
+    final TransactionsMessageHandler handler = enabledTransactionsMessageHandler();
+    final EthPeer peer = mock(EthPeer.class);
+
+    handler.exec(
+        new EthMessage(
+            peer,
+            transactionsMessageOfSize(
+                EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE)));
+
+    verify(peer, never()).disconnect(any());
+    verify(ethScheduler).scheduleTxWorkerTask(any());
+  }
+
+  @Test
+  public void announcementsMessageOverItsSizeLimitIsRejectedBeforeBeingQueued() {
+    final NewPooledTransactionHashesMessageHandler handler = enabledAnnouncementsMessageHandler();
+    final EthPeer peer = peerWithEth68Connection();
+
+    handler.exec(
+        new EthMessage(
+            peer,
+            announcementsMessageOfSize(
+                EthProtocolConfiguration.DEFAULT.getMaxNewPooledTransactionHashesMessageSize()
+                    + 1)));
+
+    verify(peer).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    verify(ethScheduler, never()).scheduleTxWorkerTask(any());
+  }
+
+  @Test
+  public void announcementsMessageAtItsSizeLimitIsQueued() {
+    final NewPooledTransactionHashesMessageHandler handler = enabledAnnouncementsMessageHandler();
+    final EthPeer peer = peerWithEth68Connection();
+
+    handler.exec(
+        new EthMessage(
+            peer,
+            announcementsMessageOfSize(
+                EthProtocolConfiguration.DEFAULT.getMaxNewPooledTransactionHashesMessageSize())));
+
+    verify(peer, never()).disconnect(any());
+    verify(ethScheduler).scheduleTxWorkerTask(any());
+  }
+
+  private NewPooledTransactionHashesMessageHandler enabledAnnouncementsMessageHandler() {
+    setupInitialSyncPhase(false);
+    final ArgumentCaptor<EthMessages.MessageCallback> callbacks =
+        ArgumentCaptor.forClass(EthMessages.MessageCallback.class);
+    verify(ethMessages)
+        .subscribe(eq(EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES), callbacks.capture());
+    final NewPooledTransactionHashesMessageHandler handler =
+        (NewPooledTransactionHashesMessageHandler) callbacks.getValue();
+    assertThat(handler.isEnabled()).isTrue();
+    clearInvocations(ethScheduler);
+    return handler;
+  }
+
+  private static EthPeer peerWithEth68Connection() {
+    final EthPeer peer = mock(EthPeer.class);
+    final PeerConnection connection = mock(PeerConnection.class);
+    when(peer.getConnection()).thenReturn(connection);
+    when(connection.capability(EthProtocol.NAME)).thenReturn(V68.getCapability());
+    return peer;
+  }
+
+  private static RawMessage announcementsMessageOfSize(final int size) {
+    // The size check runs before decoding, so the payload does not have to be valid RLP
+    return new RawMessage(
+        EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES, Bytes.wrap(new byte[size]));
+  }
+
+  private TransactionsMessageHandler enabledTransactionsMessageHandler() {
+    setupInitialSyncPhase(false);
+    final ArgumentCaptor<EthMessages.MessageCallback> callbacks =
+        ArgumentCaptor.forClass(EthMessages.MessageCallback.class);
+    verify(ethMessages).subscribe(eq(EthProtocolMessages.TRANSACTIONS), callbacks.capture());
+    final TransactionsMessageHandler handler = (TransactionsMessageHandler) callbacks.getValue();
+    assertThat(handler.isEnabled()).isTrue();
+    clearInvocations(ethScheduler);
+    return handler;
+  }
+
+  private static RawMessage transactionsMessageOfSize(final int size) {
+    // The size check runs before decoding, so the payload does not have to be valid RLP
+    return new RawMessage(EthProtocolMessages.TRANSACTIONS, Bytes.wrap(new byte[size]));
   }
 
   private void setupInitialSyncPhase(final boolean hasInitialSyncPhase) {

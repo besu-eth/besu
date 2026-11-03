@@ -100,6 +100,7 @@ import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -286,7 +287,8 @@ class AmsterdamBalBlockTransactionSelectorTest {
             blockHeader, selectorsStateManager),
         ethScheduler,
         selectorsStateManager,
-        maybeBalBuilder);
+        maybeBalBuilder,
+        Set.of());
   }
 
   private Transaction createTransaction(

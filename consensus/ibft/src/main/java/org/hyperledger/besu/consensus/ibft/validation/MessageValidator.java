@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 
 import java.util.Optional;
 
@@ -109,6 +110,7 @@ public class MessageValidator {
             HeaderValidationMode.LIGHT,
             HeaderValidationMode.FULL,
             blockAccessList,
+            InclusionListTransactions.EMPTY,
             false);
 
     if (validationResult.isFailed()) {
