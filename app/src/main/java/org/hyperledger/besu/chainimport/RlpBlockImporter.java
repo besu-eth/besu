@@ -67,6 +67,7 @@ public class RlpBlockImporter implements Closeable {
   // lets the background work of one block settle before the next, as between blocks on a live node
   private static final long PAUSE_BETWEEN_BLOCKS_MS =
       Long.getLong("besu.bench.pauseBetweenBlocksMs", 0L);
+  private static final boolean LOG_BLOCK_TIMES = Boolean.getBoolean("besu.bench.logBlockTimes");
 
   /** Default Constructor. */
   public RlpBlockImporter() {}
@@ -229,6 +230,7 @@ public class RlpBlockImporter implements Closeable {
       cumulativeTimer.start();
       segmentTimer.start();
       final BlockImporter blockImporter = protocolSpec.getBlockImporter();
+      final long importStart = System.nanoTime();
       final BlockImportResult blockImported =
           blockImporter.importBlock(
               context,
@@ -240,6 +242,14 @@ public class RlpBlockImporter implements Closeable {
       if (!blockImported.isImported()) {
         throw new IllegalStateException(
             "Invalid block at block number " + header.getNumber() + ".");
+      }
+      if (LOG_BLOCK_TIMES) {
+        LOG.info(
+            "Bench block {} gas {} txs {} import_us {}",
+            header.getNumber(),
+            header.getGasUsed(),
+            block.getBody().getTransactions().size(),
+            (System.nanoTime() - importStart) / 1000);
       }
     } finally {
       blockBacklog.release();
