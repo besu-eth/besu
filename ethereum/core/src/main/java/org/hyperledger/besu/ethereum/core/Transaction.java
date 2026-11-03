@@ -1616,6 +1616,7 @@ public class Transaction
                 BlobsWithCommitments.createFromBlobsType1(
                     kzgCommitments,
                     blobs,
+                    // partition takes the size of each group, not the number of groups
                     Lists.partition(kzgProofs, CELL_PROOFS_PER_BLOB),
                     versionedHashes);
           };
