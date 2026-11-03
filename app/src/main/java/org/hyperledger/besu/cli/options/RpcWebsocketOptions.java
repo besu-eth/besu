@@ -101,7 +101,7 @@ public class RpcWebsocketOptions {
   @CommandLine.Option(
       names = {"--rpc-ws-max-active-connections"},
       description =
-          "Maximum number of WebSocket connections allowed for JSON-RPC (default: ${DEFAULT-VALUE}). Once this limit is reached, incoming connections will be rejected.")
+          "Maximum number of WebSocket connections allowed for JSON-RPC. Must be >= 0. 0 specifies no limit (default: ${DEFAULT-VALUE}). Once this limit is reached, incoming connections will be rejected.")
   private final Integer rpcWsMaxConnections = DefaultCommandValues.DEFAULT_WS_MAX_CONNECTIONS;
 
   @CommandLine.Option(
@@ -245,6 +245,11 @@ public class RpcWebsocketOptions {
       throw new CommandLine.ParameterException(
           commandLine,
           "Unable to authenticate JSON-RPC WebSocket endpoint without a supplied credentials file or authentication public key file");
+    }
+
+    if (rpcWsMaxConnections < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--rpc-ws-max-active-connections must be >= 0 (0 specifies no limit)");
     }
 
     if (rpcWsMaxActiveSubscriptions < 0) {

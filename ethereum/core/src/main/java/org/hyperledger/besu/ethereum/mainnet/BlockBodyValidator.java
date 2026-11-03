@@ -87,7 +87,8 @@ public interface BlockBodyValidator {
    * @param ommerValidationMode The validation mode to use for ommer headers
    * @param cumulativeBlockGasUsed The cumulative block gas used from block processing (pre-refund
    *     for EIP-7778). When provided, this value is used for gas validation instead of deriving
-   *     from receipts. Pass {@code OptionalLong.empty()} when not available (e.g., during sync).
+   *     from receipts. Pass {@code OptionalLong.empty()} when not available (e.g., during sync);
+   *     from Amsterdam on, the gasUsed of a block with transactions is then not validated.
    * @return {@code true} if valid; otherwise {@code false}
    */
   boolean validateBodyLight(

@@ -50,6 +50,16 @@ public interface TransactionPoolService extends BesuService {
   /**
    * Subscribes to transactions added to the pool.
    *
+   * <p>The listener is notified asynchronously, on a Besu thread different from the one that added
+   * the transaction, so by the time it is invoked the transaction may no longer be in the pool.
+   * Transaction added and dropped events are delivered one at a time, in the order the transaction
+   * pool notifies them, which is not always the order in which the changes happened. When the
+   * transaction pool is disabled, the events not yet delivered are discarded. A slow listener
+   * delays the delivery of the following events to all the transaction listeners, so long-running
+   * work should be moved to a separate thread. Exceptions thrown by the listener are logged and do
+   * not prevent the delivery of the following events. Since delivery is asynchronous, events
+   * already queued when the subscription is closed could still be delivered.
+   *
    * @param listener the listener that receives each added transaction
    * @return the subscription; close it to stop receiving events
    */
@@ -57,6 +67,15 @@ public interface TransactionPoolService extends BesuService {
 
   /**
    * Subscribes to transactions dropped from the pool.
+   *
+   * <p>The listener is notified asynchronously, on a Besu thread different from the one that
+   * dropped the transaction. Transaction added and dropped events are delivered one at a time, in
+   * the order the transaction pool notifies them, which is not always the order in which the
+   * changes happened. When the transaction pool is disabled, the events not yet delivered are
+   * discarded. A slow listener delays the delivery of the following events to all the transaction
+   * listeners, so long-running work should be moved to a separate thread. Exceptions thrown by the
+   * listener are logged and do not prevent the delivery of the following events. Since delivery is
+   * asynchronous, events already queued when the subscription is closed could still be delivered.
    *
    * @param listener the listener that receives each dropped transaction and the reason
    * @return the subscription; close it to stop receiving events

@@ -214,10 +214,10 @@ public abstract class ApiConfiguration {
   }
 
   /**
-   * Returns the maximum number of addresses permitted per log filter or log subscription. Zero
-   * means uncapped (operator opt-out).
+   * Returns the maximum number of addresses permitted per log filter, log subscription, {@code
+   * eth_getLogs} request or GraphQL {@code logs} query. Zero means uncapped (operator opt-out).
    *
-   * @return the maximum address count per filter, or 0 for unlimited
+   * @return the maximum address count per request, or 0 for unlimited
    */
   @Value.Default
   public Integer getMaxFilterAddresses() {

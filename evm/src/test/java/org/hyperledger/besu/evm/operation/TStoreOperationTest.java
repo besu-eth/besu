@@ -16,6 +16,7 @@ package org.hyperledger.besu.evm.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.frame.ExceptionalHaltReason.INSUFFICIENT_GAS;
+import static org.hyperledger.besu.evm.testutils.TestEvmConfigurations.EVM_V1;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -24,7 +25,6 @@ import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.testutils.ByteCodeBuilder;
 import org.hyperledger.besu.evm.testutils.FakeBlockValues;
@@ -566,8 +566,7 @@ class TStoreOperationTest {
       final int expectedReturnValue,
       final int numberOfIterations) {
 
-    TestCodeExecutor codeExecutor =
-        new TestCodeExecutor(MainnetEVMs.cancun(EvmConfiguration.DEFAULT));
+    TestCodeExecutor codeExecutor = new TestCodeExecutor(MainnetEVMs.cancun(EVM_V1));
 
     // Pre-deploy the contract if it's specified
     WorldUpdater worldUpdater =

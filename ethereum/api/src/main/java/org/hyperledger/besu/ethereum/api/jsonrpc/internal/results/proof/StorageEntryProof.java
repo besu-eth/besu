@@ -25,13 +25,13 @@ import org.apache.tuweni.units.bigints.UInt256;
 
 public class StorageEntryProof {
 
-  private final UInt256 key;
+  private final String key;
 
   private final UInt256 value;
 
   private final List<Bytes> storageProof;
 
-  public StorageEntryProof(final UInt256 key, final UInt256 value, final List<Bytes> storageProof) {
+  public StorageEntryProof(final String key, final UInt256 value, final List<Bytes> storageProof) {
     this.key = key;
     this.value = value;
     this.storageProof = storageProof;
@@ -39,16 +39,7 @@ public class StorageEntryProof {
 
   @JsonGetter(value = "key")
   public String getKey() {
-    // Bytes.EMPTY is the storage root
-    if (key.isEmpty()) {
-      return "0x";
-    }
-    // for ZERO we want 0x0
-    if (UInt256.ZERO.equals(key)) {
-      return Quantity.create(key);
-    }
-    // otherwise
-    return key.trimLeadingZeros().toHexString();
+    return key;
   }
 
   @JsonGetter(value = "value")

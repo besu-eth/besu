@@ -192,37 +192,29 @@ public class StructLog {
   }
 
   public static String toCompactHex(final Bytes abytes, final boolean prefix) {
-    if (abytes.isEmpty()) {
-      if (prefix) return "0x0";
-      else return "0";
-    }
-
-    byte[] bytes = abytes.toArrayUnsafe();
+    final byte[] bytes = abytes.toArrayUnsafe();
     final int size = bytes.length;
-    final StringBuilder result = new StringBuilder(prefix ? (size * 2) + 2 : size * 2);
-
+    int firstNonZero = 0;
+    while (firstNonZero < size && bytes[firstNonZero] == 0) {
+      firstNonZero++;
+    }
+    // zero is the most common stack value, so it gets a shared string
+    if (firstNonZero == size) {
+      return prefix ? "0x0" : "0";
+    }
+    final StringBuilder result = new StringBuilder((size - firstNonZero) * 2 + (prefix ? 2 : 0));
     if (prefix) {
       result.append("0x");
     }
-
-    boolean leadingZero = true;
-
-    for (int i = 0; i < size; i++) {
-      byte b = bytes[i];
-
-      int highNibble = (b >> 4) & 0xF;
-      if (!leadingZero || highNibble != 0) {
-        result.append(hexChars[highNibble]);
-        leadingZero = false;
-      }
-
-      int lowNibble = b & 0xF;
-      if (!leadingZero || lowNibble != 0 || i == size - 1) {
-        result.append(hexChars[lowNibble]);
-        leadingZero = false;
-      }
+    final int highNibble = (bytes[firstNonZero] >> 4) & 0xF;
+    if (highNibble != 0) {
+      result.append(hexChars[highNibble]);
     }
-
+    result.append(hexChars[bytes[firstNonZero] & 0xF]);
+    for (int i = firstNonZero + 1; i < size; i++) {
+      result.append(hexChars[(bytes[i] >> 4) & 0xF]);
+      result.append(hexChars[bytes[i] & 0xF]);
+    }
     return result.toString();
   }
 

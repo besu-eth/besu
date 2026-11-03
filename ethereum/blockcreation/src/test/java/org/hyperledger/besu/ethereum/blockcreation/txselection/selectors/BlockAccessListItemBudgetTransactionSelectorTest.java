@@ -160,6 +160,49 @@ class BlockAccessListItemBudgetTransactionSelectorTest {
         .isEqualTo(BLOCK_ACCESS_LIST_ITEM_BUDGET_EXCEEDED);
   }
 
+  /**
+   * The candidate reads the slot the committed transaction wrote and writes one new slot of the
+   * same account, so the count passed to the validator grows by one and the committed builder is
+   * left as it was.
+   */
+  @Test
+  void postProcessingCountsOnlyItemsTheTransactionAdds() {
+    when(balValidator.validateExecutedBlockAccessListItemSize(
+            anyLong(), eq(pendingBlockHeader), eq(protocolSpec)))
+        .thenReturn(BlockAccessListItemSizeCheck.withinBudget());
+
+    final BlockAccessList.BlockAccessListBuilder balBuilder = BlockAccessList.builder();
+    balBuilder.apply(twoItemPartial(0));
+
+    final BlockAccessListItemBudgetTransactionSelector selector =
+        new BlockAccessListItemBudgetTransactionSelector(context(), Optional.of(balBuilder));
+
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder candidate =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(1);
+    candidate
+        .getOrCreateAccountBuilder(Address.fromHexString(String.format("0x%040x", 100L)))
+        .addStorageRead(new StorageSlotKey(UInt256.ONE))
+        .addStorageChange(new StorageSlotKey(UInt256.valueOf(2)), UInt256.ZERO, UInt256.ONE);
+    final TransactionProcessingResult result =
+        TransactionProcessingResult.successful(
+            List.of(),
+            21_000L,
+            0L,
+            Bytes.EMPTY,
+            Optional.of(candidate.build()),
+            ValidationResult.valid());
+
+    assertThat(selector.evaluateTransactionPostProcessing(evalContext(), result))
+        .isEqualTo(SELECTED);
+
+    final ArgumentCaptor<Long> countCaptor = ArgumentCaptor.forClass(Long.class);
+    verify(balValidator)
+        .validateExecutedBlockAccessListItemSize(
+            countCaptor.capture(), eq(pendingBlockHeader), eq(protocolSpec));
+    assertThat(countCaptor.getValue()).isEqualTo(3L);
+    assertThat(balBuilder.eip7928ItemCount()).isEqualTo(2L);
+  }
+
   private BlockSelectionContext context() {
     return new BlockSelectionContext(
         MiningConfiguration.newDefault(),

@@ -121,6 +121,12 @@ public class BonsaiWorldStateWitnessStorage extends BonsaiWorldStateLayerStorage
     return trieNode;
   }
 
+  /** Bypass the cross-block cache: a node served from it would be left out of the witness. */
+  @Override
+  public Optional<Bytes> getTrieNodeFromCacheOrStorage(final Bytes key, final Bytes32 nodeHash) {
+    return getTrieNode(key, nodeHash);
+  }
+
   /**
    * Bypass the parent's flat-DB cache so the witness flat-DB strategy always traverses the trie and
    * intercepts every node via {@link #getTrieNode}. Without this override, a warm entry in the

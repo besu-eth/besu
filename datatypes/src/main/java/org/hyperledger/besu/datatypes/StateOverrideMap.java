@@ -16,10 +16,7 @@ package org.hyperledger.besu.datatypes;
 
 import java.util.HashMap;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
 /** Map of account overrides, indexed by address */
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class StateOverrideMap extends HashMap<Address, StateOverride> {
 
   /** Default constructor */
