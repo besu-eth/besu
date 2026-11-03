@@ -52,6 +52,8 @@ import io.opentelemetry.proto.trace.v1.ResourceSpans;
 import io.opentelemetry.proto.trace.v1.Span;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
+import io.opentelemetry.sdk.trace.export.SpanExporter;
 import io.opentelemetry.sdk.trace.samplers.Sampler;
 import okhttp3.Call;
 import okhttp3.MediaType;
@@ -211,8 +213,13 @@ public class OpenTelemetryAcceptanceTest extends AcceptanceTestBase {
                   .setPropagators(
                       ContextPropagators.create(
                           TextMapPropagator.composite(B3Propagator.injectingSingleHeader())))
+                  // since OpenTelemetry 1.67.0 a tracer provider without a span processor
+                  // creates no spans, so nothing would be propagated to Besu
                   .setTracerProvider(
-                      SdkTracerProvider.builder().setSampler(Sampler.alwaysOn()).build())
+                      SdkTracerProvider.builder()
+                          .setSampler(Sampler.alwaysOn())
+                          .addSpanProcessor(SimpleSpanProcessor.create(SpanExporter.composite()))
+                          .build())
                   .build();
           final Call.Factory client =
               OkHttpTelemetry.builder(openTelemetry)
