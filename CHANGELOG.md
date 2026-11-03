@@ -25,6 +25,7 @@
 - Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
 - `eth_simulateV1` now rejects precompiles moved to their own address with error `-38022`. [#11793](https://github.com/besu-eth/besu/issues/11793)
 - Block access lists of the last blocks are now cached as RLP, at most 128 MiB by default (`--cache-last-blocks-max-capacity`), and `--cache-last-blocks` now defaults to 128. [#11455](https://github.com/besu-eth/besu/pull/11455)
+- A child `MessageFrame` runs on its parent's EVM, and `EVM.runToHalt` rejects a frame built for the other EVM with an `IllegalStateException`. [#11867](https://github.com/besu-eth/besu/pull/11867)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
