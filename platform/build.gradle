@@ -121,10 +121,10 @@ dependencies {
     api 'info.picocli:picocli:4.7.7'
     api 'info.picocli:picocli-codegen:4.7.7'
 
-    api 'io.opentelemetry.instrumentation:opentelemetry-okhttp-3.0:2.25.0-alpha'
+    api 'io.opentelemetry.instrumentation:opentelemetry-okhttp-3.0:2.33.1-alpha'
     api 'io.opentelemetry.proto:opentelemetry-proto:1.9.0-alpha'
-    api 'io.opentelemetry.semconv:opentelemetry-semconv:1.40.0'
-    api 'io.opentelemetry.semconv:opentelemetry-semconv-incubating:1.40.0-alpha'
+    api 'io.opentelemetry.semconv:opentelemetry-semconv:1.44.0'
+    api 'io.opentelemetry.semconv:opentelemetry-semconv-incubating:1.44.0-alpha'
 
     api 'io.opentracing:opentracing-api:0.33.0'
     api 'io.opentracing:opentracing-util:0.33.0'
