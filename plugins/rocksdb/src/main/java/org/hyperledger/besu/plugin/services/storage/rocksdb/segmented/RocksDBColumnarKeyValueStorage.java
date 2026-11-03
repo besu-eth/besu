@@ -23,12 +23,15 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBWriteBatchTransaction;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbSegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbUtil;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfiguration;
+import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageTransactionValidatorDecorator;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -715,6 +718,18 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   @Override
   public boolean isClosed() {
     return closed.get();
+  }
+
+  // writes that never conflict skip the conflict checks of a transaction
+  @Override
+  public SegmentedKeyValueStorageTransaction startBatchTransaction() throws StorageException {
+    throwIfClosed();
+    final WriteOptions writeOptions = new WriteOptions();
+    writeOptions.setIgnoreMissingColumnFamilies(true);
+    return new SegmentedKeyValueStorageTransactionValidatorDecorator(
+        new RocksDBWriteBatchTransaction(
+            this::safeColumnHandle, getDB(), writeOptions, getMetrics()),
+        this.closed::get);
   }
 
   void throwIfClosed() {

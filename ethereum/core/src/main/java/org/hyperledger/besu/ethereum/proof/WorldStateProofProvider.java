@@ -22,7 +22,7 @@ import org.hyperledger.besu.ethereum.trie.InnerNodeDiscoveryManager.InnerNode;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.Proof;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.patricia.RemoveVisitor;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -60,11 +60,12 @@ public class WorldStateProofProvider {
 
   public Optional<WorldStateProof> getAccountProof(
       final Hash worldStateRoot,
+      final Hash worldStateBlockHash,
       final Address accountAddress,
       final List<UInt256> accountStorageKeys) {
 
     if (!worldStateStorageCoordinator.isWorldStateAvailable(
-        Bytes32.wrap(worldStateRoot.getBytes()), null)) {
+        Bytes32.wrap(worldStateRoot.getBytes()), worldStateBlockHash)) {
       return Optional.empty();
     } else {
       final Hash accountHash = accountAddress.addressHash();
@@ -75,7 +76,7 @@ public class WorldStateProofProvider {
       return accountProof
           .getValue()
           .map(RLP::input)
-          .map(PmtStateTrieAccountValue::readFrom)
+          .map(PatriciaTrieAccountValue::readFrom)
           .map(
               account -> {
                 final SortedMap<UInt256, Proof<Bytes>> storageProofs =
@@ -93,7 +94,7 @@ public class WorldStateProofProvider {
 
   private SortedMap<UInt256, Proof<Bytes>> getStorageProofs(
       final Hash accountHash,
-      final PmtStateTrieAccountValue account,
+      final PatriciaTrieAccountValue account,
       final List<UInt256> accountStorageKeys) {
     final MerkleTrie<Bytes32, Bytes> storageTrie =
         newAccountStorageTrie(accountHash, Bytes32.wrap(account.getStorageRoot().getBytes()));

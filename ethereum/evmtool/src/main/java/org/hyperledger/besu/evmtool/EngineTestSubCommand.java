@@ -71,6 +71,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -207,7 +208,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           if (fileName == null) break;
           final File file = new File(fileName);
           if (file.isFile()) {
-            runFile(file.toPath(), mapper, javaType, results);
+            // No stdin: these are file names, and the stream is the list still being read.
+            runFile(file.toPath(), null, mapper, javaType, results);
           } else {
             parentCommand.out.println("File not found: " + fileName);
           }
@@ -216,11 +218,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         FixtureRunner.runFiles(
             FixtureRunner.collectFiles(engineTestFiles),
             workers,
-            file -> runFile(file, mapper, javaType, results));
+            file -> runFile(file, parentCommand.in, mapper, javaType, results));
       }
-    } catch (final JsonProcessingException jpe) {
-      setupFailed = true;
-      parentCommand.out.println("File content error: " + jpe);
     } catch (final IOException e) {
       setupFailed = true;
       System.err.println("Unable to read test file: " + e.getMessage());
@@ -246,11 +245,15 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
         }
       }
       if (jsonArray) {
+        results.addNotRunRows(jsonArrayResults, "fork", "lastBlockHash", "lastPayloadStatus");
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
-      } else if (results.hasTests()) {
+      } else if (results.hasTests() || results.unaccountedCases() > 0) {
         results.printSummary(parentCommand.out);
       }
-      exitCode = results.failed() > 0 || setupFailed || ranNothing ? 1 : 0;
+      exitCode =
+          results.failed() > 0 || setupFailed || ranNothing || results.unaccountedCases() > 0
+              ? 1
+              : 0;
       // The Vertx event loop and the scheduler pools are not daemon threads, so leaving them
       // running keeps a JVM that does not exit alive for good. EvmTool.main does exit, but an
       // in-process caller — a future unit test, as EvmToolSpecTests already is for state-test —
@@ -268,21 +271,24 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
    */
   private void runFile(
       final Path file,
+      final @Nullable InputStream stdin,
       final ObjectMapper mapper,
       final JavaType javaType,
       final FixtureRunner.TestResults results) {
-    final Map<String, EngineTestCaseSpec> tests;
-    try {
-      // FixtureRunner.collectFiles passes the literal path "stdin" through unresolved, as the
-      // signal to read the fixture from standard input. block-test and state-test both honour it.
-      tests =
-          "stdin".equals(file.toString())
-              ? mapper.readValue(parentCommand.in, javaType)
-              : mapper.readValue(file.toFile(), javaType);
-    } catch (final Exception e) {
-      results.recordUnreadable(file.toString(), "not readable as an engine test fixture: " + e);
+    final Map<String, EngineTestCaseSpec> tests =
+        FixtureRunner.readTests(
+            file,
+            stdin,
+            mapper,
+            javaType,
+            test -> nameFilter == null || requireNonNull(nameFilter).matches(test),
+            (cases, e) ->
+                results.recordUnreadable(
+                    file.toString(), "not readable as an engine test fixture: " + e, cases));
+    if (tests == null) {
       return;
     }
+    results.recordDeclaredCases(tests.size());
     executeEngineTests(tests, results);
   }
 
@@ -378,7 +384,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
   private void executeEngineTests(
       final Map<String, EngineTestCaseSpec> tests, final FixtureRunner.TestResults results) {
     for (final Map.Entry<String, EngineTestCaseSpec> entry : tests.entrySet()) {
-      if (nameFilter != null && !requireNonNull(nameFilter).matches(entry.getKey())) continue;
+      if (nameFilter != null && !requireNonNull(nameFilter).matches(entry.getKey())) {
+        results.recordFiltered();
+        continue;
+      }
       try {
         runSingleEngineTest(entry.getKey(), entry.getValue(), results);
       } catch (final RuntimeException e) {

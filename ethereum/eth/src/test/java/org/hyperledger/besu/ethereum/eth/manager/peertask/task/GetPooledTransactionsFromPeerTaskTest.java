@@ -14,16 +14,26 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 
+import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
+
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.CellsOnlyBlobTransactionFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
+import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
 import java.util.Set;
@@ -56,7 +66,7 @@ public class GetPooledTransactionsFromPeerTaskTest {
 
     Transaction transaction = GENERATOR.transaction();
     PooledTransactionsMessage pooledTransactionsMessage =
-        PooledTransactionsMessage.create(List.of(transaction));
+        createPooledTransactionsMessage(List.of(transaction));
 
     List<Transaction> result = task.processResponse(pooledTransactionsMessage, AGREED_CAPABILITIES);
 
@@ -69,15 +79,86 @@ public class GetPooledTransactionsFromPeerTaskTest {
     GetPooledTransactionsFromPeerTask task = new GetPooledTransactionsFromPeerTask(hashes);
 
     PooledTransactionsMessage pooledTransactionsMessage =
-        PooledTransactionsMessage.create(List.of(GENERATOR.transaction(), GENERATOR.transaction()));
+        createPooledTransactionsMessage(List.of(GENERATOR.transaction(), GENERATOR.transaction()));
 
-    InvalidPeerTaskResponseException exception =
+    // More transactions than requested hashes is rejected while counting, before decoding
+    final MalformedRlpFromPeerException exception =
         Assertions.assertThrows(
-            InvalidPeerTaskResponseException.class,
+            MalformedRlpFromPeerException.class,
             () -> task.processResponse(pooledTransactionsMessage, AGREED_CAPABILITIES));
 
-    Assertions.assertEquals(
-        "Response transaction count does not match request hash count", exception.getMessage());
+    Assertions.assertInstanceOf(RLPException.class, exception.getCause());
+    Assertions.assertTrue(
+        exception.getCause().getMessage().contains("exceeds the maximum permitted size"),
+        exception.getCause().getMessage());
+    Assertions.assertEquals(pooledTransactionsMessage.getData(), exception.getMessageData());
+  }
+
+  @Test
+  public void testProcessResponseWithFewerTransactionsThanRequested()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    // A peer may legitimately not have every requested transaction any more
+    final List<Hash> hashes = List.of(Hash.EMPTY, Hash.EMPTY_TRIE_HASH);
+    final GetPooledTransactionsFromPeerTask task = new GetPooledTransactionsFromPeerTask(hashes);
+    final Transaction transaction = GENERATOR.transaction();
+
+    final List<Transaction> result =
+        task.processResponse(
+            createPooledTransactionsMessage(List.of(transaction)), AGREED_CAPABILITIES);
+
+    Assertions.assertEquals(List.of(transaction), result);
+  }
+
+  @Test
+  public void testProcessResponseRejectsTheElidedFormFromAPreEth72Peer() throws Exception {
+    // Eliding the blob payloads is an eth/72 answer. From a peer that negotiated anything earlier
+    // it is a malformed response, which is what the executor needs to be told so the peer is
+    // charged for it, rather than an encoder failure logged far from here.
+    final Transaction transaction = new CellsOnlyBlobTransactionFixture().create(1, CellMask.FULL);
+    final GetPooledTransactionsFromPeerTask task =
+        new GetPooledTransactionsFromPeerTask(List.of(transaction.getHash()));
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeList(
+        List.of(transaction),
+        (tx, rlp) ->
+            TransactionEncoder.encodeRLP(tx, rlp, EncodingContext.POOLED_TRANSACTION_ETH_72));
+    final PooledTransactionsMessage message = PooledTransactionsMessage.createUnsafe(out.encoded());
+
+    // Named explicitly rather than taken from AGREED_CAPABILITIES, which is EthProtocol.LATEST:
+    // that is eth/71 only until eth/72 is advertised, after which this would assert nothing.
+    Assertions.assertThrows(
+        MalformedRlpFromPeerException.class,
+        () -> task.processResponse(message, Set.of(EthProtocolVersion.V71.getCapability())));
+  }
+
+  @Test
+  public void testProcessResponseAcceptsAnEth72AnnouncedBlobTransaction()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    // An eth/72 peer announces, and returns, the blob-elided form. Sizing the received
+    // transaction by the pre-eth/72 pooled form instead would both mismatch and, for a
+    // transaction we now hold only as cells, have no encoding at all.
+    final Transaction transaction = new CellsOnlyBlobTransactionFixture().create(1, CellMask.FULL);
+    final TransactionAnnouncement announcement =
+        new TransactionAnnouncement(
+            transaction.getHash(),
+            transaction.getType(),
+            (long) transaction.getSizeForEth72Announcement());
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(List.of(announcement));
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeList(
+        List.of(transaction),
+        (tx, rlp) ->
+            TransactionEncoder.encodeRLP(tx, rlp, EncodingContext.POOLED_TRANSACTION_ETH_72));
+
+    final List<Transaction> result =
+        task.processResponse(
+            PooledTransactionsMessage.createUnsafe(out.encoded()),
+            Set.of(EthProtocolVersion.V72.getCapability()));
+
+    Assertions.assertEquals(List.of(transaction.getHash()), Transaction.toHashList(result));
   }
 
   @Test
@@ -103,5 +184,45 @@ public class GetPooledTransactionsFromPeerTaskTest {
     PeerTaskValidationResponse validationResponse = task.validateResult(List.of(transaction));
     Assertions.assertEquals(
         PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY, validationResponse);
+  }
+
+  @Test
+  public void testValidateResultAcceptsOrderedSubset() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final Transaction third = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second, third)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD,
+        task.validateResult(List.of(first, third)));
+  }
+
+  @Test
+  public void testValidateResultRejectsOutOfOrderTransactions() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
+        task.validateResult(List.of(second, first)));
+  }
+
+  @Test
+  public void testValidateResultRejectsDuplicateTransactions() {
+    final Transaction first = GENERATOR.transaction();
+    final Transaction second = GENERATOR.transaction();
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            TransactionAnnouncement.create(List.of(first, second)));
+
+    Assertions.assertEquals(
+        PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
+        task.validateResult(List.of(first, first)));
   }
 }

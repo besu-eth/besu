@@ -24,10 +24,15 @@ import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.getSampl
 import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.populateBlockchainStorage;
 import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.populateVariablesStorage;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.BLOCKCHAIN;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CHAIN_PRUNER_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.SNAPSYNC_FLAT_ACCOUNTS;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.SNAPSYNC_FLAT_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.VARIABLES;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,6 +43,7 @@ import org.hyperledger.besu.ethereum.core.VersionMetadata;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageMigration;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.JumpDestCodeStorageStrategy;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.BaseVersionedStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.DatabaseMetadata;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
@@ -53,6 +59,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.InOrder;
+import org.mockito.MockedConstruction;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -150,6 +158,34 @@ public class StorageSubCommandTest extends CommandTestAbstract {
     assertThat(JumpDestCodeStorageStrategy.isMarked(codeStorage)).isFalse();
     assertThat(DatabaseMetadata.lookUpFrom(dataDir).getVersionedStorageFormat())
         .isEqualTo(BaseVersionedStorageFormat.BONSAI_WITH_RECEIPT_COMPACTION);
+  }
+
+  // before RocksDB opens, else a subcommand creates them in an existing database
+  @Test
+  public void revertCodeFormatRegistersTheIgnorableSegmentsBeforeOpeningTheDatabase(
+      @TempDir final Path dataDir) throws IOException {
+    when(rocksDBStorageFactory.create(eq(List.of(CODE_STORAGE)), any(), any()))
+        .thenReturn(new SegmentedInMemoryKeyValueStorage());
+    new DatabaseMetadata(BaseVersionedStorageFormat.BONSAI_WITH_JUMPDEST_ANALYSIS)
+        .writeToDirectory(dataDir);
+
+    try (MockedConstruction<RocksDBPlugin> plugins = mockConstruction(RocksDBPlugin.class)) {
+      parseCommand(
+          "--data-path",
+          dataDir.toString(),
+          "--Xchain-pruning-enabled",
+          "NONE",
+          "storage",
+          "revert-code-format");
+
+      final RocksDBPlugin plugin = plugins.constructed().getFirst();
+      final InOrder order = inOrder(plugin, rocksDBStorageFactory);
+      order.verify(plugin).addIgnorableSegmentIdentifier(CHAIN_PRUNER_STATE);
+      order.verify(plugin).addIgnorableSegmentIdentifier(SNAPSYNC_FLAT_ACCOUNTS);
+      order.verify(plugin).addIgnorableSegmentIdentifier(SNAPSYNC_FLAT_STORAGE);
+      order.verify(rocksDBStorageFactory).create(eq(List.of(CODE_STORAGE)), any(), any());
+    }
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test

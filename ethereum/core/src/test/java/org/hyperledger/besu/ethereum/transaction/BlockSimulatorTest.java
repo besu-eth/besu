@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,6 +57,7 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
@@ -81,6 +83,8 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -427,6 +431,38 @@ public class BlockSimulatorTest {
         .isEqualTo(BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"0x1", "0x4"})
+  public void shouldRejectPrecompileMovedToItself(final String address) {
+    var precompileAddress = Address.fromHexString(address);
+    var stateOverrideMap = new StateOverrideMap();
+    stateOverrideMap.put(
+        precompileAddress,
+        new StateOverride.Builder().withMovePrecompileToAddress(precompileAddress).build());
+
+    var validationResult =
+        buildParameterWithOverrides(stateOverrideMap).validate(Set.of(precompileAddress));
+
+    assertThat(validationResult).isPresent();
+    assertThat(validationResult.orElseThrow().getCode()).isEqualTo(-38022);
+    assertThat(validationResult.orElseThrow().getMessage())
+        .isEqualTo("MovePrecompileToAddress referenced itself in replacement");
+  }
+
+  @Test
+  public void shouldAllowPrecompileMovedToDifferentAddress() {
+    var precompileAddress = Address.fromHexString("0x4");
+    var stateOverrideMap = new StateOverrideMap();
+    stateOverrideMap.put(
+        precompileAddress,
+        new StateOverride.Builder()
+            .withMovePrecompileToAddress(Address.fromHexString("0x1234"))
+            .build());
+
+    assertThat(buildParameterWithOverrides(stateOverrideMap).validate(Set.of(precompileAddress)))
+        .isEmpty();
+  }
+
   @Test
   public void shouldAllowDuplicatePrecompileTargetAddresses() {
     var stateOverrideMap = new StateOverrideMap();
@@ -498,6 +534,38 @@ public class BlockSimulatorTest {
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
     assertThat(exception.getError().getCode()).isEqualTo(-38015);
+  }
+
+  @Test
+  public void shouldRejectSenderAtMaxNonceWithValidationDisabled() {
+    final Address sender = Address.fromHexString("0xc000000000000000000000000000000000000000");
+    final MutableAccount senderAccount = mock(MutableAccount.class);
+    when(senderAccount.getNonce()).thenReturn(Account.MAX_NONCE);
+    when(updater.get(sender)).thenReturn(senderAccount);
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getSender()).thenReturn(Optional.of(sender));
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(false)
+            .build();
+
+    BlockStateCallException exception =
+        assertThrows(
+            BlockStateCallException.class,
+            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(exception.getError()).isEqualTo(BlockStateCallError.UNKNOWN);
+    assertThat(exception.getError().getCode()).isEqualTo(-32603);
+    verify(transactionSimulator, never())
+        .processWithWorldUpdater(
+            any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any(), any(), any(),
+            any());
   }
 
   @Test

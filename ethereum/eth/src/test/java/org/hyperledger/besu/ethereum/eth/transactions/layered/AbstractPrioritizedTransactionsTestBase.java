@@ -46,7 +46,8 @@ public abstract class AbstractPrioritizedTransactionsTestBase extends BaseTransa
   protected static final EnumMap<TransactionType, Integer> MAX_TRANSACTIONS_BY_TYPE =
       new EnumMap<>(Map.of(TransactionType.BLOB, 2));
   protected final TransactionPoolMetrics txPoolMetrics = new TransactionPoolMetrics(metricsSystem);
-  protected final EvictCollectorLayer evictCollector = new EvictCollectorLayer(txPoolMetrics);
+  protected final EvictCollectorLayer evictCollector =
+      new EvictCollectorLayer(txPoolMetrics, transactionEventNotifier.newEmitter());
   protected final MiningConfiguration miningConfiguration =
       MiningConfiguration.newDefault()
           .setMinTransactionGasPrice(DEFAULT_MIN_GAS_PRICE)
