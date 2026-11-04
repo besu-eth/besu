@@ -2086,17 +2086,26 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             unstableRPCOptions.getHttpTimeoutSec(),
             unstableRPCOptions.getHttpStreamingTimeoutSec());
     logger.info("RPC HTTP JSON-RPC config: {}", jsonRpcConfiguration);
+    final long maxRequestContentLength;
     if (isEngineApiEnabled()) {
       engineJsonRpcConfiguration = createEngineJsonRpcConfiguration();
       logger.info("Engine JSON-RPC config: {}", engineJsonRpcConfiguration);
-      // align JSON decoding limit with HTTP body limit
+      // align JSON decoding limit with the largest HTTP body limit across both services
       // character count is close to size in bytes
-      final long maxRequestContentLength =
+      maxRequestContentLength =
           Math.max(
               jsonRpcConfiguration.getMaxRequestContentLength(),
               engineJsonRpcConfiguration.getMaxRequestContentLength());
-      configureVertxJsonDecodingMaxLength((int) maxRequestContentLength);
+    } else {
+      maxRequestContentLength = jsonRpcConfiguration.getMaxRequestContentLength();
     }
+    // Configure the shared Vert.x JSON decoder for every node, not only engine-enabled ones.
+    // DatabindCodec.mapper() is a single global mapper shared by the JSON-RPC and Engine JSON-RPC
+    // parsers; leaving it unconfigured on a non-engine node falls back to Jackson defaults, which
+    // place no limit on the number of tokens and let a single request inflate into a very large
+    // in-memory node tree.
+    configureVertxJsonDecodingConstraints(
+        maxRequestContentLength, unstableRPCOptions.getMaxRequestTokenCount());
 
     graphQLConfiguration =
         graphQlOptions.graphQLConfiguration(
@@ -2137,15 +2146,32 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     logger.info("Security Module: {}", securityModuleName);
   }
 
-  private static void configureVertxJsonDecodingMaxLength(final int maxStringLength) {
-    // Supports large sized engine_newPayload decoding
-
-    // This is a global setting for the Vert.x ObjectMapper
-    // which is used by both the JsonRpc and EngineJsonRpc services
-    // Attempting to limit the scope of the mapper config leads to extra serialisation steps
+  @VisibleForTesting
+  static void configureVertxJsonDecodingConstraints(
+      final long maxRequestContentLength, final long maxRequestTokenCount) {
+    // Used by both the JsonRpc and EngineJsonRpc.
+    //
+    // maxStringLength is sized to the HTTP body limit so large engine_newPayload fields still
+    // decode (character count is close to size in bytes). A non-positive body limit means no limit.
+    //
+    // maxTokenCount is the limit that bounds the cost of decoding a request. The body limit alone
+    // does not: a body of tiny tokens such as [{},{},...] that fits under it still decodes into
+    // millions of nodes, and the batch size is only checked after the whole parse. The parser
+    // aborts as soon as the count is exceeded, before the tree is built. Engine payloads are large
+    // but have few tokens, since transactions and the block access list are single hex strings, so
+    // one cap protects every service sharing this mapper. A non-positive value disables the limit.
+    //
+    // maxNestingDepth is left at Jackson's default via the builder.
+    final int maxStringLength =
+        maxRequestContentLength <= 0
+            ? Integer.MAX_VALUE
+            : (int) Math.min(maxRequestContentLength, Integer.MAX_VALUE);
     ObjectMapper om = DatabindCodec.mapper();
     StreamReadConstraints src =
-        StreamReadConstraints.builder().maxStringLength(maxStringLength).build();
+        StreamReadConstraints.builder()
+            .maxStringLength(maxStringLength)
+            .maxTokenCount(maxRequestTokenCount)
+            .build();
     om.getFactory().setStreamReadConstraints(src);
   }
 
@@ -2265,6 +2291,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     engineConfig.setPort(engineRPCConfig.engineRpcPort());
     engineConfig.setRpcApis(Arrays.asList("ENGINE", "ETH"));
     engineConfig.setEnabled(isEngineApiEnabled());
+    // The engine port shares --rpc-http-max-request-content-length with the main HTTP port, whose
+    // default is too small for large execution payloads (engine_newPayload). Unless the operator
+    // set the option, use the engine default instead; a value they set applies to both ports.
+    if (!isOptionSet(commandLine, "--rpc-http-max-request-content-length")) {
+      engineConfig.setMaxRequestContentLength(
+          JsonRpcConfiguration.createEngineDefault().getMaxRequestContentLength());
+    }
     if (!engineRPCConfig.isEngineAuthDisabled()) {
       engineConfig.setAuthenticationEnabled(true);
       engineConfig.setAuthenticationAlgorithm(JwtAlgorithm.HS256);

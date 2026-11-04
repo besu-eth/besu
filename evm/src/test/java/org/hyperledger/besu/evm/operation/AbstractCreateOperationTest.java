@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
 import static org.hyperledger.besu.evm.internal.Words.clampedToInt;
 import static org.hyperledger.besu.evm.internal.Words.clampedToLong;
+import static org.hyperledger.besu.evm.testutils.TestEvmConfigurations.EVM_V1;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -37,7 +38,6 @@ import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.ConstantinopleGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.Eip8037StateGasCostCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.testutils.FakeBlockValues;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -141,6 +141,7 @@ class AbstractCreateOperationTest {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
     final MessageFrame messageFrame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)
@@ -182,7 +183,7 @@ class AbstractCreateOperationTest {
 
   @Test
   void onSuccess() {
-    final EVM evm = MainnetEVMs.london(EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.london(EVM_V1);
 
     executeOperation(SIMPLE_CREATE, evm);
 
@@ -195,7 +196,7 @@ class AbstractCreateOperationTest {
 
   @Test
   void onFailure() {
-    final EVM evm = MainnetEVMs.london(EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.london(EVM_V1);
 
     executeOperation(POP_UNDERFLOW_CREATE, evm);
 
@@ -221,6 +222,7 @@ class AbstractCreateOperationTest {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
     final MessageFrame frame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)
@@ -265,7 +267,7 @@ class AbstractCreateOperationTest {
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
     // Compute the operation cost so we can set initialGas to trigger the underflow scenario
-    final EVM evm = MainnetEVMs.amsterdam(EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.amsterdam(EVM_V1);
     final long cost = amsterdamOp.cost(frame, () -> new Code(SIMPLE_CREATE));
 
     // Set gasRemaining to: cost + (stateGas - 1). This ensures the initial check (gas >= cost)
@@ -288,7 +290,7 @@ class AbstractCreateOperationTest {
     final GasCalculator amsterdamCalc = new AmsterdamGasCalculator();
     final FakeCreateOperation amsterdamOp = new FakeCreateOperation(amsterdamCalc);
 
-    final EVM evm = MainnetEVMs.amsterdam(EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.amsterdam(EVM_V1);
     final int maxInitcodeSize = evm.getMaxInitcodeSize();
     // Size just over the limit
     final int oversizedLength = maxInitcodeSize + 1;
@@ -296,6 +298,7 @@ class AbstractCreateOperationTest {
     final UInt256 memoryOffset = UInt256.ZERO;
     final MessageFrame frame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)

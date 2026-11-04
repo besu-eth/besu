@@ -322,7 +322,17 @@ public class Framer {
 
     // Write message data to ByteBuf, decompressing as necessary
     if (compressionEnabled) {
-      final int uncompressedLength = compressor.uncompressedLength(messageData);
+      final int uncompressedLength;
+      try {
+        uncompressedLength = compressor.uncompressedLength(messageData);
+      } catch (final FramingException fe) {
+        if (compressionSuccessful) {
+          throw fe;
+        }
+        // snappy-java rejects an implausible declared length before decompressing,
+        // so this is also where a non-Snappy peer is first detected
+        return downgradeToUncompressed(id, messageData);
+      }
       if (uncompressedLength >= LENGTH_MAX_MESSAGE_FRAME) {
         throw error("Message size %s in excess of maximum length.", uncompressedLength);
       }
@@ -335,9 +345,7 @@ public class Framer {
           compressionSuccessful = true;
           return new RawMessage(id, Bytes.wrap(decompressedMessageData));
         } catch (final FramingException fe) {
-          compressionEnabled = false;
-          LOG.debug("Snappy decompression failed: downgrading to uncompressed");
-          return new RawMessage(id, Bytes.wrap(messageData));
+          return downgradeToUncompressed(id, messageData);
         }
       } else {
         // Subsequent messages: store compressed, decompress lazily on getData()
@@ -346,6 +354,12 @@ public class Framer {
     } else {
       return new RawMessage(id, Bytes.wrap(messageData));
     }
+  }
+
+  private MessageData downgradeToUncompressed(final int id, final byte[] messageData) {
+    compressionEnabled = false;
+    LOG.debug("Snappy decompression failed: downgrading to uncompressed");
+    return new RawMessage(id, Bytes.wrap(messageData));
   }
 
   private void validateMac(final byte[] candidateMac, final byte[] expectedMac) {

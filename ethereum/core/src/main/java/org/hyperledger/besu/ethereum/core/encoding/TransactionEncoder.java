@@ -32,6 +32,10 @@ public class TransactionEncoder {
     void encode(Transaction transaction, RLPOutput output);
   }
 
+  interface PooledEncoder {
+    void encode(Transaction transaction, boolean elideBlobs, RLPOutput output);
+  }
+
   private static final ImmutableMap<TransactionType, Encoder> TYPED_TRANSACTION_ENCODERS =
       ImmutableMap.of(
           TransactionType.ACCESS_LIST,
@@ -43,7 +47,7 @@ public class TransactionEncoder {
           TransactionType.DELEGATE_CODE,
           CodeDelegationTransactionEncoder::encode);
 
-  private static final ImmutableMap<TransactionType, Encoder> POOLED_TRANSACTION_ENCODERS =
+  private static final ImmutableMap<TransactionType, PooledEncoder> POOLED_TRANSACTION_ENCODERS =
       ImmutableMap.of(TransactionType.BLOB, BlobPooledTransactionEncoder::encode);
 
   /**
@@ -138,9 +142,12 @@ public class TransactionEncoder {
   private static Encoder getEncoder(
       final TransactionType transactionType, final EncodingContext encodingContext) {
 
-    if (encodingContext.equals(EncodingContext.POOLED_TRANSACTION)) {
+    if (!encodingContext.encodeForBlock()) {
       if (POOLED_TRANSACTION_ENCODERS.containsKey(transactionType)) {
-        return POOLED_TRANSACTION_ENCODERS.get(transactionType);
+        return (tx, out) ->
+            POOLED_TRANSACTION_ENCODERS
+                .get(transactionType)
+                .encode(tx, encodingContext.elideBlobs(), out);
       }
     }
     return checkNotNull(

@@ -24,8 +24,7 @@
     "id": 13,
     "error": {
       "code": -32602,
-      "message": "Invalid transaction params (missing or incorrect)",
-      "data": "Failed to decode transaction: Invalid RLP in raw transaction hex"
+      "message": "Invalid transaction params (missing or incorrect): Failed to decode transaction: Invalid RLP in raw transaction hex"
     }
   },
   "statusCode": 200
