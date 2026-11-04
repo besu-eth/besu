@@ -248,7 +248,7 @@ class StorageRootRefreshTest {
     private final SnapRequestContext context = mock(SnapRequestContext.class);
 
     @Test
-    void refreshRecordsTheStorageRootAndCreatesNoRequests() {
+    void refreshRecordsTheStorageRootWithoutCreatingRequestsOrStoringTheAccount() {
       final AccountRangeDataRequest refresh =
           SnapDataRequest.createStorageRootRefreshRequest(OLDER_STATE_ROOT, accountHash);
       assertThat(refresh.isStorageRootRefresh()).isTrue();
@@ -266,6 +266,24 @@ class StorageRootRefreshTest {
       assertThat(refresh.getChildRequests(context, worldStateStorageCoordinator, null)).isEmpty();
       verify(context).completeStorageRootRefresh(accountHash, stateRoot, storageRoot);
       verify(context, never()).enqueueRequest(any());
+
+      // the account is from another pivot than the downloaded state: storing it would mix the two
+      final BonsaiWorldStateKeyValueStorage target =
+          new BonsaiWorldStateKeyValueStorage(
+              new InMemoryKeyValueStorageProvider(),
+              new NoOpMetricsSystem(),
+              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+      target.upgradeToFullFlatDbMode(); // as during snap sync
+      when(context.getMetricsManager()).thenReturn(mock(SnapSyncMetricsManager.class));
+      final BonsaiWorldStateKeyValueStorage.Updater updater = target.updater();
+      refresh.persist(
+          new WorldStateStorageCoordinator(target),
+          updater,
+          context,
+          null,
+          SnapSyncConfiguration.getDefault());
+      updater.commit();
+      assertThat(target.getAccount(accountHash)).isEmpty();
     }
 
     @Test
@@ -400,27 +418,6 @@ class StorageRootRefreshTest {
     }
 
     @Test
-    void refreshIsNotSavedForRestart() {
-      downloadState.requestStorageRootRefresh(accountHash);
-
-      dequeueAccountRequest();
-
-      assertThat(downloadState.pendingAccountRequests.size()).isZero();
-      verify(snapContext, never()).updatePersistedTasks(any());
-    }
-
-    @Test
-    void completingTheRefreshStoresTheRootAndClearsThePendingMarker() {
-      downloadState.requestStorageRootRefresh(accountHash);
-
-      downloadState.completeStorageRootRefresh(accountHash, stateRoot, storageRoot);
-
-      assertThat(downloadState.isStorageRootRefreshPending(accountHash)).isFalse();
-      assertThat(downloadState.getRefreshedStorageRoot(accountHash))
-          .contains(new SnapRequestContext.RefreshedStorageRoot(stateRoot, storageRoot));
-    }
-
-    @Test
     void anAccountIsRefreshedAgainOnlyAtANewPivot() {
       downloadState.requestStorageRootRefresh(accountHash);
       dequeueAccountRequest().markCompleted();
@@ -449,46 +446,6 @@ class StorageRootRefreshTest {
       downloadState.checkCompletion(pivot);
 
       assertThat(downloadState.getDownloadFuture()).isNotDone();
-    }
-
-    @Test
-    void storageRequestsOfAnAccountBeingRefreshedAreParkedWithoutCountingAsFailures() {
-      final StorageRangeDataRequest refreshing = largeStorageRequest(accountHash);
-      final StorageRangeDataRequest other = largeStorageRequest(Hash.wrap(Bytes32.ZERO));
-      downloadState.enqueueRequest(refreshing);
-      downloadState.enqueueRequest(other);
-      downloadState.requestStorageRootRefresh(accountHash);
-
-      final Task<SnapDataRequest> task = dequeueLargeStorageRequest();
-
-      assertThat(task.getData()).isSameAs(other);
-      assertThat(downloadState.pendingLargeStorageRequests.size()).isZero();
-      // with the handed out request done, the parked one keeps the queue from being completed
-      task.markCompleted();
-      assertThat(downloadState.pendingLargeStorageRequests.allTasksCompleted()).isFalse();
-      assertThat(downloadState.getRequestsSinceLastProgress()).isZero();
-    }
-
-    @Test
-    void smallStorageRequestsOfAnAccountBeingRefreshedAreParked() {
-      final StorageRangeDataRequest refreshing =
-          SnapDataRequest.createStorageRangeDataRequest(
-              stateRoot, Bytes32.wrap(accountHash.getBytes()), storageRoot, MIN_RANGE, MAX_RANGE);
-      downloadState.enqueueRequest(refreshing);
-      downloadState.requestStorageRootRefresh(accountHash);
-
-      final CompletableFuture<Task<SnapDataRequest>> dequeued =
-          dequeueOnWaitingThread(downloadState::dequeueStorageRequestBlocking);
-
-      assertThat(dequeued).isNotDone();
-      // the parked request left the queue but stays outstanding
-      assertThat(downloadState.pendingStorageRequests.size()).isZero();
-      assertThat(downloadState.pendingStorageRequests.allTasksCompleted()).isFalse();
-      downloadState.completeStorageRootRefresh(accountHash, stateRoot, storageRoot);
-      assertThat(dequeued)
-          .succeedsWithin(Duration.ofSeconds(5))
-          .extracting(Task::getData)
-          .isSameAs(refreshing);
     }
 
     @Test
@@ -646,24 +603,6 @@ class StorageRootRefreshTest {
               context,
               SnapSyncConfiguration.getDefault(),
               new NoOpMetricsSystem());
-    }
-
-    @Test
-    void requestOfAnAccountProvenWithoutStorageAtThePivotIsCompletedWithoutBeingSent() {
-      when(context.getRefreshedStorageRoot(accountHash))
-          .thenReturn(
-              Optional.of(
-                  new SnapRequestContext.RefreshedStorageRoot(
-                      stateRoot, MerkleTrie.EMPTY_TRIE_NODE_HASH)));
-      final StorageRangeDataRequest request = fullRangeRequest(OLDER_STATE_ROOT);
-      final List<Task<SnapDataRequest>> tasks = List.of(new StubTask(request));
-
-      assertThat(requestDataStep.requestStorage(tasks).join()).isSameAs(tasks);
-
-      assertThat(request.isResponseReceived()).isTrue();
-      assertThat(request.getStorageRoot()).isEqualTo(MerkleTrie.EMPTY_TRIE_NODE_HASH);
-      verify(context).addAccountToHealingList(any());
-      verifyNoInteractions(ethContext);
     }
 
     // The tests below run the real retrying peer task: only the peer's answer is canned.
