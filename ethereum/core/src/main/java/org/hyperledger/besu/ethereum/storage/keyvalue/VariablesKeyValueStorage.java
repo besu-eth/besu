@@ -78,6 +78,11 @@ public class VariablesKeyValueStorage implements VariablesStorage {
   }
 
   @Override
+  public Optional<Long> getSyncFloor() {
+    return getVariable(Keys.SYNC_FLOOR).map(Bytes::toLong);
+  }
+
+  @Override
   public Updater updater() {
     return new Updater(variables.startTransaction());
   }
@@ -134,6 +139,11 @@ public class VariablesKeyValueStorage implements VariablesStorage {
     @Override
     public void setBodiesFrom(final long blockNumber) {
       setVariable(Keys.BODIES_FROM, Bytes.ofUnsignedLong(blockNumber));
+    }
+
+    @Override
+    public void setSyncFloor(final long blockNumber) {
+      setVariable(Keys.SYNC_FLOOR, Bytes.ofUnsignedLong(blockNumber));
     }
 
     @Override

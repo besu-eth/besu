@@ -43,7 +43,12 @@ public class TransactionDecoder {
               TransactionType.BLOB, BlobTransactionDecoder::decode,
               TransactionType.DELEGATE_CODE, CodeDelegationTransactionDecoder::decode));
 
-  private static final EnumMap<TransactionType, Decoder> POOLED_TRANSACTION_DECODERS =
+  @FunctionalInterface
+  interface PooledDecoder {
+    Transaction decode(Bytes input, boolean elidedBlobs);
+  }
+
+  private static final EnumMap<TransactionType, PooledDecoder> POOLED_TRANSACTION_DECODERS =
       new EnumMap<>(Map.of(TransactionType.BLOB, BlobPooledTransactionDecoder::decode));
 
   /**
@@ -166,9 +171,13 @@ public class TransactionDecoder {
   }
 
   /**
-   * Gets the decoder for a given transaction type and encoding context. If the context is
-   * POOLED_TRANSACTION, it uses the network decoder for the type. Otherwise, it uses the typed
-   * decoder.
+   * Gets the decoder for a given transaction type and encoding context. Any pool context uses the
+   * network decoder for the type; a block body context uses the typed decoder.
+   *
+   * <p>Tested against {@link EncodingContext#encodeForBlock()} rather than against a specific
+   * constant, so that every pool context is covered. An equality test on {@code POOLED_TRANSACTION}
+   * alone would silently route {@code POOLED_TRANSACTION_ETH_72} to the block body decoder, which
+   * knows nothing of the blob wrapper, mirroring what {@link TransactionEncoder} already does.
    *
    * @param transactionType the transaction type
    * @param encodingContext the encoding context
@@ -176,9 +185,15 @@ public class TransactionDecoder {
    */
   private static Decoder getDecoder(
       final TransactionType transactionType, final EncodingContext encodingContext) {
-    if (encodingContext.equals(EncodingContext.POOLED_TRANSACTION)) {
+    if (!encodingContext.encodeForBlock()) {
       if (POOLED_TRANSACTION_DECODERS.containsKey(transactionType)) {
-        return POOLED_TRANSACTION_DECODERS.get(transactionType);
+        // Whether the blob payloads may be absent is a property of the context, so the decoder is
+        // told rather than left to infer it from the bytes: only a peer this node negotiated eth/72
+        // with can elide them, and the bytes alone do not say which peer sent them.
+        return input ->
+            POOLED_TRANSACTION_DECODERS
+                .get(transactionType)
+                .decode(input, encodingContext.elideBlobs());
       }
     }
     return checkNotNull(

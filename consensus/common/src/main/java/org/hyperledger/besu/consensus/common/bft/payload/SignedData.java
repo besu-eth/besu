@@ -49,7 +49,7 @@ public class SignedData<M extends Payload> implements Authored {
    * @param payload the payload
    * @param signature the signature
    * @return the signed data
-   * @throws IllegalArgumentException if the signature is invalid
+   * @throws IllegalArgumentException if the signature is invalid or does not recover to an address
    */
   public static <T extends Payload> SignedData<T> create(
       final T payload, final SECPSignature signature) {
@@ -60,6 +60,13 @@ public class SignedData<M extends Payload> implements Authored {
   private SignedData(final M unsignedPayload, final Address sender, final SECPSignature signature) {
     if (!(signature.getS().compareTo(HALF_CURVE_ORDER) <= 0)) {
       throw new IllegalArgumentException("Signature is invalid");
+    }
+    // Util.signatureToAddress returns null when the signature does not recover. Signed entries
+    // embedded in other messages (prepares, round changes) are not covered by the outer signature,
+    // and the author is later looked up in natural-ordering sets that throw on null, so reject it
+    // here, while the message is decoded and before it is validated or gossiped.
+    if (sender == null) {
+      throw new IllegalArgumentException("Signature does not recover to an address");
     }
     this.unsignedPayload = unsignedPayload;
     this.sender = sender;

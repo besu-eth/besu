@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 
 import java.util.Optional;
 
@@ -93,6 +94,7 @@ public class DebugReplayBlock extends AbstractBlockParameterMethod {
               HeaderValidationMode.FULL,
               HeaderValidationMode.NONE,
               Optional.empty(),
+              InclusionListTransactions.EMPTY,
               true);
     } catch (Exception e) {
       LOG.error(e.getMessage());

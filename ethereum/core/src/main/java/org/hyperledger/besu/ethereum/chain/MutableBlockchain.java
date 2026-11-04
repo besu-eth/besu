@@ -18,11 +18,13 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface MutableBlockchain extends Blockchain {
@@ -115,6 +117,14 @@ public interface MutableBlockchain extends Blockchain {
       List<SyncBlockWithReceipts> blocksAndReceipts, boolean indexTransactions);
 
   /**
+   * Stores in one batch the block access lists of blocks whose headers a sync then stores, without
+   * updating the chain state.
+   *
+   * @param accessLists the access lists, by block hash, none of them unavailable
+   */
+  void unsafeStoreSyncBlockAccessLists(Map<Hash, SyncBlockAccessList> accessLists);
+
+  /**
    * Writes in one batch the total difficulties of the canonical headers above block {@code parent}
    * up to block {@code last}, each checked to be the child of the one before, for a sync that
    * stored the headers without them.
@@ -133,6 +143,13 @@ public interface MutableBlockchain extends Blockchain {
    * @param blockNumber the lowest block whose body and receipts are stored
    */
   void unsafeSetBodiesFrom(long blockNumber);
+
+  /**
+   * Records the floor of a sync, which {@link #getSyncFloor} returns.
+   *
+   * @param blockNumber the floor
+   */
+  void unsafeSetSyncFloor(long blockNumber);
 
   void unsafeSetChainHead(final BlockHeader blockHeader, final Difficulty totalDifficulty);
 

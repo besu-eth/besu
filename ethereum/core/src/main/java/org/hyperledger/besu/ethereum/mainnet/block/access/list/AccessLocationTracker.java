@@ -33,6 +33,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 import org.apache.tuweni.units.bigints.UInt256;
 
@@ -71,7 +72,8 @@ public class AccessLocationTracker implements Eip7928AccessList {
 
   public static final class AccountAccessList {
     private final Address address;
-    private final Set<UInt256> slots = ConcurrentHashMap.newKeySet();
+
+    private final Set<UInt256> slots = new ConcurrentSkipListSet<>();
 
     public AccountAccessList(final Address address) {
       this.address = address;

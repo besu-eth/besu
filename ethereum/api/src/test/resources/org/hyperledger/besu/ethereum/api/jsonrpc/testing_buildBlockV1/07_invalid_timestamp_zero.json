@@ -22,8 +22,7 @@
     "id": 8,
     "error": {
       "code": -32602,
-      "message": "Invalid params",
-      "data": "Missing or invalid timestamp field"
+      "message": "Invalid params: Missing or invalid timestamp field"
     }
   },
   "statusCode": 200

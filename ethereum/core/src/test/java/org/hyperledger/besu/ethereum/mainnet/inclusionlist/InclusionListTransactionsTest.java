@@ -16,6 +16,10 @@ package org.hyperledger.besu.ethereum.mainnet.inclusionlist;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.crypto.Hash.keccak256;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
@@ -101,5 +105,58 @@ class InclusionListTransactionsTest {
     assertThat(InclusionListTransactions.EMPTY.isEmpty()).isTrue();
     assertThat(InclusionListTransactions.EMPTY.getTransactions()).isEmpty();
     assertThat(new InclusionListTransactions(List.of())).isEqualTo(InclusionListTransactions.EMPTY);
+  }
+
+  @Test
+  void notIncludedInDropsTheTransactionsOfTheBlock() {
+    final Transaction ilTx = new TransactionTestFixture().nonce(0).createTransaction(KEY_PAIR);
+    final Transaction otherIlTx = new TransactionTestFixture().nonce(1).createTransaction(KEY_PAIR);
+    final Transaction otherBlockTx =
+        new TransactionTestFixture().nonce(2).createTransaction(KEY_PAIR);
+
+    assertThat(
+            new InclusionListTransactions(List.of(ilTx, otherIlTx))
+                .notIncludedIn(List.of(otherBlockTx, ilTx)))
+        .containsExactly(otherIlTx);
+  }
+
+  @Test
+  void notIncludedInKeepsATransactionThatDiffersFromABlockTransactionOnlyInItsAccessList() {
+    final Transaction blockTx =
+        new TransactionTestFixture().type(TransactionType.EIP1559).createTransaction(KEY_PAIR);
+    // same signature, so it recovers a different sender
+    final Transaction ilTxWithAccessList =
+        Transaction.builder()
+            .copiedFrom(blockTx)
+            .accessList(List.of(new AccessListEntry(Address.ZERO, List.of())))
+            .sender(null)
+            .build();
+    // Transaction.equals ignores the access list, but the bytes differ
+    assertThat(ilTxWithAccessList).isEqualTo(blockTx);
+    assertThat(ilTxWithAccessList.getHash()).isNotEqualTo(blockTx.getHash());
+
+    assertThat(
+            new InclusionListTransactions(List.of(ilTxWithAccessList))
+                .notIncludedIn(List.of(blockTx)))
+        .containsExactly(ilTxWithAccessList);
+  }
+
+  @Test
+  void notIncludedInStopsLookingOnceAllTheTransactionsAreFound() {
+    final Transaction ilTx = new TransactionTestFixture().nonce(0).createTransaction(KEY_PAIR);
+    final Transaction notLookedAt = mock(Transaction.class);
+
+    assertThat(
+            new InclusionListTransactions(List.of(ilTx)).notIncludedIn(List.of(ilTx, notLookedAt)))
+        .isEmpty();
+    verify(notLookedAt, never()).getHash();
+  }
+
+  @Test
+  void nothingIsNotIncludedForAnEmptyInclusionList() {
+    final Transaction blockTx = mock(Transaction.class);
+
+    assertThat(InclusionListTransactions.EMPTY.notIncludedIn(List.of(blockTx))).isEmpty();
+    verifyNoInteractions(blockTx);
   }
 }

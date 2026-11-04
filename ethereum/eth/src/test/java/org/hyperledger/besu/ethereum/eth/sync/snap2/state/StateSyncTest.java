@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStateStorage;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStorageFixture;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStorageFixture.Format;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStorageFixture.Storages;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.trie.StorageTrieUpdater;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.trie.TestTries;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.trie.WorldStateTrieBuilder;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
@@ -50,7 +51,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.LongSupplier;
+import java.util.function.UnaryOperator;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -62,6 +68,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Runs the download on the test thread, in rounds: the network answers the requests sent, then the
@@ -77,6 +84,9 @@ class StateSyncTest {
 
   private final FakeSnapNetwork network = new FakeSnapNetwork();
   private final QueuedExecutor tasks = new QueuedExecutor();
+  // with a clock that stands still, a peer left out stays out
+  private LongSupplier nanoTime = () -> 0L;
+  private UnaryOperator<StorageTrieUpdater> trieUpdaters = UnaryOperator.identity();
   private StateSync stateSync;
 
   @AfterEach
@@ -107,6 +117,70 @@ class StateSyncTest {
     final WorldStateTrieBuilder.Result built = build(storages);
     assertThat(built.root()).isEqualTo(world.root());
     assertThat(built.keptStorageTries()).isEqualTo(withStorage);
+  }
+
+  // its ranges come at two roots, so the final build makes its trie from its slots
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void leavesAStorageThatChangesWhileDownloadingToTheFinalBuild(final Format format) {
+    final Random random = new Random(19);
+    final TestWorld world = TestWorld.random(random, 1, 1, 20_000);
+    network.serve(world);
+    network.maxResponseBytes(1024);
+    final Storages storages = SyncStorageFixture.create(format);
+    final CompletableFuture<Void> completion = start(storages.sync(), header(1, world.root()));
+
+    runUntil(() -> stateSync.downloadedSlots() >= 500);
+    final TestWorld next = move(world, random, 2, 1, 3);
+    runToEnd();
+
+    assertThat(completion).isCompleted();
+    assertThat(stateSync.storageTriesLeft()).isOne();
+    final WorldStateTrieBuilder.Result built = build(storages);
+    assertThat(built.root()).isEqualTo(next.root());
+    assertThat(built.keptStorageTries()).isEqualTo(next.storageLeaves().size() - 1);
+  }
+
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void updatesTheTrieOfAStorageThatChangesOnceDownloaded(final Format format) {
+    final Random random = new Random(29);
+    final TestWorld world = TestWorld.random(random, 1, 1, 2_000);
+    network.serve(world);
+    final Storages storages = SyncStorageFixture.create(format);
+    final CompletableFuture<Void> completion = start(storages.sync(), header(1, world.root()));
+    runToEnd();
+    assertThat(completion).isCompleted();
+    assertThat(stateSync.storageTriesBuilt()).isOne();
+
+    final TestWorld next = move(world, random, 2, 1, 3);
+
+    final WorldStateTrieBuilder.Result built = build(storages);
+    assertThat(stateSync.storageTriesUpdated()).isPositive();
+    assertThat(built.root()).isEqualTo(next.root());
+    assertThat(built.keptStorageTries()).isEqualTo(next.storageLeaves().size());
+  }
+
+  // its account fetched again at the new pivot tells that its storage is now empty
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void dropsAStorageThatAMoveEmptiesWhileDownloading(final Format format) {
+    final TestWorld world = TestWorld.random(new Random(67), 1, 1, 2_000);
+    network.serve(world);
+    network.maxResponseBytes(1024);
+    final Storages storages = SyncStorageFixture.create(format);
+    final CompletableFuture<Void> completion = start(storages.sync(), header(1, world.root()));
+    runUntil(() -> stateSync.downloadedSlots() > 0);
+
+    final TestWorld next = world.copy();
+    final StateDiff diff = new StateDiff();
+    diff.add(next.clearStorages());
+    network.serve(next);
+    assertThat(stateSync.moveTo(header(2, next.root()), diff)).isCompleted();
+    runToEnd();
+
+    assertThat(completion).isCompleted();
+    assertThat(build(storages).root()).isEqualTo(next.root());
   }
 
   // a write that fails loses the root node of the storage it completes, not the ranges of the other
@@ -172,6 +246,37 @@ class StateSyncTest {
         .hasSize(ranges);
   }
 
+  static Stream<Arguments> formatsAndSeeds() {
+    return Stream.of(Format.values())
+        .flatMap(
+            format ->
+                LongStream.of(11, 23, 37, 41, 59).mapToObj(seed -> Arguments.of(format, seed)));
+  }
+
+  // the moves change storages still downloading and storages whose trie is written
+  @ParameterizedTest
+  @MethodSource("formatsAndSeeds")
+  void followsAMovingPivot(final Format format, final long seed) {
+    final Random random = new Random(seed);
+    TestWorld world = TestWorld.random(random, 1500, 6, 800);
+    network.serve(world);
+    final Storages storages = SyncStorageFixture.create(format);
+    final CompletableFuture<Void> completion = start(storages.sync(), header(100, world.root()));
+
+    long block = 100;
+    for (int move = 0; move < 4; move++) {
+      final long progress = progress() + 50;
+      runUntil(() -> progress() >= progress);
+      block += 3;
+      world = move(world, random, block, 3, 25);
+    }
+    runToEnd();
+
+    assertThat(completion).isCompleted();
+    assertThat(stateSync.pivot().header().getNumber()).isEqualTo(block);
+    assertThat(build(storages).root()).isEqualTo(world.root());
+  }
+
   @ParameterizedTest
   @EnumSource(Format.class)
   void leavesOutAPeerThatServesNoState(final Format format) {
@@ -186,11 +291,272 @@ class StateSyncTest {
     runToEnd();
 
     assertThat(completion).isCompleted();
-    // its empty answers did not keep it busy, and it still gets its share of the bytecodes
+    // its empty answers neither stalled the pivot nor kept it busy; it still gets bytecodes
+    assertThat(stateSync.isPivotStale()).isFalse();
     final EthPeer leftOut = network.peers().get(1);
     assertThat(network.stateRequestsTo(leftOut)).isLessThan(network.stateRequestCount() / 10);
     assertThat(network.codeRequestsTo(leftOut) * 4).isGreaterThan(network.codeRequestCount());
     assertThat(build(storages).root()).isEqualTo(world.root());
+  }
+
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void detectsAStalePivot(final Format format) {
+    final TestWorld world = TestWorld.random(new Random(5), 1500, 4, 800);
+    network.serve(world);
+    final Storages storages = SyncStorageFixture.create(format);
+    final CompletableFuture<Void> completion = start(storages.sync(), header(7, world.root()));
+    // every peer serves some of the state, then none serves its root, as when it gets too old
+    round();
+    network.forget(world.root());
+
+    runToEnd();
+
+    assertThat(stateSync.isPivotStale()).isTrue();
+    assertThat(completion).isNotDone();
+    // a move resumes the download, the empty answers of the stale pivot forgotten
+    network.serve(world);
+    assertThat(stateSync.moveTo(header(8, world.root()), new StateDiff())).isCompleted();
+    tasks.runAll();
+    network.forget(world.root());
+    network.answer("account_range", 1);
+    tasks.runAll();
+    assertThat(stateSync.isPivotStale()).isFalse();
+    network.serve(world);
+    runToEnd();
+    assertThat(completion).isCompleted();
+    assertThat(build(storages).root()).isEqualTo(world.root());
+  }
+
+  // the empty answers to the requests of an older pivot say nothing about the new one
+  @Test
+  void ignoresTheEmptyAnswersOfAnOlderPivot() {
+    final Random random = new Random(47);
+    final TestWorld world = TestWorld.random(random, 1200, 0, 0);
+    network.serve(world);
+    start(SyncStorageFixture.create(Format.BONSAI).sync(), header(1, world.root()));
+    round();
+    final TestWorld next = world.copy();
+    final StateDiff diff = new StateDiff();
+    diff.add(next.mutate(random, 10));
+    network.serve(next);
+    assertThat(stateSync.moveTo(header(2, next.root()), diff)).isCompleted();
+
+    // the requests sent at the old pivot come back empty, as it is no longer served
+    network.forget(world.root());
+    round();
+
+    assertThat(stateSync.isPivotStale()).isFalse();
+    // nor do they count with the empty answers of the new pivot
+    network.forget(next.root());
+    network.answer("account_range", 3);
+    tasks.runAll();
+    assertThat(stateSync.isPivotStale()).isFalse();
+  }
+
+  // a peer left out gets no state request, so it cannot answer empty either
+  @Test
+  void detectsAStalePivotWhileAPeerIsLeftOut() {
+    final TestWorld world = TestWorld.random(new Random(5), 1500, 4, 800);
+    network.serve(world);
+    start(SyncStorageFixture.create(Format.BONSAI).sync(), header(7, world.root()));
+    // every peer serves some of the state, then one serves none of the next pivot
+    round();
+    network.serveNoState(2);
+    assertThat(stateSync.moveTo(header(8, world.root()), new StateDiff())).isCompleted();
+    runUntil(() -> stateSync.peersWithoutState() == 1);
+    assertThat(stateSync.peersWithoutState()).isOne();
+    network.forget(world.root());
+
+    for (int round = 0; round < 5; round++) {
+      round();
+    }
+
+    assertThat(stateSync.isPivotStale()).isTrue();
+  }
+
+  // only empty answers in a row tell that the pivot is too old
+  @Test
+  void startsTheCountOfEmptyAnswersOverAfterAnAnswerWithState() {
+    final TestWorld world = TestWorld.random(new Random(31), 1200, 0, 0);
+    network.serve(world);
+    start(SyncStorageFixture.create(Format.BONSAI).sync(), header(1, world.root()));
+    round();
+
+    // ten empty answers, one with state, then two empty answers again
+    network.forget(world.root());
+    network.answer("account_range", 5);
+    network.answer("storage_ranges", 5);
+    tasks.runAll();
+    network.serve(world);
+    network.answer("storage_ranges", 1);
+    tasks.runAll();
+    network.forget(world.root());
+    network.answer("storage_ranges", 2);
+    tasks.runAll();
+
+    assertThat(stateSync.isPivotStale()).isFalse();
+  }
+
+  // only left out peers serve the state: a request fails at once, as the next ones would
+  @Test
+  void waitsForThePeriodicDispatchWhileEveryPeerIsLeftOut() {
+    final CompletableFuture<Void> completion =
+        start(SyncStorageFixture.create(Format.BONSAI).sync(), header(1, root(1)));
+    // no peer serves either pivot: answering nothing for the first says nothing about its age
+    for (int round = 0; round < 3; round++) {
+      round();
+    }
+    assertThat(stateSync.isPivotStale()).isFalse();
+    // and leaves each peer out at the second
+    assertThat(stateSync.moveTo(header(2, root(2)), new StateDiff())).isCompleted();
+    runToEnd();
+    assertThat(stateSync.peersWithoutState()).isEqualTo(network.peers().size());
+
+    final int sent = network.requestCount();
+    tasks.tick();
+    assertThat(network.requestCount()).isGreaterThan(sent);
+    final int retried = network.requestCount();
+    round();
+    assertThat(network.requestCount()).isEqualTo(retried);
+    assertThat(completion).isNotDone();
+  }
+
+  // a diff that failed is partly applied, so the download does not go on from it
+  @ParameterizedTest
+  @MethodSource("lastingWriteFailures")
+  void stopsAndFailsWhenAMoveFailsToApply(final Throwable failure) {
+    final TestWorld world = TestWorld.random(new Random(41), 300, 2, 200);
+    network.serve(world);
+    final SyncStateStorage storage = spy(SyncStorageFixture.create(Format.BONSAI).sync());
+    final CompletableFuture<Void> completion = start(storage, header(1, world.root()));
+    round();
+    doThrow(failure).when(storage).batch();
+
+    final CompletableFuture<StateDiffApplier.Outcome> move =
+        stateSync.moveTo(header(2, world.root()), new StateDiff());
+
+    assertThat(move).isCompletedExceptionally();
+    assertThatThrownBy(move::join).hasCause(failure);
+    assertThat(completion).isCompletedExceptionally();
+    assertThatThrownBy(completion::join).hasCause(failure);
+    // the answers in flight write nothing, and nothing more is sent
+    final long written = progress();
+    final int sent = network.requestCount();
+    round();
+    tasks.tick();
+    assertThat(progress()).isEqualTo(written);
+    assertThat(network.requestCount()).isEqualTo(sent);
+  }
+
+  @Test
+  void refusesAMoveBeforeTheStart() {
+    stateSync = stateSync(SyncStorageFixture.create(Format.BONSAI).sync(), SETTINGS, tasks);
+
+    assertThatThrownBy(() -> stateSync.moveTo(header(2, Bytes32.ZERO), new StateDiff()))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  // a move between the check of an empty answer and its count leaves the new pivot fresh
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void marksStaleOnlyThePivotOfTheEmptyAnswers(final boolean moveDuringTheLastAnswer) {
+    final TestWorld world = TestWorld.random(new Random(5), 1500, 4, 800);
+    network.serve(world);
+    // the clock, which an empty answer reads once it has checked its pivot
+    final AtomicReference<Runnable> onTheNextReading = new AtomicReference<>(() -> {});
+    nanoTime =
+        () -> {
+          onTheNextReading.getAndSet(() -> {}).run();
+          return 0L;
+        };
+    start(SyncStorageFixture.create(Format.BONSAI).sync(), header(7, world.root()));
+    // every peer serves some of the state, then none serves its root
+    round();
+    network.forget(world.root());
+    // eleven empty answers in a row, one short of a stale pivot
+    for (int answer = 0; answer < 11; answer++) {
+      network.answer("account_range", 1);
+      tasks.runAll();
+    }
+    assertThat(stateSync.isPivotStale()).isFalse();
+    if (moveDuringTheLastAnswer) {
+      onTheNextReading.set(() -> stateSync.moveTo(header(8, world.root()), new StateDiff()));
+    }
+
+    network.answer("account_range", 1);
+    tasks.runAll();
+
+    assertThat(stateSync.pivot().epoch()).isEqualTo(moveDuringTheLastAnswer ? 1 : 0);
+    assertThat(stateSync.isPivotStale()).isEqualTo(!moveDuringTheLastAnswer);
+  }
+
+  // a peer that only answers invalid responses never answers empty, so it does not count
+  @Test
+  void detectsAStalePivotWhileAPeerOnlyAnswersInvalid() {
+    final TestWorld world = TestWorld.random(new Random(5), 1500, 4, 800);
+    network.serve(world);
+    network.answerInvalid(2);
+    start(SyncStorageFixture.create(Format.BONSAI).sync(), header(7, world.root()));
+    // the two other peers serve some of the state, then none serves its root
+    round();
+    network.forget(world.root());
+
+    for (int round = 0; round < 5; round++) {
+      round();
+    }
+
+    assertThat(stateSync.isPivotStale()).isTrue();
+  }
+
+  // bytecodes do not depend on the pivot, so they go on while it waits for a move
+  @Test
+  void keepsAskingBytecodesWhileThePivotIsStale() {
+    final TestWorld world = TestWorld.random(new Random(5), 1500, 4, 800);
+    network.serve(world);
+    start(SyncStorageFixture.create(Format.BONSAI).sync(), header(7, world.root()));
+    round();
+    network.forget(world.root());
+    // the account ranges come back empty until the pivot is stale; the storage requests left in
+    // flight keep most bytecodes waiting
+    for (int answers = 0; answers < 100 && !stateSync.isPivotStale(); answers++) {
+      network.answer("account_range", 1);
+      tasks.runAll();
+    }
+    assertThat(stateSync.isPivotStale()).isTrue();
+    assertThat(network.unansweredRequests()).contains("bytecodes");
+    final int codeRequests = network.codeRequestCount();
+    final int stateRequests = network.stateRequestCount();
+
+    round();
+
+    assertThat(network.codeRequestCount()).isGreaterThan(codeRequests);
+    assertThat(network.stateRequestCount()).isEqualTo(stateRequests);
+  }
+
+  // the requests go first, as the updates may take a minute to stop
+  @Test
+  void withdrawsTheRequestsBeforeItWaitsForTheTrieUpdates() {
+    final TestWorld world = TestWorld.random(new Random(101), 300, 1, 100);
+    network.serve(world);
+    final AtomicLong withdrawn = new AtomicLong(-1);
+    trieUpdaters =
+        updater -> {
+          final StorageTrieUpdater spied = spy(updater);
+          doAnswer(
+                  invocation -> {
+                    withdrawn.set(network.withdrawnRequestCount());
+                    return invocation.callRealMethod();
+                  })
+              .when(spied)
+              .stop();
+          return spied;
+        };
+    start(SyncStorageFixture.create(Format.BONSAI).sync(), header(1, world.root()));
+
+    stateSync.stop();
+
+    assertThat(withdrawn.get()).isPositive().isEqualTo(network.unansweredRequests().size());
   }
 
   // a quarter more than the peers take, so that a peer gets its next request at once
@@ -266,6 +632,28 @@ class StateSyncTest {
 
     assertThat(completion).isCompleted();
     assertThat(world.codes().keySet()).hasSize(1).allMatch(storages.sync()::hasCode);
+  }
+
+  // bytecodes do not depend on the pivot, so only the state waits for the moves
+  @Test
+  void asksOnlyBytecodesWhilePaused() {
+    final TestWorld world = TestWorld.random(new Random(17), 300, 1, 100);
+    network.serve(world);
+    final CompletableFuture<Void> completion =
+        start(SyncStorageFixture.create(Format.BONSAI).sync(), header(1, world.root()));
+
+    stateSync.pause();
+    round();
+    tasks.tick();
+    assertThat(network.unansweredRequests()).isNotEmpty().containsOnly("bytecodes");
+    runToEnd();
+
+    // with nothing in flight, the resume asks for the state at once
+    stateSync.resume();
+    tasks.runAll();
+    assertThat(network.unansweredRequests()).contains("account_range");
+    runToEnd();
+    assertThat(completion).isCompleted();
   }
 
   // a request no peer takes fails, as the next ones would: asked again at once, they would loop
@@ -492,13 +880,20 @@ class StateSyncTest {
     return completion;
   }
 
-  // a download whose writes run on the test thread
+  // a download whose writes and storage trie updates run on the test thread
   private StateSync stateSync(
       final SyncStateStorage storage,
       final StateSync.Settings settings,
       final ScheduledExecutorService loop) {
-    // with a clock that stands still, a peer left out stays out
-    return new StateSync(storage, network, settings, loop, tasks, () -> 0L);
+    return new StateSync(
+        storage,
+        network,
+        settings,
+        loop,
+        tasks,
+        nanoTime,
+        (withoutMoves, trieLeft) ->
+            trieUpdaters.apply(TestTries.updaterWithoutWorkers(storage, withoutMoves, trieLeft)));
   }
 
   // answers the requests sent, then runs what the download queued
@@ -520,10 +915,39 @@ class StateSyncTest {
     runUntil(() -> false);
   }
 
-  // the download stops first, as before the final build
+  // moves the pivot over blocks that change the world; the answers at the old pivot are dropped
+  private TestWorld move(
+      final TestWorld world,
+      final Random random,
+      final long toBlock,
+      final int blocks,
+      final int changes) {
+    final TestWorld next = world.copy();
+    final StateDiff diff = new StateDiff();
+    for (int b = 0; b < blocks; b++) {
+      diff.add(next.mutate(random, changes));
+    }
+    network.serve(next);
+    assertThat(stateSync.moveTo(header(toBlock, next.root()), diff)).isCompleted();
+    round();
+    network.forget(world.root());
+    return next;
+  }
+
+  private long progress() {
+    return stateSync.downloadedAccounts() + stateSync.downloadedSlots();
+  }
+
+  // the download applies its last changes to the tries and stops first, as before the final build
   private WorldStateTrieBuilder.Result build(final Storages storages) {
+    stateSync.finishStorageTries();
     stateSync.stop();
     return TestTries.build(storages.sync(), stateSync::storageTrieLeft);
+  }
+
+  // a state root no peer serves
+  private static Bytes32 root(final int value) {
+    return Bytes32.leftPad(Bytes.of(value));
   }
 
   private static BlockHeader header(final long number, final Bytes32 root) {

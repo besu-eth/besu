@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_PROTECTED_V_
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_UNPROTECTED_V_BASE;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_UNPROTECTED_V_BASE_PLUS_1;
 import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
+import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.hyperledger.besu.crypto.SECP256K1;
@@ -213,7 +214,7 @@ public class MessageWrapperTest {
     final var testJson = parseTestFile("PooledTransactionsPacket66.json");
     final Bytes expected = Bytes.fromHexString(testJson.get("rlp").asText());
     final PooledTransactionsMessage pooledTransactionsMessage =
-        PooledTransactionsMessage.create(
+        createPooledTransactionsMessage(
             Arrays.asList(
                 objectMapper.treeToValue(
                     testJson.get("data").get("PooledTransactionsPacket"), Transaction[].class)));

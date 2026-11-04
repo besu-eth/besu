@@ -69,7 +69,8 @@ public final class StorageTrieUpdater {
   private final Set<Bytes32> inProgress = new HashSet<>();
   private final AtomicLong updated = new AtomicLong();
   private boolean finishing;
-  private boolean stopped;
+  // read without the lock by the node writes of an update
+  private volatile boolean stopped;
 
   /** The slots moves changed in a storage, and the root of the trie to change. */
   private static final class Update {
@@ -336,9 +337,23 @@ public final class StorageTrieUpdater {
             trie.put(slot, RLP.encodeOne(value.toMinimalBytes()));
           }
         });
-    trie.commit((location, hash, node) -> writer.storageNode(accountHash, location, hash, node));
+    // checked at each node, since the writer commits on its own every few megabytes
+    trie.commit(
+        (location, hash, node) -> {
+          abortIfStopped(writer);
+          writer.storageNode(accountHash, location, hash, node);
+        });
+    abortIfStopped(writer);
     writer.commit();
     return trie.getRootHash();
+  }
+
+  // a stop waits a minute at most for the updates: one that outlasts it commits nothing more
+  private void abortIfStopped(final SyncStateStorage.TrieWriter writer) {
+    if (stopped) {
+      writer.abort();
+      throw new CancellationException("storage trie updates stopped");
+    }
   }
 
   // gives the root to the next update of the account, or to the account
