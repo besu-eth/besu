@@ -55,12 +55,6 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
           "Enable passing the revert reason back through TransactionReceipts (default: ${DEFAULT-VALUE})")
   private Boolean revertReasonEnabled = DEFAULT_REVERT_REASON_ENABLED;
 
-  @CommandLine.Option(
-      names = {"--history-expiry-prune"},
-      description =
-          "Convenience option to enable online history pruning and configure BlobDB garbage collection settings (default: ${DEFAULT-VALUE}). \"--history-expiry-prune\" is deprecated and will be removed in a future release.")
-  private Boolean historyExpiryPrune = false;
-
   /**
    * Options specific to path-based storage modes. Holds the necessary parameters to configure
    * path-based storage, such as the Bonsai mode or a future binary trie mode.
@@ -101,7 +95,6 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
     dataStorageOptions.revertReasonEnabled = domainObject.getRevertReasonEnabled();
     dataStorageOptions.extraStorageOptions =
         ExtraStorageOptions.fromConfig(domainObject.getExtraStorageConfiguration());
-    dataStorageOptions.historyExpiryPrune = domainObject.getHistoryExpiryPruneEnabled();
     return dataStorageOptions;
   }
 
@@ -112,7 +105,6 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
             .dataStorageFormat(dataStorageFormat)
             .receiptCompactionEnabled(receiptCompactionEnabled)
             .revertReasonEnabled(revertReasonEnabled)
-            .historyExpiryPruneEnabled(historyExpiryPrune)
             .extraStorageConfiguration(extraStorageOptions.toDomainObject());
     return builder.build();
   }

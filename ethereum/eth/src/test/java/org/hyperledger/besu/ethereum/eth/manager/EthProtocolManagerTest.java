@@ -15,11 +15,14 @@
 package org.hyperledger.besu.ethereum.eth.manager;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -31,6 +34,7 @@ import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -50,6 +54,7 @@ import org.hyperledger.besu.ethereum.eth.core.Utils;
 import org.hyperledger.besu.ethereum.eth.manager.MockPeerConnection.PeerSendHandler;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
+import org.hyperledger.besu.ethereum.eth.messages.BlockRangeUpdateMessage;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
@@ -58,6 +63,7 @@ import org.hyperledger.besu.ethereum.eth.messages.NewBlockMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
 import org.hyperledger.besu.ethereum.eth.messages.TransactionsMessage;
+import org.hyperledger.besu.ethereum.eth.sync.BlockRangeBroadcaster;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -95,6 +101,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -1511,5 +1518,124 @@ public final class EthProtocolManagerTest {
           EthProtocolVersion.V69.getCapability());
     }
     return sent.get();
+  }
+
+  @Test
+  public void shouldSendPrunerEarliestBlockToPeerWhenCapabilityEth69() {
+    final long chainEarliestBlock = 10L;
+    final long prunerEarliestBlock = 15L; // test chain has >= 20 blocks
+    final Blockchain blockChainMock = spy(blockchain);
+    when(blockChainMock.getEarliestBlockNumber(blockchain.getChainHeadBlockNumber()))
+        .thenReturn(Optional.of(chainEarliestBlock));
+    final ChainDataPruner chainDataPruner = mock(ChainDataPruner.class);
+    when(chainDataPruner.getEarliestRetainedBlock(blockchain.getChainHeadBlockNumber()))
+        .thenReturn(Optional.of(prunerEarliestBlock));
+
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockChainMock)
+            .setChainDataPruner(Optional.of(chainDataPruner))
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+            .build()) {
+
+      setupPeerWithoutStatusExchange(
+          ethManager,
+          (cap, msg, conn) -> {
+            assertThat(msg.getCode() == EthProtocolMessages.STATUS).isTrue();
+            long earliestBlock =
+                StatusMessage.create(msg.getData()).blockRange().orElseThrow().earliestBlock();
+            assertThat(earliestBlock).isEqualTo(prunerEarliestBlock);
+          },
+          EthProtocolVersion.V69.getCapability());
+    }
+  }
+
+  @Test
+  public void shouldNotScheduleBlockRangeTickWithoutEth69Support() {
+    final EthScheduler scheduler = mock(EthScheduler.class);
+
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(scheduler)
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(
+                ImmutableEthProtocolConfiguration.builder()
+                    .maxEthCapability(EthProtocolVersion.V68.getVersion())
+                    .build())
+            .build()) {
+
+      assertThat(ethManager.getHighestProtocolVersion())
+          .isEqualTo(EthProtocolVersion.V68.getVersion());
+      verify(scheduler, never()).scheduleFutureTaskWithFixedDelay(any(), any(), any());
+    }
+  }
+
+  @Test
+  public void blockRangeTickBroadcastsFreshSnapshotAfterFailedBroadcast() {
+    final EthScheduler scheduler = mock(EthScheduler.class);
+    final Blockchain blockChainMock = spy(blockchain);
+    when(blockChainMock.getEarliestBlockNumber(blockchain.getChainHeadBlockNumber()))
+        .thenReturn(Optional.of(10L));
+    final ChainDataPruner chainDataPruner = mock(ChainDataPruner.class);
+    when(chainDataPruner.getEarliestRetainedBlock(blockchain.getChainHeadBlockNumber()))
+        .thenReturn(Optional.of(12L));
+    final AtomicInteger broadcastAttempts = new AtomicInteger();
+    final List<BlockRangeUpdateMessage> broadcasts = new ArrayList<>();
+
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockChainMock)
+            .setChainDataPruner(Optional.of(chainDataPruner))
+            .setEthScheduler(scheduler)
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+            .build()) {
+
+      final ArgumentCaptor<Runnable> tick = ArgumentCaptor.forClass(Runnable.class);
+      verify(scheduler)
+          .scheduleFutureTaskWithFixedDelay(
+              tick.capture(),
+              eq(BlockRangeBroadcaster.BLOCK_RANGE_UPDATE_INTERVAL),
+              eq(BlockRangeBroadcaster.BLOCK_RANGE_UPDATE_INTERVAL));
+      setupPeer(
+          ethManager,
+          (cap, msg, conn) -> {
+            if (msg.getCode() == EthProtocolMessages.BLOCK_RANGE_UPDATE) {
+              if (broadcastAttempts.getAndIncrement() == 0) {
+                throw new IllegalStateException("broadcast failed");
+              }
+              broadcasts.add(BlockRangeUpdateMessage.readFrom(msg));
+            }
+          },
+          EthProtocolVersion.V69.getCapability());
+
+      assertThatCode(tick.getValue()::run).doesNotThrowAnyException();
+      assertThat(broadcastAttempts.get()).isEqualTo(1);
+      assertThat(broadcasts).isEmpty();
+
+      when(chainDataPruner.getEarliestRetainedBlock(blockchain.getChainHeadBlockNumber()))
+          .thenReturn(Optional.of(15L));
+      tick.getValue().run();
+
+      assertThat(broadcastAttempts.get()).isEqualTo(2);
+      assertThat(broadcasts)
+          .singleElement()
+          .satisfies(
+              message -> {
+                assertThat(message.getEarliestBlockNumber()).isEqualTo(15L);
+                assertThat(message.getLatestBlockNumber())
+                    .isEqualTo(blockchain.getChainHeadBlockNumber());
+                assertThat(message.getBlockHash()).isEqualTo(blockchain.getChainHeadHash());
+              });
+    }
   }
 }

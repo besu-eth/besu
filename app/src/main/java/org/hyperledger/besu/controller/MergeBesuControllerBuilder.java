@@ -24,6 +24,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.GenesisState;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
@@ -105,7 +106,8 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
       final EthScheduler scheduler,
       final List<PeerValidator> peerValidators,
       final Optional<MergePeerFilter> mergePeerFilter,
-      final ForkIdManager forkIdManager) {
+      final ForkIdManager forkIdManager,
+      final Optional<ChainDataPruner> chainDataPruner) {
 
     var mergeContext = protocolContext.getConsensusContext(MergeContext.class);
 
@@ -140,7 +142,8 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
             scheduler,
             peerValidators,
             filterToUse,
-            forkIdManager);
+            forkIdManager,
+            chainDataPruner);
 
     return ethProtocolManager;
   }

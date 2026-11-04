@@ -228,7 +228,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
         RocksDBConfigurationBuilder.from(factoryConfig)
             .databaseDir(storagePath(commonConfiguration));
 
-    if (commonConfiguration.getDataStorageConfiguration().isHistoryExpiryPruneEnabled()) {
+    if (factoryConfig.isBlockchainGarbageCollectionEnabled()) {
       configBuilder.isBlockchainGarbageCollectionEnabled(true);
       final double blobGarbageCollectionAgeCutoff =
           factoryConfig.getBlobGarbageCollectionAgeCutoff().orElse(0.5);
@@ -238,7 +238,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
       configBuilder.blobGarbageCollectionForceThreshold(
           Optional.of(blobGarbageCollectionForceThreshold));
       LOG.atInfo()
-          .setMessage("History expiry prune is enabled so setting {}; {}={}; {}={}")
+          .setMessage("Chain data will be pruned so setting {}; {}={}; {}={}")
           .addArgument(BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED)
           .addArgument(BLOB_GARBAGE_COLLECTION_AGE_CUTOFF)
           .addArgument(blobGarbageCollectionAgeCutoff)

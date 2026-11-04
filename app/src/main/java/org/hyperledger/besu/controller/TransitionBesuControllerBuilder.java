@@ -168,7 +168,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
       final EthScheduler scheduler,
       final List<PeerValidator> peerValidators,
       final Optional<MergePeerFilter> mergePeerFilter,
-      final ForkIdManager forkIdManager) {
+      final ForkIdManager forkIdManager,
+      final Optional<ChainDataPruner> chainDataPruner) {
     return mergeBesuControllerBuilder.createEthProtocolManager(
         protocolContext,
         synchronizerConfiguration,
@@ -180,7 +181,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
         scheduler,
         peerValidators,
         mergePeerFilter,
-        forkIdManager);
+        forkIdManager,
+        chainDataPruner);
   }
 
   @Override

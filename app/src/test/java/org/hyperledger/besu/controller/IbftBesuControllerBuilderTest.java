@@ -36,6 +36,8 @@ public class IbftBesuControllerBuilderTest extends AbstractBftBesuControllerBuil
   public void setupBftGenesisConfig() throws JsonProcessingException {
 
     // Ibft prepForBuild setup
+    lenient().when(genesisConfigOptions.isIbft2()).thenReturn(true);
+    lenient().when(genesisConfigOptions.getConsensusEngine()).thenReturn("ibft2");
     lenient()
         .when(genesisConfigOptions.getBftConfigOptions())
         .thenReturn(new MutableBftConfigOptions(JsonBftConfigOptions.DEFAULT));

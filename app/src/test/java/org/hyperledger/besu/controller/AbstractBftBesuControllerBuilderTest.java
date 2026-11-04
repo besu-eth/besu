@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.CheckpointConfigOptions;
@@ -30,9 +31,13 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
+import org.hyperledger.besu.ethereum.chain.BlockchainStorage;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
+import org.hyperledger.besu.ethereum.chain.ChainPrunerConfiguration;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -60,12 +65,14 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Range;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -84,6 +91,7 @@ public abstract class AbstractBftBesuControllerBuilderTest {
   @Mock CheckpointConfigOptions checkpointConfigOptions;
   @Mock private Clock clock;
   @Mock private StorageProvider storageProvider;
+  private BlockchainStorage blockchainStorage;
   @Mock private WorldStatePreimageStorage worldStatePreimageStorage;
   private static final BigInteger networkId = BigInteger.ONE;
   private static final NodeKey nodeKey = NodeKeyUtils.generate();
@@ -108,14 +116,15 @@ public abstract class AbstractBftBesuControllerBuilderTest {
     lenient().when(genesisConfig.getNonce()).thenReturn(Long.toHexString(1));
     lenient().when(genesisConfig.getConfigOptions()).thenReturn(genesisConfigOptions);
     lenient().when(genesisConfigOptions.getCheckpointOptions()).thenReturn(checkpointConfigOptions);
+    blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            new InMemoryKeyValueStorage(),
+            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
+            new MainnetBlockHeaderFunctions(),
+            false);
     lenient()
         .when(storageProvider.createBlockchainStorage(any(), any(), any()))
-        .thenReturn(
-            new KeyValueStoragePrefixedKeyBlockchainStorage(
-                new InMemoryKeyValueStorage(),
-                new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
-                new MainnetBlockHeaderFunctions(),
-                false));
+        .thenReturn(blockchainStorage);
     lenient()
         .when(
             storageProvider.createWorldStateStorageCoordinator(
@@ -193,6 +202,49 @@ public abstract class AbstractBftBesuControllerBuilderTest {
       // the coordinator was actually started, stop it so its executor threads don't outlive
       // the test
       miningCoordinator.stop();
+    }
+  }
+
+  @Test
+  public void importedBftHistoryPrunesWithoutSafeBlock() {
+    when(storageProvider.getStorageBySegmentIdentifier(any()))
+        .thenReturn(new InMemoryKeyValueStorage());
+    bftBesuControllerBuilder.chainPruningConfiguration(
+        new ChainPrunerConfiguration(ChainPruningStrategy.ALL, 2, 2, 2, 0));
+
+    try (final var besuController = bftBesuControllerBuilder.build()) {
+      final var blockchain = besuController.getProtocolContext().getBlockchain();
+      for (long number = 1; number <= 4; number++) {
+        final BlockHeader parent = blockchain.getChainHeadHeader();
+        final BlockHeader header =
+            BlockHeaderBuilder.fromHeader(parent)
+                .parentHash(parent.getHash())
+                .number(number)
+                .difficulty(Difficulty.ONE)
+                .timestamp(number)
+                .blockHeaderFunctions(getBlockHeaderFunctions())
+                .buildBlockHeader();
+        blockchain.appendBlock(new Block(header, BlockBody.empty()), List.of());
+      }
+
+      assertThat(blockchain.getSafeBlock()).isEmpty();
+      Awaitility.await()
+          .atMost(10, TimeUnit.SECONDS)
+          .untilAsserted(
+              () -> {
+                assertThat(
+                        blockchainStorage.getBlockBody(
+                            blockchainStorage.getBlockHash(1).orElseThrow()))
+                    .isEmpty();
+                assertThat(
+                        blockchainStorage.getBlockBody(
+                            blockchainStorage.getBlockHash(2).orElseThrow()))
+                    .isEmpty();
+              });
+      assertThat(blockchainStorage.getBlockBody(blockchainStorage.getBlockHash(3).orElseThrow()))
+          .isPresent();
+      assertThat(blockchainStorage.getBlockBody(blockchainStorage.getBlockHash(4).orElseThrow()))
+          .isPresent();
     }
   }
 

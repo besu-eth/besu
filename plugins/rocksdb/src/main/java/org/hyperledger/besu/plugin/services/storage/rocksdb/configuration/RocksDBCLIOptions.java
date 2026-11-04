@@ -227,6 +227,14 @@ public class RocksDBCLIOptions {
   }
 
   /**
+   * Enables garbage collection for the BLOCKCHAIN column family. One-way, so it never overrides
+   * {@code --Xplugin-rocksdb-blockchain-blob-garbage-collection-enabled}.
+   */
+  public void enableBlockchainGarbageCollection() {
+    this.isBlockchainGarbageCollectionEnabled = true;
+  }
+
+  /**
    * Returns the max open files value that will be used, either explicitly set or derived from
    * available memory.
    *

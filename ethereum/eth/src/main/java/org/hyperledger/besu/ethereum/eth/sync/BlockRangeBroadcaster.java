@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.eth.manager.BlockRangeProvider;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
@@ -37,24 +38,27 @@ import org.slf4j.LoggerFactory;
 public class BlockRangeBroadcaster {
   private static final Logger LOG = LoggerFactory.getLogger(BlockRangeBroadcaster.class);
 
-  // range update block interval
-  static final int BLOCK_RANGE_UPDATE_INTERVAL = 120;
+  /** Interval between block range snapshots. */
+  public static final Duration BLOCK_RANGE_UPDATE_INTERVAL = Duration.ofMinutes(2);
 
   private final EthContext ethContext;
   private final Blockchain blockchain;
+  private final BlockRangeProvider blockRangeProvider;
 
-  public BlockRangeBroadcaster(final EthContext ethContext, final Blockchain blockchain) {
+  public BlockRangeBroadcaster(
+      final EthContext ethContext,
+      final Blockchain blockchain,
+      final BlockRangeProvider blockRangeProvider) {
     this.ethContext = ethContext;
     this.blockchain = blockchain;
+    this.blockRangeProvider = blockRangeProvider;
     ethContext
         .getEthMessages()
         .subscribe(EthProtocolMessages.BLOCK_RANGE_UPDATE, this::handleBlockRangeUpdateMessage);
     ethContext
         .getScheduler()
         .scheduleFutureTaskWithFixedDelay(
-            this::broadcastBlockRange,
-            Duration.ofSeconds(BLOCK_RANGE_UPDATE_INTERVAL),
-            Duration.ofSeconds(BLOCK_RANGE_UPDATE_INTERVAL));
+            this::broadcastBlockRange, BLOCK_RANGE_UPDATE_INTERVAL, BLOCK_RANGE_UPDATE_INTERVAL);
   }
 
   /**
@@ -109,25 +113,28 @@ public class BlockRangeBroadcaster {
   }
 
   /**
-   * Broadcasts a block range update message to all connected peers that support the
-   * BLOCK_RANGE_UPDATE protocol. This method is used to inform peers about the range of blocks
-   * available, from the earliest to the latest. If the earliest block number is not available, or
-   * above the chain head, the genesis block number is used as a fallback.
+   * Computes and broadcasts a fresh block range snapshot. A failed update must not cancel later
+   * fixed-delay ticks. If no block data is available at or below the captured head, the genesis
+   * range is sent instead.
    */
   @VisibleForTesting
-  protected void broadcastBlockRange() {
-    final BlockHeader chainHeader = blockchain.getChainHeadHeader();
-    blockchain
-        .getEarliestBlockNumber(chainHeader.getNumber())
-        .ifPresentOrElse(
-            earliestBlockNumber ->
+  void broadcastBlockRange() {
+    try {
+      final BlockHeader chainHeader = blockchain.getChainHeadHeader();
+      blockRangeProvider
+          .getEarliestBlockNumber(chainHeader.getNumber())
+          .ifPresentOrElse(
+              earliestBlockNumber ->
+                  broadcastBlockRange(
+                      earliestBlockNumber, chainHeader.getNumber(), chainHeader.getHash()),
+              () -> {
+                final BlockHeader genesisBlock = blockchain.getGenesisBlockHeader();
                 broadcastBlockRange(
-                    earliestBlockNumber, chainHeader.getNumber(), chainHeader.getHash()),
-            () -> {
-              BlockHeader genesisBlock = blockchain.getGenesisBlockHeader();
-              broadcastBlockRange(
-                  genesisBlock.getNumber(), genesisBlock.getNumber(), genesisBlock.getHash());
-            });
+                    genesisBlock.getNumber(), genesisBlock.getNumber(), genesisBlock.getHash());
+              });
+    } catch (final RuntimeException e) {
+      LOG.warn("Block range update failed; retrying on the next tick", e);
+    }
   }
 
   /**

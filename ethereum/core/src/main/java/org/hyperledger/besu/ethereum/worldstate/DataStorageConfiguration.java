@@ -24,7 +24,6 @@ import org.immutables.value.Value;
 public interface DataStorageConfiguration {
 
   boolean DEFAULT_RECEIPT_COMPACTION_ENABLED = true;
-  boolean DEFAULT_HISTORY_EXPIRY_PRUNE_ENABLED = false;
   boolean DEFAULT_REVERT_REASON_ENABLED = false;
 
   DataStorageConfiguration DEFAULT_CONFIG =
@@ -63,11 +62,6 @@ public interface DataStorageConfiguration {
   @Value.Default
   default boolean getReceiptCompactionEnabled() {
     return DEFAULT_RECEIPT_COMPACTION_ENABLED;
-  }
-
-  @Value.Default
-  default boolean getHistoryExpiryPruneEnabled() {
-    return DEFAULT_HISTORY_EXPIRY_PRUNE_ENABLED;
   }
 
   @Value.Default

@@ -69,7 +69,6 @@ public class ConfigurationOverviewBuilder {
   private boolean evmV2 = false;
   private Map<String, String> environment;
   private BesuPluginContextImpl besuPluginContext;
-  private boolean isHistoryExpiryPruneEnabled = false;
   private boolean isParallelTxProcessingEnabled = false;
   private ChainPruningStrategy chainPruningStrategy = ChainPruningStrategy.NONE;
   private Long chainPruningBlocksRetained;
@@ -370,18 +369,6 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
-   * Sets the history expiry prune enabled.
-   *
-   * @param isHistoryExpiryPruneEnabled the history expiry prune enabled
-   * @return the builder
-   */
-  public ConfigurationOverviewBuilder setHistoryExpiryPruneEnabled(
-      final boolean isHistoryExpiryPruneEnabled) {
-    this.isHistoryExpiryPruneEnabled = isHistoryExpiryPruneEnabled;
-    return this;
-  }
-
-  /**
    * Sets the blob db settings.
    *
    * @param blobDBSettings the blob db settings
@@ -596,12 +583,10 @@ public class ConfigurationOverviewBuilder {
 
       if (chainPruningStrategy.equals(ChainPruningStrategy.ALL)) {
         chainPruningString
-            .append("Chain and BAL pruning enabled (retained ")
-            .append("BALs: ")
-            .append(chainPruningBalsRetained)
-            .append("; Blocks: ")
-            .append(chainPruningBlocksRetained);
-        ;
+            .append("Chain and BAL pruning enabled (retained Blocks: ")
+            .append(chainPruningBlocksRetained)
+            .append(", retained BALs: ")
+            .append(chainPruningBalsRetained);
 
       } else if (chainPruningStrategy.equals(ChainPruningStrategy.BAL)) {
         chainPruningString
@@ -614,10 +599,6 @@ public class ConfigurationOverviewBuilder {
 
     if (isHighSpec) {
       lines.add("Experimental high spec configuration enabled");
-    }
-
-    if (isHistoryExpiryPruneEnabled) {
-      lines.add("History expiry prune enabled");
     }
 
     if (blobDBSettings != null && blobDBSettings.isBlockchainGarbageCollectionEnabled()) {

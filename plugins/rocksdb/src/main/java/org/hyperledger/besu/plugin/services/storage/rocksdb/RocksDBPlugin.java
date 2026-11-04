@@ -58,6 +58,14 @@ public class RocksDBPlugin implements BesuPlugin {
     ignorableSegments.add(ignorable);
   }
 
+  /**
+   * Enable garbage collection for the BLOCKCHAIN column family. Must be called before storage is
+   * first created; the factory reads the options lazily.
+   */
+  public void enableBlockchainGarbageCollection() {
+    options.enableBlockchainGarbageCollection();
+  }
+
   @Override
   public void register(final ServiceManager context) {
     LOG.debug("Registering plugin");
