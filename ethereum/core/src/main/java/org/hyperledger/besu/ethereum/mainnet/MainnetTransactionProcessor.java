@@ -575,11 +575,11 @@ public class MainnetTransactionProcessor {
               .build()
               .calculate();
       final long stateGasUsed = gasResult.effectiveStateGas();
-      final long gasUsedByTransaction = gasResult.gasUsedByTransaction();
+      final long totalGasBudget = gasResult.totalGasBudget();
       final long usedGas = gasResult.usedGas();
       LOG.trace(
-          "EIP-8037 TX_END gasUsed={} stateGasUsed={} reservoir={}",
-          gasUsedByTransaction,
+          "EIP-8037 TX_END totalGasBudget={} stateGasUsed={} reservoir={}",
+          totalGasBudget,
           stateGasUsed,
           initialFrame.getStateGasReservoir());
       final Optional<CoinbaseFeePriceCalculator> coinbaseCalculator =
@@ -588,17 +588,20 @@ public class MainnetTransactionProcessor {
       if (coinbaseCalculator.isEmpty()) {
         final Optional<PartialBlockAccessView> partialBlockAccessView =
             accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
-        return TransactionProcessingResult.failed(
-            gasUsedByTransaction,
-            refundedGas,
-            usedGas,
-            stateGasUsed,
-            ValidationResult.invalid(
-                TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
-                "transaction price must be greater than base fee"),
-            Optional.empty(),
-            Optional.empty(),
-            partialBlockAccessView);
+        final TransactionProcessingResult underpricedResult =
+            TransactionProcessingResult.failed(
+                totalGasBudget,
+                refundedGas,
+                usedGas,
+                stateGasUsed,
+                ValidationResult.invalid(
+                    TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
+                    "transaction price must be greater than base fee"),
+                Optional.empty(),
+                Optional.empty(),
+                partialBlockAccessView);
+        underpricedResult.setExecutionGasUsedForBlock(gasResult.executionGas());
+        return underpricedResult;
       }
 
       final Wei coinbaseWeiDelta =
@@ -629,7 +632,7 @@ public class MainnetTransactionProcessor {
           txSucceeded,
           initialFrame.getOutputData(),
           initialFrame.getLogs(),
-          gasUsedByTransaction,
+          totalGasBudget,
           effectiveSelfDestructs,
           0L);
 
@@ -646,7 +649,7 @@ public class MainnetTransactionProcessor {
         final TransactionProcessingResult successResult =
             TransactionProcessingResult.successful(
                 initialFrame.getLogs(),
-                gasUsedByTransaction,
+                totalGasBudget,
                 refundedGas,
                 usedGas,
                 stateGasUsed,
@@ -670,7 +673,7 @@ public class MainnetTransactionProcessor {
         }
         final TransactionProcessingResult failedResult =
             TransactionProcessingResult.failed(
-                gasUsedByTransaction,
+                totalGasBudget,
                 refundedGas,
                 usedGas,
                 stateGasUsed,

@@ -5,7 +5,7 @@ on:
   workflow_call:
     inputs:
       evm_v2:
-        description: 'Run the devnet tests on EVM v2 (-Dtest.evm.v2=true)'
+        description: 'Run the devnet tests on EVM v2 (-Dtest.evm.v2=true), otherwise on EVM v1'
         required: false
         type: boolean
         default: false
@@ -53,7 +53,7 @@ jobs:
       - name: Run ${{ matrix.task }}
         run: |
           echo "${{ matrix.fixtures }}" > fixtureSubset.txt
-          ./gradlew :ethereum:evmtool:${{ matrix.task }} -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
+          ./gradlew :ethereum:evmtool:${{ matrix.task }} -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt -Dtest.evm.v2=${{ inputs.evm_v2 }}
       - name: report disk usage
         if: always()
         run: |
