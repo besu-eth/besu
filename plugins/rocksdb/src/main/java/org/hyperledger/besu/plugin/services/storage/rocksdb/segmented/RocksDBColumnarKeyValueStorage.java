@@ -30,6 +30,7 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBWriteBatchTra
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbSegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbUtil;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfiguration;
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageTransactionValidatorDecorator;
 
@@ -91,7 +92,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   private static final long ROCKSDB_BLOCK_SIZE = 32768;
 
   /** RocksDb blockcache size when using the high spec option */
-  protected static final long ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC = 1_073_741_824L;
+  protected static final long ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC =
+      RocksDBCLIOptions.HIGH_SPEC_CACHE_CAPACITY;
 
   /** Max total size of all WAL file, after which a flush is triggered */
   protected static final long WAL_MAX_TOTAL_SIZE = 1_073_741_824L;

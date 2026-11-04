@@ -43,8 +43,23 @@ public class RocksDBCLIOptions {
    */
   private static final int OPEN_FILES_PER_GIB = 512;
 
+  /**
+   * Memory left out when deriving max open files, for the OS and other processes on the host, such
+   * as a consensus client.
+   */
+  private static final long RESERVED_MEMORY_BYTES = 4 * GIB;
+
+  /**
+   * Column families whose block caches fill up: the chain and the Bonsai state, which are also the
+   * ones that get the high spec cache.
+   */
+  private static final int FILLED_BLOCK_CACHES = 4;
+
   /** The constant DEFAULT_CACHE_CAPACITY. */
   public static final long DEFAULT_CACHE_CAPACITY = 134217728;
+
+  /** The block cache capacity of a column family eligible for the high spec flag. */
+  public static final long HIGH_SPEC_CACHE_CAPACITY = GIB;
 
   /** The constant DEFAULT_BACKGROUND_THREAD_COUNT. */
   public static final int DEFAULT_BACKGROUND_THREAD_COUNT = 4;
@@ -163,8 +178,7 @@ public class RocksDBCLIOptions {
   Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
 
   private final Supplier<Integer> resolvedMaxOpenFilesSupplier =
-      Suppliers.memoize(
-          () -> maxOpenFiles.orElseGet(RocksDBCLIOptions::deriveMaxOpenFilesFromAvailableMemory));
+      Suppliers.memoize(() -> maxOpenFiles.orElseGet(this::deriveMaxOpenFilesFromAvailableMemory));
 
   private RocksDBCLIOptions() {}
 
@@ -246,16 +260,27 @@ public class RocksDBCLIOptions {
   }
 
   /**
-   * Derives max open files from the host's available memory.
+   * Derives max open files from the memory left for RocksDB table readers: the total memory of the
+   * host or container minus the maximum heap, the block caches and a reserve for other processes.
+   * The value depends neither on how much of the heap is committed at startup nor on the page
+   * cache.
    *
    * @return the max open files value for the current machine, or {@link #DEFAULT_MAX_OPEN_FILES} if
    *     memory information is unavailable
    */
-  public static int deriveMaxOpenFilesFromAvailableMemory() {
+  private int deriveMaxOpenFilesFromAvailableMemory() {
     final java.lang.management.OperatingSystemMXBean osBean =
         ManagementFactory.getOperatingSystemMXBean();
     if (osBean instanceof OperatingSystemMXBean operatingSystemMXBean) {
-      return calculateMaxOpenFiles(operatingSystemMXBean.getFreeMemorySize());
+      // -1 when the maximum heap is undefined
+      final long maxHeapBytes = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax();
+      final long blockCacheBytes =
+          FILLED_BLOCK_CACHES * (isHighSpec ? HIGH_SPEC_CACHE_CAPACITY : cacheCapacity);
+      return calculateMaxOpenFiles(
+          operatingSystemMXBean.getTotalMemorySize()
+              - Math.max(0, maxHeapBytes)
+              - blockCacheBytes
+              - RESERVED_MEMORY_BYTES);
     }
     return DEFAULT_MAX_OPEN_FILES;
   }

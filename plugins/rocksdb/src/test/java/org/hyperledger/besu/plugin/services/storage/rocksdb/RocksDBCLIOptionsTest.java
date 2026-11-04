@@ -31,6 +31,8 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
 
 import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
 
 import com.sun.management.OperatingSystemMXBean;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,10 @@ import picocli.CommandLine;
 
 public class RocksDBCLIOptionsTest {
 
+  private static final long MIB = 1024L * 1024L;
+  private static final long RESERVED_MEMORY = 4L * GIB;
+  // the four column families whose block caches fill up
+  private static final long DEFAULT_BLOCK_CACHES = 4 * DEFAULT_CACHE_CAPACITY;
   private static final int MAX_OPEN_FILES_4GB = 2048;
   private static final int MAX_OPEN_FILES_8GB = 4096;
   private static final int MAX_OPEN_FILES_16GB = 8192;
@@ -83,7 +89,8 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration).isNotNull();
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(DEFAULT_BACKGROUND_THREAD_COUNT);
     assertThat(configuration.getCacheCapacity()).isEqualTo(expectedCacheCapacity);
-    assertThat(configuration.getMaxOpenFiles()).isEqualTo(MAX_OPEN_FILES_8GB);
+    // four block caches of that size leave no memory for table readers
+    assertThat(configuration.getMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
     assertThat(configuration.isHighSpec()).isEqualTo(DEFAULT_IS_HIGH_SPEC);
   }
 
@@ -154,17 +161,81 @@ public class RocksDBCLIOptionsTest {
     assertMaxOpenFilesDerivedFromAvailableMemory(sixteenPointOneGib, 8243);
   }
 
+  @Test
+  public void autoMaxOpenFilesLeavesOutMaxHeap() {
+    final long maxHeap = 8L * GIB;
+    final MemoryUsage fullyCommittedHeap = new MemoryUsage(maxHeap, 512L * MIB, maxHeap, maxHeap);
+    final MemoryUsage partlyCommittedHeap =
+        new MemoryUsage(512L * MIB, 256L * MIB, 512L * MIB, maxHeap);
+
+    final long totalMemory = 16L * GIB + DEFAULT_BLOCK_CACHES + RESERVED_MEMORY;
+
+    assertThat(toOptionsWithMemory(totalMemory, fullyCommittedHeap).getResolvedMaxOpenFiles())
+        .isEqualTo(MAX_OPEN_FILES_8GB);
+    assertThat(toOptionsWithMemory(totalMemory, partlyCommittedHeap).getResolvedMaxOpenFiles())
+        .isEqualTo(MAX_OPEN_FILES_8GB);
+  }
+
+  @Test
+  public void autoMaxOpenFilesLeavesOutBlockCachesAndReserve() {
+    // 16 GiB minus a 4 GiB heap, 512 MiB of block caches and the reserve leave 7.5 GiB
+    final RocksDBCLIOptions options = toOptionsWithMemory(16L * GIB, heapWithMax(4L * GIB));
+
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(3840);
+  }
+
+  @Test
+  public void autoMaxOpenFilesLeavesOutHighSpecBlockCaches() {
+    // 32 GiB minus an 8 GiB heap, four 1 GiB block caches and the reserve leave 16 GiB
+    final RocksDBCLIOptions options =
+        toOptionsWithMemory(32L * GIB, heapWithMax(8L * GIB), IS_HIGH_SPEC);
+
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(MAX_OPEN_FILES_16GB);
+  }
+
+  @Test
+  public void autoMaxOpenFilesWithMaxHeapAboveTotalMemory() {
+    final RocksDBCLIOptions options = toOptionsWithMemory(4L * GIB, heapWithMax(16L * GIB));
+
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+  }
+
+  @Test
+  public void autoMaxOpenFilesWithUndefinedMaxHeapUsesTotalMemory() {
+    final RocksDBCLIOptions options =
+        toOptionsWithMemory(8L * GIB + DEFAULT_BLOCK_CACHES + RESERVED_MEMORY, heapWithMax(-1));
+
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(MAX_OPEN_FILES_8GB);
+  }
+
   private static RocksDBFactoryConfiguration toDomainObjectWithAvailableMemory(
-      final long freeMemoryBytes, final String... cliArgs) {
-    return toOptionsWithAvailableMemory(freeMemoryBytes, cliArgs).toDomainObject();
+      final long availableMemoryBytes, final String... cliArgs) {
+    return toOptionsWithAvailableMemory(availableMemoryBytes, cliArgs).toDomainObject();
   }
 
   private static RocksDBCLIOptions toOptionsWithAvailableMemory(
-      final long freeMemoryBytes, final String... cliArgs) {
+      final long availableMemoryBytes, final String... cliArgs) {
+    // a 1 GiB heap, the default block caches and the reserve on top of the memory left for
+    // table readers
+    return toOptionsWithMemory(
+        availableMemoryBytes + GIB + DEFAULT_BLOCK_CACHES + RESERVED_MEMORY,
+        heapWithMax(GIB),
+        cliArgs);
+  }
+
+  private static MemoryUsage heapWithMax(final long maxHeapBytes) {
+    return new MemoryUsage(0, 0, 0, maxHeapBytes);
+  }
+
+  private static RocksDBCLIOptions toOptionsWithMemory(
+      final long totalMemoryBytes, final MemoryUsage heap, final String... cliArgs) {
     try (MockedStatic<ManagementFactory> managementFactory = mockStatic(ManagementFactory.class)) {
       final OperatingSystemMXBean osBean = mock(OperatingSystemMXBean.class);
-      when(osBean.getFreeMemorySize()).thenReturn(freeMemoryBytes);
+      when(osBean.getTotalMemorySize()).thenReturn(totalMemoryBytes);
       managementFactory.when(ManagementFactory::getOperatingSystemMXBean).thenReturn(osBean);
+      final MemoryMXBean memoryBean = mock(MemoryMXBean.class);
+      when(memoryBean.getHeapMemoryUsage()).thenReturn(heap);
+      managementFactory.when(ManagementFactory::getMemoryMXBean).thenReturn(memoryBean);
 
       final RocksDBCLIOptions options = RocksDBCLIOptions.create();
       new CommandLine(options).parseArgs(cliArgs);
@@ -174,9 +245,9 @@ public class RocksDBCLIOptionsTest {
   }
 
   private static void assertMaxOpenFilesDerivedFromAvailableMemory(
-      final long freeMemoryBytes, final int expectedMaxOpenFiles) {
+      final long availableMemoryBytes, final int expectedMaxOpenFiles) {
     final RocksDBFactoryConfiguration configuration =
-        toDomainObjectWithAvailableMemory(freeMemoryBytes);
+        toDomainObjectWithAvailableMemory(availableMemoryBytes);
     assertThat(configuration.getMaxOpenFiles()).isEqualTo(expectedMaxOpenFiles);
   }
 }
