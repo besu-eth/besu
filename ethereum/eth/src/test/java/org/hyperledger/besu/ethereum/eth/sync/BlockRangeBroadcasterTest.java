@@ -14,17 +14,16 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.manager.BlockRangeProvider;
@@ -49,6 +48,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -61,7 +61,7 @@ public class BlockRangeBroadcasterTest {
   @Mock private EthPeers ethPeers;
   @Mock private EthPeer ethPeerWithSupport;
   @Mock private EthPeer ethPeerWithoutSupport;
-  @Mock private ChainDataPruner chainDataPruner;
+  @Mock private BlockRangeProvider blockRangeProvider;
 
   private BlockRangeBroadcaster blockRangeBroadcaster;
 
@@ -69,21 +69,7 @@ public class BlockRangeBroadcasterTest {
   public void setup() {
     when(ethContext.getEthMessages()).thenReturn(mock(EthMessages.class));
     when(ethContext.getScheduler()).thenReturn(mock(EthScheduler.class));
-    blockRangeBroadcaster =
-        spy(
-            new BlockRangeBroadcaster(
-                ethContext,
-                blockchain,
-                new BlockRangeProvider(blockchain, Optional.of(chainDataPruner))));
-  }
-
-  @Test
-  public void shouldBroadcastBlockRange() throws PeerConnection.PeerNotConnected {
-    setupPeers(ethPeerWithSupport);
-    when(ethPeerWithSupport.hasSupportForMessage(EthProtocolMessages.BLOCK_RANGE_UPDATE))
-        .thenReturn(true);
-    broadcastBlockRange();
-    verify(ethPeerWithSupport, times(1)).send(any(BlockRangeUpdateMessage.class));
+    blockRangeBroadcaster = new BlockRangeBroadcaster(ethContext, blockchain, blockRangeProvider);
   }
 
   @Test
@@ -122,24 +108,39 @@ public class BlockRangeBroadcasterTest {
   }
 
   @Test
-  public void shouldSendCorrectBlockRangeToPeers() {
+  public void shouldSendSnapshotBlockRangeToPeers() throws PeerConnection.PeerNotConnected {
     final long expectedEarliestBlock = 10L;
     final long expectedLatestBlockNumber = 20L;
     final Hash expectedBlockHash = Hash.wrap(Bytes32.fromHexString("0x0B"));
+    final BlockHeader latestBlockHeader = mock(BlockHeader.class);
+    when(latestBlockHeader.getNumber()).thenReturn(expectedLatestBlockNumber);
+    when(latestBlockHeader.getHash()).thenReturn(expectedBlockHash);
+    when(blockchain.getChainHeadHeader()).thenReturn(latestBlockHeader);
+    setupPeers(ethPeerWithSupport);
+    when(ethPeerWithSupport.hasSupportForMessage(EthProtocolMessages.BLOCK_RANGE_UPDATE))
+        .thenReturn(true);
 
-    setupPeers(ethPeerWithoutSupport, ethPeerWithSupport);
-    setupBlockchain(expectedEarliestBlock, expectedLatestBlockNumber, expectedBlockHash);
-    when(chainDataPruner.getEarliestRetainedBlock(expectedLatestBlockNumber))
-        .thenReturn(Optional.empty());
-
+    when(blockRangeProvider.getEarliestBlockNumber(expectedLatestBlockNumber))
+        .thenReturn(Optional.of(expectedEarliestBlock));
     blockRangeBroadcaster.broadcastBlockRange();
-    verify(blockRangeBroadcaster, times(1))
-        .broadcastBlockRange(expectedEarliestBlock, expectedLatestBlockNumber, expectedBlockHash);
+
+    final ArgumentCaptor<BlockRangeUpdateMessage> message =
+        ArgumentCaptor.forClass(BlockRangeUpdateMessage.class);
+    verify(ethPeerWithSupport).send(message.capture());
+    assertThat(message.getValue().getEarliestBlockNumber()).isEqualTo(expectedEarliestBlock);
+    assertThat(message.getValue().getLatestBlockNumber()).isEqualTo(expectedLatestBlockNumber);
+    assertThat(message.getValue().getBlockHash()).isEqualTo(expectedBlockHash);
   }
 
   @Test
-  public void shouldSendTheGenesisRangeWhenTheEarliestBlockIsAboveTheChainHead() {
-    setupPeers(ethPeerWithoutSupport, ethPeerWithSupport);
+  public void shouldSendTheGenesisRangeWhenTheEarliestBlockIsAboveTheChainHead()
+      throws PeerConnection.PeerNotConnected {
+    blockRangeBroadcaster =
+        new BlockRangeBroadcaster(
+            ethContext, blockchain, new BlockRangeProvider(blockchain, Optional.empty()));
+    setupPeers(ethPeerWithSupport);
+    when(ethPeerWithSupport.hasSupportForMessage(EthProtocolMessages.BLOCK_RANGE_UPDATE))
+        .thenReturn(true);
     final BlockHeader chainHead = mock(BlockHeader.class);
     when(chainHead.getNumber()).thenReturn(20L);
     when(blockchain.getChainHeadHeader()).thenReturn(chainHead);
@@ -152,34 +153,35 @@ public class BlockRangeBroadcasterTest {
 
     blockRangeBroadcaster.broadcastBlockRange();
 
-    verify(blockRangeBroadcaster).broadcastBlockRange(0L, 0L, Hash.ZERO);
-  }
-
-  private void setupBlockchain(
-      final long earliestBlockNumber, final long latestBlockNumber, final Hash expectedBlockHash) {
-    final BlockHeader latestBlockHeader = mock(BlockHeader.class);
-    when(latestBlockHeader.getNumber()).thenReturn(latestBlockNumber);
-    when(latestBlockHeader.getHash()).thenReturn(expectedBlockHash);
-    when(blockchain.getEarliestBlockNumber(latestBlockNumber))
-        .thenReturn(Optional.of(earliestBlockNumber));
-    when(blockchain.getChainHeadHeader()).thenReturn(latestBlockHeader);
+    final ArgumentCaptor<BlockRangeUpdateMessage> message =
+        ArgumentCaptor.forClass(BlockRangeUpdateMessage.class);
+    verify(ethPeerWithSupport).send(message.capture());
+    assertThat(message.getValue().getEarliestBlockNumber()).isZero();
+    assertThat(message.getValue().getLatestBlockNumber()).isZero();
+    assertThat(message.getValue().getBlockHash()).isEqualTo(Hash.ZERO);
   }
 
   @Test
-  public void shouldSendPrunerBoundWhenItIsAboveChainEarliest() {
-    final long chainEarliestBlock = 10L;
-    final long prunerEarliestBlock = 15L;
-    final long expectedLatestBlockNumber = 20L;
-    final Hash expectedBlockHash = Hash.wrap(Bytes32.fromHexString("0x0B"));
+  public void shouldSendGenesisRangeWhenSnapshotIsEmpty() throws PeerConnection.PeerNotConnected {
+    final Hash genesisHash = Hash.wrap(Bytes32.fromHexString("0x0B"));
+    final BlockHeader genesisHeader = mock(BlockHeader.class);
+    when(genesisHeader.getNumber()).thenReturn(0L);
+    when(genesisHeader.getHash()).thenReturn(genesisHash);
+    when(blockchain.getGenesisBlockHeader()).thenReturn(genesisHeader);
+    when(blockchain.getChainHeadHeader()).thenReturn(genesisHeader);
+    setupPeers(ethPeerWithSupport);
+    when(ethPeerWithSupport.hasSupportForMessage(EthProtocolMessages.BLOCK_RANGE_UPDATE))
+        .thenReturn(true);
 
-    setupPeers(ethPeerWithoutSupport, ethPeerWithSupport);
-    setupBlockchain(chainEarliestBlock, expectedLatestBlockNumber, expectedBlockHash);
-    when(chainDataPruner.getEarliestRetainedBlock(expectedLatestBlockNumber))
-        .thenReturn(Optional.of(prunerEarliestBlock));
-
+    when(blockRangeProvider.getEarliestBlockNumber(0L)).thenReturn(Optional.empty());
     blockRangeBroadcaster.broadcastBlockRange();
-    verify(blockRangeBroadcaster, times(1))
-        .broadcastBlockRange(prunerEarliestBlock, expectedLatestBlockNumber, expectedBlockHash);
+
+    final ArgumentCaptor<BlockRangeUpdateMessage> message =
+        ArgumentCaptor.forClass(BlockRangeUpdateMessage.class);
+    verify(ethPeerWithSupport).send(message.capture());
+    assertThat(message.getValue().getEarliestBlockNumber()).isZero();
+    assertThat(message.getValue().getLatestBlockNumber()).isZero();
+    assertThat(message.getValue().getBlockHash()).isEqualTo(genesisHash);
   }
 
   @Test
@@ -187,6 +189,8 @@ public class BlockRangeBroadcasterTest {
     final EthPeer peer = mock(EthPeer.class);
     handleBlockRangeUpdateMessage(peer, 0L, 1L);
     verify(peer, never()).disconnect(any());
+    verify(peer).registerKnownBlock(Hash.ZERO);
+    verify(peer).registerBlockRange(Hash.ZERO, 1L, 0L);
   }
 
   @Test
@@ -194,6 +198,8 @@ public class BlockRangeBroadcasterTest {
     final EthPeer peer = mock(EthPeer.class);
     handleBlockRangeUpdateMessage(peer, 0L, 0L);
     verify(peer, never()).disconnect(any());
+    verify(peer).registerKnownBlock(Hash.ZERO);
+    verify(peer).registerBlockRange(Hash.ZERO, 0L, 0L);
   }
 
   @Test

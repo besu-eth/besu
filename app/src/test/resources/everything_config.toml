@@ -69,6 +69,7 @@ sync-mode="fast"
 sync-min-peers=5
 network-id=303
 kzg-trusted-setup="/etc/besu/kzg-trusted-setup.txt"
+Xchain-pruning-bals-retained=1056768
 
 # JSON-RPC
 rpc-http-enabled=false

@@ -31,23 +31,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.methods.JsonRpcMethods;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
-import org.hyperledger.besu.ethereum.eth.manager.EthContext;
-import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.ethereum.eth.manager.MergePeerFilter;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
-import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
-import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
@@ -278,52 +270,6 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
   @Override
   protected void validateContext(final ProtocolContext context) {
     besuControllerBuilderSchedule.get(GENESIS_BLOCK_NUMBER).validateContext(context);
-  }
-
-  @Override
-  protected EthProtocolManager createEthProtocolManager(
-      final ProtocolContext protocolContext,
-      final SynchronizerConfiguration synchronizerConfiguration,
-      final TransactionPool transactionPool,
-      final EthProtocolConfiguration ethereumWireProtocolConfiguration,
-      final EthPeers ethPeers,
-      final EthContext ethContext,
-      final EthMessages ethMessages,
-      final EthScheduler scheduler,
-      final List<PeerValidator> peerValidators,
-      final Optional<MergePeerFilter> mergePeerFilter,
-      final ForkIdManager forkIdManager,
-      final Optional<ChainDataPruner> chainDataPruner) {
-    besuControllerBuilderSchedule
-        .values()
-        .forEach(
-            b ->
-                b.createEthProtocolManager(
-                    protocolContext,
-                    synchronizerConfiguration,
-                    transactionPool,
-                    ethereumWireProtocolConfiguration,
-                    ethPeers,
-                    ethContext,
-                    ethMessages,
-                    scheduler,
-                    peerValidators,
-                    mergePeerFilter,
-                    forkIdManager,
-                    chainDataPruner));
-    return super.createEthProtocolManager(
-        protocolContext,
-        synchronizerConfiguration,
-        transactionPool,
-        ethereumWireProtocolConfiguration,
-        ethPeers,
-        ethContext,
-        ethMessages,
-        scheduler,
-        peerValidators,
-        mergePeerFilter,
-        forkIdManager,
-        chainDataPruner);
   }
 
   @Override

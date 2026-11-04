@@ -38,8 +38,8 @@ import org.slf4j.LoggerFactory;
 public class BlockRangeBroadcaster {
   private static final Logger LOG = LoggerFactory.getLogger(BlockRangeBroadcaster.class);
 
-  // range update block interval
-  static final int BLOCK_RANGE_UPDATE_INTERVAL = 120;
+  /** Interval between block range snapshots. */
+  public static final Duration BLOCK_RANGE_UPDATE_INTERVAL = Duration.ofMinutes(2);
 
   private final EthContext ethContext;
   private final Blockchain blockchain;
@@ -58,9 +58,7 @@ public class BlockRangeBroadcaster {
     ethContext
         .getScheduler()
         .scheduleFutureTaskWithFixedDelay(
-            this::broadcastBlockRange,
-            Duration.ofSeconds(BLOCK_RANGE_UPDATE_INTERVAL),
-            Duration.ofSeconds(BLOCK_RANGE_UPDATE_INTERVAL));
+            this::broadcastBlockRange, BLOCK_RANGE_UPDATE_INTERVAL, BLOCK_RANGE_UPDATE_INTERVAL);
   }
 
   /**
@@ -115,25 +113,28 @@ public class BlockRangeBroadcaster {
   }
 
   /**
-   * Broadcasts a block range update message to all connected peers that support the
-   * BLOCK_RANGE_UPDATE protocol. This method is used to inform peers about the range of blocks
-   * available, from the earliest to the latest. The earliest block accounts for chain pruning; if it
-   * is not available or is above the chain head, the genesis block number is used as a fallback.
+   * Computes and broadcasts a fresh block range snapshot. A failed update must not cancel later
+   * fixed-delay ticks. If no block data is available at or below the captured head, the genesis
+   * range is sent instead.
    */
   @VisibleForTesting
-  protected void broadcastBlockRange() {
-    final BlockHeader chainHeader = blockchain.getChainHeadHeader();
-    blockRangeProvider
-        .getEarliestBlockNumber(chainHeader.getNumber())
-        .ifPresentOrElse(
-            earliestBlockNumber ->
+  void broadcastBlockRange() {
+    try {
+      final BlockHeader chainHeader = blockchain.getChainHeadHeader();
+      blockRangeProvider
+          .getEarliestBlockNumber(chainHeader.getNumber())
+          .ifPresentOrElse(
+              earliestBlockNumber ->
+                  broadcastBlockRange(
+                      earliestBlockNumber, chainHeader.getNumber(), chainHeader.getHash()),
+              () -> {
+                final BlockHeader genesisBlock = blockchain.getGenesisBlockHeader();
                 broadcastBlockRange(
-                    earliestBlockNumber, chainHeader.getNumber(), chainHeader.getHash()),
-            () -> {
-              BlockHeader genesisBlock = blockchain.getGenesisBlockHeader();
-              broadcastBlockRange(
-                  genesisBlock.getNumber(), genesisBlock.getNumber(), genesisBlock.getHash());
-            });
+                    genesisBlock.getNumber(), genesisBlock.getNumber(), genesisBlock.getHash());
+              });
+    } catch (final RuntimeException e) {
+      LOG.warn("Block range update failed; retrying on the next tick", e);
+    }
   }
 
   /**

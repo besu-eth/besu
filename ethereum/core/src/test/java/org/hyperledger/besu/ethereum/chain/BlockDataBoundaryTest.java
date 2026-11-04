@@ -25,6 +25,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
@@ -70,5 +71,52 @@ public class BlockDataBoundaryTest {
 
     assertThat(BlockDataBoundary.firstBlockWithBody(BlockDataBoundary.blockDataIn(storage), 20))
         .contains(6L);
+  }
+
+  @Test
+  public void genericBoundaryReturnsOneInsteadOfTheGenesisSentinel() {
+    assertThat(BlockDataBoundary.firstBlockWithData(height -> true, 20)).contains(1L);
+  }
+
+  @Test
+  public void genericBoundaryDoesNotProbeGenesisOrAnEmptyRange() {
+    assertThat(
+            BlockDataBoundary.firstBlockWithData(
+                height -> {
+                  throw new AssertionError("An empty range must not probe storage");
+                },
+                0))
+        .isEmpty();
+    assertThat(
+            BlockDataBoundary.firstBlockWithData(
+                height -> {
+                  assertThat(height).isPositive();
+                  return false;
+                },
+                20))
+        .isEmpty();
+  }
+
+  @Test
+  public void genericBoundaryFindsTheFirstDataWithLogarithmicProbes() {
+    final AtomicInteger probes = new AtomicInteger();
+    assertThat(
+            BlockDataBoundary.firstBlockWithData(
+                height -> {
+                  probes.incrementAndGet();
+                  return height >= 700_001;
+                },
+                1_000_000))
+        .contains(700_001L);
+    assertThat(probes.get()).isLessThanOrEqualTo(22);
+  }
+
+  @Test
+  public void genericBoundaryHandlesDataOnlyAtTheHeadAndMaximumHeight() {
+    assertThat(BlockDataBoundary.firstBlockWithData(height -> height == 20, 20)).contains(20L);
+    assertThat(
+            BlockDataBoundary.firstBlockWithData(
+                height -> height >= Long.MAX_VALUE - 1, Long.MAX_VALUE))
+        .contains(Long.MAX_VALUE - 1);
   }
 }

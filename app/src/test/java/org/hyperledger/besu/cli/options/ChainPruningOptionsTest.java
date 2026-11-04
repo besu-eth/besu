@@ -18,17 +18,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
 import org.hyperledger.besu.ethereum.chain.ChainPrunerConfiguration;
+import org.hyperledger.besu.util.number.PositiveNumber;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import picocli.CommandLine;
 
 public class ChainPruningOptionsTest {
 
-  /** EIP-4444 HISTORY_PRUNE_EPOCHS (33024 epochs of 32 slots) in blocks. */
+  /** Conservative default retention (33024 epochs of 32 slots) in blocks. */
   private static final long HISTORY_PRUNE_BLOCKS = 33_024L * 32L;
 
   @Test
   public void retainedMinimumMatchesHistoryPruneEpochs() {
-    assertThat(ChainPruningOptions.HISTORY_PRUNE_EPOCHS).isEqualTo(33_024L);
+    assertThat(ChainPruningOptions.DEFAULT_RETENTION_EPOCHS).isEqualTo(33_024L);
     assertThat(ChainPruningOptions.CHAIN_DATA_PRUNING_RETAINED_MINIMUM)
         .isEqualTo(HISTORY_PRUNE_BLOCKS)
         .isEqualTo(1_056_768L);
@@ -40,9 +44,8 @@ public class ChainPruningOptionsTest {
 
     assertThat(config.pruningMode()).isEqualTo(ChainPruningStrategy.BAL);
     assertThat(config.chainPruningBlocksRetained()).isEqualTo(HISTORY_PRUNE_BLOCKS);
+    assertThat(config.chainPruningBalsRetained()).isEqualTo(HISTORY_PRUNE_BLOCKS);
     assertThat(config.chainPruningRetainedMinimum()).isEqualTo(HISTORY_PRUNE_BLOCKS);
-    assertThat(config.pruneSlackBlocks()).isEqualTo(ChainPruningOptions.DEFAULT_PRUNE_SLACK_BLOCKS);
-    assertThat(config.pruneSlackBlocks()).isEqualTo(4096L);
   }
 
   @Test
@@ -52,8 +55,55 @@ public class ChainPruningOptionsTest {
 
     assertThat(domainDefault.chainPruningBlocksRetained())
         .isEqualTo(cliDefaults.chainPruningBlocksRetained());
+    assertThat(domainDefault.chainPruningBalsRetained())
+        .isEqualTo(cliDefaults.chainPruningBalsRetained());
     assertThat(domainDefault.chainPruningRetainedMinimum())
         .isEqualTo(cliDefaults.chainPruningRetainedMinimum());
-    assertThat(domainDefault.pruneSlackBlocks()).isEqualTo(cliDefaults.pruneSlackBlocks());
+    assertThat(domainDefault.chainPruningFrequency())
+        .isEqualTo(cliDefaults.chainPruningFrequency());
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = ChainPruningStrategy.class,
+      names = {"ALL", "BAL"})
+  public void parsesIndependentRetentionValues(final ChainPruningStrategy strategy) {
+    final ChainPruningOptions options = ChainPruningOptions.create();
+    new CommandLine(options)
+        .registerConverter(PositiveNumber.class, PositiveNumber::fromString)
+        .parseArgs(
+            "--Xchain-pruning-enabled=" + strategy,
+            "--Xchain-pruning-blocks-retained=2000000",
+            "--Xchain-pruning-bals-retained=100",
+            "--Xchain-pruning-retained-minimum=1000",
+            "--Xchain-pruning-frequency=64");
+
+    assertThat(options.toDomainObject())
+        .isEqualTo(new ChainPrunerConfiguration(strategy, 2_000_000, 100, 1000, 64));
+
+    final ChainPruningOptions reparsed = ChainPruningOptions.create();
+    new CommandLine(reparsed)
+        .registerConverter(PositiveNumber.class, PositiveNumber::fromString)
+        .parseArgs(options.getCLIOptions().toArray(String[]::new));
+    assertThat(reparsed.toDomainObject()).isEqualTo(options.toDomainObject());
+  }
+
+  @Test
+  public void changingBlockRetentionDoesNotChangeDefaultBalRetention() {
+    final ChainPruningOptions options = ChainPruningOptions.create();
+    new CommandLine(options).parseArgs("--Xchain-pruning-blocks-retained=2000000");
+
+    assertThat(options.toDomainObject().chainPruningBlocksRetained()).isEqualTo(2_000_000);
+    assertThat(options.toDomainObject().chainPruningBalsRetained()).isEqualTo(HISTORY_PRUNE_BLOCKS);
+  }
+
+  @Test
+  public void changingBalRetentionDoesNotChangeDefaultBlockRetention() {
+    final ChainPruningOptions options = ChainPruningOptions.create();
+    new CommandLine(options).parseArgs("--Xchain-pruning-bals-retained=100");
+
+    assertThat(options.toDomainObject().chainPruningBlocksRetained())
+        .isEqualTo(HISTORY_PRUNE_BLOCKS);
+    assertThat(options.toDomainObject().chainPruningBalsRetained()).isEqualTo(100);
   }
 }

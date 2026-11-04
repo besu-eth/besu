@@ -28,33 +28,25 @@ public class ChainPruningOptions implements CLIOptions<ChainPrunerConfiguration>
   private static final String CHAIN_PRUNING_ENABLED_FLAG = "--Xchain-pruning-enabled";
   private static final String CHAIN_PRUNING_BLOCKS_RETAINED_FLAG =
       "--Xchain-pruning-blocks-retained";
+  private static final String CHAIN_PRUNING_BALS_RETAINED_FLAG = "--Xchain-pruning-bals-retained";
   private static final String CHAIN_PRUNING_RETAINED_MINIMUM_FLAG =
       "--Xchain-pruning-retained-minimum";
   private static final String CHAIN_PRUNING_FREQUENCY_FLAG = "--Xchain-pruning-frequency";
 
-  /**
-   * EIP-4444 {@code HISTORY_PRUNE_EPOCHS}: the consensus-layer block retention window, equal to the
-   * CL's {@code MIN_EPOCHS_FOR_BLOCK_REQUESTS}.
-   */
-  public static final long HISTORY_PRUNE_EPOCHS = 33_024L;
+  /** Default retention in epochs, conservatively above the EIP-4444 history expiry window. */
+  public static final long DEFAULT_RETENTION_EPOCHS = 33_024L;
 
   private static final long SLOTS_PER_EPOCH = 32L;
 
   /**
-   * {@link #HISTORY_PRUNE_EPOCHS} in blocks: the default for the retention option and the floor
-   * below which it may not be set.
+   * {@link #DEFAULT_RETENTION_EPOCHS} in blocks: the default retention for blocks and BALs, and the
+   * floor below which block retention may not be set.
    */
   public static final long CHAIN_DATA_PRUNING_RETAINED_MINIMUM =
-      HISTORY_PRUNE_EPOCHS * SLOTS_PER_EPOCH;
+      DEFAULT_RETENTION_EPOCHS * SLOTS_PER_EPOCH;
 
   /** The constant DEFAULT_CHAIN_DATA_PRUNING_FREQUENCY. */
   public static final int DEFAULT_CHAIN_DATA_PRUNING_FREQUENCY = 256;
-
-  /**
-   * Blocks retained beyond the configured window, keeping the advertised eth/69 range backed by
-   * data between the fixed-interval BlockRangeUpdate broadcasts.
-   */
-  public static final long DEFAULT_PRUNE_SLACK_BLOCKS = 4096;
 
   @CommandLine.Option(
       hidden = true,
@@ -67,16 +59,26 @@ public class ChainPruningOptions implements CLIOptions<ChainPrunerConfiguration>
       hidden = true,
       names = {CHAIN_PRUNING_BLOCKS_RETAINED_FLAG},
       description =
-          "The number of recent blocks for which to keep the chain data. Should be >= "
+          "The number of recent blocks ending at the safe block (PoS) or head (BFT) for which to keep block bodies and receipts."
+              + " Newer blocks are also retained; PoS pruning pauses while the safe block is unknown. Should be >= "
               + CHAIN_DATA_PRUNING_RETAINED_MINIMUM
               + " (default: ${DEFAULT-VALUE})")
   private final Long chainDataPruningBlocksRetained = CHAIN_DATA_PRUNING_RETAINED_MINIMUM;
 
   @CommandLine.Option(
       hidden = true,
+      names = {CHAIN_PRUNING_BALS_RETAINED_FLAG},
+      description =
+          "The number of recent blocks ending at the safe block (PoS) or head (BFT) for which to keep block access lists."
+              + " Newer BALs are also retained; PoS pruning pauses while the safe block is unknown."
+              + " Must be >= 0 and no greater than blocks retained in ALL mode (default: ${DEFAULT-VALUE})")
+  private final Long chainDataPruningBalsRetained = CHAIN_DATA_PRUNING_RETAINED_MINIMUM;
+
+  @CommandLine.Option(
+      hidden = true,
       names = {CHAIN_PRUNING_RETAINED_MINIMUM_FLAG},
       description =
-          "Allows setting the limit below which no more data can be pruned. This prevents setting a retained value lower than this limit."
+          "Allows setting the limit below which no more block data can be pruned. This prevents setting block retention lower than this limit; it does not constrain BAL retention."
               + " This flag should be used with caution as reducing the limit may have unintended side effects."
               + " (default: ${DEFAULT-VALUE})")
   private final Long chainDataPruningRetainedMinimum = CHAIN_DATA_PRUNING_RETAINED_MINIMUM;
@@ -120,6 +122,15 @@ public class ChainPruningOptions implements CLIOptions<ChainPrunerConfiguration>
   }
 
   /**
+   * Gets chain data pruning BALs retained.
+   *
+   * @return the chain data pruning BALs retained
+   */
+  public Long getChainDataPruningBalsRetained() {
+    return chainDataPruningBalsRetained;
+  }
+
+  /**
    * Get the configured retained limit for chain data pruning.
    *
    * @return the retained limit
@@ -133,9 +144,9 @@ public class ChainPruningOptions implements CLIOptions<ChainPrunerConfiguration>
     return new ChainPrunerConfiguration(
         chainPruningStrategy,
         getChainDataPruningBlocksRetained(),
+        getChainDataPruningBalsRetained(),
         chainDataPruningRetainedMinimum,
-        chainDataPruningFrequency.getValue(),
-        DEFAULT_PRUNE_SLACK_BLOCKS);
+        chainDataPruningFrequency.getValue());
   }
 
   @Override
@@ -145,6 +156,8 @@ public class ChainPruningOptions implements CLIOptions<ChainPrunerConfiguration>
         chainPruningStrategy.toString(),
         CHAIN_PRUNING_BLOCKS_RETAINED_FLAG,
         getChainDataPruningBlocksRetained().toString(),
+        CHAIN_PRUNING_BALS_RETAINED_FLAG,
+        getChainDataPruningBalsRetained().toString(),
         CHAIN_PRUNING_RETAINED_MINIMUM_FLAG,
         chainDataPruningRetainedMinimum.toString(),
         CHAIN_PRUNING_FREQUENCY_FLAG,

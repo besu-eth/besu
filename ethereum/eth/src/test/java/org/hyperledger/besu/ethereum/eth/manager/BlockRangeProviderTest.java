@@ -42,7 +42,7 @@ public class BlockRangeProviderTest {
 
   @Test
   public void usesChainEarliestWhenNoPruner() {
-    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.of(10L));
+    when(blockchain.getEarliestBlockNumber(HEAD)).thenReturn(Optional.of(10L));
     final BlockRangeProvider provider = new BlockRangeProvider(blockchain, Optional.empty());
 
     assertThat(provider.getEarliestBlockNumber()).contains(10L);
@@ -50,7 +50,7 @@ public class BlockRangeProviderTest {
 
   @Test
   public void usesChainEarliestWhenPrunerHasNoBound() {
-    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.of(10L));
+    when(blockchain.getEarliestBlockNumber(HEAD)).thenReturn(Optional.of(10L));
     when(chainDataPruner.getEarliestRetainedBlock(HEAD)).thenReturn(Optional.empty());
     final BlockRangeProvider provider =
         new BlockRangeProvider(blockchain, Optional.of(chainDataPruner));
@@ -60,7 +60,7 @@ public class BlockRangeProviderTest {
 
   @Test
   public void usesPrunerBoundWhenHigherThanChainEarliest() {
-    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.of(10L));
+    when(blockchain.getEarliestBlockNumber(HEAD)).thenReturn(Optional.of(10L));
     when(chainDataPruner.getEarliestRetainedBlock(HEAD)).thenReturn(Optional.of(1500L));
     final BlockRangeProvider provider =
         new BlockRangeProvider(blockchain, Optional.of(chainDataPruner));
@@ -71,7 +71,7 @@ public class BlockRangeProviderTest {
   @Test
   public void usesChainEarliestWhenHigherThanPrunerBound() {
     // Snap-synced node: bodies only from the checkpoint, retention larger than head - checkpoint
-    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.of(1800L));
+    when(blockchain.getEarliestBlockNumber(HEAD)).thenReturn(Optional.of(1800L));
     when(chainDataPruner.getEarliestRetainedBlock(HEAD)).thenReturn(Optional.of(1500L));
     final BlockRangeProvider provider =
         new BlockRangeProvider(blockchain, Optional.of(chainDataPruner));
@@ -81,7 +81,7 @@ public class BlockRangeProviderTest {
 
   @Test
   public void neverAdvertisesEarliestAboveHead() {
-    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.of(10L));
+    when(blockchain.getEarliestBlockNumber(HEAD)).thenReturn(Optional.of(10L));
     when(chainDataPruner.getEarliestRetainedBlock(HEAD)).thenReturn(Optional.of(HEAD + 300));
     final BlockRangeProvider provider =
         new BlockRangeProvider(blockchain, Optional.of(chainDataPruner));
@@ -91,7 +91,7 @@ public class BlockRangeProviderTest {
 
   @Test
   public void isEmptyWhenChainHasNoEarliestBlock() {
-    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.empty());
+    when(blockchain.getEarliestBlockNumber(HEAD)).thenReturn(Optional.empty());
     final BlockRangeProvider provider =
         new BlockRangeProvider(blockchain, Optional.of(chainDataPruner));
 

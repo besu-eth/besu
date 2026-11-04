@@ -835,19 +835,20 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final Optional<ChainDataPruner> chainDataPruner;
     if (pruningMode != ChainPruningStrategy.NONE) {
       LOG.info("Adding ChainDataPruner to observe block added events");
-      final ChainDataPruner pruner = createChainPruner(blockchainStorage);
+      final ChainDataPruner pruner = createChainPruner(blockchainStorage, protocolSchedule);
       blockchain.observeBlockAdded(pruner);
       chainDataPruner = Optional.of(pruner);
 
       if (pruningMode == ChainPruningStrategy.ALL) {
         LOG.info(
-            "Chain and BAL pruning enabled | Blocks and BALs retained: {} | Frequency: {}",
+            "Chain and BAL pruning enabled | Blocks retained: {} | BALs retained: {} | Frequency: {}",
             chainPrunerConfiguration.chainPruningBlocksRetained(),
+            chainPrunerConfiguration.chainPruningBalsRetained(),
             chainPrunerConfiguration.chainPruningFrequency());
       } else if (pruningMode == ChainPruningStrategy.BAL) {
         LOG.info(
             "BAL pruning enabled | BALs retained: {} | Frequency: {}",
-            chainPrunerConfiguration.chainPruningBlocksRetained(),
+            chainPrunerConfiguration.chainPruningBalsRetained(),
             chainPrunerConfiguration.chainPruningFrequency());
       }
     } else {
@@ -1492,13 +1493,17 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     };
   }
 
-  private ChainDataPruner createChainPruner(final BlockchainStorage blockchainStorage) {
+  private ChainDataPruner createChainPruner(
+      final BlockchainStorage blockchainStorage, final ProtocolSchedule protocolSchedule) {
     return new ChainDataPruner(
         blockchainStorage,
         new ChainDataPrunerStorage(
             storageProvider.getStorageBySegmentIdentifier(
                 KeyValueSegmentIdentifier.CHAIN_PRUNER_STATE)),
         chainPrunerConfiguration,
+        (genesisConfigOptions.isIbft2() || genesisConfigOptions.isQbft())
+            && !genesisConfigOptions.hasPos(),
+        header -> protocolSchedule.getByBlockHeader(header).getBlockAccessListFactory().isPresent(),
         MonitoredExecutors.newBoundedThreadPool(
             EthScheduler.class.getSimpleName() + "-ChainDataPruner",
             1,

@@ -222,7 +222,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     return Collections.unmodifiableList(capabilities);
   }
 
-  private BlockRangeBroadcaster subscribeBlockRangeBroadcaster(
+  private void subscribeBlockRangeBroadcaster(
       final EthContext ethContext, final Blockchain blockchain) {
     final boolean hasSupportForBlockRangeMessage =
         supportedCapabilities.stream()
@@ -231,9 +231,9 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
                     EthProtocol.get()
                         .isValidMessageCode(
                             cap.getVersion(), EthProtocolMessages.BLOCK_RANGE_UPDATE));
-    return hasSupportForBlockRangeMessage
-        ? new BlockRangeBroadcaster(ethContext, blockchain, blockRangeProvider)
-        : null;
+    if (hasSupportForBlockRangeMessage) {
+      new BlockRangeBroadcaster(ethContext, blockchain, blockRangeProvider);
+    }
   }
 
   @Override

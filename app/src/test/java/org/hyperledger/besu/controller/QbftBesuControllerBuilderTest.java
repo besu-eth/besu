@@ -50,6 +50,8 @@ public class QbftBesuControllerBuilderTest extends AbstractBftBesuControllerBuil
   public void setupBftGenesisConfig() throws JsonProcessingException {
 
     // qbft prepForBuild setup
+    lenient().when(genesisConfigOptions.isQbft()).thenReturn(true);
+    lenient().when(genesisConfigOptions.getConsensusEngine()).thenReturn("qbft");
     lenient()
         .when(genesisConfigOptions.getQbftConfigOptions())
         .thenReturn(new MutableQbftConfigOptions(JsonQbftConfigOptions.DEFAULT));

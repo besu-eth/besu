@@ -69,6 +69,8 @@ import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
+import org.hyperledger.besu.ethereum.chain.ChainPrunerConfiguration;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
@@ -3129,7 +3131,8 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void chainPruningNoneModeSkipsValidation() {
     parseCommand(
         "--Xchain-pruning-enabled=NONE",
-        "--Xchain-pruning-blocks-retained=-1"); // Invalid but should be ignored
+        "--Xchain-pruning-blocks-retained=-1",
+        "--Xchain-pruning-bals-retained=-1"); // Invalid but should be ignored
 
     // Should not throw exception since mode is NONE
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -3151,19 +3154,67 @@ public class BesuCommandTest extends CommandTestAbstract {
     parseCommand(
         "--Xchain-pruning-enabled=ALL",
         "--Xchain-pruning-blocks-retained=" + (CHAIN_DATA_PRUNING_RETAINED_MINIMUM + 100),
+        "--Xchain-pruning-bals-retained=100",
         "--Xchain-pruning-retained-minimum=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
 
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
-  @Test
-  public void chainPruningBalModeWithValidValuesSucceeds() {
+  @ParameterizedTest
+  @ValueSource(longs = {0, 1, CHAIN_DATA_PRUNING_RETAINED_MINIMUM - 1})
+  public void chainPruningBalModeDoesNotApplyBlockMinimumOrRetention(final long balsRetained) {
     parseCommand(
         "--Xchain-pruning-enabled=BAL",
-        "--Xchain-pruning-blocks-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
-        "--Xchain-pruning-retained-minimum=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
+        "--Xchain-pruning-blocks-retained=0",
+        "--Xchain-pruning-bals-retained=" + balsRetained);
 
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    verify(mockControllerBuilder)
+        .chainPruningConfiguration(
+            new ChainPrunerConfiguration(
+                ChainPruningStrategy.BAL,
+                0,
+                balsRetained,
+                CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
+                256));
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = ChainPruningStrategy.class,
+      names = {"ALL", "BAL"})
+  public void chainPruningRejectsNegativeBalRetention(final ChainPruningStrategy strategy) {
+    parseCommand("--Xchain-pruning-enabled=" + strategy, "--Xchain-pruning-bals-retained=-1");
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isNotEmpty();
+    verify(mockControllerBuilder, never()).build();
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      longs = {0, CHAIN_DATA_PRUNING_RETAINED_MINIMUM - 1, CHAIN_DATA_PRUNING_RETAINED_MINIMUM})
+  public void chainPruningAllModeAcceptsBalRetentionThroughBlockRetention(final long balsRetained) {
+    parseCommand("--Xchain-pruning-enabled=ALL", "--Xchain-pruning-bals-retained=" + balsRetained);
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    verify(mockControllerBuilder)
+        .chainPruningConfiguration(
+            new ChainPrunerConfiguration(
+                ChainPruningStrategy.ALL,
+                CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
+                balsRetained,
+                CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
+                256));
+  }
+
+  @Test
+  public void chainPruningAllModeRejectsBalRetentionAboveBlockRetention() {
+    parseCommand(
+        "--Xchain-pruning-enabled=ALL",
+        "--Xchain-pruning-bals-retained=" + (CHAIN_DATA_PRUNING_RETAINED_MINIMUM + 1));
+
+    assertThat(commandErrorOutput.toString(UTF_8)).isNotEmpty();
+    verify(mockControllerBuilder, never()).build();
   }
 
   @Test

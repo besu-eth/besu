@@ -16,18 +16,13 @@ package org.hyperledger.besu.ethereum.chain;
 
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
 
-/**
- * Configuration for the chain data pruner.
- *
- * @param pruneSlackBlocks blocks kept beyond the retention window, so the advertised eth/69 range
- *     stays backed by data as the head advances between broadcasts.
- */
+/** Configuration for the chain data pruner. */
 public record ChainPrunerConfiguration(
     ChainPruningStrategy pruningMode,
     long chainPruningBlocksRetained,
+    long chainPruningBalsRetained,
     long chainPruningRetainedMinimum,
-    long chainPruningFrequency,
-    long pruneSlackBlocks) {
+    long chainPruningFrequency) {
 
   /**
    * The history expiry window of EIP-4444, matching the consensus layer block retention window.
@@ -44,10 +39,10 @@ public record ChainPrunerConfiguration(
   public static final ChainPrunerConfiguration DEFAULT =
       new ChainPrunerConfiguration(
           ChainPruningStrategy.NONE,
-          1_056_768 /* HISTORY_PRUNE_EPOCHS (33024) * SLOTS_PER_EPOCH (32) */,
+          1_056_768 /* default retention: 33024 epochs * 32 slots */,
           1_056_768,
-          256,
-          4096);
+          1_056_768,
+          256);
 
   /**
    * Check if block chain pruning is enabled.
@@ -56,14 +51,5 @@ public record ChainPrunerConfiguration(
    */
   public boolean isBlockPruningEnabled() {
     return pruningMode == ChainPruningStrategy.ALL;
-  }
-
-  /**
-   * Check if BAL pruning is enabled.
-   *
-   * @return true if BAL or ALL mode is enabled
-   */
-  public boolean isBalPruningEnabled() {
-    return pruningMode == ChainPruningStrategy.BAL || pruningMode == ChainPruningStrategy.ALL;
   }
 }

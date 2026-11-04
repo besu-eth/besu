@@ -29,8 +29,11 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
 public class ChainDataPrunerStorage {
-  private static final Bytes CHAIN_PRUNING_MARK_KEY =
-      Bytes.wrap("pruningMark".getBytes(StandardCharsets.UTF_8));
+  // Fresh keys: legacy pruningMark could describe either block or BAL progress.
+  private static final Bytes BLOCK_PRUNING_MARK_KEY =
+      Bytes.wrap("blockPruningMarkV2".getBytes(StandardCharsets.UTF_8));
+  private static final Bytes BAL_PRUNING_MARK_KEY =
+      Bytes.wrap("balPruningMarkV2".getBytes(StandardCharsets.UTF_8));
 
   private static final Bytes VARIABLES_PREFIX = Bytes.of(1);
   private static final Bytes FORK_BLOCKS_PREFIX = Bytes.of(2);
@@ -45,10 +48,14 @@ public class ChainDataPrunerStorage {
     return this.storage.startTransaction();
   }
 
-  public Optional<Long> getChainPruningMark() {
-    return get(VARIABLES_PREFIX, CHAIN_PRUNING_MARK_KEY)
+  public Optional<Long> getBlockPruningMark() {
+    return get(VARIABLES_PREFIX, BLOCK_PRUNING_MARK_KEY)
         .map(UInt256::fromBytes)
         .map(UInt256::toLong);
+  }
+
+  public Optional<Long> getBalPruningMark() {
+    return get(VARIABLES_PREFIX, BAL_PRUNING_MARK_KEY).map(UInt256::fromBytes).map(UInt256::toLong);
   }
 
   public Collection<Hash> getForkBlocks(final long blockNumber) {
@@ -65,9 +72,14 @@ public class ChainDataPrunerStorage {
     transaction.commit();
   }
 
-  public void setChainPruningMark(
+  public void setBlockPruningMark(
       final KeyValueStorageTransaction transaction, final long pruningMark) {
-    set(transaction, VARIABLES_PREFIX, CHAIN_PRUNING_MARK_KEY, UInt256.valueOf(pruningMark));
+    set(transaction, VARIABLES_PREFIX, BLOCK_PRUNING_MARK_KEY, UInt256.valueOf(pruningMark));
+  }
+
+  public void setBalPruningMark(
+      final KeyValueStorageTransaction transaction, final long pruningMark) {
+    set(transaction, VARIABLES_PREFIX, BAL_PRUNING_MARK_KEY, UInt256.valueOf(pruningMark));
   }
 
   private void setForkBlocks(

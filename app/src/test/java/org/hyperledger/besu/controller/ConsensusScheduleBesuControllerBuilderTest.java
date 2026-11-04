@@ -16,8 +16,12 @@ package org.hyperledger.besu.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.eth.sync.BlockRangeBroadcaster.BLOCK_RANGE_UPDATE_INTERVAL;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
@@ -36,9 +40,19 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
+import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.config.SubProtocolConfiguration;
 import org.hyperledger.besu.ethereum.p2p.network.ProtocolManager;
@@ -54,11 +68,13 @@ import java.util.NavigableSet;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
 
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -222,6 +238,63 @@ public class ConsensusScheduleBesuControllerBuilderTest {
     assertThat(contextSchedule.getFork(9, 0).getValue()).isSameAs(context1);
     assertThat(contextSchedule.getFork(10, 0).getValue()).isSameAs(context2);
     assertThat(contextSchedule.getFork(11, 0).getValue()).isSameAs(context2);
+  }
+
+  @Test
+  public void registersOneBlockRangeTaskAndOnePeerValidatorAcrossScheduledBuilders() {
+    final Map<Long, BesuControllerBuilder> consensusSchedule =
+        Map.of(
+            0L,
+            mock(BesuControllerBuilder.class, CALLS_REAL_METHODS),
+            50L,
+            mock(BesuControllerBuilder.class, CALLS_REAL_METHODS));
+    final ConsensusScheduleBesuControllerBuilder builder =
+        new ConsensusScheduleBesuControllerBuilder(consensusSchedule);
+    builder.networkId(BigInteger.ONE);
+
+    final ProtocolContext protocolContext = mock(ProtocolContext.class);
+    when(protocolContext.getBlockchain()).thenReturn(mock(MutableBlockchain.class));
+    final EthMessages ethMessages = new EthMessages();
+    final EthPeers ethPeers = mock(EthPeers.class);
+    final EthScheduler scheduler = mock(EthScheduler.class);
+    final EthContext ethContext =
+        new EthContext(ethPeers, ethMessages, scheduler, mock(PeerTaskExecutor.class));
+    final PeerValidator peerValidator = mock(PeerValidator.class);
+
+    try (final EthProtocolManager ethProtocolManager =
+        builder.createEthProtocolManager(
+            protocolContext,
+            mock(SynchronizerConfiguration.class),
+            mock(TransactionPool.class),
+            EthProtocolConfiguration.DEFAULT,
+            ethPeers,
+            ethContext,
+            ethMessages,
+            scheduler,
+            List.of(peerValidator),
+            Optional.empty(),
+            mock(ForkIdManager.class),
+            Optional.empty())) {
+      assertThat(ethProtocolManager).isNotNull();
+      verify(scheduler)
+          .scheduleFutureTaskWithFixedDelay(
+              any(Runnable.class),
+              eq(BLOCK_RANGE_UPDATE_INTERVAL),
+              eq(BLOCK_RANGE_UPDATE_INTERVAL));
+
+      final ArgumentCaptor<EthPeers.ConnectCallback> connectionCallback =
+          ArgumentCaptor.forClass(EthPeers.ConnectCallback.class);
+      verify(ethPeers).subscribeConnect(connectionCallback.capture());
+
+      final EthPeer peer = mock(EthPeer.class);
+      when(peerValidator.canBeValidated(peer)).thenReturn(true);
+      when(peerValidator.validatePeer(ethContext, peer))
+          .thenReturn(CompletableFuture.completedFuture(true));
+      connectionCallback.getValue().onPeerConnected(peer);
+
+      verify(peerValidator).validatePeer(ethContext, peer);
+      verify(peer).markValidated(peerValidator);
+    }
   }
 
   @Test

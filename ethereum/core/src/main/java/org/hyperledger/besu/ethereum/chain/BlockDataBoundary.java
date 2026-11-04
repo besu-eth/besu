@@ -43,21 +43,34 @@ public final class BlockDataBoundary {
    */
   public static Optional<Long> firstBlockWithBody(
       final LongPredicate hasBlockData, final long chainHeadBlockNumber) {
+    return firstBlockWithData(hasBlockData, chainHeadBlockNumber)
+        .map(first -> first == BlockHeader.GENESIS_BLOCK_NUMBER + 1 ? 0L : first);
+  }
+
+  /**
+   * Finds the first non-genesis height satisfying a presence predicate. Assumes an absent prefix
+   * followed by present data; gaps can cause older isolated entries to be skipped.
+   *
+   * @param hasData the storage presence predicate
+   * @param headBlockNumber the inclusive upper bound
+   * @return the first matching height, or empty if no boundary is found
+   */
+  public static Optional<Long> firstBlockWithData(
+      final LongPredicate hasData, final long headBlockNumber) {
+    if (headBlockNumber < 1) {
+      return Optional.empty();
+    }
     long low = 1;
-    long high = chainHeadBlockNumber;
+    long high = headBlockNumber;
     while (low < high) {
-      final long mid = (low + high) / 2;
-      if (hasBlockData.test(mid)) {
+      final long mid = low + (high - low) / 2;
+      if (hasData.test(mid)) {
         high = mid;
       } else {
         low = mid + 1;
       }
     }
-    if (!hasBlockData.test(low)) {
-      return Optional.empty();
-    }
-    return Optional.of(
-        low == BlockHeader.GENESIS_BLOCK_NUMBER + 1 ? BlockHeader.GENESIS_BLOCK_NUMBER : low);
+    return hasData.test(low) ? Optional.of(low) : Optional.empty();
   }
 
   /**

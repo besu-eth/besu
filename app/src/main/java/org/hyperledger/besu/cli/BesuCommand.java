@@ -1748,6 +1748,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     final ChainPruningStrategy chainPruningStrategy =
         unstableChainPruningOptions.getChainPruningStrategy();
     final long blocksRetained = unstableChainPruningOptions.getChainDataPruningBlocksRetained();
+    final long balsRetained = unstableChainPruningOptions.getChainDataPruningBalsRetained();
     final long retainedMinimum = unstableChainPruningOptions.getChainDataPruningRetainedMinimum();
 
     // Skip validation if pruning is disabled
@@ -1760,6 +1761,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       throw new ParameterException(
           this.commandLine, "--Xchain-pruning-blocks-retained must be >= 0");
     }
+    if (balsRetained < 0) {
+      throw new ParameterException(this.commandLine, "--Xchain-pruning-bals-retained must be >= 0");
+    }
     if (retainedMinimum < 0) {
       throw new ParameterException(
           this.commandLine, "--Xchain-pruning-retained-minimum must be >= 0");
@@ -1770,6 +1774,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       if (blocksRetained < retainedMinimum) {
         throw new ParameterException(
             this.commandLine, "--Xchain-pruning-blocks-retained must be >= " + retainedMinimum);
+      }
+      if (balsRetained > blocksRetained) {
+        throw new ParameterException(
+            this.commandLine,
+            "--Xchain-pruning-bals-retained must be <= --Xchain-pruning-blocks-retained");
       }
 
       final GenesisConfigOptions genesisConfigOptions = readGenesisConfigOptions();
@@ -3214,7 +3223,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         unstableChainPruningOptions.getChainPruningStrategy();
     if (!pruningStrategy.equals(ChainPruningStrategy.NONE)) {
       builder.setChainPruningEnabled(
-          pruningStrategy, unstableChainPruningOptions.getChainDataPruningBlocksRetained());
+          pruningStrategy,
+          unstableChainPruningOptions.getChainDataPruningBlocksRetained(),
+          unstableChainPruningOptions.getChainDataPruningBalsRetained());
     }
 
     if (miningParametersSupplier.get().getTargetGasLimit().isPresent()) {
