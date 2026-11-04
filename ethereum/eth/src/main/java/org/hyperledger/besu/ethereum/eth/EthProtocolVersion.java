@@ -51,6 +51,18 @@ public enum EthProtocolVersion {
    *
    * <p>Not advertised yet: the rest of the sparse blobpool is still arriving, and a peer that
    * negotiated eth/72 would expect this node to answer GetCells.
+   *
+   * <p>TODO (EIP-8070): before this version is advertised, what is served and announced to an
+   * eth/72 peer has to describe the eth/72 pooled form, which it does not yet:
+   *
+   * <ul>
+   *   <li>announce {@code Transaction#getSizeForEth72Announcement()} rather than {@code
+   *       getSizeForAnnouncement()}, which overstates a blob transaction by about 128 KiB per blob
+   *       and is not available at all for one received over eth/72;
+   *   <li>consult {@code EncodingContext#canEncode(Transaction)} where transactions are served and
+   *       announced, so that one whose blobs this node does not hold is skipped rather than encoded
+   *       into a malformed body.
+   * </ul>
    */
   V72(72, Messages.ETH72, false);
 
