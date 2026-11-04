@@ -34,8 +34,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * A block whose state root is right but whose receipts root or gas used is wrong is only rejected
- * after its post state has been computed. Processing it on the head world state must not leave the
- * head on that block, which is never stored in the blockchain.
+ * after its transactions have been executed. Processing it on the head world state must not persist
+ * anything for that block, which is never stored in the blockchain, nor leave the head on it.
  */
 class InvalidBlockOutputTest extends AbstractIsolationTests {
 
@@ -73,6 +73,9 @@ class InvalidBlockOutputTest extends AbstractIsolationTests {
                 protocolContext, invalid, HeaderValidationMode.NONE, HeaderValidationMode.NONE);
 
     assertThat(result.isFailed()).isTrue();
+    assertThat(result.errorMessage).contains("failed to validate output of imported block");
+    assertThat(archive.getTrieLogManager().getTrieLogLayer(invalid.getHash())).isEmpty();
+    assertThat(archive.getWorldStateCacheManager().contains(invalid.getHash())).isFalse();
     assertThat(blockchain.getBlockHeader(invalid.getHash())).isEmpty();
     assertThat(((PathBasedWorldState) archive.getWorldState()).blockHash())
         .isEqualTo(genesis.getHash());
