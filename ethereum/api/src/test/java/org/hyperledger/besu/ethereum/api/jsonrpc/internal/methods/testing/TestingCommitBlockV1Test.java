@@ -89,6 +89,9 @@ class TestingCommitBlockV1Test {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) response).getErrorType())
         .isEqualTo(RpcErrorType.INVALID_PARAMS);
+    assertThat(((JsonRpcErrorResponse) response).getError().getMessage())
+        .isEqualTo("Invalid params: Missing or invalid timestamp field");
+    assertThat(((JsonRpcErrorResponse) response).getError().getData()).isNull();
     verifyNoInteractions(blockchain);
   }
 
