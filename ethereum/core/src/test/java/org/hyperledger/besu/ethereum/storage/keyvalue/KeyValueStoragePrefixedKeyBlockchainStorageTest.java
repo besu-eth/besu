@@ -34,6 +34,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.chain.BlockchainStorage.Updater;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
@@ -41,15 +42,18 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Assertions;
@@ -265,7 +269,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorageTest {
     final BlockAccessList bal = generator.blockAccessList();
 
     final Updater updater = blockchainStorage.updater();
-    updater.putBlockAccessList(blockHash, bal);
+    final Bytes storedRlp = updater.putBlockAccessList(blockHash, bal);
     updater.commit();
 
     final BlockAccessList loaded = blockchainStorage.getBlockAccessList(blockHash).get();
@@ -273,6 +277,38 @@ public class KeyValueStoragePrefixedKeyBlockchainStorageTest {
         loaded.rawRlp().isPresent(), "rawRlp must be present on BAL read from storage");
     Assertions.assertEquals(
         bal, loaded, "BAL round-trip through storage must preserve accountChanges");
+    Assertions.assertEquals(bal.encode(), storedRlp, "updater must return the stored BAL RLP");
+    Assertions.assertEquals(
+        Optional.of(storedRlp),
+        blockchainStorage.getBlockAccessListRlp(blockHash),
+        "BAL RLP must be returned as stored");
+    Assertions.assertEquals(
+        bal, blockchainStorage.decodeBlockAccessList(storedRlp), "stored BAL RLP must decode");
+    Assertions.assertEquals(
+        Optional.empty(),
+        blockchainStorage.getBlockAccessListRlp(generator.hash()),
+        "BAL RLP of an unknown block must be empty");
+  }
+
+  @Test
+  public void testGetBlockBodyRlpReturnsStoredRlp() {
+    populateBlockchainStorage(kvBlockchain, variableValues);
+
+    final var blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            kvBlockchain, variablesStorage, new MainnetBlockHeaderFunctions(), false);
+
+    final BlockDataGenerator generator = new BlockDataGenerator();
+    final Block block = generator.block();
+
+    final Updater updater = blockchainStorage.updater();
+    updater.putBlockBody(block.getHash(), block.getBody());
+    updater.commit();
+
+    Assertions.assertEquals(
+        Optional.of(RLP.encode(block.getBody()::writeWrappedBodyTo)),
+        blockchainStorage.getBlockBodyRlp(block.getHash()));
+    Assertions.assertEquals(Optional.empty(), blockchainStorage.getBlockBodyRlp(generator.hash()));
   }
 
   @Test

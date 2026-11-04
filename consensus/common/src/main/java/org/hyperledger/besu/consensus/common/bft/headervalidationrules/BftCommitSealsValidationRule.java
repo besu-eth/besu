@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +81,12 @@ public class BftCommitSealsValidationRule implements AttachedBlockHeaderValidati
     }
 
     final List<Address> committers = bftContext.getBlockInterface().getCommitters(header);
+
+    if (committers.stream().anyMatch(Objects::isNull)) {
+      LOGGER.info("Invalid block header: A commit seal did not recover to an address.");
+      return false;
+    }
+
     final List<Address> committersWithoutDuplicates = new ArrayList<>(new HashSet<>(committers));
 
     if (committers.size() != committersWithoutDuplicates.size()) {

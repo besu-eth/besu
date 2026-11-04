@@ -17,11 +17,9 @@ package org.hyperledger.besu.ethereum.eth.messages;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
-import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
@@ -40,16 +38,6 @@ public final class PooledTransactionsMessage extends AbstractMessageData {
   @Override
   public int getCode() {
     return MESSAGE_CODE;
-  }
-
-  public static PooledTransactionsMessage create(final List<Transaction> transactions) {
-    final BytesValueRLPOutput out = new BytesValueRLPOutput();
-    out.writeList(
-        transactions,
-        (transaction, rlpOutput) -> {
-          TransactionEncoder.encodeRLP(transaction, rlpOutput, EncodingContext.POOLED_TRANSACTION);
-        });
-    return new PooledTransactionsMessage(out.encoded());
   }
 
   /**
@@ -77,12 +65,24 @@ public final class PooledTransactionsMessage extends AbstractMessageData {
   }
 
   public List<Transaction> transactions(final int maxTransactions) {
+    return transactions(maxTransactions, EncodingContext.POOLED_TRANSACTION);
+  }
+
+  /**
+   * The transactions in this response, decoded in the given context.
+   *
+   * <p>The context has to come from the version negotiated with the peer that sent this: only an
+   * eth/72 peer may elide the blob payloads, and the bytes alone do not say who sent them.
+   *
+   * @param maxTransactions the most transactions this response may carry
+   * @param context the context to decode in
+   * @return the decoded transactions
+   */
+  public List<Transaction> transactions(final int maxTransactions, final EncodingContext context) {
     if (pooledTransactions == null) {
       final BytesValueRLPInput in = new BytesValueRLPInput(getData(), false);
       pooledTransactions =
-          in.readList(
-              input -> TransactionDecoder.decodeRLP(input, EncodingContext.POOLED_TRANSACTION),
-              maxTransactions);
+          in.readList(input -> TransactionDecoder.decodeRLP(input, context), maxTransactions);
     } else if (pooledTransactions.size() > maxTransactions) {
       throw new RLPException(
           String.format(

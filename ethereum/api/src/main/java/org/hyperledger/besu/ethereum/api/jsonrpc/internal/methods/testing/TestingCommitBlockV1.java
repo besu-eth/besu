@@ -137,7 +137,7 @@ public class TestingCommitBlockV1 implements JsonRpcMethod {
     final ValidationResult<RpcErrorType> attributesValidation =
         validatePayloadAttributes(payloadAttributes);
     if (!attributesValidation.isValid()) {
-      return new JsonRpcErrorResponse(requestId, attributesValidation);
+      return errorResponse(requestId, attributesValidation);
     }
 
     final List<Transaction> transactions = new ArrayList<>();
@@ -146,7 +146,7 @@ public class TestingCommitBlockV1 implements JsonRpcMethod {
         transactions.add(DomainObjectDecodeUtils.decodeRawTransaction(rawTx));
       } catch (Exception e) {
         LOG.debug("Failed to decode transaction: {}", rawTx, e);
-        return new JsonRpcErrorResponse(
+        return errorResponse(
             requestId,
             ValidationResult.invalid(
                 RpcErrorType.INVALID_TRANSACTION_PARAMS,
@@ -229,7 +229,7 @@ public class TestingCommitBlockV1 implements JsonRpcMethod {
 
       if (!importResult.isImported()) {
         LOG.error("Failed to import block {} after building it", block.getHash());
-        return new JsonRpcErrorResponse(
+        return errorResponse(
             requestId,
             ValidationResult.invalid(
                 RpcErrorType.INTERNAL_ERROR, "Block was built but could not be imported"));
@@ -239,7 +239,7 @@ public class TestingCommitBlockV1 implements JsonRpcMethod {
 
     } catch (Exception e) {
       LOG.error("Error building or committing block", e);
-      return new JsonRpcErrorResponse(
+      return errorResponse(
           requestId,
           ValidationResult.invalid(
               RpcErrorType.INTERNAL_ERROR, "Error building block: " + e.getMessage()));
@@ -260,5 +260,16 @@ public class TestingCommitBlockV1 implements JsonRpcMethod {
           RpcErrorType.INVALID_PARAMS, "Missing suggestedFeeRecipient field");
     }
     return ValidationResult.valid();
+  }
+
+  private static JsonRpcErrorResponse errorResponse(
+      final Object requestId, final ValidationResult<RpcErrorType> validationResult) {
+    final RpcErrorType errorType = validationResult.getInvalidReason();
+    return new JsonRpcErrorResponse(
+        requestId,
+        new JsonRpcError(
+            errorType.getCode(),
+            errorType.getMessage() + ": " + validationResult.getErrorMessage(),
+            null));
   }
 }

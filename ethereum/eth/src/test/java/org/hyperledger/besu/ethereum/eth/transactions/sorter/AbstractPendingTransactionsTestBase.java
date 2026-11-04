@@ -851,6 +851,42 @@ public abstract class AbstractPendingTransactionsTestBase {
   }
 
   @Test
+  public void shouldEvictTransactionsOlderThanRetentionSeconds() {
+    final PendingTransactions transactions =
+        getPendingTransactions(
+            ImmutableTransactionPoolConfiguration.builder()
+                .pendingTxRetentionSeconds(30)
+                .txPoolMaxSize(MAX_TRANSACTIONS)
+                .txPoolLimitByAccountPercentage(Fraction.fromFloat(1.0f))
+                .build(),
+            Optional.of(clock));
+    transactionEventNotifier.subscribePendingTransactionDropped(droppedListener);
+
+    transactions.addTransaction(
+        createRemotePendingTransaction(transaction1, clock.millis()), Optional.empty());
+    clock.step(20L, ChronoUnit.SECONDS);
+    transactions.addTransaction(
+        createRemotePendingTransaction(transaction2, clock.millis()), Optional.empty());
+    assertThat(transactions.size()).isEqualTo(2);
+
+    // 25s after transaction1 was added, nothing is older than 30s
+    clock.step(5L, ChronoUnit.SECONDS);
+    transactions.evictOldTransactions();
+    assertThat(transactions.size()).isEqualTo(2);
+
+    // 35s after transaction1, only transaction1 is older than 30s
+    clock.step(10L, ChronoUnit.SECONDS);
+    transactions.evictOldTransactions();
+    assertThat(transactions.size()).isEqualTo(1);
+    assertThat(transactions.getTransactionByHash(transaction1.getHash())).isEmpty();
+    verify(droppedListener).onTransactionDropped(transaction1, TIMED_EVICTION);
+
+    // timed eviction forgets the tx so it can be re-added, and stops gossiping it
+    assertThat(TIMED_EVICTION.stopTracking()).isTrue();
+    assertThat(TIMED_EVICTION.stopBroadcasting()).isTrue();
+  }
+
+  @Test
   public void shouldEvictMultipleOldTransactions() {
     final int maxTransactionRetentionHours = 1;
     final PendingTransactions transactions =
