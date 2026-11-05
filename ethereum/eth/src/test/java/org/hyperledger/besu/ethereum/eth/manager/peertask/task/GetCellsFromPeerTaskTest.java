@@ -23,15 +23,21 @@ import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 
 import java.util.BitSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 /**
  * The cryptographic half of validating a {@code Cells} answer. Its shape is checked while it is
@@ -109,6 +115,27 @@ class GetCellsFromPeerTaskTest extends TrustedSetupClassLoaderExtension {
   void invalidCellsCostThePeerItsConnection() {
     assertThat(PeerTaskValidationResponse.INVALID_CELLS_RETURNED.getDisconnectReason()).isPresent();
     assertThat(PeerTaskValidationResponse.INVALID_CELLS_RETURNED.recordUselessResponse()).isTrue();
+  }
+
+  @Test
+  void isOnlyWillingToAskAnEth72Peer() {
+    // GetCells has no message code before eth/72, so asking a peer that negotiated anything
+    // earlier for cells is an invalid message code for the version agreed with it: the peer
+    // disconnects instead of answering.
+    assertThat(task.getPeerRequirementFilter().test(peerSpeaking(EthProtocolVersion.V72))).isTrue();
+    assertThat(task.getPeerRequirementFilter().test(peerSpeaking(EthProtocolVersion.V71)))
+        .isFalse();
+    assertThat(task.getPeerRequirementFilter().test(peerSpeaking(EthProtocolVersion.V68)))
+        .isFalse();
+  }
+
+  private static EthPeerImmutableAttributes peerSpeaking(final EthProtocolVersion version) {
+    final EthPeer peer = Mockito.mock(EthPeer.class);
+    Mockito.when(peer.getAgreedCapabilities())
+        .thenReturn(Set.<Capability>of(version.getCapability()));
+    final EthPeerImmutableAttributes attributes = Mockito.mock(EthPeerImmutableAttributes.class);
+    Mockito.when(attributes.ethPeer()).thenReturn(peer);
+    return attributes;
   }
 
   private static List<CellsWithMask> cellsOf(
