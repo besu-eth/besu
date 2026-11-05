@@ -16,6 +16,10 @@ package org.hyperledger.besu.evm.frame;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
+
 import org.junit.jupiter.api.Test;
 
 class StacksV2Test {
@@ -59,10 +63,69 @@ class StacksV2Test {
   }
 
   @Test
-  void framesBelowTheCachedDepthsAllocate() {
+  void framesBelowTheCachedDepthsShareTheirStacksAcrossDepths() {
     final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
     StacksV2.release(StacksV2.CACHED_DEPTHS, first);
 
-    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH)).isNotSameAs(first);
+    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS + 500, LENGTH)).isSameAs(first);
+  }
+
+  @Test
+  void framesBelowTheCachedDepthsShareTheirStacksAcrossThreads() throws InterruptedException {
+    final Set<long[]> released = Collections.newSetFromMap(new IdentityHashMap<>());
+    final Thread other =
+        new Thread(
+            () -> {
+              // more than the thread keeps for itself, so some go to the shared stacks
+              for (int i = 0; i <= StacksV2.THREAD_DEEP_STACKS; i++) {
+                final long[] stack = new long[LENGTH];
+                released.add(stack);
+                StacksV2.release(StacksV2.CACHED_DEPTHS, stack);
+              }
+            });
+    other.start();
+    other.join();
+
+    assertThat(released).contains(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH));
+  }
+
+  @Test
+  void deepStackIsTakenOnlyOnce() {
+    final long[] released = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+    StacksV2.release(StacksV2.CACHED_DEPTHS, released);
+
+    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+    final long[] second = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+
+    assertThat(first).isSameAs(released);
+    assertThat(second).isNotSameAs(released);
+  }
+
+  @Test
+  void sharedStacksAreCapped() {
+    final Set<long[]> released = Collections.newSetFromMap(new IdentityHashMap<>());
+    for (int i = 0; i <= StacksV2.SHARED_STACKS; i++) {
+      final long[] stack = new long[LENGTH];
+      released.add(stack);
+      StacksV2.release(StacksV2.CACHED_DEPTHS, stack);
+    }
+
+    int kept = 0;
+    for (int i = 0; i <= StacksV2.SHARED_STACKS; i++) {
+      if (released.contains(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH))) {
+        kept++;
+      }
+    }
+    assertThat(kept)
+        .isPositive()
+        .isLessThanOrEqualTo(StacksV2.SHARED_STACKS + StacksV2.THREAD_DEEP_STACKS);
+  }
+
+  @Test
+  void deepFrameOfAnotherLengthGetsANewStack() {
+    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, 16 * 4);
+    StacksV2.release(StacksV2.CACHED_DEPTHS, first);
+
+    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS, 16 * 4)).isNotSameAs(first);
   }
 }
