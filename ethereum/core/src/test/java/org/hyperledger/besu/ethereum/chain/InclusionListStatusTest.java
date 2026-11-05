@@ -48,4 +48,12 @@ class InclusionListStatusTest {
     assertThatIllegalArgumentException()
         .isThrownBy(() -> InclusionListStatus.decode(Bytes.wrap(new byte[size])));
   }
+
+  @ParameterizedTest
+  @ValueSource(ints = {2, 0xff})
+  void rejectsASatisfiedFlagThatIsNotZeroOrOne(final int flag) {
+    final Bytes encoded = Bytes.concatenate(Bytes32.random(), Bytes.of(flag));
+
+    assertThatIllegalArgumentException().isThrownBy(() -> InclusionListStatus.decode(encoded));
+  }
 }

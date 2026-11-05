@@ -75,7 +75,11 @@ public record InclusionListStatus(Bytes32 inclusionListChecksum, boolean satisfi
         encoded.size() == ENCODED_SIZE,
         "Invalid encoded inclusion list status size %s",
         encoded.size());
-    return new InclusionListStatus(
-        Bytes32.wrap(encoded.slice(0, Bytes32.SIZE)), encoded.get(Bytes32.SIZE) != 0);
+    final byte satisfied = encoded.get(Bytes32.SIZE);
+    checkArgument(
+        satisfied == 0 || satisfied == 1,
+        "Invalid encoded inclusion list status satisfied flag %s",
+        satisfied);
+    return new InclusionListStatus(Bytes32.wrap(encoded.slice(0, Bytes32.SIZE)), satisfied == 1);
   }
 }
