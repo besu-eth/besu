@@ -29,6 +29,8 @@ import java.util.stream.IntStream;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class KeyedNoncesTest {
 
@@ -90,6 +92,35 @@ class KeyedNoncesTest {
     assertThat(KeyedNonces.nonceSlot(a, ONE)).isEqualTo(KeyedNonces.nonceSlot(a, ONE));
     assertThat(KeyedNonces.nonceSlot(a, ONE)).isNotEqualTo(KeyedNonces.nonceSlot(a, TWO));
     assertThat(KeyedNonces.nonceSlot(a, ONE)).isNotEqualTo(KeyedNonces.nonceSlot(b, ONE));
+  }
+
+  @Test
+  void singleUseNeedsKeysAndTheMaxSequence() {
+    assertThat(KeyedNonces.isSingleUse(List.of(UInt256.ZERO), KeyedNonces.MAX_NONCE_SEQ)).isTrue();
+    assertThat(KeyedNonces.isSingleUse(List.of(ONE, TWO), KeyedNonces.MAX_NONCE_SEQ)).isTrue();
+    assertThat(KeyedNonces.isSingleUse(KeyedNonces.LEGACY_NONCE_KEYS, KeyedNonces.MAX_NONCE_SEQ))
+        .isFalse();
+    assertThat(KeyedNonces.isSingleUse(List.of(ONE), KeyedNonces.MAX_NONCE_SEQ - 1)).isFalse();
+  }
+
+  @ParameterizedTest(name = "sequence {0} is consumed as {1}")
+  @CsvSource({
+    "0, 0x01",
+    "-2, 0xffffffffffffffff", // MAX - 1 advances to MAX, exhausting the key
+    "-1, 0xffffffffffffffff", // single-use exhausts the key rather than wrapping to zero
+  })
+  void consumingWritesTheNextSequenceToEveryKey(final long nonceSeq, final String expected) {
+    final Address sender = Address.fromHexString("0x01");
+    final ToyWorld world = new ToyWorld();
+    final WorldUpdater updater = world.updater();
+
+    KeyedNonces.consumeKeyed(updater, sender, List.of(ONE, TWO), nonceSeq, Optional.empty());
+    updater.commit();
+
+    assertThat(KeyedNonces.currentNonceSeq(world, sender, ONE, Optional.empty()))
+        .isEqualTo(UInt256.fromHexString(expected));
+    assertThat(KeyedNonces.currentNonceSeq(world, sender, TWO, Optional.empty()))
+        .isEqualTo(UInt256.fromHexString(expected));
   }
 
   @Test

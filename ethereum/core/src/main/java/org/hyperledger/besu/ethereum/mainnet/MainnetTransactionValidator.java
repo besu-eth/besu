@@ -107,7 +107,13 @@ public class MainnetTransactionValidator implements TransactionValidator {
               transactionType, acceptedTransactionTypes));
     }
 
-    if (!transactionValidationParams.isAllowFutureNonce() && transaction.getNonce() == MAX_NONCE) {
+    // EIP-8250: a keyed frame transaction at MAX_NONCE_SEQ is single-use, not an overflow.
+    if (!transactionValidationParams.isAllowFutureNonce()
+        && transaction.getNonce() == MAX_NONCE
+        && transaction
+            .getNonceKeys()
+            .map(keys -> !KeyedNonces.isSingleUse(keys, transaction.getNonce()))
+            .orElse(true)) {
       return ValidationResult.invalid(
           TransactionInvalidReason.NONCE_OVERFLOW, "Nonce must be less than 2^64-1");
     }

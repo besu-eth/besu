@@ -125,14 +125,20 @@ public final class FrameTransactionGas {
    * The EIP-8250 encoding of a frame transaction's nonce fields, priced as transaction data: {@code
    * rlp(nonce_keys) ++ rlp(nonce_seq)}.
    *
+   * <p>A keyed single-use sequence is encoded and signed but exempt from data pricing, so only
+   * {@code rlp(nonce_keys)} is returned for it.
+   *
    * @param nonceKeys the nonce keys
    * @param nonceSeq the nonce sequence
-   * @return the encoded nonce fields
+   * @return the nonce fields priced as transaction data
    */
   public static Bytes nonceCalldata(final List<UInt256> nonceKeys, final long nonceSeq) {
-    return Bytes.concatenate(
-        RLP.encode(out -> out.writeList(nonceKeys, (key, o) -> o.writeUInt256Scalar(key))),
-        RLP.encode(out -> out.writeLongScalar(nonceSeq)));
+    final Bytes encodedKeys =
+        RLP.encode(out -> out.writeList(nonceKeys, (key, o) -> o.writeUInt256Scalar(key)));
+    if (KeyedNonces.isSingleUse(nonceKeys, nonceSeq)) {
+      return encodedKeys;
+    }
+    return Bytes.concatenate(encodedKeys, RLP.encode(out -> out.writeLongScalar(nonceSeq)));
   }
 
   /**

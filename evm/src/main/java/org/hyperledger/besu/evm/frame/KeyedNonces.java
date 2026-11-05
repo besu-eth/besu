@@ -46,7 +46,11 @@ public final class KeyedNonces {
   /** Maximum number of nonce keys a frame transaction may select. */
   public static final int MAX_NONCE_KEYS = 16;
 
-  /** The exhausted sequence, {@code 2^64-1} as an unsigned long: a key here cannot advance. */
+  /**
+   * The single-use sequence, {@code 2^64-1} as an unsigned long. A keyed transaction at this
+   * sequence requires every selected key to be unused and exhausts each of them; a key holding this
+   * sequence can never be selected again.
+   */
   public static final long MAX_NONCE_SEQ = -1L;
 
   /** The empty key set, selecting the sender's account nonce. */
@@ -62,6 +66,17 @@ public final class KeyedNonces {
    */
   public static boolean isLegacy(final List<UInt256> nonceKeys) {
     return nonceKeys.isEmpty();
+  }
+
+  /**
+   * Whether a transaction is keyed single-use: a non-empty key set at {@link #MAX_NONCE_SEQ}.
+   *
+   * @param nonceKeys the transaction's nonce keys
+   * @param nonceSeq the transaction's sequence
+   * @return true if every selected key must be unused and is exhausted on consumption
+   */
+  public static boolean isSingleUse(final List<UInt256> nonceKeys, final long nonceSeq) {
+    return !isLegacy(nonceKeys) && nonceSeq == MAX_NONCE_SEQ;
   }
 
   /**
@@ -151,8 +166,9 @@ public final class KeyedNonces {
   }
 
   /**
-   * Advances every selected keyed sequence past {@code nonceSeq}. The legacy set is consumed by the
-   * caller incrementing the account nonce instead.
+   * Advances every selected keyed sequence past {@code nonceSeq}, or exhausts every selected key by
+   * writing {@link #MAX_NONCE_SEQ} when {@code nonceSeq} is that sequence. The legacy set is
+   * consumed by the caller incrementing the account nonce instead.
    *
    * @param updater the updater receiving the writes
    * @param sender the transaction sender
@@ -167,7 +183,7 @@ public final class KeyedNonces {
       final long nonceSeq,
       final Optional<? extends Eip7928AccessList> accessList) {
     final MutableAccount manager = updater.getOrCreate(NONCE_MANAGER);
-    final UInt256 next = unsigned(nonceSeq + 1);
+    final UInt256 next = unsigned(nonceSeq == MAX_NONCE_SEQ ? MAX_NONCE_SEQ : nonceSeq + 1);
     for (final UInt256 key : nonceKeys) {
       final UInt256 slot = nonceSlot(sender, key);
       accessList.ifPresent(list -> list.addSlotAccessForAccount(NONCE_MANAGER, slot));

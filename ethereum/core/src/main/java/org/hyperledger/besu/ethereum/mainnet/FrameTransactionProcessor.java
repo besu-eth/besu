@@ -142,8 +142,9 @@ public class FrameTransactionProcessor {
     accessLocationTracker.ifPresent(t -> t.addTouchedAccount(senderAddress));
     final Account senderAtStart = worldState.get(senderAddress);
 
-    // EIP-8250: the empty key set requires the account nonce to hold the transaction's sequence;
-    // otherwise every selected nonce key must. The nonce set is consumed by APPROVE, not up front.
+    // EIP-8250: the empty key set requires the account nonce to hold the transaction's sequence.
+    // A keyed set at MAX_NONCE_SEQ requires every selected key to be unused; any other keyed set
+    // requires every selected key to hold the sequence. The nonce set is consumed by APPROVE.
     // EIP-3607 is deliberately not applied.
     final long legacyNonce = senderAtStart == null ? 0L : senderAtStart.getNonce();
     final List<UInt256> nonceKeys =
@@ -163,10 +164,17 @@ public class FrameTransactionProcessor {
                     Long.toUnsignedString(legacyNonce))));
       }
     }
+    final boolean singleUse = KeyedNonces.isSingleUse(nonceKeys, transaction.getNonce());
     for (final UInt256 nonceKey : nonceKeys) {
       final UInt256 current =
           KeyedNonces.currentNonceSeq(worldState, senderAddress, nonceKey, accessLocationTracker);
-      final int order = current.compareTo(KeyedNonces.unsigned(transaction.getNonce()));
+      final int order;
+      if (singleUse) {
+        // A used key is "too low" for a single-use transaction, whatever sequence it holds.
+        order = current.isZero() ? 0 : 1;
+      } else {
+        order = current.compareTo(KeyedNonces.unsigned(transaction.getNonce()));
+      }
       if (order != 0) {
         return TransactionProcessingResult.invalid(
             ValidationResult.invalid(

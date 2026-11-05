@@ -700,12 +700,12 @@ class FrameTransactionProcessorTest {
     setSenderNonce(3);
     final List<UInt256> zeroKey = List.of(UInt256.ZERO);
 
-    final TransactionProcessingResult atAccountNonce = process(zeroKeyTransaction(zeroKey, 3));
+    final TransactionProcessingResult atAccountNonce = process(keyedTransaction(zeroKey, 3));
     assertThat(atAccountNonce.isInvalid()).isTrue();
     assertThat(atAccountNonce.getValidationResult().getInvalidReason())
         .isEqualTo(TransactionInvalidReason.NONCE_TOO_HIGH);
 
-    final TransactionProcessingResult atKeySequence = process(zeroKeyTransaction(zeroKey, 0));
+    final TransactionProcessingResult atKeySequence = process(keyedTransaction(zeroKey, 0));
     assertThat(atKeySequence.isSuccessful()).isTrue();
     assertThat(
             worldState
@@ -715,7 +715,56 @@ class FrameTransactionProcessorTest {
     assertThat(worldState.get(sender).getNonce()).isEqualTo(3L);
   }
 
-  private Transaction zeroKeyTransaction(final List<UInt256> nonceKeys, final long nonce) {
+  /**
+   * EIP-8250: a keyed transaction at MAX_NONCE_SEQ is single-use. It needs every selected key to be
+   * unused and exhausts each one, so a used key, or a replay, is "too low".
+   */
+  @Test
+  void aSingleUseTransactionExhaustsEveryKey() {
+    deploy(KeyedNonces.NONCE_MANAGER, STOP_CODE);
+    deploy(sender, APPROVE_BOTH_CODE);
+    final List<UInt256> keys = List.of(UInt256.ONE, UInt256.valueOf(2));
+
+    final TransactionProcessingResult first =
+        process(keyedTransaction(keys, KeyedNonces.MAX_NONCE_SEQ));
+    assertThat(first.isSuccessful()).isTrue();
+    for (final UInt256 key : keys) {
+      assertThat(
+              worldState
+                  .get(KeyedNonces.NONCE_MANAGER)
+                  .getStorageValue(KeyedNonces.nonceSlot(sender, key)))
+          .isEqualTo(KeyedNonces.unsigned(KeyedNonces.MAX_NONCE_SEQ));
+    }
+
+    final TransactionProcessingResult replay =
+        process(keyedTransaction(keys, KeyedNonces.MAX_NONCE_SEQ));
+    assertThat(replay.isInvalid()).isTrue();
+    assertThat(replay.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_LOW);
+    assertThat(replay.getValidationResult().getErrorMessage())
+        .isEqualTo(
+            "transaction nonce 18446744073709551615 below nonce key 0x1 sequence"
+                + " 18446744073709551615");
+  }
+
+  @Test
+  void aSingleUseTransactionWithOneUsedKeyIsTooLow() {
+    deploy(KeyedNonces.NONCE_MANAGER, STOP_CODE);
+    deploy(sender, APPROVE_BOTH_CODE);
+    assertThat(process(keyedTransaction(List.of(UInt256.valueOf(2)), 0)).isSuccessful()).isTrue();
+
+    final TransactionProcessingResult result =
+        process(
+            keyedTransaction(List.of(UInt256.ONE, UInt256.valueOf(2)), KeyedNonces.MAX_NONCE_SEQ));
+
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.NONCE_TOO_LOW);
+    assertThat(result.getValidationResult().getErrorMessage())
+        .isEqualTo("transaction nonce 18446744073709551615 below nonce key 0x2 sequence 1");
+  }
+
+  private Transaction keyedTransaction(final List<UInt256> nonceKeys, final long nonce) {
     return Transaction.builder()
         .type(TransactionType.FRAME)
         .chainId(CHAIN_ID)

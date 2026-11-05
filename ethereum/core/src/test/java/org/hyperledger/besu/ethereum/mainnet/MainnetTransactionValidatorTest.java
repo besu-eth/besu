@@ -1297,6 +1297,46 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
   }
 
   /**
+   * EIP-8250: a frame transaction at MAX_NONCE_SEQ overflows only with the empty key set; with any
+   * keys it is single-use.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("maxNonceSeqKeySets")
+  void shouldRejectMaxNonceSeqOnlyForTheEmptyKeySet(
+      final String name, final List<UInt256> nonceKeys, final boolean overflows) {
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.FRAME)
+            .chainId(BigInteger.ONE)
+            .nonceKeys(nonceKeys)
+            .nonce(Account.MAX_NONCE)
+            .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+            .frames(List.of(frame(50_000L, 0L)))
+            .frameSignatures(List.of())
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .maxFee(Wei.ZERO)
+            .build();
+
+    final ValidationResult<TransactionInvalidReason> result =
+        frameValidator()
+            .validate(transaction, Optional.empty(), Optional.empty(), processingBlockParams);
+
+    if (overflows) {
+      assertThat(result)
+          .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.NONCE_OVERFLOW));
+    } else {
+      assertThat(result).isEqualTo(ValidationResult.valid());
+    }
+  }
+
+  private static Stream<Arguments> maxNonceSeqKeySets() {
+    return Stream.of(
+        Arguments.of("empty set", List.of(), true),
+        Arguments.of("zero key", List.of(UInt256.ZERO), false),
+        Arguments.of("two keys", List.of(UInt256.ONE, UInt256.valueOf(2)), false));
+  }
+
+  /**
    * EIP-8250: the keyed nonce access cost of a frame transaction counts towards the EIP-7825 cap.
    * The vectors are the spec's 16-key cap tests, whose 193,600 of keyed nonce access gas is what
    * takes the above-cap ones over.

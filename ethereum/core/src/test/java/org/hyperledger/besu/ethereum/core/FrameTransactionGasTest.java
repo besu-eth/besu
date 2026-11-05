@@ -183,6 +183,60 @@ class FrameTransactionGasTest {
     assertThat(transaction.getGasLimit()).isEqualTo(57_409L);
   }
 
+  /**
+   * EIP-8250: a keyed single-use sequence is exempt from data pricing, so only the keys are priced.
+   * The empty key set at MAX_NONCE_SEQ, and any keyed set below it, still price the sequence.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("nonceCalldataCases")
+  void nonceCalldataExemptsOnlyTheKeyedSingleUseSequence(
+      final String name,
+      final List<UInt256> nonceKeys,
+      final long nonceSeq,
+      final String expected) {
+    assertThat(FrameTransactionGas.nonceCalldata(nonceKeys, nonceSeq))
+        .isEqualTo(Bytes.fromHexString(expected));
+  }
+
+  private static Stream<Arguments> nonceCalldataCases() {
+    return Stream.of(
+        Arguments.of("single-use key", List.of(UInt256.ONE), KeyedNonces.MAX_NONCE_SEQ, "0xc101"),
+        Arguments.of(
+            "single-use zero key", List.of(UInt256.ZERO), KeyedNonces.MAX_NONCE_SEQ, "0xc180"),
+        Arguments.of(
+            "single-use two keys",
+            List.of(UInt256.ONE, UInt256.valueOf(2)),
+            KeyedNonces.MAX_NONCE_SEQ,
+            "0xc20102"),
+        Arguments.of(
+            "empty set at max",
+            KeyedNonces.LEGACY_NONCE_KEYS,
+            KeyedNonces.MAX_NONCE_SEQ,
+            "0xc088ffffffffffffffff"),
+        Arguments.of("keyed at five", List.of(UInt256.ONE), 5L, "0xc10105"),
+        Arguments.of("keyed below max", List.of(UInt256.ONE), -2L, "0xc10188fffffffffffffffe"));
+  }
+
+  /** The single-use exemption flows into the intrinsic gas, the calldata floor and max_gas. */
+  @Test
+  void singleUseSequenceIsNotPricedInIntrinsicGasFloorOrMaxGas() {
+    final Transaction sequential = keyedTransaction();
+    // Rebuilt with the gas limit unset, so the builder derives max_gas for the new sequence.
+    final Transaction singleUse =
+        Transaction.builder()
+            .copiedFrom(sequential)
+            .nonce(KeyedNonces.MAX_NONCE_SEQ)
+            .gasLimit(-1L)
+            .build();
+
+    // The sequential nonce 0 encodes as the single non-zero byte 0x80: 16 gas, 64 under the floor.
+    assertThat(FrameTransactionGas.intrinsicGas(singleUse))
+        .isEqualTo(FrameTransactionGas.intrinsicGas(sequential) - 16L);
+    assertThat(FrameTransactionGas.calldataFloorGas(singleUse))
+        .isEqualTo(FrameTransactionGas.calldataFloorGas(sequential) - 64L);
+    assertThat(singleUse.getGasLimit()).isEqualTo(sequential.getGasLimit() - 16L);
+  }
+
   @Test
   void sixteenKeyTransactionPaysTheAccessCostOfEveryKey() {
     final Transaction transaction = KeyedNonceGasCapVectors.atCapStandard();
