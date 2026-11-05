@@ -45,6 +45,7 @@
 - Upgrade the stable reference tests to `tests@v21.0.3`. [#12046](https://github.com/besu-eth/besu/pull/12046)
 - Parallel block import recovers each transaction's sender and EIP-7702 authorities once. [#11922](https://github.com/besu-eth/besu/pull/11922)
 - Schedule the Amsterdam fork on Hoodi at timestamp `1797361944` (Tue, 15 Dec 2026, 19:12:24 UTC). [#12058](https://github.com/besu-eth/besu/pull/12058)
+- With `--Xevm-v2`, a CALL without value no longer looks up the caller's balance or the sender, and builds its child frame directly. [#11872](https://github.com/besu-eth/besu/pull/11872)
 
 ## 26.11.2
 
