@@ -120,7 +120,8 @@ class EthServer {
                 peer,
                 messageData,
                 ethereumWireProtocolConfiguration.getMaxGetPooledTransactions(),
-                maxMessageSize));
+                maxMessageSize,
+                capability));
     ethMessages.registerResponseConstructor(
         EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
         (peer, messageData, capability) ->
@@ -400,10 +401,15 @@ class EthServer {
       final EthPeer peer,
       final MessageData message,
       final int requestLimit,
-      final int maxMessageSize) {
+      final int maxMessageSize,
+      final Capability capability) {
     final GetPooledTransactionsMessage getPooledTransactions =
         GetPooledTransactionsMessage.readFrom(message);
     final Iterable<Hash> hashes = getPooledTransactions.pooledTransactions();
+    // From eth/72 the response elides the blob payloads, which is also what was announced: a
+    // response in the pre-eth/72 form would not match its announced size, and for a transaction
+    // held only as cells there is no such form to encode at all.
+    final EncodingContext encodingContext = EthProtocol.pooledTransactionContext(capability);
 
     final boolean traceEnabled = LOG.isTraceEnabled();
     final Iterable<Hash> hashesToProcess;
@@ -411,9 +417,11 @@ class EthServer {
       final List<Hash> requested = new ArrayList<>();
       hashes.forEach(requested::add);
       LOG.atTrace()
-          .setMessage("Requested pooled transactions: peer={}, requested hashes={}")
+          .setMessage(
+              "Requested pooled transactions: peer={}, requested hashes={}, encoding context={}")
           .addArgument(peer)
           .addArgument(requested)
+          .addArgument(encodingContext)
           .log();
       hashesToProcess = requested;
     } else {
@@ -436,8 +444,19 @@ class EthServer {
         continue;
       }
 
+      if (!encodingContext.canEncode(maybeTx.get())) {
+        // Typically a blob transaction this node holds only as cells, which the pre-eth/72 wire
+        // form cannot express. Omit it rather than fail: the peer can source it elsewhere.
+        LOG.atTrace()
+            .setMessage("Skipping pooled transaction {}, not encodable for {}")
+            .addArgument(hash)
+            .addArgument(encodingContext)
+            .log();
+        continue;
+      }
+
       final BytesValueRLPOutput txRlp = new BytesValueRLPOutput();
-      TransactionEncoder.encodeRLP(maybeTx.get(), txRlp, EncodingContext.POOLED_TRANSACTION);
+      TransactionEncoder.encodeRLP(maybeTx.get(), txRlp, encodingContext);
       final int encodedSize = txRlp.encodedSize();
       if (responseSizeEstimate + encodedSize > maxMessageSize) {
         break;
