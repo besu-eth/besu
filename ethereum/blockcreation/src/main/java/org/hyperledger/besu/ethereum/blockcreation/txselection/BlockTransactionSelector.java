@@ -461,9 +461,47 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       final long elapsedSelectionTime = System.nanoTime() - startTimeNanos;
       final long maxWaitTime = remainingSelectionTime - elapsedSelectionTime;
       waitForCancellationToBeProcessed("Internal", internalSelectionDone, maxWaitTime);
+      if (internalSelectionDone.getCount() != 0) {
+        recordInFlightTransactionResult(selectionResults);
+      }
     }
 
     return selectionResults;
+  }
+
+  /**
+   * For cases where TX selection didn't complete, the thread evaluating the current tx is still
+   * running when the selection results are being evaluated by the pool, so by the time it tries to
+   * record a timeout result (e.g. TX_EVALUATION_TOO_LONG) the pool has finished processing the
+   * results. This method sets a result, ignoring the fact that the evaluation thread is still
+   * finishing, and determines whether the TX itself took too long (and should hence be penalised)
+   * or the block just ran out of time (in which case it should not be penalised).
+   *
+   * @param selectionResults the results of the selection, returned to the txpool
+   */
+  private void recordInFlightTransactionResult(
+      final Map<PendingTransaction, TransactionSelectionResult> selectionResults) {
+    final var evaluationContext = currTxEvaluationContext;
+    if (evaluationContext == null
+        || !(evaluationContext.getPendingTransaction() instanceof PendingTransaction inFlightTx)) {
+      return;
+    }
+
+    // The evaluation has not completed, so a result that discards the tx is never used here, but
+    // on a timeout the tx is penalized since it is still running after the whole remaining
+    // selection time was given to it.
+    final TransactionSelectionResult inFlightResult =
+        isCancelled.get() ? SELECTION_CANCELLED : TX_EVALUATION_TOO_LONG;
+
+    if (selectionResults.putIfAbsent(inFlightTx, inFlightResult) == null) {
+      LOG.atDebug()
+          .setMessage(
+              "Transaction {} is still being evaluated after {} at the end of the block selection, recording result {} for the txpool")
+          .addArgument(inFlightTx::getHash)
+          .addArgument(evaluationContext.getEvaluationTimer())
+          .addArgument(inFlightResult)
+          .log();
+    }
   }
 
   private void pluginTimeLimitedSelection(

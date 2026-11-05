@@ -1663,6 +1663,19 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getReceipts().get(0).getCumulativeGasUsed()).isEqualTo(100_000);
     assertThat(results.getReceipts().get(1).getCumulativeGasUsed()).isEqualTo(200_000);
 
+    if (!isLongProcessingTxDropped) {
+      // the evaluation of the late tx was still running when the selection returned, but the
+      // txpool must have been given a result that penalizes it, so it is not retried
+      // first next block, preventing it from monopolising the selection time of every block
+      assertThat(
+              transactionPool.getPendingTransactions().stream()
+                  .filter(pt -> pt.getHash().equals(lateTx.getHash()))
+                  .findFirst()
+                  .orElseThrow()
+                  .getScore())
+          .isLessThan(org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MAX_SCORE);
+    }
+
     // given enough time we can check the not selected tx
     await().until(() -> !results.getNotSelectedTransactions().isEmpty());
     assertThat(results.getNotSelectedTransactions())

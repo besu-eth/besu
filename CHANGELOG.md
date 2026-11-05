@@ -37,6 +37,7 @@
 - Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
 - The default JVM options no longer start JFR's in-process event logging, which formatted every recorded event as text. [#11824](https://github.com/besu-eth/besu/pull/11824)
 - Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
+- The sequenced transaction pool penalises transactions whose selection result asks for it, as the layered pool does, and a transaction still executing when the block selection time runs out is penalised, so it is re-selected after the others instead of monopolising the selection time of every block (https://github.com/besu-eth/besu/pull/11681)
 
 ## 26.11.0
 
