@@ -270,27 +270,18 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
 
     final Code code = getCode(evm, frame, contract);
 
-    MessageFrame.Builder builder =
-        MessageFrame.builder()
-            .enableEvmV2(true)
-            .parentMessageFrame(frame)
-            .type(MessageFrame.Type.MESSAGE_CALL)
-            .initialGas(gasAvailableForChildCall(frame))
-            .address(recipientAddress)
-            .contract(to)
-            .inputData(inputData)
-            .sender(sender(frame))
-            .value(transferValue)
-            .apparentValue(apparentValue(frame))
-            .code(code)
-            .isStatic(isStatic(frame))
-            .completer(child -> complete(frame, child));
-
-    if (frame.getEip7928AccessList().isPresent()) {
-      builder.eip7928AccessList(frame.getEip7928AccessList().get());
-    }
-
-    builder.build();
+    MessageFrame.childCallFrameV2(
+        frame,
+        gasAvailableForChildCall(frame),
+        recipientAddress,
+        to,
+        inputData,
+        sender(frame),
+        transferValue,
+        apparentValue(frame),
+        code,
+        isStatic(frame),
+        child -> complete(frame, child));
     // see note in stack depth check about incrementing cost
     frame.incrementRemainingGas(cost);
 
