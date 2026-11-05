@@ -23,6 +23,8 @@ import org.hyperledger.besu.evm.internal.Words;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.github.benmanes.caffeine.cache.Cache;
@@ -38,6 +40,15 @@ import org.slf4j.LoggerFactory;
 public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
   private static final AtomicBoolean loaded = new AtomicBoolean(false);
 
+  private static final CompletableFuture<Void> NO_BACKGROUND_LOAD =
+      CompletableFuture.completedFuture(null);
+
+  /**
+   * Completes once the trusted setup is loaded. It is only replaced when the setup loads on a
+   * background thread; an eager load leaves it completed, so waiting on it costs nothing.
+   */
+  private static volatile CompletableFuture<Void> trustedSetup = NO_BACKGROUND_LOAD;
+
   private static final String PRECOMPILE_NAME = "KZGPointEval";
   private static final Cache<Bytes, PrecompileInputResultTuple> kzgCache =
       AbstractPrecompiledContract.resultCacheBuilder().build();
@@ -50,7 +61,8 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
 
   private static Bytes successResult;
 
-  private static void loadLib() {
+  @VisibleForTesting
+  static void loadLib() {
     CKZG4844JNI.loadNativeLibrary();
     Bytes fieldElementsPerBlob =
         Bytes32.wrap(Words.intBytes(CKZG4844JNI.FIELD_ELEMENTS_PER_BLOB).xor(Bytes32.ZERO));
@@ -67,11 +79,24 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
    * @throws IllegalStateException is the trusted setup was already loaded
    */
   public static void init(final Path trustedSetupFile) {
+    init(trustedSetupFile, false);
+  }
+
+  /**
+   * Init the C-KZG native lib using a file as trusted setup
+   *
+   * @param trustedSetupFile the file with the trusted setup
+   * @param loadInBackground whether to load the trusted setup on a background thread, see {@link
+   *     #awaitTrustedSetup()}
+   * @throws IllegalStateException if the trusted setup was already loaded
+   */
+  public static void init(final Path trustedSetupFile, final boolean loadInBackground) {
     if (loaded.compareAndSet(false, true)) {
       loadLib();
       final String trustedSetupResourceName = trustedSetupFile.toAbsolutePath().toString();
       LOG.info("Loading trusted setup from user-specified resource {}", trustedSetupResourceName);
-      CKZG4844JNI.loadTrustedSetup(trustedSetupResourceName, 0);
+      loadTrustedSetup(
+          () -> CKZG4844JNI.loadTrustedSetup(trustedSetupResourceName, 0), loadInBackground);
     } else {
       throw new IllegalStateException("KZG trusted setup was already loaded");
     }
@@ -83,21 +108,92 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
    * @throws IllegalStateException is the trusted setup was already loaded
    */
   public static void init() {
+    init(false);
+  }
+
+  /**
+   * Init the C-KZG native lib using mainnet trusted setup
+   *
+   * @param loadInBackground whether to load the trusted setup on a background thread, see {@link
+   *     #awaitTrustedSetup()}
+   */
+  public static void init(final boolean loadInBackground) {
     if (loaded.compareAndSet(false, true)) {
       loadLib();
       final String trustedSetupResourceName = "/kzg-trusted-setups/mainnet.txt";
       LOG.info(
           "Loading network trusted setup from classpath resource {}", trustedSetupResourceName);
-      CKZG4844JNI.loadTrustedSetupFromResource(
-          trustedSetupResourceName, KZGPointEvalPrecompiledContract.class, 0);
+      loadTrustedSetup(
+          () ->
+              CKZG4844JNI.loadTrustedSetupFromResource(
+                  trustedSetupResourceName, KZGPointEvalPrecompiledContract.class, 0),
+          loadInBackground);
+    }
+  }
+
+  /**
+   * Load the trusted setup, either on the calling thread or on a background thread.
+   *
+   * <p>On a background thread, the load runs alongside the rest of startup. Every KZG operation
+   * waits for it through {@link #awaitTrustedSetup()}, so only the time at which the setup is
+   * loaded changes.
+   *
+   * @param load the native call that loads the trusted setup
+   * @param loadInBackground whether to run the load on a background thread
+   */
+  @VisibleForTesting
+  static void loadTrustedSetup(final Runnable load, final boolean loadInBackground) {
+    if (!loadInBackground) {
+      trustedSetup = NO_BACKGROUND_LOAD;
+      load.run();
+      return;
+    }
+    LOG.info("Loading the trusted setup on a background thread");
+    final long start = System.nanoTime();
+    trustedSetup =
+        CompletableFuture.runAsync(
+                load,
+                task -> Thread.ofPlatform().name("kzg-trusted-setup-loader").daemon().start(task))
+            .whenComplete(
+                (ignored, loadFailed) -> {
+                  if (loadFailed == null) {
+                    LOG.info(
+                        "Loaded the trusted setup in {} ms",
+                        (System.nanoTime() - start) / 1_000_000);
+                  } else {
+                    LOG.error("Failed to load the KZG trusted setup", loadFailed);
+                  }
+                });
+  }
+
+  /**
+   * Wait until the trusted setup is loaded. Every KZG operation calls this before using the setup.
+   * It returns at once unless the setup is loading on a background thread.
+   *
+   * @throws IllegalStateException if the trusted setup failed to load on the background thread
+   */
+  public static void awaitTrustedSetup() {
+    try {
+      trustedSetup.join();
+    } catch (final CompletionException loadFailed) {
+      throw new IllegalStateException(
+          "KZG trusted setup failed to load: " + loadFailed.getCause(), loadFailed.getCause());
     }
   }
 
   /** free up resources. */
   @VisibleForTesting
   public static void tearDown() {
-    CKZG4844JNI.freeTrustedSetup();
-    loaded.set(false);
+    try {
+      // a background load must finish before the setup is freed
+      trustedSetup.join();
+      CKZG4844JNI.freeTrustedSetup();
+    } catch (final CompletionException loadFailed) {
+      // nothing was loaded, so there is nothing to free
+    } finally {
+      trustedSetup = NO_BACKGROUND_LOAD;
+      loaded.set(false);
+    }
   }
 
   /**
@@ -182,6 +278,8 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
             null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
       }
     }
+    // Outside the try below: a failed load must not be mistaken for an invalid proof.
+    awaitTrustedSetup();
     try {
       boolean proved =
           CKZG4844JNI.verifyKzgProof(
