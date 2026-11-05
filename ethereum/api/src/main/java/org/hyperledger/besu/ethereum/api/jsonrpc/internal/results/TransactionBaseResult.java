@@ -42,6 +42,7 @@ import org.apache.tuweni.bytes.Bytes;
   "maxPriorityFeePerGas",
   "maxFeePerGas",
   "maxFeePerBlobGas",
+  "maxFee",
   "hash",
   "input",
   "nonce",
@@ -75,6 +76,9 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
   private final String maxFeePerBlobGas;
+
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  private final String maxFee;
 
   private final String hash;
   private final String input;
@@ -110,6 +114,7 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
     this.maxFeePerGas = transaction.getMaxFeePerGas().map(Wei::toShortHexString).orElse(null);
     this.maxFeePerBlobGas =
         transaction.getMaxFeePerBlobGas().map(Wei::toShortHexString).orElse(null);
+    this.maxFee = transaction.getMaxFee().map(Wei::toShortHexString).orElse(null);
     this.gasPrice =
         Quantity.create(
             transaction
@@ -118,7 +123,7 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
                     () ->
                         maybeBaseFee.isPresent()
                             ? transaction.getEffectiveGasPrice(maybeBaseFee)
-                            : transaction.getMaxFeePerGas().get()));
+                            : maxGasPrice(transaction)));
     this.hash = transaction.getHash().toString();
     this.input = transaction.getPayload().toString();
     this.nonce = Quantity.create(transaction.getNonce());
@@ -160,6 +165,15 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
             .orElse(null);
   }
 
+  // An EIP-8141 frame transaction caps its total fee, not the fee per gas, so the cap per gas is
+  // max_fee spread over the gas limit.
+  private static Wei maxGasPrice(final Transaction transaction) {
+    return transaction
+        .getMaxFee()
+        .map(maxFee -> maxFee.divide(transaction.getGasLimit()))
+        .orElseGet(transaction::getMaxGasPrice);
+  }
+
   @JsonGetter(value = "accessList")
   public List<AccessListEntry> getAccessList() {
     return accessList;
@@ -198,6 +212,11 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
   @JsonGetter(value = "maxFeePerBlobGas")
   public String getMaxFeePerBlobGas() {
     return maxFeePerBlobGas;
+  }
+
+  @JsonGetter(value = "maxFee")
+  public String getMaxFee() {
+    return maxFee;
   }
 
   @JsonGetter(value = "hash")

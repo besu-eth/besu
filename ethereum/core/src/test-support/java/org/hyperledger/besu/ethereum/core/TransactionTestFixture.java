@@ -146,7 +146,8 @@ public class TransactionTestFixture {
     chainId.ifPresent(builder::chainId);
     v.ifPresent(builder::v);
 
-    return builder.signAndBuild(keys);
+    // EIP-8141 frame transactions carry no outer signature.
+    return transactionType.supportsFrames() ? builder.build() : builder.signAndBuild(keys);
   }
 
   public TransactionTestFixture type(final TransactionType transactionType) {
