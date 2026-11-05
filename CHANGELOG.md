@@ -36,6 +36,7 @@
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
 - Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
 - The default JVM options no longer start JFR's in-process event logging, which formatted every recorded event as text. [#11824](https://github.com/besu-eth/besu/pull/11824)
+- With `--Xevm-v2`, frames deeper than call depth 20 reuse shared stacks instead of allocating a 32 KB stack each. [#11871](https://github.com/besu-eth/besu/pull/11871)
 
 ## 26.11.0
 
