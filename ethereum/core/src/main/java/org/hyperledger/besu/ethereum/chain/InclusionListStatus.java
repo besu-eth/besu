@@ -31,12 +31,6 @@ import org.apache.tuweni.bytes.Bytes32;
  */
 public record InclusionListStatus(Bytes32 inclusionListChecksum, boolean satisfied) {
 
-  /**
-   * Checksum of a status stored before the checksum was recorded. It never matches the checksum of
-   * an actual inclusion list, so such a block is validated again.
-   */
-  public static final Bytes32 UNKNOWN_CHECKSUM = Bytes32.ZERO;
-
   private static final int ENCODED_SIZE = Bytes32.SIZE + 1;
 
   /**
@@ -71,15 +65,12 @@ public record InclusionListStatus(Bytes32 inclusionListChecksum, boolean satisfi
   }
 
   /**
-   * Decodes a stored status. A single byte is a status stored before the checksum was recorded.
+   * Decodes a stored status.
    *
    * @param encoded the encoded status
    * @return the decoded status
    */
   public static InclusionListStatus decode(final Bytes encoded) {
-    if (encoded.size() == 1) {
-      return new InclusionListStatus(UNKNOWN_CHECKSUM, encoded.get(0) != 0);
-    }
     checkArgument(
         encoded.size() == ENCODED_SIZE,
         "Invalid encoded inclusion list status size %s",

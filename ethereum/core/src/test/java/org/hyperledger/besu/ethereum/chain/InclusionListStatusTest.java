@@ -43,18 +43,9 @@ class InclusionListStatusTest {
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {true, false})
-  void decodesStatusStoredWithoutChecksum(final boolean satisfied) {
-    final InclusionListStatus status = InclusionListStatus.decode(Bytes.of(satisfied ? 1 : 0));
-
-    assertThat(status.satisfied()).isEqualTo(satisfied);
-    // it does not match any inclusion list, so the block is validated again
-    assertThat(status.inclusionListChecksum()).isEqualTo(InclusionListStatus.UNKNOWN_CHECKSUM);
-  }
-
-  @Test
-  void rejectsInvalidEncoding() {
+  @ValueSource(ints = {0, 1, 32, 34})
+  void rejectsAnEncodingThatIsNot33Bytes(final int size) {
     assertThatIllegalArgumentException()
-        .isThrownBy(() -> InclusionListStatus.decode(Bytes.of(1, 2)));
+        .isThrownBy(() -> InclusionListStatus.decode(Bytes.wrap(new byte[size])));
   }
 }

@@ -71,7 +71,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   private static final Bytes TRANSACTION_LOCATION_PREFIX = Bytes.of(7);
   private static final Bytes BLOCK_ACCESS_LIST_PREFIX = Bytes.of(8);
   private static final Bytes SENDER_NONCE_TO_TX_HASH_PREFIX = Bytes.of(9);
-  private static final Bytes INCLUSION_LIST_SATISFIED_PREFIX = Bytes.of(10);
+  private static final Bytes INCLUSION_LIST_STATUS_PREFIX = Bytes.of(10);
   private static final SimpleNoCopyRlpEncoder NO_COPY_RLP_ENCODER = new SimpleNoCopyRlpEncoder();
 
   final KeyValueStorage blockchainStorage;
@@ -215,8 +215,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
 
   @Override
   public Optional<InclusionListStatus> getInclusionListStatus(final Hash blockHash) {
-    return get(INCLUSION_LIST_SATISFIED_PREFIX, blockHash.getBytes())
-        .map(InclusionListStatus::decode);
+    return get(INCLUSION_LIST_STATUS_PREFIX, blockHash.getBytes()).map(InclusionListStatus::decode);
   }
 
   private static Bytes senderNonceKey(final Address sender, final long nonce) {
@@ -517,13 +516,13 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
 
     @Override
     public void removeInclusionListStatus(final Hash blockHash) {
-      remove(INCLUSION_LIST_SATISFIED_PREFIX, blockHash.getBytes());
+      remove(INCLUSION_LIST_STATUS_PREFIX, blockHash.getBytes());
     }
 
     @Override
     public void putInclusionListStatus(
         final Hash blockHash, final InclusionListStatus inclusionListStatus) {
-      set(INCLUSION_LIST_SATISFIED_PREFIX, blockHash.getBytes(), inclusionListStatus.encode());
+      set(INCLUSION_LIST_STATUS_PREFIX, blockHash.getBytes(), inclusionListStatus.encode());
     }
 
     @Override
