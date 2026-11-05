@@ -131,9 +131,6 @@ class TransactionDiffComputeTest {
             new SlotChange(WRITER, UInt256.valueOf(0xa), UInt256.ZERO, UInt256.ONE),
             new SlotChange(WRITER, UInt256.valueOf(0xb), UInt256.valueOf(5), UInt256.valueOf(7)));
     assertThat(diff.deployed()).isEmpty();
-    assertThat(diff.accountChangeFlags(PAYER))
-        .isEqualTo(TransactionDiff.FLAG_NONCE | TransactionDiff.FLAG_BALANCE);
-    assertThat(diff.accountChangeFlags(WRITER)).isEqualTo(TransactionDiff.FLAG_STORAGE);
   }
 
   @Test
@@ -178,9 +175,6 @@ class TransactionDiffComputeTest {
     assertThat(diff.balances()).isEmpty();
     assertThat(diff.slots()).isEmpty();
     assertThat(diff.deployed()).isEmpty();
-    assertThat(diff.accountChangeFlags(ENTRY_POINT)).isZero();
-    assertThat(diff.accountChangeFlags(READ_ONLY)).isZero();
-    assertThat(diff.accountChangeFlags(WRITER)).isZero();
   }
 
   @Test
@@ -205,9 +199,6 @@ class TransactionDiffComputeTest {
         .containsExactly(new DeployedContract(CREATED, Hash.hash(Bytes.of(0x00))));
     assertThat(diff.slots())
         .containsExactly(new SlotChange(CREATED, UInt256.ONE, UInt256.ZERO, UInt256.valueOf(4)));
-    assertThat(diff.accountChangeFlags(CREATED))
-        .isEqualTo(
-            TransactionDiff.FLAG_NONCE | TransactionDiff.FLAG_CODE | TransactionDiff.FLAG_STORAGE);
   }
 
   @Test
@@ -221,7 +212,6 @@ class TransactionDiffComputeTest {
         TransactionDiff.compute(prestate, transaction, List.of(transaction), List.of());
 
     assertThat(diff.deployed()).isEmpty();
-    assertThat(diff.accountChangeFlags(RECIPIENT)).isEqualTo(TransactionDiff.FLAG_CODE);
   }
 
   @Test
@@ -238,8 +228,6 @@ class TransactionDiffComputeTest {
 
     // the deletion wipes what the prefix wrote, so the slot is not enumerated
     assertThat(diff.slots()).isEmpty();
-    assertThat(diff.accountChangeFlags(WRITER))
-        .isEqualTo(TransactionDiff.FLAG_NONCE | TransactionDiff.FLAG_CODE);
   }
 
   /**

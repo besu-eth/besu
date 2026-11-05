@@ -642,11 +642,11 @@ public class FrameTransactionProcessor {
   }
 
   /**
-   * Installs what the EIP-7906 assertion operations read, at the first ASSERT frame: the
-   * transaction prestate, and the diff of the writes in the transaction updater and the body layer
-   * against it, with the logs of the frames completed so far. The diff is computed on its first
-   * read. It cannot change across the ASSERT suffix: ASSERT frames neither write values nor emit
-   * logs, and the loop stops at the first one that fails.
+   * Installs what the EIP-7906 assertion operations read, at the first ASSERT frame: the diff of
+   * the writes in the transaction updater and the body layer against the transaction prestate, with
+   * the logs of the frames completed so far. The diff is computed on its first read. It cannot
+   * change across the ASSERT suffix: ASSERT frames neither write values nor emit logs, and the loop
+   * stops at the first one that fails.
    */
   private static void installTransactionDiff(
       final FrameTransactionContext context,
@@ -664,7 +664,6 @@ public class FrameTransactionProcessor {
         bodyUpdater == null ? List.of(worldUpdater) : List.of(worldUpdater, bodyUpdater);
     final WorldUpdater post = bodyUpdater == null ? worldUpdater : bodyUpdater;
     context.installTransactionDiff(
-        transactionPrestate,
         () -> TransactionDiff.compute(transactionPrestate, post, writeLayers, frozenEvents));
   }
 

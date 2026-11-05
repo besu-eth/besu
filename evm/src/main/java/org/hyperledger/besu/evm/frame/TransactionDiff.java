@@ -27,7 +27,6 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,25 +46,12 @@ import org.jspecify.annotations.Nullable;
  * the earlier transactions of the block) with the state as of the read. Values the transaction
  * restored leave no entry. The tables are in the canonical enumeration order: balance changes and
  * deployments ascending by address as uint160, slot changes ascending by address and then by key as
- * uint256, and events in emission order. The per-address and per-topic views list ascending indices
- * into those tables.
+ * uint256, and events in emission order.
  *
  * <p>Instances are immutable. The processor computes one with {@link #compute} from the
  * transaction's write layers, and tests build them with {@link #builder()}.
  */
 public final class TransactionDiff {
-
-  /** {@code ACCOUNT_CHANGE_FLAGS} bit: the nonce differs from the prestate. */
-  public static final int FLAG_NONCE = 0b0001;
-
-  /** {@code ACCOUNT_CHANGE_FLAGS} bit: the balance differs from the prestate. */
-  public static final int FLAG_BALANCE = 0b0010;
-
-  /** {@code ACCOUNT_CHANGE_FLAGS} bit: at least one slot of the account is in the slot table. */
-  public static final int FLAG_STORAGE = 0b0100;
-
-  /** {@code ACCOUNT_CHANGE_FLAGS} bit: the raw code hash differs from the prestate. */
-  public static final int FLAG_CODE = 0b1000;
 
   /** The diff of a transaction that changed nothing and emitted no event. */
   public static final TransactionDiff EMPTY = builder().build();
@@ -99,9 +85,6 @@ public final class TransactionDiff {
 
   /**
    * An entry of the events table.
-   *
-   * <p>Topics are held as {@link Bytes32}, never as {@link LogTopic}: a {@code LogTopic} never
-   * equals a {@code Bytes32}, so comparing an operand with a {@code LogTopic} would never match.
    *
    * @param logger the emitting address
    * @param topics the topics, at most four
@@ -156,28 +139,16 @@ public final class TransactionDiff {
   private final List<SlotChange> slots;
   private final List<DeployedContract> deployed;
   private final List<Event> events;
-  private final Map<Address, List<Integer>> slotIndices;
-  private final Map<Address, List<Integer>> eventIndices;
-  private final Map<Bytes32, List<Integer>> topicIndices;
-  private final Map<Address, Integer> accountFlags;
 
   private TransactionDiff(
       final List<BalanceChange> balances,
       final List<SlotChange> slots,
       final List<DeployedContract> deployed,
-      final List<Event> events,
-      final Map<Address, List<Integer>> slotIndices,
-      final Map<Address, List<Integer>> eventIndices,
-      final Map<Bytes32, List<Integer>> topicIndices,
-      final Map<Address, Integer> accountFlags) {
+      final List<Event> events) {
     this.balances = balances;
     this.slots = slots;
     this.deployed = deployed;
     this.events = events;
-    this.slotIndices = slotIndices;
-    this.eventIndices = eventIndices;
-    this.topicIndices = topicIndices;
-    this.accountFlags = accountFlags;
   }
 
   /**
@@ -302,51 +273,7 @@ public final class TransactionDiff {
     return events;
   }
 
-  /**
-   * The per-address slot view: the {@link #slots()} indices of one account's entries.
-   *
-   * @param address the account
-   * @return ascending indices, empty when the account has no changed slot
-   */
-  public List<Integer> slotIndicesOf(final Address address) {
-    return slotIndices.getOrDefault(address, List.of());
-  }
-
-  /**
-   * The per-address event view: the {@link #events()} indices of the events an account emitted.
-   *
-   * @param address the emitter
-   * @return ascending indices, empty when the account emitted no event
-   */
-  public List<Integer> eventIndicesOf(final Address address) {
-    return eventIndices.getOrDefault(address, List.of());
-  }
-
-  /**
-   * The per-topic event view: the {@link #events()} indices of the events carrying a value in an
-   * indexed position (topics 1 to 3). The signature topic, topic 0, is excluded, and an event
-   * carrying the value in several positions is listed once.
-   *
-   * @param topic the topic value, all 32 bytes
-   * @return ascending indices, empty when no event carries the value
-   */
-  public List<Integer> eventIndicesWithTopic(final Bytes32 topic) {
-    return topicIndices.getOrDefault(topic, List.of());
-  }
-
-  /**
-   * The {@code ACCOUNT_CHANGE_FLAGS} bitmask of an account: {@link #FLAG_NONCE}, {@link
-   * #FLAG_BALANCE} and {@link #FLAG_CODE} for the fields of a written account that differ from the
-   * prestate, and {@link #FLAG_STORAGE} when the account has an entry in the slot table.
-   *
-   * @param address the account
-   * @return the flags, 0 for an account the transaction did not change
-   */
-  public int accountChangeFlags(final Address address) {
-    return accountFlags.getOrDefault(address, 0);
-  }
-
-  /** Collects the candidate entries of a diff and builds its tables and views. */
+  /** Collects the candidate entries of a diff and builds its tables. */
   public static final class Builder {
 
     private record AccountEntry(
@@ -421,63 +348,32 @@ public final class TransactionDiff {
     }
 
     /**
-     * Builds the tables and the views, dropping every candidate whose value did not change.
+     * Builds the tables, dropping every candidate whose value did not change.
      *
      * @return the diff
      */
     public TransactionDiff build() {
       final List<BalanceChange> balanceTable = new ArrayList<>();
       final List<DeployedContract> deployedTable = new ArrayList<>();
-      final Map<Address, Integer> flags = new TreeMap<>();
       for (final Map.Entry<Address, AccountEntry> entry : accounts.entrySet()) {
         final Address address = entry.getKey();
         final AccountFields before = entry.getValue().before();
         final AccountFields after = entry.getValue().after();
-        int accountFlags = 0;
-        if (before.nonce() != after.nonce()) {
-          accountFlags |= FLAG_NONCE;
-        }
         if (!before.balance().equals(after.balance())) {
-          accountFlags |= FLAG_BALANCE;
           balanceTable.add(new BalanceChange(address, before.balance(), after.balance()));
-        }
-        if (!before.codeHash().equals(after.codeHash())) {
-          accountFlags |= FLAG_CODE;
         }
         if (before.codeHash().equals(Hash.EMPTY)
             && !after.codeHash().equals(Hash.EMPTY)
             && !entry.getValue().afterIsDelegation()) {
           deployedTable.add(new DeployedContract(address, after.codeHash()));
         }
-        if (accountFlags != 0) {
-          flags.put(address, accountFlags);
-        }
       }
 
       final List<SlotChange> slotTable = new ArrayList<>();
-      final Map<Address, List<Integer>> slotIndices = new TreeMap<>();
-      for (final Map.Entry<Address, Map<UInt256, SlotChange>> account : slots.entrySet()) {
-        for (final SlotChange change : account.getValue().values()) {
+      for (final Map<UInt256, SlotChange> account : slots.values()) {
+        for (final SlotChange change : account.values()) {
           if (!change.before().equals(change.after())) {
-            slotIndices
-                .computeIfAbsent(change.address(), __ -> new ArrayList<>())
-                .add(slotTable.size());
             slotTable.add(change);
-            flags.merge(change.address(), FLAG_STORAGE, (a, b) -> a | b);
-          }
-        }
-      }
-
-      final Map<Address, List<Integer>> eventIndices = new TreeMap<>();
-      final Map<Bytes32, List<Integer>> topicIndices = new TreeMap<>();
-      for (int index = 0; index < events.size(); index++) {
-        final Event event = events.get(index);
-        eventIndices.computeIfAbsent(event.logger(), __ -> new ArrayList<>()).add(index);
-        final List<Bytes32> topics = event.topics();
-        final Set<Bytes32> indexed = new TreeSet<>();
-        for (int position = 1; position < topics.size(); position++) {
-          if (indexed.add(topics.get(position))) {
-            topicIndices.computeIfAbsent(topics.get(position), __ -> new ArrayList<>()).add(index);
           }
         }
       }
@@ -486,16 +382,7 @@ public final class TransactionDiff {
           List.copyOf(balanceTable),
           List.copyOf(slotTable),
           List.copyOf(deployedTable),
-          List.copyOf(events),
-          frozen(slotIndices),
-          frozen(eventIndices),
-          frozen(topicIndices),
-          Collections.unmodifiableMap(flags));
-    }
-
-    private static <K> Map<K, List<Integer>> frozen(final Map<K, List<Integer>> views) {
-      views.replaceAll((__, indices) -> List.copyOf(indices));
-      return Collections.unmodifiableMap(views);
+          List.copyOf(events));
     }
   }
 }

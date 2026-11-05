@@ -18,7 +18,6 @@ import org.hyperledger.besu.collections.undo.UndoScalar;
 import org.hyperledger.besu.collections.undo.UndoTable;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.evm.worldstate.WorldView;
 
 import java.util.List;
 import java.util.Optional;
@@ -151,7 +150,6 @@ public class FrameTransactionContext {
 
   // EIP-7906: what the assertion operations of the ASSERT frames read. Installed once, before the
   // first ASSERT frame, and not journaled: nothing an ASSERT frame does can change the diff.
-  private WorldView transactionPrestate;
   private Supplier<TransactionDiff> transactionDiff;
 
   /**
@@ -349,22 +347,10 @@ public class FrameTransactionContext {
    * first ASSERT frame runs; the diff cannot change across the ASSERT suffix, so it is computed on
    * the first read and then reused.
    *
-   * @param prestate the transaction prestate, which the TXDIFF lookups read "before" values from
    * @param diff computes the transaction diff
    */
-  public void installTransactionDiff(
-      final WorldView prestate, final Supplier<TransactionDiff> diff) {
-    this.transactionPrestate = prestate;
+  public void installTransactionDiff(final Supplier<TransactionDiff> diff) {
     this.transactionDiff = Suppliers.memoize(diff::get);
-  }
-
-  /**
-   * The transaction prestate, for the TXDIFF lookups of "before" values.
-   *
-   * @return the prestate, or empty when no ASSERT frame has started
-   */
-  public Optional<WorldView> transactionPrestate() {
-    return Optional.ofNullable(transactionPrestate);
   }
 
   /**

@@ -27,7 +27,7 @@ import org.hyperledger.besu.evm.operation.EventDataCopyOperation;
 import java.util.Optional;
 
 /**
- * The EIP-7906 EVENTDATACOPY operation (0xb8): copies a range of one event's data into memory. The
+ * The EIP-7906 EVENTDATACOPY operation (0xb7): copies a range of one event's data into memory. The
  * range check is {@link EventDataCopyOperation#eventData}, shared with the v1 operation. Its
  * operand order is not FRAMEDATACOPY's, so it does not share that operation's base class.
  */

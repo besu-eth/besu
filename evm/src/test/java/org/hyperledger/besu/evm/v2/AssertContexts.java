@@ -29,8 +29,6 @@ import org.hyperledger.besu.evm.frame.FrameTransactionContext.FrameInfo;
 import org.hyperledger.besu.evm.frame.FrameTransactionContext.SignatureInfo;
 import org.hyperledger.besu.evm.frame.TransactionDiff;
 import org.hyperledger.besu.evm.frame.TransactionDiff.AccountFields;
-import org.hyperledger.besu.evm.toy.ToyWorld;
-import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.List;
 import java.util.stream.IntStream;
@@ -43,11 +41,6 @@ import org.apache.tuweni.units.bigints.UInt256;
  * Frame transaction contexts whose current frame is an EIP-7906 ASSERT frame: a VERIFY frame
  * targeting the contract, which may approve both scopes, a SENDER frame sending 3 wei to the
  * callee, and the ASSERT frame targeting the contract, which is the one executing.
- *
- * <p>The installed transaction prestate deliberately differs from the world {@link ProgramRun} runs
- * against, so that "before" and "after" reads can be told apart: the sender held 2,000,000, the
- * contract's slots 1 and 2 held 0 and 5, the callee's slot 0 held 9, {@link #DELEGATED} carries a
- * delegation designator to the callee, and {@link #NEVER_EXISTED} does not exist.
  */
 final class AssertContexts {
 
@@ -62,12 +55,6 @@ final class AssertContexts {
 
   /** The maximum cost the payer was charged. */
   static final Wei MAX_COST = Wei.of(0x1234_5678L);
-
-  /** An account delegated to the callee in the prestate. */
-  static final Address DELEGATED = Address.fromHexString("0xde1e");
-
-  /** An account that never existed. */
-  static final Address NEVER_EXISTED = Address.fromHexString("0x0e0e");
 
   /** Topic values of the sample events. */
   static final Bytes32 T1 = Bytes32.fromHexString("0x" + "11".repeat(32));
@@ -95,7 +82,7 @@ final class AssertContexts {
    */
   static FrameTransactionContext withDiff(final boolean payerSet) {
     final FrameTransactionContext context = withoutDiff(payerSet);
-    context.installTransactionDiff(prestate(), AssertContexts::sampleDiff);
+    context.installTransactionDiff(AssertContexts::sampleDiff);
     return context;
   }
 
@@ -106,28 +93,8 @@ final class AssertContexts {
    */
   static FrameTransactionContext withEmptyDiff() {
     final FrameTransactionContext context = withoutDiff(true);
-    context.installTransactionDiff(prestate(), () -> TransactionDiff.EMPTY);
+    context.installTransactionDiff(() -> TransactionDiff.EMPTY);
     return context;
-  }
-
-  /**
-   * The transaction prestate the contexts install.
-   *
-   * @return the prestate world
-   */
-  static ToyWorld prestate() {
-    final ToyWorld world = new ToyWorld();
-    final WorldUpdater setup = world.updater();
-    setup.createAccount(SENDER, 0, Wei.of(2_000_000));
-    setup
-        .createAccount(CONTRACT, 1, Wei.of(1_000_000))
-        .setStorageValue(UInt256.valueOf(2), UInt256.valueOf(5));
-    setup.createAccount(CALLEE, 1, Wei.ZERO).setStorageValue(UInt256.ZERO, UInt256.valueOf(9));
-    setup
-        .createAccount(DELEGATED, 1, Wei.ONE)
-        .setCode(Bytes.concatenate(Bytes.fromHexString("0xef0100"), CALLEE.getBytes()));
-    setup.commit();
-    return world;
   }
 
   /**

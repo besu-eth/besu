@@ -28,7 +28,7 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
- * The EIP-7906 EVENTDATACOPY operation (0xb8): copies a range of one event's non-indexed data into
+ * The EIP-7906 EVENTDATACOPY operation (0xb7): copies a range of one event's non-indexed data into
  * memory, with CALLDATACOPY pricing.
  *
  * <p>Stack: {@code eventIndex} on top, then {@code memOffset}, {@code dataOffset} and {@code
@@ -39,7 +39,7 @@ import org.apache.tuweni.bytes.Bytes;
 public class EventDataCopyOperation extends AbstractOperation {
 
   /** The EVENTDATACOPY opcode. */
-  public static final int OPCODE = 0xb8;
+  public static final int OPCODE = 0xb7;
 
   /**
    * Instantiates the operation.
