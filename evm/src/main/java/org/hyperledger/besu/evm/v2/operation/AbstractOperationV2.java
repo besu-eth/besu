@@ -17,10 +17,13 @@ package org.hyperledger.besu.evm.v2.operation;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.frame.Eip7928AccessList;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
+
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -138,7 +141,10 @@ public abstract class AbstractOperationV2 implements Operation {
    */
   protected Account getAccount(final Address address, final MessageFrame frame) {
     final Account account = frame.getWorldUpdater().get(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
+    final Optional<Eip7928AccessList> accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addTouchedAccount(address);
+    }
     return account;
   }
 
@@ -153,7 +159,10 @@ public abstract class AbstractOperationV2 implements Operation {
    */
   protected MutableAccount getMutableAccount(final Address address, final MessageFrame frame) {
     final MutableAccount account = frame.getWorldUpdater().getAccount(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
+    final Optional<Eip7928AccessList> accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addTouchedAccount(address);
+    }
     return account;
   }
 
@@ -169,7 +178,10 @@ public abstract class AbstractOperationV2 implements Operation {
    */
   protected MutableAccount getOrCreateAccount(final Address address, final MessageFrame frame) {
     final MutableAccount account = frame.getWorldUpdater().getOrCreate(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
+    final Optional<Eip7928AccessList> accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addTouchedAccount(address);
+    }
     return account;
   }
 

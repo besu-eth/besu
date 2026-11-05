@@ -245,13 +245,11 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
 
     frame.clearReturnData();
 
-    final Account account = getAccount(frame.getRecipientAddress(), frame);
-
-    final Wei balance = account == null ? Wei.ZERO : account.getBalance();
-
     // If the call is sending more value than the account has or the message frame is too deep
-    // return a failed call
-    final boolean insufficientBalance = transferValue.compareTo(balance) > 0;
+    // return a failed call. A call without value needs no balance, and the caller's account is
+    // already in the BAL.
+    final boolean insufficientBalance =
+        !transferValue.isZero() && transferValue.compareTo(callerBalance(frame)) > 0;
     final boolean isFrameDepthTooDeep = frame.getDepth() >= 1024;
     if (insufficientBalance || isFrameDepthTooDeep) {
       // EIP-8037: no child frame runs, so no account is created — undo the charge above.
@@ -372,6 +370,11 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
     if (callCreatesNewAccount(frame, recipientAddress, transferValue)) {
       frame.refillStateGasReservoir(gasCalculator().stateGasCostCalculator().newAccountStateGas());
     }
+  }
+
+  private Wei callerBalance(final MessageFrame frame) {
+    final Account account = getAccount(frame.getRecipientAddress(), frame);
+    return account == null ? Wei.ZERO : account.getBalance();
   }
 
   /**
