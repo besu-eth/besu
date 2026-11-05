@@ -145,7 +145,8 @@ public class FrameTransactionProcessor {
     // EIP-8250: the empty key set requires the account nonce to hold the transaction's sequence.
     // A keyed set at MAX_NONCE_SEQ requires every selected key to be unused; any other keyed set
     // requires every selected key to hold the sequence. The nonce set is consumed by APPROVE.
-    // EIP-3607 is deliberately not applied.
+    // EIP-3607 is deliberately not applied. The reference implementation checks the nonce set
+    // last, after the static rules, the signature entries and the fee budget the validator checks.
     final long legacyNonce = senderAtStart == null ? 0L : senderAtStart.getNonce();
     final List<UInt256> nonceKeys =
         transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS);
@@ -193,15 +194,6 @@ public class FrameTransactionProcessor {
     final List<Frame> frames = transaction.getFrames().orElseThrow();
     final List<FrameSignature> signatures = transaction.getFrameSignatures().orElse(List.of());
     final Bytes32 signatureHash = Bytes32.wrap(transaction.getFrameSignatureHash().getBytes());
-
-    for (final FrameSignature signature : signatures) {
-      final Optional<FrameTransactionSignatureValidator.Invalidity> invalidity =
-          FrameTransactionSignatureValidator.validate(signature, senderAddress, signatureHash);
-      if (invalidity.isPresent()) {
-        return TransactionProcessingResult.invalid(
-            ValidationResult.invalid(invalidity.get().reason(), invalidity.get().message()));
-      }
-    }
 
     // Gas anchors.
     final long intrinsicGas =

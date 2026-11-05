@@ -39,6 +39,7 @@ import java.math.BigInteger;
 import java.util.Optional;
 import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,13 +93,24 @@ public class MainnetTransactionValidator implements TransactionValidator {
       final Optional<Wei> baseFee,
       final Optional<Wei> blobFee,
       final TransactionValidationParams transactionValidationParams) {
+    final TransactionType transactionType = transaction.getType();
+    // EIP-8141: the reference implementation types the frame modes, the frame flags and the
+    // signature schemes, so it rejects an undefined one while decoding, before the chain id or any
+    // other rule.
+    if (transactionType.supportsFrames() && acceptedTransactionTypes.contains(transactionType)) {
+      final ValidationResult<TransactionInvalidReason> frameEncoding =
+          validateFrameEncoding(transaction);
+      if (!frameEncoding.isValid()) {
+        return frameEncoding;
+      }
+    }
+
     final ValidationResult<TransactionInvalidReason> signatureResult =
         validateTransactionSignature(transaction);
     if (!signatureResult.isValid()) {
       return signatureResult;
     }
 
-    final TransactionType transactionType = transaction.getType();
     if (!acceptedTransactionTypes.contains(transactionType)) {
       return ValidationResult.invalid(
           TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
@@ -123,7 +135,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
     // reported as exceeding the gas limit cap rather than as malformed.
     if (transactionType.supportsFrames()) {
       final ValidationResult<TransactionInvalidReason> frameValidation =
-          validateFrameFields(transaction);
+          validateFrameFields(transaction, transactionValidationParams);
       if (!frameValidation.isValid()) {
         return frameValidation;
       }
@@ -141,9 +153,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
           "Transaction gas limit must be at most " + txGasLimitCap);
     }
 
-    // Frame transactions are not required to carry blobs; blob rules apply only when they do.
-    if (transactionType.supportsBlob()
-        && (transactionType == TransactionType.BLOB || transaction.getBlobCount() > 0)) {
+    // Frame transactions check their blobs with their other static rules.
+    if (transactionType.supportsBlob() && !transactionType.supportsFrames()) {
       final ValidationResult<TransactionInvalidReason> blobTransactionResult =
           blobsValidator.validate(transaction, transactionValidationParams);
       if (!blobTransactionResult.isValid()) {
@@ -186,30 +197,59 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
   private static final int MAX_FRAMES = 64;
 
-  /** EIP-8141 static validity constraints on the frames and signature entries. */
-  private static ValidationResult<TransactionInvalidReason> validateFrameFields(
+  /** EIP-8141 frame fields that must hold a defined value: frame modes, flags and schemes. */
+  private static ValidationResult<TransactionInvalidReason> validateFrameEncoding(
       final Transaction transaction) {
+    for (final var frame : transaction.getFrames().orElseThrow()) {
+      if (frame.mode() < 0
+          || frame.mode() > org.hyperledger.besu.ethereum.core.Frame.MODE_POST_TX) {
+        return frameInvalid("unknown frame mode " + frame.mode());
+      }
+      if (frame.flags() < 0 || frame.flags() > 7) {
+        return frameInvalid("reserved frame flag bits set: " + frame.flags());
+      }
+    }
+    for (final var signature : transaction.getFrameSignatures().orElse(java.util.List.of())) {
+      if (signature.scheme() < 0
+          || signature.scheme() > org.hyperledger.besu.ethereum.core.FrameSignature.SCHEME_P256) {
+        return frameInvalid("unknown signature scheme " + signature.scheme());
+      }
+    }
+    return ValidationResult.valid();
+  }
+
+  /**
+   * EIP-8141 static validity constraints, in the order the reference implementation checks them:
+   * the nonce key set, the blobs, the frame count, each signature entry in full, then the frames.
+   */
+  private ValidationResult<TransactionInvalidReason> validateFrameFields(
+      final Transaction transaction,
+      final TransactionValidationParams transactionValidationParams) {
     final Optional<String> malformedNonceKeys =
         KeyedNonces.validate(transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS));
     if (malformedNonceKeys.isPresent()) {
       return frameInvalid(malformedNonceKeys.get());
+    }
+    // Frame transactions are not required to carry blobs; blob rules apply only when they do.
+    if (transaction.getBlobCount() > 0) {
+      final ValidationResult<TransactionInvalidReason> blobsResult =
+          blobsValidator.validate(transaction, transactionValidationParams);
+      if (!blobsResult.isValid()) {
+        return blobsResult;
+      }
     }
     final var frames = transaction.getFrames().orElseThrow();
     if (frames.isEmpty() || frames.size() > MAX_FRAMES) {
       return frameInvalid("frame count must be between 1 and " + MAX_FRAMES);
     }
 
+    final Bytes32 signatureHash = Bytes32.wrap(transaction.getFrameSignatureHash().getBytes());
     for (final var signature : transaction.getFrameSignatures().orElse(java.util.List.of())) {
-      if (signature.scheme() < 0
-          || signature.scheme() > org.hyperledger.besu.ethereum.core.FrameSignature.SCHEME_P256) {
-        return frameInvalid("unknown signature scheme " + signature.scheme());
-      }
-      if (signature.scheme() == org.hyperledger.besu.ethereum.core.FrameSignature.SCHEME_ARBITRARY
-          && !signature.signer().isEmpty()) {
-        return frameInvalid("ARBITRARY signature entries must not declare a signer");
-      }
-      if (signature.msg().size() == 32 && signature.msg().isZero()) {
-        return frameInvalid("explicit zero signature digest is invalid");
+      final Optional<FrameTransactionSignatureValidator.Invalidity> invalidity =
+          FrameTransactionSignatureValidator.validate(
+              signature, transaction.getSender(), signatureHash);
+      if (invalidity.isPresent()) {
+        return ValidationResult.invalid(invalidity.get().reason(), invalidity.get().message());
       }
     }
 
@@ -218,18 +258,11 @@ public class MainnetTransactionValidator implements TransactionValidator {
     boolean seenPostTx = false;
     for (int i = 0; i < frames.size(); i++) {
       final var frame = frames.get(i);
-      if (frame.mode() < 0
-          || frame.mode() > org.hyperledger.besu.ethereum.core.Frame.MODE_POST_TX) {
-        return frameInvalid("unknown frame mode " + frame.mode());
-      }
       // EIP-7906: POST_TX frames form a contiguous trailing suffix of the frames.
       if (frame.mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_POST_TX) {
         seenPostTx = true;
       } else if (seenPostTx) {
         return frameInvalid("frame " + i + " follows a POST_TX frame");
-      }
-      if (frame.flags() < 0 || frame.flags() > 7) {
-        return frameInvalid("reserved frame flag bits set: " + frame.flags());
       }
       // The EIP permits a single limit up to 2^64-1, but Besu holds frame gas in a signed long and
       // the execution path subtracts and compares it as one -- MessageFrame.initialGas, the state
@@ -616,7 +649,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
     }
 
     // EIP-8141: frame transactions declare their sender and have no outer signature; the
-    // signature entries are validated by the frame transaction processor.
+    // signature entries are validated with the other frame rules.
     if (transaction.getType().supportsFrames()) {
       return ValidationResult.valid();
     }

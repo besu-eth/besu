@@ -24,21 +24,30 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
+import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameSignature;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -48,13 +57,21 @@ import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
 
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -245,6 +262,91 @@ abstract class AbstractBlockProcessorTest {
         .thenReturn(BlockGasAccountingStrategy.FRONTIER);
     assertThat(blockProcessor.hasAvailableBlockBudget(header, tx, 60_000L, 40_000L, protocolSpec))
         .isTrue();
+  }
+
+  /**
+   * EIP-8141: block import reports a frame transaction's first failure in the reference
+   * implementation's order. Its static rules, the signature entries included, come before the block
+   * capacity, and the capacity comes before its fee budget.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("frameTransactionsOverTheBlockCapacity")
+  void frameTransactionFailuresAreReportedInTheReferenceOrder(
+      final String name, final List<FrameSignature> signatures, final String expectedError) {
+    final GasCalculator gasCalculator = mock(GasCalculator.class);
+    final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
+    lenient().when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
+    lenient().when(stateGasCalc.transactionExecutionGasLimit()).thenReturn(Long.MAX_VALUE);
+    lenient().when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
+    lenient()
+        .when(protocolSpec.getBlockGasAccountingStrategy())
+        .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
+    when(protocolSpec.getTransactionValidatorFactory())
+        .thenReturn(
+            new TransactionValidatorFactory(
+                gasCalculator,
+                GasLimitCalculator.constant(),
+                FeeMarket.london(0L),
+                false,
+                ChainId.of(1),
+                Set.of(TransactionType.FRAME),
+                Integer.MAX_VALUE));
+    // A zero fee budget is short of any base fee, and one frame's gas exceeds the block's.
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.FRAME)
+            .chainId(BigInteger.ONE)
+            .nonce(0)
+            .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+            .frames(
+                List.of(
+                    new Frame(
+                        Frame.MODE_VERIFY,
+                        Frame.APPROVE_SCOPE_MASK,
+                        Optional.empty(),
+                        50_000L,
+                        0L,
+                        Wei.ZERO,
+                        Bytes.EMPTY)))
+            .frameSignatures(signatures)
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .maxFee(Wei.ZERO)
+            .build();
+    final Block block =
+        new Block(
+            new BlockHeaderTestFixture().gasLimit(20_000L).baseFeePerGas(Wei.of(7)).buildHeader(),
+            new BlockBody(List.of(transaction), emptyList()));
+
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .sequentialExecutionRequested(true)
+                .build());
+
+    assertThat(result.errorMessage).hasValueSatisfying(m -> assertThat(m).contains(expectedError));
+    verifyNoInteractions(transactionProcessor);
+  }
+
+  private static Stream<Arguments> frameTransactionsOverTheBlockCapacity() {
+    final FrameSignature outOfRange =
+        new FrameSignature(
+            FrameSignature.SCHEME_SECP256K1,
+            Bytes.EMPTY,
+            Bytes.EMPTY,
+            Bytes.concatenate(Bytes.of(0), UInt256.ZERO, UInt256.ONE));
+    return Stream.of(
+        Arguments.of(
+            "block capacity before the fee budget",
+            List.of(),
+            BlockProcessingResult.INSUFFICIENT_BLOCK_GAS.errorMessage.orElseThrow()),
+        Arguments.of(
+            "signature entry before the block capacity",
+            List.of(outOfRange),
+            "secp256k1 frame signature values out of range"));
   }
 
   private static class TestBlockProcessor extends AbstractBlockProcessor {

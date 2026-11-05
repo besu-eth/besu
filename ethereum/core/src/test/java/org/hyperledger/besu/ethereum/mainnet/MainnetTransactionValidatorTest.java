@@ -43,6 +43,7 @@ import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameSignature;
 import org.hyperledger.besu.ethereum.core.KeyedNonceGasCapVectors;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
@@ -58,6 +59,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import java.math.BigInteger;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -1450,6 +1452,150 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
                     TransactionValidationParams
                         .transactionSimulatorAllowUnderpricedAndFutureNonce()))
         .isEqualTo(ValidationResult.valid());
+  }
+
+  /**
+   * EIP-8141: a frame transaction invalid in two ways reports the failure the reference
+   * implementation checks first. It types the frame modes, flags and signature schemes, so it
+   * rejects an undefined one while decoding, before the chain id. It then checks the legacy nonce
+   * overflow, the nonce key set, the blobs, the frame count, each signature entry, the frames and,
+   * last, the fee budget.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("frameTransactionsWithTwoFaults")
+  void shouldReportTheFirstFrameFaultInTheReferenceOrder(
+      final String name,
+      final Transaction transaction,
+      final TransactionInvalidReason expectedReason,
+      final String expectedError) {
+    when(gasCalculator.blobGasCost(anyLong()))
+        .thenAnswer(invocation -> invocation.getArgument(0, Long.class) * 131_072L);
+
+    final ValidationResult<TransactionInvalidReason> result =
+        frameValidator()
+            .validate(
+                transaction, Optional.of(Wei.of(7)), Optional.of(Wei.ONE), processingBlockParams);
+
+    assertThat(result.getInvalidReason()).isEqualTo(expectedReason);
+    assertThat(result.getErrorMessage()).isEqualTo(expectedError);
+  }
+
+  private static Stream<Arguments> frameTransactionsWithTwoFaults() {
+    final Frame verify = frame(50_000L, 0L);
+    final Frame verifyWithValue =
+        new Frame(
+            Frame.MODE_VERIFY,
+            Frame.APPROVE_SCOPE_MASK,
+            Optional.empty(),
+            50_000L,
+            0L,
+            Wei.ONE,
+            Bytes.EMPTY);
+    final FrameSignature outOfRange =
+        new FrameSignature(
+            FrameSignature.SCHEME_SECP256K1,
+            Bytes.EMPTY,
+            Bytes.EMPTY,
+            Bytes.concatenate(Bytes.of(0), UInt256.ZERO, UInt256.ONE));
+    final FrameSignature arbitraryWithSigner =
+        new FrameSignature(
+            FrameSignature.SCHEME_ARBITRARY,
+            Address.fromHexString("0x2222222222222222222222222222222222222222").getBytes(),
+            Bytes.EMPTY,
+            Bytes.EMPTY);
+    final FrameSignature undefinedScheme =
+        new FrameSignature(3, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY);
+    final List<Frame> tooManyFrames = Collections.nCopies(65, verify);
+    final List<UInt256> seventeenKeys = IntStream.range(0, 17).mapToObj(UInt256::valueOf).toList();
+    final String invalidSignature = "secp256k1 frame signature values out of range";
+    return Stream.of(
+        Arguments.of(
+            "undefined frame mode before the nonce overflow",
+            faultyFrameTransaction(
+                Account.MAX_NONCE, List.of(), List.of(modeFrame(4, 0, Wei.ZERO)), List.of(), 0),
+            TransactionInvalidReason.INVALID_FRAMES,
+            "unknown frame mode 4"),
+        Arguments.of(
+            "undefined frame flags before the chain id",
+            Transaction.builder()
+                .type(TransactionType.FRAME)
+                .chainId(BigInteger.TWO)
+                .nonce(0)
+                .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+                .frames(List.of(modeFrame(Frame.MODE_VERIFY, 8, Wei.ZERO)))
+                .frameSignatures(List.of())
+                .maxPriorityFeePerGas(Wei.ZERO)
+                .maxFee(Wei.ZERO)
+                .versionedHashes(List.of())
+                .build(),
+            TransactionInvalidReason.INVALID_FRAMES,
+            "reserved frame flag bits set: 8"),
+        Arguments.of(
+            "undefined signature scheme before an earlier entry's signer",
+            faultyFrameTransaction(
+                0, List.of(), List.of(verify), List.of(arbitraryWithSigner, undefinedScheme), 0),
+            TransactionInvalidReason.INVALID_FRAMES,
+            "unknown signature scheme 3"),
+        Arguments.of(
+            "nonce key set before the blobs",
+            faultyFrameTransaction(0, seventeenKeys, List.of(verify), List.of(), 7),
+            TransactionInvalidReason.INVALID_FRAMES,
+            "invalid nonce key count"),
+        Arguments.of(
+            "blobs before the frame count",
+            faultyFrameTransaction(0, List.of(), tooManyFrames, List.of(), 7),
+            TransactionInvalidReason.TOTAL_BLOB_GAS_TOO_HIGH,
+            "Blob transaction has too many blobs: 7"),
+        Arguments.of(
+            "frame count before the signature entries",
+            faultyFrameTransaction(0, List.of(), tooManyFrames, List.of(outOfRange), 0),
+            TransactionInvalidReason.INVALID_FRAMES,
+            "frame count must be between 1 and 64"),
+        Arguments.of(
+            "signature entries before the frames",
+            faultyFrameTransaction(0, List.of(), List.of(verifyWithValue), List.of(outOfRange), 0),
+            TransactionInvalidReason.INVALID_SIGNATURE,
+            invalidSignature),
+        Arguments.of(
+            "signature entries before the fee budget",
+            faultyFrameTransaction(0, List.of(), List.of(verify), List.of(outOfRange), 0),
+            TransactionInvalidReason.INVALID_SIGNATURE,
+            invalidSignature),
+        Arguments.of(
+            "frames before the fee budget",
+            faultyFrameTransaction(0, List.of(), List.of(verifyWithValue), List.of(), 0),
+            TransactionInvalidReason.INVALID_FRAMES,
+            "frame 0 carries value outside SENDER mode"));
+  }
+
+  /** A frame transaction with a zero fee budget, which any base fee leaves short. */
+  private static Transaction faultyFrameTransaction(
+      final long nonce,
+      final List<UInt256> nonceKeys,
+      final List<Frame> frames,
+      final List<FrameSignature> signatures,
+      final int blobCount) {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonceKeys(nonceKeys)
+        .nonce(nonce)
+        .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+        .frames(frames)
+        .frameSignatures(signatures)
+        .maxPriorityFeePerGas(Wei.ZERO)
+        .maxFee(Wei.ZERO)
+        .versionedHashes(versionedHashes(blobCount))
+        .build();
+  }
+
+  private static List<VersionedHash> versionedHashes(final int blobCount) {
+    return Stream.generate(
+            () ->
+                new VersionedHash(
+                    Bytes32.wrap(Bytes.concatenate(Bytes.of(1), Bytes.repeat((byte) 5, 31)))))
+        .limit(blobCount)
+        .toList();
   }
 
   private TransactionValidator frameValidator() {

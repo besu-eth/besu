@@ -662,6 +662,64 @@ class FrameTransactionProcessorTest {
   }
 
   /**
+   * EIP-8141 with EIP-8250: a transaction invalid in two ways reports the failure the reference
+   * implementation checks first: the signature entries, then the fee budget, then the nonce.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("twoFaults")
+  void aTransactionWithTwoFaultsReportsTheOneCheckedFirst(
+      final String name,
+      final boolean invalidSignature,
+      final boolean feeShortfall,
+      final boolean nonceMismatch,
+      final TransactionInvalidReason expectedReason) {
+    final List<Frame> frames = List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO));
+    final long nonce = nonceMismatch ? 5 : 0;
+    final Wei maxFee = feeShortfall ? Wei.ONE : MAX_FEE;
+    final Transaction transaction =
+        invalidSignature
+            ? buildFrameTransaction(
+                nonce,
+                frames,
+                List.of(
+                    new FrameSignature(
+                        FrameSignature.SCHEME_SECP256K1,
+                        Bytes.EMPTY,
+                        Bytes.EMPTY,
+                        Bytes.concatenate(Bytes.of(0), UInt256.ZERO, UInt256.ONE))),
+                maxFee,
+                PRIORITY_FEE)
+            : signedFrameTransaction(nonce, frames, maxFee, PRIORITY_FEE);
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason()).isEqualTo(expectedReason);
+  }
+
+  static Stream<Arguments> twoFaults() {
+    return Stream.of(
+        Arguments.of(
+            "signature before fee budget",
+            true,
+            true,
+            false,
+            TransactionInvalidReason.INVALID_SIGNATURE),
+        Arguments.of(
+            "signature before nonce",
+            true,
+            false,
+            true,
+            TransactionInvalidReason.INVALID_SIGNATURE),
+        Arguments.of(
+            "fee budget before nonce",
+            false,
+            true,
+            true,
+            TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE));
+  }
+
+  /**
    * EIP-8250: the empty key set requires the account nonce to equal the sequence. The messages are
    * asserted verbatim, because the reference-test exception mapping matches them.
    */
