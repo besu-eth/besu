@@ -50,6 +50,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
@@ -1001,6 +1002,48 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     givenTransactionIsValid(remoteTransaction);
 
     addAndAssertRemoteTransactionsValid(remoteTransaction);
+  }
+
+  @Test
+  public void shouldRejectLocalFrameTransactionBeforeCheckingItsFee() {
+    // Above the default RPC fee cap, so a price check ahead of the frame rejection reports
+    // TX_FEECAP_EXCEEDED instead.
+    final Transaction frameTransaction = createFrameTransaction(Wei.fromEth(2));
+
+    addAndAssertTransactionViaApiInvalid(frameTransaction, INVALID_TRANSACTION_FORMAT);
+    verifyNoInteractions(transactionValidatorFactory.get());
+  }
+
+  @Test
+  public void shouldRejectRemoteFrameTransactionBeforeValidatingIt() {
+    final Transaction frameTransaction = createFrameTransaction(Wei.of(5000));
+
+    addAndAssertRemoteTransactionInvalid(frameTransaction);
+    verifyNoInteractions(transactionValidatorFactory.get());
+  }
+
+  private static Transaction createFrameTransaction(final Wei maxFeePerGas) {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .gasLimit(100_000L)
+        .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_VERIFY,
+                    Frame.APPROVE_SCOPE_MASK,
+                    Optional.empty(),
+                    100_000L,
+                    0L,
+                    Wei.ZERO,
+                    Bytes.EMPTY)))
+        .frameSignatures(List.of())
+        .maxPriorityFeePerGas(Wei.ONE)
+        .maxFeePerGas(maxFeePerGas)
+        .maxFeePerBlobGas(Wei.ZERO)
+        .build();
   }
 
   @Test
