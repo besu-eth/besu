@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -57,6 +58,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /** End-to-end EIP-8141 frame transaction execution against a real Bogota protocol spec. */
@@ -659,14 +661,78 @@ class FrameTransactionProcessorTest {
         .isEqualTo(TransactionInvalidReason.INVALID_TRANSACTION_FORMAT);
   }
 
-  @Test
-  void wrongNonceInvalidatesTheTransaction() {
+  /**
+   * EIP-8250: the empty key set requires the account nonce to equal the sequence. The messages are
+   * asserted verbatim, because the reference-test exception mapping matches them.
+   */
+  @ParameterizedTest(name = "account nonce {0}, transaction nonce {1}")
+  @CsvSource({
+    "0, 5, NONCE_TOO_HIGH, transaction nonce 5 does not match sender account nonce 0",
+    "3, 1, NONCE_TOO_LOW, transaction nonce 1 below sender account nonce 3"
+  })
+  void wrongNonceInvalidatesTheTransaction(
+      final long accountNonce,
+      final long transactionNonce,
+      final TransactionInvalidReason expectedReason,
+      final String expectedMessage) {
+    setSenderNonce(accountNonce);
     final Transaction transaction =
-        signedFrameTransaction(5, List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)));
+        signedFrameTransaction(
+            transactionNonce, List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)));
+    assertThat(transaction.getNonceKeys()).contains(KeyedNonces.LEGACY_NONCE_KEYS);
+
     final TransactionProcessingResult result = process(transaction);
+
     assertThat(result.isInvalid()).isTrue();
-    assertThat(result.getValidationResult().getInvalidReason())
+    assertThat(result.getValidationResult().getInvalidReason()).isEqualTo(expectedReason);
+    assertThat(result.getValidationResult().getErrorMessage()).isEqualTo(expectedMessage);
+  }
+
+  /**
+   * EIP-8250: the zero key is an ordinary keyed nonce. It reads and advances its nonce manager slot
+   * and ignores the account nonce.
+   */
+  @Test
+  void theZeroKeyIgnoresTheAccountNonce() {
+    // Genesis deploys the nonce manager; as an empty account its slot writes would be cleared.
+    deploy(KeyedNonces.NONCE_MANAGER, STOP_CODE);
+    deploy(sender, APPROVE_BOTH_CODE);
+    setSenderNonce(3);
+    final List<UInt256> zeroKey = List.of(UInt256.ZERO);
+
+    final TransactionProcessingResult atAccountNonce = process(zeroKeyTransaction(zeroKey, 3));
+    assertThat(atAccountNonce.isInvalid()).isTrue();
+    assertThat(atAccountNonce.getValidationResult().getInvalidReason())
         .isEqualTo(TransactionInvalidReason.NONCE_TOO_HIGH);
+
+    final TransactionProcessingResult atKeySequence = process(zeroKeyTransaction(zeroKey, 0));
+    assertThat(atKeySequence.isSuccessful()).isTrue();
+    assertThat(
+            worldState
+                .get(KeyedNonces.NONCE_MANAGER)
+                .getStorageValue(KeyedNonces.nonceSlot(sender, UInt256.ZERO)))
+        .isEqualTo(UInt256.ONE);
+    assertThat(worldState.get(sender).getNonce()).isEqualTo(3L);
+  }
+
+  private Transaction zeroKeyTransaction(final List<UInt256> nonceKeys, final long nonce) {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(CHAIN_ID)
+        .nonceKeys(nonceKeys)
+        .nonce(nonce)
+        .sender(sender)
+        .frames(List.of(selfVerifyFrame(), senderFrame(recipient, Wei.ZERO)))
+        .frameSignatures(List.of())
+        .maxPriorityFeePerGas(PRIORITY_FEE)
+        .maxFee(MAX_FEE)
+        .build();
+  }
+
+  private void setSenderNonce(final long nonce) {
+    final WorldUpdater setup = worldState.updater();
+    setup.getAccount(sender).setNonce(nonce);
+    setup.commit();
   }
 
   // EIP-7906 POST_TX frames.

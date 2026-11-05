@@ -30,6 +30,8 @@ import org.hyperledger.besu.evm.operation.TxParamOperation;
 
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes32;
+
 /** The EIP-8141 TXPARAM operation (0xb0): transaction-scoped introspection. */
 public class TxParamOperationV2 extends AbstractOperationV2 {
 
@@ -73,7 +75,11 @@ public class TxParamOperationV2 extends AbstractOperationV2 {
       case 0x0D -> setLong(context.legacyNonce(), stack, slot);
       case 0x0E -> setLong(context.nonceKeys().size(), stack, slot);
       case 0x0F -> setBytes32(KeyedNonces.nonceKeysHash(context.nonceKeys()), stack, slot);
-      case 0x10 -> setBytes32(context.nonceKeys().get(0), stack, slot);
+      case 0x10 ->
+          setBytes32(
+              context.nonceKeys().isEmpty() ? Bytes32.ZERO : context.nonceKeys().get(0),
+              stack,
+              slot);
       default -> {
         return haltPopping(frame, 1, INVALID);
       }

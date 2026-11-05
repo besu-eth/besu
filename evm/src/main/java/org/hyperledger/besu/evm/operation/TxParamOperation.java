@@ -23,6 +23,7 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * The EIP-8141 TXPARAM operation (0xb0): transaction-scoped introspection of a frame transaction.
@@ -75,7 +76,7 @@ public class TxParamOperation extends AbstractOperation {
           case 0x0D -> Words.longBytes(context.legacyNonce());
           case 0x0E -> Words.longBytes(context.nonceKeys().size());
           case 0x0F -> KeyedNonces.nonceKeysHash(context.nonceKeys());
-          case 0x10 -> context.nonceKeys().get(0);
+          case 0x10 -> context.nonceKeys().isEmpty() ? Bytes32.ZERO : context.nonceKeys().get(0);
           default -> null;
         };
     if (result == null) {

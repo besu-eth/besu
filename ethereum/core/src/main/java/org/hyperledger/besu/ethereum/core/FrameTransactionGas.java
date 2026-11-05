@@ -50,9 +50,8 @@ public final class FrameTransactionGas {
   public static final long ARBITRARY_SIGNATURE_GAS = 100L;
 
   /**
-   * EIP-8250 intrinsic cost of each key of a non-legacy key set: the cold read and the write of its
-   * nonce manager slot, which the protocol performs outside the access lists and {@code SSTORE}
-   * pricing.
+   * EIP-8250 intrinsic cost of each selected nonce key: the cold read and the write of its nonce
+   * manager slot, which the protocol performs outside the access lists and {@code SSTORE} pricing.
    */
   public static final long KEYED_NONCE_ACCESS_COST =
       AmsterdamGasCalculator.COLD_STORAGE_ACCESS + AmsterdamGasCalculator.STORAGE_WRITE;
@@ -84,16 +83,13 @@ public final class FrameTransactionGas {
   }
 
   /**
-   * The EIP-8250 keyed nonce access cost of a key set: {@link #KEYED_NONCE_ACCESS_COST} per key,
-   * except for the legacy set, which reads and writes the account nonce instead.
+   * The EIP-8250 keyed nonce access cost of a key set: {@link #KEYED_NONCE_ACCESS_COST} per key.
+   * The empty set, which reads and writes the account nonce instead, costs nothing.
    *
    * @param nonceKeys the transaction's nonce keys
    * @return the keyed nonce access gas (saturating)
    */
   public static long keyedNonceAccessGas(final List<UInt256> nonceKeys) {
-    if (KeyedNonces.isLegacy(nonceKeys)) {
-      return 0L;
-    }
     return clampedMultiply(nonceKeys.size(), KEYED_NONCE_ACCESS_COST);
   }
 

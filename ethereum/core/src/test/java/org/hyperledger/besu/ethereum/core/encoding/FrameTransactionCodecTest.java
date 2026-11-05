@@ -141,8 +141,16 @@ class FrameTransactionCodecTest {
   }
 
   @Test
-  void frameTransactionsDefaultToTheLegacyKeySet() {
-    assertThat(sampleTransaction().getNonceKeys()).contains(List.of(UInt256.ZERO));
+  void frameTransactionsDefaultToTheEmptyLegacyKeySet() {
+    final Transaction transaction = sampleTransaction();
+    assertThat(transaction.getNonceKeys()).contains(List.of());
+
+    final Transaction decoded =
+        TransactionDecoder.decodeOpaqueBytes(
+            TransactionEncoder.encodeOpaqueBytes(transaction, EncodingContext.BLOCK_BODY),
+            EncodingContext.BLOCK_BODY);
+    assertThat(decoded.getNonceKeys()).contains(List.of());
+    assertThat(decoded.getHash()).isEqualTo(transaction.getHash());
   }
 
   @Test

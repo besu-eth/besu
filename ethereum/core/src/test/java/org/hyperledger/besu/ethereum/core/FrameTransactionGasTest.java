@@ -87,7 +87,7 @@ class FrameTransactionGasTest {
   }
 
   /**
-   * A transfer behind an expiry verifier frame with the legacy key set, shaped like a
+   * A transfer behind an expiry verifier frame with the empty (legacy) key set, shaped like a
    * bogota-devnet-1 spamoor transaction: the expiry frame, a VERIFY frame approving both scopes and
    * a SENDER frame, with one SECP256K1 entry.
    */
@@ -157,8 +157,8 @@ class FrameTransactionGasTest {
             FrameTransactionGas.keyedNonceAccessGas(
                 List.of(UInt256.valueOf(1), UInt256.valueOf(2), UInt256.valueOf(3))))
         .isEqualTo(36_300L);
-    // Only the exact legacy set is exempt. Validation rejects a zero key alongside others before
-    // any gas is priced, so this pins the helper's arithmetic rather than a reachable price.
+    // EIP-8250: the zero key is an ordinary keyed nonce and pays like any other.
+    assertThat(FrameTransactionGas.keyedNonceAccessGas(List.of(UInt256.ZERO))).isEqualTo(12_100L);
     assertThat(FrameTransactionGas.keyedNonceAccessGas(List.of(UInt256.ZERO, UInt256.valueOf(1))))
         .isEqualTo(24_200L);
   }
@@ -177,9 +177,10 @@ class FrameTransactionGasTest {
   void legacyTransactionPaysNoKeyedNonceAccessCost() {
     final Transaction transaction = legacyTransaction();
 
-    assertThat(FrameTransactionGas.intrinsicGas(transaction)).isEqualTo(17_425L);
-    assertThat(FrameTransactionGas.calldataFloorGas(transaction)).isEqualTo(21_217L);
-    assertThat(transaction.getGasLimit()).isEqualTo(57_425L);
+    // The nonce calldata is rlp([]) ++ rlp(666): 0xc0 0x82029a, four non-zero bytes.
+    assertThat(FrameTransactionGas.intrinsicGas(transaction)).isEqualTo(17_409L);
+    assertThat(FrameTransactionGas.calldataFloorGas(transaction)).isEqualTo(21_153L);
+    assertThat(transaction.getGasLimit()).isEqualTo(57_409L);
   }
 
   @Test

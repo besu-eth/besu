@@ -31,11 +31,11 @@ import org.apache.tuweni.units.bigints.UInt256;
 /**
  * EIP-8250 keyed nonces for frame transactions.
  *
- * <p>A frame transaction selects a set of nonce keys sharing one sequence number. The legacy key
- * set {@code [0]} aliases the sender's account nonce; every other key selects an independent
- * sequence held in the storage of the nonce manager contract. Keyed nonce reads and writes are
- * protocol bookkeeping: they bypass EIP-2929 warming and {@code SSTORE} pricing, but are recorded
- * in the EIP-7928 block access list.
+ * <p>A frame transaction selects a set of nonce keys sharing one sequence number. The empty key set
+ * selects the sender's account nonce; every key, zero included, selects an independent sequence
+ * held in the storage of the nonce manager contract. Keyed nonce reads and writes are protocol
+ * bookkeeping: they bypass EIP-2929 warming and {@code SSTORE} pricing, but are recorded in the
+ * EIP-7928 block access list.
  */
 public final class KeyedNonces {
 
@@ -49,8 +49,8 @@ public final class KeyedNonces {
   /** The exhausted sequence, {@code 2^64-1} as an unsigned long: a key here cannot advance. */
   public static final long MAX_NONCE_SEQ = -1L;
 
-  /** The key set selecting the sender's account nonce. */
-  public static final List<UInt256> LEGACY_NONCE_KEYS = List.of(UInt256.ZERO);
+  /** The empty key set, selecting the sender's account nonce. */
+  public static final List<UInt256> LEGACY_NONCE_KEYS = List.of();
 
   private KeyedNonces() {}
 
@@ -58,30 +58,27 @@ public final class KeyedNonces {
    * Whether the key set is the legacy set, selecting the account nonce.
    *
    * @param nonceKeys the transaction's nonce keys
-   * @return true for {@code [0]}
+   * @return true for the empty set
    */
   public static boolean isLegacy(final List<UInt256> nonceKeys) {
-    return nonceKeys.size() == 1 && nonceKeys.get(0).isZero();
+    return nonceKeys.isEmpty();
   }
 
   /**
-   * Checks that a key set is well formed: one to {@link #MAX_NONCE_KEYS} keys, strictly increasing,
-   * with the zero key only ever alone.
+   * Checks that a key set is well formed: at most {@link #MAX_NONCE_KEYS} keys, strictly
+   * increasing.
    *
    * @param nonceKeys the transaction's nonce keys
    * @return the reason the set is malformed, if it is
    */
   public static Optional<String> validate(final List<UInt256> nonceKeys) {
-    if (nonceKeys.isEmpty() || nonceKeys.size() > MAX_NONCE_KEYS) {
+    if (nonceKeys.size() > MAX_NONCE_KEYS) {
       return Optional.of("invalid nonce key count");
     }
     for (int i = 1; i < nonceKeys.size(); i++) {
       if (nonceKeys.get(i).compareTo(nonceKeys.get(i - 1)) <= 0) {
         return Optional.of("nonce keys not strictly increasing");
       }
-    }
-    if (nonceKeys.get(0).isZero() && nonceKeys.size() > 1) {
-      return Optional.of("zero nonce key alongside other keys");
     }
     return Optional.empty();
   }
@@ -91,7 +88,7 @@ public final class KeyedNonces {
    * the left-padded sender followed by the big-endian key.
    *
    * @param sender the transaction sender
-   * @param nonceKey a non-zero nonce key
+   * @param nonceKey the nonce key
    * @return the storage slot
    */
   public static UInt256 nonceSlot(final Address sender, final UInt256 nonceKey) {
@@ -100,8 +97,8 @@ public final class KeyedNonces {
   }
 
   /**
-   * The current sequence of {@code sender}'s nonce domain {@code nonceKey}. The zero key reads the
-   * account nonce; any other key reads the nonce manager, where an absent slot is sequence zero.
+   * The current sequence of {@code sender}'s nonce domain {@code nonceKey}. Every key reads the
+   * nonce manager, where an absent slot is sequence zero.
    *
    * @param world the state to read
    * @param sender the transaction sender
@@ -114,10 +111,6 @@ public final class KeyedNonces {
       final Address sender,
       final UInt256 nonceKey,
       final Optional<? extends Eip7928AccessList> accessList) {
-    if (nonceKey.isZero()) {
-      final Account account = world.get(sender);
-      return account == null ? UInt256.ZERO : unsigned(account.getNonce());
-    }
     final UInt256 slot = nonceSlot(sender, nonceKey);
     accessList.ifPresent(list -> list.addSlotAccessForAccount(NONCE_MANAGER, slot));
     final Account manager = world.get(NONCE_MANAGER);

@@ -15,11 +15,16 @@
 package org.hyperledger.besu.evm.frame;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.toy.ToyWorld;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.IntStream;
 
 import org.apache.tuweni.units.bigints.UInt256;
@@ -31,16 +36,21 @@ class KeyedNoncesTest {
   private static final UInt256 TWO = UInt256.valueOf(2);
 
   @Test
-  void acceptsTheLegacySetAndStrictlyIncreasingKeys() {
+  void acceptsTheEmptySetAndStrictlyIncreasingKeys() {
+    assertThat(KeyedNonces.LEGACY_NONCE_KEYS).isEmpty();
     assertThat(KeyedNonces.validate(KeyedNonces.LEGACY_NONCE_KEYS)).isEmpty();
     assertThat(KeyedNonces.validate(List.of(ONE, TWO))).isEmpty();
+    assertThat(KeyedNonces.validate(List.of(UInt256.ZERO))).isEmpty();
+    assertThat(KeyedNonces.validate(List.of(UInt256.ZERO, ONE))).isEmpty();
+    final List<UInt256> sixteen = IntStream.rangeClosed(1, 16).mapToObj(UInt256::valueOf).toList();
+    assertThat(KeyedNonces.validate(sixteen)).isEmpty();
     assertThat(KeyedNonces.isLegacy(KeyedNonces.LEGACY_NONCE_KEYS)).isTrue();
+    assertThat(KeyedNonces.isLegacy(List.of(UInt256.ZERO))).isFalse();
     assertThat(KeyedNonces.isLegacy(List.of(ONE))).isFalse();
   }
 
   @Test
   void rejectsMalformedKeySets() {
-    assertThat(KeyedNonces.validate(Collections.emptyList())).contains("invalid nonce key count");
     final List<UInt256> seventeen =
         IntStream.rangeClosed(1, 17).mapToObj(UInt256::valueOf).toList();
     assertThat(KeyedNonces.validate(seventeen)).contains("invalid nonce key count");
@@ -48,8 +58,29 @@ class KeyedNoncesTest {
         .contains("nonce keys not strictly increasing");
     assertThat(KeyedNonces.validate(List.of(ONE, ONE)))
         .contains("nonce keys not strictly increasing");
-    assertThat(KeyedNonces.validate(List.of(UInt256.ZERO, ONE)))
-        .contains("zero nonce key alongside other keys");
+    assertThat(KeyedNonces.validate(List.of(UInt256.ZERO, UInt256.ZERO)))
+        .contains("nonce keys not strictly increasing");
+  }
+
+  @Test
+  void theZeroKeyReadsTheNonceManagerNotTheAccountNonce() {
+    final Address sender = Address.fromHexString("0x01");
+    final ToyWorld world = new ToyWorld();
+    final WorldUpdater updater = world.updater();
+    updater.createAccount(sender, 7, Wei.ZERO);
+    updater
+        .createAccount(KeyedNonces.NONCE_MANAGER)
+        .setStorageValue(KeyedNonces.nonceSlot(sender, UInt256.ZERO), UInt256.valueOf(3));
+    updater.commit();
+    final Eip7928AccessList accessList = mock(Eip7928AccessList.class);
+
+    assertThat(KeyedNonces.currentNonceSeq(world, sender, UInt256.ZERO, Optional.of(accessList)))
+        .isEqualTo(UInt256.valueOf(3));
+    assertThat(KeyedNonces.currentNonceSeq(world, sender, ONE, Optional.empty()))
+        .isEqualTo(UInt256.ZERO);
+    verify(accessList)
+        .addSlotAccessForAccount(
+            KeyedNonces.NONCE_MANAGER, KeyedNonces.nonceSlot(sender, UInt256.ZERO));
   }
 
   @Test

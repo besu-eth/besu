@@ -62,11 +62,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.Bytes48;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -1237,6 +1239,61 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
 
   private static Frame modeFrame(final int mode, final int flags, final Wei value) {
     return new Frame(mode, flags, Optional.empty(), 50_000L, 0L, value, Bytes.EMPTY);
+  }
+
+  /**
+   * EIP-8250 static validity of the nonce key set: at most 16 strictly increasing keys. The empty
+   * set selects the account nonce, and the zero key is an ordinary key that may join others.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("nonceKeySets")
+  void shouldValidateNonceKeySets(
+      final String name, final List<UInt256> nonceKeys, final String expectedError) {
+    // Built afresh rather than copied, so the derived gas limit prices these keys.
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.FRAME)
+            .chainId(BigInteger.ONE)
+            .nonceKeys(nonceKeys)
+            .nonce(0)
+            .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+            .frames(List.of(frame(50_000L, 0L)))
+            .frameSignatures(List.of())
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .maxFee(Wei.ZERO)
+            .build();
+
+    final ValidationResult<TransactionInvalidReason> result =
+        frameValidator()
+            .validate(transaction, Optional.empty(), Optional.empty(), processingBlockParams);
+
+    if (expectedError == null) {
+      assertThat(result).isEqualTo(ValidationResult.valid());
+    } else {
+      assertThat(result.getInvalidReason()).isEqualTo(TransactionInvalidReason.INVALID_FRAMES);
+      assertThat(result.getErrorMessage()).isEqualTo(expectedError);
+    }
+  }
+
+  private static Stream<Arguments> nonceKeySets() {
+    return Stream.of(
+        Arguments.of("empty set", List.of(), null),
+        Arguments.of("zero key alone", List.of(UInt256.ZERO), null),
+        Arguments.of("zero key first of two", List.of(UInt256.ZERO, UInt256.ONE), null),
+        Arguments.of(
+            "sixteen keys", IntStream.range(0, 16).mapToObj(UInt256::valueOf).toList(), null),
+        Arguments.of(
+            "seventeen keys",
+            IntStream.range(0, 17).mapToObj(UInt256::valueOf).toList(),
+            "invalid nonce key count"),
+        Arguments.of(
+            "repeated zero key",
+            List.of(UInt256.ZERO, UInt256.ZERO),
+            "nonce keys not strictly increasing"),
+        Arguments.of(
+            "decreasing keys",
+            List.of(UInt256.valueOf(2), UInt256.ONE),
+            "nonce keys not strictly increasing"));
   }
 
   /**

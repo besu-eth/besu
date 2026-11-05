@@ -69,12 +69,12 @@ class FrameOpcodesV1V2DifferentialTest {
       new LinkedHashMap<>();
 
   static {
-    CONTEXTS.put("first frame, legacy nonce", () -> context(SENDER, List.of(UInt256.ZERO), 0));
+    CONTEXTS.put("first frame, legacy nonce", () -> context(SENDER, List.of(), 0));
     CONTEXTS.put("contract is the sender", () -> context(CONTRACT, List.of(UInt256.ZERO), 0));
     CONTEXTS.put(
         "contract is the sender, keyed nonces",
         () -> context(CONTRACT, List.of(UInt256.valueOf(5), UInt256.valueOf(7)), 0));
-    CONTEXTS.put("second frame", () -> context(SENDER, List.of(UInt256.ZERO), 1));
+    CONTEXTS.put("second frame", () -> context(SENDER, List.of(), 1));
     // EIP-7906: APPROVE halts in a POST_TX frame, which FRAMEPARAM reports as mode 3
     CONTEXTS.put("post-tx frame", () -> PostTxContexts.withoutDiff(true));
     CONTEXTS.put("post-tx frame, no payer", () -> PostTxContexts.withoutDiff(false));
