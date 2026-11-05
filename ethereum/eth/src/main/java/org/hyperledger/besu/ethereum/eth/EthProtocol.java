@@ -128,10 +128,6 @@ public class EthProtocol implements SubProtocol {
   /**
    * The context to encode or decode a pooled transaction in, for a peer speaking this capability.
    *
-   * <p>Lives here rather than on {@link EncodingContext} so that it asks the same question as every
-   * other version check, {@link #isEth72Compatible}, name included: a bare comparison of version
-   * numbers would also match another sub-protocol that happens to have reached 72.
-   *
    * @param capability the capability negotiated with the peer
    * @return the eth/72 context for an eth/72 peer, otherwise the pre-eth/72 one
    */

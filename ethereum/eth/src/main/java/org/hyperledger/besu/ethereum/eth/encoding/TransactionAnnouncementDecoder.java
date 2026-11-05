@@ -109,11 +109,6 @@ public class TransactionAnnouncementDecoder {
     final List<Hash> hashes =
         input.readList(rlp -> Hash.wrap(rlp.readBytes32().copy()), bytes.length);
 
-    // Before eth/72 a peer that announces a blob transaction serves its full payload on
-    // GetPooledTransactions, so it implicitly holds every cell.
-    // The mapper overload is what turns a bitmap of the wrong width into an RLPException, the
-    // only exception the message processor treats as a misbehaving peer; CellMask.fromBytes on
-    // its own throws IllegalArgumentException, which would escape the decoding worker instead.
     final CellMask cellMask = hasCellMask ? input.readBytes(CellMask::fromBytes) : CellMask.FULL;
 
     input.leaveList();

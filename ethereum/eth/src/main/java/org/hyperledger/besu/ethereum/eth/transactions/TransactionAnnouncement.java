@@ -27,20 +27,12 @@ import java.util.Optional;
 
 public record TransactionAnnouncement(
     Hash hash, TransactionType type, Long size, CellMask cellMask) {
-  public TransactionAnnouncement(final Transaction transaction) {
-    final Transaction tx = checkNotNull(transaction, "Transaction cannot be null");
-    this(
-        tx.getHash(),
-        tx.getType(),
-        (long) tx.getSizeForAnnouncement(),
-        announcedCellMask(tx).orElse(null));
-  }
 
   /**
    * The cell mask a transaction is announced with: for a blob transaction the availability of its
    * blobs, and nothing at all for any other type. Every place that has to work this out goes
-   * through here, so that the mask a transaction is grouped by, the one a message is encoded with
-   * and the one an announcement records cannot disagree.
+   * through here, so that the mask a message is batched by and the one it is encoded with cannot
+   * disagree.
    *
    * @param transaction the transaction being announced
    * @return the mask, or empty for a transaction type that carries no blobs
@@ -63,30 +55,12 @@ public record TransactionAnnouncement(
             .getCellMask());
   }
 
-  /**
-   * Announces a transaction with no cell mask. Valid only for non blob types; a blob announcement
-   * must carry the announcer's availability, so the canonical constructor rejects a null mask for
-   * those. Mirrors the pre eth/72 {@link #create(List, List, List)} overload.
-   *
-   * @param hash the transaction hash
-   * @param type the transaction type, which must not support blobs
-   * @param size the announced size
-   */
-  public TransactionAnnouncement(final Hash hash, final TransactionType type, final Long size) {
-    this(hash, type, size, null);
-  }
-
   public TransactionAnnouncement(
       final Hash hash, final TransactionType type, final Long size, final CellMask cellMask) {
     this.hash = checkNotNull(hash, "Hash cannot be null");
     this.type = checkNotNull(type, "Type cannot be null");
     this.size = checkNotNull(size, "Size cannot be null");
     this.cellMask = type.supportsBlob() ? checkNotNull(cellMask, "Cell mask cannot be null") : null;
-  }
-
-  public static List<TransactionAnnouncement> create(
-      final List<TransactionType> types, final List<Long> sizes, final List<Hash> hashes) {
-    return create(types, sizes, hashes, null);
   }
 
   public static List<TransactionAnnouncement> create(
@@ -105,14 +79,5 @@ public record TransactionAnnouncement(
           new TransactionAnnouncement(hashes.get(i), types.get(i), sizes.get(i), cellMask));
     }
     return transactions;
-  }
-
-  public static List<TransactionAnnouncement> create(final List<Transaction> transactions) {
-    List<TransactionAnnouncement> list = new ArrayList<>(transactions.size());
-    for (Transaction transaction : transactions) {
-      TransactionAnnouncement announcement = new TransactionAnnouncement(transaction);
-      list.add(announcement);
-    }
-    return list;
   }
 }

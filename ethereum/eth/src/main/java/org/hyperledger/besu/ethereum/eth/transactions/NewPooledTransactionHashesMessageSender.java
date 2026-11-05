@@ -51,10 +51,7 @@ class NewPooledTransactionHashesMessageSender {
     final EncodingContext encodingContext = EthProtocol.pooledTransactionContext(capability);
 
     // An eth/72 announcement carries one cell mask covering every blob tx in the message, so a
-    // message may only hold blob txs that agree on it. Rather than rely on the order the send
-    // queue happens to hand them over — which interleaves broadcasts and, being access ordered,
-    // moves a re-queued tx to the tail — one batch is kept open per mask and filled on its own.
-    // Before eth/72 no mask is sent, so a single batch takes everything.
+    // message may only hold blob txs that agree on it.
     final boolean oneBatchPerCellMask = EthProtocol.isEth72Compatible(capability);
     // Keyed by the mask the batch will announce, empty for the batch of txs that carry none.
     // Insertion ordered, so batches are sent in the order their first tx was queued.
@@ -67,9 +64,6 @@ class NewPooledTransactionHashesMessageSender {
         continue;
       }
 
-      // Announcing to a peer whose protocol version we could not then serve claims an
-      // availability we do not have, and computing the announced size would itself fail on a
-      // transaction held only as cells.
       if (!encodingContext.canEncode(announcementToSend)) {
         continue;
       }
@@ -78,8 +72,7 @@ class NewPooledTransactionHashesMessageSender {
           oneBatchPerCellMask
               ? TransactionAnnouncement.announcedCellMask(announcementToSend)
               : Optional.empty();
-      final List<Transaction> batch =
-          openBatches.computeIfAbsent(batchKey, unused -> new ArrayList<>());
+      final List<Transaction> batch = openBatches.computeIfAbsent(batchKey, _ -> new ArrayList<>());
       batch.add(announcementToSend);
 
       if (batch.size() == maxAnnouncementsPerMessage) {

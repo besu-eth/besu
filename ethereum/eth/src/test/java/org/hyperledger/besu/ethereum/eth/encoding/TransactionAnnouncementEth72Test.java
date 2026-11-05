@@ -161,10 +161,10 @@ class TransactionAnnouncementEth72Test {
 
   @Test
   void aBlobAnnouncementWithoutAMaskIsRejected() {
-    // Every blob announcement states an availability, so the mask is not optional for one: the
-    // pre eth/72 constructor is for the types that carry none.
+    // Every blob announcement states an availability, so a null mask is only for the types that
+    // carry none.
     assertThatExceptionOfType(NullPointerException.class)
-        .isThrownBy(() -> new TransactionAnnouncement(hash(1), TransactionType.BLOB, 1000L))
+        .isThrownBy(() -> new TransactionAnnouncement(hash(1), TransactionType.BLOB, 1000L, null))
         .withMessageContaining("Cell mask cannot be null");
   }
 

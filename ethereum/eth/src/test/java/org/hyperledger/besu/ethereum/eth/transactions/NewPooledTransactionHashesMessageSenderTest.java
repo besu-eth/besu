@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
+import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
@@ -153,7 +154,7 @@ public class NewPooledTransactionHashesMessageSenderTest {
 
     assertThat(Sets.union(firstBatch, secondBatch))
         .containsExactlyInAnyOrderElementsOf(
-            transactions.stream().map(TransactionAnnouncement::new).toList());
+            transactions.stream().map(TransactionAnnouncements::create).toList());
   }
 
   @Test
@@ -332,7 +333,7 @@ public class NewPooledTransactionHashesMessageSenderTest {
               getAnnouncementsFromMessage(message);
           final Set<TransactionAnnouncement> expectedAnnouncements =
               Arrays.stream(transactions)
-                  .map(TransactionAnnouncement::new)
+                  .map(TransactionAnnouncements::create)
                   .collect(Collectors.toSet());
           return message.getCode() == EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES
               && actualSentAnnouncements.equals(expectedAnnouncements);

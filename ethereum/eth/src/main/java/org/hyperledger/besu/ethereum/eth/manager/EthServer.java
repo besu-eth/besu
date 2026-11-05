@@ -406,9 +406,6 @@ class EthServer {
     final GetPooledTransactionsMessage getPooledTransactions =
         GetPooledTransactionsMessage.readFrom(message);
     final Iterable<Hash> hashes = getPooledTransactions.pooledTransactions();
-    // From eth/72 the response elides the blob payloads, which is also what was announced: a
-    // response in the pre-eth/72 form would not match its announced size, and for a transaction
-    // held only as cells there is no such form to encode at all.
     final EncodingContext encodingContext = EthProtocol.pooledTransactionContext(capability);
 
     final boolean traceEnabled = LOG.isTraceEnabled();
