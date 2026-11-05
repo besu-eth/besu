@@ -72,6 +72,7 @@
 - `--Xmempool-prewarm-enabled` prewarms the state for the next block from the transaction pool. [#11759](https://github.com/besu-eth/besu/pull/11759)
 - The chain id is represented by the new `ChainId` value object, that shares one instance for the chain id of the running network, so a pooled transaction uses 80 bytes and 3 objects fewer, plus 3 objects fewer for each EIP-7702 authorization, and a legacy transaction is decoded about 15% faster. The plugin API is unchanged, apart from a new read-only `ChainId` interface in `datatypes`. [#11866](https://github.com/besu-eth/besu/pull/11866)
 - The transaction pools process the result of a transaction that is still executing when the block selection time runs out once its execution completes, so the layered pool penalises a transaction that took too long, and both pools remove it if invalid, instead of missing its result. Selection results are processed asynchronously in both pools.
+- With `--Xevm-v2`, a CALL without value no longer looks up the caller's balance or the sender, and builds its child frame directly. [#11872](https://github.com/besu-eth/besu/pull/11872)
 
 ## 26.11.0
 
