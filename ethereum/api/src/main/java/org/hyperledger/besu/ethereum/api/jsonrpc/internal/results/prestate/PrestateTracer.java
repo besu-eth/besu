@@ -82,7 +82,6 @@ public class PrestateTracer implements OperationTracer {
   private static final int CREATE2 = 0xF5;
   private static final int STATICCALL = 0xFA;
   private static final int SELFDESTRUCT = 0xFF;
-  private static final String SENDALL = "SENDALL";
 
   private final boolean diffMode;
   private final boolean disableCode;
@@ -200,10 +199,7 @@ public class PrestateTracer implements OperationTracer {
         final Address target = Words.toAddress(TracedStack.item(frame, 0));
         final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
-        // EIP-4758: SENDALL, which takes 0xFF from Bogota, never deletes the account.
-        final boolean deletes =
-            !SENDALL.equals(op.getName()) && (!eip6780 || created.contains(self));
-        final Address deletedAddress = deletes ? self : null;
+        final Address deletedAddress = (!eip6780 || created.contains(self)) ? self : null;
         pending = new Pending(accounts, null, null, null, null, deletedAddress);
       }
       case CALL, CALLCODE, DELEGATECALL, STATICCALL -> {
@@ -275,7 +271,10 @@ public class PrestateTracer implements OperationTracer {
       if (currentPending.createdAddress() != null) {
         created.add(currentPending.createdAddress());
       }
-      if (currentPending.deletedAddress() != null) {
+      // The opcode alone does not decide deletion: EIP-4758 SENDALL, which takes 0xFF from
+      // Bogota, never tags the account, so only an account the operation tagged is deleted.
+      if (currentPending.deletedAddress() != null
+          && frame.getSelfDestructs().contains(currentPending.deletedAddress())) {
         deleted.add(currentPending.deletedAddress());
       }
     }
@@ -460,7 +459,8 @@ public class PrestateTracer implements OperationTracer {
    * @param storageKey the storage slot key
    * @param storageValue the storage slot value read before execution
    * @param createdAddress address created by a CREATE/CREATE2 opcode (null when not creating)
-   * @param deletedAddress address marked deleted by SELFDESTRUCT (null when not deleting)
+   * @param deletedAddress address 0xFF deletes under Geth's rules, kept only if the operation
+   *     tagged it for self-destruct (null when not deleting)
    */
   private record Pending(
       List<Map.Entry<Address, AccountState>> accounts,

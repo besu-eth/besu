@@ -50,6 +50,8 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -57,6 +59,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -126,18 +131,24 @@ class PrestateTracerTest {
     return frame;
   }
 
-  private MessageFrame selfDestructFrame(final Address self, final Address beneficiary) {
-    return sweepFrame(new SelfDestructOperation(null), self, beneficiary);
+  private MessageFrame selfDestructFrame(
+      final Address self, final Address beneficiary, final Set<Address> selfDestructs) {
+    return sweepFrame(new SelfDestructOperation(null), self, beneficiary, selfDestructs);
   }
 
+  /** {@code selfDestructs} is the set the operation leaves tagged once it has executed. */
   private MessageFrame sweepFrame(
-      final Operation operation, final Address self, final Address beneficiary) {
+      final Operation operation,
+      final Address self,
+      final Address beneficiary,
+      final Set<Address> selfDestructs) {
     final MessageFrame frame = mock(MessageFrame.class);
     when(frame.getCurrentOperation()).thenReturn(operation);
     when(frame.getWorldUpdater()).thenReturn(world);
     when(frame.getRecipientAddress()).thenReturn(self);
     when(frame.stackSize()).thenReturn(1);
     doReturn(beneficiary.getBytes()).when(frame).getStackItem(0);
+    doReturn(selfDestructs).when(frame).getSelfDestructs();
     return frame;
   }
 
@@ -240,7 +251,7 @@ class PrestateTracerTest {
     when(world.get(CONTRACT_A)).thenReturn(contractAInitial);
     startTransaction(tracer, CONTRACT_A);
 
-    final MessageFrame selfDestruct = selfDestructFrame(CONTRACT_A, SENDER);
+    final MessageFrame selfDestruct = selfDestructFrame(CONTRACT_A, SENDER, Set.of());
     when(selfDestruct.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
     tracer.tracePreExecution(selfDestruct);
     tracer.tracePostExecution(selfDestruct, null);
@@ -266,7 +277,8 @@ class PrestateTracerTest {
     tracer.tracePreExecution(create);
     tracer.tracePostExecution(create, null);
 
-    final MessageFrame selfDestructB = selfDestructFrame(createdAddress, SENDER);
+    final MessageFrame selfDestructB =
+        selfDestructFrame(createdAddress, SENDER, Set.of(createdAddress));
     when(selfDestructB.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
     tracer.tracePreExecution(selfDestructB);
     tracer.tracePostExecution(selfDestructB, null);
@@ -285,7 +297,7 @@ class PrestateTracerTest {
     when(world.get(CONTRACT_A)).thenReturn(contractAPreCancun);
     startTransaction(tracer, CONTRACT_A);
 
-    final MessageFrame selfDestructA = selfDestructFrame(CONTRACT_A, SENDER);
+    final MessageFrame selfDestructA = selfDestructFrame(CONTRACT_A, SENDER, Set.of(CONTRACT_A));
     when(selfDestructA.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
     tracer.tracePreExecution(selfDestructA);
     tracer.tracePostExecution(selfDestructA, null);
@@ -299,9 +311,23 @@ class PrestateTracerTest {
     when(evm.getEvmVersion()).thenReturn(EvmSpecVersion.CANCUN);
   }
 
-  @Test
-  void sendAllKeepsCreatedAccountInPost() {
-    when(evm.getEvmVersion()).thenReturn(EvmSpecVersion.BOGOTA);
+  static Stream<Arguments> createdAndSweptAccount() {
+    return Stream.of(
+        // EIP-6780: SELFDESTRUCT tags an account created in the same transaction
+        Arguments.of(
+            EvmSpecVersion.AMSTERDAM,
+            new SelfDestructOperation(new CancunGasCalculator(), true),
+            true),
+        // EIP-4758: SENDALL never tags the account
+        Arguments.of(
+            EvmSpecVersion.BOGOTA, new SendAllOperation(new CancunGasCalculator()), false));
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("createdAndSweptAccount")
+  void createdAndSweptAccountLeavesPostOnlyWhenTagged(
+      final EvmSpecVersion fork, final Operation sweep, final boolean tagged) {
+    when(evm.getEvmVersion()).thenReturn(fork);
     final PrestateTracer tracer = newTracer(Map.of("diffMode", true));
     final Account creator = mockAccount(CONTRACT_A, Wei.ZERO, 1, Bytes.EMPTY);
     when(world.get(CONTRACT_A)).thenReturn(creator);
@@ -313,17 +339,22 @@ class PrestateTracerTest {
     tracer.tracePreExecution(create);
     tracer.tracePostExecution(create, null);
 
-    final MessageFrame sendAll =
-        sweepFrame(new SendAllOperation(new CancunGasCalculator()), createdAddress, SENDER);
-    when(sendAll.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
-    tracer.tracePreExecution(sendAll);
-    tracer.tracePostExecution(sendAll, null);
+    final MessageFrame frame =
+        sweepFrame(sweep, createdAddress, SENDER, tagged ? Set.of(createdAddress) : Set.of());
+    when(frame.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
+    tracer.tracePreExecution(frame);
+    tracer.tracePostExecution(frame, null);
     final Bytes code = Bytes.of(0x60, 0x00);
     final Account sweptAccount = mockAccount(createdAddress, Wei.ZERO, 1, code);
     when(world.get(createdAddress)).thenReturn(sweptAccount);
     endTransaction(tracer);
 
     final PrestateTracerResult.Diff diff = (PrestateTracerResult.Diff) tracer.buildResult();
+    if (tagged) {
+      assertThat(diff.post()).doesNotContainKey(createdAddress.toHexString());
+      assertThat(diff.pre()).doesNotContainKey(createdAddress.toHexString());
+      return;
+    }
     assertThat(diff.post()).containsKey(createdAddress.toHexString());
     final PrestateTracerResult.Account post = diff.post().get(createdAddress.toHexString());
     assertThat(post.nonce()).isEqualTo(1L);
