@@ -152,9 +152,15 @@ public class GetCellsFromPeerTask implements PeerTask<List<CellsWithMask>> {
     return cellsPerBlobList;
   }
 
+  /**
+   * Only an eth/72 peer, since GetCells is an eth/72 message. Sending it to a peer that negotiated
+   * anything earlier is an invalid message code for the version agreed with it, which costs the
+   * connection rather than producing an answer.
+   */
   @Override
   public Predicate<EthPeerImmutableAttributes> getPeerRequirementFilter() {
-    return _ -> true;
+    return ethPeer ->
+        ethPeer.ethPeer().getAgreedCapabilities().stream().anyMatch(EthProtocol::isEth72Compatible);
   }
 
   /**
