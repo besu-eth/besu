@@ -25,7 +25,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -103,6 +105,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 
 import com.google.common.base.Suppliers;
@@ -113,6 +116,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -320,6 +324,38 @@ public class InclusionListWorkflowIntegrationTest {
   }
 
   @Test
+  public void newPayload_storesTheInclusionListStatusAfterTheBlock() {
+    final BlockHeader payloadHeader = setupValidPayloadHeader();
+    final Runnable blockWrites = mock(Runnable.class);
+    stubBlockProcessingResult(InclusionListValidationResult.valid(), blockWrites);
+
+    fromSuccessResp(callNewPayload(payloadHeader, emptyList(), emptyList()));
+    // runs the writes queued after the newPayload reply
+    callForkchoiceUpdatedWithoutAttributes(payloadHeader);
+
+    // a stored status always has its block, so it is pruned with it
+    final InOrder inOrder = inOrder(blockWrites, blockchain);
+    inOrder.verify(blockWrites).run();
+    inOrder.verify(blockchain).putInclusionListStatus(eq(payloadHeader.getHash()), any());
+  }
+
+  @Test
+  public void newPayload_doesNotStoreTheInclusionListStatusIfStoringTheBlockFails() {
+    final BlockHeader payloadHeader = setupValidPayloadHeader();
+    stubBlockProcessingResult(
+        InclusionListValidationResult.valid(),
+        () -> {
+          throw new IllegalStateException("storing the block failed");
+        });
+
+    fromSuccessResp(callNewPayload(payloadHeader, emptyList(), emptyList()));
+    // runs the writes queued after the newPayload reply
+    callForkchoiceUpdatedWithoutAttributes(payloadHeader);
+
+    verify(blockchain, never()).putInclusionListStatus(any(), any());
+  }
+
+  @Test
   public void forkchoiceUpdated_reportsSatisfiedInclusionListOfHead() {
     final BlockHeader payloadHeader = setupValidPayloadHeader();
 
@@ -416,22 +452,33 @@ public class InclusionListWorkflowIntegrationTest {
 
   /**
    * The inclusion list is validated during block processing, stub the processing result to report
-   * the given inclusion list validation result.
+   * the given inclusion list validation result. Like the merge coordinator, the stub hands the
+   * writes that store the valid block to the given writer.
    */
   private void stubBlockProcessingResult(
       final InclusionListValidationResult inclusionListValidationResult) {
-    when(mergeCoordinator.rememberBlock(any(), any(), any(), any()))
-        .thenReturn(
-            new BlockProcessingResult(
-                Optional.of(
-                    new BlockProcessingOutputs(
-                        null,
-                        List.of(),
-                        Optional.of(VALID_REQUESTS),
-                        Optional.empty(),
-                        0,
-                        Map.of(),
-                        inclusionListValidationResult))));
+    stubBlockProcessingResult(inclusionListValidationResult, () -> {});
+  }
+
+  private void stubBlockProcessingResult(
+      final InclusionListValidationResult inclusionListValidationResult,
+      final Runnable blockWrites) {
+    doAnswer(
+            invocation -> {
+              invocation.<Executor>getArgument(3).execute(blockWrites);
+              return new BlockProcessingResult(
+                  Optional.of(
+                      new BlockProcessingOutputs(
+                          null,
+                          List.of(),
+                          Optional.of(VALID_REQUESTS),
+                          Optional.empty(),
+                          0,
+                          Map.of(),
+                          inclusionListValidationResult)));
+            })
+        .when(mergeCoordinator)
+        .rememberBlock(any(), any(), any(), any());
   }
 
   private void setupValidForkchoiceUpdate(final BlockHeader header, final BlockHeader parent) {

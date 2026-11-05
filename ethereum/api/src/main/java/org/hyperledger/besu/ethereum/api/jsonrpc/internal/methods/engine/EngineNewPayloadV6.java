@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransact
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
@@ -141,16 +142,8 @@ public final class EngineNewPayloadV6<
               .map(InclusionListStatus::satisfied)
               .orElse(true);
     } else {
-      ilSatisfied =
-          executionResult
-              .getYield()
-              .map(BlockProcessingOutputs::getInclusionListValidationResult)
-              .map(InclusionListValidationResult::isValid)
-              .orElse(true);
-      blockchain.putInclusionListStatus(
-          latestValidHash,
-          new InclusionListStatus(
-              requestParameters.inclusionListTransactions().getChecksum(), ilSatisfied));
+      // the status is stored with the block, see rememberBlock
+      ilSatisfied = isInclusionListSatisfied(executionResult);
     }
 
     return new PayloadStatusV2(VALID, latestValidHash, ilSatisfied);
@@ -167,12 +160,43 @@ public final class EngineNewPayloadV6<
     return new PayloadStatusV2(SYNCING);
   }
 
+  /**
+   * A valid block is stored after the reply, like in the previous versions, and its inclusion list
+   * status right after it, in the same queued write: a stored status always has its block, and is
+   * pruned with it. If storing the block fails, the status is not stored either.
+   */
   @Override
   protected BlockProcessingResult rememberBlock(final Block block, final NPRP requestParameters) {
-    return mergeCoordinator.rememberBlock(
-        block,
-        Optional.of(requestParameters.payloadParameter().getBlockAccessList()),
-        requestParameters.inclusionListTransactions(),
-        writeAfterReply(block));
+    final InclusionListTransactions inclusionListTransactions =
+        requestParameters.inclusionListTransactions();
+    // the block writes are handed over synchronously, and only for a valid block
+    final AtomicReference<Runnable> blockWrites = new AtomicReference<>();
+    final BlockProcessingResult executionResult =
+        mergeCoordinator.rememberBlock(
+            block,
+            Optional.of(requestParameters.payloadParameter().getBlockAccessList()),
+            inclusionListTransactions,
+            blockWrites::set);
+    final Runnable writes = blockWrites.get();
+    if (writes != null) {
+      final InclusionListStatus inclusionListStatus =
+          new InclusionListStatus(
+              inclusionListTransactions.getChecksum(), isInclusionListSatisfied(executionResult));
+      writeAfterReply(block)
+          .execute(
+              () -> {
+                writes.run();
+                blockchain.putInclusionListStatus(block.getHash(), inclusionListStatus);
+              });
+    }
+    return executionResult;
+  }
+
+  private static boolean isInclusionListSatisfied(final BlockProcessingResult executionResult) {
+    return executionResult
+        .getYield()
+        .map(BlockProcessingOutputs::getInclusionListValidationResult)
+        .map(InclusionListValidationResult::isValid)
+        .orElse(true);
   }
 }
