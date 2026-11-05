@@ -1375,6 +1375,8 @@ public abstract class MainnetProtocolSpecs {
                     .build())
         // EIP-8141: frame transaction receipts
         .transactionReceiptFactory(new BogotaTransactionReceiptFactory(enableRevertReason))
+        // EIP-8151: account code restricted ecrecover
+        .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::bogota)
         .hardforkId(BOGOTA);
   }
 
