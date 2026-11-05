@@ -7,13 +7,15 @@ FROM mirror.gcr.io/library/eclipse-temurin:25.0.5_8-jdk@sha256:83f4a7fc27df94dcc
 
 # Remove the roots OpenJDK lists after the October 2026 eMudhra CA compromise
 # (https://openjdk.org/emudhra, JDK-8395690, CVE-2026-114820): emSign Root CA - G1, emSign Root CA - G2,
-# emSign ECC Root CA - G3 and AAA Certificate Services. Temurin 25.0.5+8 does not include that fix and still ships
-# G1; G3 is already gone from its store, and G2 and AAA Certificate Services were never in it. All four are
-# matched anyway, so the step keeps working whatever the base ships. The emSign ECC Root CA - C3 and emSign Root CA -
+# emSign ECC Root CA - G3 and AAA Certificate Services. Temurin builds its cacerts from Mozilla's root list,
+# not OpenJDK's, so OpenJDK's fix does not reach it: Mozilla has dropped G3 but still trusts G1, so Temurin
+# 25.0.5+8 still ships G1 (G2 and AAA Certificate Services are not in it). All four are matched anyway, so the
+# step keeps working whatever the base ships. The emSign ECC Root CA - C3 and emSign Root CA -
 # C1 roots (eMudhra Inc, US) are deliberately left trusted: OpenJDK does not list them, and the
 # compromised intermediates chain to G3, not the C series. Matched by SHA-256 fingerprint, so this works
 # whatever their alias; the build then re-checks by subject name, so a wrong fingerprint cannot ship
-# a trusted root. Remove once the base's runtime includes JDK-8395690 and none of these roots are left.
+# a trusted root. Remove once the build prints no "Removing" lines (Mozilla, and so Temurin, has dropped
+# G1), or if we decide to follow Mozilla's list instead of OpenJDK's.
 RUN set -eu; \
     DISTRUSTED_ROOTS="40:F6:AF:03:46:A9:9A:A1:CD:1D:55:5A:4E:9C:CE:62:C7:F9:63:46:03:EE:40:66:15:83:3D:C8:C8:D0:03:67|1A:A0:C2:70:9E:83:1B:D6:E3:B5:12:9A:00:BA:41:F7:EE:EF:02:08:72:F1:E6:50:4B:F0:F6:C3:F2:4F:3A:F3|86:A1:EC:BA:08:9C:4A:8D:3B:BE:27:34:C6:12:BA:34:1D:81:3E:04:3C:F9:E8:A8:62:CD:5C:57:A3:6B:BE:6B|D7:A7:A0:FB:5D:7E:27:31:D7:71:E9:48:4E:BC:DE:F7:1D:5F:0C:3E:0A:29:48:78:2B:C8:3E:E0:EA:69:9E:F4"; \
     KEYTOOL="$JAVA_HOME/bin/keytool"; \
