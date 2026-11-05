@@ -99,8 +99,9 @@ import org.hyperledger.besu.evm.gascalculator.SpuriousDragonGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.TangerineWhistleGasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.log.EIP7708TransferLogEmitter;
+import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
-import org.hyperledger.besu.evm.processor.MessageCallProcessor;
+import org.hyperledger.besu.evm.processor.MessageCallProcessorV2;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -164,7 +165,10 @@ public abstract class MainnetProtocolSpecs {
             (feeMarket, gasCalculator, blobSchedule) -> new FrontierTargetingGasLimitCalculator())
         .evmBuilder(MainnetEVMs::frontier)
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::frontier)
-        .messageCallProcessorBuilder(MessageCallProcessor::new)
+        .messageCallProcessorBuilder(
+            (evm, precompileContractRegistry) ->
+                MessageCallProcessorV2.forEvm(
+                    evm, precompileContractRegistry, Set.of(), TransferLogEmitter.NOOP))
         .contractCreationProcessorBuilder(
             evm ->
                 new ContractCreationProcessor(
@@ -346,10 +350,11 @@ public abstract class MainnetProtocolSpecs {
         .gasCalculator(SpuriousDragonGasCalculator::new)
         .messageCallProcessorBuilder(
             (evm, precompileContractRegistry) ->
-                new MessageCallProcessor(
+                MessageCallProcessorV2.forEvm(
                     evm,
                     precompileContractRegistry,
-                    SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES))
+                    SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
+                    TransferLogEmitter.NOOP))
         .contractCreationProcessorBuilder(
             evm ->
                 new ContractCreationProcessor(
@@ -1129,7 +1134,7 @@ public abstract class MainnetProtocolSpecs {
             // EIP-7708: MessageCallProcessor with transfer log emission enabled
             .messageCallProcessorBuilder(
                 (evm, precompileContractRegistry) ->
-                    new MessageCallProcessor(
+                    MessageCallProcessorV2.forEvm(
                         evm,
                         precompileContractRegistry,
                         SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
