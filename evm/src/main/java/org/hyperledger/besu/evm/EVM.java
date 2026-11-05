@@ -541,12 +541,7 @@ public class EVM {
     }
   }
 
-  /**
-   * EVM v2 execution loop using long[] stack representation. Traced execution has a loop of its
-   * own, so that the untraced loop, which block import runs, has no tracer calls: they would use up
-   * part of C2's inlining budget, and the first trace would make the JVM recompile the loop.
-   */
-  // Note: like runToHalt, this is performance-critical code. Benchmark before refactoring.
+  /** EVM v2 execution loop using long[] stack representation. */
   private void runToHaltV2(final MessageFrame frame, final OperationTracer operationTracer) {
     evmSpecVersion.maybeWarnVersion();
     final boolean tracing = operationTracer.tracesOperations();
@@ -566,6 +561,7 @@ public class EVM {
    * when too many values need a register at once, and the comments below show where each is
    * avoided.
    */
+  // Note: like runToHalt, this is performance-critical code. Benchmark before refactoring.
   private void runToHaltV2Untraced(final MessageFrame frame) {
     // the loop checks the state only where an operation can change it
     if (frame.getState() != State.CODE_EXECUTING) {
