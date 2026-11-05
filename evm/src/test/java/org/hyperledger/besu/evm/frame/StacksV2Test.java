@@ -72,17 +72,33 @@ class StacksV2Test {
 
   @Test
   void framesBelowTheCachedDepthsShareTheirStacksAcrossThreads() throws InterruptedException {
-    final long[][] released = new long[1][];
+    final Set<long[]> released = Collections.newSetFromMap(new IdentityHashMap<>());
     final Thread other =
         new Thread(
             () -> {
-              released[0] = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
-              StacksV2.release(StacksV2.CACHED_DEPTHS, released[0]);
+              // more than the thread keeps for itself, so some go to the shared stacks
+              for (int i = 0; i <= StacksV2.THREAD_DEEP_STACKS; i++) {
+                final long[] stack = new long[LENGTH];
+                released.add(stack);
+                StacksV2.release(StacksV2.CACHED_DEPTHS, stack);
+              }
             });
     other.start();
     other.join();
 
-    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH)).isSameAs(released[0]);
+    assertThat(released).contains(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH));
+  }
+
+  @Test
+  void deepStackIsTakenOnlyOnce() {
+    final long[] released = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+    StacksV2.release(StacksV2.CACHED_DEPTHS, released);
+
+    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+    final long[] second = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+
+    assertThat(first).isSameAs(released);
+    assertThat(second).isNotSameAs(released);
   }
 
   @Test
@@ -100,7 +116,9 @@ class StacksV2Test {
         kept++;
       }
     }
-    assertThat(kept).isPositive().isLessThanOrEqualTo(StacksV2.SHARED_STACKS);
+    assertThat(kept)
+        .isPositive()
+        .isLessThanOrEqualTo(StacksV2.SHARED_STACKS + StacksV2.THREAD_DEEP_STACKS);
   }
 
   @Test
