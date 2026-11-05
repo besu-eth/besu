@@ -47,6 +47,7 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.BlockExceptionMatcher;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
@@ -57,7 +58,6 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.AccountState;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
 import org.hyperledger.besu.testutil.JsonTestParameters;
 
@@ -152,7 +152,7 @@ public class BlockchainReferenceTestTools {
                     bso ->
                         ReferenceTestProtocolSchedules.create(
                             new StubGenesisConfigOptions().blobScheduleOptions(bso),
-                            EvmConfiguration.DEFAULT))
+                            ReferenceTestProtocolSchedules.evmConfiguration()))
                 .orElse(PROTOCOL_SCHEDULES);
         final ProtocolSchedule schedule = protocolSchedules.getByName(spec.getNetwork());
 
@@ -202,6 +202,7 @@ public class BlockchainReferenceTestTools {
                                     validationMode,
                                     validationMode,
                                     candidateBlock.getBlockAccessList(),
+                                    InclusionListTransactions.EMPTY,
                                     false);
 
                     final boolean imported = processingResult.isSuccessful();

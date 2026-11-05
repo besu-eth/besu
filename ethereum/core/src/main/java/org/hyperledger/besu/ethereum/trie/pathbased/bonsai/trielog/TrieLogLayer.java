@@ -140,10 +140,6 @@ public class TrieLogLayer implements TrieLog {
     return storage;
   }
 
-  public boolean hasStorageChanges(final Address address) {
-    return storage.containsKey(address);
-  }
-
   @Override
   public Map<StorageSlotKey, BonsaiValue<UInt256>> getStorageChanges(final Address address) {
     return storage.getOrDefault(address, Map.of());

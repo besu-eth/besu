@@ -79,7 +79,25 @@ public class ReferenceTestProtocolSchedules {
   private record CacheKey(EvmConfiguration evmConfiguration, ObjectNode blobSchedule) {}
 
   public static ReferenceTestProtocolSchedules create() {
-    return create(new StubGenesisConfigOptions(), EvmConfiguration.DEFAULT);
+    return create(new StubGenesisConfigOptions(), evmConfiguration());
+  }
+
+  /**
+   * The EVM configuration the reference tests run with: EVM v2 when the system property test.evm.v2
+   * is true, EVM v1 when it is false, and the default configuration when it is not set.
+   *
+   * @return the EVM configuration
+   */
+  public static EvmConfiguration evmConfiguration() {
+    final String evmV2 = System.getProperty("test.evm.v2");
+    if (evmV2 == null) {
+      return EvmConfiguration.DEFAULT;
+    }
+    return new EvmConfiguration(
+        EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
+        EvmConfiguration.DEFAULT.worldUpdaterMode(),
+        EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
+        Boolean.parseBoolean(evmV2));
   }
 
   public static ReferenceTestProtocolSchedules create(final EvmConfiguration evmConfiguration) {

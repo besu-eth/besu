@@ -37,7 +37,8 @@ class QbftBlockCreatorFactoryAdaptorTest {
     when(qbftBlockCreatorFactory.create(1)).thenReturn(blockCreator);
 
     QbftBlockCreatorFactoryAdaptor qbftBlockCreatorFactoryAdaptor =
-        new QbftBlockCreatorFactoryAdaptor(qbftBlockCreatorFactory, new QbftExtraDataCodec());
+        new QbftBlockCreatorFactoryAdaptor(
+            qbftBlockCreatorFactory, new QbftExtraDataCodec(), new ValidatedBlockCache());
     QbftBlockCreator qbftBlockCreator = qbftBlockCreatorFactoryAdaptor.create(1);
     assertThat(qbftBlockCreator).hasFieldOrPropertyWithValue("besuBlockCreator", blockCreator);
   }

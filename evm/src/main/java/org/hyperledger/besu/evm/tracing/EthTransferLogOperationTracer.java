@@ -92,7 +92,7 @@ public class EthTransferLogOperationTracer implements OperationTracer {
   }
 
   private void emitSelfDestructLog(final MessageFrame frame) {
-    final Address beneficiaryAddress = Words.toAddress(frame.getStackItem(0));
+    final Address beneficiaryAddress = Words.toAddress(TracedStack.item(frame, 0));
     final Address originatorAddress = frame.getRecipientAddress();
     final MutableAccount originatorAccount = frame.getWorldUpdater().getAccount(originatorAddress);
     final Wei originatorBalance = originatorAccount.getBalance();
