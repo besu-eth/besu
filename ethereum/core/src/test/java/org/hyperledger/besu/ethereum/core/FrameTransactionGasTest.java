@@ -34,6 +34,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class FrameTransactionGasTest {
@@ -189,6 +190,56 @@ class FrameTransactionGasTest {
     // nonce calldata: 18 x 16 = 288 as intrinsic calldata, 18 x 64 = 1,152 under the floor.
     assertThat(FrameTransactionGas.intrinsicGas(transaction)).isEqualTo(206_363L);
     assertThat(FrameTransactionGas.calldataFloorGas(transaction)).isEqualTo(207_227L);
+  }
+
+  /**
+   * The cost of a 32-byte ARBITRARY signature over an empty one, after test_elided_signatures.py::
+   * test_elided_signature_priced_by_length: an empty-msg entry pays 16 gas per byte, zero or not,
+   * while an explicit-msg entry keeps the 4 gas price of a zero byte. The floor prices every byte
+   * at 64 gas either way.
+   */
+  @ParameterizedTest(name = "{0}")
+  @CsvSource({
+    "empty_msg-zero_bytes, 0x, 0x00, 512",
+    "empty_msg-nonzero_bytes, 0x, 0xab, 512",
+    "explicit_msg-zero_bytes, 0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a, 0x00, 128",
+    "explicit_msg-nonzero_bytes, 0x5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a, 0xab, 512"
+  })
+  void elidedSignatureBytesArePricedByLength(
+      final String name, final String msg, final String fill, final long expectedIntrinsicCost) {
+    final Address sender = Address.fromHexString("0x1111111111111111111111111111111111111111");
+    final List<Frame> frames =
+        List.of(
+            new Frame(
+                Frame.MODE_VERIFY,
+                Frame.APPROVE_SCOPE_MASK,
+                Optional.empty(),
+                50_000L,
+                0L,
+                Wei.ZERO,
+                Bytes.EMPTY));
+    final Bytes witness = Bytes.repeat(Bytes.fromHexString(fill).get(0), 32);
+    final List<FrameSignature> withWitness =
+        List.of(
+            new FrameSignature(
+                FrameSignature.SCHEME_ARBITRARY, Bytes.EMPTY, Bytes.fromHexString(msg), witness));
+    final List<FrameSignature> withoutWitness =
+        List.of(
+            new FrameSignature(
+                FrameSignature.SCHEME_ARBITRARY,
+                Bytes.EMPTY,
+                Bytes.fromHexString(msg),
+                Bytes.EMPTY));
+    final List<UInt256> keys = KeyedNonces.LEGACY_NONCE_KEYS;
+
+    assertThat(
+            FrameTransactionGas.intrinsicGas(frames, withWitness, sender, keys, 1L)
+                - FrameTransactionGas.intrinsicGas(frames, withoutWitness, sender, keys, 1L))
+        .isEqualTo(expectedIntrinsicCost);
+    assertThat(
+            FrameTransactionGas.calldataFloorGas(frames, withWitness, sender, keys, 1L)
+                - FrameTransactionGas.calldataFloorGas(frames, withoutWitness, sender, keys, 1L))
+        .isEqualTo(2_048L);
   }
 
   @Test

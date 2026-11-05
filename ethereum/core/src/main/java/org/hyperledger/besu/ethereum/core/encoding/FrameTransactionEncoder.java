@@ -49,7 +49,8 @@ public class FrameTransactionEncoder {
 
   /**
    * Encodes the signing payload of a frame transaction (without the type byte): signature entries
-   * with an empty msg have their raw signature bytes elided.
+   * with an empty msg have their raw signature bytes replaced by their length, encoded as an RLP
+   * scalar.
    *
    * @param transaction the frame transaction
    * @param out the RLP output
@@ -101,9 +102,13 @@ public class FrameTransactionEncoder {
     out.writeIntScalar(signature.scheme());
     out.writeBytes(signature.signer());
     out.writeBytes(signature.msg());
-    // The canonical signature hash elides the raw signature bytes of every entry signing it.
-    out.writeBytes(
-        forSigning && signature.signsCanonicalHash() ? Bytes.EMPTY : signature.signature());
+    // The canonical signature hash cannot commit to the raw signature bytes of an entry signing
+    // it, so it commits to their length, which fixes what the payer is charged for them.
+    if (forSigning && signature.signsCanonicalHash()) {
+      out.writeLongScalar(signature.signature().size());
+    } else {
+      out.writeBytes(signature.signature());
+    }
     out.endList();
   }
 }

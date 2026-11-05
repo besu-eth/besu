@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.FrameTransactionSignatureValidator;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -45,6 +46,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class FrameTransactionCodecTest {
 
@@ -190,6 +193,49 @@ class FrameTransactionCodecTest {
         .isNotEqualTo(transaction.getFrameSignatureHash());
   }
 
+  /**
+   * tests-bogota-devnet@v2.0.0 test_elided_signatures.py::test_sig_hash_commits_to_elided_length
+   * [empty]: an ARBITRARY entry with an empty msg and an empty signature.
+   */
+  private static final Bytes ELIDED_LENGTH_TX =
+      Bytes.fromHexString(
+          "0x06f85d01c001942129976602d58c0b4bd97278eb25aeeec63a7e17f2ce010380c8830186a083061a8080"
+              + "80e280809472827d242864de08c238b847f4559b6677c21622c8830186a083061a808080c5c480808080"
+              + "ca880de0b6b3a764000080c0");
+
+  /**
+   * The canonical signature hash commits to the length of an empty-msg entry's signature, encoded
+   * as an RLP scalar, and not to its bytes. Each row is a test_sig_hash_commits_to_elided_length
+   * case: the fixture transaction carries the signature below, and the probe stores the hash.
+   */
+  @ParameterizedTest(name = "{0}")
+  @CsvSource({
+    "empty, 0, 0x54, 0x1f6a56ca0be62f01bfb514c0676fd93ce8887f427861666582b667571c66ca00",
+    "zero_bytes, 5, 0xff, 0xb09f9e20aea66380752fcd27e4cf67beae67b3daa7a90c826110f569d62d6d87",
+    "nonzero_bytes, 5, 0x54, 0xb09f9e20aea66380752fcd27e4cf67beae67b3daa7a90c826110f569d62d6d87",
+    "two_byte_length, 256, 0x54, 0x366e22460cb756563c8f832cacf157e8fd372140d55b6bd0fa8dff407cafb3d8"
+  })
+  void signatureHashCommitsToTheElidedSignatureLength(
+      final String name, final int length, final String fill, final String expectedHash) {
+    final Transaction base =
+        TransactionDecoder.decodeOpaqueBytes(ELIDED_LENGTH_TX, EncodingContext.BLOCK_BODY);
+    final FrameSignature entry = base.getFrameSignatures().orElseThrow().getFirst();
+    final Transaction carrying =
+        Transaction.builder()
+            .copiedFrom(base)
+            .frameSignatures(
+                List.of(
+                    new FrameSignature(
+                        entry.scheme(),
+                        entry.signer(),
+                        entry.msg(),
+                        Bytes.repeat(Bytes.fromHexString(fill).get(0), length))))
+            .build();
+
+    assertThat(carrying.getFrameSignatureHash().getBytes())
+        .isEqualTo(Bytes32.fromHexString(expectedHash));
+  }
+
   @Test
   void gasLimitIsDerivedAsMaxGas() {
     final Transaction transaction = sampleTransaction();
@@ -261,6 +307,24 @@ class FrameTransactionCodecTest {
     assertThat(decoded.getMaxFeePerGas()).isEmpty();
     assertThat(TransactionEncoder.encodeOpaqueBytes(decoded, EncodingContext.BLOCK_BODY))
         .isEqualTo(FULL_TIP_TX);
+  }
+
+  /**
+   * The fixture's SECP256K1 entry signs the canonical hash, which commits to its 65-byte length.
+   */
+  @Test
+  void secp256k1EntryRecoversOverTheCanonicalSignatureHash() {
+    final Transaction decoded =
+        TransactionDecoder.decodeOpaqueBytes(FULL_TIP_TX, EncodingContext.BLOCK_BODY);
+    final FrameSignature entry = decoded.getFrameSignatures().orElseThrow().getFirst();
+
+    assertThat(entry.signsCanonicalHash()).isTrue();
+    assertThat(
+            FrameTransactionSignatureValidator.validate(
+                entry,
+                decoded.getSender(),
+                Bytes32.wrap(decoded.getFrameSignatureHash().getBytes())))
+        .isEmpty();
   }
 
   @Test

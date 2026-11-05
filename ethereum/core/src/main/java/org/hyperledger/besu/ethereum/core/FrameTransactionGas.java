@@ -166,6 +166,9 @@ public final class FrameTransactionGas {
    * The intrinsic gas of a frame transaction in the sense of EIP-2780, charged entirely in the
    * execution dimension.
    *
+   * <p>The raw signature bytes of an entry with an empty msg are priced as if all non-zero, because
+   * the canonical signature hash commits only to their length.
+   *
    * @param frames the transaction frames
    * @param signatures the transaction signature entries
    * @param sender the declared transaction sender
@@ -187,7 +190,12 @@ public final class FrameTransactionGas {
     for (final FrameSignature sig : signatures) {
       gas = clampedAdd(gas, calldataCost(sig.signer()));
       gas = clampedAdd(gas, calldataCost(sig.msg()));
-      gas = clampedAdd(gas, calldataCost(sig.signature()));
+      gas =
+          clampedAdd(
+              gas,
+              sig.signsCanonicalHash()
+                  ? clampedMultiply(STANDARD_TOKEN_COST, floorTokensIn(sig.signature()))
+                  : calldataCost(sig.signature()));
     }
     return gas;
   }

@@ -927,7 +927,7 @@ public class Transaction
 
   /**
    * Computes the EIP-8141 canonical signature hash: the keccak of the type byte and the payload
-   * with the raw signature bytes of canonical-hash entries elided.
+   * with the raw signature bytes of canonical-hash entries replaced by their length.
    *
    * @return the canonical frame transaction signature hash
    */
@@ -991,7 +991,8 @@ public class Transaction
   @Override
   public Bytes encodedPreimage() {
     if (transactionType.supportsFrames()) {
-      // EIP-8141: the signing payload elides raw signature bytes of canonical-hash entries.
+      // EIP-8141: the signing payload replaces the raw signature bytes of canonical-hash entries
+      // with their length.
       return Bytes.concatenate(
           Bytes.of(transactionType.getSerializedType()),
           RLP.encode(rlpOutput -> FrameTransactionEncoder.encodeForSigning(this, rlpOutput)));
