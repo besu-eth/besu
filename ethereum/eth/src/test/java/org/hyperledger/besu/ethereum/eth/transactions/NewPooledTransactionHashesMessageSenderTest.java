@@ -27,10 +27,13 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.CellsOnlyBlobTransactionFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
+import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
@@ -49,6 +52,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.google.common.collect.Sets;
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -61,6 +65,8 @@ public class NewPooledTransactionHashesMessageSenderTest {
   private final EthPeer peer2 = mock(EthPeer.class);
 
   private final BlockDataGenerator generator = new BlockDataGenerator();
+  private final CellsOnlyBlobTransactionFixture cellsOnlyFixture =
+      new CellsOnlyBlobTransactionFixture();
   private final Transaction transaction1 = generator.transaction();
   private final Transaction transaction2 = generator.transaction();
   private final Transaction transaction3 = generator.transaction();
@@ -148,7 +154,7 @@ public class NewPooledTransactionHashesMessageSenderTest {
 
     assertThat(Sets.union(firstBatch, secondBatch))
         .containsExactlyInAnyOrderElementsOf(
-            transactions.stream().map(TransactionAnnouncement::new).toList());
+            transactions.stream().map(TransactionAnnouncements::create).toList());
   }
 
   @Test
@@ -213,6 +219,113 @@ public class NewPooledTransactionHashesMessageSenderTest {
         .hasSize(batchSize + 1);
   }
 
+  @Test
+  public void shouldNotAnnounceACellsOnlyTransactionToAPreEth72Peer() throws Exception {
+    final Transaction cellsOnly = cellsOnlyFixture.create(1, CellMask.FULL);
+
+    transactionTracker.addToPeerAnnouncementsSendQueue(peer1, List.of(cellsOnly, transaction1));
+
+    messageSender.sendTransactionAnnouncementsToPeer(peer1);
+
+    // peer1 speaks eth/68, where the announced size is that of the pooled form carrying the blob
+    // payloads: a size we cannot compute, for a transaction we could not then serve.
+    verify(peer1).send(transactionsMessageContaining(transaction1));
+    verify(peer1).getConnection();
+    verifyNoMoreInteractions(ignoreStubs(peer1));
+  }
+
+  @Test
+  public void shouldAnnounceACellsOnlyTransactionToAnEth72Peer() throws Exception {
+    when(peer2.getConnection())
+        .thenReturn(
+            new MockPeerConnection(
+                Set.of(EthProtocolVersion.V72.getCapability()), (cap, msg, conn) -> {}));
+    final Transaction cellsOnly = cellsOnlyFixture.create(1, CellMask.FULL);
+
+    transactionTracker.addToPeerAnnouncementsSendQueue(peer2, List.of(cellsOnly));
+
+    messageSender.sendTransactionAnnouncementsToPeer(peer2);
+
+    // eth/72 elides the payloads, so holding only the cells is enough to serve it.
+    final ArgumentCaptor<MessageData> captor = ArgumentCaptor.forClass(MessageData.class);
+    verify(peer2).send(captor.capture());
+    final List<TransactionAnnouncement> announcements =
+        List.copyOf(getAnnouncementsFromMessage(captor.getValue()));
+    assertThat(announcements).hasSize(1);
+    assertThat(announcements.getFirst().hash()).isEqualTo(cellsOnly.getHash());
+    assertThat(announcements.getFirst().cellMask()).isEqualTo(CellMask.FULL);
+  }
+
+  @Test
+  public void shouldStartANewMessageWhenTheCellMaskChanges() throws Exception {
+    when(peer2.getConnection())
+        .thenReturn(
+            new MockPeerConnection(
+                Set.of(EthProtocolVersion.V72.getCapability()), (cap, msg, conn) -> {}));
+    final CellMask partialMask =
+        CellMask.fromBytes(Bytes.concatenate(Bytes.of((byte) 0x0f), Bytes.repeat((byte) 0, 15)));
+    final Transaction fullyHeld = cellsOnlyFixture.create(1, CellMask.FULL);
+    final Transaction partiallyHeld = cellsOnlyFixture.create(1, partialMask);
+
+    transactionTracker.addToPeerAnnouncementsSendQueue(peer2, List.of(fullyHeld, partiallyHeld));
+
+    messageSender.sendTransactionAnnouncementsToPeer(peer2);
+
+    // An eth/72 message carries a single mask for every blob transaction in it, so two masks
+    // cannot share a message.
+    final ArgumentCaptor<MessageData> captor = ArgumentCaptor.forClass(MessageData.class);
+    verify(peer2, times(2)).send(captor.capture());
+    assertThat(captor.getAllValues())
+        .map(this::getAnnouncementsFromMessage)
+        .map(announcements -> announcements.iterator().next())
+        .containsExactlyInAnyOrder(
+            eth72AnnouncementOf(fullyHeld, CellMask.FULL),
+            eth72AnnouncementOf(partiallyHeld, partialMask));
+  }
+
+  @Test
+  public void shouldNotMixCellMasksWhenANonBlobTransactionComesBetweenThem() throws Exception {
+    when(peer2.getConnection())
+        .thenReturn(
+            new MockPeerConnection(
+                Set.of(EthProtocolVersion.V72.getCapability()), (cap, msg, conn) -> {}));
+    final CellMask partialMask =
+        CellMask.fromBytes(Bytes.concatenate(Bytes.of((byte) 0x0f), Bytes.repeat((byte) 0, 15)));
+    final Transaction fullyHeld = cellsOnlyFixture.create(1, CellMask.FULL);
+    final Transaction partiallyHeld = cellsOnlyFixture.create(1, partialMask);
+
+    // An order the send queue can produce: it interleaves broadcasts, and being access ordered it
+    // moves a re-queued transaction to the tail. A sender that tracked a single current mask would
+    // lose the mask at the non-blob transaction and let the last one into the same message.
+    transactionTracker.addToPeerAnnouncementsSendQueue(
+        peer2, List.of(fullyHeld, transaction1, partiallyHeld));
+
+    messageSender.sendTransactionAnnouncementsToPeer(peer2);
+
+    // One message per availability, and nothing lost: handing the encoder two masks would have
+    // thrown with all three already marked as seen by the peer, so they would never be announced.
+    final ArgumentCaptor<MessageData> captor = ArgumentCaptor.forClass(MessageData.class);
+    verify(peer2, times(3)).send(captor.capture());
+    assertThat(captor.getAllValues())
+        .map(this::getAnnouncementsFromMessage)
+        .map(announcements -> announcements.iterator().next())
+        .containsExactlyInAnyOrder(
+            eth72AnnouncementOf(fullyHeld, CellMask.FULL),
+            eth72AnnouncementOf(transaction1, null),
+            eth72AnnouncementOf(partiallyHeld, partialMask));
+  }
+
+  private TransactionAnnouncement eth72AnnouncementOf(
+      final Transaction transaction, final CellMask cellMask) {
+    // Not TransactionAnnouncement(Transaction), which sizes the transaction by the pre eth/72
+    // pooled form, the one a cells-only transaction has no encoding for.
+    return new TransactionAnnouncement(
+        transaction.getHash(),
+        transaction.getType(),
+        (long) transaction.getSizeForEth72Announcement(),
+        cellMask);
+  }
+
   private MessageData transactionsMessageContaining(final Transaction... transactions) {
     return argThat(
         message -> {
@@ -220,7 +333,7 @@ public class NewPooledTransactionHashesMessageSenderTest {
               getAnnouncementsFromMessage(message);
           final Set<TransactionAnnouncement> expectedAnnouncements =
               Arrays.stream(transactions)
-                  .map(TransactionAnnouncement::new)
+                  .map(TransactionAnnouncements::create)
                   .collect(Collectors.toSet());
           return message.getCode() == EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES
               && actualSentAnnouncements.equals(expectedAnnouncements);
