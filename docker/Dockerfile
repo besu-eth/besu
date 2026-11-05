@@ -25,14 +25,16 @@ RUN set -eu; \
 
 # Stage: Final Besu image
 # ubuntu 24.04.5 LTS (Noble Numbat)
-FROM mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+FROM mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 ARG VERSION="dev"
-ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0"
+# Acquire::Retries=0 mitigates CVE-2026-109518 (apt < 2.8.4ubuntu0.1 can install an unverified package
+# when a download is retried). Remove once the ubuntu:24.04 base ships apt >= 2.8.4ubuntu0.1.
+ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=0"
 
 # Update and install dependencies without using any cache
 RUN apt-get update $NO_PROXY_CACHE  && \
   # $NO_PROXY_CACHE must not be used here or otherwise will trigger a hadolint error
-  apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 \
+  apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=0 \
     --no-install-recommends -q --assume-yes install libjemalloc-dev=5.* && \
   # Clean apt cache
   apt-get clean  && \

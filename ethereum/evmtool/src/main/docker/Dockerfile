@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
 
 # Stage: Use Eclipse Temurin JRE
-# eclipse-temurin OpenJDK 25.0.2 (2026-01-20 LTS)
-FROM mirror.gcr.io/library/eclipse-temurin@sha256:1bda4d9e668f44f399abed30636c34e0befb727408fba27b1e6aaefcf9df346b AS java-base
+# eclipse-temurin OpenJDK 25.0.3 (2026-04-21 LTS)
+FROM mirror.gcr.io/library/eclipse-temurin@sha256:68868d04fa9cfd5f5c6abec0b5cef86d8de2bf9c62c37c7d3e4f0f80f5cfd7ff AS java-base
 
 # Remove the roots OpenJDK lists after the October 2026 eMudhra CA compromise
 # (https://openjdk.org/emudhra): emSign ECC Root CA - G3, which OpenJDK identifies as related to the
@@ -25,14 +25,16 @@ RUN set -eu; \
 
 # Stage: Final Besu EVMTool image
 # ubuntu 24.04.5 LTS (Noble Numbat)
-FROM mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+FROM mirror.gcr.io/library/ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 ARG VERSION="dev"
-ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0"
+# Acquire::Retries=0 mitigates CVE-2026-109518 (apt < 2.8.4ubuntu0.1 can install an unverified package
+# when a download is retried). Remove once the ubuntu:24.04 base ships apt >= 2.8.4ubuntu0.1.
+ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=0"
 
 # Update and install dependencies without using any cache
 RUN apt-get update $NO_PROXY_CACHE  && \
   # $NO_PROXY_CACHE must not be used here or otherwise will trigger a hadolint error
-  apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 \
+  apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=0 \
     --no-install-recommends -q --assume-yes install libjemalloc-dev=5.* && \
   # Clean apt cache  \
   apt-get clean  && \
