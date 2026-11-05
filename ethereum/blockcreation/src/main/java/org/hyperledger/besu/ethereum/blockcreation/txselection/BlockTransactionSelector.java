@@ -470,10 +470,12 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   }
 
   /**
-   * When the block creation continues in best effort mode the thread evaluating the current tx has
-   * not reported its result yet will only do so after the results have been consumed by the txpool.
-   * We therefore need to record a provisional result initially and the evaluating thread completes
-   * in the mean time its result is preserved.
+   * For cases where TX selection didn't complete, the thread evaluating the current tx is still
+   * running when the selection results are being evaluated by the pool, so by the time it tries to
+   * record a timeout result (e.g. TX_EVALUATION_TOO_LONG) the pool has finished processing the
+   * results. This method sets a result, ignoring the fact that the evaluation thread is still
+   * finishing, and determines whether the TX itself took too long (and should hence be penalised)
+   * or the block just ran out of time (in which case it should not be penalised).
    *
    * @param selectionResults the results of the selection, returned to the txpool
    */
@@ -485,19 +487,19 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       return;
     }
 
-    // Only results that neither discard nor penalize are used here, since the final outcome of the
-    // evaluation is not known yet: the layered txpool ignores them, while the sequenced txpool
-    // moves any not selected tx to the back of its selection order.
-    final TransactionSelectionResult provisionalResult =
-        isCancelled.get() ? SELECTION_CANCELLED : BLOCK_SELECTION_TIMEOUT;
+    // The evaluation has not completed, so a result that discards the tx is never used here, but
+    // on a timeout the tx is penalized since it is still running after the whole remaining
+    // selection time was given to it.
+    final TransactionSelectionResult inFlightResult =
+        isCancelled.get() ? SELECTION_CANCELLED : TX_EVALUATION_TOO_LONG;
 
-    if (selectionResults.putIfAbsent(inFlightTx, provisionalResult) == null) {
+    if (selectionResults.putIfAbsent(inFlightTx, inFlightResult) == null) {
       LOG.atDebug()
           .setMessage(
-              "Transaction {} is still being evaluated after {} at the end of the block selection, recording provisional result {}")
+              "Transaction {} is still being evaluated after {} at the end of the block selection, recording result {} for the txpool")
           .addArgument(inFlightTx::getHash)
           .addArgument(evaluationContext.getEvaluationTimer())
-          .addArgument(provisionalResult)
+          .addArgument(inFlightResult)
           .log();
     }
   }

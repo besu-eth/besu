@@ -32,7 +32,7 @@
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, including after a round change, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469) [#11817](https://github.com/besu-eth/besu/pull/11817)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
-- Penalise sequenced transaction pool transactions that fail to complete execution within the block period, so they are re-selected after the others (https://github.com/besu-eth/besu/pull/11681)
+- The sequenced transaction pool penalises transactions whose selection result asks for it, as the layered pool does, and a transaction still executing when the block selection time runs out is penalised, so it is re-selected after the others instead of monopolising the selection time of every block (https://github.com/besu-eth/besu/pull/11681)
 
 ## 26.10.2
 

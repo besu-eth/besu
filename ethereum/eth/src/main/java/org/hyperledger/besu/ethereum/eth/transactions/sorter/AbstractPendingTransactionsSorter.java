@@ -265,16 +265,16 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
           removeTransaction(pendingTransaction, INVALID);
         }
         logDiscardedTransaction(pendingTransaction, result);
-      } else if (!result.selected()) {
+      } else if (result.penalize()) {
         penalizeTransaction(pendingTransaction, result);
       }
     }
   }
 
   /**
-   * A transaction that was evaluated for block inclusion but not selected (e.g. because its
-   * execution did not complete in the allotted time) is moved to the back of the selection order so
-   * it doesn't permanently block newer, smaller transactions from being selected. If it is never
+   * A transaction whose selection result asks for it to be penalized (e.g. because its execution
+   * did not complete in the allotted time) is moved to the back of the selection order so it
+   * doesn't permanently block newer, smaller transactions from being selected. If it is never
    * successfully selected it is eventually removed when the TX pool retention period expires.
    *
    * @param pendingTransaction the evaluated transaction

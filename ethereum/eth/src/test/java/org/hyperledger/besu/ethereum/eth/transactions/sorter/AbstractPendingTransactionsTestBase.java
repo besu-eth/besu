@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRem
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.INVALID;
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.REPLACED;
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.TIMED_EVICTION;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_FULL;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.TX_EVALUATION_TOO_LONG;
 import static org.mockito.Mockito.inOrder;
@@ -849,6 +850,38 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   private PendingTransaction createLocalPendingTransaction(final Transaction transaction) {
     return PendingTransaction.newPendingTransaction(transaction, true, true, MAX_SCORE);
+  }
+
+  @Test
+  public void shouldNotPenalizeNotSelectedTransactionsThatDoNotRequireIt() {
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+
+    // the first tx is not selected because the block is full, that is not its fault
+    transactionsLarge.selectTransactions(
+        pendingTxs -> {
+          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+              .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+          return Map.of(pendingTxs.get(0), BLOCK_FULL);
+        });
+
+    // so its score and its position in the selection order are unchanged
+    assertThat(transactionsLarge.size()).isEqualTo(2);
+    assertThat(
+            transactionsLarge.getPendingTransactions().stream()
+                .filter(pt -> pt.getHash().equals(zeroGasPriceTX1Sdr2.getHash()))
+                .findFirst()
+                .orElseThrow()
+                .getScore())
+        .isEqualTo(MAX_SCORE);
+    transactionsLarge.selectTransactions(
+        pendingTxs -> {
+          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+              .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+          return Map.of();
+        });
   }
 
   @Test

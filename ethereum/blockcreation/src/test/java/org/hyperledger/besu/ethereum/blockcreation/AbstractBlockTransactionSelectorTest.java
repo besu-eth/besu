@@ -210,13 +210,6 @@ public abstract class AbstractBlockTransactionSelectorTest {
 
   protected abstract TransactionPool createTransactionPool();
 
-  /**
-   * @return true if the txpool created by {@link #createTransactionPool()} is the sequenced pool
-   */
-  protected boolean isSequencedPool() {
-    return true;
-  }
-
   protected ProcessableBlockHeader createBlock(final long gasLimit) {
     return createBlock(gasLimit, Wei.ONE);
   }
@@ -1670,12 +1663,10 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getReceipts().get(0).getCumulativeGasUsed()).isEqualTo(100_000);
     assertThat(results.getReceipts().get(1).getCumulativeGasUsed()).isEqualTo(200_000);
 
-    if (isSequencedPool() && !isLongProcessingTxDropped) {
+    if (!isLongProcessingTxDropped) {
       // the evaluation of the late tx was still running when the selection returned, but the
-      // txpool must have been given a provisional result for it so it can be penalized and not
-      // retried first next block, preventing it from monopolising TX selection time (e.g. block
-      // other
-      // smaller transactions)
+      // txpool must have been given a result that penalizes it, so it is not retried
+      // first next block, preventing it from monopolising the selection time of every block
       assertThat(
               transactionPool.getPendingTransactions().stream()
                   .filter(pt -> pt.getHash().equals(lateTx.getHash()))
