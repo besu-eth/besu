@@ -22,8 +22,7 @@
     "id": 1,
     "error": {
       "code": -32602,
-      "message": "Invalid params",
-      "data": "Parent block not found: 0x3b8fb240d288781d4f1e1d32f4c15500beefdeadbeefdeadbeefdeadbeefdead"
+      "message": "Invalid params: Parent block not found: 0x3b8fb240d288781d4f1e1d32f4c15500beefdeadbeefdeadbeefdeadbeefdead"
     }
   },
   "statusCode": 200
