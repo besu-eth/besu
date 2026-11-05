@@ -51,6 +51,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @DisplayName("CallTracer")
 class CallTracerTest {
@@ -332,6 +334,38 @@ class CallTracerTest {
 
     final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
     assertThat(result.getCalls().get(0).getValue()).isEqualTo(inheritedValue.toShortHexString());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"SELFDESTRUCT", "SENDALL"})
+  @DisplayName("reports a balance sweep as a leaf call typed with the opcode name")
+  void sweepIsReportedWithItsOpcodeName(final String opcodeName) {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
+    final Address rootContract = Address.fromHexString("0x01");
+    final MessageFrame root = frame(Address.fromHexString("0x00"), rootContract);
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(root);
+
+    final Address beneficiary = Address.fromHexString("0x0b");
+    final Operation sweep = mock(Operation.class);
+    when(sweep.getName()).thenReturn(opcodeName);
+    when(sweep.getStackItemsConsumed()).thenReturn(1);
+    when(root.getCurrentOperation()).thenReturn(sweep);
+    when(root.stackSize()).thenReturn(1);
+    when(root.getStackItem(0)).thenReturn(bytes32Address(beneficiary));
+    when(root.getRefunds()).thenReturn(Map.of(beneficiary, Wei.of(100)));
+    tracer.tracePreExecution(root);
+    tracer.tracePostExecution(root, new OperationResult(5_000L, null));
+    tracer.traceContextExit(root);
+
+    final CallTracerResult result = tracer.buildResult(tx, mockResult(21_000L, true));
+    assertThat(result.getCalls()).hasSize(1);
+    final CallTracerResult sweepNode = result.getCalls().get(0);
+    assertThat(sweepNode.getType()).isEqualTo(opcodeName);
+    assertThat(sweepNode.getFrom()).isEqualTo(rootContract.getBytes().toHexString());
+    assertThat(sweepNode.getTo()).isEqualTo(beneficiary.getBytes().toHexString());
+    assertThat(sweepNode.getValue()).isEqualTo("0x64");
   }
 
   @Test

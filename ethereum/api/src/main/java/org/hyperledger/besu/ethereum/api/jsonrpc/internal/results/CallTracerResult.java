@@ -141,7 +141,7 @@ public class CallTracerResult {
    * Gets the type of call operation.
    *
    * @return the call type (e.g., "CALL", "DELEGATECALL", "STATICCALL", "CREATE", "CREATE2",
-   *     "SELFDESTRUCT")
+   *     "SELFDESTRUCT", "SENDALL")
    */
   @JsonGetter("type")
   public String getType() {

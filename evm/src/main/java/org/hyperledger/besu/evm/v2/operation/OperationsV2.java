@@ -114,6 +114,7 @@ import org.hyperledger.besu.evm.operation.SarOperation;
 import org.hyperledger.besu.evm.operation.SarOperationOptimized;
 import org.hyperledger.besu.evm.operation.SelfBalanceOperation;
 import org.hyperledger.besu.evm.operation.SelfDestructOperation;
+import org.hyperledger.besu.evm.operation.SendAllOperation;
 import org.hyperledger.besu.evm.operation.ShlOperation;
 import org.hyperledger.besu.evm.operation.ShlOperationOptimized;
 import org.hyperledger.besu.evm.operation.ShrOperation;
@@ -308,6 +309,7 @@ public final class OperationsV2 {
       case TxTraceOperation ignored -> new TxTraceOperationV2(gasCalculator);
       case TxDiffOperation ignored -> new TxDiffOperationV2(gasCalculator);
       case EventDataCopyOperation ignored -> new EventDataCopyOperationV2(gasCalculator);
+      case SendAllOperation ignored -> new SendAllOperationV2(gasCalculator);
       // the v1 operation does not expose its settings, so they follow the forks that introduced
       // them
       case SelfDestructOperation ignored ->

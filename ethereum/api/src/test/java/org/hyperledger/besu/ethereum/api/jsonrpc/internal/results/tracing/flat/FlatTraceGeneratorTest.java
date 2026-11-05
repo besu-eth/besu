@@ -26,6 +26,7 @@ import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -232,5 +233,38 @@ public class FlatTraceGeneratorTest {
     Assertions.assertThat(creation.getAction().getInit()).isEqualTo(initCode.toHexString());
     Assertions.assertThat(creation.getResult().get().getCode()).isEqualTo("0x");
     Assertions.assertThat(creation.getResult().get().getOutput()).isNull();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"SELFDESTRUCT", "SENDALL"})
+  public void sweepIsTracedAsSuicide(final String opcodeName) {
+    final Address contract = Address.fromHexString("0x01");
+    final Address beneficiary = Address.fromHexString("0x0b");
+    Mockito.when(transaction.getSender()).thenReturn(Address.ZERO);
+    Mockito.when(transaction.getValue()).thenReturn(Wei.ZERO);
+    Mockito.when(transaction.getTo()).thenReturn(Optional.of(contract));
+    Mockito.when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    final TraceFrame sweep = Mockito.mock(TraceFrame.class);
+    Mockito.when(sweep.getOpcode()).thenReturn(opcodeName);
+    Mockito.when(sweep.getGasRemaining()).thenReturn(10_000L);
+    Mockito.when(sweep.getRecipient()).thenReturn(contract);
+    Mockito.when(sweep.getStack())
+        .thenReturn(Optional.of(new Bytes[] {Bytes32.leftPad(beneficiary.getBytes())}));
+    Mockito.when(sweep.getMaybeRefunds()).thenReturn(Optional.of(Map.of(beneficiary, Wei.of(100))));
+
+    final TransactionTrace transactionTrace =
+        new TransactionTrace(transaction, transactionProcessingResult, List.of(sweep));
+    final List<Trace> traces =
+        FlatTraceGenerator.generateFromTransactionTrace(
+                null, transactionTrace, null, new AtomicInteger())
+            .collect(Collectors.toList());
+
+    Assertions.assertThat(traces).hasSize(2);
+    final FlatTrace suicide = (FlatTrace) traces.get(1);
+    Assertions.assertThat(suicide.getType()).isEqualTo("suicide");
+    Assertions.assertThat(suicide.getAction().getAddress())
+        .isEqualTo(contract.getBytes().toHexString());
+    Assertions.assertThat(suicide.getAction().getRefundAddress()).isEqualTo(beneficiary.toString());
+    Assertions.assertThat(suicide.getAction().getBalance()).isEqualTo("0x64");
   }
 }

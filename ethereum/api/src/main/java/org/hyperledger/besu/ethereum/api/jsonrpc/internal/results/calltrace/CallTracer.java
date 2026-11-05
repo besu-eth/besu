@@ -69,6 +69,8 @@ public class CallTracer implements OperationTracer {
   static final String CREATE = "CREATE";
   static final String CREATE2 = "CREATE2";
   static final String SELFDESTRUCT = "SELFDESTRUCT";
+  // EIP-4758: replaces SELFDESTRUCT at 0xFF from Bogota and never deletes the account
+  static final String SENDALL = "SENDALL";
 
   private static final String EXECUTION_REVERTED = "execution reverted";
   private static final String PRECOMPILE_FAILED = "precompile failed";
@@ -163,7 +165,7 @@ public class CallTracer implements OperationTracer {
     switch (op.getName()) {
       case CALL, CALLCODE, DELEGATECALL, STATICCALL -> capturePendingCall(frame, op);
       case CREATE, CREATE2 -> capturePendingCreate(frame, op);
-      case SELFDESTRUCT -> capturePendingSelfDestruct(frame, op);
+      case SELFDESTRUCT, SENDALL -> capturePendingSelfDestruct(frame, op);
       default -> {}
     }
   }
@@ -186,7 +188,7 @@ public class CallTracer implements OperationTracer {
     switch (op.getName()) {
       case CALL, CALLCODE, DELEGATECALL, STATICCALL, CREATE, CREATE2 ->
           addFailedCallOrCreateLeaf(frame, result, op.getName());
-      case SELFDESTRUCT -> handleSelfDestructPostExecution(frame, result);
+      case SELFDESTRUCT, SENDALL -> handleSelfDestructPostExecution(frame, result);
       default -> {}
     }
   }
@@ -568,7 +570,7 @@ public class CallTracer implements OperationTracer {
     }
     final Address beneficiary = Words.toAddress(TracedStack.item(frame, 0));
     pendingBuilder =
-        CallTracerResult.builder().type(SELFDESTRUCT).to(beneficiary.getBytes().toHexString());
+        CallTracerResult.builder().type(op.getName()).to(beneficiary.getBytes().toHexString());
   }
 
   private static boolean isCreateType(final String type) {

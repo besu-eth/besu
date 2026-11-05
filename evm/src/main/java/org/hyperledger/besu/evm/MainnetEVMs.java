@@ -126,6 +126,7 @@ import org.hyperledger.besu.evm.operation.SarOperation;
 import org.hyperledger.besu.evm.operation.SarOperationOptimized;
 import org.hyperledger.besu.evm.operation.SelfBalanceOperation;
 import org.hyperledger.besu.evm.operation.SelfDestructOperation;
+import org.hyperledger.besu.evm.operation.SendAllOperation;
 import org.hyperledger.besu.evm.operation.ShlOperation;
 import org.hyperledger.besu.evm.operation.ShlOperationOptimized;
 import org.hyperledger.besu.evm.operation.ShrOperation;
@@ -1252,6 +1253,9 @@ public class MainnetEVMs {
     registry.put(new TxTraceOperation(gasCalculator));
     registry.put(new TxDiffOperation(gasCalculator));
     registry.put(new EventDataCopyOperation(gasCalculator));
+
+    // EIP-4758: SENDALL replaces SELFDESTRUCT
+    registry.put(new SendAllOperation(gasCalculator));
   }
 
   /**

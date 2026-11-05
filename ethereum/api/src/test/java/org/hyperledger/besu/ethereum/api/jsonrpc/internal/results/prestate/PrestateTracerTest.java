@@ -40,8 +40,10 @@ import org.hyperledger.besu.evm.operation.BalanceOperation;
 import org.hyperledger.besu.evm.operation.CallOperation;
 import org.hyperledger.besu.evm.operation.Create2Operation;
 import org.hyperledger.besu.evm.operation.CreateOperation;
+import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SLoadOperation;
 import org.hyperledger.besu.evm.operation.SelfDestructOperation;
+import org.hyperledger.besu.evm.operation.SendAllOperation;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -125,8 +127,12 @@ class PrestateTracerTest {
   }
 
   private MessageFrame selfDestructFrame(final Address self, final Address beneficiary) {
+    return sweepFrame(new SelfDestructOperation(null), self, beneficiary);
+  }
+
+  private MessageFrame sweepFrame(
+      final Operation operation, final Address self, final Address beneficiary) {
     final MessageFrame frame = mock(MessageFrame.class);
-    final SelfDestructOperation operation = new SelfDestructOperation(null);
     when(frame.getCurrentOperation()).thenReturn(operation);
     when(frame.getWorldUpdater()).thenReturn(world);
     when(frame.getRecipientAddress()).thenReturn(self);
@@ -291,6 +297,37 @@ class PrestateTracerTest {
     assertThat(diff.post()).doesNotContainKey(CONTRACT_A.toHexString());
     assertThat(diff.pre()).containsKey(CONTRACT_A.toHexString());
     when(evm.getEvmVersion()).thenReturn(EvmSpecVersion.CANCUN);
+  }
+
+  @Test
+  void sendAllKeepsCreatedAccountInPost() {
+    when(evm.getEvmVersion()).thenReturn(EvmSpecVersion.BOGOTA);
+    final PrestateTracer tracer = newTracer(Map.of("diffMode", true));
+    final Account creator = mockAccount(CONTRACT_A, Wei.ZERO, 1, Bytes.EMPTY);
+    when(world.get(CONTRACT_A)).thenReturn(creator);
+    startTransaction(tracer, CONTRACT_A);
+
+    final MessageFrame create = createFrame(CONTRACT_A);
+    when(create.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
+    final Address createdAddress = Address.contractAddress(CONTRACT_A, creator.getNonce());
+    tracer.tracePreExecution(create);
+    tracer.tracePostExecution(create, null);
+
+    final MessageFrame sendAll =
+        sweepFrame(new SendAllOperation(new CancunGasCalculator()), createdAddress, SENDER);
+    when(sendAll.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
+    tracer.tracePreExecution(sendAll);
+    tracer.tracePostExecution(sendAll, null);
+    final Bytes code = Bytes.of(0x60, 0x00);
+    final Account sweptAccount = mockAccount(createdAddress, Wei.ZERO, 1, code);
+    when(world.get(createdAddress)).thenReturn(sweptAccount);
+    endTransaction(tracer);
+
+    final PrestateTracerResult.Diff diff = (PrestateTracerResult.Diff) tracer.buildResult();
+    assertThat(diff.post()).containsKey(createdAddress.toHexString());
+    final PrestateTracerResult.Account post = diff.post().get(createdAddress.toHexString());
+    assertThat(post.nonce()).isEqualTo(1L);
+    assertThat(post.code()).isEqualTo(code.toHexString());
   }
 
   @Test

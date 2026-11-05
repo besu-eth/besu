@@ -168,7 +168,7 @@ public class FlatTraceGenerator {
                 traceFrame,
                 tracesContexts,
                 currentContext);
-      } else if ("SELFDESTRUCT".equals(opcodeString)) {
+      } else if ("SELFDESTRUCT".equals(opcodeString) || "SENDALL".equals(opcodeString)) {
         if (traceFrame.getExceptionalHaltReason().isPresent()) {
           currentContext =
               handleCall(
