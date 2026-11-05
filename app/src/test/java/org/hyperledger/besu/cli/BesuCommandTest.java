@@ -997,6 +997,74 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void snapServerAdvertisedInEnrOnBonsaiFullFlat() {
+    parseCommand("--snapsync-server-enabled");
+
+    verify(mockRunnerBuilder).snapServerEnabled(eq(true));
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void snapServerAdvertisedInEnrOnBonsaiArchive() {
+    parseCommand("--snapsync-server-enabled", "--data-storage-format", "X_BONSAI_ARCHIVE");
+
+    verify(mockRunnerBuilder).snapServerEnabled(eq(true));
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void snapServerNotAdvertisedInEnrWhenDisabled() {
+    parseCommand();
+
+    verify(mockRunnerBuilder).snapServerEnabled(eq(false));
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void snapServerNotAdvertisedInEnrOnBonsaiPartialFlat() {
+    parseCommand("--snapsync-server-enabled", "--Xbonsai-full-flat-db-enabled", "false");
+
+    verify(mockRunnerBuilder).snapServerEnabled(eq(false));
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void snapServerNotAdvertisedInEnrOnForest() {
+    parseCommand(
+        "--snapsync-server-enabled", "--data-storage-format", "FOREST", "--sync-mode", "FULL");
+
+    verify(mockRunnerBuilder).snapServerEnabled(eq(false));
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void snap2AdvertisedInEnrWhenSnapServerAndSnap2SyncEnabled() {
+    parseCommand("--snapsync-server-enabled", "--sync-mode", "SNAP2");
+
+    verify(mockRunnerBuilder).snapServerEnabled(eq(true));
+    verify(mockRunnerBuilder).snap2ServerEnabled(eq(true));
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void snapNotAdvertisedInEnrOnSnap2SyncWithoutSnapServer() {
+    parseCommand("--sync-mode", "SNAP2");
+
+    verify(mockRunnerBuilder).snapServerEnabled(eq(false));
+    verify(mockRunnerBuilder).snap2ServerEnabled(eq(false));
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void snap2NotAdvertisedInEnrWithoutSnap2Sync() {
+    parseCommand("--snapsync-server-enabled");
+
+    verify(mockRunnerBuilder).snapServerEnabled(eq(true));
+    verify(mockRunnerBuilder).snap2ServerEnabled(eq(false));
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void poaDiscoveryRetryBootnodesValueTrueMustBeUsed() {
     parseCommand("--poa-discovery-retry-bootnodes", "true");
 

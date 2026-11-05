@@ -65,6 +65,9 @@ public class NodeRecordManager {
       SignatureAlgorithmFactory.getInstance();
 
   private static final String FORK_ID_ENR_FIELD = "eth";
+  // The value lists the served snap versions; an empty list means snap/1 only (EIP-8189, devp2p
+  // issue 286). DNS discovery lists (devp2p nodeset filter -snap) select snap.* tree members by it.
+  private static final String SNAP_ENR_FIELD = "snap";
 
   private final VariablesStorage variablesStorage;
   private final NodeKey nodeKey;
@@ -75,6 +78,8 @@ public class NodeRecordManager {
   private final Bytes compressedPublicKey;
   private final Supplier<List<Bytes>> forkIdSupplier;
   private final NatService natService;
+  // Empty when the node does not serve snap.
+  private final Optional<List<Bytes>> snapVersions;
 
   private final ReentrantLock lock = new ReentrantLock();
 
@@ -106,6 +111,26 @@ public class NodeRecordManager {
       final NodeKey nodeKey,
       final ForkIdManager forkIdManager,
       final NatService natService) {
+    this(storageProvider, nodeKey, forkIdManager, natService, false, false);
+  }
+
+  /**
+   * Creates a new {@link NodeRecordManager}.
+   *
+   * @param storageProvider provides access to persistent ENR storage
+   * @param nodeKey the local node's cryptographic identity
+   * @param forkIdManager supplies the current fork ID for the chain head
+   * @param natService resolves externally advertised network addresses
+   * @param snapServerEnabled whether to advertise snap serving with the {@code snap} ENR field
+   * @param snap2ServerEnabled whether the snap server also serves snap/2
+   */
+  public NodeRecordManager(
+      final StorageProvider storageProvider,
+      final NodeKey nodeKey,
+      final ForkIdManager forkIdManager,
+      final NatService natService,
+      final boolean snapServerEnabled,
+      final boolean snap2ServerEnabled) {
 
     this.variablesStorage = storageProvider.createVariablesStorage();
     this.nodeKey = nodeKey;
@@ -114,6 +139,11 @@ public class NodeRecordManager {
         SIGNATURE_ALGORITHM.compressPublicKey(SIGNATURE_ALGORITHM.createPublicKey(nodeId));
     this.forkIdSupplier = () -> forkIdManager.getForkIdForChainHead().getForkIdAsBytesList();
     this.natService = natService;
+    this.snapVersions =
+        snapServerEnabled
+            ? Optional.of(
+                snap2ServerEnabled ? List.of(Bytes.of(1), Bytes.of(2)) : Collections.emptyList())
+            : Optional.empty();
   }
 
   /**
@@ -416,6 +446,7 @@ public class NodeRecordManager {
                             : primaryIpv6AddressMatches(
                                 record, ipAddressBytes, discoveryPort, listeningPort))
                         && wrappedForkId.equals(record.get(FORK_ID_ENR_FIELD))
+                        && snapVersions.equals(Optional.ofNullable(record.get(SNAP_ENR_FIELD)))
                         && (!primaryEndpoint.isIpv4() || ipv6FieldsMatch(record, ipv6AddressBytes)))
             // Otherwise, create a new ENR with an incremented sequence number,
             // sign it with the local node key, and persist it to disk.
@@ -493,6 +524,7 @@ public class NodeRecordManager {
             SIGNATURE_ALGORITHM.getCurveName(),
             SIGNATURE_ALGORITHM.compressPublicKey(SIGNATURE_ALGORITHM.createPublicKey(nodeId))));
     fields.add(new EnrField(FORK_ID_ENR_FIELD, Collections.singletonList(forkId)));
+    snapVersions.ifPresent(versions -> fields.add(new EnrField(SNAP_ENR_FIELD, versions)));
 
     if (primaryEndpoint.isIpv4()) {
       fields.add(new EnrField(EnrField.IP_V4, ipAddressBytes));

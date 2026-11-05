@@ -35,6 +35,7 @@
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
 - Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
 - The default JVM options no longer start JFR's in-process event logging, which formatted every recorded event as text. [#11824](https://github.com/besu-eth/besu/pull/11824)
+- With `--snapsync-server-enabled` on Bonsai full flat or archive storage, the local ENR now carries the `snap` entry, so DNS discovery lists that select snap servers can include Besu nodes. The entry lists the served snap versions: `[1, 2]` with `--sync-mode=SNAP2`, otherwise `[]` (snap/1 only), as proposed for EIP-8189 in ethereum/EIPs#12493. [#11565](https://github.com/besu-eth/besu/pull/11565)
 
 ## 26.11.0
 
