@@ -32,6 +32,7 @@
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
+- Upgrade Guava from 33.7.2-jre to 33.8.0-jre, resolving CVE-2026-118042 [#11860](https://github.com/besu-eth/besu/pull/11860)
 - Upgrade opentelemetry from 1.62.0 to 1.67.0, resolving CVE-2026-118259, along with the OpenTelemetry OkHttp instrumentation (2.25.0-alpha to 2.33.1-alpha) and semantic conventions (1.40.0 to 1.44.0) that match it. Plugins that use OpenTelemetry directly should align with these versions. Since 1.67.0, an `SdkTracerProvider` with no span processor creates no spans, so with `OTEL_TRACES_EXPORTER=none` Besu no longer creates spans. [#11859](https://github.com/besu-eth/besu/pull/11859)
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
 - Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
@@ -78,6 +79,7 @@
 - Support Amsterdam hardfork at genesis on Ephemery, aligning with Ephemery iteration 165 and removing dynamic in-cycle BPO offsets. [#11728](https://github.com/besu-eth/besu/pull/11728)
 - `engine_newPayload` replies before it stores a valid block and its trie log. [#11682](https://github.com/besu-eth/besu/pull/11682)
 - Block import preloads and commits only the state a block changes, and builds trie keys without streams. [#11758](https://github.com/besu-eth/besu/pull/11758)
+- New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, including after a round change, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469) [#11817](https://github.com/besu-eth/besu/pull/11817)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
 
