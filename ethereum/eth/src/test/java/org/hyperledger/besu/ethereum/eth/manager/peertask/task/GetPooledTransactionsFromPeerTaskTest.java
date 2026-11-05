@@ -143,7 +143,8 @@ public class GetPooledTransactionsFromPeerTaskTest {
         new TransactionAnnouncement(
             transaction.getHash(),
             transaction.getType(),
-            (long) transaction.getSizeForEth72Announcement());
+            (long) transaction.getSizeForEth72Announcement(),
+            CellMask.FULL);
     final GetPooledTransactionsFromPeerTask task =
         GetPooledTransactionsFromPeerTask.fromAnnouncements(List.of(announcement));
 
