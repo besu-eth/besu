@@ -265,6 +265,59 @@ public class MessageFrame {
   private long undoMark;
 
   /**
+   * Starts the child frame of an EVM v2 CALL, CALLCODE, DELEGATECALL or STATICCALL. Unlike {@link
+   * Builder#build()} it warms no address: the call operation has warmed the contract, and the
+   * sender is the address of the calling frame, which is warm since that frame started.
+   *
+   * @param parent the frame of the call operation
+   * @param initialGas the gas the call passes on
+   * @param recipient the address of the child frame
+   * @param contract the address whose code the child frame runs
+   * @param inputData the call data
+   * @param sender the sender of the call
+   * @param value the value the call transfers
+   * @param apparentValue the value the child frame sees
+   * @param code the code the child frame runs
+   * @param isStatic whether the call is static, besides a static parent
+   * @param completer called when the child frame completes
+   * @return the child frame, on top of the frame stack
+   */
+  public static MessageFrame childCallFrameV2(
+      final MessageFrame parent,
+      final long initialGas,
+      final Address recipient,
+      final Address contract,
+      final Bytes inputData,
+      final Address sender,
+      final Wei value,
+      final Wei apparentValue,
+      final Code code,
+      final boolean isStatic,
+      final Consumer<MessageFrame> completer) {
+    final MessageFrame child =
+        new MessageFrame(
+            true,
+            Type.MESSAGE_CALL,
+            parent.getWorldUpdater().updater(),
+            initialGas,
+            recipient,
+            contract,
+            inputData,
+            sender,
+            value,
+            apparentValue,
+            code,
+            isStatic || parent.isStatic,
+            completer,
+            Map.of(),
+            Optional.empty(),
+            parent.txValues,
+            parent.eip7928AccessList);
+    parent.txValues.messageFrameStack().addFirst(child);
+    return child;
+  }
+
+  /**
    * Builder builder.
    *
    * @return the builder
