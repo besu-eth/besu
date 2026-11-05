@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.frame;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -102,5 +103,77 @@ class MessageFrameTest {
     assertThat(messageFrame.runsOnEvmV2()).isTrue();
     assertThat(StacksV2.take(0, stack.length)).isSameAs(stack);
     assertThat(StacksV2.take(0, stack.length)).isNotSameAs(stack);
+  }
+
+  @Test
+  void childCallFrameV2MatchesTheChildTheBuilderStarts() {
+    final Address caller = Address.fromHexString("0xca11e7");
+    final Address callee = Address.fromHexString("0xca11ee");
+    final Eip7928AccessList accessList = mock(Eip7928AccessList.class);
+    final MessageFrame parent =
+        messageFrameBuilder
+            .enableEvmV2(true)
+            .initialGas(100_000)
+            .address(caller)
+            .contract(caller)
+            .eip7928AccessList(accessList)
+            .build();
+    // as a CALL does before it starts its child
+    parent.warmUpAddress(callee);
+    final Code code = Code.EMPTY_CODE;
+    final Bytes input = Bytes.of(1, 2, 3);
+
+    final MessageFrame fromFactory =
+        MessageFrame.childCallFrameV2(
+            parent, 5_000, callee, callee, input, caller, Wei.ZERO, Wei.ONE, code, true, f -> {});
+    parent.getMessageFrameStack().removeFirst();
+    final MessageFrame fromBuilder =
+        MessageFrame.builder()
+            .enableEvmV2(true)
+            .parentMessageFrame(parent)
+            .type(MessageFrame.Type.MESSAGE_CALL)
+            .initialGas(5_000)
+            .address(callee)
+            .contract(callee)
+            .inputData(input)
+            .sender(caller)
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ONE)
+            .code(code)
+            .isStatic(true)
+            .eip7928AccessList(accessList)
+            .completer(f -> {})
+            .build();
+
+    assertThat(fromFactory)
+        .usingRecursiveComparison()
+        .comparingOnlyFields(
+            "type",
+            "state",
+            "gasRemaining",
+            "recipient",
+            "contract",
+            "inputData",
+            "sender",
+            "value",
+            "apparentValue",
+            "code",
+            "isStatic",
+            "stackDepthV2",
+            "stackMaxSizeV2",
+            "contextVariables",
+            "revertReason")
+        .isEqualTo(fromBuilder);
+    assertThat(fromFactory.getDepth()).isEqualTo(fromBuilder.getDepth()).isEqualTo(1);
+    assertThat(fromFactory.getMessageFrameStack()).isSameAs(fromBuilder.getMessageFrameStack());
+    assertThat(fromFactory.getEip7928AccessList()).containsSame(accessList);
+    assertThat(fromFactory.runsOnEvmV2()).isTrue();
+    // the child changes the world through its own updater, which commits into the parent's
+    fromFactory.getWorldUpdater().createAccount(callee);
+    assertThat(parent.getWorldUpdater().get(callee)).isNull();
+    fromFactory.getWorldUpdater().commit();
+    assertThat(parent.getWorldUpdater().get(callee)).isNotNull();
+    assertThat(fromFactory.isAddressWarm(caller)).isTrue();
+    assertThat(fromFactory.isAddressWarm(callee)).isTrue();
   }
 }
