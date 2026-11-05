@@ -186,28 +186,40 @@ class TraceReplayTransactionTest {
         List.of("trace", "stateDiff", "vmTrace"));
   }
 
-  @ParameterizedTest
-  @MethodSource("selections")
-  void shouldMatchBlockReplayForEveryTransactionAndSelection(final List<String> types) {
+  private JsonNode replayBlock(final List<String> types) {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(1L);
     final DeterministicEthScheduler scheduler = new DeterministicEthScheduler();
     try {
-      final JsonRpcResponse blockResponse =
+      final JsonRpcResponse response =
           new TraceReplayBlockTransactions(schedule, queries, new NoOpMetricsSystem(), scheduler)
               .response(
                   new JsonRpcRequestContext(
                       new JsonRpcRequest(
                           "2.0", "trace_replayBlockTransactions", new Object[] {"0x1", types})));
-      assertThat(blockResponse).isInstanceOf(JsonRpcSuccessResponse.class);
-      final JsonNode envelopes =
-          MAPPER.valueToTree(((JsonRpcSuccessResponse) blockResponse).getResult());
-      assertThat(envelopes).hasSize(3);
-      for (int i = 0; i < 3; i++) {
-        assertThat(replay(i, types)).isEqualTo(envelopes.get(i));
-      }
+      assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+      return MAPPER.valueToTree(((JsonRpcSuccessResponse) response).getResult());
     } finally {
       scheduler.stop();
     }
+  }
+
+  @ParameterizedTest
+  @MethodSource("selections")
+  void shouldMatchBlockReplayForEveryTransactionAndSelection(final List<String> types) {
+    final JsonNode envelopes = replayBlock(types);
+    assertThat(envelopes).hasSize(3);
+    for (int i = 0; i < 3; i++) {
+      assertThat(replay(i, types)).isEqualTo(envelopes.get(i));
+    }
+  }
+
+  @Test
+  void shouldReplayBlockTransactionsAfterSenderLeavesLocalAllowlist() {
+    final List<String> types = List.of("trace", "stateDiff");
+    final JsonNode expected = replayBlock(types);
+    assertThat(expected.findValues("stateDiff")).hasSize(3).allMatch(diff -> !diff.isEmpty());
+    schedule.setPermissionTransactionFilter((transaction, checkLocalPermissions) -> false);
+    assertThat(replayBlock(types)).isEqualTo(expected);
   }
 
   @Test
