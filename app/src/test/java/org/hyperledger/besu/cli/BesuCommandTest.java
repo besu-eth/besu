@@ -97,6 +97,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
@@ -110,9 +111,11 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.json.jackson.DatabindCodec;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.toml.Toml;
 import org.apache.tuweni.toml.TomlParseResult;
@@ -2527,6 +2530,52 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void assertThatDefaultMaxRequestTokenCountIsApplied() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand();
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxTokenCount())
+          .isEqualTo(JsonRpcConfiguration.DEFAULT_MAX_REQUEST_TOKEN_COUNT);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
+  }
+
+  @Test
+  public void assertThatNonPositiveMaxRequestContentLengthDoesNotLimitStrings() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand("--rpc-http-max-request-content-length=-1");
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      verify(mockRunnerBuilder).build();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxStringLength())
+          .isEqualTo(Integer.MAX_VALUE);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
+  }
+
+  @Test
+  public void assertThatMaxRequestTokenCountWorks() {
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      parseCommand("--Xrpc-max-request-token-count=4242");
+      assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+      assertThat(DatabindCodec.mapper().getFactory().streamReadConstraints().getMaxTokenCount())
+          .isEqualTo(4242);
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
+    }
+  }
+
+  @Test
   public void assertThatDiscoveryUdpAndMetricsTcpMaySharePort() {
     parseCommand("--p2p-discovery-port=44444", "--metrics-enabled", "--metrics-port=44444");
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -2826,6 +2875,60 @@ public class BesuCommandTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void kzgTrustedSetupLoadsOnCallingThreadByDefault() throws IOException {
+    final Path genesisFileWithBlobs = createFakeGenesisFile(GENESIS_WITH_DATA_BLOBS_ENABLED);
+    try (MockedStatic<KZGPointEvalPrecompiledContract> kzg =
+        mockStatic(KZGPointEvalPrecompiledContract.class)) {
+      parseCommand("--genesis-file", genesisFileWithBlobs.toString());
+
+      kzg.verify(() -> KZGPointEvalPrecompiledContract.init(false));
+      kzg.verify(() -> KZGPointEvalPrecompiledContract.init(true), never());
+    }
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void kzgTrustedSetupBackgroundLoadIsEnabledAndAwaited()
+      throws IOException, URISyntaxException {
+    final Path testSetupAbsolutePath =
+        Path.of(BesuCommandTest.class.getResource("/trusted_setup.txt").toURI());
+    final Path genesisFileWithBlobs = createFakeGenesisFile(GENESIS_WITH_DATA_BLOBS_ENABLED);
+    try (MockedStatic<KZGPointEvalPrecompiledContract> kzg =
+        mockStatic(KZGPointEvalPrecompiledContract.class)) {
+      parseCommand(
+          "--genesis-file",
+          genesisFileWithBlobs.toString(),
+          "--kzg-trusted-setup",
+          testSetupAbsolutePath.toString(),
+          "--Xkzg-trusted-setup-background-load-enabled",
+          "true");
+
+      kzg.verify(() -> KZGPointEvalPrecompiledContract.init(testSetupAbsolutePath, true));
+      kzg.verify(KZGPointEvalPrecompiledContract::awaitTrustedSetup);
+    }
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void failedKzgTrustedSetupBackgroundLoadFailsStartup(final @TempDir Path dir)
+      throws IOException {
+    final Path invalidSetup = dir.resolve("invalid_trusted_setup.txt");
+    Files.writeString(invalidSetup, "not a trusted setup");
+    final Path genesisFileWithBlobs = createFakeGenesisFile(GENESIS_WITH_DATA_BLOBS_ENABLED);
+    parseCommand(
+        "--genesis-file",
+        genesisFileWithBlobs.toString(),
+        "--kzg-trusted-setup",
+        invalidSetup.toString(),
+        "--Xkzg-trusted-setup-background-load-enabled",
+        "true");
+
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("KZG trusted setup failed to load");
+    verify(mockRunnerBuilder).build();
+    verify(mockRunner, never()).awaitStop();
   }
 
   @Test

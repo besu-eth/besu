@@ -14,12 +14,15 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
+import static org.mockito.Mockito.mock;
+
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.TrieGenerator;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
@@ -145,7 +148,8 @@ public class TaskGenerator {
             RangeManager.MAX_RANGE);
     if (withData) {
       request.setProofValid(true);
-      request.addResponse(null, worldStateProofProvider, slots, new ArrayDeque<>());
+      request.addResponse(
+          mock(SnapRequestContext.class), worldStateProofProvider, slots, new ArrayDeque<>());
     }
 
     if (withNullTaskElement) {
