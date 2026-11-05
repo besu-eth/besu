@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
+import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
@@ -143,7 +144,8 @@ public class GetPooledTransactionsFromPeerTaskTest {
         new TransactionAnnouncement(
             transaction.getHash(),
             transaction.getType(),
-            (long) transaction.getSizeForEth72Announcement());
+            (long) transaction.getSizeForEth72Announcement(),
+            CellMask.FULL);
     final GetPooledTransactionsFromPeerTask task =
         GetPooledTransactionsFromPeerTask.fromAnnouncements(List.of(announcement));
 
@@ -193,7 +195,7 @@ public class GetPooledTransactionsFromPeerTaskTest {
     final Transaction third = GENERATOR.transaction();
     final GetPooledTransactionsFromPeerTask task =
         GetPooledTransactionsFromPeerTask.fromAnnouncements(
-            TransactionAnnouncement.create(List.of(first, second, third)));
+            TransactionAnnouncements.create(List.of(first, second, third)));
 
     Assertions.assertEquals(
         PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD,
@@ -206,7 +208,7 @@ public class GetPooledTransactionsFromPeerTaskTest {
     final Transaction second = GENERATOR.transaction();
     final GetPooledTransactionsFromPeerTask task =
         GetPooledTransactionsFromPeerTask.fromAnnouncements(
-            TransactionAnnouncement.create(List.of(first, second)));
+            TransactionAnnouncements.create(List.of(first, second)));
 
     Assertions.assertEquals(
         PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
@@ -219,7 +221,7 @@ public class GetPooledTransactionsFromPeerTaskTest {
     final Transaction second = GENERATOR.transaction();
     final GetPooledTransactionsFromPeerTask task =
         GetPooledTransactionsFromPeerTask.fromAnnouncements(
-            TransactionAnnouncement.create(List.of(first, second)));
+            TransactionAnnouncements.create(List.of(first, second)));
 
     Assertions.assertEquals(
         PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,

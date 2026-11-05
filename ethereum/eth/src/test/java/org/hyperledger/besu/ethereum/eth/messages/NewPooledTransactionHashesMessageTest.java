@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -45,7 +46,7 @@ public class NewPooledTransactionHashesMessageTest {
     final List<TransactionAnnouncement> pendingAnnouncements =
         msg.pendingTransactionAnnouncements(maxAnnouncementsPerMessage);
     assertThat(pendingAnnouncements)
-        .isEqualTo(transactions.stream().map(TransactionAnnouncement::new).toList());
+        .isEqualTo(transactions.stream().map(TransactionAnnouncements::create).toList());
   }
 
   @Test
