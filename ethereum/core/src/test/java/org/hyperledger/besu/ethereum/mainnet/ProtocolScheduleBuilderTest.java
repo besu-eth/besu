@@ -449,7 +449,7 @@ class ProtocolScheduleBuilderTest {
     // EIP-7906 reads the transaction prestate through the processor's world state while the
     // transaction's writes sit in updaters above it. Only StackedUpdater chains keep that view
     // isolated. JournaledUpdater layers share their accounts, so the transaction diff would come
-    // out empty and POST_TX frames would diverge from the network without an error. The block
+    // out empty and ASSERT frames would diverge from the network without an error. The block
     // access list check in ProtocolSpecBuilder, which Bogota inherits from Amsterdam, is what
     // rules JOURNALED out. Amsterdam is left unscheduled, so the Bogota spec is the one rejected.
     when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(0));

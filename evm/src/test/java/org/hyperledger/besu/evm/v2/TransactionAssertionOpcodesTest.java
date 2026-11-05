@@ -15,13 +15,13 @@
 package org.hyperledger.besu.evm.v2;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.evm.v2.PostTxContexts.DELEGATED;
-import static org.hyperledger.besu.evm.v2.PostTxContexts.DEPLOYED_CODE_HASH;
-import static org.hyperledger.besu.evm.v2.PostTxContexts.MAX_COST;
-import static org.hyperledger.besu.evm.v2.PostTxContexts.NEVER_EXISTED;
-import static org.hyperledger.besu.evm.v2.PostTxContexts.T1;
-import static org.hyperledger.besu.evm.v2.PostTxContexts.T2;
-import static org.hyperledger.besu.evm.v2.PostTxContexts.T3;
+import static org.hyperledger.besu.evm.v2.AssertContexts.DELEGATED;
+import static org.hyperledger.besu.evm.v2.AssertContexts.DEPLOYED_CODE_HASH;
+import static org.hyperledger.besu.evm.v2.AssertContexts.MAX_COST;
+import static org.hyperledger.besu.evm.v2.AssertContexts.NEVER_EXISTED;
+import static org.hyperledger.besu.evm.v2.AssertContexts.T1;
+import static org.hyperledger.besu.evm.v2.AssertContexts.T2;
+import static org.hyperledger.besu.evm.v2.AssertContexts.T3;
 import static org.hyperledger.besu.evm.v2.ProgramRun.CALLEE;
 import static org.hyperledger.besu.evm.v2.ProgramRun.CONTRACT;
 import static org.hyperledger.besu.evm.v2.ProgramRun.SECOND_CALLEE;
@@ -52,7 +52,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * The values, halts and gas of the EIP-7906 assertion operations, on the v1 interpreter and on EVM
- * v2, against {@link PostTxContexts#sampleDiff()}.
+ * v2, against {@link AssertContexts#sampleDiff()}.
  */
 class TransactionAssertionOpcodesTest {
 
@@ -164,7 +164,7 @@ class TransactionAssertionOpcodesTest {
         run(
             configuration,
             txtrace(Bytes.of(param), Bytes.of(index)),
-            PostTxContexts.withDiff(true));
+            AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEmpty();
     assertThat(outcome.stack()).containsExactly(word(expected));
@@ -176,7 +176,7 @@ class TransactionAssertionOpcodesTest {
             configuration,
             Bytes.concatenate(
                 Bytes.of(0x7f), Bytes32.ZERO, Bytes.of(0x7f), Bytes32.ZERO, Bytes.of(0x00)),
-            PostTxContexts.withDiff(true));
+            AssertContexts.withDiff(true));
     assertThat(outcome.accesses()).isEqualTo(withoutTxtrace.accesses());
   }
 
@@ -229,7 +229,7 @@ class TransactionAssertionOpcodesTest {
       final Bytes index,
       final String halt) {
     final ProgramRun.Outcome outcome =
-        run(configuration, txtrace(param, index), PostTxContexts.withDiff(true));
+        run(configuration, txtrace(param, index), AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEqualTo(halt);
     assertThat(outcome.remainingGas()).isZero();
@@ -241,8 +241,9 @@ class TransactionAssertionOpcodesTest {
 
   @ParameterizedTest(name = "{0}")
   @MethodSource("evms")
-  void txtraceHaltsOutsideAPostTxFrame(final String evmName, final EvmConfiguration configuration) {
-    final FrameTransactionContext senderFrame = PostTxContexts.withDiff(true);
+  void txtraceHaltsOutsideAnAssertFrame(
+      final String evmName, final EvmConfiguration configuration) {
+    final FrameTransactionContext senderFrame = AssertContexts.withDiff(true);
     senderFrame.setCurrentFrameIndex(1);
     final Bytes code = txtrace(Bytes.of(0x00), Bytes.EMPTY);
 
@@ -257,16 +258,16 @@ class TransactionAssertionOpcodesTest {
   @MethodSource("evms")
   void txtraceReadsAnEmptyDiffAndThePayerContext(
       final String evmName, final EvmConfiguration configuration) {
-    final FrameTransactionContext empty = PostTxContexts.withEmptyDiff();
+    final FrameTransactionContext empty = AssertContexts.withEmptyDiff();
     assertThat(run(configuration, txtrace(Bytes.of(0x00), Bytes.EMPTY), empty).stack())
         .containsExactly(word(Bytes.EMPTY));
     assertThat(
-            run(configuration, txtrace(Bytes.of(0x03), Bytes.EMPTY), PostTxContexts.withEmptyDiff())
+            run(configuration, txtrace(Bytes.of(0x03), Bytes.EMPTY), AssertContexts.withEmptyDiff())
                 .haltReason())
         .isEqualTo("OUT_OF_BOUNDS");
     // without a payer, GAS_PAYER reads 0
     assertThat(
-            run(configuration, txtrace(Bytes.of(0x15), Bytes.EMPTY), PostTxContexts.withDiff(false))
+            run(configuration, txtrace(Bytes.of(0x15), Bytes.EMPTY), AssertContexts.withDiff(false))
                 .stack())
         .containsExactly(word(Bytes.EMPTY));
     // with nothing installed, the pre-charge still reads and the tables halt
@@ -274,14 +275,14 @@ class TransactionAssertionOpcodesTest {
             run(
                     configuration,
                     txtrace(Bytes.of(0x14), Bytes.EMPTY),
-                    PostTxContexts.withoutDiff(true))
+                    AssertContexts.withoutDiff(true))
                 .stack())
         .containsExactly(word(MAX_COST.toBytes()));
     assertThat(
             run(
                     configuration,
                     txtrace(Bytes.of(0x0C), Bytes.EMPTY),
-                    PostTxContexts.withoutDiff(true))
+                    AssertContexts.withoutDiff(true))
                 .haltReason())
         .isEqualTo("INVALID_OPERATION");
   }
@@ -299,7 +300,7 @@ class TransactionAssertionOpcodesTest {
                 106L,
                 true,
                 SLOTS,
-                PostTxContexts.withDiff(true))
+                AssertContexts.withDiff(true))
             .outcome();
     assertThat(exact.haltReason()).isEmpty();
     assertThat(exact.remainingGas()).isZero();
@@ -311,7 +312,7 @@ class TransactionAssertionOpcodesTest {
                 105L,
                 true,
                 SLOTS,
-                PostTxContexts.withDiff(true))
+                AssertContexts.withDiff(true))
             .outcome();
     assertThat(oneShort.haltReason()).isEqualTo("INSUFFICIENT_GAS");
   }
@@ -332,7 +333,7 @@ class TransactionAssertionOpcodesTest {
   }
 
   static Stream<Arguments> eventDataCopies() {
-    final Bytes data = PostTxContexts.EVENT_DATA;
+    final Bytes data = AssertContexts.EVENT_DATA;
     return Stream.of(
             // name, event, memory offset, data offset, length, expected memory, copy gas
             new Object[] {
@@ -399,7 +400,7 @@ class TransactionAssertionOpcodesTest {
             configuration,
             eventDataCopy(
                 Bytes.of(event), Bytes.of(memOffset), Bytes.of(dataOffset), Bytes.of(length)),
-            PostTxContexts.withDiff(true));
+            AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEmpty();
     assertThat(outcome.memory()).isEqualTo(expectedMemory.toHexString());
@@ -440,7 +441,7 @@ class TransactionAssertionOpcodesTest {
         run(
             configuration,
             eventDataCopy(event, Bytes.EMPTY, dataOffset, length),
-            PostTxContexts.withDiff(true));
+            AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEqualTo("OUT_OF_BOUNDS");
     assertThat(outcome.remainingGas()).isZero();
@@ -454,7 +455,7 @@ class TransactionAssertionOpcodesTest {
         run(
             configuration,
             eventDataCopy(Bytes.EMPTY, Bytes32.ZERO.not(), Bytes.EMPTY, Bytes.EMPTY),
-            PostTxContexts.withDiff(true));
+            AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEmpty();
     assertThat(outcome.memory()).isEqualTo("0x");
@@ -463,15 +464,15 @@ class TransactionAssertionOpcodesTest {
 
   @ParameterizedTest(name = "{0}")
   @MethodSource("evms")
-  void eventDataCopyHaltsOutsideAPostTxFrame(
+  void eventDataCopyHaltsOutsideAnAssertFrame(
       final String evmName, final EvmConfiguration configuration) {
-    final FrameTransactionContext senderFrame = PostTxContexts.withDiff(true);
+    final FrameTransactionContext senderFrame = AssertContexts.withDiff(true);
     senderFrame.setCurrentFrameIndex(1);
     final Bytes code = eventDataCopy(Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY, Bytes.of(1));
 
     assertThat(run(configuration, code, senderFrame).haltReason()).isEqualTo("INVALID_OPERATION");
     assertThat(run(configuration, code, null).haltReason()).isEqualTo("INVALID_OPERATION");
-    assertThat(run(configuration, code, PostTxContexts.withoutDiff(true)).haltReason())
+    assertThat(run(configuration, code, AssertContexts.withoutDiff(true)).haltReason())
         .isEqualTo("INVALID_OPERATION");
   }
 
@@ -519,7 +520,7 @@ class TransactionAssertionOpcodesTest {
       final EvmConfiguration configuration, final ProgramRun.Outcome outcome) {
     final Set<String> accesses = new TreeSet<>(outcome.accesses());
     accesses.removeAll(
-        run(configuration, Bytes.of(0x00), PostTxContexts.withDiff(true)).accesses());
+        run(configuration, Bytes.of(0x00), AssertContexts.withDiff(true)).accesses());
     return accesses;
   }
 
@@ -820,7 +821,7 @@ class TransactionAssertionOpcodesTest {
       final Bytes expected,
       final long cost) {
     final ProgramRun.Outcome outcome =
-        run(configuration, txdiff(Bytes.of(param), in2, in3), PostTxContexts.withDiff(true));
+        run(configuration, txdiff(Bytes.of(param), in2, in3), AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEmpty();
     assertThat(outcome.stack()).containsExactly(word(expected));
@@ -963,7 +964,7 @@ class TransactionAssertionOpcodesTest {
       final Bytes in3,
       final String halt) {
     final ProgramRun.Outcome outcome =
-        run(configuration, txdiff(param, in2, in3), PostTxContexts.withDiff(true));
+        run(configuration, txdiff(param, in2, in3), AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEqualTo(halt);
     assertThat(outcome.remainingGas()).isZero();
@@ -973,8 +974,8 @@ class TransactionAssertionOpcodesTest {
 
   @ParameterizedTest(name = "{0}")
   @MethodSource("evms")
-  void txdiffHaltsOutsideAPostTxFrame(final String evmName, final EvmConfiguration configuration) {
-    final FrameTransactionContext senderFrame = PostTxContexts.withDiff(true);
+  void txdiffHaltsOutsideAnAssertFrame(final String evmName, final EvmConfiguration configuration) {
+    final FrameTransactionContext senderFrame = AssertContexts.withDiff(true);
     senderFrame.setCurrentFrameIndex(1);
     for (final int param : List.of(0x00, 0x03, 0x06)) {
       final Bytes code = txdiff(Bytes.of(param), NEVER_EXISTED.getBytes(), Bytes.EMPTY);
@@ -986,9 +987,9 @@ class TransactionAssertionOpcodesTest {
       final ProgramRun.Outcome legacy = run(configuration, code, null);
       assertThat(legacy.haltReason()).isEqualTo("INVALID_OPERATION");
       assertThat(legacy.remainingGas()).isZero();
-      // nothing installed, as before the first POST_TX frame: nothing to read
+      // nothing installed, as before the first ASSERT frame: nothing to read
       final ProgramRun.Outcome uninstalled =
-          run(configuration, code, PostTxContexts.withoutDiff(true));
+          run(configuration, code, AssertContexts.withoutDiff(true));
       assertThat(uninstalled.haltReason()).isEqualTo("INVALID_OPERATION");
       assertThat(recordedAccesses(configuration, uninstalled)).isEmpty();
     }
@@ -1016,7 +1017,7 @@ class TransactionAssertionOpcodesTest {
             txdiffCall(Bytes.of(0x0A), NEVER_EXISTED.getBytes(), Bytes.EMPTY),
             Bytes.of(0x00));
 
-    final ProgramRun.Outcome outcome = run(configuration, code, PostTxContexts.withDiff(true));
+    final ProgramRun.Outcome outcome = run(configuration, code, AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEmpty();
     assertThat(txdiffCosts(outcome))
@@ -1040,7 +1041,7 @@ class TransactionAssertionOpcodesTest {
 
     final ProgramRun.Outcome outcome =
         ProgramRun.executeTracedInFrameTransaction(
-                evm(configuration), code, callee, GAS, true, SLOTS, PostTxContexts.withDiff(true))
+                evm(configuration), code, callee, GAS, true, SLOTS, AssertContexts.withDiff(true))
             .outcome();
 
     assertThat(outcome.haltReason()).isEmpty();
@@ -1059,7 +1060,7 @@ class TransactionAssertionOpcodesTest {
                 run(
                     configuration,
                     txdiff(Bytes.of(0x00), NEVER_EXISTED.getBytes(), Bytes.of(7)),
-                    PostTxContexts.withDiff(true))))
+                    AssertContexts.withDiff(true))))
         .containsExactly(slotAccess(NEVER_EXISTED, 7));
     assertThat(
             recordedAccesses(
@@ -1067,7 +1068,7 @@ class TransactionAssertionOpcodesTest {
                 run(
                     configuration,
                     txdiff(Bytes.of(0x01), CALLEE_WITH_HIGH_BITS, Bytes.EMPTY),
-                    PostTxContexts.withDiff(true))))
+                    AssertContexts.withDiff(true))))
         .containsExactly(slotAccess(CALLEE, 0));
     // a balance or code hash lookup records the account
     for (final int param : List.of(0x02, 0x03, 0x04, 0x05)) {
@@ -1077,7 +1078,7 @@ class TransactionAssertionOpcodesTest {
                   run(
                       configuration,
                       txdiff(Bytes.of(param), NEVER_EXISTED.getBytes(), Bytes.EMPTY),
-                      PostTxContexts.withDiff(true))))
+                      AssertContexts.withDiff(true))))
           .containsExactly(NEVER_EXISTED.toHexString());
     }
     // the views read nothing but the diff
@@ -1088,7 +1089,7 @@ class TransactionAssertionOpcodesTest {
                   run(
                       configuration,
                       txdiff(Bytes.of(param), CONTRACT.getBytes(), Bytes.EMPTY),
-                      PostTxContexts.withDiff(true))))
+                      AssertContexts.withDiff(true))))
           .isEmpty();
     }
   }
@@ -1112,7 +1113,7 @@ class TransactionAssertionOpcodesTest {
                   exact,
                   true,
                   SLOTS,
-                  PostTxContexts.withDiff(true))
+                  AssertContexts.withDiff(true))
               .outcome();
       assertThat(enough.haltReason()).isEmpty();
       assertThat(enough.remainingGas()).isZero();
@@ -1126,7 +1127,7 @@ class TransactionAssertionOpcodesTest {
                   exact - 1,
                   true,
                   SLOTS,
-                  PostTxContexts.withDiff(true))
+                  AssertContexts.withDiff(true))
               .outcome();
       assertThat(oneShort.haltReason()).isEqualTo("INSUFFICIENT_GAS");
       assertThat(recordedAccesses(configuration, oneShort)).isEmpty();
@@ -1153,7 +1154,7 @@ class TransactionAssertionOpcodesTest {
                 + "600261c0de5fb7"
                 + "00");
 
-    final ProgramRun.Outcome outcome = run(configuration, code, PostTxContexts.withDiff(true));
+    final ProgramRun.Outcome outcome = run(configuration, code, AssertContexts.withDiff(true));
 
     assertThat(outcome.haltReason()).isEmpty();
     assertThat(outcome.stack())

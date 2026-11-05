@@ -63,7 +63,7 @@ public class TxTraceOperationV2 extends AbstractOperationV2 {
           frame, 2, new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS));
     }
     final FrameTransactionContext context = maybeContext.get();
-    if (!context.isCurrentFramePostTx()) {
+    if (!context.isCurrentFrameAssert()) {
       return haltPopping(
           frame, 2, new OperationResult(cost, ExceptionalHaltReason.INVALID_OPERATION));
     }

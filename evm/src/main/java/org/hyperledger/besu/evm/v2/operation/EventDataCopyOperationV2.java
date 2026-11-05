@@ -63,7 +63,7 @@ public class EventDataCopyOperationV2 extends AbstractOperationV2 {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     final FrameTransactionContext context = maybeContext.get();
-    if (!context.isCurrentFramePostTx()) {
+    if (!context.isCurrentFrameAssert()) {
       return new OperationResult(cost, ExceptionalHaltReason.INVALID_OPERATION);
     }
     final AssertionResult result =

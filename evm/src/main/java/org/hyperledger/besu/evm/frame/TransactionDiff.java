@@ -41,7 +41,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * The state diff of an executing frame transaction, as the EIP-7906 assertion operations observe it
- * from a POST_TX frame.
+ * from an ASSERT frame.
  *
  * <p>The diff compares the transaction prestate (the state before the transaction, which includes
  * the earlier transactions of the block) with the state as of the read. Values the transaction

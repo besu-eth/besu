@@ -201,8 +201,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
   private static ValidationResult<TransactionInvalidReason> validateFrameEncoding(
       final Transaction transaction) {
     for (final var frame : transaction.getFrames().orElseThrow()) {
-      if (frame.mode() < 0
-          || frame.mode() > org.hyperledger.besu.ethereum.core.Frame.MODE_POST_TX) {
+      if (frame.mode() < 0 || frame.mode() > org.hyperledger.besu.ethereum.core.Frame.MODE_ASSERT) {
         return frameInvalid("unknown frame mode " + frame.mode());
       }
       if (frame.flags() < 0 || frame.flags() > 7) {
@@ -255,14 +254,14 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     long totalFrameGas = 0L;
     int expiryFrames = 0;
-    boolean seenPostTx = false;
+    boolean seenAssertFrame = false;
     for (int i = 0; i < frames.size(); i++) {
       final var frame = frames.get(i);
-      // EIP-7906: POST_TX frames form a contiguous trailing suffix of the frames.
-      if (frame.mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_POST_TX) {
-        seenPostTx = true;
-      } else if (seenPostTx) {
-        return frameInvalid("frame " + i + " follows a POST_TX frame");
+      // EIP-7906: ASSERT frames form a contiguous trailing suffix of the frames.
+      if (frame.mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_ASSERT) {
+        seenAssertFrame = true;
+      } else if (seenAssertFrame) {
+        return frameInvalid("frame " + i + " follows an ASSERT frame");
       }
       // The EIP permits a single limit up to 2^64-1, but Besu holds frame gas in a signed long and
       // the execution path subtracts and compares it as one -- MessageFrame.initialGas, the state
@@ -296,8 +295,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
           return frameInvalid("frame " + i + " is a batched VERIFY frame");
         }
         // EIP-7906: an unrolled batch must never skip an assertion.
-        if (frame.mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_POST_TX) {
-          return frameInvalid("POST_TX frame " + i + " carries the atomic batch flag");
+        if (frame.mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_ASSERT) {
+          return frameInvalid("ASSERT frame " + i + " carries the atomic batch flag");
         }
         if (i + 1 >= frames.size()) {
           return frameInvalid("last frame cannot carry the atomic batch flag");
@@ -305,8 +304,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
         if (frames.get(i + 1).mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_VERIFY) {
           return frameInvalid("frame " + (i + 1) + " is a batched VERIFY frame");
         }
-        if (frames.get(i + 1).mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_POST_TX) {
-          return frameInvalid("atomic batch cannot end on POST_TX frame " + (i + 1));
+        if (frames.get(i + 1).mode() == org.hyperledger.besu.ethereum.core.Frame.MODE_ASSERT) {
+          return frameInvalid("atomic batch cannot end on ASSERT frame " + (i + 1));
         }
       }
       final boolean inBatch = frame.isAtomicBatch() || (i > 0 && frames.get(i - 1).isAtomicBatch());

@@ -54,7 +54,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  *       access cost, and record nothing.
  * </ul>
  *
- * <p>It halts exceptionally outside a POST_TX frame, for an undefined parameter, for a non-zero
+ * <p>It halts exceptionally outside an ASSERT frame, for an undefined parameter, for a non-zero
  * {@code in3} where the parameter takes none, and for a view index past the end of its view.
  */
 public class TxDiffOperation extends AbstractOperation {
@@ -129,7 +129,7 @@ public class TxDiffOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     final FrameTransactionContext context = maybeContext.get();
-    if (!context.isCurrentFramePostTx()) {
+    if (!context.isCurrentFrameAssert()) {
       return new OperationResult(cost, ExceptionalHaltReason.INVALID_OPERATION);
     }
     final boolean in3IsZero = in3.isZero();
@@ -194,7 +194,7 @@ public class TxDiffOperation extends AbstractOperation {
 
   /**
    * Reads a slot, balance or code hash before or after the transaction, after the operation charged
-   * its gas and checked that a POST_TX frame executes. Once the reserved operand check passes, the
+   * its gas and checked that an ASSERT frame executes. Once the reserved operand check passes, the
    * read records the slot or the account in the block access list.
    *
    * <p>"Before" is the transaction prestate; "after" is the live state, the execution body's
@@ -246,7 +246,7 @@ public class TxDiffOperation extends AbstractOperation {
 
   /**
    * Reads a per-address or per-topic view of the diff, or an account's change flags, after the
-   * operation charged its gas and checked that a POST_TX frame executes. Views read nothing but the
+   * operation charged its gas and checked that an ASSERT frame executes. Views read nothing but the
    * diff, so they record nothing.
    *
    * @param context the frame transaction context

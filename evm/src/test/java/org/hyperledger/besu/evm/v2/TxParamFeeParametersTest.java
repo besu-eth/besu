@@ -52,7 +52,7 @@ class TxParamFeeParametersTest {
             GAS,
             false,
             List.of(Bytes32.ZERO),
-            PostTxContexts.withoutDiff(true))
+            AssertContexts.withoutDiff(true))
         .outcome();
   }
 
@@ -65,9 +65,9 @@ class TxParamFeeParametersTest {
   void readsThePriorityFeeAndTheFeeBudget(
       final String evmName, final EvmConfiguration configuration) {
     assertThat(txparam(configuration, 0x03).stack())
-        .containsExactly(word(PostTxContexts.MAX_PRIORITY_FEE_PER_GAS.toBytes()));
+        .containsExactly(word(AssertContexts.MAX_PRIORITY_FEE_PER_GAS.toBytes()));
     assertThat(txparam(configuration, 0x04).stack())
-        .containsExactly(word(PostTxContexts.MAX_FEE.toBytes()));
+        .containsExactly(word(AssertContexts.MAX_FEE.toBytes()));
   }
 
   static Stream<Arguments> evmsAndRemovedParameters() {

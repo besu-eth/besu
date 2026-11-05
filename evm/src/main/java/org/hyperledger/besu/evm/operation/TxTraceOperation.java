@@ -37,7 +37,7 @@ import org.apache.tuweni.bytes.Bytes;
  *
  * <p>Stack: {@code param} on top, then {@code in2}. It costs a flat warm access (100) for every
  * parameter, warms nothing and records nothing in the block access list. It halts exceptionally
- * outside a POST_TX frame, for an undefined parameter, for a non-zero {@code in2} where the
+ * outside an ASSERT frame, for an undefined parameter, for a non-zero {@code in2} where the
  * parameter takes none, and for an index past the end of its table.
  */
 public class TxTraceOperation extends AbstractOperation {
@@ -128,7 +128,7 @@ public class TxTraceOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     final FrameTransactionContext context = maybeContext.get();
-    if (!context.isCurrentFramePostTx()) {
+    if (!context.isCurrentFrameAssert()) {
       return new OperationResult(cost, ExceptionalHaltReason.INVALID_OPERATION);
     }
     final AssertionResult result = lookup(context, param, clampedToLong(in2), in2.isZero());
@@ -155,7 +155,7 @@ public class TxTraceOperation extends AbstractOperation {
   }
 
   /**
-   * Reads one TXTRACE value, after the operation charged its gas and checked that a POST_TX frame
+   * Reads one TXTRACE value, after the operation charged its gas and checked that an ASSERT frame
    * executes.
    *
    * @param context the frame transaction context

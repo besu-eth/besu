@@ -25,7 +25,7 @@ import org.apache.tuweni.bytes.Bytes;
  * A single execution frame of an EIP-8141 frame transaction.
  *
  * @param mode the execution mode ({@link #MODE_DEFAULT}, {@link #MODE_VERIFY}, {@link #MODE_SENDER}
- *     or {@link #MODE_POST_TX})
+ *     or {@link #MODE_ASSERT})
  * @param flags the frame flags (bits 0-1 approval scope, bit 2 atomic batch)
  * @param target the destination address, or empty to target the transaction sender
  * @param executionGasLimit the maximum execution gas for the frame
@@ -53,10 +53,10 @@ public record Frame(
 
   /**
    * EIP-7906: execute the frame statically after the execution body to assert the transaction's
-   * outcome. POST_TX frames form a trailing suffix of the frames, and a failing one reverts the
+   * outcome. ASSERT frames form a trailing suffix of the frames, and a failing one reverts the
    * execution body without invalidating the transaction.
    */
-  public static final int MODE_POST_TX = 3;
+  public static final int MODE_ASSERT = 3;
 
   /** Flag bit approving payment ({@code APPROVE_PAYMENT}). */
   public static final int FLAG_APPROVE_PAYMENT = 0x1;

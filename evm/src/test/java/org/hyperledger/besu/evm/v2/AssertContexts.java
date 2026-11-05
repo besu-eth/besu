@@ -40,19 +40,19 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /**
- * Frame transaction contexts whose current frame is an EIP-7906 POST_TX frame: a VERIFY frame
+ * Frame transaction contexts whose current frame is an EIP-7906 ASSERT frame: a VERIFY frame
  * targeting the contract, which may approve both scopes, a SENDER frame sending 3 wei to the
- * callee, and the POST_TX frame targeting the contract, which is the one executing.
+ * callee, and the ASSERT frame targeting the contract, which is the one executing.
  *
  * <p>The installed transaction prestate deliberately differs from the world {@link ProgramRun} runs
  * against, so that "before" and "after" reads can be told apart: the sender held 2,000,000, the
  * contract's slots 1 and 2 held 0 and 5, the callee's slot 0 held 9, {@link #DELEGATED} carries a
  * delegation designator to the callee, and {@link #NEVER_EXISTED} does not exist.
  */
-final class PostTxContexts {
+final class AssertContexts {
 
-  /** The index of the POST_TX frame, the current one. */
-  static final int POST_TX_FRAME = 2;
+  /** The index of the ASSERT frame, the current one. */
+  static final int ASSERT_FRAME = 2;
 
   /** The max priority fee per gas. */
   static final Wei MAX_PRIORITY_FEE_PER_GAS = Wei.of(2);
@@ -85,22 +85,22 @@ final class PostTxContexts {
   /** The code hash the sample diff reports for its deployed contract. */
   static final Hash DEPLOYED_CODE_HASH = Hash.hash(Bytes.of(0x60, 0x00));
 
-  private PostTxContexts() {}
+  private AssertContexts() {}
 
   /**
-   * A POST_TX context with the sample diff installed.
+   * An ASSERT context with the sample diff installed.
    *
    * @param payerSet whether a frame has approved payment, with the sender as the payer
    * @return the context
    */
   static FrameTransactionContext withDiff(final boolean payerSet) {
     final FrameTransactionContext context = withoutDiff(payerSet);
-    context.installTransactionDiff(prestate(), PostTxContexts::sampleDiff);
+    context.installTransactionDiff(prestate(), AssertContexts::sampleDiff);
     return context;
   }
 
   /**
-   * A POST_TX context of a transaction that changed nothing and emitted no event.
+   * An ASSERT context of a transaction that changed nothing and emitted no event.
    *
    * @return the context
    */
@@ -165,8 +165,8 @@ final class PostTxContexts {
   }
 
   /**
-   * A POST_TX context with nothing installed for the assertion operations, as before the
-   * processor's first POST_TX frame.
+   * An ASSERT context with nothing installed for the assertion operations, as before the
+   * processor's first ASSERT frame.
    *
    * @param payerSet whether a frame has approved payment, with the sender as the payer
    * @return the context
@@ -192,7 +192,7 @@ final class PostTxContexts {
                     Wei.of(3),
                     Bytes.of(0x11, 0x22, 0x33)),
                 new FrameInfo(
-                    FrameTransactionContext.MODE_POST_TX,
+                    FrameTransactionContext.MODE_ASSERT,
                     0,
                     CONTRACT,
                     90_000L,
@@ -215,7 +215,7 @@ final class PostTxContexts {
       context.setPayer(SENDER);
       context.approveSender();
     }
-    context.setCurrentFrameIndex(POST_TX_FRAME);
+    context.setCurrentFrameIndex(ASSERT_FRAME);
     return context;
   }
 }

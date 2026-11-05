@@ -30,7 +30,7 @@ import org.jspecify.annotations.Nullable;
  */
 public record AssertionResult(@Nullable Bytes value, @Nullable ExceptionalHaltReason halt) {
 
-  /** The halt of an operand the operation does not define, or of a read outside POST_TX. */
+  /** The halt of an operand the operation does not define, or of a read outside ASSERT. */
   public static final AssertionResult INVALID =
       new AssertionResult(null, ExceptionalHaltReason.INVALID_OPERATION);
 

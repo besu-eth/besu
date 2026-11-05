@@ -34,7 +34,7 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>Stack: {@code eventIndex} on top, then {@code memOffset}, {@code dataOffset} and {@code
  * length}. Unlike CALLDATACOPY, a range reaching past the end of the data is not zero-padded but
  * halts exceptionally, even when the length is zero, as does an event index past the end of the
- * events table, or execution outside a POST_TX frame.
+ * events table, or execution outside an ASSERT frame.
  */
 public class EventDataCopyOperation extends AbstractOperation {
 
@@ -68,7 +68,7 @@ public class EventDataCopyOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     final FrameTransactionContext context = maybeContext.get();
-    if (!context.isCurrentFramePostTx()) {
+    if (!context.isCurrentFrameAssert()) {
       return new OperationResult(cost, ExceptionalHaltReason.INVALID_OPERATION);
     }
     final AssertionResult result = eventData(context, eventIndex, dataOffset, length);
@@ -83,7 +83,7 @@ public class EventDataCopyOperation extends AbstractOperation {
 
   /**
    * Selects the data an EVENTDATACOPY copies from, after the operation charged its gas and checked
-   * that a POST_TX frame executes.
+   * that an ASSERT frame executes.
    *
    * <p>The range check cannot wrap: with clamped operands, an offset of 2^63 or more always lies
    * past the end of the data.

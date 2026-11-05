@@ -51,10 +51,10 @@ public class FrameTransactionContext {
   public static final int MODE_SENDER = 2;
 
   /**
-   * EIP-7906 POST_TX frame mode: assert the transaction's outcome. POST_TX frames execute
-   * statically as a trailing suffix of the frames, and a failing one reverts the execution body.
+   * EIP-7906 ASSERT frame mode: assert the transaction's outcome. ASSERT frames execute statically
+   * as a trailing suffix of the frames, and a failing one reverts the execution body.
    */
-  public static final int MODE_POST_TX = 3;
+  public static final int MODE_ASSERT = 3;
 
   /** Approval scope bit for payment. */
   public static final int APPROVE_PAYMENT = 0x1;
@@ -83,7 +83,7 @@ public class FrameTransactionContext {
   /** Frame receipt status: success. */
   public static final int STATUS_SUCCESS = 1;
 
-  /** Frame receipt status: skipped because an atomic batch or a POST_TX frame failed. */
+  /** Frame receipt status: skipped because an atomic batch or an ASSERT frame failed. */
   public static final int STATUS_SKIPPED = 2;
 
   /** The EIP-8141 ENTRY_POINT caller address of DEFAULT and VERIFY frames. */
@@ -93,7 +93,7 @@ public class FrameTransactionContext {
    * Immutable description of one frame, with the target already resolved against the sender.
    *
    * @param mode the frame mode ({@link #MODE_DEFAULT}, {@link #MODE_VERIFY}, {@link #MODE_SENDER}
-   *     or {@link #MODE_POST_TX})
+   *     or {@link #MODE_ASSERT})
    * @param flags the frame flags
    * @param resolvedTarget the target address, already defaulted to the sender when absent
    * @param executionGasLimit the frame execution gas budget
@@ -149,8 +149,8 @@ public class FrameTransactionContext {
   // reattribution needs the owner so a cross-frame refill reduces the right receipt.
   private final UndoTable<Address, Bytes32, Integer> slotChargeOwners;
 
-  // EIP-7906: what the assertion operations of the POST_TX frames read. Installed once, before the
-  // first POST_TX frame, and not journaled: nothing a POST_TX frame does can change the diff.
+  // EIP-7906: what the assertion operations of the ASSERT frames read. Installed once, before the
+  // first ASSERT frame, and not journaled: nothing an ASSERT frame does can change the diff.
   private WorldView transactionPrestate;
   private Supplier<TransactionDiff> transactionDiff;
 
@@ -333,21 +333,21 @@ public class FrameTransactionContext {
   }
 
   /**
-   * Whether the currently executing frame is an EIP-7906 POST_TX frame. This holds at every call
+   * Whether the currently executing frame is an EIP-7906 ASSERT frame. This holds at every call
    * depth of the frame, and is false once the frame loop has moved past the last frame.
    *
-   * @return true while a POST_TX frame executes
+   * @return true while an ASSERT frame executes
    */
-  public boolean isCurrentFramePostTx() {
+  public boolean isCurrentFrameAssert() {
     return currentFrameIndex >= 0
         && currentFrameIndex < frames.size()
-        && frames.get(currentFrameIndex).mode() == MODE_POST_TX;
+        && frames.get(currentFrameIndex).mode() == MODE_ASSERT;
   }
 
   /**
    * Installs what the EIP-7906 assertion operations read. The processor calls this once, before the
-   * first POST_TX frame runs; the diff cannot change across the POST_TX suffix, so it is computed
-   * on the first read and then reused.
+   * first ASSERT frame runs; the diff cannot change across the ASSERT suffix, so it is computed on
+   * the first read and then reused.
    *
    * @param prestate the transaction prestate, which the TXDIFF lookups read "before" values from
    * @param diff computes the transaction diff
@@ -361,7 +361,7 @@ public class FrameTransactionContext {
   /**
    * The transaction prestate, for the TXDIFF lookups of "before" values.
    *
-   * @return the prestate, or empty when no POST_TX frame has started
+   * @return the prestate, or empty when no ASSERT frame has started
    */
   public Optional<WorldView> transactionPrestate() {
     return Optional.ofNullable(transactionPrestate);
@@ -370,7 +370,7 @@ public class FrameTransactionContext {
   /**
    * The transaction diff, computed on the first call.
    *
-   * @return the diff, or empty when no POST_TX frame has started
+   * @return the diff, or empty when no ASSERT frame has started
    */
   public Optional<TransactionDiff> transactionDiff() {
     return transactionDiff == null ? Optional.empty() : Optional.of(transactionDiff.get());
@@ -425,7 +425,7 @@ public class FrameTransactionContext {
   }
 
   /**
-   * Marks a frame as skipped by a failed atomic batch or a failed POST_TX frame.
+   * Marks a frame as skipped by a failed atomic batch or a failed ASSERT frame.
    *
    * @param frameIndex the frame index
    */

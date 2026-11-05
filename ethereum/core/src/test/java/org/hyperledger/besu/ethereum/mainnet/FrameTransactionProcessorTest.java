@@ -842,7 +842,7 @@ class FrameTransactionProcessorTest {
     setup.commit();
   }
 
-  // EIP-7906 POST_TX frames.
+  // EIP-7906 ASSERT frames.
 
   private static final Address ASSERTION =
       Address.fromHexString("0x5000000000000000000000000000000000000005");
@@ -859,9 +859,9 @@ class FrameTransactionProcessorTest {
     setup.commit();
   }
 
-  private static Frame postTxFrame(final Address target) {
+  private static Frame assertFrame(final Address target) {
     return new Frame(
-        Frame.MODE_POST_TX, 0, Optional.of(target), EXEC_LIMIT, 0L, Wei.ZERO, Bytes.EMPTY);
+        Frame.MODE_ASSERT, 0, Optional.of(target), EXEC_LIMIT, 0L, Wei.ZERO, Bytes.EMPTY);
   }
 
   private static Frame bodyFrame(final int mode, final int flags, final Address target) {
@@ -869,14 +869,14 @@ class FrameTransactionProcessorTest {
         mode, flags, Optional.of(target), EXEC_LIMIT, STATE_LIMIT, Wei.ZERO, Bytes.EMPTY);
   }
 
-  /** The body of the POST_TX tests: a 1000 wei transfer to a new account and a write with a log. */
-  private List<Frame> bodyThen(final Frame... postTx) {
+  /** The body of the ASSERT tests: a 1000 wei transfer to a new account and a write with a log. */
+  private List<Frame> bodyThen(final Frame... assertFrames) {
     deploy(contractAddress, WRITE_AND_LOG_CODE);
     final List<Frame> frames = new java.util.ArrayList<>();
     frames.add(selfVerifyFrame());
     frames.add(senderFrame(recipient, Wei.of(1000)));
     frames.add(bodyFrame(Frame.MODE_SENDER, 0, contractAddress));
-    frames.addAll(List.of(postTx));
+    frames.addAll(List.of(assertFrames));
     return frames;
   }
 
@@ -905,16 +905,16 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void passingPostTxFramesKeepTheBody() {
+  void passingAssertFramesKeepTheBody() {
     deploy(ASSERTION, STOP_CODE);
     final Transaction transaction =
-        signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION), postTxFrame(ASSERTION)));
+        signedFrameTransaction(0, bodyThen(assertFrame(ASSERTION), assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
     assertThat(result.isSuccessful()).isTrue();
     assertThat(statuses(result)).containsExactly(1, 1, 1, 1, 1);
-    // a cold entry, then a warm one: a passing POST_TX frame keeps its warmth for the next
+    // a cold entry, then a warm one: a passing ASSERT frame keeps its warmth for the next
     assertThat(receipt(result, 3).executionGasUsed()).isEqualTo(3000L);
     assertThat(receipt(result, 4).executionGasUsed()).isEqualTo(100L);
     assertThat(receipt(result, 3).stateGasUsed()).isZero();
@@ -927,11 +927,11 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void aRevertingPostTxFrameRevertsTheBodyAndSkipsTheRest() {
+  void aRevertingAssertFrameRevertsTheBodyAndSkipsTheRest() {
     deploy(ASSERTION, REVERTING_CODE);
     deploy(SECOND_ASSERTION, STOP_CODE);
     final Transaction transaction =
-        signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION), postTxFrame(SECOND_ASSERTION)));
+        signedFrameTransaction(0, bodyThen(assertFrame(ASSERTION), assertFrame(SECOND_ASSERTION)));
     final Wei senderBalanceBefore = worldState.get(sender).getBalance();
 
     final TransactionProcessingResult result = process(transaction);
@@ -962,9 +962,9 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void anExceptionalHaltInAPostTxFrameUsesItsWholeBudget() {
+  void anExceptionalHaltInAnAssertFrameUsesItsWholeBudget() {
     deploy(ASSERTION, INVALID_CODE);
-    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -975,14 +975,14 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void anEarlierPassingPostTxFrameKeepsItsReceipt() {
+  void anEarlierPassingAssertFrameKeepsItsReceipt() {
     deploy(ASSERTION, STOP_CODE);
     deploy(SECOND_ASSERTION, REVERTING_CODE);
     final Transaction transaction =
         signedFrameTransaction(
             0,
             bodyThen(
-                postTxFrame(ASSERTION), postTxFrame(SECOND_ASSERTION), postTxFrame(ASSERTION)));
+                assertFrame(ASSERTION), assertFrame(SECOND_ASSERTION), assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -992,10 +992,10 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void aPostTxFrameWithoutAPayerLeavesTheTransactionInvalid() {
+  void anAssertFrameWithoutAPayerLeavesTheTransactionInvalid() {
     deploy(ASSERTION, STOP_CODE);
     final TransactionProcessingResult result =
-        process(signedFrameTransaction(0, List.of(postTxFrame(ASSERTION))));
+        process(signedFrameTransaction(0, List.of(assertFrame(ASSERTION))));
 
     assertThat(result.isInvalid()).isTrue();
     assertThat(result.getValidationResult().getInvalidReason())
@@ -1005,7 +1005,7 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void aFailingPostTxFrameRevertsACommittedBodyBatch() {
+  void aFailingAssertFrameRevertsACommittedBodyBatch() {
     deploy(ASSERTION, REVERTING_CODE);
     deploy(contractAddress, WRITE_AND_LOG_CODE);
     final Transaction transaction =
@@ -1015,7 +1015,7 @@ class FrameTransactionProcessorTest {
                 selfVerifyFrame(),
                 bodyFrame(Frame.MODE_SENDER, Frame.ATOMIC_BATCH_FLAG, contractAddress),
                 senderFrame(recipient, Wei.of(1000)),
-                postTxFrame(ASSERTION)));
+                assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1026,7 +1026,7 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void aPostTxFrameObservesAnUnrolledBodyBatch() {
+  void anAssertFrameObservesAnUnrolledBodyBatch() {
     deploy(secondContractAddress, REVERTING_CODE);
     // reverts unless BALANCE(recipient) == 0
     deploy(
@@ -1047,7 +1047,7 @@ class FrameTransactionProcessorTest {
                     Wei.of(1000),
                     Bytes.EMPTY),
                 bodyFrame(Frame.MODE_DEFAULT, 0, secondContractAddress),
-                postTxFrame(ASSERTION)));
+                assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1058,9 +1058,9 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void aPostTxFrameIsStatic() {
+  void anAssertFrameIsStatic() {
     deploy(ASSERTION, STORE_ONE_CODE);
-    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1072,21 +1072,21 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void approveHaltsInAPostTxFrameEvenWithApprovalFlags() {
-    // a sponsor whose APPROVE(PAYMENT) would pay, targeted by a POST_TX frame allowed to approve
+  void approveHaltsInAnAssertFrameEvenWithApprovalFlags() {
+    // a sponsor whose APPROVE(PAYMENT) would pay, targeted by an ASSERT frame allowed to approve
     final WorldUpdater setup = worldState.updater();
     setup.createAccount(ASSERTION, 0, Wei.of(10).pow(18)).setCode(PAYMASTER_CODE);
     setup.commit();
-    final Frame approvingPostTx =
+    final Frame approvingAssert =
         new Frame(
-            Frame.MODE_POST_TX,
+            Frame.MODE_ASSERT,
             Frame.FLAG_APPROVE_PAYMENT,
             Optional.of(ASSERTION),
             EXEC_LIMIT,
             0L,
             Wei.ZERO,
             Bytes.EMPTY);
-    final Transaction transaction = signedFrameTransaction(0, bodyThen(approvingPostTx));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(approvingAssert));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1097,7 +1097,7 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void approveHaltsInACallFromAPostTxFrame() {
+  void approveHaltsInACallFromAnAssertFrame() {
     deploy(secondContractAddress, PAYMASTER_CODE);
     // CALL(50000, second contract, 0, 0, 0, 0, 0); reverts unless the call failed; STOP
     deploy(
@@ -1106,7 +1106,7 @@ class FrameTransactionProcessorTest {
             "0x5f5f5f5f5f73"
                 + secondContractAddress.getBytes().toUnprefixedHexString()
                 + "61c350f1156025575f5ffd5b00"));
-    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1116,18 +1116,18 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void aPostTxFrameIsCalledFromTheEntryPoint() {
+  void anAssertFrameIsCalledFromTheEntryPoint() {
     // reverts unless CALLER == ORIGIN == 0xaa
     deploy(ASSERTION, Bytes.fromHexString("0x3360aa143260aa1416600f575f5ffd5b00"));
-    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(assertFrame(ASSERTION)));
 
     assertThat(statuses(process(transaction))).containsExactly(1, 1, 1, 1);
   }
 
   @Test
-  void aCodelessPostTxTargetSucceeds() {
+  void aCodelessAssertTargetSucceeds() {
     final Transaction transaction =
-        signedFrameTransaction(0, bodyThen(postTxFrame(secondContractAddress)));
+        signedFrameTransaction(0, bodyThen(assertFrame(secondContractAddress)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1136,14 +1136,14 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void aFailingPostTxFrameRestoresThePrefixStateCharge() {
+  void aFailingAssertFrameRestoresThePrefixStateCharge() {
     // toggles slot 0: sets it to 1 when zero, clears it when set
     deploy(contractAddress, Bytes.fromHexString("0x5f54600114600d5760015f55005b5f5f5500"));
     deploy(ASSERTION, REVERTING_CODE);
     final Frame toggle = bodyFrame(Frame.MODE_DEFAULT, 0, contractAddress);
     final Transaction transaction =
         signedFrameTransaction(
-            0, List.of(toggle, selfVerifyFrame(), toggle, postTxFrame(ASSERTION)));
+            0, List.of(toggle, selfVerifyFrame(), toggle, assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1177,7 +1177,7 @@ class FrameTransactionProcessorTest {
     final Address dead = Address.fromHexString("0xdead");
     final Transaction transaction =
         signedFrameTransaction(
-            0, List.of(selfVerifyFrame(), senderFrame(dead, Wei.ONE), postTxFrame(ASSERTION)));
+            0, List.of(selfVerifyFrame(), senderFrame(dead, Wei.ONE), assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1188,7 +1188,7 @@ class FrameTransactionProcessorTest {
   }
 
   @Test
-  void aPostTxFrameReadsTheTransactionDiff() {
+  void anAssertFrameReadsTheTransactionDiff() {
     deploy(contractAddress, WRITE_AND_LOG_CODE);
     // reverts unless TXTRACE(SLOTS_CHANGED) == 1, TXTRACE(BALANCES_CHANGED) == 2 (the sender's
     // escrow and the recipient), TXTRACE(EVENTS_COUNT) == 2, and TXTRACE(GAS_PAYER) is the sender
@@ -1212,7 +1212,7 @@ class FrameTransactionProcessorTest {
                 selfVerifyFrame(),
                 senderFrame(recipient, Wei.of(1000)),
                 bodyFrame(Frame.MODE_SENDER, 0, contractAddress),
-                postTxFrame(ASSERTION)));
+                assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1223,7 +1223,7 @@ class FrameTransactionProcessorTest {
 
   /**
    * The block access list is built from the transaction updater, so computing the diff, which only
-   * reads, must not change it: a POST_TX frame that reads the diff leaves the same partial view as
+   * reads, must not change it: an ASSERT frame that reads the diff leaves the same partial view as
    * one that does not.
    */
   @Test
@@ -1231,10 +1231,10 @@ class FrameTransactionProcessorTest {
     // TXTRACE(BALANCES_CHANGED, 0); POP; STOP, against code that burns the same 106 gas without
     // reading the diff, so the payer and the coinbase settle the same amounts
     final Optional<PartialBlockAccessView> reading =
-        accessViewWithPostTxCode(Bytes.fromHexString("0x5f5fb65000"));
+        accessViewWithAssertCode(Bytes.fromHexString("0x5f5fb65000"));
     setUp();
     final Optional<PartialBlockAccessView> notReading =
-        accessViewWithPostTxCode(Bytes.fromHexString("0x5f5f5050" + "5f50".repeat(24) + "5b5b00"));
+        accessViewWithAssertCode(Bytes.fromHexString("0x5f5f5050" + "5f50".repeat(24) + "5b5b00"));
 
     assertThat(reading).isPresent();
     assertThat(notReading).isPresent();
@@ -1242,9 +1242,9 @@ class FrameTransactionProcessorTest {
     assertThat(reading.get().toString()).isEqualTo(notReading.get().toString());
   }
 
-  private Optional<PartialBlockAccessView> accessViewWithPostTxCode(final Bytes postTxCode) {
-    deploy(ASSERTION, postTxCode);
-    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+  private Optional<PartialBlockAccessView> accessViewWithAssertCode(final Bytes assertCode) {
+    deploy(ASSERTION, assertCode);
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(assertFrame(ASSERTION)));
     // the tracker reads the transaction updater, a stacked updater as in block processing
     final WorldUpdater transactionUpdater = worldState.updater().updater();
     final TransactionProcessingResult result =
@@ -1304,7 +1304,7 @@ class FrameTransactionProcessorTest {
   }
 
   /**
-   * Block 1792 of bogota-devnet-1 (tx 0x5b3e5507…): its POST_TX frame used 4731 gas on chain, the
+   * Block 1792 of bogota-devnet-1 (tx 0x5b3e5507…): its ASSERT frame used 4731 gas on chain, the
    * cold entry, fifteen TXTRACE reads at 108 each, and 111 for TXDIFF(CODEHASH_BEFORE, 0xdead) with
    * its pushes and POP, 0xdead being warm from the SENDER frame's entry.
    */
@@ -1313,7 +1313,7 @@ class FrameTransactionProcessorTest {
     deploy(ASSERTION, LIVE_PROBE_CODE);
     final Transaction transaction =
         signedFrameTransaction(
-            0, List.of(selfVerifyFrame(), senderFrame(DEAD, Wei.ONE), postTxFrame(ASSERTION)));
+            0, List.of(selfVerifyFrame(), senderFrame(DEAD, Wei.ONE), assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1328,7 +1328,7 @@ class FrameTransactionProcessorTest {
   }
 
   /**
-   * Block 1793 of bogota-devnet-1 (tx 0x1efd4dbb…): the first POST_TX frame runs {@code PUSH1 0;
+   * Block 1793 of bogota-devnet-1 (tx 0x1efd4dbb…): the first ASSERT frame runs {@code PUSH1 0;
    * PUSH1 0; REVERT} for 3006 gas, which reverts the body, so the SENDER frame keeps its status and
    * 3000 gas but loses its log, and the probe after it is skipped.
    */
@@ -1342,8 +1342,8 @@ class FrameTransactionProcessorTest {
             List.of(
                 selfVerifyFrame(),
                 senderFrame(DEAD, Wei.ONE),
-                postTxFrame(SECOND_ASSERTION),
-                postTxFrame(ASSERTION)));
+                assertFrame(SECOND_ASSERTION),
+                assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1363,7 +1363,7 @@ class FrameTransactionProcessorTest {
    * the pre-charge, which TXTRACE(GAS_PRE_CHARGE) reports.
    */
   @Test
-  void aPostTxFrameLooksUpValuesBeforeAndAfterTheBody() {
+  void anAssertFrameLooksUpValuesBeforeAndAfterTheBody() {
     deploy(
         ASSERTION,
         assertingAll(
@@ -1391,7 +1391,7 @@ class FrameTransactionProcessorTest {
                 + "14",
             // the sender's nonce and balance changed
             txdiffOf(0x0a, sender, 0) + "600314"));
-    final Transaction transaction = signedFrameTransaction(0, bodyThen(postTxFrame(ASSERTION)));
+    final Transaction transaction = signedFrameTransaction(0, bodyThen(assertFrame(ASSERTION)));
 
     final TransactionProcessingResult result = process(transaction);
 
@@ -1409,7 +1409,7 @@ class FrameTransactionProcessorTest {
     final Address account = Address.fromHexString("0x8000000000000000000000000000000000000008");
     final Address viewed = Address.fromHexString("0x9000000000000000000000000000000000000009");
     final Optional<PartialBlockAccessView> view =
-        accessViewWithPostTxCode(
+        accessViewWithAssertCode(
             Bytes.fromHexString(
                 "0x"
                     + txdiffOf(0x00, slotOwner, 7)

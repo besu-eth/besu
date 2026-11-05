@@ -72,7 +72,7 @@ public class TxDiffOperationV2 extends AbstractOperationV2 {
           frame, 3, new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS));
     }
     final FrameTransactionContext context = maybeContext.get();
-    if (!context.isCurrentFramePostTx()) {
+    if (!context.isCurrentFrameAssert()) {
       return haltPopping(
           frame, 3, new OperationResult(cost, ExceptionalHaltReason.INVALID_OPERATION));
     }

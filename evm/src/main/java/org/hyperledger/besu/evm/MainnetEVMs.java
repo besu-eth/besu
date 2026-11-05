@@ -1249,7 +1249,7 @@ public class MainnetEVMs {
     registry.put(new SigParamOperation(gasCalculator));
     registry.put(new SigDataCopyOperation(gasCalculator));
 
-    // EIP-7906: transaction assertions, valid only in a POST_TX frame
+    // EIP-7906: transaction assertions, valid only in an ASSERT frame
     registry.put(new TxTraceOperation(gasCalculator));
     registry.put(new TxDiffOperation(gasCalculator));
     registry.put(new EventDataCopyOperation(gasCalculator));

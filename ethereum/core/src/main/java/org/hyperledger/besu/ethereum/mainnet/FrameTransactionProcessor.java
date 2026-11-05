@@ -285,15 +285,15 @@ public class FrameTransactionProcessor {
     long batchMark = 0L;
     int skipUntil = -1; // inclusive index up to which frames are skipped by a failed batch
 
-    // EIP-7906 state. POST_TX frames form a trailing suffix, so the transaction has assertions
+    // EIP-7906 state. ASSERT frames form a trailing suffix, so the transaction has assertions
     // exactly when its last frame is one; every other frame transaction runs as before. Once the
     // validation prefix ends, the execution body runs in its own layer above the transaction
-    // updater, so a failing POST_TX frame can revert it as an atomic batch unroll does.
-    final boolean hasPostTx = frames.get(frames.size() - 1).mode() == Frame.MODE_POST_TX;
+    // updater, so a failing ASSERT frame can revert it as an atomic batch unroll does.
+    final boolean hasAssertFrame = frames.get(frames.size() - 1).mode() == Frame.MODE_ASSERT;
     WorldUpdater bodyUpdater = null;
     long bodyMark = 0L;
     int bodyStart = -1; // the first frame of the execution body, once the prefix has ended
-    boolean postTxStarted = false;
+    boolean assertStarted = false;
 
     for (int i = 0; i < frames.size(); i++) {
       final Frame frame = frames.get(i);
@@ -308,9 +308,9 @@ public class FrameTransactionProcessor {
         continue;
       }
 
-      // EIP-7906: what the assertions observe is final once the POST_TX suffix starts.
-      if (frame.mode() == Frame.MODE_POST_TX && !postTxStarted) {
-        postTxStarted = true;
+      // EIP-7906: what the assertions observe is final once the ASSERT suffix starts.
+      if (frame.mode() == Frame.MODE_ASSERT && !assertStarted) {
+        assertStarted = true;
         installTransactionDiff(context, worldState, worldUpdater, bodyUpdater, executions, i);
       }
 
@@ -372,8 +372,8 @@ public class FrameTransactionProcessor {
                                   delegated,
                                   Optional.empty())
                               .code()))
-              // EIP-7906: POST_TX frames assert the outcome read-only, as VERIFY frames validate.
-              .isStatic(frame.mode() == Frame.MODE_VERIFY || frame.mode() == Frame.MODE_POST_TX)
+              // EIP-7906: ASSERT frames assert the outcome read-only, as VERIFY frames validate.
+              .isStatic(frame.mode() == Frame.MODE_VERIFY || frame.mode() == Frame.MODE_ASSERT)
               .maxStackSize(maxStackSize)
               .originator(caller)
               .gasPrice(gasPrice)
@@ -486,7 +486,7 @@ public class FrameTransactionProcessor {
       // EIP-7906: a failed assertion reverts the execution body, whatever batches it held, and
       // skips the remaining frames. The transaction stays valid, and the payer still pays the
       // execution gas of every frame that ran.
-      if (frame.mode() == Frame.MODE_POST_TX && execution.status == FrameReceipt.STATUS_FAILURE) {
+      if (frame.mode() == Frame.MODE_ASSERT && execution.status == FrameReceipt.STATUS_FAILURE) {
         if (bodyUpdater != null) {
           // Rolls back refunds, self-destructs, creations, warmth, transient storage, the
           // approval context and the state gas of every receipt to the end of the prefix.
@@ -540,14 +540,14 @@ public class FrameTransactionProcessor {
 
       // EIP-7906: the validation prefix ends with the first frame that leaves the payer set.
       // Approval scope is banned on batched frames, so no batch is open here.
-      if (hasPostTx && bodyStart < 0 && context.payer() != null) {
+      if (hasAssertFrame && bodyStart < 0 && context.payer() != null) {
         bodyUpdater = worldUpdater.updater();
         bodyMark = txValues.transientStorage().mark();
         bodyStart = i + 1;
       }
     }
 
-    // Every POST_TX frame held: the body is part of the outcome. Committed before anything else
+    // Every ASSERT frame held: the body is part of the outcome. Committed before anything else
     // writes the transaction updater.
     if (bodyUpdater != null) {
       bodyUpdater.commit();
@@ -642,10 +642,10 @@ public class FrameTransactionProcessor {
   }
 
   /**
-   * Installs what the EIP-7906 assertion operations read, at the first POST_TX frame: the
+   * Installs what the EIP-7906 assertion operations read, at the first ASSERT frame: the
    * transaction prestate, and the diff of the writes in the transaction updater and the body layer
    * against it, with the logs of the frames completed so far. The diff is computed on its first
-   * read. It cannot change across the POST_TX suffix: POST_TX frames neither write values nor emit
+   * read. It cannot change across the ASSERT suffix: ASSERT frames neither write values nor emit
    * logs, and the loop stops at the first one that fails.
    */
   private static void installTransactionDiff(
@@ -654,9 +654,9 @@ public class FrameTransactionProcessor {
       final WorldUpdater worldUpdater,
       final WorldUpdater bodyUpdater,
       final FrameExecution[] executions,
-      final int firstPostTx) {
+      final int firstAssert) {
     final List<Log> events = new ArrayList<>();
-    for (int j = 0; j < firstPostTx; j++) {
+    for (int j = 0; j < firstAssert; j++) {
       events.addAll(executions[j].logs);
     }
     final List<Log> frozenEvents = List.copyOf(events);

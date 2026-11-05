@@ -1157,12 +1157,12 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
   }
 
   /**
-   * EIP-7906 static validity of POST_TX frames. The messages are asserted verbatim, because the
+   * EIP-7906 static validity of ASSERT frames. The messages are asserted verbatim, because the
    * reference-test exception mapping matches them to {@code TYPE_6_INVALID_FRAME_FORMAT}.
    */
   @ParameterizedTest(name = "{0}")
-  @MethodSource("postTxFrameSets")
-  void shouldValidatePostTxFrames(
+  @MethodSource("assertFrameSets")
+  void shouldValidateAssertFrames(
       final String name, final List<Frame> frames, final String expectedError) {
     final TransactionValidator validator =
         createTransactionValidator(
@@ -1198,44 +1198,47 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     }
   }
 
-  private static Stream<Arguments> postTxFrameSets() {
+  private static Stream<Arguments> assertFrameSets() {
     final Frame verify = modeFrame(Frame.MODE_VERIFY, Frame.APPROVE_SCOPE_MASK, Wei.ZERO);
     final Frame sender = modeFrame(Frame.MODE_SENDER, 0, Wei.ZERO);
     final Frame batchedSender = modeFrame(Frame.MODE_SENDER, Frame.ATOMIC_BATCH_FLAG, Wei.ZERO);
-    final Frame postTx = modeFrame(Frame.MODE_POST_TX, 0, Wei.ZERO);
+    final Frame assertFrame = modeFrame(Frame.MODE_ASSERT, 0, Wei.ZERO);
     return Stream.of(
-        Arguments.of("POST_TX accepted", List.of(verify, sender, postTx), null),
-        Arguments.of("POST_TX suffix accepted", List.of(verify, sender, postTx, postTx), null),
+        Arguments.of("ASSERT accepted", List.of(verify, sender, assertFrame), null),
         Arguments.of(
-            "approval scope on POST_TX accepted",
-            List.of(verify, modeFrame(Frame.MODE_POST_TX, Frame.APPROVE_SCOPE_MASK, Wei.ZERO)),
+            "ASSERT suffix accepted", List.of(verify, sender, assertFrame, assertFrame), null),
+        Arguments.of(
+            "approval scope on ASSERT accepted",
+            List.of(verify, modeFrame(Frame.MODE_ASSERT, Frame.APPROVE_SCOPE_MASK, Wei.ZERO)),
             null),
         Arguments.of(
             "mode 4 undefined", List.of(verify, modeFrame(4, 0, Wei.ZERO)), "unknown frame mode 4"),
         Arguments.of(
-            "SENDER after POST_TX",
-            List.of(verify, postTx, sender),
-            "frame 2 follows a POST_TX frame"),
+            "SENDER after ASSERT",
+            List.of(verify, assertFrame, sender),
+            "frame 2 follows an ASSERT frame"),
         Arguments.of(
-            "DEFAULT after POST_TX",
-            List.of(verify, postTx, modeFrame(Frame.MODE_DEFAULT, 0, Wei.ZERO)),
-            "frame 2 follows a POST_TX frame"),
+            "DEFAULT after ASSERT",
+            List.of(verify, assertFrame, modeFrame(Frame.MODE_DEFAULT, 0, Wei.ZERO)),
+            "frame 2 follows an ASSERT frame"),
         Arguments.of(
-            "VERIFY after POST_TX",
-            List.of(verify, sender, postTx, verify),
-            "frame 3 follows a POST_TX frame"),
+            "VERIFY after ASSERT",
+            List.of(verify, sender, assertFrame, verify),
+            "frame 3 follows an ASSERT frame"),
         Arguments.of(
-            "batched POST_TX",
+            "batched ASSERT",
             List.of(
-                verify, modeFrame(Frame.MODE_POST_TX, Frame.ATOMIC_BATCH_FLAG, Wei.ZERO), postTx),
-            "POST_TX frame 1 carries the atomic batch flag"),
+                verify,
+                modeFrame(Frame.MODE_ASSERT, Frame.ATOMIC_BATCH_FLAG, Wei.ZERO),
+                assertFrame),
+            "ASSERT frame 1 carries the atomic batch flag"),
         Arguments.of(
-            "batch ending on POST_TX",
-            List.of(verify, batchedSender, postTx),
-            "atomic batch cannot end on POST_TX frame 2"),
+            "batch ending on ASSERT",
+            List.of(verify, batchedSender, assertFrame),
+            "atomic batch cannot end on ASSERT frame 2"),
         Arguments.of(
-            "POST_TX with value",
-            List.of(verify, sender, modeFrame(Frame.MODE_POST_TX, 0, Wei.ONE)),
+            "ASSERT with value",
+            List.of(verify, sender, modeFrame(Frame.MODE_ASSERT, 0, Wei.ONE)),
             "frame 2 carries value outside SENDER mode"));
   }
 

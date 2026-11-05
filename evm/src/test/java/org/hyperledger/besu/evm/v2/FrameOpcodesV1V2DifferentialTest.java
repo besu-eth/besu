@@ -75,9 +75,9 @@ class FrameOpcodesV1V2DifferentialTest {
         "contract is the sender, keyed nonces",
         () -> context(CONTRACT, List.of(UInt256.valueOf(5), UInt256.valueOf(7)), 0));
     CONTEXTS.put("second frame", () -> context(SENDER, List.of(), 1));
-    // EIP-7906: APPROVE halts in a POST_TX frame, which FRAMEPARAM reports as mode 3
-    CONTEXTS.put("post-tx frame", () -> PostTxContexts.withoutDiff(true));
-    CONTEXTS.put("post-tx frame, no payer", () -> PostTxContexts.withoutDiff(false));
+    // EIP-7906: APPROVE halts in an ASSERT frame, which FRAMEPARAM reports as mode 3
+    CONTEXTS.put("ASSERT frame", () -> AssertContexts.withoutDiff(true));
+    CONTEXTS.put("ASSERT frame, no payer", () -> AssertContexts.withoutDiff(false));
   }
 
   /** The stacks each opcode runs on, top first. */
@@ -170,26 +170,23 @@ class FrameOpcodesV1V2DifferentialTest {
     assertThat(differences).isEmpty();
   }
 
-  /** POST_TX contexts for the assertion operations, and a run outside any frame transaction. */
-  private static final Map<String, Supplier<FrameTransactionContext>> POST_TX_CONTEXTS =
+  /** ASSERT contexts for the assertion operations, and a run outside any frame transaction. */
+  private static final Map<String, Supplier<FrameTransactionContext>> ASSERT_CONTEXTS =
       new LinkedHashMap<>();
 
   static {
-    POST_TX_CONTEXTS.put("post-tx frame with a diff", () -> PostTxContexts.withDiff(true));
-    POST_TX_CONTEXTS.put(
-        "post-tx frame with a diff, no payer", () -> PostTxContexts.withDiff(false));
-    POST_TX_CONTEXTS.put("post-tx frame with an empty diff", PostTxContexts::withEmptyDiff);
-    POST_TX_CONTEXTS.put(
-        "post-tx frame, nothing installed", () -> PostTxContexts.withoutDiff(true));
-    POST_TX_CONTEXTS.put("no frame transaction", () -> null);
+    ASSERT_CONTEXTS.put("ASSERT frame with a diff", () -> AssertContexts.withDiff(true));
+    ASSERT_CONTEXTS.put("ASSERT frame with a diff, no payer", () -> AssertContexts.withDiff(false));
+    ASSERT_CONTEXTS.put("ASSERT frame with an empty diff", AssertContexts::withEmptyDiff);
+    ASSERT_CONTEXTS.put("ASSERT frame, nothing installed", () -> AssertContexts.withoutDiff(true));
+    ASSERT_CONTEXTS.put("no frame transaction", () -> null);
   }
 
   /**
-   * The EIP-7906 assertion operations, which read the diff only in a POST_TX frame, with the stacks
+   * The EIP-7906 assertion operations, which read the diff only in an ASSERT frame, with the stacks
    * each runs on there, top first.
    */
-  private static final Map<Integer, Map<String, List<Bytes>>> POST_TX_STACKS =
-      new LinkedHashMap<>();
+  private static final Map<Integer, Map<String, List<Bytes>>> ASSERT_STACKS = new LinkedHashMap<>();
 
   static {
     final Map<String, List<Bytes>> txtrace = new LinkedHashMap<>();
@@ -211,7 +208,7 @@ class FrameOpcodesV1V2DifferentialTest {
             List.of(param, index));
       }
     }
-    POST_TX_STACKS.put(0xb6, txtrace);
+    ASSERT_STACKS.put(0xb6, txtrace);
 
     // event index on top, then memory offset, data offset and length; the first sample event has
     // 40 bytes of data, the second none
@@ -244,7 +241,7 @@ class FrameOpcodesV1V2DifferentialTest {
     eventDataCopy.put("event 2^64", List.of(TWO_TO_THE_64, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
     eventDataCopy.put(
         "event 2^255", List.of(TWO_TO_THE_255, Bytes.EMPTY, Bytes.EMPTY, Bytes.EMPTY));
-    POST_TX_STACKS.put(0xb8, eventDataCopy);
+    ASSERT_STACKS.put(0xb8, eventDataCopy);
 
     // param on top, then in2 (an address or a topic) and in3 (a slot key, an index or zero); every
     // lookup runs twice, so that the second shows what the first warmed
@@ -262,12 +259,12 @@ class FrameOpcodesV1V2DifferentialTest {
     keys.put("contract (warm)", CONTRACT.getBytes());
     keys.put("sender (cold)", SENDER.getBytes());
     keys.put("precompile", Bytes.of(1));
-    keys.put("delegated", PostTxContexts.DELEGATED.getBytes());
-    keys.put("never existed", PostTxContexts.NEVER_EXISTED.getBytes());
+    keys.put("delegated", AssertContexts.DELEGATED.getBytes());
+    keys.put("never existed", AssertContexts.NEVER_EXISTED.getBytes());
     keys.put(
         "callee with high bits",
         Bytes.concatenate(Bytes.repeat((byte) 0xff, 12), CALLEE.getBytes()));
-    keys.put("topic T3", PostTxContexts.T3);
+    keys.put("topic T3", AssertContexts.T3);
     final List<Bytes> in3s = List.of(Bytes.EMPTY, Bytes.of(1), Bytes.of(2), TWO_TO_THE_255);
     for (final Bytes param : diffParams) {
       for (final Map.Entry<String, Bytes> key : keys.entrySet()) {
@@ -280,10 +277,10 @@ class FrameOpcodesV1V2DifferentialTest {
         }
       }
     }
-    POST_TX_STACKS.put(0xb7, txdiff);
+    ASSERT_STACKS.put(0xb7, txdiff);
   }
 
-  private static final List<Long> POST_TX_GAS =
+  private static final List<Long> ASSERT_GAS =
       List.of(
           0L,
           1L,
@@ -301,26 +298,26 @@ class FrameOpcodesV1V2DifferentialTest {
           1_000_000L);
 
   /**
-   * EIP-7906: the assertion operations end in the same state on v1 and v2, in POST_TX frames with
+   * EIP-7906: the assertion operations end in the same state on v1 and v2, in ASSERT frames with
    * and without a diff, and outside frame transactions, at every gas budget around their cost, and
-   * when a POST_TX frame reaches them through a STATICCALL.
+   * when an ASSERT frame reaches them through a STATICCALL.
    */
   @Test
-  void postTxOpcodesEndInTheSameStateOnV1AndV2() {
+  void assertOpcodesEndInTheSameStateOnV1AndV2() {
     final EVM v1 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V1);
     final EVM v2 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V2);
     final List<String> differences = new ArrayList<>();
     int runs = 0;
-    for (final Map.Entry<Integer, Map<String, List<Bytes>>> stacks : POST_TX_STACKS.entrySet()) {
+    for (final Map.Entry<Integer, Map<String, List<Bytes>>> stacks : ASSERT_STACKS.entrySet()) {
       final int opcode = stacks.getKey();
       for (final Map.Entry<String, List<Bytes>> stack : stacks.getValue().entrySet()) {
         final Bytes pushes = push(stack.getValue());
         for (final Map.Entry<String, Supplier<FrameTransactionContext>> context :
-            POST_TX_CONTEXTS.entrySet()) {
+            ASSERT_CONTEXTS.entrySet()) {
           final long beforeOpcode =
-              1_000_000L - postTxRun(v1, pushes, Bytes.EMPTY, 1_000_000L, context).remainingGas();
+              1_000_000L - assertRun(v1, pushes, Bytes.EMPTY, 1_000_000L, context).remainingGas();
           final List<Long> budgets = new ArrayList<>();
-          for (final long gas : POST_TX_GAS) {
+          for (final long gas : ASSERT_GAS) {
             budgets.add(Math.min(1_000_000L, beforeOpcode + gas));
           }
           final Bytes direct =
@@ -336,8 +333,8 @@ class FrameOpcodesV1V2DifferentialTest {
               }
               final Bytes code = viaCall ? nested : direct;
               final Bytes calleeCode = viaCall ? direct : Bytes.EMPTY;
-              final String onV1 = postTxRun(v1, code, calleeCode, limit, context).toString();
-              final String onV2 = postTxRun(v2, code, calleeCode, limit, context).toString();
+              final String onV1 = assertRun(v1, code, calleeCode, limit, context).toString();
+              final String onV2 = assertRun(v2, code, calleeCode, limit, context).toString();
               runs++;
               if (!onV2.equals(onV1)) {
                 differences.add(
@@ -361,7 +358,7 @@ class FrameOpcodesV1V2DifferentialTest {
     assertThat(differences).isEmpty();
   }
 
-  private static ProgramRun.Outcome postTxRun(
+  private static ProgramRun.Outcome assertRun(
       final EVM evm,
       final Bytes code,
       final Bytes calleeCode,
@@ -377,11 +374,11 @@ class FrameOpcodesV1V2DifferentialTest {
   }
 
   /**
-   * EIP-7906: APPROVE halts exceptionally anywhere in a POST_TX frame, before the checks that would
+   * EIP-7906: APPROVE halts exceptionally anywhere in an ASSERT frame, before the checks that would
    * revert it: the scope beyond the mask and, in a nested call, the target mismatch.
    */
   @Test
-  void approveHaltsInAPostTxFrameOnV1AndV2() {
+  void approveHaltsInAnAssertFrameOnV1AndV2() {
     final EVM v1 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V1);
     final EVM v2 = MainnetEVMs.bogota(new AmsterdamGasCalculator(), BigInteger.ONE, ProgramRun.V2);
     for (final int scope : List.of(1, 2, 3, 4)) {
@@ -390,7 +387,7 @@ class FrameOpcodesV1V2DifferentialTest {
       for (final EVM evm : List.of(v1, v2)) {
         final Execution direct =
             ProgramRun.executeTracedInFrameTransaction(
-                evm, approve, Bytes.EMPTY, 100_000L, true, SLOTS, PostTxContexts.withoutDiff(true));
+                evm, approve, Bytes.EMPTY, 100_000L, true, SLOTS, AssertContexts.withoutDiff(true));
         assertThat(direct.outcome().haltReason()).isEqualTo("ILLEGAL_STATE_CHANGE");
         assertThat(direct.outcome().remainingGas()).isZero();
 
@@ -399,7 +396,7 @@ class FrameOpcodesV1V2DifferentialTest {
             Bytes.fromHexString("0x600060006000600060006" + "2ca11ee" + "620186a0f100");
         final Execution nested =
             ProgramRun.executeTracedInFrameTransaction(
-                evm, call, approve, 200_000L, true, SLOTS, PostTxContexts.withoutDiff(true));
+                evm, call, approve, 200_000L, true, SLOTS, AssertContexts.withoutDiff(true));
         assertThat(nested.outcome().haltReason()).isEmpty();
         assertThat(nested.outcome().stack()).containsExactly("00".repeat(32));
         assertThat(nested.outcome().steps())
@@ -416,7 +413,7 @@ class FrameOpcodesV1V2DifferentialTest {
                       100_000L,
                       true,
                       SLOTS,
-                      PostTxContexts.withoutDiff(true))))
+                      AssertContexts.withoutDiff(true))))
           .isEqualTo(
               describe(
                   ProgramRun.executeTracedInFrameTransaction(
@@ -426,7 +423,7 @@ class FrameOpcodesV1V2DifferentialTest {
                       100_000L,
                       true,
                       SLOTS,
-                      PostTxContexts.withoutDiff(true))));
+                      AssertContexts.withoutDiff(true))));
     }
   }
 
