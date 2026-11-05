@@ -17,13 +17,13 @@ package org.hyperledger.besu.ethereum.core.encoding;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_PROTECTED_V_BASE;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_PROTECTED_V_MIN;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_UNPROTECTED_V_BASE;
-import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_UNPROTECTED_V_BASE_PLUS_1;
 import static org.hyperledger.besu.ethereum.core.Transaction.TWO;
 
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -33,13 +33,16 @@ import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public class FrontierTransactionDecoder {
   private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
       SignatureAlgorithmFactory.getInstance();
+  private static final long REPLAY_UNPROTECTED_V_BASE_LONG =
+      REPLAY_UNPROTECTED_V_BASE.longValueExact();
+  private static final long REPLAY_PROTECTED_V_BASE_LONG = REPLAY_PROTECTED_V_BASE.longValueExact();
+  private static final long REPLAY_PROTECTED_V_MIN_LONG = REPLAY_PROTECTED_V_MIN.longValueExact();
 
   public static Transaction decode(final Bytes input) {
     return decode(RLP.input(input));
@@ -62,23 +65,33 @@ public class FrontierTransactionDecoder {
             .sizeForAnnouncement(size)
             .hash(Hash.hash(transactionRlp.raw()));
 
-    // Bound the width of v so an unbounded, attacker-chosen v cannot carry its full width into
-    // chainId = (v-35)/2, which later renders via superlinear BigInteger.toString() in error/log
-    // messages; reject an oversized v at the RLP layer before that work can happen. The bound is 33
-    // bytes, not 32: EIP-155 encodes v = 2*chainId + 35 + recId, so a near-256-bit chainId (which
-    // is
-    // valid; cf. the chainId < 2^256 rule for EIP-7702) yields a v that needs one byte more than
-    // r/s.
-    final BigInteger v = transactionRlp.readBigIntegerScalar(33);
+    final ChainId chainId;
     final byte recId;
-    Optional<BigInteger> chainId = Optional.empty();
-    if (v.equals(REPLAY_UNPROTECTED_V_BASE) || v.equals(REPLAY_UNPROTECTED_V_BASE_PLUS_1)) {
-      recId = v.subtract(REPLAY_UNPROTECTED_V_BASE).byteValueExact();
-    } else if (v.compareTo(REPLAY_PROTECTED_V_MIN) > 0) {
-      chainId = Optional.of(v.subtract(REPLAY_PROTECTED_V_BASE).divide(TWO));
-      recId = v.subtract(TWO.multiply(chainId.get()).add(REPLAY_PROTECTED_V_BASE)).byteValueExact();
+    if (transactionRlp.nextSize() < Long.BYTES) {
+      // fast path, that covers the v of every chain id up to 2^55, avoiding BigInteger arithmetic
+      final long v = transactionRlp.readLongScalar();
+      if (v == REPLAY_UNPROTECTED_V_BASE_LONG || v == REPLAY_UNPROTECTED_V_BASE_LONG + 1) {
+        chainId = ChainId.absent();
+        recId = (byte) (v - REPLAY_UNPROTECTED_V_BASE_LONG);
+      } else if (v > REPLAY_PROTECTED_V_MIN_LONG) {
+        chainId = ChainId.of((v - REPLAY_PROTECTED_V_BASE_LONG) / 2);
+        recId = (byte) ((v - REPLAY_PROTECTED_V_BASE_LONG) % 2);
+      } else {
+        throw new RLPException(
+            String.format("An unsupported encoded `v` value of %s was found", v));
+      }
     } else {
-      throw new RLPException(String.format("An unsupported encoded `v` value of %s was found", v));
+      // Bound the width of v so an unbounded, attacker-chosen v cannot carry its full width into
+      // chainId = (v-35)/2, which later renders via superlinear BigInteger.toString() in error/log
+      // messages; reject an oversized v at the RLP layer before that work can happen. The bound is
+      // 33 bytes, not 32: EIP-155 encodes v = 2*chainId + 35 + recId, so a near-256-bit chainId
+      // (which is valid; cf. the chainId < 2^256 rule for EIP-7702) yields a v that needs one byte
+      // more than r/s.
+      final BigInteger v = transactionRlp.readBigIntegerScalar(33);
+      // v has at least 8 bytes here, so it is always above REPLAY_PROTECTED_V_MIN
+      final BigInteger chainIdValue = v.subtract(REPLAY_PROTECTED_V_BASE).divide(TWO);
+      chainId = ChainId.of(chainIdValue);
+      recId = v.subtract(TWO.multiply(chainIdValue).add(REPLAY_PROTECTED_V_BASE)).byteValueExact();
     }
     final BigInteger r = transactionRlp.readUInt256Scalar().toUnsignedBigInteger();
     final BigInteger s = transactionRlp.readUInt256Scalar().toUnsignedBigInteger();
@@ -86,7 +99,7 @@ public class FrontierTransactionDecoder {
 
     transactionRlp.leaveList();
 
-    chainId.ifPresent(builder::chainId);
+    builder.chainId(chainId);
     return builder.signature(signature).build();
   }
 }

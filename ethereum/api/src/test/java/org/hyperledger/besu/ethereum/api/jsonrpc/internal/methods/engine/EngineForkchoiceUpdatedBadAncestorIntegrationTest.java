@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -114,7 +115,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
 
     final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
 
-    when(protocolSchedule.getChainId()).thenReturn(Optional.empty());
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.absent());
     when(protocolSchedule.milestoneFor(CANCUN)).thenReturn(Optional.empty());
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
 

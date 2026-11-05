@@ -28,6 +28,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -46,7 +47,7 @@ import org.junit.jupiter.api.Test;
 
 public class DefaultProtocolScheduleTest {
 
-  private static final Optional<BigInteger> CHAIN_ID = Optional.of(BigInteger.ONE);
+  private static final ChainId CHAIN_ID = ChainId.of(1);
   private static final BigInteger DEFAULT_CHAIN_ID = BigInteger.ONE;
   private static final EvmConfiguration evmConfiguration = EvmConfiguration.DEFAULT;
   private ProtocolScheduleBuilder builder;

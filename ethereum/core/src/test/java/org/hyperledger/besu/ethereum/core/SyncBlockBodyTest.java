@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
@@ -37,7 +38,6 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 
-import java.math.BigInteger;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -51,7 +51,7 @@ import org.junit.jupiter.api.Test;
 
 public class SyncBlockBodyTest {
 
-  private static final Optional<BigInteger> CHAIN_ID = Optional.of(BigInteger.ONE);
+  private static final ChainId CHAIN_ID = ChainId.of(1);
   public static final DefaultProtocolSchedule DEFAULT_PROTOCOL_SCHEDULE =
       new DefaultProtocolSchedule(CHAIN_ID);
 

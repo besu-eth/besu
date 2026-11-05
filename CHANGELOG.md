@@ -36,6 +36,7 @@
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
 - Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
 - The default JVM options no longer start JFR's in-process event logging, which formatted every recorded event as text. [#11824](https://github.com/besu-eth/besu/pull/11824)
+- The chain id is represented by the new `ChainId` value object, that shares one instance for the chain id of the running network, so a pooled transaction uses 80 bytes and 3 objects less, plus 3 objects less for each EIP-7702 authorization, and a legacy transaction is decoded about 10% faster. Plugins can read it with the new `getChainIdentifier()` methods of `Transaction`, `CallParameter` and `BlockchainService` and `chainIdentifier()` of `CodeDelegation`; the methods returning `Optional<BigInteger>` are unchanged.
 
 ## 26.11.0
 

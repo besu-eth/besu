@@ -35,6 +35,16 @@ public interface CodeDelegation {
   BigInteger chainId();
 
   /**
+   * Return the chain id as a {@link ChainId}, that is zero if the authorization is valid on any
+   * chain.
+   *
+   * @return chain id
+   */
+  default ChainId chainIdentifier() {
+    return ChainId.of(chainId());
+  }
+
+  /**
    * Return the address of the account which code will be used.
    *
    * @return address

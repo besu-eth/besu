@@ -18,6 +18,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
@@ -70,7 +71,7 @@ public class BlobTransactionDecoder {
     input.enterList();
     builder
         .type(TransactionType.BLOB)
-        .chainId(input.readBigIntegerScalar())
+        .chainId(ChainId.readFrom(input))
         .nonce(input.readLongScalar())
         .maxPriorityFeePerGas(Wei.of(input.readUInt256Scalar()))
         .maxFeePerGas(Wei.of(input.readUInt256Scalar()))

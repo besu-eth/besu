@@ -22,6 +22,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -95,8 +96,7 @@ class MainnetTransactionProcessorTest {
         .feeMarket(FeeMarket.legacy())
         .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.frontier())
         .codeDelegationProcessor(
-            new CodeDelegationProcessor(
-                Optional.of(BigInteger.ONE), BigInteger.TEN, new CodeDelegationService()))
+            new CodeDelegationProcessor(ChainId.of(1), BigInteger.TEN, new CodeDelegationService()))
         .build();
   }
 

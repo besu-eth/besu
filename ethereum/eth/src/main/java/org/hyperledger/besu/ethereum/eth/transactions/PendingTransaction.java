@@ -26,7 +26,6 @@ import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.KZG_PROOF_CONTAINER_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.KZG_PROOF_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_ACCESS_LIST_SHALLOW_SIZE;
-import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_CHAIN_ID_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_TO_SIZE;
@@ -167,15 +166,13 @@ public abstract class PendingTransaction
   private int computeFrontierMemorySize() {
     return FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE
         + computePayloadMemorySize()
-        + computeToMemorySize()
-        + computeChainIdMemorySize();
+        + computeToMemorySize();
   }
 
   private int computeAccessListMemorySize() {
     return FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE
         + computePayloadMemorySize()
         + computeToMemorySize()
-        + computeChainIdMemorySize()
         + computeAccessListEntriesMemorySize();
   }
 
@@ -183,7 +180,6 @@ public abstract class PendingTransaction
     return EIP1559_AND_EIP4844_SHALLOW_SIZE
         + computePayloadMemorySize()
         + computeToMemorySize()
-        + computeChainIdMemorySize()
         + computeAccessListEntriesMemorySize();
   }
 
@@ -226,13 +222,6 @@ public abstract class PendingTransaction
   private int computeToMemorySize() {
     if (transaction.getTo().isPresent()) {
       return OPTIONAL_TO_SIZE;
-    }
-    return 0;
-  }
-
-  private int computeChainIdMemorySize() {
-    if (transaction.getChainId().isPresent()) {
-      return OPTIONAL_CHAIN_ID_SIZE;
     }
     return 0;
   }
@@ -438,18 +427,21 @@ public abstract class PendingTransaction
    * The memory size of an object is calculated using the PendingTransactionEstimatedMemorySizeTest
    * look there for the details of the calculation and to adapt the code when any of the related
    * class changes its structure.
+   *
+   * <p>The chain id of transactions and code delegations is not counted, since it is always the
+   * instance shared by all the chain ids of the running network, see {@link
+   * org.hyperledger.besu.datatypes.ChainId}.
    */
   public interface MemorySize {
     int FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE = 904;
     int EIP1559_AND_EIP4844_SHALLOW_SIZE = 1016;
     int OPTIONAL_TO_SIZE = 104;
-    int OPTIONAL_CHAIN_ID_SIZE = 80;
     int PAYLOAD_SHALLOW_SIZE = 32;
     int ACCESS_LIST_STORAGE_KEY_SIZE = 32;
     int ACCESS_LIST_ENTRY_SHALLOW_SIZE = 160;
     int OPTIONAL_ACCESS_LIST_SHALLOW_SIZE = 40;
     int OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE = 40;
-    int CODE_DELEGATION_ENTRY_SIZE = 512;
+    int CODE_DELEGATION_ENTRY_SIZE = 448;
     int OPTIONAL_SHALLOW_SIZE = 16;
     int KZG_PROOF_CONTAINER_SHALLOW_SIZE = 24;
     int KZG_PROOF_SIZE = 112;

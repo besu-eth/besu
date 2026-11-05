@@ -30,6 +30,7 @@ import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.TransitionProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.blockcreation.TransitionCoordinator;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -102,6 +103,8 @@ public class TransitionControllerBuilderTest {
     postMergeBuilder.genesisConfig(GenesisConfig.DEFAULT);
     postMergeBuilder.storageProvider(storageProvider);
     lenient().when(protocolContext.getBlockchain()).thenReturn(mockBlockchain);
+    lenient().when(preMergeProtocolSchedule.getChainId()).thenReturn(ChainId.absent());
+    lenient().when(postMergeProtocolSchedule.getChainId()).thenReturn(ChainId.absent());
     lenient()
         .when(transitionProtocolSchedule.getPostMergeSchedule())
         .thenReturn(postMergeProtocolSchedule);

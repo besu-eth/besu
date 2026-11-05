@@ -47,6 +47,7 @@ import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.QbftConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.MainnetBlockValidator;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -128,7 +129,7 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getWithdrawalRequestContractAddress()).thenReturn(Optional.of(Address.ZERO));
     final ProtocolSchedule protocolSchedule = builder.createProtocolSchedule();
 
-    assertThat(protocolSchedule.getChainId()).contains(CHAIN_ID);
+    assertThat(protocolSchedule.getChainId()).isEqualTo(ChainId.of(CHAIN_ID));
     assertThat(protocolSchedule.getByBlockHeader(blockHeader(0)).getHardforkId())
         .isEqualTo(FRONTIER);
     assertThat(protocolSchedule.getByBlockHeader(blockHeader(1)).getHardforkId())
@@ -303,7 +304,7 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(0L));
     final ProtocolSchedule protocolSchedule = builder.createProtocolSchedule();
 
-    assertThat(protocolSchedule.getChainId()).contains(CHAIN_ID);
+    assertThat(protocolSchedule.getChainId()).isEqualTo(ChainId.of(CHAIN_ID));
     assertThat(protocolSchedule.getByBlockHeader(blockHeader(0)).getHardforkId())
         .isEqualTo(BYZANTIUM);
     assertThat(protocolSchedule.getByBlockHeader(blockHeader(1)).getHardforkId())

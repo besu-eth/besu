@@ -26,6 +26,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGH
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.consensus.common.bft.BftProtocolSchedule;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.MilestoneStreamingProtocolSchedule;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -68,7 +69,7 @@ public class CombinedProtocolScheduleFactoryTest {
     consensusSchedule.add(new ForkSpec<>(0, protocolSchedule));
 
     final BftProtocolSchedule combinedProtocolSchedule =
-        combinedProtocolScheduleFactory.create(consensusSchedule, Optional.of(BigInteger.TEN));
+        combinedProtocolScheduleFactory.create(consensusSchedule, ChainId.of(10));
 
     assertThat(combinedProtocolSchedule.getByBlockNumberOrTimestamp(0L, 0L).getHardforkId())
         .isEqualTo(FRONTIER);
@@ -116,7 +117,7 @@ public class CombinedProtocolScheduleFactoryTest {
     consensusSchedule.add(new ForkSpec<>(1000000000L, protocolSchedule4));
 
     final BftProtocolSchedule combinedProtocolSchedule =
-        combinedProtocolScheduleFactory.create(consensusSchedule, Optional.of(BigInteger.TEN));
+        combinedProtocolScheduleFactory.create(consensusSchedule, ChainId.of(10));
 
     // consensus schedule 1
     assertThat(combinedProtocolSchedule.getByBlockNumberOrTimestamp(0L, 0L).getHardforkId())

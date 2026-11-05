@@ -52,6 +52,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.pluginadapter.SecurityModuleServiceImpl;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
@@ -283,6 +284,7 @@ public abstract class CommandTestAbstract {
     when(mockControllerBuilder.build()).thenReturn(mockController);
     lenient().when(mockController.getProtocolManager()).thenReturn(mockEthProtocolManager);
     lenient().when(mockController.getProtocolSchedule()).thenReturn(mockProtocolSchedule);
+    lenient().when(mockProtocolSchedule.getChainId()).thenReturn(ChainId.absent());
     lenient().when(mockController.getProtocolContext()).thenReturn(mockProtocolContext);
     lenient()
         .when(mockController.getAdditionalPluginServices())
@@ -338,6 +340,7 @@ public abstract class CommandTestAbstract {
     System.setOut(originalOut);
     System.setErr(originalErr);
     besuCommands.forEach(TestBesuCommand::close);
+    ChainId.resetNetworkChainId();
   }
 
   protected NodeKey getNodeKey() {
@@ -372,6 +375,9 @@ public abstract class CommandTestAbstract {
       final TestType testType, final InputStream in, final String... args) {
     // turn off ansi usage globally in picocli
     System.setProperty("picocli.ansi", "false");
+
+    // each command stands for a new process, that registers its own network chain id
+    ChainId.resetNetworkChainId();
 
     final TestBesuCommand besuCommand = getTestBesuCommand(testType);
     besuCommands.add(besuCommand);
