@@ -252,7 +252,8 @@ public final class StackUtil {
    * @return the word as a Wei value
    */
   static Wei readWeiAt(final long[] stack, final int top, final int depth) {
-    return Wei.wrap(readBytes32At(stack, top, depth));
+    // most calls send no value
+    return isZeroAt(stack, top, depth) ? Wei.ZERO : Wei.wrap(readBytes32At(stack, top, depth));
   }
 
   /**
