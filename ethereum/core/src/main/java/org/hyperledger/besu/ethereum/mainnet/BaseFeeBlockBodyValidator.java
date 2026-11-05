@@ -62,6 +62,11 @@ public class BaseFeeBlockBodyValidator extends MainnetBlockBodyValidator {
             .getTransactionPriceCalculator();
 
     for (final Transaction transaction : transactions) {
+      // EIP-8141 frame transactions have no price per gas to check; the transaction processor
+      // rejects a fee budget below the required fee.
+      if (transaction.getType().supportsFrames()) {
+        continue;
+      }
       final Optional<Wei> baseFee = block.getHeader().getBaseFee();
       final Wei price = transactionPriceCalculator.price(transaction, baseFee);
       if (price.compareTo(baseFee.orElseThrow()) < 0) {

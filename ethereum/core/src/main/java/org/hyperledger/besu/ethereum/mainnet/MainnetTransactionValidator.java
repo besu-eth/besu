@@ -27,6 +27,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.ChainId;
+import org.hyperledger.besu.ethereum.core.FrameTransactionFees;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
@@ -192,11 +193,6 @@ public class MainnetTransactionValidator implements TransactionValidator {
       return frameInvalid("frame count must be between 1 and " + MAX_FRAMES);
     }
 
-    if (transaction.getBlobCount() == 0
-        && !transaction.getMaxFeePerBlobGas().orElse(Wei.ZERO).isZero()) {
-      return frameInvalid("max fee per blob gas must be zero without blob versioned hashes");
-    }
-
     for (final var signature : transaction.getFrameSignatures().orElse(java.util.List.of())) {
       if (signature.scheme() < 0
           || signature.scheme() > org.hyperledger.besu.ethereum.core.FrameSignature.SCHEME_P256) {
@@ -351,7 +347,9 @@ public class MainnetTransactionValidator implements TransactionValidator {
       final Optional<Wei> maybeBlobFee,
       final TransactionValidationParams transactionValidationParams) {
 
-    if (maybeBaseFee.isPresent()) {
+    // EIP-8141 frame transactions cap their total fee rather than their price per gas; their fee
+    // budget is checked once the static and gas limit checks below have passed.
+    if (maybeBaseFee.isPresent() && !transaction.getType().supportsFrames()) {
       // assert transaction.max_fee_per_gas >= transaction.max_priority_fee_per_gas
       // checked first: a tip above the fee cap is invalid at any base fee
       if (transaction.getType().supports1559FeeMarket()
@@ -391,7 +389,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
         throw new IllegalArgumentException(
             "blob fee must be provided from blocks containing blobs");
         // tx.getMaxFeePerBlobGas can be empty for eth_call
-      } else if (!transactionValidationParams.allowUnderpricedGas()
+      } else if (!transaction.getType().supportsFrames()
+          && !transactionValidationParams.allowUnderpricedGas()
           && maybeBlobFee.get().compareTo(transaction.getMaxFeePerBlobGas().get()) > 0) {
         return ValidationResult.invalid(
             TransactionInvalidReason.BLOB_GAS_PRICE_BELOW_CURRENT_BLOB_BASE_FEE,
@@ -451,6 +450,11 @@ public class MainnetTransactionValidator implements TransactionValidator {
               intrinsicGasCostOrFloor, transaction.getGasLimit()));
     }
 
+    if (transaction.getType().supportsFrames()) {
+      return validateFrameFeeBudget(
+          transaction, maybeBaseFee, maybeBlobFee, transactionValidationParams);
+    }
+
     if (transaction.calculateUpfrontGasCost(transaction.getMaxGasPrice(), Wei.ZERO, 0).bitLength()
         > 256) {
       return ValidationResult.invalid(
@@ -458,6 +462,41 @@ public class MainnetTransactionValidator implements TransactionValidator {
           "Upfront gas cost cannot exceed 2^256 Wei");
     }
 
+    return ValidationResult.valid();
+  }
+
+  /**
+   * EIP-8141: a frame transaction's {@code max_fee} must cover its {@code max_gas} at the base fee
+   * plus its blob gas at the blob base fee. The tip is not checked against the budget; a tip the
+   * budget cannot cover is capped instead.
+   *
+   * <p>The shortfall reuses the base fee reason and message, which the reference-test exception
+   * mappings match for {@code INSUFFICIENT_MAX_FEE_PER_GAS}.
+   */
+  private ValidationResult<TransactionInvalidReason> validateFrameFeeBudget(
+      final Transaction transaction,
+      final Optional<Wei> maybeBaseFee,
+      final Optional<Wei> maybeBlobFee,
+      final TransactionValidationParams transactionValidationParams) {
+    if (maybeBaseFee.isEmpty()
+        || transactionValidationParams.allowUnderpricedGas()
+        || transactionValidationParams.isAllowExceedingBalance()) {
+      return ValidationResult.valid();
+    }
+    final BigInteger requiredMaxFee =
+        FrameTransactionFees.requiredMaxFee(
+            transaction.getGasLimit(),
+            maybeBaseFee.get(),
+            gasCalculator.blobGasCost(transaction.getBlobCount()),
+            maybeBlobFee.orElse(Wei.ZERO));
+    final Wei maxFee = transaction.getMaxFee().orElseThrow();
+    if (maxFee.getAsBigInteger().compareTo(requiredMaxFee) < 0) {
+      return ValidationResult.invalid(
+          TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE,
+          String.format(
+              "gasPrice is less than the current BaseFee: max fee %s below the required %s",
+              maxFee.toDecimalString(), requiredMaxFee));
+    }
     return ValidationResult.valid();
   }
 

@@ -462,8 +462,8 @@ public abstract class PendingTransaction
    * have a chain id of their own.
    */
   public interface MemorySize {
-    int FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE = 912;
-    int EIP1559_AND_EIP4844_SHALLOW_SIZE = 1024;
+    int FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE = 920;
+    int EIP1559_AND_EIP4844_SHALLOW_SIZE = 1032;
     int OPTIONAL_TO_SIZE = 104;
     int PAYLOAD_SHALLOW_SIZE = 32;
     int ACCESS_LIST_STORAGE_KEY_SIZE = 32;

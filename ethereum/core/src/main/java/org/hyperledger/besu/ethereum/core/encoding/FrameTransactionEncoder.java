@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.core.encoding;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.FrameSignature;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -32,7 +31,7 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>Payload: {@code [chain_id, nonce_keys, nonce_seq, sender, frames, signatures, fees,
  * blob_versioned_hashes]} with {@code frames = [[mode, flags, target, [execution, state], value,
  * data], ...]}, {@code signatures = [[scheme, signer, msg, signature], ...]} and {@code fees =
- * [max_priority_fee_per_gas, max_fee_per_gas, max_fee_per_blob_gas]}.
+ * [max_fee, max_priority_fee_per_gas]}.
  */
 public class FrameTransactionEncoder {
 
@@ -74,9 +73,8 @@ public class FrameTransactionEncoder {
     out.writeList(
         signatures, (signature, rlpOutput) -> encodeSignature(signature, rlpOutput, forSigning));
     out.startList();
+    out.writeUInt256Scalar(transaction.getMaxFee().orElseThrow());
     out.writeUInt256Scalar(transaction.getMaxPriorityFeePerGas().orElseThrow());
-    out.writeUInt256Scalar(transaction.getMaxFeePerGas().orElseThrow());
-    out.writeUInt256Scalar(transaction.getMaxFeePerBlobGas().orElse(Wei.ZERO));
     out.endList();
     BlobTransactionEncoder.writeBlobVersionedHashes(
         out, transaction.getVersionedHashes().orElse(List.of()));

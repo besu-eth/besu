@@ -25,6 +25,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.KeyedNonceGasCapVectors;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
@@ -111,5 +112,17 @@ public class BaseFeeBlockBodyValidatorTest {
                 Collections.emptyList()));
 
     assertThat(blockBodyValidator.validateTransactionGasPrice(block)).isFalse();
+  }
+
+  @Test
+  public void BlockBodyValidatorSkipsFrameTransactions() {
+    // EIP-8141 frame transactions carry a total fee budget and no price per gas, so the base fee
+    // is never read
+    when(block.getBody())
+        .thenReturn(
+            new BlockBody(
+                List.of(KeyedNonceGasCapVectors.atCapStandard()), Collections.emptyList()));
+
+    assertThat(blockBodyValidator.validateTransactionGasPrice(block)).isTrue();
   }
 }

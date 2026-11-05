@@ -54,6 +54,12 @@ final class PostTxContexts {
   /** The index of the POST_TX frame, the current one. */
   static final int POST_TX_FRAME = 2;
 
+  /** The max priority fee per gas. */
+  static final Wei MAX_PRIORITY_FEE_PER_GAS = Wei.of(2);
+
+  /** The fee budget. */
+  static final Wei MAX_FEE = Wei.of(0x2345_6789L);
+
   /** The maximum cost the payer was charged. */
   static final Wei MAX_COST = Wei.of(0x1234_5678L);
 
@@ -200,9 +206,8 @@ final class PostTxContexts {
             9L,
             List.of(UInt256.ZERO),
             9L,
-            Wei.of(2),
-            Wei.of(11),
-            Wei.ZERO,
+            MAX_PRIORITY_FEE_PER_GAS,
+            MAX_FEE,
             MAX_COST);
     context.recordFrameCompletion(0, FrameTransactionContext.STATUS_SUCCESS, 3_100L, 300L);
     context.recordFrameCompletion(1, FrameTransactionContext.STATUS_SUCCESS, 23_000L, 0L);

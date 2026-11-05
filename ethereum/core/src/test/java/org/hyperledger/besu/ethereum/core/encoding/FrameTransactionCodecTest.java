@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.core.encoding;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Log;
@@ -32,10 +33,13 @@ import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEnc
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
+import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -85,8 +89,7 @@ class FrameTransactionCodecTest {
         .frames(List.of(verifyFrame, senderFrame))
         .frameSignatures(List.of(canonicalSignature, explicitDigestSignature))
         .maxPriorityFeePerGas(Wei.of(2))
-        .maxFeePerGas(Wei.of(100))
-        .maxFeePerBlobGas(Wei.ZERO)
+        .maxFee(Wei.of(1_000_000))
         .build();
   }
 
@@ -106,7 +109,7 @@ class FrameTransactionCodecTest {
     assertThat(decoded.getFrames().orElseThrow()).isEqualTo(transaction.getFrames().orElseThrow());
     assertThat(decoded.getFrameSignatures().orElseThrow())
         .isEqualTo(transaction.getFrameSignatures().orElseThrow());
-    assertThat(decoded.getMaxFeePerGas()).contains(Wei.of(100));
+    assertThat(decoded.getMaxFee()).contains(Wei.of(1_000_000));
     assertThat(decoded.getMaxPriorityFeePerGas()).contains(Wei.of(2));
 
     // Re-encoding is byte-identical, and so is the hash.
@@ -159,8 +162,7 @@ class FrameTransactionCodecTest {
                         Bytes.repeat((byte) 1, 65)),
                     transaction.getFrameSignatures().orElseThrow().get(1)))
             .maxPriorityFeePerGas(Wei.of(2))
-            .maxFeePerGas(Wei.of(100))
-            .maxFeePerBlobGas(Wei.ZERO)
+            .maxFee(Wei.of(1_000_000))
             .build();
     assertThat(differentCanonicalSig.getFrameSignatureHash())
         .isEqualTo(transaction.getFrameSignatureHash());
@@ -182,8 +184,7 @@ class FrameTransactionCodecTest {
                         Bytes32.leftPad(Bytes.of(9)),
                         Bytes.fromHexString("0x99"))))
             .maxPriorityFeePerGas(Wei.of(2))
-            .maxFeePerGas(Wei.of(100))
-            .maxFeePerBlobGas(Wei.ZERO)
+            .maxFee(Wei.of(1_000_000))
             .build();
     assertThat(differentArbitrarySig.getFrameSignatureHash())
         .isNotEqualTo(transaction.getFrameSignatureHash());
@@ -225,8 +226,7 @@ class FrameTransactionCodecTest {
                         Bytes.EMPTY)))
             .frameSignatures(List.of())
             .maxPriorityFeePerGas(Wei.of(2))
-            .maxFeePerGas(Wei.of(100))
-            .maxFeePerBlobGas(Wei.of(1))
+            .maxFee(Wei.of(1_000_000))
             .versionedHashes(List.of(versionedHash))
             .build();
     final Bytes encoded =
@@ -234,7 +234,81 @@ class FrameTransactionCodecTest {
     final Transaction decoded =
         TransactionDecoder.decodeOpaqueBytes(encoded, EncodingContext.BLOCK_BODY);
     assertThat(decoded.getVersionedHashes().orElseThrow()).containsExactly(versionedHash);
-    assertThat(decoded.getMaxFeePerBlobGas()).contains(Wei.of(1));
+    // The fee budget covers the blob gas too; there is no separate blob fee cap.
+    assertThat(decoded.getMaxFee()).contains(Wei.of(1_000_000));
+    assertThat(decoded.getMaxFeePerBlobGas()).isEmpty();
+  }
+
+  /**
+   * tests-bogota-devnet@v2.0.0 test_fee_budget.py::test_tip_settlement[full_tip]: {@code fees =
+   * [max_fee, max_priority_fee_per_gas]} = [0x04a3e8, 5].
+   */
+  private static final Bytes FULL_TIP_TX =
+      Bytes.fromHexString(
+          "0x06f8a601c08094d66f224cbd2fabb21b17bb53c56118f32f62ebd6e8c8010380c264808080de808094aa76"
+              + "e38b5dfe88030eb7336cec9941d9681a81a6c4821fa4808080f85cf85a0194d66f224cbd2fabb21b17bb"
+              + "53c56118f32f62ebd680b841004ff608a632982fb6881dd732dcbe01dae52a10d0de40127cab42b90488"
+              + "3b56d96aa9182a41f5442aa6309dd4f726514a35c20f1abbcd544b7b1949c5c372424fc58304a3e805c"
+              + "0");
+
+  @Test
+  void decodesTheFeesListAsMaxFeeThenPriorityFee() {
+    final Transaction decoded =
+        TransactionDecoder.decodeOpaqueBytes(FULL_TIP_TX, EncodingContext.BLOCK_BODY);
+
+    assertThat(decoded.getMaxFee()).contains(Wei.of(0x04a3e8));
+    assertThat(decoded.getMaxPriorityFeePerGas()).contains(Wei.of(5));
+    assertThat(decoded.getMaxFeePerGas()).isEmpty();
+    assertThat(TransactionEncoder.encodeOpaqueBytes(decoded, EncodingContext.BLOCK_BODY))
+        .isEqualTo(FULL_TIP_TX);
+  }
+
+  @Test
+  void rejectsAMaxFeeAbove256Bits() {
+    final Bytes encoded =
+        frameTransactionWithFees(
+            out -> {
+              out.writeBytes(Bytes.concatenate(Bytes.of(1), Bytes.wrap(new byte[32])));
+              out.writeUInt256Scalar(UInt256.ONE);
+            });
+
+    assertThatThrownBy(
+            () -> TransactionDecoder.decodeOpaqueBytes(encoded, EncodingContext.BLOCK_BODY))
+        .isInstanceOf(FrameFieldException.class)
+        .hasMessage("max fee exceeds 2^256-1");
+  }
+
+  @Test
+  void rejectsTheDevnet1ThreeFieldFeesList() {
+    final Bytes encoded =
+        frameTransactionWithFees(
+            out -> {
+              out.writeUInt256Scalar(UInt256.ONE);
+              out.writeUInt256Scalar(UInt256.valueOf(100));
+              out.writeUInt256Scalar(UInt256.ZERO);
+            });
+
+    assertThatThrownBy(
+            () -> TransactionDecoder.decodeOpaqueBytes(encoded, EncodingContext.BLOCK_BODY))
+        .isInstanceOf(RLPException.class);
+  }
+
+  /** A frame transaction payload with no frames or signatures and the given fees list items. */
+  private static Bytes frameTransactionWithFees(final Consumer<RLPOutput> fees) {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeBigIntegerScalar(BigInteger.ONE);
+    out.writeEmptyList();
+    out.writeLongScalar(0L);
+    out.writeBytes(SENDER.getBytes());
+    out.writeEmptyList();
+    out.writeEmptyList();
+    out.startList();
+    fees.accept(out);
+    out.endList();
+    out.writeEmptyList();
+    out.endList();
+    return Bytes.concatenate(Bytes.of(TransactionType.FRAME.getSerializedType()), out.encoded());
   }
 
   @Test

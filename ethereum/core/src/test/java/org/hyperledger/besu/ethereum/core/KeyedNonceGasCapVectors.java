@@ -20,11 +20,11 @@ import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
- * The frame transactions of execution-specs devnets/bogota/1
- * test_gas_limit_cap_counts_keyed_nonce_access_transaction (tests-bogota-devnet@v1.1.1): a VERIFY
- * frame from sender 0x2129..7e17 with the 16 nonce keys 1..16, whose 16 x 12,100 = 193,600 keyed
- * nonce access gas takes max(intrinsic + execution gas, calldata floor) to the EIP-7825 cap of 2^24
- * or just past it. Without the keyed nonce access cost all four would sit 193,600 lower.
+ * The frame transactions of execution-specs test_gas_limit_cap_counts_keyed_nonce_access
+ * (tests-bogota-devnet@v2.0.0): a VERIFY frame from sender 0x2129..7e17 with the 16 nonce keys
+ * 1..16, whose 16 x 12,100 = 193,600 keyed nonce access gas takes max(intrinsic + execution gas,
+ * calldata floor) to the EIP-7825 cap of 2^24 or just past it. Without the keyed nonce access cost
+ * all four would sit 193,600 lower.
  *
  * <p>The floor variants carry a second frame of zero bytes, spliced in here rather than spelled
  * out.
@@ -35,23 +35,26 @@ public final class KeyedNonceGasCapVectors {
   public static final long CAP = 16_777_216L;
 
   private static final String AT_CAP_STANDARD =
-      "0x06f83e01d00102030405060708090a0b0c0d0e0f1080942129976602d58c0b4bd97278eb25aeeec63a7e17cf"
-          + "ce010380c883fcd9e58317e8008080c0c3800780c0";
+      "0x06f84501d00102030405060708090a0b0c0d0e0f1080942129976602d58c0b4bd97278eb25aeeec63a7e17cf"
+          + "ce010380c883fcd9e58317e8008080c0ca880de0b6b3a764000080c0";
 
   private static final String ABOVE_CAP_STANDARD =
-      "0x06f83e01d00102030405060708090a0b0c0d0e0f1080942129976602d58c0b4bd97278eb25aeeec63a7e17cf"
-          + "ce010380c883fcd9e68317e8008080c0c3800780c0";
+      "0x06f84501d00102030405060708090a0b0c0d0e0f1080942129976602d58c0b4bd97278eb25aeeec63a7e17cf"
+          + "ce010380c883fcd9e68317e8008080c0ca880de0b6b3a764000080c0";
 
   private static final String AT_CAP_FLOOR_HEAD =
-      "0x06fa03f3a501d00102030405060708090a0b0c0d0e0f1080942129976602d58c0b4bd97278eb25aeeec63a7e17"
+      "0x06fa03f3ac01d00102030405060708090a0b0c0d0e0f1080942129976602d58c0b4bd97278eb25aeeec63a7e17"
           + "fa03f373ce010380c8830186a08317e8008080fa03f360808080c58083061a8080ba03f352";
 
   private static final String ABOVE_CAP_FLOOR_HEAD =
-      "0x06fa03f3a601d00102030405060708090a0b0c0d0e0f1080942129976602d58c0b4bd97278eb25aeeec63a7e17"
+      "0x06fa03f3ad01d00102030405060708090a0b0c0d0e0f1080942129976602d58c0b4bd97278eb25aeeec63a7e17"
           + "fa03f374ce010380c8830186a08317e8008080fa03f361808080c58083061a8080ba03f353";
 
-  /** The empty signature list, the fees and the empty blob hash list that close a vector. */
-  private static final String FLOOR_TAIL = "0xc0c3800780c0";
+  /**
+   * The empty signature list, the fees {@code [max_fee = 1 ether, max_priority_fee_per_gas = 0]}
+   * and the empty blob hash list that close a vector.
+   */
+  private static final String FLOOR_TAIL = "0xc0ca880de0b6b3a764000080c0";
 
   private KeyedNonceGasCapVectors() {}
 
@@ -79,7 +82,16 @@ public final class KeyedNonceGasCapVectors {
    * @return the transaction
    */
   public static Transaction atCapFloor() {
-    return decode(floorVariant(AT_CAP_FLOOR_HEAD, 258_898));
+    return decode(atCapFloorBytes());
+  }
+
+  /**
+   * The encoding of {@link #atCapFloor()}, as the spec fixture carries it.
+   *
+   * @return the opaque transaction bytes
+   */
+  public static Bytes atCapFloorBytes() {
+    return floorVariant(AT_CAP_FLOOR_HEAD, 258_898);
   }
 
   /**

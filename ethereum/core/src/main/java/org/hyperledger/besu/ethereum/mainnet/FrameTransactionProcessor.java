@@ -22,13 +22,12 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.FrameReceipt;
 import org.hyperledger.besu.ethereum.core.FrameSignature;
+import org.hyperledger.besu.ethereum.core.FrameTransactionFees;
 import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
-import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.account.Account;
@@ -75,7 +74,6 @@ public class FrameTransactionProcessor {
   private final TopLevelTransactionSupport topLevelSupport;
   private final boolean clearEmptyAccounts;
   private final int maxStackSize;
-  private final FeeMarket feeMarket;
 
   FrameTransactionProcessor(
       final GasCalculator gasCalculator,
@@ -84,8 +82,7 @@ public class FrameTransactionProcessor {
       final ContractCreationProcessor contractCreationProcessor,
       final TopLevelTransactionSupport topLevelSupport,
       final boolean clearEmptyAccounts,
-      final int maxStackSize,
-      final FeeMarket feeMarket) {
+      final int maxStackSize) {
     this.gasCalculator = gasCalculator;
     this.transactionValidatorFactory = transactionValidatorFactory;
     this.messageCallProcessor = messageCallProcessor;
@@ -93,7 +90,6 @@ public class FrameTransactionProcessor {
     this.topLevelSupport = topLevelSupport;
     this.clearEmptyAccounts = clearEmptyAccounts;
     this.maxStackSize = maxStackSize;
-    this.feeMarket = feeMarket;
   }
 
   /** The mutable execution state of one frame while it is being processed. */
@@ -195,33 +191,17 @@ public class FrameTransactionProcessor {
     final long standardGasLimit = intrinsicGas + totalExecutionGas + totalStateGas;
     final long maxGas = transaction.getGasLimit();
 
-    final Wei effectiveGasPrice =
-        feeMarket.getTransactionPriceCalculator().price(transaction, blockHeader.getBaseFee());
-    // Decided before any frame runs: an underpriced frame transaction has no fee-less failure mode.
-    final Optional<CoinbaseFeePriceCalculator> coinbaseCalculator =
-        topLevelSupport.coinbaseCalculator(
-            blockHeader, effectiveGasPrice, transactionValidationParams);
-    if (coinbaseCalculator.isEmpty()) {
-      return TransactionProcessingResult.invalid(
-          ValidationResult.invalid(
-              TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
-              "transaction price must be greater than base fee"));
-    }
+    // EIP-8141 fee budget: the validator has checked that max_fee covers the required fee.
+    final Wei baseFee = blockHeader.getBaseFee().orElse(Wei.ZERO);
+    final Wei blobBaseFee = blobGasPrice == null ? Wei.ZERO : blobGasPrice;
     final long blobGas = gasCalculator.blobGasCost(transaction.getBlobCount());
-    final Wei blobFee = blobGasPrice == null ? Wei.ZERO : blobGasPrice.multiply(blobGas);
-    final java.math.BigInteger maxCostExact =
-        transaction
-            .getMaxGasPrice()
-            .getAsBigInteger()
-            .multiply(java.math.BigInteger.valueOf(maxGas))
-            .add(blobFee.getAsBigInteger());
-    if (maxCostExact.bitLength() > 256) {
-      return TransactionProcessingResult.invalid(
-          ValidationResult.invalid(
-              TransactionInvalidReason.UPFRONT_COST_EXCEEDS_UINT256,
-              "frame transaction max cost exceeds 2^256 wei"));
-    }
-    final Wei maxCost = Wei.of(maxCostExact);
+    final Wei maxPriorityFeePerGas = transaction.getMaxPriorityFeePerGas().orElseThrow();
+    final Wei maxFee = transaction.getMaxFee().orElseThrow();
+    final FrameTransactionFees.Escrow escrow =
+        FrameTransactionFees.escrow(
+            maxFee, maxPriorityFeePerGas, maxGas, baseFee, blobGas, blobBaseFee);
+    final Wei maxCost = escrow.maxCost();
+    final Wei gasPrice = escrow.gasPrice();
 
     // Build the EVM-visible transaction context.
     final List<FrameTransactionContext.FrameInfo> frameInfos = new ArrayList<>(frames.size());
@@ -256,9 +236,8 @@ public class FrameTransactionProcessor {
             transaction.getNonce(),
             nonceKeys,
             legacyNonce,
-            transaction.getMaxPriorityFeePerGas().orElse(Wei.ZERO),
-            transaction.getMaxFeePerGas().orElse(Wei.ZERO),
-            transaction.getMaxFeePerBlobGas().orElse(Wei.ZERO),
+            maxPriorityFeePerGas,
+            maxFee,
             maxCost);
 
     final WorldUpdater worldUpdater = worldState.updater();
@@ -275,8 +254,8 @@ public class FrameTransactionProcessor {
             maxStackSize,
             UndoSet.of(initialWarmth),
             senderAddress,
-            effectiveGasPrice,
-            blobGasPrice == null ? Wei.ZERO : blobGasPrice,
+            gasPrice,
+            blobBaseFee,
             blockHeader,
             miningBeneficiary,
             transaction.getVersionedHashes().map(List::copyOf),
@@ -381,8 +360,8 @@ public class FrameTransactionProcessor {
               .isStatic(frame.mode() == Frame.MODE_VERIFY || frame.mode() == Frame.MODE_POST_TX)
               .maxStackSize(maxStackSize)
               .originator(caller)
-              .gasPrice(effectiveGasPrice)
-              .blobGasPrice(blobGasPrice == null ? Wei.ZERO : blobGasPrice)
+              .gasPrice(gasPrice)
+              .blobGasPrice(blobBaseFee)
               .blockValues(blockHeader)
               .miningBeneficiary(miningBeneficiary)
               .blockHashLookup(blockHashLookup)
@@ -587,15 +566,15 @@ public class FrameTransactionProcessor {
     // EIP-7778: the block accounts execution gas before the refund.
     final long blockExecutionGas = Math.max(gasUsedBeforeRefund - txStateGas, calldataFloorGas);
 
-    final Wei chargedFee = effectiveGasPrice.multiply(gasUsed).addExact(blobFee);
-    final Wei payerRefund = maxCost.subtract(chargedFee);
+    final FrameTransactionFees.Disbursement disbursement =
+        FrameTransactionFees.disburse(
+            maxCost, maxPriorityFeePerGas, gasUsed, baseFee, blobGas, blobBaseFee);
     // EIP-7928: the payer settles the fee and so is touched, even when it is not the sender.
     accessLocationTracker.ifPresent(t -> t.addTouchedAccount(payer));
     final MutableAccount payerAccount = worldUpdater.getOrCreate(payer);
-    payerAccount.incrementBalance(payerRefund);
+    payerAccount.incrementBalance(disbursement.payerRefund());
 
-    final Wei coinbaseWeiDelta =
-        coinbaseCalculator.get().price(gasUsed, effectiveGasPrice, blockHeader.getBaseFee());
+    final Wei coinbaseWeiDelta = disbursement.priorityFeePaid();
     operationTracer.traceBeforeRewardTransaction(worldUpdater, transaction, coinbaseWeiDelta);
     TopLevelTransactionSupport.creditCoinbase(
         worldUpdater, miningBeneficiary, coinbaseWeiDelta, accessLocationTracker);

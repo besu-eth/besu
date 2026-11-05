@@ -128,8 +128,7 @@ public class MainnetTransactionProcessor {
                     contractCreationProcessor,
                     topLevelSupport,
                     clearEmptyAccounts,
-                    maxStackSize,
-                    feeMarket))
+                    maxStackSize))
             : Optional.empty();
   }
 

@@ -492,7 +492,6 @@ class FrameOpcodesV1V2DifferentialTest {
             4L,
             Wei.of(2),
             Wei.of(11),
-            Wei.of(13),
             Wei.of(1_000));
     if (currentFrame > 0) {
       context.recordFrameCompletion(0, FrameTransactionContext.STATUS_SUCCESS, 21_000L, 300L);

@@ -108,6 +108,7 @@ public class Transaction
 
   private final Optional<Wei> maxFeePerGas;
   private final Optional<Wei> maxFeePerBlobGas;
+  private final Optional<Wei> maxFee;
 
   private final long gasLimit;
 
@@ -194,6 +195,7 @@ public class Transaction
    * @param maxPriorityFeePerGas the max priority fee per gas
    * @param maxFeePerGas the max fee per gas
    * @param maxFeePerBlobGas the max fee per blob gas
+   * @param maxFee the EIP-8141 total fee budget of a frame transaction
    * @param gasLimit the gas limit
    * @param to the transaction recipient
    * @param value the value being transferred to the recipient
@@ -219,6 +221,7 @@ public class Transaction
       final Optional<Wei> maxPriorityFeePerGas,
       final Optional<Wei> maxFeePerGas,
       final Optional<Wei> maxFeePerBlobGas,
+      final Optional<Wei> maxFee,
       final long gasLimit,
       final Optional<Address> to,
       final Wei value,
@@ -288,10 +291,17 @@ public class Transaction
         checkArgument(
             maybeFrames.isPresent() && !maybeFrames.get().isEmpty(),
             "Frame transaction must have at least one frame");
+        // EIP-8141 caps the total fee, not the price per gas.
+        checkArgument(maxFee.isPresent(), "Must specify the max fee of a frame transaction");
+        checkArgument(
+            gasPrice.isEmpty() && maxFeePerGas.isEmpty() && maxFeePerBlobGas.isEmpty(),
+            "Must not specify a per-gas fee cap for a frame transaction");
       } else {
         checkArgument(
             maybeFrames.isEmpty() && maybeFrameSignatures.isEmpty() && maybeNonceKeys.isEmpty(),
             "Must not specify frames for transaction not supporting them");
+        checkArgument(
+            maxFee.isEmpty(), "Must not specify a max fee for transaction not supporting frames");
       }
     }
 
@@ -301,6 +311,7 @@ public class Transaction
     this.maxPriorityFeePerGas = maxPriorityFeePerGas;
     this.maxFeePerGas = maxFeePerGas;
     this.maxFeePerBlobGas = maxFeePerBlobGas;
+    this.maxFee = maxFee;
     this.gasLimit = gasLimit;
     this.to = to;
     this.value = value;
@@ -373,7 +384,21 @@ public class Transaction
   }
 
   /**
+   * Returns the EIP-8141 fee budget of a frame transaction: the most it pays, in wei, for all of
+   * its execution, state and blob gas.
+   *
+   * @return the max fee, or empty for other transaction types
+   */
+  public Optional<Wei> getMaxFee() {
+    return maxFee;
+  }
+
+  /**
    * Return the effective priority fee per gas for this transaction.
+   *
+   * <p>For an EIP-8141 frame transaction this is the tip per gas its fee budget can pay on every
+   * unit of its gas limit at the given base fee. It leaves out the blob fee, which needs the blob
+   * base fee.
    *
    * @param maybeBaseFee base fee in case of EIP-1559 transaction
    * @return priority fee per gas in wei
@@ -382,7 +407,15 @@ public class Transaction
     return maybeBaseFee
         .map(
             baseFee -> {
-              if (getType().supports1559FeeMarket()) {
+              if (getType().supportsFrames()) {
+                return FrameTransactionFees.tipPerGas(
+                    maxFee.orElseThrow(),
+                    maxPriorityFeePerGas.orElseThrow(),
+                    gasLimit,
+                    baseFee,
+                    0L,
+                    Wei.ZERO);
+              } else if (getType().supports1559FeeMarket()) {
                 if (baseFee.greaterOrEqualThan(getMaxFeePerGas().get())) {
                   return Wei.ZERO;
                 }
@@ -1236,6 +1269,7 @@ public class Transaction
         && Objects.equals(this.maxPriorityFeePerGas, that.maxPriorityFeePerGas)
         && Objects.equals(this.maxFeePerGas, that.maxFeePerGas)
         && Objects.equals(this.maxFeePerBlobGas, that.maxFeePerBlobGas)
+        && Objects.equals(this.maxFee, that.maxFee)
         && this.nonce == that.nonce
         && Objects.equals(this.payload, that.payload)
         && Objects.equals(this.signature, that.signature)
@@ -1252,6 +1286,7 @@ public class Transaction
         maxPriorityFeePerGas,
         maxFeePerGas,
         maxFeePerBlobGas,
+        maxFee,
         gasLimit,
         to,
         value,
@@ -1283,6 +1318,12 @@ public class Transaction
           .ifPresent(
               wei ->
                   sb.append("maxFeePerBlobGas=").append(wei.toHumanReadableString()).append(", "));
+    }
+    if (getMaxPriorityFeePerGas().isPresent() && getMaxFee().isPresent()) {
+      sb.append("maxPriorityFeePerGas=")
+          .append(getMaxPriorityFeePerGas().map(Wei::toHumanReadableString).get())
+          .append(", ");
+      sb.append("maxFee=").append(getMaxFee().map(Wei::toHumanReadableString).get()).append(", ");
     }
     sb.append("gasLimit=").append(getGasLimit()).append(", ");
     if (getTo().isPresent()) sb.append("to=").append(getTo().get()).append(", ");
@@ -1345,6 +1386,12 @@ public class Transaction
           .append(", ");
       getMaxFeePerBlobGas()
           .ifPresent(wei -> sb.append("df: ").append(wei.toHumanReadableString()).append(", "));
+    }
+    if (getMaxPriorityFeePerGas().isPresent() && getMaxFee().isPresent()) {
+      sb.append("tf: ").append(getMaxFee().map(Wei::toHumanReadableString).get()).append(", ");
+      sb.append("pf: ")
+          .append(getMaxPriorityFeePerGas().map(Wei::toHumanReadableString).get())
+          .append(", ");
     }
     if (transactionType.supportsBlob()) {
       sb.append("b: ")
@@ -1432,6 +1479,7 @@ public class Transaction
             maxPriorityFeePerGas,
             maxFeePerGas,
             maxFeePerBlobGas,
+            maxFee,
             gasLimit,
             detachedTo,
             value,
@@ -1506,6 +1554,7 @@ public class Transaction
 
     protected Wei maxFeePerGas;
     protected Wei maxFeePerBlobGas;
+    protected Wei maxFee;
 
     protected long gasLimit = -1L;
 
@@ -1542,6 +1591,7 @@ public class Transaction
       this.maxPriorityFeePerGas = toCopy.maxPriorityFeePerGas.orElse(null);
       this.maxFeePerGas = toCopy.maxFeePerGas.orElse(null);
       this.maxFeePerBlobGas = toCopy.maxFeePerBlobGas.orElse(null);
+      this.maxFee = toCopy.maxFee.orElse(null);
       this.gasLimit = toCopy.gasLimit;
       this.to = toCopy.to;
       this.value = toCopy.value;
@@ -1596,6 +1646,11 @@ public class Transaction
 
     public Builder maxFeePerBlobGas(final Wei maxFeePerBlobGas) {
       this.maxFeePerBlobGas = maxFeePerBlobGas;
+      return this;
+    }
+
+    public Builder maxFee(final Wei maxFee) {
+      this.maxFee = maxFee;
       return this;
     }
 
@@ -1725,9 +1780,6 @@ public class Transaction
         if (payload == null) {
           payload = new Payload(Bytes.EMPTY);
         }
-        if (maxFeePerBlobGas == null) {
-          maxFeePerBlobGas = Wei.ZERO;
-        }
       }
       return new Transaction(
           false,
@@ -1737,6 +1789,7 @@ public class Transaction
           Optional.ofNullable(maxPriorityFeePerGas),
           Optional.ofNullable(maxFeePerGas),
           Optional.ofNullable(maxFeePerBlobGas),
+          Optional.ofNullable(maxFee),
           gasLimit,
           to,
           value,

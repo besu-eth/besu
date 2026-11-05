@@ -48,11 +48,16 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /** End-to-end EIP-8141 frame transaction execution against a real Bogota protocol spec. */
 class FrameTransactionProcessorTest {
@@ -60,7 +65,8 @@ class FrameTransactionProcessorTest {
   private static final SignatureAlgorithm ALGO = SignatureAlgorithmFactory.getInstance();
   private static final BigInteger CHAIN_ID = BigInteger.ONE;
   private static final Wei BASE_FEE = Wei.of(7);
-  private static final Wei MAX_FEE = Wei.of(100);
+  // A budget large enough to pay the full tip on every unit of gas.
+  private static final Wei MAX_FEE = Wei.fromEth(1);
   private static final Wei PRIORITY_FEE = Wei.of(1);
   private static final long EXEC_LIMIT = 100_000L;
   private static final long STATE_LIMIT = 200_000L;
@@ -146,6 +152,15 @@ class FrameTransactionProcessorTest {
 
   private Transaction buildFrameTransaction(
       final long nonce, final List<Frame> frames, final List<FrameSignature> signatures) {
+    return buildFrameTransaction(nonce, frames, signatures, MAX_FEE, PRIORITY_FEE);
+  }
+
+  private Transaction buildFrameTransaction(
+      final long nonce,
+      final List<Frame> frames,
+      final List<FrameSignature> signatures,
+      final Wei maxFee,
+      final Wei maxPriorityFeePerGas) {
     return Transaction.builder()
         .type(TransactionType.FRAME)
         .chainId(CHAIN_ID)
@@ -153,18 +168,26 @@ class FrameTransactionProcessorTest {
         .sender(sender)
         .frames(frames)
         .frameSignatures(signatures)
-        .maxPriorityFeePerGas(PRIORITY_FEE)
-        .maxFeePerGas(MAX_FEE)
-        .maxFeePerBlobGas(Wei.ZERO)
+        .maxPriorityFeePerGas(maxPriorityFeePerGas)
+        .maxFee(maxFee)
         .build();
   }
 
   /** Builds and canonically signs a frame transaction with a single SECP256K1 entry. */
   private Transaction signedFrameTransaction(final long nonce, final List<Frame> frames) {
+    return signedFrameTransaction(nonce, frames, MAX_FEE, PRIORITY_FEE);
+  }
+
+  private Transaction signedFrameTransaction(
+      final long nonce,
+      final List<Frame> frames,
+      final Wei maxFee,
+      final Wei maxPriorityFeePerGas) {
     final FrameSignature placeholder =
         new FrameSignature(
             FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, Bytes.repeat((byte) 0, 65));
-    final Transaction unsigned = buildFrameTransaction(nonce, frames, List.of(placeholder));
+    final Transaction unsigned =
+        buildFrameTransaction(nonce, frames, List.of(placeholder), maxFee, maxPriorityFeePerGas);
     final SECPSignature signature =
         ALGO.sign(
             org.apache.tuweni.bytes.Bytes32.wrap(unsigned.getFrameSignatureHash().getBytes()),
@@ -179,7 +202,9 @@ class FrameTransactionProcessorTest {
         frames,
         List.of(
             new FrameSignature(
-                FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, rawSignature)));
+                FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, rawSignature)),
+        maxFee,
+        maxPriorityFeePerGas);
   }
 
   private static Frame selfVerifyFrame() {
@@ -417,6 +442,108 @@ class FrameTransactionProcessorTest {
     // FRAMEPARAM(0, 0x02) returns frame 0's mode (VERIFY).
     assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ONE))
         .isEqualTo(UInt256.valueOf(Frame.MODE_VERIFY));
+  }
+
+  // GASPRICE; PUSH0; SSTORE; PUSH1 0x04; TXPARAM; PUSH1 1; SSTORE; STOP
+  private static final Bytes FEE_INTROSPECTION_CODE = Bytes.fromHexString("0x3a5f556004b060015500");
+
+  // PUSH1 3; PUSH0; PUSH0; APPROVE: approves execution and payment.
+  private static final Bytes APPROVE_BOTH_CODE = Bytes.fromHexString("0x60035f5faa");
+
+  private static final Wei LARGE_TIP = Wei.of(1_000);
+
+  /**
+   * A transaction whose sender approves both scopes from its own code. Without signature entries,
+   * whose random bytes are priced as calldata, its max_gas does not depend on its fees.
+   */
+  private Transaction codeApprovedTransaction(
+      final Frame body, final Wei maxFee, final Wei maxPriorityFeePerGas) {
+    return buildFrameTransaction(
+        0, List.of(selfVerifyFrame(), body), List.of(), maxFee, maxPriorityFeePerGas);
+  }
+
+  /**
+   * The EIP-8141 fee budget, as tests-bogota-devnet@v2.0.0 test_fee_budget.py exercises it. The
+   * payer escrows max_gas at the base fee plus the largest tip the rest of max_fee allows. GASPRICE
+   * reports the base fee plus that tip spread over max_gas. Settlement burns the gas used at the
+   * base fee and pays the coinbase the tip on the gas used, capped by what the escrow still holds.
+   * The expected values follow EELS calculate_frame_transaction_fees and disburse_frame_gas_fees.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("feeBudgets")
+  void feeBudgetSetsTheEscrowGasPriceAndSettlement(
+      final String name,
+      final Wei tip,
+      final BiFunction<BigInteger, BigInteger, BigInteger> budget) {
+    deploy(sender, APPROVE_BOTH_CODE);
+    deploy(contractAddress, FEE_INTROSPECTION_CODE);
+    final Frame body = bodyFrame(Frame.MODE_DEFAULT, 0, contractAddress);
+    final BigInteger maxGas =
+        BigInteger.valueOf(codeApprovedTransaction(body, Wei.ZERO, tip).getGasLimit());
+    final BigInteger baseFee = BASE_FEE.getAsBigInteger();
+    final BigInteger required = maxGas.multiply(baseFee);
+    final BigInteger maxFee = required.add(budget.apply(maxGas, tip.getAsBigInteger()));
+    final Transaction transaction = codeApprovedTransaction(body, Wei.of(maxFee), tip);
+    final Wei senderBalanceBefore = worldState.get(sender).getBalance();
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isSuccessful()).isTrue();
+    final BigInteger maxPriorityFee =
+        tip.getAsBigInteger().multiply(maxGas).min(maxFee.subtract(required));
+    final BigInteger maxCost = required.add(maxPriorityFee);
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ZERO))
+        .isEqualTo(UInt256.valueOf(baseFee.add(maxPriorityFee.divide(maxGas))));
+    assertThat(worldState.get(contractAddress).getStorageValue(UInt256.ONE))
+        .isEqualTo(UInt256.valueOf(maxFee));
+
+    final BigInteger gasUsed = BigInteger.valueOf(result.getEstimateGasUsedByTransaction());
+    final BigInteger baseFeePaid = gasUsed.multiply(baseFee);
+    final BigInteger priorityFeePaid =
+        tip.getAsBigInteger().multiply(gasUsed).min(maxCost.subtract(baseFeePaid));
+    assertThat(worldState.get(coinbase).getBalance()).isEqualTo(Wei.of(priorityFeePaid));
+    assertThat(worldState.get(sender).getBalance())
+        .isEqualTo(senderBalanceBefore.subtract(Wei.of(baseFeePaid.add(priorityFeePaid))));
+  }
+
+  static Stream<Arguments> feeBudgets() {
+    return Stream.of(
+        Arguments.of(
+            "surplus budget, full tip",
+            LARGE_TIP,
+            (BiFunction<BigInteger, BigInteger, BigInteger>)
+                (maxGas, tip) -> tip.multiply(maxGas).add(BigInteger.valueOf(12_345))),
+        Arguments.of(
+            "partial tip",
+            LARGE_TIP,
+            (BiFunction<BigInteger, BigInteger, BigInteger>)
+                (maxGas, tip) -> tip.multiply(maxGas).divide(BigInteger.valueOf(4))),
+        Arguments.of(
+            "no headroom caps the tip at settlement",
+            LARGE_TIP,
+            (BiFunction<BigInteger, BigInteger, BigInteger>) (maxGas, tip) -> BigInteger.ZERO),
+        Arguments.of(
+            "tip of 2^256-1",
+            Wei.MAX_WEI,
+            (BiFunction<BigInteger, BigInteger, BigInteger>)
+                (maxGas, tip) -> BigInteger.valueOf(1_000)));
+  }
+
+  @Test
+  void maxFeeBelowTheRequiredFeeInvalidatesTheTransaction() {
+    deploy(sender, APPROVE_BOTH_CODE);
+    final Frame body = senderFrame(recipient, Wei.ZERO);
+    final long maxGas = codeApprovedTransaction(body, Wei.ZERO, PRIORITY_FEE).getGasLimit();
+    final Transaction transaction =
+        codeApprovedTransaction(body, BASE_FEE.multiply(maxGas).subtract(1), PRIORITY_FEE);
+
+    final TransactionProcessingResult result = process(transaction);
+
+    assertThat(result.isInvalid()).isTrue();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE);
+    assertThat(result.getValidationResult().getErrorMessage())
+        .startsWith("gasPrice is less than the current BaseFee");
   }
 
   @Test

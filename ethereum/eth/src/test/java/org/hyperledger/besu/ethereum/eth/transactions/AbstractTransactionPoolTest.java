@@ -1006,8 +1006,8 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
 
   @Test
   public void shouldRejectLocalFrameTransactionBeforeCheckingItsFee() {
-    // Above the default RPC fee cap, so a price check ahead of the frame rejection reports
-    // TX_FEECAP_EXCEEDED instead.
+    // A frame transaction has no per-gas fee cap, so a price check ahead of the frame rejection
+    // throws instead of rejecting it.
     final Transaction frameTransaction = createFrameTransaction(Wei.fromEth(2));
 
     addAndAssertTransactionViaApiInvalid(frameTransaction, INVALID_TRANSACTION_FORMAT);
@@ -1022,7 +1022,7 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     verifyNoInteractions(transactionValidatorFactory.get());
   }
 
-  private static Transaction createFrameTransaction(final Wei maxFeePerGas) {
+  private static Transaction createFrameTransaction(final Wei maxFee) {
     return Transaction.builder()
         .type(TransactionType.FRAME)
         .chainId(BigInteger.ONE)
@@ -1041,8 +1041,7 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
                     Bytes.EMPTY)))
         .frameSignatures(List.of())
         .maxPriorityFeePerGas(Wei.ONE)
-        .maxFeePerGas(maxFeePerGas)
-        .maxFeePerBlobGas(Wei.ZERO)
+        .maxFee(maxFee)
         .build();
   }
 

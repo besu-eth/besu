@@ -1113,8 +1113,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             .frames(frames)
             .frameSignatures(List.of())
             .maxPriorityFeePerGas(Wei.ZERO)
-            .maxFeePerGas(Wei.ZERO)
-            .maxFeePerBlobGas(Wei.ZERO)
+            .maxFee(Wei.ZERO)
             .build();
 
     final ValidationResult<TransactionInvalidReason> result =
@@ -1179,8 +1178,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             .frames(frames)
             .frameSignatures(List.of())
             .maxPriorityFeePerGas(Wei.ZERO)
-            .maxFeePerGas(Wei.ZERO)
-            .maxFeePerBlobGas(Wei.ZERO)
+            .maxFee(Wei.ZERO)
             .build();
 
     final ValidationResult<TransactionInvalidReason> result =
@@ -1282,6 +1280,112 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         Arguments.of("above_cap-standard", KeyedNonceGasCapVectors.aboveCapStandard(), false),
         Arguments.of("at_cap-floor", KeyedNonceGasCapVectors.atCapFloor(), true),
         Arguments.of("above_cap-floor", KeyedNonceGasCapVectors.aboveCapFloor(), false));
+  }
+
+  /**
+   * EIP-8141: max_fee must cover max_gas at the base fee plus the blob gas at the blob base fee. A
+   * shortfall reuses the base fee message, because the exception mappings match its prefix for
+   * {@code INSUFFICIENT_MAX_FEE_PER_GAS}.
+   */
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("frameFeeBudgets")
+  void shouldRequireTheFrameFeeBudgetToCoverTheBaseFees(
+      final String name, final int blobCount, final long belowRequired) {
+    when(gasCalculator.blobGasCost(anyLong()))
+        .thenAnswer(invocation -> invocation.getArgument(0, Long.class) * 131_072L);
+    final Wei baseFee = Wei.of(7);
+    final Wei blobBaseFee = Wei.of(3);
+    final Transaction unpriced = frameTransaction(Wei.ZERO, Wei.ZERO, blobCount);
+    final Wei requiredMaxFee =
+        baseFee.multiply(unpriced.getGasLimit()).add(blobBaseFee.multiply(blobCount * 131_072L));
+    final Transaction transaction =
+        frameTransaction(requiredMaxFee.subtract(belowRequired), Wei.ONE, blobCount);
+
+    final ValidationResult<TransactionInvalidReason> result =
+        frameValidator()
+            .validate(
+                transaction, Optional.of(baseFee), Optional.of(blobBaseFee), processingBlockParams);
+
+    if (belowRequired == 0) {
+      assertThat(result).isEqualTo(ValidationResult.valid());
+    } else {
+      assertThat(result.getInvalidReason()).isEqualTo(GAS_PRICE_BELOW_CURRENT_BASE_FEE);
+      assertThat(result.getErrorMessage())
+          .isEqualTo(
+              "gasPrice is less than the current BaseFee: max fee %s below the required %s",
+              requiredMaxFee.subtract(belowRequired).toDecimalString(),
+              requiredMaxFee.toDecimalString());
+    }
+  }
+
+  private static Stream<Arguments> frameFeeBudgets() {
+    return Stream.of(
+        Arguments.of("exact, no blobs", 0, 0L),
+        Arguments.of("one below, no blobs", 0, 1L),
+        Arguments.of("exact, one blob", 1, 0L),
+        Arguments.of("one below, one blob", 1, 1L));
+  }
+
+  /**
+   * EIP-8141 drops the per-gas rules for frame transactions: a tip above the budget is capped
+   * rather than rejected, a zero budget passes when there is no base fee, and the simulator's
+   * relaxed parameters skip the budget check.
+   */
+  @Test
+  void shouldNotApplyPerGasFeeRulesToFrameTransactions() {
+    final Transaction maxTip = frameTransaction(Wei.fromEth(1), Wei.MAX_WEI, 0);
+    final Transaction zeroBudget = frameTransaction(Wei.ZERO, Wei.ZERO, 0);
+
+    assertThat(
+            frameValidator()
+                .validate(maxTip, Optional.of(Wei.of(7)), Optional.empty(), processingBlockParams))
+        .isEqualTo(ValidationResult.valid());
+    assertThat(
+            frameValidator()
+                .validate(zeroBudget, Optional.empty(), Optional.empty(), processingBlockParams))
+        .isEqualTo(ValidationResult.valid());
+    assertThat(
+            frameValidator()
+                .validate(
+                    zeroBudget,
+                    Optional.of(Wei.of(7)),
+                    Optional.empty(),
+                    TransactionValidationParams
+                        .transactionSimulatorAllowUnderpricedAndFutureNonce()))
+        .isEqualTo(ValidationResult.valid());
+  }
+
+  private TransactionValidator frameValidator() {
+    return createTransactionValidator(
+        gasCalculator,
+        GasLimitCalculator.constant(),
+        FeeMarket.london(0L),
+        false,
+        Optional.of(BigInteger.ONE),
+        Set.of(TransactionType.FRAME),
+        Integer.MAX_VALUE);
+  }
+
+  private static Transaction frameTransaction(
+      final Wei maxFee, final Wei maxPriorityFeePerGas, final int blobCount) {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(0)
+        .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
+        .frames(List.of(frame(50_000L, 0L)))
+        .frameSignatures(List.of())
+        .maxPriorityFeePerGas(maxPriorityFeePerGas)
+        .maxFee(maxFee)
+        .versionedHashes(
+            Stream.generate(
+                    () ->
+                        new VersionedHash(
+                            Bytes32.wrap(
+                                Bytes.concatenate(Bytes.of(1), Bytes.repeat((byte) 5, 31)))))
+                .limit(blobCount)
+                .toList())
+        .build();
   }
 
   private Account accountWithNonce(final long nonce) {

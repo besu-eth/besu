@@ -17,12 +17,16 @@ package org.hyperledger.besu.ethereum.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
 
-import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
-import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.evm.frame.KeyedNonces;
 
+import java.math.BigInteger;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -34,29 +38,104 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 class FrameTransactionGasTest {
 
+  private static final BigInteger CHAIN_ID = BigInteger.valueOf(7_038_851_975L);
+
   /**
-   * bogota-devnet-1 block 1788, tx 91: nonce keys [0xbeef]. Its canonical receipt has gasUsed
-   * 137,530 and the network reports gas (max_gas) 416,810; without the keyed nonce access cost both
-   * come out 12,100 short.
+   * A self-verified transfer with the nonce keys [0xbeef], shaped like a bogota-devnet-1 spamoor
+   * transaction: a VERIFY frame approving both scopes and a 1 wei SENDER frame, with one SECP256K1
+   * entry.
    */
-  private static final String KEYED_TX =
-      "0x06f8bd8501a38c5b87c382beef8094be59fef26b0b6cee61e6125b265130b8fa50d597f0cd010380c782c350"
-          + "83017e808080e1028094000000000000000000000000000000000000deadc782c3508302cd300180f85cf8"
-          + "5a0194be59fef26b0b6cee61e6125b265130b8fa50d59780b84101e9347ef4d93ed05357f580423f6b4f46"
-          + "7e076b14a53ed2660887cfaf37893fda15a86261e0927c6a2eb4c7cbb475a14c3ca7cfab4f5e2a33aeee7b"
-          + "85825650d8cc843b9aca00850ba43b740080c0";
+  private static Transaction keyedTransaction() {
+    final Address sender = Address.fromHexString("0xbe59fef26b0b6cee61e6125b265130b8fa50d597");
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(CHAIN_ID)
+        .nonceKeys(List.of(UInt256.valueOf(0xbeef)))
+        .nonce(0)
+        .sender(sender)
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_VERIFY,
+                    Frame.APPROVE_SCOPE_MASK,
+                    Optional.empty(),
+                    50_000L,
+                    97_920L,
+                    Wei.ZERO,
+                    Bytes.EMPTY),
+                new Frame(
+                    Frame.MODE_SENDER,
+                    0,
+                    Optional.of(Address.fromHexString("0xdead")),
+                    50_000L,
+                    183_600L,
+                    Wei.ONE,
+                    Bytes.EMPTY)))
+        .frameSignatures(
+            List.of(
+                new FrameSignature(
+                    FrameSignature.SCHEME_SECP256K1,
+                    sender.getBytes(),
+                    Bytes.EMPTY,
+                    Bytes.fromHexString(
+                        "0x01e9347ef4d93ed05357f580423f6b4f467e076b14a53ed2660887cfaf37893fda15a862"
+                            + "61e0927c6a2eb4c7cbb475a14c3ca7cfab4f5e2a33aeee7b85825650d8"))))
+        .maxFee(Wei.fromEth(1))
+        .maxPriorityFeePerGas(Wei.of(1_000_000_000L))
+        .build();
+  }
 
-  /** bogota-devnet-1 block 1788, tx 90: the legacy key set [0]; gas (max_gas) 57,425. */
-  private static final String LEGACY_TX =
-      "0x06f8cb8501a38c5b87c18082029a9416f7d57da54f962220a557858b134a14fdae43abf851e601809481413f"
-          + "0cf12e9b6a49b1d0439e081c577d57ffffc4821388808088000000006ad1479eca010380c4821388808080"
-          + "de028094f49995b30fab79d05f1c1b54e9f9d2e1fcc812adc4827530808080f848f846018080b84101177d"
-          + "11083ec49b2d969a9f20b7cca634c1a204c2fba9e5d82ca262976b56093d3ce316721346ce060595b081d9"
-          + "44226f997ec30b81dad6faa405d1609b3e0a62cc84773594008504a817c80080c0";
-
-  private static Transaction decode(final String hex) {
-    return TransactionDecoder.decodeOpaqueBytes(
-        Bytes.fromHexString(hex), EncodingContext.BLOCK_BODY);
+  /**
+   * A transfer behind an expiry verifier frame with the legacy key set, shaped like a
+   * bogota-devnet-1 spamoor transaction: the expiry frame, a VERIFY frame approving both scopes and
+   * a SENDER frame, with one SECP256K1 entry.
+   */
+  private static Transaction legacyTransaction() {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(CHAIN_ID)
+        .nonce(666)
+        .sender(Address.fromHexString("0x16f7d57da54f962220a557858b134a14fdae43ab"))
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_VERIFY,
+                    0,
+                    Optional.of(
+                        Address.fromHexString("0x81413f0cf12e9b6a49b1d0439e081c577d57ffff")),
+                    5_000L,
+                    0L,
+                    Wei.ZERO,
+                    Bytes.fromHexString("0x000000006ad1479e")),
+                new Frame(
+                    Frame.MODE_VERIFY,
+                    Frame.APPROVE_SCOPE_MASK,
+                    Optional.empty(),
+                    5_000L,
+                    0L,
+                    Wei.ZERO,
+                    Bytes.EMPTY),
+                new Frame(
+                    Frame.MODE_SENDER,
+                    0,
+                    Optional.of(
+                        Address.fromHexString("0xf49995b30fab79d05f1c1b54e9f9d2e1fcc812ad")),
+                    30_000L,
+                    0L,
+                    Wei.ZERO,
+                    Bytes.EMPTY)))
+        .frameSignatures(
+            List.of(
+                new FrameSignature(
+                    FrameSignature.SCHEME_SECP256K1,
+                    Bytes.EMPTY,
+                    Bytes.EMPTY,
+                    Bytes.fromHexString(
+                        "0x01177d11083ec49b2d969a9f20b7cca634c1a204c2fba9e5d82ca262976b56093d3ce316"
+                            + "721346ce060595b081d944226f997ec30b81dad6faa405d1609b3e0a62"))))
+        .maxFee(Wei.fromEth(1))
+        .maxPriorityFeePerGas(Wei.of(2_000_000_000L))
+        .build();
   }
 
   @Test
@@ -83,13 +162,10 @@ class FrameTransactionGasTest {
         .isEqualTo(24_200L);
   }
 
+  /** Without the keyed nonce access cost, the intrinsic gas and max_gas come out 12,100 short. */
   @Test
-  void keyedTransactionFromTheLiveChainMatchesItsCanonicalGas() {
-    final Transaction transaction = decode(KEYED_TX);
-    assertThat(transaction.getHash())
-        .isEqualTo(
-            Hash.fromHexString(
-                "0x532267892da63f581e9c96b410a5ca01ad1d3317469dc4bb6b5103f7c7bff38f"));
+  void keyedTransactionPaysTheKeyedNonceAccessCost() {
+    final Transaction transaction = keyedTransaction();
 
     assertThat(FrameTransactionGas.intrinsicGas(transaction)).isEqualTo(35_290L);
     assertThat(FrameTransactionGas.calldataFloorGas(transaction)).isEqualTo(39_610L);
@@ -97,12 +173,8 @@ class FrameTransactionGasTest {
   }
 
   @Test
-  void legacyTransactionFromTheLiveChainIsUnchanged() {
-    final Transaction transaction = decode(LEGACY_TX);
-    assertThat(transaction.getHash())
-        .isEqualTo(
-            Hash.fromHexString(
-                "0xcf72ee14d97c821fb598301773ad2e5ed62255725264a831e7d23148bd805a4f"));
+  void legacyTransactionPaysNoKeyedNonceAccessCost() {
+    final Transaction transaction = legacyTransaction();
 
     assertThat(FrameTransactionGas.intrinsicGas(transaction)).isEqualTo(17_425L);
     assertThat(FrameTransactionGas.calldataFloorGas(transaction)).isEqualTo(21_217L);
@@ -112,10 +184,6 @@ class FrameTransactionGasTest {
   @Test
   void sixteenKeyTransactionPaysTheAccessCostOfEveryKey() {
     final Transaction transaction = KeyedNonceGasCapVectors.atCapStandard();
-    assertThat(transaction.getHash())
-        .isEqualTo(
-            Hash.fromHexString(
-                "0x6702dd295536e252f97b5a6ff1058bce35f2770c3d5cfc458fe2424ba639877c"));
 
     // Base 12,000 + one frame 475 + 16 keys x 12,100 = 206,075, plus the 18 non-zero bytes of the
     // nonce calldata: 18 x 16 = 288 as intrinsic calldata, 18 x 64 = 1,152 under the floor.
@@ -125,10 +193,10 @@ class FrameTransactionGasTest {
 
   @Test
   void floorCapVectorMatchesTheSpecFixture() {
-    assertThat(KeyedNonceGasCapVectors.atCapFloor().getHash())
-        .isEqualTo(
-            Hash.fromHexString(
-                "0xf79b65e91c52152878959ad4705f4c4d7a7e1b63fad88eaf9abe9fd6502c9cc3"));
+    assertThat(
+            TransactionEncoder.encodeOpaqueBytes(
+                KeyedNonceGasCapVectors.atCapFloor(), EncodingContext.BLOCK_BODY))
+        .isEqualTo(KeyedNonceGasCapVectors.atCapFloorBytes());
   }
 
   static Stream<Arguments> capVectors() {

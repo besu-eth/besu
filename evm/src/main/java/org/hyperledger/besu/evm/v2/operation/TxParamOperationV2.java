@@ -63,9 +63,7 @@ public class TxParamOperationV2 extends AbstractOperationV2 {
       case 0x01 -> setLong(context.nonce(), stack, slot);
       case 0x02 -> setAddress(context.sender(), stack, slot);
       case 0x03 -> setWei(context.maxPriorityFeePerGas(), stack, slot);
-      case 0x04 -> setWei(context.maxFeePerGas(), stack, slot);
-      case 0x05 -> setWei(context.maxFeePerBlobGas(), stack, slot);
-      case 0x06 -> setWei(context.maxCost(), stack, slot);
+      case 0x04 -> setWei(context.maxFee(), stack, slot);
       case 0x07 -> setLong(frame.getVersionedHashes().map(List::size).orElse(0), stack, slot);
       case 0x08 -> setBytes32(context.signatureHash(), stack, slot);
       case 0x09 -> setLong(context.frames().size(), stack, slot);

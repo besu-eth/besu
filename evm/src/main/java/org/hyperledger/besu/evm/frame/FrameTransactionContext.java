@@ -129,8 +129,7 @@ public class FrameTransactionContext {
   private final List<UInt256> nonceKeys;
   private final long legacyNonce;
   private final Wei maxPriorityFeePerGas;
-  private final Wei maxFeePerGas;
-  private final Wei maxFeePerBlobGas;
+  private final Wei maxFee;
   private final Wei maxCost;
 
   private int currentFrameIndex = 0;
@@ -166,8 +165,7 @@ public class FrameTransactionContext {
    * @param nonceKeys the EIP-8250 nonce keys the transaction selects
    * @param legacyNonce the sender's account nonce before any frame executed
    * @param maxPriorityFeePerGas the max priority fee per gas
-   * @param maxFeePerGas the max fee per gas
-   * @param maxFeePerBlobGas the max fee per blob gas
+   * @param maxFee the total fee budget, in wei
    * @param maxCost the maximum wei cost collected from the payer at approval
    */
   public FrameTransactionContext(
@@ -179,8 +177,7 @@ public class FrameTransactionContext {
       final List<UInt256> nonceKeys,
       final long legacyNonce,
       final Wei maxPriorityFeePerGas,
-      final Wei maxFeePerGas,
-      final Wei maxFeePerBlobGas,
+      final Wei maxFee,
       final Wei maxCost) {
     this.frames = frames;
     this.signatures = signatures;
@@ -190,8 +187,7 @@ public class FrameTransactionContext {
     this.nonceKeys = nonceKeys;
     this.legacyNonce = legacyNonce;
     this.maxPriorityFeePerGas = maxPriorityFeePerGas;
-    this.maxFeePerGas = maxFeePerGas;
-    this.maxFeePerBlobGas = maxFeePerBlobGas;
+    this.maxFee = maxFee;
     this.maxCost = maxCost;
     this.frameStatuses = new int[frames.size()];
     this.frameExecutionGasUsed = new long[frames.size()];
@@ -291,21 +287,13 @@ public class FrameTransactionContext {
   }
 
   /**
-   * The max fee per gas.
+   * The total fee budget: the most the transaction pays, in wei, for all of its execution, state
+   * and blob gas.
    *
-   * @return the max fee per gas
+   * @return the max fee in wei
    */
-  public Wei maxFeePerGas() {
-    return maxFeePerGas;
-  }
-
-  /**
-   * The max fee per blob gas.
-   *
-   * @return the max fee per blob gas
-   */
-  public Wei maxFeePerBlobGas() {
-    return maxFeePerBlobGas;
+  public Wei maxFee() {
+    return maxFee;
   }
 
   /**

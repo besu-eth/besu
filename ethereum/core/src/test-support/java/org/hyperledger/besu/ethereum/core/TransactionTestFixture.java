@@ -126,7 +126,7 @@ public class TransactionTestFixture {
         break;
       case FRAME:
         builder.maxPriorityFeePerGas(maxPriorityFeePerGas.orElse(Wei.of(500)));
-        builder.maxFeePerGas(maxFeePerGas.orElse(Wei.of(5000)));
+        builder.maxFee(Wei.fromEth(1));
         builder.frames(
             frames.orElse(
                 List.of(

@@ -37,7 +37,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  * <p>Payload: {@code [chain_id, nonce_keys, nonce_seq, sender, frames, signatures, fees,
  * blob_versioned_hashes]} with {@code frames = [[mode, flags, target, [execution, state], value,
  * data], ...]}, {@code signatures = [[scheme, signer, msg, signature], ...]} and {@code fees =
- * [max_priority_fee_per_gas, max_fee_per_gas, max_fee_per_blob_gas]}.
+ * [max_fee, max_priority_fee_per_gas]}.
  */
 public class FrameTransactionDecoder {
 
@@ -73,9 +73,8 @@ public class FrameTransactionDecoder {
         .frameSignatures(input.readList(FrameTransactionDecoder::decodeSignature));
     input.enterList();
     builder
-        .maxPriorityFeePerGas(readBoundedWei(input, "max priority fee per gas"))
-        .maxFeePerGas(readBoundedWei(input, "max fee per gas"))
-        .maxFeePerBlobGas(readBoundedWei(input, "max fee per blob gas"));
+        .maxFee(readBoundedWei(input, "max fee"))
+        .maxPriorityFeePerGas(readBoundedWei(input, "max priority fee per gas"));
     input.leaveList();
     builder.versionedHashes(
         input.readList(versionedHashes -> new VersionedHash(versionedHashes.readBytes32())));

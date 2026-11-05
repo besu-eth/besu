@@ -63,9 +63,7 @@ public class TxParamOperation extends AbstractOperation {
           case 0x01 -> Words.longBytes(context.nonce());
           case 0x02 -> context.sender().getBytes();
           case 0x03 -> context.maxPriorityFeePerGas().toBytes();
-          case 0x04 -> context.maxFeePerGas().toBytes();
-          case 0x05 -> context.maxFeePerBlobGas().toBytes();
-          case 0x06 -> context.maxCost().toBytes();
+          case 0x04 -> context.maxFee().toBytes();
           case 0x07 ->
               Words.longBytes(frame.getVersionedHashes().map(hashes -> hashes.size()).orElse(0));
           case 0x08 -> context.signatureHash();
