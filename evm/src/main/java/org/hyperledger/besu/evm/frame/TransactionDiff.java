@@ -21,7 +21,6 @@ import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
-import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldView;
@@ -44,9 +43,9 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>The diff compares the transaction prestate (the state before the transaction, which includes
  * the earlier transactions of the block) with the state as of the read. Values the transaction
- * restored leave no entry. The tables are in the canonical enumeration order: balance changes and
- * deployments ascending by address as uint160, slot changes ascending by address and then by key as
- * uint256, and events in emission order.
+ * restored leave no entry. The tables are in the canonical enumeration order: balance, code and
+ * nonce changes ascending by address as uint160, slot changes ascending by address and then by key
+ * as uint256, and events in emission order.
  *
  * <p>Instances are immutable. The processor computes one with {@link #compute} from the
  * transaction's write layers, and tests build them with {@link #builder()}.
@@ -76,12 +75,23 @@ public final class TransactionDiff {
   public record SlotChange(Address address, UInt256 key, UInt256 before, UInt256 after) {}
 
   /**
-   * An entry of the {@code contracts_deployed} table.
+   * An entry of the {@code codes_changed} table. The hashes are of the raw code, so installing,
+   * changing or clearing an EIP-7702 delegation designator is a code change.
    *
-   * @param address the address of the deployed contract
-   * @param codeHash the code hash as of the read
+   * @param address the account whose code changed
+   * @param before the code hash in the transaction prestate, {@link Hash#EMPTY} for no code
+   * @param after the code hash as of the read, {@link Hash#EMPTY} for no code
    */
-  public record DeployedContract(Address address, Hash codeHash) {}
+  public record CodeChange(Address address, Hash before, Hash after) {}
+
+  /**
+   * An entry of the {@code nonces_changed} table.
+   *
+   * @param address the account whose nonce changed
+   * @param before the nonce in the transaction prestate, as an unsigned 64-bit value
+   * @param after the nonce as of the read, as an unsigned 64-bit value
+   */
+  public record NonceChange(Address address, long before, long after) {}
 
   /**
    * An entry of the events table.
@@ -137,17 +147,20 @@ public final class TransactionDiff {
 
   private final List<BalanceChange> balances;
   private final List<SlotChange> slots;
-  private final List<DeployedContract> deployed;
+  private final List<CodeChange> codes;
+  private final List<NonceChange> nonces;
   private final List<Event> events;
 
   private TransactionDiff(
       final List<BalanceChange> balances,
       final List<SlotChange> slots,
-      final List<DeployedContract> deployed,
+      final List<CodeChange> codes,
+      final List<NonceChange> nonces,
       final List<Event> events) {
     this.balances = balances;
     this.slots = slots;
-    this.deployed = deployed;
+    this.codes = codes;
+    this.nonces = nonces;
     this.events = events;
   }
 
@@ -201,17 +214,8 @@ public final class TransactionDiff {
 
     final Builder builder = builder();
     for (final Address address : written) {
-      final AccountFields before = AccountFields.of(prestate.get(address));
-      final Account afterAccount = post.get(address);
-      final AccountFields after = AccountFields.of(afterAccount);
-      // Only a deployment candidate needs its code: the delegation check excludes EIP-7702
-      // designators from the deployed table.
-      final boolean afterIsDelegation =
-          afterAccount != null
-              && before.codeHash().equals(Hash.EMPTY)
-              && !after.codeHash().equals(Hash.EMPTY)
-              && CodeDelegationHelper.hasCodeDelegation(afterAccount.getCode());
-      builder.account(address, before, after, afterIsDelegation);
+      builder.account(
+          address, AccountFields.of(prestate.get(address)), AccountFields.of(post.get(address)));
     }
     for (final Map.Entry<Address, Set<UInt256>> entry : writtenSlots.entrySet()) {
       final Address address = entry.getKey();
@@ -256,12 +260,21 @@ public final class TransactionDiff {
   }
 
   /**
-   * The {@code contracts_deployed} table, ascending by address.
+   * The {@code codes_changed} table, ascending by address.
    *
-   * @return the deployed contracts
+   * @return the code changes
    */
-  public List<DeployedContract> deployed() {
-    return deployed;
+  public List<CodeChange> codes() {
+    return codes;
+  }
+
+  /**
+   * The {@code nonces_changed} table, ascending by address.
+   *
+   * @return the nonce changes
+   */
+  public List<NonceChange> nonces() {
+    return nonces;
   }
 
   /**
@@ -276,8 +289,7 @@ public final class TransactionDiff {
   /** Collects the candidate entries of a diff and builds its tables. */
   public static final class Builder {
 
-    private record AccountEntry(
-        AccountFields before, AccountFields after, boolean afterIsDelegation) {}
+    private record AccountEntry(AccountFields before, AccountFields after) {}
 
     private final Map<Address, AccountEntry> accounts = new TreeMap<>();
     private final Map<Address, Map<UInt256, SlotChange>> slots = new TreeMap<>();
@@ -286,7 +298,7 @@ public final class TransactionDiff {
     private Builder() {}
 
     /**
-     * Adds a candidate account whose current code is not an EIP-7702 delegation designator.
+     * Adds a candidate account. A later call for the same address replaces the earlier one.
      *
      * @param address the account
      * @param before its fields in the transaction prestate
@@ -295,25 +307,7 @@ public final class TransactionDiff {
      */
     public Builder account(
         final Address address, final AccountFields before, final AccountFields after) {
-      return account(address, before, after, false);
-    }
-
-    /**
-     * Adds a candidate account. A later call for the same address replaces the earlier one.
-     *
-     * @param address the account
-     * @param before its fields in the transaction prestate
-     * @param after its fields as of the read
-     * @param afterIsDelegation whether the current code is an EIP-7702 delegation designator, which
-     *     is not a deployment
-     * @return this builder
-     */
-    public Builder account(
-        final Address address,
-        final AccountFields before,
-        final AccountFields after,
-        final boolean afterIsDelegation) {
-      accounts.put(address, new AccountEntry(before, after, afterIsDelegation));
+      accounts.put(address, new AccountEntry(before, after));
       return this;
     }
 
@@ -354,7 +348,8 @@ public final class TransactionDiff {
      */
     public TransactionDiff build() {
       final List<BalanceChange> balanceTable = new ArrayList<>();
-      final List<DeployedContract> deployedTable = new ArrayList<>();
+      final List<CodeChange> codeTable = new ArrayList<>();
+      final List<NonceChange> nonceTable = new ArrayList<>();
       for (final Map.Entry<Address, AccountEntry> entry : accounts.entrySet()) {
         final Address address = entry.getKey();
         final AccountFields before = entry.getValue().before();
@@ -362,10 +357,11 @@ public final class TransactionDiff {
         if (!before.balance().equals(after.balance())) {
           balanceTable.add(new BalanceChange(address, before.balance(), after.balance()));
         }
-        if (before.codeHash().equals(Hash.EMPTY)
-            && !after.codeHash().equals(Hash.EMPTY)
-            && !entry.getValue().afterIsDelegation()) {
-          deployedTable.add(new DeployedContract(address, after.codeHash()));
+        if (!before.codeHash().equals(after.codeHash())) {
+          codeTable.add(new CodeChange(address, before.codeHash(), after.codeHash()));
+        }
+        if (before.nonce() != after.nonce()) {
+          nonceTable.add(new NonceChange(address, before.nonce(), after.nonce()));
         }
       }
 
@@ -381,7 +377,8 @@ public final class TransactionDiff {
       return new TransactionDiff(
           List.copyOf(balanceTable),
           List.copyOf(slotTable),
-          List.copyOf(deployedTable),
+          List.copyOf(codeTable),
+          List.copyOf(nonceTable),
           List.copyOf(events));
     }
   }

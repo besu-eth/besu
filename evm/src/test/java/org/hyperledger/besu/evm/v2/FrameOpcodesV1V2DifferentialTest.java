@@ -195,7 +195,7 @@ class FrameOpcodesV1V2DifferentialTest {
     final List<Bytes> indices =
         List.of(Bytes.EMPTY, Bytes.of(1), Bytes.of(2), Bytes.of(3), TWO_TO_THE_64, TWO_TO_THE_255);
     final List<Bytes> params = new ArrayList<>();
-    for (int param = 0; param <= 0x16; param++) {
+    for (int param = 0; param <= 0x1B; param++) {
       params.add(Bytes.of(param));
     }
     params.add(TWO_TO_THE_64);

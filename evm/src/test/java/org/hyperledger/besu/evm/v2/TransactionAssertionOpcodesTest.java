@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.v2;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.evm.v2.AssertContexts.DELEGATION_CODE_HASH;
 import static org.hyperledger.besu.evm.v2.AssertContexts.DEPLOYED_CODE_HASH;
 import static org.hyperledger.besu.evm.v2.AssertContexts.MAX_COST;
 import static org.hyperledger.besu.evm.v2.AssertContexts.T1;
@@ -25,6 +26,7 @@ import static org.hyperledger.besu.evm.v2.ProgramRun.CONTRACT;
 import static org.hyperledger.besu.evm.v2.ProgramRun.SECOND_CALLEE;
 import static org.hyperledger.besu.evm.v2.ProgramRun.SENDER;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.MainnetEVMs;
 import org.hyperledger.besu.evm.frame.FrameTransactionContext;
@@ -89,44 +91,57 @@ class TransactionAssertionOpcodesTest {
     return Stream.of(
             new Object[] {0x00, 0, Bytes.of(2)},
             new Object[] {0x01, 0, Bytes.of(3)},
-            new Object[] {0x02, 0, Bytes.of(1)},
-            new Object[] {0x03, 0, SENDER.getBytes()},
-            new Object[] {0x03, 1, CALLEE.getBytes()},
-            new Object[] {0x04, 0, Bytes.ofUnsignedInt(2_000_000)},
-            new Object[] {0x05, 0, Bytes.ofUnsignedInt(1_000_000)},
-            new Object[] {0x04, 1, Bytes.EMPTY},
-            new Object[] {0x05, 1, Bytes.of(3)},
-            new Object[] {0x06, 0, CONTRACT.getBytes()},
-            new Object[] {0x06, 1, CONTRACT.getBytes()},
-            new Object[] {0x06, 2, CALLEE.getBytes()},
-            new Object[] {0x07, 0, Bytes.of(1)},
-            new Object[] {0x07, 1, Bytes.of(2)},
-            new Object[] {0x07, 2, Bytes.EMPTY},
+            new Object[] {0x02, 0, Bytes.of(2)},
+            new Object[] {0x03, 0, Bytes.of(3)},
+            new Object[] {0x04, 0, SENDER.getBytes()},
+            new Object[] {0x04, 1, CALLEE.getBytes()},
+            new Object[] {0x05, 0, Bytes.ofUnsignedInt(2_000_000)},
+            new Object[] {0x06, 0, Bytes.ofUnsignedInt(1_000_000)},
+            new Object[] {0x05, 1, Bytes.EMPTY},
+            new Object[] {0x06, 1, Bytes.of(3)},
+            new Object[] {0x07, 0, CONTRACT.getBytes()},
+            new Object[] {0x07, 1, CONTRACT.getBytes()},
+            new Object[] {0x07, 2, CALLEE.getBytes()},
             new Object[] {0x08, 0, Bytes.EMPTY},
             new Object[] {0x08, 1, Bytes.of(5)},
             new Object[] {0x08, 2, Bytes.of(9)},
             new Object[] {0x09, 0, Bytes.of(7)},
             new Object[] {0x09, 1, Bytes.EMPTY},
             new Object[] {0x09, 2, Bytes.of(1)},
-            new Object[] {0x0A, 0, SECOND_CALLEE.getBytes()},
-            new Object[] {0x0B, 0, DEPLOYED_CODE_HASH.getBytes()},
-            new Object[] {0x0C, 0, Bytes.of(3)},
-            new Object[] {0x0D, 0, CONTRACT.getBytes()},
-            new Object[] {0x0D, 1, CALLEE.getBytes()},
-            new Object[] {0x0D, 2, CONTRACT.getBytes()},
-            new Object[] {0x0E, 0, Bytes.of(3)},
-            new Object[] {0x0E, 1, Bytes.EMPTY},
-            new Object[] {0x0E, 2, Bytes.of(4)},
-            new Object[] {0x0F, 0, T1},
-            new Object[] {0x10, 0, T3},
-            new Object[] {0x11, 0, T2},
-            new Object[] {0x11, 2, T2},
-            new Object[] {0x12, 2, T3},
-            new Object[] {0x13, 0, Bytes.of(40)},
+            new Object[] {0x0A, 0, Bytes.of(1)},
+            new Object[] {0x0A, 1, Bytes.of(2)},
+            new Object[] {0x0A, 2, Bytes.EMPTY},
+            new Object[] {0x0B, 0, CALLEE.getBytes()},
+            new Object[] {0x0B, 1, SECOND_CALLEE.getBytes()},
+            new Object[] {0x0C, 0, DELEGATION_CODE_HASH.getBytes()},
+            new Object[] {0x0C, 1, Hash.EMPTY.getBytes()},
+            new Object[] {0x0D, 0, Hash.EMPTY.getBytes()},
+            new Object[] {0x0D, 1, DEPLOYED_CODE_HASH.getBytes()},
+            new Object[] {0x0E, 0, SENDER.getBytes()},
+            new Object[] {0x0E, 1, CONTRACT.getBytes()},
+            new Object[] {0x0E, 2, SECOND_CALLEE.getBytes()},
+            new Object[] {0x0F, 0, Bytes.EMPTY},
+            new Object[] {0x0F, 1, Bytes.fromHexString("0x7fffffffffffffff")},
+            new Object[] {0x10, 0, Bytes.of(1)},
+            new Object[] {0x10, 1, Bytes.fromHexString("0x8000000000000000")},
+            new Object[] {0x10, 2, Bytes.of(1)},
+            new Object[] {0x11, 0, Bytes.of(3)},
+            new Object[] {0x12, 0, CONTRACT.getBytes()},
+            new Object[] {0x12, 1, CALLEE.getBytes()},
+            new Object[] {0x12, 2, CONTRACT.getBytes()},
+            new Object[] {0x13, 0, Bytes.of(3)},
             new Object[] {0x13, 1, Bytes.EMPTY},
-            new Object[] {0x13, 2, Bytes.of(1)},
-            new Object[] {0x14, 0, MAX_COST.toBytes()},
-            new Object[] {0x15, 0, SENDER.getBytes()})
+            new Object[] {0x13, 2, Bytes.of(4)},
+            new Object[] {0x14, 0, T1},
+            new Object[] {0x15, 0, T3},
+            new Object[] {0x16, 0, T2},
+            new Object[] {0x16, 2, T2},
+            new Object[] {0x17, 2, T3},
+            new Object[] {0x18, 0, Bytes.of(40)},
+            new Object[] {0x18, 1, Bytes.EMPTY},
+            new Object[] {0x18, 2, Bytes.of(1)},
+            new Object[] {0x19, 0, MAX_COST.toBytes()},
+            new Object[] {0x1A, 0, SENDER.getBytes()})
         .flatMap(
             c ->
                 Stream.of(ProgramRun.V1, ProgramRun.V2)
@@ -177,15 +192,21 @@ class TransactionAssertionOpcodesTest {
               "count with a non-zero index", Bytes.of(0x00), Bytes.of(1), "INVALID_OPERATION"
             },
             new Object[] {
-              "count with index 2^255", Bytes.of(0x0C), TWO_TO_THE_255, "INVALID_OPERATION"
+              "nonce count with a non-zero index", Bytes.of(0x03), Bytes.of(1), "INVALID_OPERATION"
             },
             new Object[] {
-              "pre-charge with an index", Bytes.of(0x14), Bytes.of(1), "INVALID_OPERATION"
+              "code count with index 2^255", Bytes.of(0x02), TWO_TO_THE_255, "INVALID_OPERATION"
             },
             new Object[] {
-              "payer with an index", Bytes.of(0x15), TWO_TO_THE_64, "INVALID_OPERATION"
+              "count with index 2^255", Bytes.of(0x11), TWO_TO_THE_255, "INVALID_OPERATION"
             },
-            new Object[] {"undefined 0x16", Bytes.of(0x16), Bytes.EMPTY, "INVALID_OPERATION"},
+            new Object[] {
+              "pre-charge with an index", Bytes.of(0x19), Bytes.of(1), "INVALID_OPERATION"
+            },
+            new Object[] {
+              "payer with an index", Bytes.of(0x1A), TWO_TO_THE_64, "INVALID_OPERATION"
+            },
+            new Object[] {"undefined 0x1b", Bytes.of(0x1B), Bytes.EMPTY, "INVALID_OPERATION"},
             new Object[] {"undefined 2^64", TWO_TO_THE_64, Bytes.EMPTY, "INVALID_OPERATION"},
             new Object[] {
               "undefined 2^64 + 1",
@@ -194,13 +215,14 @@ class TransactionAssertionOpcodesTest {
               "INVALID_OPERATION"
             },
             new Object[] {"undefined 2^255", TWO_TO_THE_255, Bytes.EMPTY, "INVALID_OPERATION"},
-            new Object[] {"balance past the end", Bytes.of(0x03), Bytes.of(2), "OUT_OF_BOUNDS"},
-            new Object[] {"balance at 2^64", Bytes.of(0x05), TWO_TO_THE_64, "OUT_OF_BOUNDS"},
-            new Object[] {"slot past the end", Bytes.of(0x09), Bytes.of(3), "OUT_OF_BOUNDS"},
-            new Object[] {"deployed past the end", Bytes.of(0x0B), Bytes.of(1), "OUT_OF_BOUNDS"},
-            new Object[] {"event past the end", Bytes.of(0x0D), Bytes.of(3), "OUT_OF_BOUNDS"},
-            new Object[] {"topic of a LOG0", Bytes.of(0x0F), Bytes.of(1), "OUT_OF_BOUNDS"},
-            new Object[] {"fourth topic of a LOG3", Bytes.of(0x12), Bytes.EMPTY, "OUT_OF_BOUNDS"})
+            new Object[] {"balance past the end", Bytes.of(0x04), Bytes.of(2), "OUT_OF_BOUNDS"},
+            new Object[] {"balance at 2^64", Bytes.of(0x06), TWO_TO_THE_64, "OUT_OF_BOUNDS"},
+            new Object[] {"slot past the end", Bytes.of(0x0A), Bytes.of(3), "OUT_OF_BOUNDS"},
+            new Object[] {"code past the end", Bytes.of(0x0D), Bytes.of(2), "OUT_OF_BOUNDS"},
+            new Object[] {"nonce past the end", Bytes.of(0x10), Bytes.of(3), "OUT_OF_BOUNDS"},
+            new Object[] {"event past the end", Bytes.of(0x12), Bytes.of(3), "OUT_OF_BOUNDS"},
+            new Object[] {"topic of a LOG0", Bytes.of(0x14), Bytes.of(1), "OUT_OF_BOUNDS"},
+            new Object[] {"fourth topic of a LOG3", Bytes.of(0x17), Bytes.EMPTY, "OUT_OF_BOUNDS"})
         .flatMap(
             c ->
                 Stream.of(ProgramRun.V1, ProgramRun.V2)
@@ -253,26 +275,26 @@ class TransactionAssertionOpcodesTest {
     assertThat(run(configuration, txtrace(Bytes.of(0x00), Bytes.EMPTY), empty).stack())
         .containsExactly(word(Bytes.EMPTY));
     assertThat(
-            run(configuration, txtrace(Bytes.of(0x03), Bytes.EMPTY), AssertContexts.withEmptyDiff())
+            run(configuration, txtrace(Bytes.of(0x04), Bytes.EMPTY), AssertContexts.withEmptyDiff())
                 .haltReason())
         .isEqualTo("OUT_OF_BOUNDS");
     // without a payer, GAS_PAYER reads 0
     assertThat(
-            run(configuration, txtrace(Bytes.of(0x15), Bytes.EMPTY), AssertContexts.withDiff(false))
+            run(configuration, txtrace(Bytes.of(0x1A), Bytes.EMPTY), AssertContexts.withDiff(false))
                 .stack())
         .containsExactly(word(Bytes.EMPTY));
     // with nothing installed, the pre-charge still reads and the tables halt
     assertThat(
             run(
                     configuration,
-                    txtrace(Bytes.of(0x14), Bytes.EMPTY),
+                    txtrace(Bytes.of(0x19), Bytes.EMPTY),
                     AssertContexts.withoutDiff(true))
                 .stack())
         .containsExactly(word(MAX_COST.toBytes()));
     assertThat(
             run(
                     configuration,
-                    txtrace(Bytes.of(0x0C), Bytes.EMPTY),
+                    txtrace(Bytes.of(0x11), Bytes.EMPTY),
                     AssertContexts.withoutDiff(true))
                 .haltReason())
         .isEqualTo("INVALID_OPERATION");

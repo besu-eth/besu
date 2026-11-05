@@ -72,6 +72,10 @@ final class AssertContexts {
   /** The code hash the sample diff reports for its deployed contract. */
   static final Hash DEPLOYED_CODE_HASH = Hash.hash(Bytes.of(0x60, 0x00));
 
+  /** The hash of the EIP-7702 delegation designator the sample diff clears. */
+  static final Hash DELEGATION_CODE_HASH =
+      Hash.hash(Bytes.concatenate(Bytes.fromHexString("0xef0100"), CONTRACT.getBytes()));
+
   private AssertContexts() {}
 
   /**
@@ -98,9 +102,10 @@ final class AssertContexts {
   }
 
   /**
-   * The sample diff: two balance changes, three slot changes, one deployment, and three events: a
-   * LOG3 with 40 bytes of data from the contract, a LOG0 without data from the callee, and a LOG4
-   * repeating a topic, with 1 byte of data, from the contract.
+   * The sample diff: two balance changes, three slot changes, two code changes (the callee's
+   * delegation cleared and a deployment), three nonce changes (one crossing 2^63), and three
+   * events: a LOG3 with 40 bytes of data from the contract, a LOG0 without data from the callee,
+   * and a LOG4 repeating a topic, with 1 byte of data, from the contract.
    *
    * @return the diff
    */
@@ -112,8 +117,12 @@ final class AssertContexts {
             new AccountFields(1, Wei.of(1_000_000), Hash.EMPTY))
         .account(
             CALLEE,
-            new AccountFields(1, Wei.ZERO, Hash.EMPTY),
+            new AccountFields(1, Wei.ZERO, DELEGATION_CODE_HASH),
             new AccountFields(1, Wei.of(3), Hash.EMPTY))
+        .account(
+            CONTRACT,
+            new AccountFields(Long.MAX_VALUE, Wei.ZERO, DEPLOYED_CODE_HASH),
+            new AccountFields(Long.MIN_VALUE, Wei.ZERO, DEPLOYED_CODE_HASH))
         .account(
             SECOND_CALLEE, AccountFields.EMPTY, new AccountFields(1, Wei.ZERO, DEPLOYED_CODE_HASH))
         .slot(CONTRACT, UInt256.ONE, UInt256.ZERO, UInt256.valueOf(7))

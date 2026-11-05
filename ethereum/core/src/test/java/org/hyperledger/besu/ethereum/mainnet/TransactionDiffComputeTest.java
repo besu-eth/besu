@@ -27,7 +27,8 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.TransactionDiff;
 import org.hyperledger.besu.evm.frame.TransactionDiff.BalanceChange;
-import org.hyperledger.besu.evm.frame.TransactionDiff.DeployedContract;
+import org.hyperledger.besu.evm.frame.TransactionDiff.CodeChange;
+import org.hyperledger.besu.evm.frame.TransactionDiff.NonceChange;
 import org.hyperledger.besu.evm.frame.TransactionDiff.SlotChange;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -130,7 +131,8 @@ class TransactionDiffComputeTest {
         .containsExactly(
             new SlotChange(WRITER, UInt256.valueOf(0xa), UInt256.ZERO, UInt256.ONE),
             new SlotChange(WRITER, UInt256.valueOf(0xb), UInt256.valueOf(5), UInt256.valueOf(7)));
-    assertThat(diff.deployed()).isEmpty();
+    assertThat(diff.codes()).isEmpty();
+    assertThat(diff.nonces()).containsExactly(new NonceChange(PAYER, 0, 1));
   }
 
   @Test
@@ -174,7 +176,8 @@ class TransactionDiffComputeTest {
 
     assertThat(diff.balances()).isEmpty();
     assertThat(diff.slots()).isEmpty();
-    assertThat(diff.deployed()).isEmpty();
+    assertThat(diff.codes()).isEmpty();
+    assertThat(diff.nonces()).isEmpty();
   }
 
   @Test
@@ -195,14 +198,15 @@ class TransactionDiffComputeTest {
     final TransactionDiff diff =
         TransactionDiff.compute(prestate, body, List.of(transaction, body), List.of());
 
-    assertThat(diff.deployed())
-        .containsExactly(new DeployedContract(CREATED, Hash.hash(Bytes.of(0x00))));
+    assertThat(diff.codes())
+        .containsExactly(new CodeChange(CREATED, Hash.EMPTY, Hash.hash(Bytes.of(0x00))));
+    assertThat(diff.nonces()).containsExactly(new NonceChange(CREATED, 0, 1));
     assertThat(diff.slots())
         .containsExactly(new SlotChange(CREATED, UInt256.ONE, UInt256.ZERO, UInt256.valueOf(4)));
   }
 
   @Test
-  void aDelegationDesignatorIsNotADeployment() {
+  void aDelegationDesignatorIsACodeChange() {
     final WorldUpdater prestate = blockUpdater.updater();
     final WorldUpdater transaction = prestate.updater();
     final Bytes designator = Bytes.fromHexString("0xef0100" + "11".repeat(20));
@@ -211,7 +215,8 @@ class TransactionDiffComputeTest {
     final TransactionDiff diff =
         TransactionDiff.compute(prestate, transaction, List.of(transaction), List.of());
 
-    assertThat(diff.deployed()).isEmpty();
+    assertThat(diff.codes())
+        .containsExactly(new CodeChange(RECIPIENT, Hash.EMPTY, Hash.hash(designator)));
   }
 
   @Test
@@ -228,6 +233,9 @@ class TransactionDiffComputeTest {
 
     // the deletion wipes what the prefix wrote, so the slot is not enumerated
     assertThat(diff.slots()).isEmpty();
+    assertThat(diff.codes())
+        .containsExactly(new CodeChange(WRITER, Hash.hash(WRITER_CODE), Hash.EMPTY));
+    assertThat(diff.nonces()).containsExactly(new NonceChange(WRITER, 1, 0));
   }
 
   /**

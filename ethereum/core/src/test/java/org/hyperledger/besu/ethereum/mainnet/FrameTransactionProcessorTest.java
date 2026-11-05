@@ -1159,18 +1159,17 @@ class FrameTransactionProcessorTest {
   }
 
   /**
-   * The TXTRACE part of the bogota-devnet-1 block 1792 probe: fifteen {@code TXTRACE(p, 0); POP}
-   * reads after a 1 wei transfer, every one of which must find its entry (two balance changes, and
-   * the transfer's EIP-7708 log with three topics). Each read costs 3 + 3 + 100 + 2 after the cold
-   * entry.
+   * Nineteen {@code TXTRACE(p, 0); POP} reads after a 1 wei transfer, every one of which must find
+   * its entry: two balance changes, the sender's nonce change, and the transfer's EIP-7708 log with
+   * three topics. Each read costs 3 + 3 + 100 + 2 after the cold entry.
    */
   @Test
-  void theLiveTxtraceProbeReadsEveryTableEntry() {
+  void txtraceReadsEveryTableEntryOfATransfer() {
     final StringBuilder probe = new StringBuilder("0x");
     for (final int param :
         List.of(
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x13, 0x14,
-            0x15)) {
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14,
+            0x15, 0x16, 0x18, 0x19, 0x1a)) {
       probe.append(String.format("600060%02xb650", param));
     }
     deploy(ASSERTION, Bytes.fromHexString(probe.append("00").toString()));
@@ -1183,7 +1182,7 @@ class FrameTransactionProcessorTest {
 
     assertThat(result.isSuccessful()).isTrue();
     assertThat(statuses(result)).containsExactly(1, 1, 1);
-    assertThat(receipt(result, 2).executionGasUsed()).isEqualTo(3000L + 15L * 108L);
+    assertThat(receipt(result, 2).executionGasUsed()).isEqualTo(3000L + 19L * 108L);
     assertThat(worldState.get(dead).getBalance()).isEqualTo(Wei.ONE);
   }
 
@@ -1196,9 +1195,9 @@ class FrameTransactionProcessorTest {
         "5f6001b6600114"
             + "5f5fb6600214"
             + "16"
-            + "5f600cb6600214"
+            + "5f6011b6600214"
             + "16"
-            + "5f6015b673"
+            + "5f601ab673"
             + sender.getBytes().toUnprefixedHexString()
             + "14"
             + "16";

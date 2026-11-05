@@ -51,23 +51,23 @@ public class TxTraceOperation extends AbstractOperation {
   /** Parameter: the number of slot changes. */
   public static final int SLOTS_CHANGED = 0x01;
 
-  /** Parameter: the number of deployed contracts. */
-  public static final int CONTRACTS_DEPLOYED = 0x02;
+  /** Parameter: the number of code changes. */
+  public static final int CODES_CHANGED = 0x02;
+
+  /** Parameter: the number of nonce changes. */
+  public static final int NONCES_CHANGED = 0x03;
 
   /** Parameter: the address of a balance change. */
-  public static final int BALANCE_ADDRESS = 0x03;
+  public static final int BALANCE_ADDRESS = 0x04;
 
   /** Parameter: the prestate balance of a balance change. */
-  public static final int BALANCE_BEFORE = 0x04;
+  public static final int BALANCE_BEFORE = 0x05;
 
   /** Parameter: the current balance of a balance change. */
-  public static final int BALANCE_AFTER = 0x05;
+  public static final int BALANCE_AFTER = 0x06;
 
   /** Parameter: the address of a slot change. */
-  public static final int SLOT_ADDRESS = 0x06;
-
-  /** Parameter: the key of a slot change. */
-  public static final int SLOT_KEY = 0x07;
+  public static final int SLOT_ADDRESS = 0x07;
 
   /** Parameter: the prestate value of a slot change. */
   public static final int SLOT_BEFORE = 0x08;
@@ -75,35 +75,50 @@ public class TxTraceOperation extends AbstractOperation {
   /** Parameter: the current value of a slot change. */
   public static final int SLOT_AFTER = 0x09;
 
-  /** Parameter: the address of a deployed contract. */
-  public static final int DEPLOYED_ADDRESS = 0x0A;
+  /** Parameter: the key of a slot change. */
+  public static final int SLOT_KEY = 0x0A;
 
-  /** Parameter: the code hash of a deployed contract. */
-  public static final int DEPLOYED_CODEHASH = 0x0B;
+  /** Parameter: the address of a code change. */
+  public static final int CODE_ADDRESS = 0x0B;
+
+  /** Parameter: the prestate code hash of a code change. */
+  public static final int CODE_BEFORE = 0x0C;
+
+  /** Parameter: the current code hash of a code change. */
+  public static final int CODE_AFTER = 0x0D;
+
+  /** Parameter: the address of a nonce change. */
+  public static final int NONCE_ADDRESS = 0x0E;
+
+  /** Parameter: the prestate nonce of a nonce change. */
+  public static final int NONCE_BEFORE = 0x0F;
+
+  /** Parameter: the current nonce of a nonce change. */
+  public static final int NONCE_AFTER = 0x10;
 
   /** Parameter: the number of events. */
-  public static final int EVENTS_COUNT = 0x0C;
+  public static final int EVENTS_COUNT = 0x11;
 
   /** Parameter: the emitter of an event. */
-  public static final int EVENT_ADDRESS = 0x0D;
+  public static final int EVENT_ADDRESS = 0x12;
 
   /** Parameter: the number of topics of an event. */
-  public static final int EVENT_TOPIC_COUNT = 0x0E;
+  public static final int EVENT_TOPIC_COUNT = 0x13;
 
-  /** Parameter: the first topic of an event; 0x10 to 0x12 select the next three. */
-  public static final int EVENT_TOPIC0 = 0x0F;
+  /** Parameter: the first topic of an event; 0x15 to 0x17 select the next three. */
+  public static final int EVENT_TOPIC0 = 0x14;
 
   /** Parameter: the last topic of an event. */
-  public static final int EVENT_TOPIC3 = 0x12;
+  public static final int EVENT_TOPIC3 = 0x17;
 
   /** Parameter: the data length of an event. */
-  public static final int EVENT_DATA_LEN = 0x13;
+  public static final int EVENT_DATA_LEN = 0x18;
 
   /** Parameter: the gas pre-charge, the maximum cost the payer was charged. */
-  public static final int GAS_PRE_CHARGE = 0x14;
+  public static final int GAS_PRE_CHARGE = 0x19;
 
   /** Parameter: the payer. */
-  public static final int GAS_PAYER = 0x15;
+  public static final int GAS_PAYER = 0x1A;
 
   /**
    * Instantiates the operation.
@@ -193,7 +208,8 @@ public class TxTraceOperation extends AbstractOperation {
     return switch (param) {
       case BALANCES_CHANGED -> count(indexIsZero, diff.balances());
       case SLOTS_CHANGED -> count(indexIsZero, diff.slots());
-      case CONTRACTS_DEPLOYED -> count(indexIsZero, diff.deployed());
+      case CODES_CHANGED -> count(indexIsZero, diff.codes());
+      case NONCES_CHANGED -> count(indexIsZero, diff.nonces());
       case EVENTS_COUNT -> count(indexIsZero, diff.events());
       case BALANCE_ADDRESS, BALANCE_BEFORE, BALANCE_AFTER -> {
         if (index >= diff.balances().size()) {
@@ -220,18 +236,32 @@ public class TxTraceOperation extends AbstractOperation {
               default -> change.after();
             });
       }
-      case DEPLOYED_ADDRESS, DEPLOYED_CODEHASH -> {
-        if (index >= diff.deployed().size()) {
+      case CODE_ADDRESS, CODE_BEFORE, CODE_AFTER -> {
+        if (index >= diff.codes().size()) {
           yield AssertionResult.OUT_OF_BOUNDS;
         }
-        final TransactionDiff.DeployedContract deployed = diff.deployed().get((int) index);
+        final TransactionDiff.CodeChange change = diff.codes().get((int) index);
         yield AssertionResult.of(
-            param == DEPLOYED_ADDRESS
-                ? deployed.address().getBytes()
-                : deployed.codeHash().getBytes());
+            switch (param) {
+              case CODE_ADDRESS -> change.address().getBytes();
+              case CODE_BEFORE -> change.before().getBytes();
+              default -> change.after().getBytes();
+            });
+      }
+      case NONCE_ADDRESS, NONCE_BEFORE, NONCE_AFTER -> {
+        if (index >= diff.nonces().size()) {
+          yield AssertionResult.OUT_OF_BOUNDS;
+        }
+        final TransactionDiff.NonceChange change = diff.nonces().get((int) index);
+        yield AssertionResult.of(
+            switch (param) {
+              case NONCE_ADDRESS -> change.address().getBytes();
+              case NONCE_BEFORE -> Words.longBytes(change.before());
+              default -> Words.longBytes(change.after());
+            });
       }
       default -> {
-        // the event parameters, 0x0D to 0x13
+        // the event parameters, 0x12 to 0x18
         if (index >= diff.events().size()) {
           yield AssertionResult.OUT_OF_BOUNDS;
         }
