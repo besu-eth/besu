@@ -136,9 +136,6 @@ public class TrieLogPruner implements TrieLogEvent.TrieLogObserver {
 
     try (final Stream<byte[]> trieLogKeys = rootWorldStateStorage.streamTrieLogKeys(loadingLimit)) {
 
-      // A node stopped between persisting the world state at a block and storing that block keeps
-      // a world state without a header. Its trie log is the only way to roll it back.
-      final Hash worldStateBlockHash = rootWorldStateStorage.getWorldStateBlockHash().orElse(null);
       final AtomicLong addToPruneQueueCount = new AtomicLong();
       final AtomicLong orphansPruned = new AtomicLong();
       trieLogKeys.forEach(
@@ -152,12 +149,6 @@ public class TrieLogPruner implements TrieLogEvent.TrieLogObserver {
             if (header.isPresent()) {
               addToPruneQueue(header.get().getNumber(), blockHash);
               addToPruneQueueCount.getAndIncrement();
-            } else if (blockHash.equals(worldStateBlockHash)) {
-              LOG.atInfo()
-                  .setMessage(
-                      "Keeping the trie log of block {}: the world state is at this block, which is not stored")
-                  .addArgument(blockHash)
-                  .log();
             } else {
               // prune orphaned blocks (sometimes created during block production)
               rootWorldStateStorage.pruneTrieLog(blockHash);
