@@ -320,6 +320,37 @@ class MempoolPrewarmerTest {
   }
 
   @Test
+  void countsTheGasItExecutesAndAHeadWhoseBudgetIsUsedUpOnce() throws IOException {
+    // a budget of three transfers and a bit
+    useDevGenesisWith("0x10000", "0x0", 1);
+    for (int nonce = 0; nonce < 5; nonce++) {
+      addCandidate(transfer(nonce));
+    }
+    addCandidate(transfer(OTHER_SENDER, 0, 21_000, Wei.of(1_000_000_000_000L)));
+
+    prewarmer.start(head());
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> executedGas() == executed() * 21_000 && executed() >= 4);
+    assertThat(metricsSystem.getCounterValue("mempool_prewarm_started_total")).isEqualTo(1);
+    assertThat(metricsSystem.getCounterValue("mempool_prewarm_budget_used_up_total")).isEqualTo(1);
+  }
+
+  @Test
+  void countsNoUsedUpBudgetWhileGasIsLeft() {
+    addCandidate(transfer(0));
+
+    prewarmer.start(head());
+    awaitExecuted(1);
+
+    Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> executedGas() == 21_000);
+    assertThat(metricsSystem.getCounterValue("mempool_prewarm_budget_used_up_total")).isZero();
+  }
+
+  @Test
   void leavesOutBlobTransactionsAndTransactionsBelowTheBaseFeeWithTheSendersLaterOnes()
       throws IOException {
     useDevGenesisWith("0x1fffffffffffff", "0x3B9ACA00", 4);
@@ -668,6 +699,10 @@ class MempoolPrewarmerTest {
 
   private long invalid() {
     return metricsSystem.getCounterValue("mempool_prewarm_transactions_total", "invalid");
+  }
+
+  private long executedGas() {
+    return metricsSystem.getCounterValue("mempool_prewarm_gas_total");
   }
 
   private long blockTransactions(final String prewarmed) {
