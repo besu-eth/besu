@@ -125,6 +125,9 @@ public class MempoolPrewarmer implements AutoCloseable {
 
   private final Counter executedTransactions;
   private final Counter invalidTransactions;
+  private final Counter executedGas;
+  private final Counter startedWarmings;
+  private final Counter usedUpBudgets;
   private final Counter prewarmedBlockTransactions;
   private final Counter missedBlockTransactions;
 
@@ -195,6 +198,22 @@ public class MempoolPrewarmer implements AutoCloseable {
             "result");
     this.executedTransactions = transactions.labels("executed");
     this.invalidTransactions = transactions.labels("invalid");
+    this.executedGas =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCK_PROCESSING,
+            "mempool_prewarm_gas_total",
+            "Gas used by the pending transactions executed to prewarm the state, which is charged to"
+                + " the gas budget for their head");
+    this.startedWarmings =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCK_PROCESSING,
+            "mempool_prewarm_started_total",
+            "Times prewarming started for a head");
+    this.usedUpBudgets =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCK_PROCESSING,
+            "mempool_prewarm_budget_used_up_total",
+            "Times prewarming for a head used up its gas budget");
     final LabelledMetric<Counter> blockTransactions =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.BLOCK_PROCESSING,
@@ -359,6 +378,7 @@ public class MempoolPrewarmer implements AutoCloseable {
       generation.compareAndSet(warming.generation(), warming.generation() + 1);
       return;
     }
+    startedWarmings.inc();
     pass(passes);
   }
 
@@ -554,8 +574,18 @@ public class MempoolPrewarmer implements AutoCloseable {
         updater.markTransactionBoundary();
         executedTransactions.inc();
         warming.warmed().add(transaction.getHash());
+        final long gasUsed = transaction.getGasLimit() - result.getGasRemaining();
+        executedGas.inc(gasUsed);
         // runs for a sender's new transactions are charged again, so the budget caps the work
-        warming.gasBudget().addAndGet(result.getGasRemaining() - transaction.getGasLimit());
+        final long budgetLeft = warming.gasBudget().addAndGet(-gasUsed);
+        // only the run that takes the budget past zero counts it, so a head counts once
+        if (budgetLeft <= 0 && budgetLeft + gasUsed > 0) {
+          usedUpBudgets.inc();
+          LOG.atDebug()
+              .setMessage("Prewarming for head {} used up its gas budget")
+              .addArgument(warming.head()::toLogString)
+              .log();
+        }
       }
       // the import of a block with an access list does not read the trie nodes the loader caches
       if (isCurrent(warming) && execution.protocolSpec().getBlockAccessListFactory().isEmpty()) {
