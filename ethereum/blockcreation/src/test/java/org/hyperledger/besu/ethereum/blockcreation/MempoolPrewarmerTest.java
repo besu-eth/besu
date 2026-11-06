@@ -45,6 +45,7 @@ import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
+import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
@@ -65,6 +66,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -329,24 +331,23 @@ class MempoolPrewarmerTest {
   void resumesWithTheGasBudgetItHasLeft() throws IOException {
     // a budget of three transfers and a bit
     useDevGenesisWith("0x10000", "0x0", 1);
-    for (int nonce = 0; nonce < 3; nonce++) {
-      addCandidate(transfer(nonce));
-    }
+    addCandidate(transfer(0));
+    addCandidate(transfer(1));
     prewarmer.start(head());
-    awaitExecuted(3);
+    awaitExecuted(2);
     prewarmer.stop(Optional.empty());
 
     prewarmer.start(head());
-    // takes the budget past zero, after which nothing more runs for the head
+    // fits in the budget, after which no transfer does
     addCandidate(transfer(OTHER_SENDER, 0, 21_000, Wei.of(1_000_000_000_000L)));
-    awaitExecuted(4);
+    awaitExecuted(3);
     addCandidate(transfer(OTHER_SENDER, 1, 21_000, Wei.of(1_000_000_000_000L)));
 
     // longer than several passes take
     Awaitility.await()
         .during(Duration.ofSeconds(1))
         .atMost(Duration.ofSeconds(3))
-        .until(() -> executed() == 4);
+        .until(() -> executed() == 3);
     assertThat(metricsSystem.getCounterValue("mempool_prewarm_budget_used_up_total")).isEqualTo(1);
   }
 
@@ -360,11 +361,59 @@ class MempoolPrewarmerTest {
 
     prewarmer.start(head());
 
-    awaitExecuted(4);
+    awaitExecuted(3);
     Awaitility.await()
         .during(Duration.ofSeconds(1))
         .atMost(Duration.ofSeconds(3))
-        .until(() -> executed() == 4);
+        .until(() -> executed() == 3);
+  }
+
+  @Test
+  void givesBackTheGasOfAnInvalidTransaction() throws IOException {
+    // a budget of three transfers and a bit
+    useDevGenesisWith("0x10000", "0x0", 1);
+    addCandidate(transfer(OTHER_SENDER, 0, 20_000, Wei.of(1_000_000_000_000L)));
+    prewarmer.start(head());
+    Awaitility.await().atMost(Duration.ofSeconds(10)).until(() -> invalid() == 1);
+
+    for (int nonce = 0; nonce < 3; nonce++) {
+      addCandidate(transfer(nonce));
+    }
+
+    awaitExecuted(3);
+  }
+
+  @Test
+  void keepsConcurrentExecutionsWithinTheGasBudget() throws IOException {
+    final List<KeyPair> senders = new ArrayList<>();
+    final StringBuilder alloc = new StringBuilder("\"alloc\": {");
+    for (int i = 0; i < 8; i++) {
+      final KeyPair sender = SignatureAlgorithmFactory.getInstance().generateKeyPair();
+      senders.add(sender);
+      alloc
+          .append('"')
+          .append(Util.publicKeyToAddress(sender.getPublicKey()).toHexString())
+          .append("\": {\"balance\": \"0xad78ebc5ac6200000\"},");
+    }
+    // a budget of three transfers and a bit
+    useGenesis(
+        GenesisConfig.fromConfig(
+            devGenesis()
+                .replace("\"gasLimit\": \"0x1fffffffffffff\"", "\"gasLimit\": \"0x10000\"")
+                .replace("\"alloc\": {", alloc.toString())),
+        1);
+    senders.forEach(
+        sender -> addCandidate(transfer(sender, 0, 21_000, Wei.of(1_000_000_000_000L))));
+
+    prewarmer.start(head());
+
+    awaitExecuted(3);
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 3);
+    assertThat(invalid()).isZero();
   }
 
   @Test
@@ -378,11 +427,13 @@ class MempoolPrewarmerTest {
 
     prewarmer.start(head());
 
+    awaitExecuted(3);
     // longer than several passes take
     Awaitility.await()
         .during(Duration.ofSeconds(1))
-        .atMost(Duration.ofSeconds(5))
-        .until(() -> executedGas() == executed() * 21_000 && executed() >= 4);
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 3);
+    assertThat(executedGas()).isEqualTo(3 * 21_000);
     assertThat(metricsSystem.getCounterValue("mempool_prewarm_started_total")).isEqualTo(1);
     assertThat(metricsSystem.getCounterValue("mempool_prewarm_budget_used_up_total")).isEqualTo(1);
   }
@@ -479,14 +530,14 @@ class MempoolPrewarmerTest {
 
     // warmed again from the sender's first transaction, until the budget is used
     addCandidate(transfer(2));
-    awaitExecuted(4);
+    awaitExecuted(3);
     addCandidate(transfer(OTHER_SENDER, 0, 21_000, Wei.of(1_000_000_000_000L)));
 
     // longer than several passes take
     Awaitility.await()
         .during(Duration.ofSeconds(1))
         .atMost(Duration.ofSeconds(3))
-        .until(() -> executed() == 4);
+        .until(() -> executed() == 3);
     assertThat(prewarmer.prewarmedTransactions()).doesNotContain(transfer(2).getHash());
   }
 
