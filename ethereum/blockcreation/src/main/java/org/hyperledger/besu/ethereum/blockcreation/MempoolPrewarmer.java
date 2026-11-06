@@ -86,10 +86,11 @@ import org.slf4j.LoggerFactory;
  * only their reads matter.
  *
  * <p>Warming starts when the head moves and runs in passes until a block arrives, block building
- * starts, the gas budget is used up, or the next slot is over. When the pool has new transactions,
- * and at least once a second, a pass takes the pool's candidates in the order block building takes
- * them and executes the senders it has not warmed yet, each sender's transactions in nonce order on
- * its own throwaway copy of the head state. The trie paths of the state the executions change are
+ * starts, the gas budget is used up, or the next slot is over. If the block that arrived does not
+ * become the head, warming resumes where it stopped. When the pool has new transactions, and at
+ * least once a second, a pass takes the pool's candidates in the order block building takes them
+ * and executes the senders it has not warmed yet, each sender's transactions in nonce order on its
+ * own throwaway copy of the head state. The trie paths of the state the executions change are
  * preloaded as well, for the next block's state root.
  */
 public class MempoolPrewarmer implements AutoCloseable {
@@ -208,12 +209,12 @@ public class MempoolPrewarmer implements AutoCloseable {
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCK_PROCESSING,
             "mempool_prewarm_started_total",
-            "Times prewarming started for a head");
+            "Heads prewarming started for, each with its own gas budget");
     this.usedUpBudgets =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCK_PROCESSING,
             "mempool_prewarm_budget_used_up_total",
-            "Times prewarming for a head used up its gas budget");
+            "Heads whose prewarming used up its gas budget");
     final LabelledMetric<Counter> blockTransactions =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.BLOCK_PROCESSING,
@@ -226,7 +227,9 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
-   * Starts prewarming for a new head, stopping any prewarming for an earlier one.
+   * Starts prewarming for a new head, stopping any prewarming for an earlier one. Prewarming that
+   * stopped while the head stayed resumes with the gas budget it has left, until the next slot is
+   * over.
    *
    * @param head the new head
    */
@@ -237,28 +240,34 @@ public class MempoolPrewarmer implements AutoCloseable {
       return;
     }
     final Warming current = warming;
+    final Warming next;
     if (current != null
         && current.head().getHash().equals(head.getHash())
-        && (isCurrent(current) || current.building().get())
         && clock.millis() < current.deadline()) {
-      return;
+      if (isCurrent(current) || current.building().get()) {
+        return;
+      }
+      // the budget caps the work for a head, however often a block that does not become the head
+      // stops it
+      next = current.resumed(generation.incrementAndGet());
+    } else {
+      final long deadline;
+      try {
+        deadline = deadline(head);
+      } catch (final RuntimeException e) {
+        LOG.debug("Cannot prewarm for head {}", head.toLogString(), e);
+        return;
+      }
+      final long gasLimit = head.getGasLimit();
+      next =
+          new Warming(
+              generation.incrementAndGet(),
+              head,
+              deadline,
+              gasLimit > Long.MAX_VALUE / gasLimitMultiplier
+                  ? Long.MAX_VALUE
+                  : gasLimit * gasLimitMultiplier);
     }
-    final long deadline;
-    try {
-      deadline = deadline(head);
-    } catch (final RuntimeException e) {
-      LOG.debug("Cannot prewarm for head {}", head.toLogString(), e);
-      return;
-    }
-    final long gasLimit = head.getGasLimit();
-    final Warming next =
-        new Warming(
-            generation.incrementAndGet(),
-            head,
-            deadline,
-            gasLimit > Long.MAX_VALUE / gasLimitMultiplier
-                ? Long.MAX_VALUE
-                : gasLimit * gasLimitMultiplier);
     warming = next;
     try {
       coordinator.execute(() -> warm(next));
@@ -378,7 +387,9 @@ public class MempoolPrewarmer implements AutoCloseable {
       generation.compareAndSet(warming.generation(), warming.generation() + 1);
       return;
     }
-    startedWarmings.inc();
+    if (warming.started().compareAndSet(false, true)) {
+      startedWarmings.inc();
+    }
     pass(passes);
   }
 
@@ -724,6 +735,7 @@ public class MempoolPrewarmer implements AutoCloseable {
       long deadline,
       AtomicLong gasBudget,
       AtomicBoolean building,
+      AtomicBoolean started,
       Set<Hash> attempted,
       Set<Hash> warmed,
       Set<Address> preloadedAccounts,
@@ -737,10 +749,32 @@ public class MempoolPrewarmer implements AutoCloseable {
           deadline,
           new AtomicLong(gasBudget),
           new AtomicBoolean(),
+          new AtomicBoolean(),
           ConcurrentHashMap.newKeySet(),
           ConcurrentHashMap.newKeySet(),
           ConcurrentHashMap.newKeySet(),
           ConcurrentHashMap.newKeySet());
+    }
+
+    /**
+     * This prewarming under a new generation, sharing its budget and what ran. The senders that did
+     * not run are tried again, as the stop may have cut them short; executions still running stop
+     * at their next call.
+     */
+    private Warming resumed(final long generation) {
+      final Set<Hash> ran = ConcurrentHashMap.newKeySet();
+      ran.addAll(warmed);
+      return new Warming(
+          generation,
+          head,
+          deadline,
+          gasBudget,
+          building,
+          started,
+          ran,
+          warmed,
+          preloadedAccounts,
+          preloadedSlots);
     }
   }
 }
