@@ -555,7 +555,35 @@ class MempoolPrewarmerTest {
 
   @Test
   void stopsATransactionHalfwayOnceStopped() throws IOException {
-    // calls the identity precompile in an endless loop
+    addEndlessCallLoop();
+    prewarmer.start(head());
+    // long enough for the execution to start, far from the end of its gas
+    Awaitility.await().pollDelay(Duration.ofMillis(500)).until(() -> true);
+
+    prewarmer.stop(Optional.empty());
+
+    // closing waits for the executions
+    final long closing = System.nanoTime();
+    prewarmer.close();
+    assertThat(Duration.ofNanos(System.nanoTime() - closing)).isLessThan(Duration.ofSeconds(3));
+    assertThat(executed()).isZero();
+  }
+
+  @Test
+  void countsTheExecutionsStillRunningWhenABlockStarts() throws IOException {
+    addEndlessCallLoop();
+    prewarmer.start(head());
+    // long enough for the execution to start, far from the end of its gas
+    Awaitility.await().pollDelay(Duration.ofMillis(500)).until(() -> true);
+
+    prewarmer.stop(Optional.of(childBlock()));
+
+    assertThat(metricsSystem.getCounterValue("mempool_prewarm_executions_running_at_block_total"))
+        .isEqualTo(1);
+  }
+
+  /** Calls the identity precompile in an endless loop, which only a stop ends. */
+  private void addEndlessCallLoop() throws IOException {
     final Address loop = Address.fromHexString("0x00000000000000000000000000000000000000bb");
     useGenesis(
         GenesisConfig.fromConfig(
@@ -575,17 +603,6 @@ class MempoolPrewarmerTest {
             .maxFeePerGas(Optional.of(Wei.ONE))
             .maxPriorityFeePerGas(Optional.of(Wei.ONE))
             .createTransaction(SENDER));
-    prewarmer.start(head());
-    // long enough for the execution to start, far from the end of its gas
-    Awaitility.await().pollDelay(Duration.ofMillis(500)).until(() -> true);
-
-    prewarmer.stop(Optional.empty());
-
-    // closing waits for the executions
-    final long closing = System.nanoTime();
-    prewarmer.close();
-    assertThat(Duration.ofNanos(System.nanoTime() - closing)).isLessThan(Duration.ofSeconds(3));
-    assertThat(executed()).isZero();
   }
 
   @Test

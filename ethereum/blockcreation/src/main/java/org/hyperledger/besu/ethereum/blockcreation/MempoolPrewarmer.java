@@ -50,6 +50,7 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.Histogram;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -73,6 +74,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -123,6 +125,8 @@ public class MempoolPrewarmer implements AutoCloseable {
   private final ExecutorService executors;
   private final AtomicLong generation = new AtomicLong();
   private final AtomicLong poolAdditions = new AtomicLong();
+  private final AtomicInteger runningExecutions = new AtomicInteger();
+  private volatile long blockStartedNanos = System.nanoTime();
   private final Set<CompletableFuture<Void>> preloads = ConcurrentHashMap.newKeySet();
   private final long poolSubscription;
   @Nullable private volatile Warming warming;
@@ -137,6 +141,8 @@ public class MempoolPrewarmer implements AutoCloseable {
   private final Counter prewarmedBlockTransactions;
   private final Counter missedBlockTransactions;
   private final OperationTimer poolCopyTimer;
+  private final Counter executionsRunningAtBlock;
+  private final Histogram executionAfterBlock;
 
   /**
    * Creates a prewarmer.
@@ -235,6 +241,18 @@ public class MempoolPrewarmer implements AutoCloseable {
             BesuMetricCategory.BLOCK_PROCESSING,
             "mempool_prewarm_pool_copy_duration_seconds",
             "Time a prewarming pass takes to copy the pool's candidates and group them by sender");
+    this.executionsRunningAtBlock =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCK_PROCESSING,
+            "mempool_prewarm_executions_running_at_block_total",
+            "Prewarm executions still running when the execution of an arriving block started");
+    this.executionAfterBlock =
+        metricsSystem.createHistogram(
+            BesuMetricCategory.BLOCK_PROCESSING,
+            "mempool_prewarm_execution_after_block_seconds",
+            "How long the prewarm executions still running when the execution of an arriving block"
+                + " started ran on",
+            new double[] {0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5});
   }
 
   /**
@@ -309,6 +327,11 @@ public class MempoolPrewarmer implements AutoCloseable {
     final Warming current = warming;
     final long running = generation.getAndIncrement();
     final Warming stoppedEarlier = stoppedForPayload.getAndSet(null);
+    // the block's execution starts now, so these executions run alongside it
+    if (arrivingBlock.isPresent()) {
+      blockStartedNanos = System.nanoTime();
+      executionsRunningAtBlock.inc(runningExecutions.get());
+    }
     // a block counts once, and only against prewarming that ran until it or its payload arrived
     final Warming stopped =
         current != null && current.generation() == running ? current : stoppedEarlier;
@@ -617,16 +640,27 @@ public class MempoolPrewarmer implements AutoCloseable {
           break;
         }
         final WorldUpdater transactionUpdater = updater.updater();
-        final TransactionProcessingResult result =
-            transactionProcessor.processTransaction(
-                transactionUpdater,
-                execution.header(),
-                transaction,
-                execution.header().getCoinbase(),
-                tracer,
-                blockHashLookup,
-                VALIDATION_PARAMS,
-                execution.blobGasPrice());
+        final long startedNanos = System.nanoTime();
+        runningExecutions.incrementAndGet();
+        final TransactionProcessingResult result;
+        try {
+          result =
+              transactionProcessor.processTransaction(
+                  transactionUpdater,
+                  execution.header(),
+                  transaction,
+                  execution.header().getCoinbase(),
+                  tracer,
+                  blockHashLookup,
+                  VALIDATION_PARAMS,
+                  execution.blobGasPrice());
+        } finally {
+          runningExecutions.decrementAndGet();
+          final long blockStarted = blockStartedNanos;
+          if (blockStarted - startedNanos > 0) {
+            executionAfterBlock.observe((System.nanoTime() - blockStarted) / 1e9);
+          }
+        }
         if (!isCurrent(warming)) {
           // the tracer may have stopped the transaction halfway
           break;
