@@ -33,8 +33,8 @@ import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
 import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.QueuedExecutor;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -338,7 +338,7 @@ class BackgroundBackfillTest {
         BackgroundBackfill.create(
             blockchain,
             ProtocolScheduleFixture.MAINNET,
-            mock(EthPeers.class),
+            mock(RequestScheduler.class),
             syncState,
             Optional.empty(),
             ImmutableSnapSyncConfiguration.builder()

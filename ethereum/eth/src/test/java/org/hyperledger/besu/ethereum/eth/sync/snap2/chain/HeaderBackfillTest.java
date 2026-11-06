@@ -227,7 +227,9 @@ class HeaderBackfillTest {
         top,
         HEADERS_PER_REQUEST,
         PARALLELISM,
-        new NoOpMetricsSystem());
+        new NoOpMetricsSystem(),
+        "SNAP2",
+        "snap2");
   }
 
   // runs the back-fill to its end, its pipeline stages in turn on the test thread

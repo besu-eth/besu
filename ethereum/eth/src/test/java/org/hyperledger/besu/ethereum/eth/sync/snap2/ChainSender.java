@@ -38,7 +38,7 @@ import java.util.function.Predicate;
  * Answers the eth requests of the sync on the calling thread from a chain, as a peer that holds it
  * does.
  */
-final class ChainSender implements RequestSender {
+public final class ChainSender implements RequestSender {
 
   private final RespondingEthPeer.Responder responder;
   private final EthPeer peer = mock(EthPeer.class);
@@ -47,7 +47,7 @@ final class ChainSender implements RequestSender {
   private Predicate<MessageData> failing = message -> false;
   private RuntimeException failure = new IllegalStateException("request failed");
 
-  ChainSender(final Blockchain chain) {
+  public ChainSender(final Blockchain chain) {
     responder = RespondingEthPeer.blockchainResponder(chain);
     when(peer.getAgreedCapabilities()).thenReturn(Set.of(EthProtocol.LATEST));
     // the tasks report the height they see to the peer
@@ -55,18 +55,18 @@ final class ChainSender implements RequestSender {
   }
 
   /** Fails the requests the predicate matches, from now on. */
-  void fail(final Predicate<MessageData> requests) {
+  public void fail(final Predicate<MessageData> requests) {
     fail(requests, new IllegalStateException("request failed"));
   }
 
   /** Fails the requests the predicate matches with this failure, from now on. */
-  void fail(final Predicate<MessageData> requests, final RuntimeException failure) {
+  public void fail(final Predicate<MessageData> requests, final RuntimeException failure) {
     failing = requests;
     this.failure = failure;
   }
 
   /** Returns every request answered or failed, in order. */
-  List<MessageData> requests() {
+  public List<MessageData> requests() {
     return requests;
   }
 
