@@ -29,9 +29,12 @@ import org.hyperledger.besu.evm.precompile.PrecompiledContract;
 import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
 import org.hyperledger.besu.evm.toy.ToyWorld;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -73,6 +76,39 @@ class MessageCallProcessorTest extends AbstractMessageProcessorTest<MessageCallP
     getAbstractMessageProcessor().process(messageFrame, operationTracer);
 
     verify(operationTracer, times(1)).tracePrecompileCall(eq(messageFrame), anyLong(), any());
+  }
+
+  @ParameterizedTest(name = "{index}: charged while executing {0}")
+  @ValueSource(longs = {0L, 200L, 3100L})
+  void shouldTracePrecompileGasActuallyUsed(final long chargedWhileExecuting) {
+    final Address sender = Address.ZERO;
+    final Address recipient = Address.fromHexString("0x1");
+
+    final ToyWorld toyWorld = new ToyWorld();
+    toyWorld.createAccount(sender);
+    toyWorld.createAccount(recipient);
+
+    final MessageFrame messageFrame =
+        new TestMessageFrameBuilder()
+            .worldUpdater(toyWorld)
+            .sender(sender)
+            .address(recipient)
+            .initialGas(10_000L)
+            .build();
+
+    when(precompileContractRegistry.get(any())).thenReturn(contract);
+    when(contract.gasRequirement(any())).thenReturn(3000L);
+    when(contract.computePrecompile(any(), eq(messageFrame)))
+        .thenAnswer(
+            invocation -> {
+              messageFrame.decrementRemainingGas(chargedWhileExecuting);
+              return PrecompiledContract.PrecompileContractResult.success(Bytes.EMPTY);
+            });
+
+    getAbstractMessageProcessor().process(messageFrame, operationTracer);
+
+    verify(operationTracer)
+        .tracePrecompileCall(messageFrame, 3000L + chargedWhileExecuting, Bytes.EMPTY);
   }
 
   @Test

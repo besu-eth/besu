@@ -203,6 +203,7 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
       final MessageFrame frame,
       final OperationTracer operationTracer) {
     final long gasRequirement = contract.gasRequirement(frame.getInputData());
+    long gasUsed = gasRequirement;
     final Bytes output;
     if (frame.getRemainingGas() < gasRequirement) {
       frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
@@ -210,8 +211,11 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
       output = null;
     } else {
       frame.decrementRemainingGas(gasRequirement);
+      final long remainingGasBeforeCompute = frame.getRemainingGas();
       final PrecompiledContract.PrecompileContractResult result =
           contract.computePrecompile(frame.getInputData(), frame);
+      // EIP-8151 ecrecover charges for the recovered account while it executes.
+      gasUsed += remainingGasBeforeCompute - frame.getRemainingGas();
       output = result.output();
       if (result.isRefundGas()) {
         frame.incrementRemainingGas(gasRequirement);
@@ -224,7 +228,7 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
       frame.setState(result.state());
       frame.setExceptionalHaltReason(result.haltReason());
     }
-    operationTracer.tracePrecompileCall(frame, gasRequirement, output);
+    operationTracer.tracePrecompileCall(frame, gasUsed, output);
   }
 
   /**
