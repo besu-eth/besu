@@ -141,7 +141,7 @@ public class MempoolPrewarmer implements AutoCloseable {
    * @param transactionPool the pool whose transactions are executed
    * @param miningConfiguration the mining configuration, for the pending block header
    * @param threads the number of threads that execute transactions
-   * @param gasLimitMultiplier the gas executed between two blocks, as a multiple of the gas limit
+   * @param gasLimitMultiplier the gas budget for a head, as a multiple of its gas limit
    * @param metricsSystem the metrics system
    */
   public MempoolPrewarmer(
@@ -349,8 +349,30 @@ public class MempoolPrewarmer implements AutoCloseable {
 
   private boolean isWarming(final Warming warming) {
     return isCurrent(warming)
-        && warming.gasBudget().get() > 0
+        && !warming.budgetUsedUp().get()
         && clock.millis() < warming.deadline();
+  }
+
+  /**
+   * Takes the gas limit of a transaction from the budget for a head, so that the executions
+   * together stay within it. What a transaction does not use is given back once it ends. Once a
+   * transaction does not fit, prewarming for the head is over.
+   */
+  private boolean reserve(final Warming warming, final long gas) {
+    final AtomicLong budget = warming.gasBudget();
+    for (long left = budget.get(); left >= gas; left = budget.get()) {
+      if (budget.compareAndSet(left, left - gas)) {
+        return true;
+      }
+    }
+    if (warming.budgetUsedUp().compareAndSet(false, true)) {
+      usedUpBudgets.inc();
+      LOG.atDebug()
+          .setMessage("Prewarming for head {} used up its gas budget")
+          .addArgument(warming.head()::toLogString)
+          .log();
+    }
+    return false;
   }
 
   /**
@@ -561,7 +583,8 @@ public class MempoolPrewarmer implements AutoCloseable {
       final WorldUpdater updater = worldState.updater();
       final OperationTracer tracer = new StoppingTracer(warming);
       for (final Transaction transaction : transactions) {
-        if (!isWarming(warming)) {
+        // runs for a sender's new transactions are charged again, so the budget caps the work
+        if (!isWarming(warming) || !reserve(warming, transaction.getGasLimit())) {
           break;
         }
         final WorldUpdater transactionUpdater = updater.updater();
@@ -581,6 +604,7 @@ public class MempoolPrewarmer implements AutoCloseable {
         }
         if (result.isInvalid()) {
           invalidTransactions.inc();
+          warming.gasBudget().addAndGet(transaction.getGasLimit());
           continue;
         }
         // the sender's next transaction reads what this one wrote, as in a block
@@ -589,18 +613,8 @@ public class MempoolPrewarmer implements AutoCloseable {
         updater.markTransactionBoundary();
         executedTransactions.inc();
         warming.warmed().add(transaction.getHash());
-        final long gasUsed = transaction.getGasLimit() - result.getGasRemaining();
-        executedGas.inc(gasUsed);
-        // runs for a sender's new transactions are charged again, so the budget caps the work
-        final long budgetLeft = warming.gasBudget().addAndGet(-gasUsed);
-        // only the run that takes the budget past zero counts it, so a head counts once
-        if (budgetLeft <= 0 && budgetLeft + gasUsed > 0) {
-          usedUpBudgets.inc();
-          LOG.atDebug()
-              .setMessage("Prewarming for head {} used up its gas budget")
-              .addArgument(warming.head()::toLogString)
-              .log();
-        }
+        executedGas.inc(transaction.getGasLimit() - result.getGasRemaining());
+        warming.gasBudget().addAndGet(result.getGasRemaining());
       }
       // the import of a block with an access list does not read the trie nodes the loader caches
       if (isCurrent(warming) && execution.protocolSpec().getBlockAccessListFactory().isEmpty()) {
@@ -748,6 +762,7 @@ public class MempoolPrewarmer implements AutoCloseable {
       BlockHeader head,
       long deadline,
       AtomicLong gasBudget,
+      AtomicBoolean budgetUsedUp,
       AtomicBoolean building,
       AtomicBoolean started,
       Set<Hash> attempted,
@@ -762,6 +777,7 @@ public class MempoolPrewarmer implements AutoCloseable {
           head,
           deadline,
           new AtomicLong(gasBudget),
+          new AtomicBoolean(),
           new AtomicBoolean(),
           new AtomicBoolean(),
           ConcurrentHashMap.newKeySet(),
@@ -783,6 +799,7 @@ public class MempoolPrewarmer implements AutoCloseable {
           head,
           deadline,
           gasBudget,
+          budgetUsedUp,
           building,
           started,
           ran,
