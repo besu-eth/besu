@@ -19,7 +19,6 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus;
 
 import java.util.EnumSet;
@@ -35,27 +34,21 @@ public class ForkchoiceUpdatedResultV1 {
   private static final EnumSet<EngineStatus> FORK_CHOICE_ENGINE_STATUS =
       EnumSet.of(VALID, INVALID, SYNCING);
 
-  public ForkchoiceUpdatedResultV1(final EngineStatus status, final Hash latestValidHash) {
-    this(status, latestValidHash, null);
+  public ForkchoiceUpdatedResultV1(final PayloadStatusV1 payloadStatus) {
+    this(payloadStatus, null);
   }
 
   public ForkchoiceUpdatedResultV1(
-      final EngineStatus status, final Hash latestValidHash, final PayloadIdentifier payloadId) {
-    this(status, latestValidHash, payloadId, Optional.empty());
-  }
+      final PayloadStatusV1 payloadStatus, final PayloadIdentifier payloadId) {
 
-  public ForkchoiceUpdatedResultV1(
-      final EngineStatus status,
-      final Hash latestValidHash,
-      final PayloadIdentifier payloadId,
-      final Optional<String> errorMessage) {
-
-    if (!FORK_CHOICE_ENGINE_STATUS.contains(status)) {
+    if (!FORK_CHOICE_ENGINE_STATUS.contains(payloadStatus.getStatus())) {
       throw new IllegalStateException(
-          String.format("Invalid status response %s for EngineForkChoiceResult", status.name()));
+          String.format(
+              "Invalid status response %s for EngineForkChoiceResult",
+              payloadStatus.getStatus().name()));
     }
 
-    this.payloadStatus = new PayloadStatusV1(status, latestValidHash, errorMessage);
+    this.payloadStatus = payloadStatus;
     this.payloadId = payloadId;
   }
 

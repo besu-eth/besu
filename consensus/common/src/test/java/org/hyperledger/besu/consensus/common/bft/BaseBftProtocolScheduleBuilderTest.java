@@ -68,7 +68,8 @@ public class BaseBftProtocolScheduleBuilderTest {
         createProtocolSchedule(List.of(new ForkSpec<>(0, configOptions)));
     final ProtocolSpec spec = schedule.getByBlockHeader(blockHeader(1));
 
-    assertThat(spec.getBlockReward()).isEqualTo(Wei.of(arbitraryBlockReward));
+    assertThat(spec.getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(Wei.of(arbitraryBlockReward));
     assertThat(spec.getMiningBeneficiaryCalculator().calculateBeneficiary(mock(BlockHeader.class)))
         .isEqualTo(miningBeneficiary);
   }
@@ -88,7 +89,8 @@ public class BaseBftProtocolScheduleBuilderTest {
     final BlockHeader header = mock(BlockHeader.class);
     when(header.getCoinbase()).thenReturn(headerCoinbase);
 
-    assertThat(spec.getBlockReward()).isEqualTo(Wei.of(arbitraryBlockReward));
+    assertThat(spec.getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(Wei.of(arbitraryBlockReward));
     assertThat(spec.getMiningBeneficiaryCalculator().calculateBeneficiary(header))
         .isEqualTo(headerCoinbase);
   }
@@ -139,7 +141,8 @@ public class BaseBftProtocolScheduleBuilderTest {
     for (int i = 0; i < 2; i++) {
       final ProtocolSpec spec = schedule.getByBlockHeader(blockHeader(i));
       final Address expectedBeneficiary = initialBeneficiaryIsEmpty ? headerCoinbase : beneficiary1;
-      assertThat(spec.getBlockReward()).isEqualTo(Wei.of(BigInteger.valueOf(3)));
+      assertThat(spec.getBlockRewardProcessor().getBlockReward())
+          .isEqualTo(Wei.of(BigInteger.valueOf(3)));
       assertThat(spec.getMiningBeneficiaryCalculator().calculateBeneficiary(header))
           .isEqualTo(expectedBeneficiary);
     }
@@ -148,7 +151,8 @@ public class BaseBftProtocolScheduleBuilderTest {
     for (int i = 2; i < 5; i++) {
       final ProtocolSpec spec = schedule.getByBlockHeader(blockHeader(i));
       final Address expectedBeneficiary = initialBeneficiaryIsEmpty ? beneficiary2 : headerCoinbase;
-      assertThat(spec.getBlockReward()).isEqualTo(Wei.of(BigInteger.valueOf(2)));
+      assertThat(spec.getBlockRewardProcessor().getBlockReward())
+          .isEqualTo(Wei.of(BigInteger.valueOf(2)));
       assertThat(spec.getMiningBeneficiaryCalculator().calculateBeneficiary(header))
           .isEqualTo(expectedBeneficiary);
     }
@@ -157,7 +161,8 @@ public class BaseBftProtocolScheduleBuilderTest {
     for (int i = 5; i < 8; i++) {
       final ProtocolSpec spec = schedule.getByBlockHeader(blockHeader(i));
       final Address expectedBeneficiary = initialBeneficiaryIsEmpty ? headerCoinbase : beneficiary3;
-      assertThat(spec.getBlockReward()).isEqualTo(Wei.of(BigInteger.valueOf(1)));
+      assertThat(spec.getBlockRewardProcessor().getBlockReward())
+          .isEqualTo(Wei.of(BigInteger.valueOf(1)));
       assertThat(spec.getMiningBeneficiaryCalculator().calculateBeneficiary(header))
           .isEqualTo(expectedBeneficiary);
     }
@@ -240,9 +245,13 @@ public class BaseBftProtocolScheduleBuilderTest {
                         new ForkSpec<>(transitionBlock, blockRewardTransition))));
 
     assertThat(schedule.streamMilestoneBlocks().count()).isEqualTo(2);
-    assertThat(schedule.getByBlockHeader(blockHeader(0)).getBlockReward())
+    assertThat(schedule.getByBlockHeader(blockHeader(0)).getBlockRewardProcessor().getBlockReward())
         .isEqualTo(Wei.of(arbitraryBlockReward));
-    assertThat(schedule.getByBlockHeader(blockHeader(transitionBlock)).getBlockReward())
+    assertThat(
+            schedule
+                .getByBlockHeader(blockHeader(transitionBlock))
+                .getBlockRewardProcessor()
+                .getBlockReward())
         .isEqualTo(Wei.of(forkBlockReward));
   }
 

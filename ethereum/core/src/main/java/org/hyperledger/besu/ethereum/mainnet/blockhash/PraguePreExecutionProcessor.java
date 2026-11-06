@@ -17,15 +17,12 @@ package org.hyperledger.besu.ethereum.mainnet.blockhash;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
-import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 
 import java.util.Optional;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Processes and stores historical block hashes in accordance with EIP-2935. This class is
@@ -33,8 +30,6 @@ import org.slf4j.LoggerFactory;
  * historical block hash access in smart contracts.
  */
 public class PraguePreExecutionProcessor extends CancunPreExecutionProcessor {
-  private static final Logger LOG = LoggerFactory.getLogger(PraguePreExecutionProcessor.class);
-
   private static final Address HISTORY_STORAGE_ADDRESS =
       Address.fromHexString("0x0000f90827f1c53a10cb7a02335b175320002935");
 
@@ -65,13 +60,8 @@ public class PraguePreExecutionProcessor extends CancunPreExecutionProcessor {
         new SystemCallProcessor(context.getProtocolSpec().getTransactionProcessor());
 
     Bytes inputData = context.getBlockHeader().getParentHash().getBytes();
-    try {
-      processor.process(historyStorageAddress, context, inputData, accessLocationTracker);
-    } catch (SystemCallNoCodeAtAddressException e) {
-      // According to EIP-2935, the system call should fail silently if no code exists at the
-      // contract address
-      LOG.warn("Invalid system call address: {}", historyStorageAddress);
-    }
+    // EIP-2935: a missing or failing history storage contract does not invalidate the block
+    processor.processUnchecked(historyStorageAddress, context, inputData, accessLocationTracker);
     return null;
   }
 

@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.ChainState;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -294,7 +295,10 @@ class GetBlockAccessListsFromPeerTaskTest {
     final PeerConnection connection = Mockito.mock(PeerConnection.class);
     Mockito.when(ethPeer.getConnection()).thenReturn(connection);
     Mockito.when(ethPeer.getAgreedCapabilities())
-        .thenReturn(eth71Compatible ? Set.of(EthProtocol.ETH71) : Set.of(EthProtocol.ETH69));
+        .thenReturn(
+            eth71Compatible
+                ? Set.of(EthProtocolVersion.V71.getCapability())
+                : Set.of(EthProtocolVersion.V69.getCapability()));
     return ethPeer;
   }
 }

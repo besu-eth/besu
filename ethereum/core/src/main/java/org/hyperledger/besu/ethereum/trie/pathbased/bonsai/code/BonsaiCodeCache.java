@@ -33,7 +33,16 @@ public class BonsaiCodeCache implements org.hyperledger.besu.evm.internal.CodeCa
   /** Instantiates a new Code cache. */
   public BonsaiCodeCache() {
     // Initialize the cache with a maximum size of 256 MB and a custom memory footprint estimator
-    this.cache = new MemoryBoundCache<>(256 * 1024 * 1024, CodeMemoryFootprint::estimate);
+    this(256 * 1024 * 1024);
+  }
+
+  /**
+   * Instantiates a new Code cache of the given size.
+   *
+   * @param maxBytes the maximum estimated memory footprint of the cached code, in bytes
+   */
+  public BonsaiCodeCache(final long maxBytes) {
+    this.cache = new MemoryBoundCache<>(maxBytes, CodeMemoryFootprint::estimate);
   }
 
   /**
@@ -98,11 +107,19 @@ public class BonsaiCodeCache implements org.hyperledger.besu.evm.internal.CodeCa
   /**
    * Put the code into the cache.
    *
+   * <p>Empty code under a non-empty hash is never cached. Empty bytes only hash to {@link
+   * Hash#EMPTY}, so such an entry means the code could not be read, e.g. by a block creation thread
+   * that kept executing after its world state was closed. The cache is shared by every world state,
+   * so caching it would make all later executions of that contract run empty code.
+   *
    * @param codeHash the code hash
    * @param code the code
    */
   @Override
   public void put(final Hash codeHash, final Code code) {
+    if (code.getSize() == 0 && !Hash.EMPTY.equals(codeHash)) {
+      return;
+    }
     cache.put(codeHash, code);
   }
 }

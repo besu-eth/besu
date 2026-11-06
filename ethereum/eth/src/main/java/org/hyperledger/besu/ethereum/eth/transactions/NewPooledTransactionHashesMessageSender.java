@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.eth.transactions;
 import static org.hyperledger.besu.ethereum.core.Transaction.toHashList;
 
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.messages.NewPooledTransactionHashesMessage;
@@ -24,7 +26,10 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNot
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,35 +37,58 @@ import org.slf4j.LoggerFactory;
 class NewPooledTransactionHashesMessageSender {
   private static final Logger LOG =
       LoggerFactory.getLogger(NewPooledTransactionHashesMessageSender.class);
-  private static final int MAX_TRANSACTIONS_HASHES = 4096;
-
   private final PeerTransactionTracker transactionTracker;
+  private final int maxAnnouncementsPerMessage;
 
-  public NewPooledTransactionHashesMessageSender(final PeerTransactionTracker transactionTracker) {
+  public NewPooledTransactionHashesMessageSender(
+      final PeerTransactionTracker transactionTracker, final int maxAnnouncementsPerMessage) {
     this.transactionTracker = transactionTracker;
+    this.maxAnnouncementsPerMessage = maxAnnouncementsPerMessage;
   }
 
   public void sendTransactionAnnouncementsToPeer(final EthPeer peer) {
     final Capability capability = peer.getConnection().capability(EthProtocol.NAME);
-    final List<Transaction> txBatch = new ArrayList<>(MAX_TRANSACTIONS_HASHES);
+    final EncodingContext encodingContext = EthProtocol.pooledTransactionContext(capability);
+
+    // An eth/72 announcement carries one cell mask covering every blob tx in the message, so a
+    // message may only hold blob txs that agree on it.
+    final boolean oneBatchPerCellMask = EthProtocol.isEth72Compatible(capability);
+    // Keyed by the mask the batch will announce, empty for the batch of txs that carry none.
+    // Insertion ordered, so batches are sent in the order their first tx was queued.
+    final Map<Optional<CellMask>, List<Transaction>> openBatches = new LinkedHashMap<>();
+
     Transaction announcementToSend;
     while ((announcementToSend = transactionTracker.claimAnnouncementToSendToPeer(peer)) != null) {
-      if (!transactionTracker.hasPeerSeenTransactionOrAnnouncement(
+      if (transactionTracker.hasPeerSeenTransactionOrAnnouncement(
           peer, announcementToSend.getHash())) {
-        txBatch.add(announcementToSend);
+        continue;
       }
 
-      if (txBatch.size() == MAX_TRANSACTIONS_HASHES) {
-        // send current batch and exit loop if peer no more connected
-        final boolean connectionLost = !send(peer, txBatch, capability);
-        txBatch.clear();
-        if (connectionLost) break;
+      if (!encodingContext.canEncode(announcementToSend)) {
+        continue;
+      }
+
+      final Optional<CellMask> batchKey =
+          oneBatchPerCellMask
+              ? TransactionAnnouncement.announcedCellMask(announcementToSend)
+              : Optional.empty();
+      final List<Transaction> batch = openBatches.computeIfAbsent(batchKey, _ -> new ArrayList<>());
+      batch.add(announcementToSend);
+
+      if (batch.size() == maxAnnouncementsPerMessage) {
+        openBatches.remove(batchKey);
+        // send the full batch, and stop if the peer is no longer connected
+        if (!send(peer, batch, capability)) {
+          return;
+        }
       }
     }
 
-    // send the last partial batch
-    if (!txBatch.isEmpty()) {
-      send(peer, txBatch, capability);
+    // send the partial batches left open
+    for (final List<Transaction> batch : openBatches.values()) {
+      if (!send(peer, batch, capability)) {
+        return;
+      }
     }
   }
 

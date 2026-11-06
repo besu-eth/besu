@@ -34,6 +34,8 @@ import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.PetersburgGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.ShanghaiGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.SpuriousDragonGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.TangerineWhistleGasCalculator;
 import org.hyperledger.besu.evm.precompile.PrecompiledContract;
 
 import java.io.PrintStream;
@@ -266,11 +268,10 @@ public abstract class BenchmarkExecutor {
         .asyncProfilerOptions()
         .ifPresent(
             options -> {
-              asyncProfiler.set(AsyncProfiler.getInstance());
+              final AsyncProfiler profiler = AsyncProfiler.getInstance();
+              asyncProfiler.set(profiler);
               try {
-                asyncProfiler
-                    .get()
-                    .execute(processProfilerArgs(options, testName.replaceAll("\\s", "-")));
+                profiler.execute(processProfilerArgs(options, testName.replaceAll("\\s", "-")));
               } catch (Throwable t) {
                 output.println("async profiler unavailable: " + t.getMessage());
               }
@@ -287,9 +288,10 @@ public abstract class BenchmarkExecutor {
       executions++;
     }
 
-    if (asyncProfiler.get() != null) {
+    final AsyncProfiler profiler = asyncProfiler.get();
+    if (profiler != null) {
       try {
-        asyncProfiler.get().stop();
+        profiler.stop();
       } catch (Throwable t) {
         output.println("async profiler unavailable: " + t.getMessage());
       }
@@ -328,8 +330,8 @@ public abstract class BenchmarkExecutor {
     return switch (EvmSpecVersion.valueOf(fork.toUpperCase(Locale.ROOT))) {
       case HOMESTEAD -> new HomesteadGasCalculator();
       case FRONTIER -> new FrontierGasCalculator();
-      case TANGERINE_WHISTLE -> null;
-      case SPURIOUS_DRAGON -> null;
+      case TANGERINE_WHISTLE -> new TangerineWhistleGasCalculator();
+      case SPURIOUS_DRAGON -> new SpuriousDragonGasCalculator();
       case BYZANTIUM -> new ByzantiumGasCalculator();
       case CONSTANTINOPLE -> new ConstantinopleGasCalculator();
       case PETERSBURG -> new PetersburgGasCalculator();

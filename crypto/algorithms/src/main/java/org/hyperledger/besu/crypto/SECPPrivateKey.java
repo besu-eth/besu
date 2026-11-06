@@ -20,6 +20,7 @@ import java.math.BigInteger;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 
 /** The Secp private key. */
 public class SECPPrivateKey implements java.security.PrivateKey {
@@ -98,7 +99,7 @@ public class SECPPrivateKey implements java.security.PrivateKey {
   }
 
   @Override
-  public String getFormat() {
+  public @Nullable String getFormat() {
     return null;
   }
 

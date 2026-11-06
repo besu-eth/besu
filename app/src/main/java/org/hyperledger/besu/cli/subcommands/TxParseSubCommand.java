@@ -82,14 +82,22 @@ public class TxParseSubCommand implements Runnable {
 
   @Override
   public void run() {
-
-    Stream<String> txStream;
     if (corpusFile != null) {
-      txStream = fileStreamReader(corpusFile);
+      // Files.lines() opens a file descriptor that must be released. Wrap it in
+      // try-with-resources so the stream (and the underlying file) is closed once
+      // processing completes.
+      try (Stream<String> txStream = fileStreamReader(corpusFile)) {
+        processTransactions(txStream);
+      }
     } else {
-      txStream = new BufferedReader(new InputStreamReader(System.in, UTF_8)).lines();
+      // Do NOT wrap in try-with-resources: closing this stream would close System.in.
+      final Stream<String> txStream =
+          new BufferedReader(new InputStreamReader(System.in, UTF_8)).lines();
+      processTransactions(txStream);
     }
+  }
 
+  void processTransactions(final Stream<String> txStream) {
     txStream.forEach(
         line -> {
           try {

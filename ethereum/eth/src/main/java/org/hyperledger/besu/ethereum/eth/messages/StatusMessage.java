@@ -138,7 +138,7 @@ public final class StatusMessage extends AbstractMessageData {
   }
 
   public boolean isEth69Compatible() {
-    return protocolVersion() >= EthProtocolVersion.V69;
+    return EthProtocolVersion.hasBlockRange(protocolVersion());
   }
 
   private EthStatus status() {
@@ -239,16 +239,16 @@ public final class StatusMessage extends AbstractMessageData {
       checkNotNull(genesisHash, "genesisHash must be set");
       checkNotNull(forkId, "forkId must be set");
       checkArgument(
-          blockRange == null || protocolVersion >= EthProtocolVersion.V69,
+          blockRange == null || EthProtocolVersion.hasBlockRange(protocolVersion),
           "blockRange is only supported for protocol version >= 69");
       checkArgument(
-          blockRange != null || protocolVersion <= EthProtocolVersion.V68,
+          blockRange != null || !EthProtocolVersion.hasBlockRange(protocolVersion),
           "blockRange must be present for protocol version >= 69");
       checkArgument(
-          totalDifficulty == null || protocolVersion <= EthProtocolVersion.V68,
+          totalDifficulty == null || !EthProtocolVersion.hasBlockRange(protocolVersion),
           "totalDifficulty must be not present for protocol version >= 69");
       checkArgument(
-          totalDifficulty != null || protocolVersion >= EthProtocolVersion.V69,
+          totalDifficulty != null || EthProtocolVersion.hasBlockRange(protocolVersion),
           "totalDifficulty must be present for protocol version <= 68");
       this.protocolVersion = protocolVersion;
       this.networkId = networkId;
@@ -303,13 +303,13 @@ public final class StatusMessage extends AbstractMessageData {
       // the message is eth/69
       final boolean isEth69Shape = in.nextIsList();
 
-      if (isEth69Shape && protocolVersion <= EthProtocolVersion.V68) {
+      if (isEth69Shape && !EthProtocolVersion.hasBlockRange(protocolVersion)) {
         throw new RLPException(
             "Status with protocolVersion="
                 + protocolVersion
                 + " uses eth/69+ layout (no totalDifficulty); version must be >= 69");
       }
-      if (!isEth69Shape && protocolVersion >= EthProtocolVersion.V69) {
+      if (!isEth69Shape && EthProtocolVersion.hasBlockRange(protocolVersion)) {
         throw new RLPException(
             "Status with protocolVersion="
                 + protocolVersion

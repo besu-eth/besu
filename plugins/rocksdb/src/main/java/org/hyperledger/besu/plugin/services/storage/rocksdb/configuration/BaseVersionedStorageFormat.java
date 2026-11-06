@@ -17,6 +17,8 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.util.Optional;
+
 /** Base versioned data storage format */
 public enum BaseVersionedStorageFormat implements VersionedStorageFormat {
   /** Original Forest version, not used since replace by FOREST_WITH_VARIABLES */
@@ -39,20 +41,25 @@ public enum BaseVersionedStorageFormat implements VersionedStorageFormat {
    */
   BONSAI_WITH_VARIABLES(DataStorageFormat.BONSAI, 2),
   /**
-   * Current Bonsai version, with receipts using compaction, in order to make Receipts use less disk
-   * space
+   * Bonsai version with receipts using compaction, in order to make Receipts use less disk space
    */
   BONSAI_WITH_RECEIPT_COMPACTION(DataStorageFormat.BONSAI, 3),
+  /** Current Bonsai version, with contract code stored with its jump destination analysis */
+  BONSAI_WITH_JUMPDEST_ANALYSIS(DataStorageFormat.BONSAI, 4),
   /**
    * Current Bonsai archive version, with blockchain variables in a dedicated column family, in
    * order to make BlobDB more effective
    */
   BONSAI_ARCHIVE_WITH_VARIABLES(DataStorageFormat.X_BONSAI_ARCHIVE, 1),
   /**
-   * Current Bonsai archive version, with receipts using compaction, in order to make Receipts use
-   * less disk space
+   * Bonsai archive version with receipts using compaction, in order to make Receipts use less disk
+   * space
    */
-  BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION(DataStorageFormat.X_BONSAI_ARCHIVE, 2);
+  BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION(DataStorageFormat.X_BONSAI_ARCHIVE, 2),
+  /**
+   * Current Bonsai archive version, with contract code stored with its jump destination analysis
+   */
+  BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS(DataStorageFormat.X_BONSAI_ARCHIVE, 3);
 
   private final DataStorageFormat format;
   private final int version;
@@ -72,8 +79,24 @@ public enum BaseVersionedStorageFormat implements VersionedStorageFormat {
       final DataStorageConfiguration configuration) {
     return switch (configuration.getDatabaseFormat()) {
       case FOREST -> FOREST_WITH_RECEIPT_COMPACTION;
-      case BONSAI -> BONSAI_WITH_RECEIPT_COMPACTION;
-      case X_BONSAI_ARCHIVE -> BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION;
+      case BONSAI -> BONSAI_WITH_JUMPDEST_ANALYSIS;
+      case X_BONSAI_ARCHIVE -> BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS;
+    };
+  }
+
+  /**
+   * The format a database in this format is reverted to by the storage revert-code-format
+   * subcommand, so that Besu versions that do not store the jump destination analysis can open it.
+   *
+   * @return the format without the jump destination analysis, empty when this format does not store
+   *     it
+   */
+  public Optional<BaseVersionedStorageFormat> withoutJumpDestAnalysis() {
+    return switch (this) {
+      case BONSAI_WITH_JUMPDEST_ANALYSIS -> Optional.of(BONSAI_WITH_RECEIPT_COMPACTION);
+      case BONSAI_ARCHIVE_WITH_JUMPDEST_ANALYSIS ->
+          Optional.of(BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION);
+      default -> Optional.empty();
     };
   }
 

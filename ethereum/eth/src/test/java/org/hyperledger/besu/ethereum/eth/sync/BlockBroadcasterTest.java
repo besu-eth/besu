@@ -40,7 +40,7 @@ import org.junit.jupiter.api.Test;
 
 public class BlockBroadcasterTest {
 
-  final int maxMessageSize = 10 * ByteUnits.MEGABYTE;
+  final int maxMessageSize = 10 * ByteUnits.MEBIBYTE;
 
   @Test
   public void blockPropagationUnitTest() throws PeerConnection.PeerNotConnected {

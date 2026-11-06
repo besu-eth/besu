@@ -25,10 +25,12 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -37,8 +39,8 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetPooledTransactionsFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.messages.GetPooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.transactions.PeerTransactionTracker;
-import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
@@ -46,11 +48,13 @@ import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -105,7 +109,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
 
     // Add hashes to the transaction tracker as if they were announced by the peer
     transactionTracker.receivedAnnouncements(
-        ethPeer, TransactionAnnouncement.create(List.of(transaction)));
+        ethPeer, TransactionAnnouncements.create(List.of(transaction)));
     fetcher.requestTransactions();
 
     verify(peerTaskExecutor)
@@ -123,7 +127,8 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
         IntStream.range(0, MAX_HASHES + 1).mapToObj(unused -> generator.transaction()).toList();
 
     // Add hashes to the transaction tracker as if they were announced by the peer
-    transactionTracker.receivedAnnouncements(ethPeer, TransactionAnnouncement.create(transactions));
+    transactionTracker.receivedAnnouncements(
+        ethPeer, TransactionAnnouncements.create(transactions));
 
     final var taskResult1 = transactions.subList(0, MAX_HASHES);
 
@@ -158,11 +163,11 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     transactionTracker.receivedAnnouncements(
         ethPeer,
         List.of(
-            new TransactionAnnouncement(
+            TransactionAnnouncements.create(
                 transactions.get(0).getHash(), TransactionType.FRONTIER, halfPlusOne),
-            new TransactionAnnouncement(
+            TransactionAnnouncements.create(
                 transactions.get(1).getHash(), TransactionType.FRONTIER, halfPlusOne),
-            new TransactionAnnouncement(
+            TransactionAnnouncements.create(
                 transactions.get(2).getHash(), TransactionType.FRONTIER, 1L)));
 
     final var firstBatch = transactions.subList(0, 2);
@@ -196,7 +201,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     transactionTracker.receivedAnnouncements(
         ethPeer,
         List.of(
-            new TransactionAnnouncement(
+            TransactionAnnouncements.create(
                 transaction.getHash(), TransactionType.FRONTIER, (long) maxSize + 1)));
 
     when(peerTaskExecutor.executeAgainstPeer(
@@ -225,7 +230,8 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     // Add hashes to the transaction tracker as if they were announced by the peer,
     // there should be 2 requests, but we will mark one as already seen,
     // so we only expect one sent.
-    transactionTracker.receivedAnnouncements(ethPeer, TransactionAnnouncement.create(transactions));
+    transactionTracker.receivedAnnouncements(
+        ethPeer, TransactionAnnouncements.create(transactions));
 
     transactionTracker.markTransactionsAsSeen(
         ethPeer, List.of(transactions.get(alreadySeenTxIndex).getHash()));
@@ -250,12 +256,13 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
   @Test
   public void requestTransactionsShouldRetryForRemainingHashesInBatch() {
     final List<Transaction> transactions =
-        IntStream.range(0, 4).mapToObj(unused -> generator.transaction()).toList();
+        IntStream.range(0, 10).mapToObj(unused -> generator.transaction()).toList();
 
-    transactionTracker.receivedAnnouncements(ethPeer, TransactionAnnouncement.create(transactions));
+    transactionTracker.receivedAnnouncements(
+        ethPeer, TransactionAnnouncements.create(transactions));
 
-    final var firstBatch = transactions.subList(0, 2);
-    final var secondBatch = transactions.subList(2, 4);
+    final var firstBatch = transactions.subList(0, 5);
+    final var secondBatch = transactions.subList(5, 10);
 
     when(peerTaskExecutor.executeAgainstPeer(
             any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer)))
@@ -268,12 +275,58 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
 
     fetcher.requestTransactions();
 
-    verify(peerTaskExecutor, times(2))
-        .executeAgainstPeer(any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer));
+    final ArgumentCaptor<GetPooledTransactionsFromPeerTask> tasks =
+        ArgumentCaptor.forClass(GetPooledTransactionsFromPeerTask.class);
+    verify(peerTaskExecutor, times(2)).executeAgainstPeer(tasks.capture(), eq(ethPeer));
     verifyNoMoreInteractions(peerTaskExecutor);
+    assertThat(requestedHashes(tasks.getAllValues().get(0)))
+        .containsExactlyElementsOf(transactions.stream().map(Transaction::getHash).toList());
+    assertThat(requestedHashes(tasks.getAllValues().get(1)))
+        .containsExactlyElementsOf(secondBatch.stream().map(Transaction::getHash).toList());
     verify(transactionPool).addRemoteTransactions(firstBatch);
     verify(transactionPool).addRemoteTransactions(secondBatch);
     verifyNoMoreInteractions(transactionPool);
+  }
+
+  @Test
+  public void requestTransactionsShouldNotRetryWhenPeerReturnsTheWholeBatch() {
+    final List<Transaction> transactions =
+        IntStream.range(0, 10).mapToObj(unused -> generator.transaction()).toList();
+
+    transactionTracker.receivedAnnouncements(
+        ethPeer, TransactionAnnouncements.create(transactions));
+
+    // the peer answers with every requested transaction, in the order requested
+    when(peerTaskExecutor.executeAgainstPeer(
+            any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer)))
+        .thenAnswer(
+            invocation -> {
+              final List<Hash> requested = requestedHashes(invocation.getArgument(0));
+              final List<Transaction> response =
+                  requested.stream()
+                      .map(
+                          hash ->
+                              transactions.stream()
+                                  .filter(tx -> tx.getHash().equals(hash))
+                                  .findFirst()
+                                  .orElseThrow())
+                      .toList();
+              return new PeerTaskExecutorResult<>(
+                  Optional.of(response), PeerTaskExecutorResponseCode.SUCCESS, List.of(ethPeer));
+            });
+
+    fetcher.requestTransactions();
+
+    verify(peerTaskExecutor, times(1))
+        .executeAgainstPeer(any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer));
+  }
+
+  private static List<Hash> requestedHashes(final GetPooledTransactionsFromPeerTask task) {
+    final List<Hash> hashes = new ArrayList<>();
+    ((GetPooledTransactionsMessage) task.getRequestMessage(Set.of()))
+        .pooledTransactions()
+        .forEach(hashes::add);
+    return hashes;
   }
 
   @Test
@@ -281,7 +334,8 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     final List<Transaction> transactions =
         IntStream.range(0, 4).mapToObj(unused -> generator.transaction()).toList();
 
-    transactionTracker.receivedAnnouncements(ethPeer, TransactionAnnouncement.create(transactions));
+    transactionTracker.receivedAnnouncements(
+        ethPeer, TransactionAnnouncements.create(transactions));
 
     final var firstBatch = transactions.subList(0, 2);
 
@@ -308,7 +362,8 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     final List<Transaction> transactions =
         IntStream.range(0, 4).mapToObj(unused -> generator.transaction()).toList();
 
-    transactionTracker.receivedAnnouncements(ethPeer, TransactionAnnouncement.create(transactions));
+    transactionTracker.receivedAnnouncements(
+        ethPeer, TransactionAnnouncements.create(transactions));
 
     final var firstBatch = transactions.subList(0, 2);
 
@@ -337,7 +392,8 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     final List<Transaction> transactions =
         IntStream.range(0, 4).mapToObj(unused -> generator.transaction()).toList();
 
-    transactionTracker.receivedAnnouncements(ethPeer, TransactionAnnouncement.create(transactions));
+    transactionTracker.receivedAnnouncements(
+        ethPeer, TransactionAnnouncements.create(transactions));
 
     // Peer returns t0 and t2, skipping t1 (gap), then t3 on retry
     final var firstResponse = List.of(transactions.get(0), transactions.get(2));
@@ -373,7 +429,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
         IntStream.range(0, 2).mapToObj(unused -> generator.transaction()).toList();
     final Transaction unrequestedTransaction = generator.transaction();
 
-    transactionTracker.receivedAnnouncements(ethPeer, TransactionAnnouncement.create(requested));
+    transactionTracker.receivedAnnouncements(ethPeer, TransactionAnnouncements.create(requested));
 
     when(peerTaskExecutor.executeAgainstPeer(
             any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer)))
@@ -402,7 +458,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
 
     // Try to add the announcement for the same transaction
     transactionTracker.receivedAnnouncements(
-        ethPeer, TransactionAnnouncement.create(List.of(transaction)));
+        ethPeer, TransactionAnnouncements.create(List.of(transaction)));
     fetcher.requestTransactions();
 
     verifyNoInteractions(peerTaskExecutor);
@@ -415,7 +471,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
 
     // Firstly add the announcement for the transaction
     transactionTracker.receivedAnnouncements(
-        ethPeer, TransactionAnnouncement.create(List.of(transaction)));
+        ethPeer, TransactionAnnouncements.create(List.of(transaction)));
 
     // Only after mark the transaction as already seen by this peer
     transactionTracker.markTransactionsAsSeen(ethPeer, List.of(transaction.getHash()));

@@ -70,7 +70,7 @@ import org.junit.jupiter.api.Test;
  *       hash.
  *   <li>A JSON-RPC {@code engine_forkchoiceUpdated} call is invoked with {@code headBlockHash = D}.
  *       The bad-block short-circuit in {@link
- *       org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.AbstractEngineForkchoiceUpdated}
+ *       org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV1}
  *       should fire, returning {@code INVALID} with {@code latestValidHash} equal to B's valid
  *       parent hash.
  * </ol>
@@ -195,7 +195,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
         (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
     assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash())
-        .contains(validParent.getHash());
+        .isEqualTo(validParent.getHash());
     final String error = forkchoiceResult.getPayloadStatus().getError();
     assertThat(error).contains(descendantHeader.getHash().toString());
     assertThat(error).containsIgnoringCase("invalid");
@@ -223,7 +223,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
         (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
     assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash())
-        .contains(validParent.getHash());
+        .isEqualTo(validParent.getHash());
   }
 
   @Test
@@ -258,7 +258,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     final ForkchoiceUpdatedResultV1 forkchoiceResult =
         (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
-    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash()).isEmpty();
+    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHash()).isNull();
     final String error = forkchoiceResult.getPayloadStatus().getError();
     assertThat(error).contains(descendantHeader.getHash().toString());
     assertThat(error).containsIgnoringCase("invalid");

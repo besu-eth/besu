@@ -59,6 +59,7 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallExcept
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
@@ -369,16 +370,11 @@ public class BlockSimulator {
     blockAccessListBuilder.ifPresent(b -> blockStateCallSimulationResult.set(b.build()));
 
     // Apply block reward for PoW blocks, matching geth's FinalizeAndAssemble behaviour.
-    // Post-merge specs have blockReward=ZERO and skipZeroBlockRewards=true, so no reward is
-    // applied for them.
-    Wei blockReward = protocolSpec.getBlockReward();
-    if (!(protocolSpec.isSkipZeroBlockRewards() && blockReward.isZero())) {
-      Address miner = overridenBaseBlockHeader.getCoinbase();
-      WorldUpdater rewardUpdater = ws.updater();
-      MutableAccount minerAccount = rewardUpdater.getOrCreate(miner);
-      minerAccount.incrementBalance(blockReward);
-      rewardUpdater.commit();
-    }
+    // Post-merge specs use BlockRewardProcessor.NO_REWARDS, so no reward is applied for them.
+    protocolSpec
+        .getBlockRewardProcessor()
+        .rewardBeneficiaries(
+            ws, overridenBaseBlockHeader, List.of(), overridenBaseBlockHeader.getCoinbase());
 
     var finalBlock =
         createFinalBlock(
@@ -410,7 +406,10 @@ public class BlockSimulator {
 
     BlockStateCallSimulationResult blockStateCallSimulationResult =
         new BlockStateCallSimulationResult(
-            protocolSpec, blockHeader.getGasLimit(), remainingRpcGas(simulationCumulativeGasUsed));
+            protocolSpec,
+            blockHeader.getGasLimit(),
+            remainingRpcGas(simulationCumulativeGasUsed),
+            validationParams.isAllowExceedingExecutionGasLimit());
 
     MiningBeneficiaryCalculator miningBeneficiaryCalculator =
         blockStateCall
@@ -449,6 +448,18 @@ public class BlockSimulator {
         throw new BlockStateCallException(
             BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED.getMessage(),
             BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
+      }
+
+      if (validationParams.isAllowFutureNonce()) {
+        final Address sender = callParameter.getSender().orElse(TransactionSimulator.DEFAULT_FROM);
+        final Account senderAccount = blockUpdater.get(sender);
+        if (senderAccount != null && senderAccount.getNonce() == Account.MAX_NONCE) {
+          throw new BlockStateCallException(
+              String.format(
+                  "nonce has max value: address %s, nonce: %s",
+                  sender, Long.toUnsignedString(Account.MAX_NONCE)),
+              TransactionInvalidReason.NONCE_OVERFLOW);
+        }
       }
 
       long gasLimit =

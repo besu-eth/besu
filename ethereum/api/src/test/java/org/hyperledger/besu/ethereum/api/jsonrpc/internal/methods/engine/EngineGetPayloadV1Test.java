@@ -279,7 +279,7 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
         blockWithReceipts,
         defaultBlockAccessList(),
         requests.or(this::defaultRequests),
-        BlockCreationTiming.EMPTY);
+        new BlockCreationTiming());
   }
 
   protected Optional<BlockAccessList> defaultBlockAccessList() {

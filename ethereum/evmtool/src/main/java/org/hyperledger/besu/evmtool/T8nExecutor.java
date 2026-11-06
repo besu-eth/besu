@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.evmtool;
 
+import static java.util.Objects.requireNonNullElse;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_PROTECTED_V_BASE;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_PROTECTED_V_MIN;
 import static org.hyperledger.besu.ethereum.core.Transaction.REPLAY_UNPROTECTED_V_BASE;
@@ -90,6 +91,7 @@ import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The T8nExecutor class is responsible for executing transactions in the context of the Ethereum
@@ -322,7 +324,9 @@ public class T8nExecutor {
           out.printf("TX json node unparseable: %s%n", txNode);
         }
       } catch (IllegalArgumentException | ArithmeticException e) {
-        rejections.add(new RejectedTransaction(i, e.getMessage()));
+        rejections.add(
+            new RejectedTransaction(
+                i, requireNonNullElse(e.getMessage(), e.getClass().getSimpleName())));
       }
       i++;
     }
@@ -331,8 +335,8 @@ public class T8nExecutor {
 
   static T8nResult runTest(
       final Long chainId,
-      final String fork,
-      final String rewardString,
+      final @Nullable String fork,
+      final @Nullable String rewardString,
       final ObjectMapper objectMapper,
       final ReferenceTestEnv referenceTestEnv,
       final ReferenceTestWorldState initialWorldState,
@@ -348,6 +352,9 @@ public class T8nExecutor {
     final BonsaiReferenceTestWorldState worldState =
         (BonsaiReferenceTestWorldState) initialWorldState.copy();
 
+    if (fork == null) {
+      throw new UnsupportedForkException("null");
+    }
     final ProtocolSchedule protocolSchedule = referenceTestProtocolSchedules.getByName(fork);
     if (protocolSchedule == null) {
       throw new UnsupportedForkException(fork);
@@ -520,7 +527,7 @@ public class T8nExecutor {
         && (rewardString == null || Long.decode(rewardString) > 0)) {
       Wei reward =
           (rewardString == null)
-              ? protocolSpec.getBlockReward()
+              ? protocolSpec.getBlockRewardProcessor().getBlockReward()
               : Wei.of(Long.decode(rewardString));
       rootWorldStateUpdater
           .getOrCreateSenderAccount(blockHeader.getCoinbase())
@@ -558,20 +565,24 @@ public class T8nExecutor {
 
       RequestProcessingContext requestContext =
           new RequestProcessingContext(blockProcessingContext, receipts);
-      Optional<List<Request>> maybeRequests =
-          Optional.of(rpc.process(requestContext, Optional.empty()));
-      Hash requestsHash = BodyValidation.requestsHash(maybeRequests.orElse(List.of()));
+      List<Request> processedRequests;
+      try {
+        processedRequests = rpc.process(requestContext, Optional.empty());
+      } catch (RuntimeException re) {
+        resultObject.put(
+            "blockException", requireNonNullElse(re.getMessage(), re.getClass().getSimpleName()));
+        processedRequests = List.of();
+      }
+      Hash requestsHash = BodyValidation.requestsHash(processedRequests);
 
       resultObject.put("requestsHash", requestsHash.getBytes().toHexString());
       ArrayNode requests = resultObject.putArray("requests");
-      maybeRequests
-          .orElseGet(List::of)
-          .forEach(
-              request -> {
-                if (!request.data().isEmpty()) {
-                  requests.add(request.getEncodedRequest().toHexString());
-                }
-              });
+      processedRequests.forEach(
+          request -> {
+            if (!request.data().isEmpty()) {
+              requests.add(request.getEncodedRequest().toHexString());
+            }
+          });
     }
 
     worldState.persist(blockHeader);

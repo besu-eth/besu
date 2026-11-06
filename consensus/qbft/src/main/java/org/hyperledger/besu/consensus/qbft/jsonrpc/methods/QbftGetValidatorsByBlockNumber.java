@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -71,7 +72,7 @@ public class QbftGetValidatorsByBlockNumber extends AbstractBlockParameterMethod
   }
 
   @Override
-  protected Object resultByBlockNumber(
+  protected @Nullable Object resultByBlockNumber(
       final JsonRpcRequestContext request, final long blockNumber) {
     final Optional<BlockHeader> blockHeader =
         getBlockchainQueries().getBlockHeaderByNumber(blockNumber);

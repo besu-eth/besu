@@ -31,8 +31,9 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.RangeStorageEntriesCollector;
 import org.hyperledger.besu.ethereum.trie.TrieIterator;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -97,8 +98,8 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     account0StorageRoot =
         trie.get(account0Hash.getBytes())
             .map(RLP::input)
-            .map(PmtStateTrieAccountValue::readFrom)
-            .map(PmtStateTrieAccountValue::getStorageRoot)
+            .map(PatriciaTrieAccountValue::readFrom)
+            .map(PatriciaTrieAccountValue::getStorageRoot)
             .orElseThrow();
   }
 
@@ -108,7 +109,7 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(TrieNodeKey.of(account0Hash, location), hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -167,7 +168,7 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(TrieNodeKey.of(account0Hash, location), hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -212,7 +213,7 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(TrieNodeKey.of(account0Hash, location), hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);
@@ -269,7 +270,7 @@ class StorageFlatDatabaseHealingRangeRequestTest {
     final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
         new StoredMerklePatriciaTrie<>(
             (location, hash) ->
-                worldStateKeyValueStorage.getAccountStorageTrieNode(account0Hash, location, hash),
+                worldStateKeyValueStorage.getTrieNode(TrieNodeKey.of(account0Hash, location), hash),
             Bytes32.wrap(account0StorageRoot.getBytes()),
             b -> b,
             b -> b);

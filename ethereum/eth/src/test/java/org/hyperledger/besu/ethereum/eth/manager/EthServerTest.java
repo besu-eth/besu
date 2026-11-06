@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.manager;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
+import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -28,13 +29,17 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.CellsOnlyBlobTransactionFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
+import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.ImmutableEthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationException;
 import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessage;
@@ -194,7 +199,8 @@ public class EthServerTest {
             serializeReceiptsList(
                 expectedResults,
                 TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION));
-    final Optional<MessageData> result = ethMessages.dispatch(ethMsg, EthProtocol.ETH69);
+    final Optional<MessageData> result =
+        ethMessages.dispatch(ethMsg, EthProtocolVersion.V69.getCapability());
     assertThat(result).contains(expectedMsg);
   }
 
@@ -218,7 +224,8 @@ public class EthServerTest {
             serializeReceiptsList(
                 expectedResults,
                 TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION));
-    final Optional<MessageData> result = ethMessages.dispatch(ethMsg, EthProtocol.ETH69);
+    final Optional<MessageData> result =
+        ethMessages.dispatch(ethMsg, EthProtocolVersion.V69.getCapability());
     assertThat(result).contains(expectedMsg);
   }
 
@@ -243,7 +250,7 @@ public class EthServerTest {
     final EthMessage ethMsg = new EthMessage(ethPeer, msgData);
 
     // Check response
-    final PooledTransactionsMessage expectedMsg = PooledTransactionsMessage.create(expectedResult);
+    final PooledTransactionsMessage expectedMsg = createPooledTransactionsMessage(expectedResult);
     final Optional<MessageData> result = ethMessages.dispatch(ethMsg, EthProtocol.LATEST);
     assertThat(result).contains(expectedMsg);
   }
@@ -264,9 +271,43 @@ public class EthServerTest {
     final EthMessage ethMsg = new EthMessage(ethPeer, msgData);
 
     // Check response
-    final PooledTransactionsMessage expectedMsg = PooledTransactionsMessage.create(expectedResult);
+    final PooledTransactionsMessage expectedMsg = createPooledTransactionsMessage(expectedResult);
     final Optional<MessageData> result = ethMessages.dispatch(ethMsg, EthProtocol.LATEST);
     assertThat(result).contains(expectedMsg);
+  }
+
+  @Test
+  public void shouldServeTheBlobElidedFormToAnEth72Peer() {
+    final Transaction cellsOnly = new CellsOnlyBlobTransactionFixture().create(1, CellMask.FULL);
+    when(transactionPool.getTransactionByHash(cellsOnly.getHash()))
+        .thenReturn(Optional.of(cellsOnly));
+    setupEthServer();
+
+    final EthMessage request =
+        new EthMessage(ethPeer, GetPooledTransactionsMessage.create(List.of(cellsOnly.getHash())));
+
+    // What an eth/72 peer was announced is the size of the blob-elided form, so that is the form
+    // the response has to carry. For this transaction, held only as cells, there is no other.
+    assertThat(ethMessages.dispatch(request, EthProtocolVersion.V72.getCapability()))
+        .contains(
+            createPooledTransactionsMessage(
+                List.of(cellsOnly), EncodingContext.POOLED_TRANSACTION_ETH_72));
+  }
+
+  @Test
+  public void shouldOmitATransactionAPreEth72PeerCannotBeServed() {
+    final Transaction cellsOnly = new CellsOnlyBlobTransactionFixture().create(1, CellMask.FULL);
+    when(transactionPool.getTransactionByHash(cellsOnly.getHash()))
+        .thenReturn(Optional.of(cellsOnly));
+    setupEthServer();
+
+    final EthMessage request =
+        new EthMessage(ethPeer, GetPooledTransactionsMessage.create(List.of(cellsOnly.getHash())));
+
+    // The pre-eth/72 pooled form needs the blob payloads this node does not hold. Answering
+    // without the transaction is a legitimate response; failing to encode one is not.
+    assertThat(ethMessages.dispatch(request, EthProtocolVersion.V71.getCapability()))
+        .contains(createPooledTransactionsMessage(List.of()));
   }
 
   @Test
@@ -292,7 +333,7 @@ public class EthServerTest {
             serializePaginatedReceiptsList(List.of(receipts0, receipts1, receipts2), false), false);
 
     final Optional<MessageData> result =
-        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocol.ETH70);
+        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocolVersion.V70.getCapability());
     assertThat(result).contains(expectedMsg);
   }
 
@@ -319,7 +360,7 @@ public class EthServerTest {
             serializePaginatedReceiptsList(allReceipts.subList(0, limit), false), false);
 
     final Optional<MessageData> result =
-        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocol.ETH70);
+        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocolVersion.V70.getCapability());
     assertThat(result).contains(expectedMsg);
   }
 
@@ -359,7 +400,7 @@ public class EthServerTest {
             serializePaginatedReceiptsList(List.of(List.of(receipt0), List.of()), true), true);
 
     final Optional<MessageData> result =
-        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocol.ETH70);
+        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocolVersion.V70.getCapability());
     assertThat(result).contains(expectedMsg);
   }
 
@@ -391,7 +432,8 @@ public class EthServerTest {
         PaginatedReceiptsMessage.createUnsafe(
             serializePaginatedReceiptsList(expectedReceipts, false), false);
 
-    final Optional<MessageData> result = ethMessages.dispatch(ethMsg, EthProtocol.ETH70);
+    final Optional<MessageData> result =
+        ethMessages.dispatch(ethMsg, EthProtocolVersion.V70.getCapability());
     assertThat(result).contains(expectedMsg);
   }
 
@@ -408,7 +450,7 @@ public class EthServerTest {
     final GetPaginatedReceiptsMessage msg =
         GetPaginatedReceiptsMessage.create(List.of(knownHash, unknownHash), 0);
     final Optional<MessageData> result =
-        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocol.ETH70);
+        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocolVersion.V70.getCapability());
 
     // Server stops at the unknown block and returns what was collected before it
     final PaginatedReceiptsMessage expectedMsg =
@@ -429,7 +471,10 @@ public class EthServerTest {
     final GetPaginatedReceiptsMessage msg =
         GetPaginatedReceiptsMessage.create(List.of(blockHash), 3);
 
-    assertThatThrownBy(() -> ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocol.ETH70))
+    assertThatThrownBy(
+            () ->
+                ethMessages.dispatch(
+                    new EthMessage(ethPeer, msg), EthProtocolVersion.V70.getCapability()))
         .isInstanceOf(ProtocolViolationException.class);
   }
 
@@ -456,7 +501,7 @@ public class EthServerTest {
             serializePaginatedReceiptsList(List.of(List.of(), block1Receipts), false), false);
 
     final Optional<MessageData> result =
-        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocol.ETH70);
+        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocolVersion.V70.getCapability());
     assertThat(result).contains(expectedMsg);
   }
 
@@ -487,7 +532,7 @@ public class EthServerTest {
             serializePaginatedReceiptsList(List.of(List.of(r1), List.of()), true), true);
 
     final Optional<MessageData> result =
-        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocol.ETH70);
+        ethMessages.dispatch(new EthMessage(ethPeer, msg), EthProtocolVersion.V70.getCapability());
     assertThat(result).contains(expectedMsg);
   }
 
@@ -499,8 +544,9 @@ public class EthServerTest {
     final Hash unavailableHash = dataGenerator.hash();
     final BlockAccessList available = dataGenerator.blockAccessList();
 
-    when(blockchain.getBlockAccessList(availableHash)).thenReturn(Optional.of(available));
-    when(blockchain.getBlockAccessList(unavailableHash)).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessListRlp(availableHash))
+        .thenReturn(Optional.of(available.encode()));
+    when(blockchain.getBlockAccessListRlp(unavailableHash)).thenReturn(Optional.empty());
 
     final GetBlockAccessListsMessage request =
         GetBlockAccessListsMessage.create(List.of(availableHash, unavailableHash));
@@ -526,7 +572,7 @@ public class EthServerTest {
       final BlockAccessList bal = dataGenerator.blockAccessList();
       hashes.add(h);
       accessLists.add(bal);
-      when(blockchain.getBlockAccessList(h)).thenReturn(Optional.of(bal));
+      when(blockchain.getBlockAccessListRlp(h)).thenReturn(Optional.of(bal.encode()));
     }
 
     final GetBlockAccessListsMessage request = GetBlockAccessListsMessage.create(hashes);
@@ -549,7 +595,7 @@ public class EthServerTest {
     for (int i = 0; i < count; i++) {
       final Hash h = dataGenerator.hash();
       hashes.add(h);
-      when(blockchain.getBlockAccessList(h)).thenReturn(Optional.of(bal));
+      when(blockchain.getBlockAccessListRlp(h)).thenReturn(Optional.of(bal.encode()));
     }
 
     final int balEncodedSize = calculateRlpEncodedSize(bal);
@@ -580,10 +626,11 @@ public class EthServerTest {
     final BlockAccessList firstAvailable = dataGenerator.blockAccessList();
     final BlockAccessList secondAvailable = dataGenerator.blockAccessList();
 
-    when(blockchain.getBlockAccessList(firstAvailableHash)).thenReturn(Optional.of(firstAvailable));
-    when(blockchain.getBlockAccessList(unavailableHash)).thenReturn(Optional.empty());
-    when(blockchain.getBlockAccessList(secondAvailableHash))
-        .thenReturn(Optional.of(secondAvailable));
+    when(blockchain.getBlockAccessListRlp(firstAvailableHash))
+        .thenReturn(Optional.of(firstAvailable.encode()));
+    when(blockchain.getBlockAccessListRlp(unavailableHash)).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessListRlp(secondAvailableHash))
+        .thenReturn(Optional.of(secondAvailable.encode()));
 
     final GetBlockAccessListsMessage request =
         GetBlockAccessListsMessage.create(
@@ -595,7 +642,7 @@ public class EthServerTest {
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(expected);
-    verify(blockchain, never()).getBlockAccessList(secondAvailableHash);
+    verify(blockchain, never()).getBlockAccessListRlp(secondAvailableHash);
   }
 
   @Test
@@ -608,15 +655,15 @@ public class EthServerTest {
     final BlockAccessList firstBal = dataGenerator.blockAccessList();
     final BlockAccessList secondBal = dataGenerator.blockAccessList();
 
-    when(blockchain.getBlockAccessList(firstHash)).thenReturn(Optional.of(firstBal));
-    when(blockchain.getBlockAccessList(secondHash)).thenReturn(Optional.of(secondBal));
+    when(blockchain.getBlockAccessListRlp(firstHash)).thenReturn(Optional.of(firstBal.encode()));
+    when(blockchain.getBlockAccessListRlp(secondHash)).thenReturn(Optional.of(secondBal.encode()));
 
     final GetBlockAccessListsMessage request =
         GetBlockAccessListsMessage.create(List.of(firstHash, secondHash));
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(BlockAccessListsMessage.create(List.of()));
-    verify(blockchain, never()).getBlockAccessList(secondHash);
+    verify(blockchain, never()).getBlockAccessListRlp(secondHash);
   }
 
   private void setupEthServer() {
@@ -636,7 +683,8 @@ public class EthServerTest {
   private List<Block> setupBlocks(final int count) {
     final List<Block> blocks = dataGenerator.blockSequence(count);
     for (Block block : blocks) {
-      when(blockchain.getBlockBody(block.getHash())).thenReturn(Optional.of(block.getBody()));
+      when(blockchain.getBlockBodyRlp(block.getHash()))
+          .thenReturn(Optional.of(RLP.encode(block.getBody()::writeWrappedBodyTo)));
       when(blockchain.getBlockHeader(block.getHash())).thenReturn(Optional.of(block.getHeader()));
       when(blockchain.getBlockHeader(block.getHeader().getNumber()))
           .thenReturn(Optional.of(block.getHeader()));

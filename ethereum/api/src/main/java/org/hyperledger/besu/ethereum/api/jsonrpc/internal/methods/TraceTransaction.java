@@ -61,6 +61,6 @@ public class TraceTransaction extends AbstractTraceByHash implements JsonRpcMeth
 
     return new JsonRpcSuccessResponse(
         requestContext.getRequest().getId(),
-        arrayNodeFromTraceStream(resultByTransactionHash(transactionHash)));
+        resultByTransactionHash(transactionHash).map(this::arrayNodeFromTraceStream).orElse(null));
   }
 }

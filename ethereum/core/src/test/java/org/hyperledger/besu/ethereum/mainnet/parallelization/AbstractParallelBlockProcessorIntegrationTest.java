@@ -27,8 +27,6 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
-import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -36,19 +34,15 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
-import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
-import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BalanceChange;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
-import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -68,7 +62,7 @@ import org.web3j.abi.datatypes.generated.Uint256;
 /**
  * Abstract base class for parallel block processor integration tests. Provides common utilities for
  * block construction, state root discovery, and sequential vs parallel comparison. Subclasses
- * provide specific parallel preprocessing implementations (BAL or Optimistic).
+ * provide the BAL configuration for their parallel variant (BAL or Optimistic).
  */
 @SuppressWarnings("rawtypes")
 public abstract class AbstractParallelBlockProcessorIntegrationTest {
@@ -76,9 +70,6 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
   protected static final BalConfiguration SEQUENTIAL_CONFIG = BalConfiguration.DEFAULT;
 
   protected abstract String getVariantName();
-
-  protected abstract ParallelTransactionPreprocessing createParallelPreprocessing(
-      MainnetTransactionProcessor transactionProcessor);
 
   protected BalConfiguration getBalConfiguration() {
     return BalConfiguration.DEFAULT;
@@ -99,70 +90,25 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     return new MainnetBlockProcessor(
         spec.getTransactionProcessor(),
         spec.getTransactionReceiptFactory(),
-        Wei.ZERO,
         BlockHeader::getCoinbase,
-        true,
         ctx.getProtocolSchedule(),
         SEQUENTIAL_CONFIG);
   }
 
+  /**
+   * Parallel execution on the calling thread, without block-level fallback: when parallel
+   * processing fails, the failure is returned rather than silently falling back to sequential.
+   */
   protected BlockProcessor createParallelProcessor(final ExecutionContextTestFixture ctx) {
     final ProtocolSpec spec =
         ctx.getProtocolSchedule()
             .getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
-    return new NoBlockFallbackParallelBlockProcessor(
+    return new NoFallbackParallelBlockProcessor(
         spec.getTransactionProcessor(),
         spec.getTransactionReceiptFactory(),
-        Wei.ZERO,
         BlockHeader::getCoinbase,
-        true,
         ctx.getProtocolSchedule(),
-        getBalConfiguration(),
-        new NoOpMetricsSystem());
-  }
-
-  /**
-   * Parallel block processor without block-level fallback. When parallel processing produces a
-   * wrong state root, the result is returned as-is rather than silently falling back to sequential.
-   */
-  static class NoBlockFallbackParallelBlockProcessor extends MainnetParallelBlockProcessor {
-
-    public NoBlockFallbackParallelBlockProcessor(
-        final MainnetTransactionProcessor transactionProcessor,
-        final TransactionReceiptFactory transactionReceiptFactory,
-        final Wei blockReward,
-        final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-        final boolean skipZeroBlockRewards,
-        final ProtocolSchedule protocolSchedule,
-        final BalConfiguration balConfiguration,
-        final MetricsSystem metricsSystem) {
-      super(
-          transactionProcessor,
-          transactionReceiptFactory,
-          blockReward,
-          miningBeneficiaryCalculator,
-          skipZeroBlockRewards,
-          protocolSchedule,
-          balConfiguration,
-          metricsSystem);
-    }
-
-    @Override
-    public BlockProcessingResult processBlock(
-        final ProtocolContext protocolContext,
-        final Blockchain blockchain,
-        final MutableWorldState worldState,
-        final Block block,
-        final Optional<BlockAccessList> blockAccessList) {
-      return super.processBlock(
-          protocolContext,
-          blockchain,
-          worldState,
-          block,
-          blockAccessList,
-          new ParallelTransactionPreprocessing(
-              transactionProcessor, Runnable::run, balConfiguration));
-    }
+        getBalConfiguration());
   }
 
   // ==================== Block Construction ====================
@@ -205,11 +151,13 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
             .gasLimit(30_000_000L)
             .baseFeePerGas(baseFee)
             // Prague is active at genesis here, so the mandatory requestsHash field must be
-            // present. The system-contract predeploys deterministically yield this requests hash
-            // for these blocks (none of the test transactions enqueue new requests).
+            // present. The withdrawal request queued in the genesis is dequeued by the first block,
+            // later blocks carry no requests (none of the test transactions enqueue new requests).
             .requestsHash(
-                Hash.fromHexString(
-                    "0x5f7606bf4b9eb2a8414aaa53f4c84062ec8789d24c604453563dc26e4ae65837"))
+                parentHeader.getNumber() == 0L
+                    ? Hash.fromHexString(
+                        "0x5f7606bf4b9eb2a8414aaa53f4c84062ec8789d24c604453563dc26e4ae65837")
+                    : Hash.EMPTY_REQUESTS_HASH)
             .buildHeader();
     final BlockBody blockBody =
         new BlockBody(Arrays.asList(txs), Collections.emptyList(), Optional.empty());
@@ -247,7 +195,13 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     final Block block = createBlock(ctx, parentHeader, Hash.ZERO, baseFee, coinbase, txs);
     final BlockProcessor processor = createSequentialProcessor(ctx);
     final BlockProcessingResult result =
-        processor.processBlock(ctx.getProtocolContext(), ctx.getBlockchain(), ws, block);
+        processor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(ctx.getProtocolContext())
+                .worldState(ws)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
 
     if (result.isSuccessful()) {
       return ws.rootHash();
@@ -291,7 +245,13 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     final Block block = createBlock(ctx, parent, stateRoot, baseFee, MINING_BENEFICIARY);
     final BlockProcessor processor = createSequentialProcessor(ctx);
     final BlockProcessingResult result =
-        processor.processBlock(ctx.getProtocolContext(), ctx.getBlockchain(), ws, block);
+        processor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(ctx.getProtocolContext())
+                .worldState(ws)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
     assertTrue(
         result.isSuccessful(),
         "Empty block advance failed: " + result.errorMessage.orElse("(no message)"));
@@ -328,7 +288,12 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     final BlockProcessor seqProcessor = createSequentialProcessor(seqCtx);
     final BlockProcessingResult seqResult =
         seqProcessor.processBlock(
-            seqCtx.getProtocolContext(), seqCtx.getBlockchain(), seqWs, seqBlock);
+            BlockExecutionContext.builder()
+                .protocolContext(seqCtx.getProtocolContext())
+                .worldState(seqWs)
+                .block(seqBlock)
+                .blockAccessList(Optional.empty())
+                .build());
     assertTrue(
         seqResult.isSuccessful(),
         "Sequential processing failed: " + seqResult.errorMessage.orElse("(no message)"));
@@ -343,16 +308,15 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
             .orElseThrow();
     final Block parBlock =
         createBlock(parCtx, parTxParent, stateRoot, baseFee, MINING_BENEFICIARY, txs);
-    final ProtocolSpec spec =
-        parCtx
-            .getProtocolSchedule()
-            .getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
     final BlockProcessor parProcessor = createParallelProcessor(parCtx);
-    final ParallelTransactionPreprocessing preprocessing =
-        createParallelPreprocessing(spec.getTransactionProcessor());
     final BlockProcessingResult parResult =
         parProcessor.processBlock(
-            parCtx.getProtocolContext(), parCtx.getBlockchain(), parWs, parBlock, preprocessing);
+            BlockExecutionContext.builder()
+                .protocolContext(parCtx.getProtocolContext())
+                .worldState(parWs)
+                .block(parBlock)
+                .blockAccessList(Optional.empty())
+                .build());
     assertTrue(
         parResult.isSuccessful(),
         getVariantName()
@@ -428,7 +392,12 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     final BlockProcessor seqProcessor = createSequentialProcessor(seqCtx);
     final BlockProcessingResult seqResult =
         seqProcessor.processBlock(
-            seqCtx.getProtocolContext(), seqCtx.getBlockchain(), seqWs, block);
+            BlockExecutionContext.builder()
+                .protocolContext(seqCtx.getProtocolContext())
+                .worldState(seqWs)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
     assertTrue(
         seqResult.isSuccessful(),
         "Sequential processing failed: " + seqResult.errorMessage.orElse("(no message)"));
@@ -437,16 +406,15 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     final ExecutionContextTestFixture parCtx = createFreshContext();
     final MutableWorldState parWs = parCtx.getStateArchive().getWorldState();
     final Block parBlock = createBlock(parCtx, stateRoot, baseFee, txs);
-    final ProtocolSpec spec =
-        parCtx
-            .getProtocolSchedule()
-            .getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
     final BlockProcessor parProcessor = createParallelProcessor(parCtx);
-    final ParallelTransactionPreprocessing preprocessing =
-        createParallelPreprocessing(spec.getTransactionProcessor());
     final BlockProcessingResult parResult =
         parProcessor.processBlock(
-            parCtx.getProtocolContext(), parCtx.getBlockchain(), parWs, parBlock, preprocessing);
+            BlockExecutionContext.builder()
+                .protocolContext(parCtx.getProtocolContext())
+                .worldState(parWs)
+                .block(parBlock)
+                .blockAccessList(Optional.empty())
+                .build());
     assertTrue(
         parResult.isSuccessful(),
         getVariantName()

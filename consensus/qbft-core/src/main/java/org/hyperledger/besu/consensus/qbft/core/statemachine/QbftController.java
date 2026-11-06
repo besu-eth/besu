@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.consensus.qbft.core.statemachine;
 
+import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.consensus.qbft.core.validation.ValidatorUtil.isMsgForCurrentHeight;
 import static org.hyperledger.besu.consensus.qbft.core.validation.ValidatorUtil.isMsgFromKnownValidator;
 
@@ -46,6 +47,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +63,7 @@ public class QbftController implements QbftEventHandler {
   private final AtomicBoolean started = new AtomicBoolean(false);
   private final QbftBlockCodec blockEncoder;
   private final QbftMessageDecoder messageDecoder = new QbftMessageDecoder();
-  private BaseQbftBlockHeightManager currentHeightManager;
+  private @Nullable BaseQbftBlockHeightManager currentHeightManager;
   private final QbftBlockHeightManagerFactory qbftBlockHeightManagerFactory;
 
   /**
@@ -110,17 +112,16 @@ public class QbftController implements QbftEventHandler {
     }
     final int validatorsCount = finalState.getValidators().size();
     final BftMessage<?> bftMessage = messageDecoder.decode(message, blockEncoder, validatorsCount);
+    final BaseQbftBlockHeightManager heightManager = getCurrentHeightManager();
     switch (bftMessage) {
       case Proposal proposal ->
-          consumeMessage(
-              message, proposal, currentHeightManager::handleProposalPayload, isReplayed);
+          consumeMessage(message, proposal, heightManager::handleProposalPayload, isReplayed);
       case Prepare prepare ->
-          consumeMessage(message, prepare, currentHeightManager::handlePreparePayload, isReplayed);
+          consumeMessage(message, prepare, heightManager::handlePreparePayload, isReplayed);
       case Commit commit ->
-          consumeMessage(message, commit, currentHeightManager::handleCommitPayload, isReplayed);
+          consumeMessage(message, commit, heightManager::handleCommitPayload, isReplayed);
       case RoundChange roundChange ->
-          consumeMessage(
-              message, roundChange, currentHeightManager::handleRoundChangePayload, isReplayed);
+          consumeMessage(message, roundChange, heightManager::handleRoundChangePayload, isReplayed);
       default ->
           throw new IllegalArgumentException(
               String.format(
@@ -134,7 +135,9 @@ public class QbftController implements QbftEventHandler {
   }
 
   private BaseQbftBlockHeightManager getCurrentHeightManager() {
-    return currentHeightManager;
+    final BaseQbftBlockHeightManager heightManager = currentHeightManager;
+    checkState(heightManager != null, "QBFT controller has not been started");
+    return heightManager;
   }
 
   /**

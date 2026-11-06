@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,7 +65,7 @@ public class QbftGetValidatorsByBlockHash implements JsonRpcMethod {
         requestContext.getRequest().getId(), blockResult(requestContext));
   }
 
-  private Object blockResult(final JsonRpcRequestContext request) {
+  private @Nullable Object blockResult(final JsonRpcRequestContext request) {
     final Hash hash;
     try {
       hash = request.getRequiredParameter(0, Hash.class);

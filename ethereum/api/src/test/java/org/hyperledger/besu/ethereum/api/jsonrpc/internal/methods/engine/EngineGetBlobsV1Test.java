@@ -147,7 +147,8 @@ public class EngineGetBlobsV1Test extends AbstractScheduledApiTest {
     // for loop to check each blob and proof
     for (int i = 0; i < versionedHashes.length; i++) {
       assertThat(blobAndProofV1s.get(i).getBlob().getData())
-          .isEqualTo(blobsWithCommitments.getBlobProofBundles().get(i).getBlob().getData());
+          .isEqualTo(
+              blobsWithCommitments.getBlobProofBundles().get(i).getBlob().orElseThrow().getData());
       assertThat(blobsWithCommitments.getBlobProofBundles().get(i).getKzgProof().size())
           .isEqualTo(1);
       assertThat(blobAndProofV1s.get(i).getProof().getData())
@@ -180,7 +181,13 @@ public class EngineGetBlobsV1Test extends AbstractScheduledApiTest {
     for (int i = 0; i < versionedHashesList.size(); i++) {
       if (i != 1) {
         assertThat(blobAndProofV1s.get(i).getBlob().getData())
-            .isEqualTo(blobsWithCommitments.getBlobProofBundles().get(i).getBlob().getData());
+            .isEqualTo(
+                blobsWithCommitments
+                    .getBlobProofBundles()
+                    .get(i)
+                    .getBlob()
+                    .orElseThrow()
+                    .getData());
         assertThat(blobsWithCommitments.getBlobProofBundles().get(i).getKzgProof().size())
             .isEqualTo(1);
         assertThat(blobAndProofV1s.get(i).getProof().getData())

@@ -15,8 +15,10 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,6 +26,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -100,9 +103,23 @@ public class TraceCallManyTest {
             any(), any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(Optional.of(invalid));
 
-    assertError(request(CALL + "," + CALL), RpcErrorType.INTERNAL_ERROR);
+    // the error names the call's own violation
+    assertError(request(CALL + "," + CALL), RpcErrorType.GAS_PRICE_BELOW_CURRENT_BASE_FEE);
     // the bundle stops at the first invalid call
     verify(transactionSimulator, times(1))
+        .processWithWorldUpdater(any(), any(), any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  public void mixedFeeFieldsAreRejectedBeforeAnyCallRuns() {
+    final String mixed =
+        CALL.replace("\"gasPrice\":\"0x0\"", "\"gasPrice\":\"0x1\",\"maxFeePerGas\":\"0x1\"");
+
+    assertThatThrownBy(() -> method.response(request(CALL + "," + mixed)))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
+    verify(transactionSimulator, never())
         .processWithWorldUpdater(any(), any(), any(), any(), any(), any(), any(), any());
   }
 

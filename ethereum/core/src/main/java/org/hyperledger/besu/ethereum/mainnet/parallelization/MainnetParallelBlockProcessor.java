@@ -18,10 +18,11 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
@@ -30,8 +31,10 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -41,9 +44,11 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,29 +56,46 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
 
   private static final Logger LOG = LoggerFactory.getLogger(MainnetParallelBlockProcessor.class);
 
+  private static final Executor cpuExecutor = BlockProcessingExecutors.cpuExecutor();
+
+  private final Executor executor;
   private final Optional<Counter> confirmedParallelizedTransactionCounter;
   private final Optional<Counter> conflictingButCachedTransactionCounter;
-
-  private static final Executor executor = BlockProcessingExecutors.cpuExecutor();
 
   public MainnetParallelBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionReceiptFactory transactionReceiptFactory,
-      final Wei blockReward,
       final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-      final boolean skipZeroBlockRewards,
       final ProtocolSchedule protocolSchedule,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
+    this(
+        transactionProcessor,
+        transactionReceiptFactory,
+        miningBeneficiaryCalculator,
+        protocolSchedule,
+        balConfiguration,
+        metricsSystem,
+        cpuExecutor);
+  }
+
+  @VisibleForTesting
+  public MainnetParallelBlockProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final TransactionReceiptFactory transactionReceiptFactory,
+      final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
+      final ProtocolSchedule protocolSchedule,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem,
+      final Executor executor) {
     super(
         transactionProcessor,
         transactionReceiptFactory,
-        blockReward,
         miningBeneficiaryCalculator,
-        skipZeroBlockRewards,
         protocolSchedule,
         balConfiguration,
         metricsSystem);
+    this.executor = executor;
     this.confirmedParallelizedTransactionCounter =
         Optional.of(
             metricsSystem.createCounter(
@@ -90,8 +112,92 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
   }
 
   @Override
-  protected TransactionProcessingResult getTransactionProcessingResult(
-      final Optional<PreprocessingContext> preProcessingContext,
+  public final BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    final BlockProcessingResult blockProcessingResult = super.processBlock(context);
+    // Return the result as-is if the block succeeded or its failure is not rerun.
+    if (!blockProcessingResult.isFailed() || !shouldRerunSequentially(context)) {
+      return blockProcessingResult;
+    }
+    // The block already ran sequentially, so there is no parallel attempt to fall back from.
+    if (context.isSequentialExecutionRequested()) {
+      return blockProcessingResult;
+    }
+    final Block block = context.getBlock();
+    LOG.info(
+        "Parallel transaction processing failure. Falling back to non-parallel processing for block #{} ({})",
+        block.getHeader().getNumber(),
+        block.getHash());
+    final MutableWorldState worldState = context.getWorldState();
+    if (worldState instanceof BonsaiWorldState) {
+      ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+    }
+    return processBlockSequentially(context);
+  }
+
+  /** Whether parallel execution runs on {@link BalConcurrentTransactionProcessor}. */
+  private boolean isBalPerfectParallelization(final Optional<BlockAccessList> blockAccessList) {
+    return balConfiguration.isPerfectParallelizationEnabled() && blockAccessList.isPresent();
+  }
+
+  /**
+   * Returns whether a block whose parallel processing failed is rerun sequentially. A block run on
+   * its block access list is not: each transaction ran on its exact pre-state, so the failure is
+   * the block's own and a rerun would only repeat it.
+   */
+  protected boolean shouldRerunSequentially(final BlockExecutionContext context) {
+    return !isBalPerfectParallelization(context.getBlockAccessList());
+  }
+
+  /**
+   * Reruns the block on this processor with sequential execution requested, after the parallel
+   * attempt failed and the world state was reset.
+   */
+  protected BlockProcessingResult processBlockSequentially(final BlockExecutionContext context) {
+    return super.processBlock(context.toBuilder().sequentialExecutionRequested(true).build());
+  }
+
+  @Override
+  protected Optional<ParallelBlockTransactionProcessor> startParallelExecution(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockHeader> maybeParentHeader) {
+    if (!(protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider)) {
+      return Optional.empty();
+    }
+
+    final ParallelBlockTransactionProcessor parallelProcessor;
+
+    if (isBalPerfectParallelization(blockAccessList)) {
+      parallelProcessor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList.get(), balConfiguration);
+    } else {
+      parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
+    }
+
+    parallelProcessor.runAsyncBlock(
+        protocolContext,
+        blockHeader,
+        transactions,
+        miningBeneficiary,
+        blockHashLookup,
+        blobGasPrice,
+        executor,
+        blockAccessListBuilder,
+        maybeParentHeader);
+
+    return Optional.of(parallelProcessor);
+  }
+
+  @Override
+  protected final TransactionProcessingResult processTransaction(
+      final Optional<ParallelBlockTransactionProcessor> parallelProcessor,
       final BlockProcessingContext blockProcessingContext,
       final WorldUpdater transactionUpdater,
       final Wei blobGasPrice,
@@ -100,67 +206,28 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       final int location,
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    return preProcessingContext
+    return parallelProcessor
         .flatMap(
-            ctx ->
-                ctx.processor()
-                    .getProcessingResult(
-                        blockProcessingContext.getWorldState(),
-                        miningBeneficiary,
-                        transaction,
-                        location,
-                        confirmedParallelizedTransactionCounter,
-                        conflictingButCachedTransactionCounter))
+            processor ->
+                processor.getProcessingResult(
+                    blockProcessingContext.getWorldState(),
+                    miningBeneficiary,
+                    transaction,
+                    location,
+                    confirmedParallelizedTransactionCounter,
+                    conflictingButCachedTransactionCounter))
+        // No usable parallel result (a conflict, or nothing ran in parallel): process it
+        // sequentially.
         .orElseGet(
             () ->
-                super.getTransactionProcessingResult(
-                    preProcessingContext,
+                processTransactionSequentially(
                     blockProcessingContext,
                     transactionUpdater,
                     blobGasPrice,
                     miningBeneficiary,
                     transaction,
-                    location,
                     blockHashLookup,
                     accessLocationTracker));
-  }
-
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block) {
-    return processBlock(protocolContext, blockchain, worldState, block, Optional.empty());
-  }
-
-  @Override
-  public BlockProcessingResult processBlock(
-      final ProtocolContext protocolContext,
-      final Blockchain blockchain,
-      final MutableWorldState worldState,
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList) {
-    final BlockProcessingResult blockProcessingResult =
-        super.processBlock(
-            protocolContext,
-            blockchain,
-            worldState,
-            block,
-            blockAccessList,
-            new ParallelTransactionPreprocessing(transactionProcessor, executor, balConfiguration));
-    if (blockProcessingResult.isFailed()) {
-      // Fallback to non-parallel processing if there is a block processing exception .
-      LOG.info(
-          "Parallel transaction processing failure. Falling back to non-parallel processing for block #{} ({})",
-          block.getHeader().getNumber(),
-          block.getHash());
-      if (worldState instanceof BonsaiWorldState) {
-        ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-      }
-      return super.processBlock(protocolContext, blockchain, worldState, block, blockAccessList);
-    }
-    return blockProcessingResult;
   }
 
   public static class ParallelBlockProcessorBuilder
@@ -176,17 +243,13 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
     public BlockProcessor apply(
         final MainnetTransactionProcessor transactionProcessor,
         final TransactionReceiptFactory transactionReceiptFactory,
-        final Wei blockReward,
         final MiningBeneficiaryCalculator miningBeneficiaryCalculator,
-        final boolean skipZeroBlockRewards,
         final ProtocolSchedule protocolSchedule,
         final BalConfiguration balConfiguration) {
       return new MainnetParallelBlockProcessor(
           transactionProcessor,
           transactionReceiptFactory,
-          blockReward,
           miningBeneficiaryCalculator,
-          skipZeroBlockRewards,
           protocolSchedule,
           balConfiguration,
           metricsSystem);

@@ -180,7 +180,10 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final WorldStateProofProvider proofProvider = new WorldStateProofProvider(coordinator);
       return mapper.apply(
           proofProvider.getAccountProof(
-              blockHeader.getStateRoot(), accountAddress, accountStorageKeys));
+              blockHeader.getStateRoot(),
+              blockHeader.getBlockHash(),
+              accountAddress,
+              accountStorageKeys));
     } catch (final Exception ex) {
       LOG.error(
           "failed archive proof query for block {} ({})",

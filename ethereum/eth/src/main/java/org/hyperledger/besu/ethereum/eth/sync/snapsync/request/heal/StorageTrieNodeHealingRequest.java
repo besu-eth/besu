@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
@@ -54,7 +55,8 @@ public class StorageTrieNodeHealingRequest extends TrieNodeHealingRequest {
     applyForStrategy(
         updater,
         onBonsai -> {
-          onBonsai.putAccountStorageTrieNode(getAccountHash(), getLocation(), getNodeHash(), data);
+          onBonsai.putTrieNode(
+              TrieNodeKey.of(getAccountHash(), getLocation()), getNodeHash(), data);
         },
         onForest -> {
           onForest.putAccountStorageTrieNode(getNodeHash(), data);

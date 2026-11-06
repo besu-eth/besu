@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.Arch
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeWriter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
@@ -142,7 +143,7 @@ class BonsaiArchiveStateProofIntegrationTest {
    */
   private void writeAccountBlock(final long block, final Bytes location, final Bytes node) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    archiveStrategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    archiveStrategy.putTrieNode(storage, tx, location, hash(node), node);
     tx.put(
         TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY, Bytes.ofUnsignedLong(block).toArrayUnsafe());
     archiveStrategy.onBeforeCommit(storage, tx);
@@ -152,13 +153,13 @@ class BonsaiArchiveStateProofIntegrationTest {
   private Optional<Bytes> readAccountNode(
       final long block, final Bytes location, final Bytes32 nodeHash) {
     return new ArchiveReadTrieNodeStrategy(block, historyReader)
-        .getFlatAccountTrieNode(location, nodeHash, storage);
+        .getTrieNode(storage, location, nodeHash);
   }
 
   private Optional<Bytes> readStorageNode(
       final Hash accountHash, final long block, final Bytes location, final Bytes32 nodeHash) {
     return new ArchiveReadTrieNodeStrategy(block, historyReader)
-        .getFlatStorageTrieNode(accountHash, location, nodeHash, storage);
+        .getTrieNode(storage, TrieNodeKey.of(accountHash, location), nodeHash);
   }
 
   @Test
@@ -168,7 +169,7 @@ class BonsaiArchiveStateProofIntegrationTest {
 
     // Block 0 (no WORLD_BLOCK_NUMBER_KEY in storage → block is 0)
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    archiveStrategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    archiveStrategy.putTrieNode(storage, tx, location, hash(node), node);
     archiveStrategy.onBeforeCommit(storage, tx);
     tx.commit();
 
@@ -194,7 +195,7 @@ class BonsaiArchiveStateProofIntegrationTest {
     final Bytes node = branchNode(0);
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    archiveStrategy.putFlatAccountTrieNode(storage, tx, location, hash(node), node);
+    archiveStrategy.putTrieNode(storage, tx, location, hash(node), node);
     archiveStrategy.onBeforeCommit(storage, tx);
     tx.commit();
 
@@ -221,7 +222,8 @@ class BonsaiArchiveStateProofIntegrationTest {
     final Bytes node = branchNode(0);
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    archiveStrategy.putFlatStorageTrieNode(storage, tx, accountHash, location, hash(node), node);
+    archiveStrategy.putTrieNode(
+        storage, tx, TrieNodeKey.of(accountHash, location), hash(node), node);
     archiveStrategy.onBeforeCommit(storage, tx);
     tx.commit();
 
@@ -239,8 +241,8 @@ class BonsaiArchiveStateProofIntegrationTest {
 
     // Write only to storage-trie archive
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    archiveStrategy.putFlatStorageTrieNode(
-        storage, tx, accountHash, storageLocation, hash(storageNode), storageNode);
+    archiveStrategy.putTrieNode(
+        storage, tx, TrieNodeKey.of(accountHash, storageLocation), hash(storageNode), storageNode);
     archiveStrategy.onBeforeCommit(storage, tx);
     tx.commit();
 
@@ -312,7 +314,7 @@ class BonsaiArchiveStateProofIntegrationTest {
     writeAccountBlock(0L, location, node);
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    archiveStrategy.removeFlatAccountStateTrieNode(storage, tx, location);
+    archiveStrategy.removeTrieNode(storage, tx, location);
     tx.put(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY, Bytes.ofUnsignedLong(1L).toArrayUnsafe());
     archiveStrategy.onBeforeCommit(storage, tx);
     tx.commit();
@@ -339,9 +341,11 @@ class BonsaiArchiveStateProofIntegrationTest {
     for (long block = 0; block <= 1; block++) {
       final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
       final Bytes aNode = block == 0 ? aV0 : aV1;
-      archiveStrategy.putFlatStorageTrieNode(storage, tx, accountA, location, hash(aNode), aNode);
+      archiveStrategy.putTrieNode(
+          storage, tx, TrieNodeKey.of(accountA, location), hash(aNode), aNode);
       if (block == 0) {
-        archiveStrategy.putFlatStorageTrieNode(storage, tx, accountB, location, hash(bV0), bV0);
+        archiveStrategy.putTrieNode(
+            storage, tx, TrieNodeKey.of(accountB, location), hash(bV0), bV0);
       }
       tx.put(
           TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY, Bytes.ofUnsignedLong(block).toArrayUnsafe());

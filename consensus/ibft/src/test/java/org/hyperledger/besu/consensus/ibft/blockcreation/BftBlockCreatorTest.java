@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -138,12 +139,15 @@ public class BftBlockCreatorTest {
     final TransactionPoolConfiguration poolConf =
         ImmutableTransactionPoolConfiguration.builder().txPoolMaxSize(1).build();
 
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(new DeterministicEthScheduler());
     final GasPricePendingTransactionsSorter pendingTransactions =
         new GasPricePendingTransactionsSorter(
             poolConf,
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
-            blockchain::getChainHeadHeader);
+            blockchain::getChainHeadHeader,
+            transactionEventNotifier.newEmitter());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -157,7 +161,8 @@ public class BftBlockCreatorTest {
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConf,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
 
     transactionPool.setEnabled();
 
@@ -286,12 +291,15 @@ public class BftBlockCreatorTest {
     final TransactionPoolConfiguration poolConf =
         ImmutableTransactionPoolConfiguration.builder().txPoolMaxSize(1).build();
 
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(new DeterministicEthScheduler());
     final GasPricePendingTransactionsSorter pendingTransactions =
         new GasPricePendingTransactionsSorter(
             poolConf,
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
-            blockchain::getChainHeadHeader);
+            blockchain::getChainHeadHeader,
+            transactionEventNotifier.newEmitter());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -305,7 +313,8 @@ public class BftBlockCreatorTest {
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConf,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
 
     transactionPool.setEnabled();
 
@@ -420,12 +429,15 @@ public class BftBlockCreatorTest {
     final TransactionPoolConfiguration poolConf =
         ImmutableTransactionPoolConfiguration.builder().txPoolMaxSize(1).build();
 
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(new DeterministicEthScheduler());
     final GasPricePendingTransactionsSorter pendingTransactions =
         new GasPricePendingTransactionsSorter(
             poolConf,
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
-            blockchain::getChainHeadHeader);
+            blockchain::getChainHeadHeader,
+            transactionEventNotifier.newEmitter());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -439,7 +451,8 @@ public class BftBlockCreatorTest {
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConf,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
 
     transactionPool.setEnabled();
 
@@ -555,12 +568,15 @@ public class BftBlockCreatorTest {
     final TransactionPoolConfiguration poolConf =
         ImmutableTransactionPoolConfiguration.builder().txPoolMaxSize(1).build();
 
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(new DeterministicEthScheduler());
     final GasPricePendingTransactionsSorter pendingTransactions =
         new GasPricePendingTransactionsSorter(
             poolConf,
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
-            blockchain::getChainHeadHeader);
+            blockchain::getChainHeadHeader,
+            transactionEventNotifier.newEmitter());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -574,7 +590,8 @@ public class BftBlockCreatorTest {
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConf,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
 
     transactionPool.setEnabled();
 

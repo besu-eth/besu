@@ -15,12 +15,14 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.AccountHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.CodeStorageStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.code.JumpDestCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
@@ -82,7 +84,7 @@ class FlatDbStrategyProviderTest {
     assertThat(flatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
         .isInstanceOf(BonsaiFullFlatDbStrategy.class);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isInstanceOf(CodeHashCodeStorageStrategy.class);
+        .isExactlyInstanceOf(JumpDestCodeStorageStrategy.class);
   }
 
   @Test
@@ -97,7 +99,7 @@ class FlatDbStrategyProviderTest {
     assertThat(archiveFlatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
         .isExactlyInstanceOf(BonsaiFullFlatDbStrategy.class);
     assertThat(archiveFlatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isInstanceOf(CodeHashCodeStorageStrategy.class);
+        .isExactlyInstanceOf(JumpDestCodeStorageStrategy.class);
   }
 
   @ParameterizedTest
@@ -121,11 +123,11 @@ class FlatDbStrategyProviderTest {
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
     final Class<? extends CodeStorageStrategy> expectedCodeStorageClass =
         codeByHashEnabled
-            ? CodeHashCodeStorageStrategy.class
+            ? JumpDestCodeStorageStrategy.class
             : AccountHashCodeStorageStrategy.class;
     assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isInstanceOf(expectedCodeStorageClass);
+        .isExactlyInstanceOf(expectedCodeStorageClass);
   }
 
   @ParameterizedTest
@@ -150,11 +152,11 @@ class FlatDbStrategyProviderTest {
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
     final Class<? extends CodeStorageStrategy> expectedCodeStorageClass =
         codeByHashEnabled
-            ? CodeHashCodeStorageStrategy.class
+            ? JumpDestCodeStorageStrategy.class
             : AccountHashCodeStorageStrategy.class;
     assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isInstanceOf(expectedCodeStorageClass);
+        .isExactlyInstanceOf(expectedCodeStorageClass);
   }
 
   @ParameterizedTest
@@ -188,7 +190,12 @@ class FlatDbStrategyProviderTest {
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
     assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isInstanceOf(AccountHashCodeStorageStrategy.class);
+        .isExactlyInstanceOf(AccountHashCodeStorageStrategy.class);
+    // code keyed by account hash is left as it is
+    assertThat(composedWorldStateStorage.get(CODE_STORAGE, JumpDestCodeStorageStrategy.MARKER_KEY))
+        .isEmpty();
+    assertThat(composedWorldStateStorage.get(CODE_STORAGE, accountHash.getBytes().toArrayUnsafe()))
+        .contains(Bytes.of(2).toArrayUnsafe());
   }
 
   @ParameterizedTest
@@ -224,12 +231,17 @@ class FlatDbStrategyProviderTest {
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
     assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isInstanceOf(AccountHashCodeStorageStrategy.class);
+        .isExactlyInstanceOf(AccountHashCodeStorageStrategy.class);
+    // code keyed by account hash is left as it is
+    assertThat(composedWorldStateStorage.get(CODE_STORAGE, JumpDestCodeStorageStrategy.MARKER_KEY))
+        .isEmpty();
+    assertThat(composedWorldStateStorage.get(CODE_STORAGE, accountHash.getBytes().toArrayUnsafe()))
+        .contains(Bytes.of(2).toArrayUnsafe());
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void existingCodeHashDbUsesCodeHash(final boolean codeByHashEnabled) {
+  void existingCodeHashDbIsMigratedToJumpDest(final boolean codeByHashEnabled) {
     final DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(DataStorageFormat.BONSAI)
@@ -257,12 +269,19 @@ class FlatDbStrategyProviderTest {
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
     assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isInstanceOf(CodeHashCodeStorageStrategy.class);
+        .isExactlyInstanceOf(JumpDestCodeStorageStrategy.class);
+    // code keyed by code hash is migrated to code with its analysis
+    assertThat(composedWorldStateStorage.get(CODE_STORAGE, JumpDestCodeStorageStrategy.MARKER_KEY))
+        .contains(JumpDestCodeStorageStrategy.MARKER);
+    assertThat(
+            composedWorldStateStorage.get(
+                CODE_STORAGE, Hash.hash(Bytes.of(1)).getBytes().toArrayUnsafe()))
+        .contains(JumpDestCodeStorageStrategy.encode(Bytes.of(1)));
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void existingCodeHashArchiveDbUsesCodeHash(final boolean codeByHashEnabled) {
+  void existingCodeHashArchiveDbIsMigratedToJumpDest(final boolean codeByHashEnabled) {
     final DataStorageConfiguration dataStorageConfiguration =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(DataStorageFormat.X_BONSAI_ARCHIVE)
@@ -292,7 +311,23 @@ class FlatDbStrategyProviderTest {
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
     assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isInstanceOf(CodeHashCodeStorageStrategy.class);
+        .isExactlyInstanceOf(JumpDestCodeStorageStrategy.class);
+    // code keyed by code hash is migrated to code with its analysis
+    assertThat(composedWorldStateStorage.get(CODE_STORAGE, JumpDestCodeStorageStrategy.MARKER_KEY))
+        .contains(JumpDestCodeStorageStrategy.MARKER);
+    assertThat(
+            composedWorldStateStorage.get(
+                CODE_STORAGE, Hash.hash(Bytes.of(1)).getBytes().toArrayUnsafe()))
+        .contains(JumpDestCodeStorageStrategy.encode(Bytes.of(1)));
+  }
+
+  @Test
+  void markedDbUsesJumpDestWithoutInspectingEntries() {
+    new JumpDestCodeStorageStrategy().markEmpty(composedWorldStateStorage);
+
+    flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
+    assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
+        .isExactlyInstanceOf(JumpDestCodeStorageStrategy.class);
   }
 
   private void updateFlatDbMode(final FlatDbMode flatDbMode) {

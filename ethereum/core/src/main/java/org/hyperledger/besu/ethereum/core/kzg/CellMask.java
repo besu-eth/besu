@@ -159,6 +159,16 @@ public final class CellMask {
   }
 
   /**
+   * Whether one index is set.
+   *
+   * @param index the cell index to test
+   * @return true if the mask holds the cell at that index
+   */
+  public boolean contains(final int index) {
+    return mask.get(index);
+  }
+
+  /**
    * Serializes this mask to its fixed width wire representation. {@link BitSet#toByteArray()} trims
    * trailing zero bytes, so the result is right padded to {@link #BYTE_LENGTH}, otherwise a mask
    * with no high indexes set would not round trip through {@link #fromBytes(Bytes)}.

@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogPruner;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -30,6 +31,7 @@ import org.hyperledger.besu.plugin.services.trielogs.TrieLogEvent;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.RejectedExecutionException;
 
 import org.junit.jupiter.api.Test;
@@ -145,6 +147,12 @@ public class TrieLogPrunerShutdownScenarioTest extends AbstractIsolationTests {
     return protocolSchedule
         .getByBlockHeader(block.getHeader())
         .getBlockProcessor()
-        .processBlock(protocolContext, blockchain, worldState, block);
+        .processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
   }
 }

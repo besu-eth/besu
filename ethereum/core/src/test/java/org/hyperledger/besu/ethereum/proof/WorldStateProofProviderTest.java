@@ -15,6 +15,8 @@
 package org.hyperledger.besu.ethereum.proof;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -22,8 +24,9 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -48,6 +51,7 @@ public class WorldStateProofProviderTest {
 
   private static final Address address =
       Address.fromHexString("0x1234567890123456789012345678901234567890");
+  private static final Hash blockHash = Hash.hash(Bytes.of(1));
 
   private BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage;
   private WorldStateProofProvider worldStateProofProvider;
@@ -66,9 +70,52 @@ public class WorldStateProofProviderTest {
   @Test
   public void getProofWhenWorldStateNotAvailable() {
     Optional<WorldStateProof> accountProof =
-        worldStateProofProvider.getAccountProof(Hash.EMPTY, address, new ArrayList<>());
+        worldStateProofProvider.getAccountProof(Hash.EMPTY, blockHash, address, new ArrayList<>());
 
     assertThat(accountProof).isEmpty();
+  }
+
+  @Test
+  public void getProofWhenAnotherWorldStateIsStored() {
+    final Bytes rootNode = Bytes.of(0x80);
+    worldStateKeyValueStorage
+        .updater()
+        .saveWorldState(
+            Hash.ZERO.getBytes(), Bytes32.wrap(Hash.hash(rootNode).getBytes()), rootNode)
+        .commit();
+
+    // The stored root is another one and no trie log leads to this block.
+    final Optional<WorldStateProof> accountProof =
+        worldStateProofProvider.getAccountProof(Hash.EMPTY, blockHash, address, new ArrayList<>());
+
+    assertThat(accountProof).isEmpty();
+  }
+
+  @Test
+  public void getProofWhenAnotherWorldStateIsStoredAndTrieLogExists() {
+    final MerkleTrie<Bytes32, Bytes> worldStateTrie = emptyWorldStateTrie();
+    final PatriciaTrieAccountValue accountValue =
+        new PatriciaTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    worldStateTrie.put(
+        Bytes32.wrap(address.addressHash().getBytes()), RLP.encode(accountValue::writeTo));
+
+    final BonsaiWorldStateKeyValueStorage.Updater updater = worldStateKeyValueStorage.updater();
+    commitWorldStateTrie(worldStateTrie, updater);
+    // The stored root is another one, but a trie log leads to this block.
+    updater
+        .getWorldStateTransaction()
+        .put(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY, Hash.ZERO.getBytes().toArrayUnsafe());
+    updater
+        .getTrieLogStorageTransaction()
+        .put(blockHash.getBytes().toArrayUnsafe(), Bytes.of(1).toArrayUnsafe());
+    updater.commit();
+
+    final Optional<WorldStateProof> accountProof =
+        worldStateProofProvider.getAccountProof(
+            Hash.wrap(worldStateTrie.getRootHash()), blockHash, address, new ArrayList<>());
+
+    assertThat(accountProof).isPresent();
+    assertThat(accountProof.get().getStateTrieAccountValue()).contains(accountValue);
   }
 
   @Test
@@ -86,12 +133,12 @@ public class WorldStateProofProviderTest {
     // Save to storage
     storageTrie.commit(
         (location, hash, value) ->
-            updater.putAccountStorageTrieNode(addressHash, location, hash, value));
+            updater.putTrieNode(TrieNodeKey.of(addressHash, location), hash, value));
 
     // Define account value
     final Hash codeHash = Hash.hash(Bytes.fromHexString("0x1122"));
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(
+    final PatriciaTrieAccountValue accountValue =
+        new PatriciaTrieAccountValue(
             1L, Wei.of(2L), Hash.wrap(storageTrie.getRootHash()), codeHash);
     // Save to storage
     worldStateTrie.put(Bytes32.wrap(addressHash.getBytes()), RLP.encode(accountValue::writeTo));
@@ -104,7 +151,7 @@ public class WorldStateProofProviderTest {
         Arrays.asList(UInt256.ONE, UInt256.valueOf(3L), UInt256.valueOf(6L));
     final Optional<WorldStateProof> accountProof =
         worldStateProofProvider.getAccountProof(
-            Hash.wrap(worldStateTrie.getRootHash()), address, storageKeys);
+            Hash.wrap(worldStateTrie.getRootHash()), blockHash, address, storageKeys);
 
     assertThat(accountProof).isPresent();
     Assertions.assertThat(accountProof.get().getStateTrieAccountValue()).contains(accountValue);
@@ -134,8 +181,8 @@ public class WorldStateProofProviderTest {
     // Add a different account so the world state is non-empty (state root is known)
     final Address otherAddress =
         Address.fromHexString("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
-    final PmtStateTrieAccountValue otherAccount =
-        new PmtStateTrieAccountValue(0L, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    final PatriciaTrieAccountValue otherAccount =
+        new PatriciaTrieAccountValue(0L, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
     worldStateTrie.put(
         Bytes32.wrap(otherAddress.addressHash().getBytes()), RLP.encode(otherAccount::writeTo));
     commitWorldStateTrie(worldStateTrie, updater);
@@ -145,7 +192,7 @@ public class WorldStateProofProviderTest {
         Arrays.asList(UInt256.ONE, UInt256.valueOf(2L), UInt256.valueOf(3L));
     final Optional<WorldStateProof> proof =
         worldStateProofProvider.getAccountProof(
-            Hash.wrap(worldStateTrie.getRootHash()), address, storageKeys);
+            Hash.wrap(worldStateTrie.getRootHash()), blockHash, address, storageKeys);
 
     assertThat(proof).isPresent();
     assertThat(proof.get().getStateTrieAccountValue()).isEmpty();
@@ -167,8 +214,8 @@ public class WorldStateProofProviderTest {
 
     // Define account value
     final Hash codeHash = Hash.hash(Bytes.fromHexString("0x1122"));
-    final PmtStateTrieAccountValue accountValue =
-        new PmtStateTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, codeHash);
+    final PatriciaTrieAccountValue accountValue =
+        new PatriciaTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, codeHash);
     // Save to storage
     worldStateTrie.put(Bytes32.wrap(addressHash.getBytes()), RLP.encode(accountValue::writeTo));
     commitWorldStateTrie(worldStateTrie, updater);
@@ -179,6 +226,7 @@ public class WorldStateProofProviderTest {
     final Optional<WorldStateProof> accountProof =
         worldStateProofProvider.getAccountProof(
             Hash.wrap(worldStateTrie.getRootHash()),
+            blockHash,
             Address.ZERO,
             new ArrayList<>()); // missing address
 
@@ -195,7 +243,7 @@ public class WorldStateProofProviderTest {
     final Bytes[] rootNodeValue = new Bytes[1];
     worldStateTrie.commit(
         (location, hash, value) -> {
-          updater.putAccountStateTrieNode(location, hash, value);
+          updater.putTrieNode(location, hash, value);
           if (location.size() == 0) {
             rootNodeValue[0] = value;
           }
@@ -219,15 +267,13 @@ public class WorldStateProofProviderTest {
   private MerkleTrie<Bytes32, Bytes> emptyStorageTrie(final Hash accountHash) {
     return new StoredMerklePatriciaTrie<>(
         (location, hash) ->
-            worldStateKeyValueStorage.getAccountStorageTrieNode(accountHash, location, hash),
+            worldStateKeyValueStorage.getTrieNode(TrieNodeKey.of(accountHash, location), hash),
         b -> b,
         b -> b);
   }
 
   private MerkleTrie<Bytes32, Bytes> emptyWorldStateTrie() {
     return new StoredMerklePatriciaTrie<>(
-        (location, hash) -> worldStateKeyValueStorage.getAccountStateTrieNode(location, hash),
-        b -> b,
-        b -> b);
+        (location, hash) -> worldStateKeyValueStorage.getTrieNode(location, hash), b -> b, b -> b);
   }
 }

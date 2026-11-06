@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.chain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
@@ -25,6 +26,7 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.AbstractExecutorService;
@@ -39,11 +41,13 @@ import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.Logger;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Property;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class ChainDataPrunerTest {
+  private static final InclusionListStatus SATISFIED = new InclusionListStatus(Bytes32.ZERO, true);
 
   @Test
   public void singleChainPruning() {
@@ -76,6 +80,8 @@ public class ChainDataPrunerTest {
 
     final int retention = 512;
     final int chainLength = retention + 8; // just past the pruning threshold
+    // hashes of the appended blocks, the one at index i has number i + 1
+    final List<Hash> blockHashes = new ArrayList<>();
 
     gen.blockSequenceWithAccessList(genesisBlock, chainLength)
         .forEach(
@@ -95,6 +101,8 @@ public class ChainDataPrunerTest {
                       });
 
               blockchain.appendBlock(blk, gen.receipts(blk));
+              blockchain.putInclusionListStatus(blk.getHash(), SATISFIED);
+              blockHashes.add(blk.getHash());
               long number = blk.getHeader().getNumber();
 
               // Verify balHash is set in the header
@@ -109,7 +117,15 @@ public class ChainDataPrunerTest {
               } else {
                 // Prune block number - retention only
                 assertThat(blockchain.getBlockHeader(number - retention)).isEmpty();
+                assertThat(
+                        blockchainStorage.getInclusionListStatus(
+                            blockHashes.get((int) (number - retention) - 1)))
+                    .isEmpty();
                 assertThat(blockchain.getBlockHeader(number - retention + 1)).isPresent();
+                assertThat(
+                        blockchainStorage.getInclusionListStatus(
+                            blockHashes.get((int) (number - retention))))
+                    .contains(SATISFIED);
               }
             });
   }
@@ -1610,6 +1626,73 @@ public class ChainDataPrunerTest {
 
     checkBlocks(blockchain, 1, mergeBlock - 1, Optional::isEmpty);
     checkBlocks(blockchain, mergeBlock, blockchain.getChainHeadBlockNumber(), Optional::isPresent);
+  }
+
+  @Test
+  public void keepsTheBackfillFloorReadAPruningRunAgo() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final BlockchainStorage blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            new InMemoryKeyValueStorage(),
+            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
+            new MainnetBlockHeaderFunctions(),
+            false);
+    final ChainDataPruner chainDataPruner =
+        backfillPruner(
+            blockchainStorage,
+            ChainDataPruner.PruningMode.CHAIN_PRUNING,
+            ChainDataPruner.ChainPruningStrategy.ALL);
+    final Block genesisBlock = gen.genesisBlock();
+    final MutableBlockchain blockchain =
+        DefaultBlockchain.createMutable(
+            genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
+    blockchain.observeBlockAdded(chainDataPruner);
+
+    gen.blockSequence(genesisBlock, 40)
+        .forEach(
+            blk -> {
+              blockchain.appendBlock(blk, gen.receipts(blk));
+              // a back-fill that read its floor a run ago, 4 blocks, stores that block now
+              final long floor = chainDataPruner.lowestToBackfill(blk.getHeader().getNumber() - 4);
+              assertThat(blockchain.getBlockHeader(floor)).isPresent();
+            });
+    // a run later, the pruner keeps the blocks from 44 - 10 + 1
+    assertThat(chainDataPruner.lowestToBackfill(40)).isEqualTo(35);
+  }
+
+  @Test
+  public void leavesNoMarginWhenTheLowestRetainedBlockDoesNotMove() {
+    final BlockchainStorage blockchainStorage = Mockito.mock(BlockchainStorage.class);
+    final ChainDataPruner preMergePruner =
+        backfillPruner(
+            blockchainStorage,
+            ChainDataPruner.PruningMode.PRE_MERGE_PRUNING,
+            ChainDataPruner.ChainPruningStrategy.ALL);
+    final ChainDataPruner balPruner =
+        backfillPruner(
+            blockchainStorage,
+            ChainDataPruner.PruningMode.CHAIN_PRUNING,
+            ChainDataPruner.ChainPruningStrategy.BAL);
+
+    // pre-merge pruning keeps every block from the merge block
+    assertThat(preMergePruner.lowestToBackfill(1_000)).isEqualTo(11);
+    // pruning the block access lists only keeps every body
+    assertThat(balPruner.lowestToBackfill(1_000)).isZero();
+  }
+
+  // keeps 10 blocks, runs every 4 blocks, the merge at block 11
+  private static ChainDataPruner backfillPruner(
+      final BlockchainStorage blockchainStorage,
+      final ChainDataPruner.PruningMode mode,
+      final ChainDataPruner.ChainPruningStrategy strategy) {
+    return new ChainDataPruner(
+        blockchainStorage,
+        () -> {},
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
+        11,
+        mode,
+        new ChainPrunerConfiguration(strategy, 10, 10, 10, 4, 0),
+        new BlockingExecutor());
   }
 
   @Test
