@@ -293,7 +293,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             () -> new IllegalStateException("Missing trie log for block hash " + blockHash));
   }
 
-  private Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
+  protected Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
       final PathBasedWorldState mutableState,
       final Hash blockHash,
       final Level rollingFailureLogLevel) {
@@ -359,7 +359,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           }
           pathBasedUpdater.commit();
 
-          mutableState.persist(headerOrThrow(blockHash));
+          mutableState.persistWithoutTrieLog(headerOrThrow(blockHash));
 
           LOG.debug(
               "Archive rolling finished, {} now at {}",
