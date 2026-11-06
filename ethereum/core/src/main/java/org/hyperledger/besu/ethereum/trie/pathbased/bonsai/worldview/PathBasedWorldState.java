@@ -235,6 +235,23 @@ public abstract class PathBasedWorldState
 
   @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
+    persist(blockHeader, committer, true);
+  }
+
+  /**
+   * Persists the world state at a block it was rolled to with trie logs. The rolled changes span
+   * several blocks, so they are not saved as the block's trie log.
+   *
+   * @param blockHeader the block the world state was rolled to
+   */
+  public void persistWithoutTrieLog(final BlockHeader blockHeader) {
+    persist(blockHeader, resolveDefaultCommitter(), false);
+  }
+
+  protected void persist(
+      final BlockHeader blockHeader,
+      final StateRootCommitter committer,
+      final boolean saveTrieLog) {
     LOG.atDebug()
         .setMessage("Persist world state for block {}")
         .addArgument(() -> Optional.ofNullable(blockHeader))
@@ -253,9 +270,9 @@ public abstract class PathBasedWorldState
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
-        if (deferTrieLog) {
+        if (saveTrieLog && deferTrieLog) {
           trieLogWrite = trieLogManager.deferTrieLog(accumulator, calculatedRootHash, blockHeader);
-        } else {
+        } else if (saveTrieLog) {
           // Trie log first, ahead of composed state, in case of an abnormal shutdown.
           trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
         }
