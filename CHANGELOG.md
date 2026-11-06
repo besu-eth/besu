@@ -28,6 +28,7 @@
 - `eth_simulateV1` now returns `maxUsedGas` after Amsterdam as the gas used before refunds raised to the calldata floor, `max(executionGas + stateGas, floor)`, as Geth does. Previously Besu returned `max(executionGas, floor) + stateGas`, which is larger when the execution gas is below the floor. `eth_estimateGas` uses the same value as its lower bound. [#11580](https://github.com/besu-eth/besu/pull/11580)
 - Block access lists of the last blocks are now cached as RLP, at most 128 MiB by default (`--cache-last-blocks-max-capacity`), and `--cache-last-blocks` now defaults to 128. [#11455](https://github.com/besu-eth/besu/pull/11455)
 - Snap sync no longer stalls on an account with large, frequently changing storage, or on an account whose storage was cleared while snap sync was downloading it. [#11654](https://github.com/besu-eth/besu/pull/11654)
+- `trace_block`, `trace_filter` and `trace_replayBlockTransactions` replay a mined transaction whose sender is no longer on the node's local account allowlist, instead of tracing it as a call that ran no code and changed no state. [#11406](https://github.com/besu-eth/besu/pull/11406)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
@@ -36,6 +37,7 @@
 - RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
 - Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
 - The default JVM options no longer start JFR's in-process event logging, which formatted every recorded event as text. [#11824](https://github.com/besu-eth/besu/pull/11824)
+- Add `trace_replayTransaction` to the `TRACE` API. It replays one mined transaction on top of the transactions before it in its block and returns the same result as `trace_replayBlockTransactions` for that transaction. [#11406](https://github.com/besu-eth/besu/pull/11406)
 - Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
 - EVM v2 runs untraced execution, such as block import, in a faster loop of its own. [#11687](https://github.com/besu-eth/besu/pull/11687)
 
