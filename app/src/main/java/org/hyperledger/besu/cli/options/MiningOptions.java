@@ -203,6 +203,15 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
   }
 
   /**
+   * Whether mempool prewarming is enabled.
+   *
+   * @return true if {@code --Xmempool-prewarm-enabled} is set
+   */
+  public boolean isMempoolPrewarmEnabled() {
+    return unstableOptions.mempoolPrewarmEnabled;
+  }
+
+  /**
    * Validate that there are no inconsistencies in the specified options. For example that the
    * options are valid for the selected implementation.
    *
