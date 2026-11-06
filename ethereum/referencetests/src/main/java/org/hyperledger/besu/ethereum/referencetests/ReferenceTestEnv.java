@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
+import org.hyperledger.besu.evm.internal.Words;
 
 import java.util.List;
 import java.util.Map;
@@ -253,6 +254,10 @@ public class ReferenceTestEnv extends BlockHeader {
 
   public String getParentExcessBlobGas() {
     return parentExcessBlobGas;
+  }
+
+  public Optional<Long> getParentTimestamp() {
+    return Optional.ofNullable(parentTimestamp).map(Words::decodeUnsignedLong);
   }
 
   public boolean isStateTest() {

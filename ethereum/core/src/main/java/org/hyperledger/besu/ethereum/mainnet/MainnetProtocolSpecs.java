@@ -69,6 +69,7 @@ import org.hyperledger.besu.ethereum.mainnet.blockhash.CancunPreExecutionProcess
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.ZeroNonceStorageAccountsPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
@@ -1377,7 +1378,23 @@ public abstract class MainnetProtocolSpecs {
         .transactionReceiptFactory(new BogotaTransactionReceiptFactory(enableRevertReason))
         // EIP-8151: account code restricted ecrecover
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::bogota)
+        // EIP-8253: bump the zero-nonce storage accounts at the fork block
+        .preExecutionProcessor(getBogotaPreExecutionProcessor(genesisConfigOptions))
         .hardforkId(BOGOTA);
+  }
+
+  private static PreExecutionProcessor getBogotaPreExecutionProcessor(
+      final GenesisConfigOptions genesisConfigOptions) {
+    final PreExecutionProcessor praguePreExecutionProcessor =
+        getPraguePreExecutionProcessor(genesisConfigOptions);
+    final List<Address> zeroNonceStorageAccounts =
+        genesisConfigOptions.getZeroNonceStorageAccounts();
+    final OptionalLong bogotaTime = genesisConfigOptions.getBogotaTime();
+    if (zeroNonceStorageAccounts.isEmpty() || bogotaTime.isEmpty()) {
+      return praguePreExecutionProcessor;
+    }
+    return new ZeroNonceStorageAccountsPreExecutionProcessor(
+        praguePreExecutionProcessor, bogotaTime.getAsLong(), zeroNonceStorageAccounts);
   }
 
   private static ProtocolSpecBuilder applyBlobSchedule(

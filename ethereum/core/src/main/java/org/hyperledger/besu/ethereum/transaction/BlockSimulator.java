@@ -309,7 +309,8 @@ public class BlockSimulator {
             protocolSpec,
             blockHashLookup,
             operationTracer,
-            blockAccessListBuilder);
+            blockAccessListBuilder,
+            Optional.of(baseBlockHeader.getTimestamp()));
 
     // if operationTracer is block-aware, traceStart and hold onto the option ref for traceEnd
     var maybeBlockAwareOperationTracer =

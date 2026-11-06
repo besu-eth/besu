@@ -216,6 +216,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
               b -> BlockAccessListBuilder.createPreExecutionAccessLocationTracker());
+      Optional<BlockHeader> maybeParentHeader =
+          blockchain.getBlockHeader(blockHeader.getParentHash());
       final BlockProcessingContext blockProcessingContext =
           new BlockProcessingContext(
               blockHeader,
@@ -223,13 +225,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               protocolSpec,
               blockHashLookup,
               !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer,
-              blockAccessListBuilder);
+              blockAccessListBuilder,
+              maybeParentHeader.map(BlockHeader::getTimestamp));
       protocolSpec
           .getPreExecutionProcessor()
           .process(blockProcessingContext, preExecutionAccessLocationTracker);
-
-      Optional<BlockHeader> maybeParentHeader =
-          blockchain.getBlockHeader(blockHeader.getParentHash());
 
       Wei blobGasPrice =
           maybeParentHeader

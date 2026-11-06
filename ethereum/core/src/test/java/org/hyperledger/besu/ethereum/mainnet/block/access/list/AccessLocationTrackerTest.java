@@ -66,6 +66,17 @@ class AccessLocationTrackerTest {
   }
 
   @Test
+  void nonceDecreaseAtSharedIndexIsRecorded() {
+    createContract(account -> account.setNonce(5));
+
+    runCall(account -> account.setNonce(1));
+    runCall(account -> {});
+
+    assertThat(accountChanges().nonceChanges())
+        .containsExactly(new BlockAccessList.NonceChange(1, 1));
+  }
+
+  @Test
   void deletedAccountKeepsBalanceChangeThroughLaterViews() {
     createContract(account -> account.setBalance(Wei.of(5)));
 

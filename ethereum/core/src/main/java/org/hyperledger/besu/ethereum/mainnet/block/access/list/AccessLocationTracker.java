@@ -243,7 +243,9 @@ public class AccessLocationTracker implements Eip7928AccessList {
     if (!newBalance.equals(indexStart.balance)) {
       accountBuilder.withPostBalance(newBalance);
     }
-    if (Long.compareUnsigned(newNonce, indexStart.nonce) > 0) {
+    // Any change counts, not only an increase: the EIP-8253 fork-block bump sets a listed account's
+    // nonce to one even when it was higher.
+    if (newNonce != indexStart.nonce) {
       accountBuilder.withNonceChange(newNonce);
     }
     if (!account.getCodeHash().equals(indexStart.codeHash)) {
