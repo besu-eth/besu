@@ -40,7 +40,22 @@ public interface TransactionPoolConfiguration {
   interface Unstable {
     Duration ETH65_TRX_ANNOUNCED_BUFFERING_PERIOD = Duration.ofMillis(500);
     int DEFAULT_TX_MSG_KEEP_ALIVE = 60;
-    int DEFAULT_MAX_TRACKED_SEEN_TXS = 300_000;
+
+    /**
+     * Log2 of the bucket count of the table of transactions seen by peers, which holds at most 80 %
+     * of its buckets: the default 19 is 524,288 buckets, remembering up to 419,430 transactions.
+     */
+    int DEFAULT_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2 = 19;
+
+    /**
+     * The smallest exponent for which 80 % of the buckets, rounded down, is still more than half of
+     * them, so that the table is sized to exactly that many buckets.
+     */
+    int MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2 = 2;
+
+    /** The largest exponent, as the backing map caps its table at 2^30 buckets. */
+    int MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2 = 30;
+
     int DEFAULT_MAX_SEND_QUEUE_SIZE_PER_PEER = 100_000;
     boolean DEFAULT_PEER_TRACKER_FORGET_EVICTED_TXS = false;
     Duration DEFAULT_SAVE_RESTORE_TIMEOUT = Duration.ofMinutes(1);
@@ -59,8 +74,8 @@ public interface TransactionPoolConfiguration {
     }
 
     @Value.Default
-    default int getMaxTrackedSeenTxs() {
-      return DEFAULT_MAX_TRACKED_SEEN_TXS;
+    default int getMaxTrackedSeenTxsBucketsLog2() {
+      return DEFAULT_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2;
     }
 
     @Value.Default
