@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
 import org.hyperledger.besu.ethereum.eth.manager.ChainState;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -243,7 +244,7 @@ public class PeerTransactionTrackerTest {
   public void shouldRemoveConfirmedTransactionsFromAllQueuesOnBlockAdded() {
     tracker.addToPeerSendQueue(ethPeer1, List.of(transaction1, transaction2));
     tracker.addToPeerAnnouncementsSendQueue(ethPeer1, List.of(transaction1, transaction3));
-    tracker.receivedAnnouncements(ethPeer2, TransactionAnnouncement.create(List.of(transaction1)));
+    tracker.receivedAnnouncements(ethPeer2, TransactionAnnouncements.create(List.of(transaction1)));
 
     final Block block =
         generator.block(BlockDataGenerator.BlockOptions.create().addTransaction(transaction1));
@@ -296,11 +297,11 @@ public class PeerTransactionTrackerTest {
     final long maxSize = 1_000_000L;
 
     final TransactionAnnouncement ann1 =
-        new TransactionAnnouncement(transaction1.getHash(), transaction1.getType(), annSize);
+        TransactionAnnouncements.create(transaction1.getHash(), transaction1.getType(), annSize);
     final TransactionAnnouncement ann2 =
-        new TransactionAnnouncement(transaction2.getHash(), transaction2.getType(), annSize);
+        TransactionAnnouncements.create(transaction2.getHash(), transaction2.getType(), annSize);
     final TransactionAnnouncement ann3 =
-        new TransactionAnnouncement(transaction3.getHash(), transaction3.getType(), annSize);
+        TransactionAnnouncements.create(transaction3.getHash(), transaction3.getType(), annSize);
 
     tracker.receivedAnnouncements(ethPeer1, List.of(ann1, ann2, ann3));
 
@@ -322,7 +323,7 @@ public class PeerTransactionTrackerTest {
     final var fresh =
         tracker.receivedAnnouncements(
             ethPeer1,
-            TransactionAnnouncement.create(List.of(transaction1, transaction2, transaction3)));
+            TransactionAnnouncements.create(List.of(transaction1, transaction2, transaction3)));
 
     // transaction1 already seen — excluded from the fresh list
     assertThat(fresh)
@@ -339,9 +340,9 @@ public class PeerTransactionTrackerTest {
   public void markTransactionsAsSeen_shouldRemoveFromAllPeersRequestQueues() {
     // Both peers have transaction1 in their request queues
     tracker.receivedAnnouncements(
-        ethPeer1, TransactionAnnouncement.create(List.of(transaction1, transaction2)));
+        ethPeer1, TransactionAnnouncements.create(List.of(transaction1, transaction2)));
     tracker.receivedAnnouncements(
-        ethPeer2, TransactionAnnouncement.create(List.of(transaction1, transaction3)));
+        ethPeer2, TransactionAnnouncements.create(List.of(transaction1, transaction3)));
 
     // Mark transaction1 as seen (e.g. received as a full tx from ethPeer1)
     tracker.markTransactionsAsSeen(ethPeer1, List.of(transaction1.getHash()));
@@ -360,7 +361,7 @@ public class PeerTransactionTrackerTest {
   @Test
   public void shouldRemoveConfirmedTransactionsFromAllQueuesOnChainReorg() {
     tracker.addToPeerSendQueue(ethPeer1, List.of(transaction1, transaction2));
-    tracker.receivedAnnouncements(ethPeer2, TransactionAnnouncement.create(List.of(transaction1)));
+    tracker.receivedAnnouncements(ethPeer2, TransactionAnnouncements.create(List.of(transaction1)));
 
     final Block block =
         generator.block(BlockDataGenerator.BlockOptions.create().addTransaction(transaction1));
@@ -381,7 +382,7 @@ public class PeerTransactionTrackerTest {
   @Test
   public void shouldIgnoreForkBlockEvents() {
     tracker.addToPeerSendQueue(ethPeer1, List.of(transaction1));
-    tracker.receivedAnnouncements(ethPeer1, TransactionAnnouncement.create(List.of(transaction2)));
+    tracker.receivedAnnouncements(ethPeer1, TransactionAnnouncements.create(List.of(transaction2)));
 
     final Block block =
         generator.block(BlockDataGenerator.BlockOptions.create().addTransaction(transaction1));
@@ -397,7 +398,7 @@ public class PeerTransactionTrackerTest {
   @Test
   public void claimAnnouncementsToRequestFromPeer_shouldLimitByMaxHashes() {
     final List<Transaction> transactions = new ArrayList<>(generator.transactions(5));
-    tracker.receivedAnnouncements(ethPeer1, TransactionAnnouncement.create(transactions));
+    tracker.receivedAnnouncements(ethPeer1, TransactionAnnouncements.create(transactions));
 
     // Claim at most 3 at a time
     final List<TransactionAnnouncement> firstBatch =
@@ -434,7 +435,8 @@ public class PeerTransactionTrackerTest {
 
     final List<Transaction> transactions = new ArrayList<>(generator.transactions(queueCap * 2));
 
-    smallQueueTracker.receivedAnnouncements(ethPeer1, TransactionAnnouncement.create(transactions));
+    smallQueueTracker.receivedAnnouncements(
+        ethPeer1, TransactionAnnouncements.create(transactions));
 
     final List<TransactionAnnouncement> claimed =
         smallQueueTracker.claimAnnouncementsToRequestFromPeer(
