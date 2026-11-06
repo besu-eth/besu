@@ -113,6 +113,8 @@ class MempoolPrewarmerTest {
   private final List<Map<PendingTransaction, TransactionSelectionResult>> selectionResults =
       new CopyOnWriteArrayList<>();
   private final StubMetricsSystem metricsSystem = new StubMetricsSystem();
+  // stubbing the pool again while a pass uses it from another thread confuses Mockito
+  private final AtomicBoolean poolEnabled = new AtomicBoolean(true);
   private final AtomicLong now = new AtomicLong(System.currentTimeMillis());
   private final Clock clock =
       new Clock() {
@@ -136,7 +138,7 @@ class MempoolPrewarmerTest {
 
   @BeforeEach
   void setUp() {
-    when(transactionPool.isEnabled()).thenReturn(true);
+    when(transactionPool.isEnabled()).thenAnswer(invocation -> poolEnabled.get());
     doAnswer(this::copyCandidates).when(transactionPool).selectTransactions(any());
     when(transactionPool.subscribePendingTransactions(any()))
         .thenAnswer(
@@ -808,7 +810,7 @@ class MempoolPrewarmerTest {
   @Test
   void stopsWhenTheHeadMovesWhileThePoolIsDisabled() {
     prewarmer.start(head());
-    when(transactionPool.isEnabled()).thenReturn(false);
+    poolEnabled.set(false);
 
     prewarmer.start(head());
     addCandidate(transfer(0));
