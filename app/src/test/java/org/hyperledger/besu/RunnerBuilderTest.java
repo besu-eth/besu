@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -409,6 +410,23 @@ public final class RunnerBuilderTest {
 
   @Test
   public void engineVertxIsClosedOnShutdown() {
+    final Vertx engineVertx = spy(Vertx.vertx());
+
+    buildRunnerWithEngineApi(Vertx.vertx(), engineVertx).close();
+
+    verify(engineVertx).close();
+  }
+
+  @Test
+  public void sharedEngineVertxIsClosedOnceOnShutdown() {
+    final Vertx vertx = spy(Vertx.vertx());
+
+    buildRunnerWithEngineApi(vertx, vertx).close();
+
+    verify(vertx, times(1)).close();
+  }
+
+  private Runner buildRunnerWithEngineApi(final Vertx vertx, final Vertx engineVertx) {
     setupBlockchainAndBlock();
 
     final JsonRpcConfiguration jrpc = JsonRpcConfiguration.createDefault();
@@ -420,40 +438,33 @@ public final class RunnerBuilderTest {
     MergeConfiguration.setMergeEnabled(true);
     when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
 
-    final Vertx engineVertx = spy(Vertx.vertx());
-
-    final Runner runner =
-        new RunnerBuilder()
-            .discoveryEnabled(true)
-            .p2pListenInterface("0.0.0.0")
-            .p2pListenPort(30303)
-            .p2pAdvertisedHost("127.0.0.1")
-            .p2pEnabled(true)
-            .natMethod(NatMethod.NONE)
-            .besuController(besuController)
-            .ethNetworkConfig(mockMainnet)
-            .metricsSystem(new NoOpMetricsSystem())
-            .permissioningService(mock(PermissioningServiceImpl.class))
-            .jsonRpcConfiguration(jrpc)
-            .engineJsonRpcConfiguration(engine)
-            .graphQLConfiguration(mock(GraphQLConfiguration.class))
-            .webSocketConfiguration(mock(WebSocketConfiguration.class))
-            .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
-            .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
-            .metricsConfiguration(mock(MetricsConfiguration.class))
-            .vertx(Vertx.vertx())
-            .engineVertx(engineVertx)
-            .dataDir(dataDir)
-            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
-            .rpcEndpointService(new RpcEndpointServiceImpl())
-            .besuPluginContext(mock(BesuPluginContextImpl.class))
-            .apiConfiguration(ImmutableApiConfiguration.builder().build())
-            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
-            .build();
-
-    runner.close();
-
-    verify(engineVertx).close();
+    return new RunnerBuilder()
+        .discoveryEnabled(true)
+        .p2pListenInterface("0.0.0.0")
+        .p2pListenPort(30303)
+        .p2pAdvertisedHost("127.0.0.1")
+        .p2pEnabled(true)
+        .natMethod(NatMethod.NONE)
+        .besuController(besuController)
+        .ethNetworkConfig(mockMainnet)
+        .metricsSystem(new NoOpMetricsSystem())
+        .permissioningService(mock(PermissioningServiceImpl.class))
+        .jsonRpcConfiguration(jrpc)
+        .engineJsonRpcConfiguration(engine)
+        .graphQLConfiguration(mock(GraphQLConfiguration.class))
+        .webSocketConfiguration(mock(WebSocketConfiguration.class))
+        .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
+        .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
+        .metricsConfiguration(mock(MetricsConfiguration.class))
+        .vertx(vertx)
+        .engineVertx(engineVertx)
+        .dataDir(dataDir)
+        .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+        .rpcEndpointService(new RpcEndpointServiceImpl())
+        .besuPluginContext(mock(BesuPluginContextImpl.class))
+        .apiConfiguration(ImmutableApiConfiguration.builder().build())
+        .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+        .build();
   }
 
   @Test
