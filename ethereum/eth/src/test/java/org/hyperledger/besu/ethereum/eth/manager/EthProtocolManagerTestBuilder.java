@@ -241,7 +241,7 @@ public class EthProtocolManagerTestBuilder {
     }
     if (ethContext == null) {
       ethContext =
-          new EthContext(ethPeers, ethMessages, snapMessages, ethScheduler, peerTaskExecutor);
+          new EthContext(ethPeers, ethMessages, snapMessages, ethScheduler, peerTaskExecutor, null);
     }
     if (peerValidators == null) {
       peerValidators = Collections.emptyList();

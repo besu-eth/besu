@@ -53,6 +53,7 @@ import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -73,8 +74,8 @@ import org.slf4j.LoggerFactory;
  * a timed out request keeps its slot until its late answer or one more timeout. One request of each
  * peer is always left to the other downloads.
  *
- * <p>The SNAP2 downloads go through it rather than the {@code PeerTaskExecutor}, and a merge of the
- * two must keep what it does that the executor does not:
+ * <p>The downloads go through it, each in a {@link #scope()} of its own, rather than the {@code
+ * PeerTaskExecutor}, and a merge of the two must keep what it does that the executor does not:
  *
  * <ul>
  *   <li>an empty answer means the peer lacks the data, as pruned bodies, so the peer is not
@@ -84,7 +85,7 @@ import org.slf4j.LoggerFactory;
  *   <li>peers are rated per kind of request, and the requests of a sync are served by priority.
  * </ul>
  */
-public final class RequestScheduler implements RequestSender {
+public final class RequestScheduler {
 
   private static final Logger LOG = LoggerFactory.getLogger(RequestScheduler.class);
   // the rate guessed for a request type no peer answered yet: 64 bytes per millisecond
@@ -98,7 +99,7 @@ public final class RequestScheduler implements RequestSender {
   private static final long RETRY_PAUSE_MILLIS = 1_000;
   // announced heights lag, so a peer that looks behind is only picked when no other peer can be
   private static final double BEHIND_PENALTY = 1e-3;
-  // the requests of the SNAP2 sync and of the back-fill: 15 s each, at most six a peer per protocol
+  // the requests of the node: 15 s each, at most six a peer per protocol
   private static final Duration SYNC_REQUEST_TIMEOUT = Duration.ofSeconds(15);
   private static final int SYNC_REQUESTS_PER_PEER = 6;
 
@@ -148,8 +149,8 @@ public final class RequestScheduler implements RequestSender {
   private final Map<EthPeer, PeerState> peers = new HashMap<>();
   // what the peers answered lately per request type, the guess for a peer not asked yet
   private final Map<String, Rate> typicalRates = new HashMap<>();
-  // every request not yet answered, failed when the scheduler stops
-  private final Set<CompletableFuture<?>> outstanding = ConcurrentHashMap.newKeySet();
+  // the scopes not stopped, which the stop of the scheduler stops
+  private final Set<Scope> scopes = ConcurrentHashMap.newKeySet();
   // every attempt whose stream is open, closed when the scheduler stops
   private final Set<Attempt<?>> open = ConcurrentHashMap.newKeySet();
   private long sequence;
@@ -177,20 +178,23 @@ public final class RequestScheduler implements RequestSender {
         maxEthRequestsPerPeer,
         workerThreads,
         Executors.newSingleThreadScheduledExecutor(
-            Thread.ofPlatform().name("snap2-scheduler").daemon().factory()),
+            Thread.ofPlatform().name("request-scheduler").daemon().factory()),
         System::nanoTime);
   }
 
-  /** Creates the scheduler of the SNAP2 sync, or of a back-fill that runs without it. */
-  public static RequestScheduler forSync(
-      final EthPeers ethPeers, final MetricsSystem metricsSystem, final int workerThreads) {
+  /**
+   * Creates the scheduler of the node. Every sync download sends through a {@link #scope()} of it,
+   * so the peers' lanes and rates are shared. It is stopped once, when the node stops.
+   */
+  public static RequestScheduler create(
+      final EthPeers ethPeers, final MetricsSystem metricsSystem) {
     return new RequestScheduler(
         ethPeers,
         metricsSystem,
         SYNC_REQUEST_TIMEOUT,
         SYNC_REQUESTS_PER_PEER,
         SYNC_REQUESTS_PER_PEER,
-        workerThreads);
+        Math.max(2, Runtime.getRuntime().availableProcessors()));
   }
 
   @VisibleForTesting
@@ -212,31 +216,31 @@ public final class RequestScheduler implements RequestSender {
     this.nanoTime = nanoTime;
     this.workers =
         Executors.newFixedThreadPool(
-            workerThreads, Thread.ofPlatform().name("snap2-worker-", 0).daemon().factory());
+            workerThreads, Thread.ofPlatform().name("request-worker-", 0).daemon().factory());
     this.requestCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.SYNCHRONIZER,
             "snap2_requests_total",
-            "Requests sent by the SNAP2 sync, by type and outcome",
+            "Requests sent by the sync downloads, by type and outcome",
             "request",
             "outcome");
     this.responseBytes =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.SYNCHRONIZER,
             "snap2_response_bytes_total",
-            "Bytes of the responses received by the SNAP2 sync, by request type",
+            "Bytes of the responses received by the sync downloads, by request type",
             "request");
     this.responseMillis =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.SYNCHRONIZER,
             "snap2_response_milliseconds_total",
-            "Time peers took to answer SNAP2 requests, by request type",
+            "Time peers took to answer sync requests, by request type",
             "request");
     final var inFlight =
         metricsSystem.createLabelledSuppliedGauge(
             BesuMetricCategory.SYNCHRONIZER,
             "snap2_requests_in_flight",
-            "Requests of the SNAP2 sync waiting for an answer, by protocol",
+            "Sync requests waiting for an answer, by protocol",
             "protocol");
     inFlight.labels(() -> snapInFlight, "snap");
     inFlight.labels(() -> ethInFlight, "eth");
@@ -244,36 +248,23 @@ public final class RequestScheduler implements RequestSender {
         metricsSystem.createLabelledSuppliedGauge(
             BesuMetricCategory.SYNCHRONIZER,
             "snap2_request_capacity",
-            "Requests the peers currently accept from the SNAP2 sync, by protocol",
+            "Sync requests the peers currently accept, by protocol",
             "protocol");
     capacity.labels(() -> capacities.getOrDefault(Protocol.SNAP, 0), "snap");
     capacity.labels(() -> capacities.getOrDefault(Protocol.ETH, 0), "eth");
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.SYNCHRONIZER,
         "snap2_requests_queued",
-        "Requests of the SNAP2 sync waiting for a peer",
+        "Sync requests waiting for a peer",
         () -> queued);
     this.connectSubscription = ethPeers.subscribeConnect(peer -> execute(this::dispatchSoon));
     loop.scheduleWithFixedDelay(this::dispatchSafely, 1, 1, TimeUnit.SECONDS);
   }
 
-  @Override
-  public ExecutorService workers() {
-    return workers;
-  }
-
-  @Override
-  public <T> CompletableFuture<RequestSender.Response<T>> submit(
-      final SyncRequest<T> request, final Set<EthPeer> excluded) {
-    return enqueue(request, excluded);
-  }
-
+  // a task the stop of the loop drops leaves its future to the scope that tracks it
   private <T> CompletableFuture<RequestSender.Response<T>> enqueue(
       final SyncRequest<T> request, final Set<EthPeer> excluded) {
     final Pending<T> pending = new Pending<>(request, new HashSet<>(excluded));
-    track(pending.future);
-
-    // tracked first, so that a concurrent stop either fails it or is seen here
     final boolean accepted =
         !stopped
             && execute(
@@ -289,17 +280,10 @@ public final class RequestScheduler implements RequestSender {
     return pending.future;
   }
 
-  private void track(final CompletableFuture<?> future) {
-    outstanding.add(future);
-    future.whenComplete((response, error) -> outstanding.remove(future));
-  }
-
-  @Override
-  public <T> CompletableFuture<RequestSender.Response<T>> submitWithRetries(
+  // the result is failed by the stop of its scope, also during the pause between two attempts
+  private <T> CompletableFuture<RequestSender.Response<T>> sendWithRetries(
       final SyncRequest<T> request, final int attempts) {
     final CompletableFuture<RequestSender.Response<T>> result = new CompletableFuture<>();
-    // also failed by a stop during the pause between two attempts
-    track(result);
     attempt(request, new HashSet<>(), attempts, result);
     return result;
   }
@@ -309,69 +293,141 @@ public final class RequestScheduler implements RequestSender {
       final Set<EthPeer> excluded,
       final int attemptsLeft,
       final CompletableFuture<RequestSender.Response<T>> result) {
-    enqueue(request, excluded)
-        .whenComplete(
-            (response, error) -> {
-              if (error == null) {
-                result.complete(response);
-                return;
-              }
+    final CompletableFuture<RequestSender.Response<T>> sent = enqueue(request, excluded);
+    // a result completed elsewhere, as by the stop of its scope, takes its attempt out of the queue
+    result.whenComplete((response, error) -> sent.cancel(false));
+    sent.whenComplete(
+        (response, error) -> {
+          if (error == null) {
+            result.complete(response);
+            return;
+          }
 
-              final RequestFailedException failure =
-                  RequestFailedException.from(error).orElse(null);
-              // a retry that only found the peers it left out sent nothing: no attempt used
-              final boolean leftOut =
-                  failure != null && failure.reason() == NO_PEER && !excluded.isEmpty();
-              // an error of the request itself would fail again on any peer
-              if (failure == null
-                  || (attemptsLeft <= 1 && !leftOut)
-                  || failure.reason() == STOPPED
-                  || result.isDone()) {
-                result.completeExceptionally(failure != null ? failure : error);
-                return;
-              }
+          final RequestFailedException failure = RequestFailedException.from(error).orElse(null);
+          // a retry that only found the peers it left out sent nothing: no attempt used
+          final boolean leftOut =
+              failure != null && failure.reason() == NO_PEER && !excluded.isEmpty();
+          // an error of the request itself would fail again on any peer
+          if (failure == null
+              || (attemptsLeft <= 1 && !leftOut)
+              || failure.reason() == STOPPED
+              || result.isDone()) {
+            result.completeExceptionally(failure != null ? failure : error);
+            return;
+          }
 
-              if (failure.reason() == NO_PEER) {
-                // every peer that serves it failed it, start over after a pause
-                excluded.clear();
-                final int left = leftOut ? attemptsLeft : attemptsLeft - 1;
-                if (schedule(() -> attempt(request, excluded, left, result), RETRY_PAUSE_MILLIS)
-                    == null) {
-                  result.completeExceptionally(stoppedFailure());
-                }
-              } else {
-                failure.peer().ifPresent(excluded::add);
-                attempt(request, excluded, attemptsLeft - 1, result);
-              }
-            });
+          if (failure.reason() == NO_PEER) {
+            // every peer that serves it failed it, start over after a pause
+            excluded.clear();
+            final int left = leftOut ? attemptsLeft : attemptsLeft - 1;
+            if (schedule(() -> attempt(request, excluded, left, result), RETRY_PAUSE_MILLIS)
+                == null) {
+              result.completeExceptionally(stoppedFailure());
+            }
+          } else {
+            failure.peer().ifPresent(excluded::add);
+            attempt(request, excluded, attemptsLeft - 1, result);
+          }
+        });
   }
 
-  @Override
-  public int peerCount(final Protocol protocol) {
-    return (int) validatedPeers().filter(peer -> speaks(peer, protocol)).count();
+  /**
+   * Returns a sender for one owner of the scheduler. Stopping it fails only the requests sent
+   * through it and the scheduler runs on; stopping the scheduler stops every scope left.
+   */
+  public RequestSender scope() {
+    final Scope scope = new Scope();
+    scopes.add(scope);
+    // added before the check, so that a concurrent stop either stops it or is seen here
+    if (stopped) {
+      scope.stop();
+    }
+    return scope;
   }
 
-  @Override
-  public long bestPeerHeight() {
-    final long[] heights =
-        validatedPeers()
-            .mapToLong(peer -> peer.chainState().getEstimatedHeight())
-            .filter(height -> height > 0)
-            .sorted()
-            .toArray();
-    // the second highest, so that a single peer cannot raise it
-    return heights.length == 0 ? 0 : heights[Math.max(0, heights.length - 2)];
+  /**
+   * The requests of one owner, which fails them when it stops. Every request goes through a scope,
+   * which is also what fails it when the scheduler stops.
+   */
+  private final class Scope implements RequestSender {
+    private final Set<CompletableFuture<?>> requests = ConcurrentHashMap.newKeySet();
+    private volatile boolean closed;
+
+    @Override
+    public <T> CompletableFuture<RequestSender.Response<T>> submit(
+        final SyncRequest<T> request, final Set<EthPeer> excluded) {
+      return closed
+          ? CompletableFuture.failedFuture(stoppedFailure())
+          : track(enqueue(request, excluded));
+    }
+
+    @Override
+    public <T> CompletableFuture<RequestSender.Response<T>> submitWithRetries(
+        final SyncRequest<T> request, final int attempts) {
+      return closed
+          ? CompletableFuture.failedFuture(stoppedFailure())
+          : track(sendWithRetries(request, attempts));
+    }
+
+    @Override
+    public int peerCount(final Protocol protocol) {
+      return (int) validatedPeers().filter(peer -> speaks(peer, protocol)).count();
+    }
+
+    @Override
+    public long bestPeerHeight() {
+      final long[] heights =
+          validatedPeers()
+              .mapToLong(peer -> peer.chainState().getEstimatedHeight())
+              .filter(height -> height > 0)
+              .sorted()
+              .toArray();
+      // the second highest, so that a single peer cannot raise it
+      return heights.length == 0 ? 0 : heights[Math.max(0, heights.length - 2)];
+    }
+
+    @Override
+    public int capacity(final Protocol protocol) {
+      final Integer adapted = capacities.get(protocol);
+      // before the first dispatch, what new lanes take
+      return adapted != null ? adapted : peerCount(protocol) * INITIAL_LANE_LIMIT;
+    }
+
+    @Override
+    public boolean hasServer(final SyncRequest<?> request) {
+      return validatedPeers()
+          .anyMatch(peer -> speaks(peer, request.protocolFor(peer)) && request.canServe(peer));
+    }
+
+    @Override
+    public Executor workers() {
+      return workers;
+    }
+
+    /** Fails the requests of this scope not yet answered, and every later one. */
+    @Override
+    public void stop() {
+      closed = true;
+      scopes.remove(this);
+      final RequestFailedException failure = stoppedFailure();
+      requests.forEach(future -> future.completeExceptionally(failure));
+    }
+
+    // added before the check, so that a concurrent stop either fails it or is seen here
+    private <T> CompletableFuture<T> track(final CompletableFuture<T> future) {
+      requests.add(future);
+      future.whenComplete((response, error) -> requests.remove(future));
+      if (closed) {
+        future.completeExceptionally(stoppedFailure());
+      }
+      return future;
+    }
   }
 
-  @Override
-  public int capacity(final Protocol protocol) {
-    final Integer adapted = capacities.get(protocol);
-    // before the first dispatch, what new lanes take
-    return adapted != null ? adapted : peerCount(protocol) * INITIAL_LANE_LIMIT;
-  }
-
-  /** Stops dispatching, fails every request not yet answered and closes their streams. */
-  @Override
+  /**
+   * Stops dispatching, stops every scope, which fails the requests not yet answered, and closes
+   * their streams.
+   */
   public void stop() {
     stopped = true;
     ethPeers.unsubscribeConnect(connectSubscription);
@@ -379,8 +435,7 @@ public final class RequestScheduler implements RequestSender {
     loop.shutdownNow();
     // work of the callers still queued there runs, so that their futures complete
     workers.shutdown();
-    final RequestFailedException failure = stoppedFailure();
-    outstanding.forEach(future -> future.completeExceptionally(failure));
+    scopes.forEach(Scope::stop);
     // a peer counts a request as outstanding until its stream is closed
     open.forEach(attempt -> attempt.stream.close());
   }
@@ -427,7 +482,7 @@ public final class RequestScheduler implements RequestSender {
     try {
       task.run();
     } catch (final RuntimeException e) {
-      LOG.warn("SNAP2 scheduler task failed", e);
+      LOG.warn("Request scheduler task failed", e);
     }
   }
 
@@ -466,7 +521,7 @@ public final class RequestScheduler implements RequestSender {
           dispatch(pending, candidates, now, deferred);
         } catch (final RuntimeException e) {
           // the code of the request failed, it would on any peer
-          LOG.warn("Failed to dispatch a SNAP2 request", e);
+          LOG.warn("Failed to dispatch a sync request", e);
           pending.future.completeExceptionally(e);
           countRequest(pending.request.name(), Outcome.ERROR);
         }

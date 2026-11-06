@@ -100,7 +100,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
         BackgroundBackfill.create(
             protocolContext.getBlockchain(),
             protocolSchedule,
-            ethContext.getEthPeers(),
+            ethContext.getRequestScheduler(),
             syncState,
             chainDataPruner,
             syncConfig.getSnapSyncConfiguration(),
@@ -176,12 +176,13 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                       protocolContext,
                       metricsSystem,
                       ethContext.getEthPeers(),
+                      ethContext.getRequestScheduler(),
                       worldStateStorageCoordinator,
                       storageProvider,
                       syncState,
                       pivotBlockSelector,
                       terminalTotalDifficulty,
-                      // the back-fill goes on with the scheduler of the sync
+                      // the back-fill goes on with the scope of the sync
                       backgroundBackfill::handOver);
           default -> () -> Optional.empty();
         };
