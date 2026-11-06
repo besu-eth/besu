@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.util.OrderStatistics;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -185,27 +184,38 @@ final class FeeOracleWindow {
 
   private static FeeValues feeValuesOf(
       final List<Transaction> transactions, final Function<Transaction, Optional<Wei>> feeOf) {
-    final long[] values = new long[transactions.size()];
+    // Counting first sizes the arrays exactly; the fee getters return stored fields, so the second
+    // pass allocates nothing either.
     int valueCount = 0;
-    List<Wei> largeValues = null;
+    int largeValueCount = 0;
     for (final Transaction transaction : transactions) {
       final Optional<Wei> fee = feeOf.apply(transaction);
       if (fee.isPresent()) {
         if (fee.get().fitsLong()) {
-          values[valueCount++] = fee.get().toLong();
+          valueCount++;
         } else {
-          if (largeValues == null) {
-            largeValues = new ArrayList<>();
-          }
-          largeValues.add(fee.get());
+          largeValueCount++;
         }
       }
     }
-    if (valueCount == 0 && largeValues == null) {
+    if (valueCount == 0 && largeValueCount == 0) {
       return NO_FEE_VALUES;
     }
-    return new FeeValues(
-        valueCount == values.length ? values : Arrays.copyOf(values, valueCount),
-        largeValues == null ? NO_LARGE_VALUES : largeValues.toArray(Wei[]::new));
+
+    final long[] values = valueCount == 0 ? NO_VALUES : new long[valueCount];
+    final Wei[] largeValues = largeValueCount == 0 ? NO_LARGE_VALUES : new Wei[largeValueCount];
+    int valueIndex = 0;
+    int largeValueIndex = 0;
+    for (final Transaction transaction : transactions) {
+      final Optional<Wei> fee = feeOf.apply(transaction);
+      if (fee.isPresent()) {
+        if (fee.get().fitsLong()) {
+          values[valueIndex++] = fee.get().toLong();
+        } else {
+          largeValues[largeValueIndex++] = fee.get();
+        }
+      }
+    }
+    return new FeeValues(values, largeValues);
   }
 }
