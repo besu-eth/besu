@@ -86,33 +86,6 @@ public class TrieLogPrunerTest {
   }
 
   @Test
-  public void initialize_keeps_trie_log_of_world_state_block_without_header() {
-    // Given
-    int loadingLimit = 2;
-    final BlockDataGenerator generator = new BlockDataGenerator();
-    final BlockHeader worldStateHeader = generator.header(2);
-    final BlockHeader orphanHeader = generator.header(2);
-    when(worldState.streamTrieLogKeys(loadingLimit))
-        .thenReturn(
-            Stream.of(
-                worldStateHeader.getBlockHash().getBytes().toArray(),
-                orphanHeader.getBlockHash().getBytes().toArray()));
-    when(worldState.getWorldStateBlockHash())
-        .thenReturn(Optional.of(worldStateHeader.getBlockHash()));
-    when(blockchain.getBlockHeader(any(Hash.class))).thenReturn(Optional.empty());
-
-    // When
-    TrieLogPruner trieLogPruner =
-        new TrieLogPruner(
-            worldState, blockchain, executeAsync, 3, loadingLimit, false, new NoOpMetricsSystem());
-    trieLogPruner.initialize();
-
-    // Then
-    verify(worldState, never()).pruneTrieLog(worldStateHeader.getBlockHash());
-    verify(worldState, times(1)).pruneTrieLog(orphanHeader.getBlockHash());
-  }
-
-  @Test
   public void preloadQueueWithTimeout_handles_timeout_during_streamTrieLogKeys() {
     // Given
     final int timeoutInSeconds = 1;

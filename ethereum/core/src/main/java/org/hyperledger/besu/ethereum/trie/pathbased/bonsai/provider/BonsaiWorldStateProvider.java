@@ -37,6 +37,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
 
@@ -113,9 +114,36 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
   private void initializeHeadWorldState(final BonsaiWorldState headWorldState) {
     blockchain
         .getBlockHeader(headWorldState.getWorldStateBlockHash())
+        .map(BlockHeader.class::cast)
+        .or(() -> rollBackUnstoredBlock(headWorldState))
         .ifPresentOrElse(
             header -> loadHeadWorldState(header, headWorldState),
             () -> this.headWorldState = headWorldState);
+  }
+
+  /**
+   * Rolls the world state back to the chain head when it is at a block that was never stored, as a
+   * node stopped between persisting the world state at a block and storing the block leaves it.
+   *
+   * @return the chain head, if the world state is now at it
+   */
+  private Optional<BlockHeader> rollBackUnstoredBlock(final BonsaiWorldState headWorldState) {
+    final Hash unstoredBlockHash = headWorldState.getWorldStateBlockHash();
+    // without a trie log, as during snap sync, there is nothing to roll back
+    if (worldStateKeyValueStorage.getTrieLog(unstoredBlockHash).isEmpty()) {
+      return Optional.empty();
+    }
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+    return rollFullWorldStateToBlockHash(headWorldState, chainHead.getBlockHash(), Level.WARN)
+        .map(
+            rolled -> {
+              LOG.info(
+                  "Rolled the world state back from block {}, which was not stored, to the chain head {} ({})",
+                  unstoredBlockHash,
+                  chainHead.getNumber(),
+                  chainHead.getBlockHash());
+              return chainHead;
+            });
   }
 
   @Override
