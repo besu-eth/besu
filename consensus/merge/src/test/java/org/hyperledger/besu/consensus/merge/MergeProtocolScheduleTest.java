@@ -96,7 +96,8 @@ public class MergeProtocolScheduleTest {
 
     final ProtocolSpecModification modification =
         new ProtocolSpecModification(
-            blockNumber(activationBlock), builder -> builder.blockReward(customReward));
+            blockNumber(activationBlock),
+            builder -> builder.blockRewardProcessor(BlockRewardProcessor.of(customReward)));
     final ProtocolScheduleCustomization customization =
         new ProtocolScheduleCustomization("test", List.of(modification));
 
@@ -115,11 +116,15 @@ public class MergeProtocolScheduleTest {
     // (1) The post-merge schedule enforces the customizer's rule at its activation...
     final ProtocolSpec customizedSpec =
         protocolSchedule.getByBlockHeader(blockHeader(activationBlock));
-    assertThat(customizedSpec.getBlockReward()).isEqualTo(customReward);
+    assertThat(customizedSpec.getBlockRewardProcessor().getBlockReward()).isEqualTo(customReward);
     assertThat(customizedSpec.getEvm().getOperationsUnsafe()[0x44])
         .isInstanceOf(PrevRanDaoOperation.class);
     // ...and not before it.
-    assertThat(protocolSchedule.getByBlockHeader(blockHeader(activationBlock - 1)).getBlockReward())
+    assertThat(
+            protocolSchedule
+                .getByBlockHeader(blockHeader(activationBlock - 1))
+                .getBlockRewardProcessor()
+                .getBlockReward())
         .isNotEqualTo(customReward);
 
     // (2) ...and that same activation is what the customizer folds into the fork ID, so the
