@@ -303,6 +303,50 @@ class MempoolPrewarmerTest {
   }
 
   @Test
+  void resumesWhereItStoppedWhenTheHeadStays() {
+    addCandidate(transfer(0));
+    prewarmer.start(head());
+    awaitExecuted(1);
+    prewarmer.stop(Optional.empty());
+
+    prewarmer.start(head());
+    addCandidate(transfer(OTHER_SENDER, 0, 21_000, Wei.of(1_000_000_000_000L)));
+
+    awaitExecuted(2);
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 2);
+    assertThat(metricsSystem.getCounterValue("mempool_prewarm_started_total")).isEqualTo(1);
+  }
+
+  @Test
+  void resumesWithTheGasBudgetItHasLeft() throws IOException {
+    // a budget of three transfers and a bit
+    useDevGenesisWith("0x10000", "0x0", 1);
+    for (int nonce = 0; nonce < 3; nonce++) {
+      addCandidate(transfer(nonce));
+    }
+    prewarmer.start(head());
+    awaitExecuted(3);
+    prewarmer.stop(Optional.empty());
+
+    prewarmer.start(head());
+    // takes the budget past zero, after which nothing more runs for the head
+    addCandidate(transfer(OTHER_SENDER, 0, 21_000, Wei.of(1_000_000_000_000L)));
+    awaitExecuted(4);
+    addCandidate(transfer(OTHER_SENDER, 1, 21_000, Wei.of(1_000_000_000_000L)));
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 4);
+    assertThat(metricsSystem.getCounterValue("mempool_prewarm_budget_used_up_total")).isEqualTo(1);
+  }
+
+  @Test
   void stopsWithinAPassOnceTheGasBudgetIsUsed() throws IOException {
     // a budget of three transfers and a bit
     useDevGenesisWith("0x10000", "0x0", 1);
