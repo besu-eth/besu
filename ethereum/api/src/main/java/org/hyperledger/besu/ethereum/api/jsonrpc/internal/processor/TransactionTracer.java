@@ -115,7 +115,10 @@ public class TransactionTracer {
                     .map(TransactionTraceParams::disableStorageNullable)
                     .map(Boolean.FALSE::equals)
                     .orElse(false))
-            .traceReturnData(true)
+            .traceReturnData(
+                transactionTraceParams
+                    .map(TransactionTraceParams::enableReturnDataNullable)
+                    .orElse(true))
             .traceOpcodes(
                 transactionTraceParams
                     .map(TransactionTraceParams::opcodes)
