@@ -1086,7 +1086,10 @@ def defaultJvmOpts25 = application.applicationDefaultJvmArgs + [
   "-XX:MinHeapFreeRatio=10",
   "-XX:MaxGCPauseMillis=100",
   "-XX:+UseCompactObjectHeaders",
-  "-XX:StartFlightRecording,settings=default.jfc",
+  // Not -XX:StartFlightRecording. With no repository that writes under java.io.tmpdir, and the
+  // JVM deletes the recording only on a clean shutdown, so killed runs fill a tmpfs /tmp and the
+  // next start aborts. Opt in with --Xflight-recorder or BESU_XFLIGHT_RECORDER, which records
+  // under <data-path>/jfr and deletes leftovers from killed runs.
   // Not "off": a JFR log tag set to off starts JFR's in-process event logging, which formats
   // every recorded event as text.
   "-Xlog:jfr*=error",

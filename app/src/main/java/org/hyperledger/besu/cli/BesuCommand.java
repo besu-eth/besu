@@ -51,6 +51,7 @@ import org.hyperledger.besu.cli.options.EngineRPCOptions;
 import org.hyperledger.besu.cli.options.EthProtocolOptions;
 import org.hyperledger.besu.cli.options.EthstatsOptions;
 import org.hyperledger.besu.cli.options.EvmOptions;
+import org.hyperledger.besu.cli.options.FlightRecorderOptions;
 import org.hyperledger.besu.cli.options.GraphQlOptions;
 import org.hyperledger.besu.cli.options.InProcessRpcOptions;
 import org.hyperledger.besu.cli.options.IpcOptions;
@@ -712,6 +713,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   @CommandLine.ArgGroup(validate = false)
   PluginsConfigurationOptions pluginsConfigurationOptions = new PluginsConfigurationOptions();
 
+  @CommandLine.Mixin
+  private final FlightRecorderOptions flightRecorderOptions = new FlightRecorderOptions();
+
   private EthNetworkConfig ethNetworkConfig;
   private JsonRpcConfiguration jsonRpcConfiguration;
   private JsonRpcConfiguration engineJsonRpcConfiguration;
@@ -1104,6 +1108,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       dataPath = dataPath.resolve("Ephemery-data-chain-" + ephemeryNextCycleId);
       ephemeryNextCycleId = ephemeryNextCycleId.add(BigInteger.ONE);
     }
+
+    flightRecorderOptions.startRecording(dataDir());
 
     configure();
 
