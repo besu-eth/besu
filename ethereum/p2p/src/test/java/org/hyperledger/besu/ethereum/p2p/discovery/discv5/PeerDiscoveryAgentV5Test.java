@@ -46,6 +46,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -55,8 +56,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Stream;
 
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt64;
 import org.awaitility.Awaitility;
 import org.ethereum.beacon.discovery.MutableDiscoverySystem;
+import org.ethereum.beacon.discovery.schema.EnrField;
+import org.ethereum.beacon.discovery.schema.IdentitySchema;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.ethereum.beacon.discovery.schema.NodeRecordFactory;
 import org.ethereum.beacon.discovery.storage.BucketStats;
@@ -64,6 +69,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -344,6 +351,58 @@ class PeerDiscoveryAgentV5Test {
     } finally {
       restrictedAgent.stop();
     }
+  }
+
+  static Stream<Object> malformedEthEntries() {
+    final Bytes hash = Bytes.fromHexString("0xfc64ec04");
+    return Stream.of(
+        List.of(List.of(hash, Bytes.fromHexString("0x010203040506070809"))),
+        List.of(List.of(hash, Bytes.fromHexString("0x00118c30"))),
+        List.of(List.of(hash)),
+        List.of());
+  }
+
+  @ParameterizedTest
+  @MethodSource("malformedEthEntries")
+  void checkForkIdRejectsPeerWhoseEthEntryCannotBeDecoded(final Object ethEntry) {
+    final DiscoveryPeer peer = peerWithEthEntry(Optional.of(ethEntry));
+
+    assertThat(peer.hasMalformedForkId()).isTrue();
+    assertThat(agent.checkForkId(peer)).isFalse();
+  }
+
+  @Test
+  void checkForkIdAcceptsPeerWithoutEthEntry() {
+    final DiscoveryPeer peer = peerWithEthEntry(Optional.empty());
+
+    assertThat(peer.hasMalformedForkId()).isFalse();
+    assertThat(agent.checkForkId(peer)).isTrue();
+  }
+
+  @Test
+  void forkIdFromStatusReplacesMalformedEthEntry() {
+    when(forkIdManager.peerCheck(any(ForkId.class))).thenReturn(true);
+    final DiscoveryPeer peer = peerWithEthEntry(Optional.of(List.of()));
+
+    peer.setForkId(new ForkId(Bytes.fromHexString("0xfc64ec04"), 1150000L));
+
+    assertThat(peer.hasMalformedForkId()).isFalse();
+    assertThat(agent.checkForkId(peer)).isTrue();
+  }
+
+  private static DiscoveryPeer peerWithEthEntry(final Optional<Object> ethEntry) {
+    final DiscoveryPeer peer =
+        DiscoveryPeerFactory.fromNodeRecord(
+            NodeRecordFactory.DEFAULT.fromEnr(
+                "enr:-KO4QK1ecw-CGrDDZ4YwFrhgqctD0tWMHKJhUVxsS4um3aUFe3yBHRtVL9uYKk16DurN1IdSKTOB1zNCvjBybjZ_KAq"
+                    + "GAYtJ5U8wg2V0aMfGhJsZKtCAgmlkgnY0gmlwhA_MtDmJc2VjcDI1NmsxoQNXD7fj3sscyOKBiHYy14igj1vJYWdKYZH7n3T8qRpIcYRzb"
+                    + "mFwwIN0Y3CCdl-DdWRwgnZf"),
+            false);
+    final List<EnrField> fields = new ArrayList<>();
+    fields.add(new EnrField(EnrField.ID, IdentitySchema.V4));
+    ethEntry.ifPresent(entry -> fields.add(new EnrField("eth", entry)));
+    peer.setNodeRecord(NodeRecordFactory.DEFAULT.createFromValues(UInt64.ONE, fields));
+    return peer;
   }
 
   @Test

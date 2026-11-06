@@ -304,11 +304,29 @@ public class DefaultP2PNetwork implements P2PNetwork {
     final long checkMaintainedConnectionsSec =
         config.checkMaintainedConnectionsFrequency().toSeconds();
     peerConnectionScheduler.scheduleWithFixedDelay(
-        this::checkMaintainedConnectionPeers, 2, checkMaintainedConnectionsSec, TimeUnit.SECONDS);
+        () ->
+            runPeriodicTask(
+                "maintained peer connection check", this::checkMaintainedConnectionPeers),
+        2,
+        checkMaintainedConnectionsSec,
+        TimeUnit.SECONDS);
     // Periodically initiate outgoing connections to discovered peers
     final long checkConnectionsSec = config.initiateConnectionsFrequency().toSeconds();
     peerConnectionScheduler.scheduleWithFixedDelay(
-        this::attemptPeerConnections, checkConnectionsSec, checkConnectionsSec, TimeUnit.SECONDS);
+        () -> runPeriodicTask("discovered peer connection sweep", this::attemptPeerConnections),
+        checkConnectionsSec,
+        checkConnectionsSec,
+        TimeUnit.SECONDS);
+  }
+
+  // scheduleWithFixedDelay cancels every later run of a task that throws, so one failure must not
+  // escape and silently stop the node from dialing peers.
+  private static void runPeriodicTask(final String name, final Runnable task) {
+    try {
+      task.run();
+    } catch (final RuntimeException e) {
+      LOG.warn("Periodic {} failed; it will run again on its next tick", name, e);
+    }
   }
 
   @Override
@@ -430,11 +448,24 @@ public class DefaultP2PNetwork implements P2PNetwork {
     final int openSlots = rlpxAgent.getMaxPeers() - rlpxAgent.getConnectionCount();
     streamDiscoveredPeers()
         .filter(DiscoveryPeer::isReadyForConnections)
-        .filter(peerDiscoveryAgent::checkForkId)
+        .filter(this::isForkIdCompatible)
         .filter(p -> !rlpxAgent.isConnectingOrConnected(p.getId()))
         .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection))
         .limit((long) openSlots * CANDIDATE_OVERPROVISION_FACTOR)
         .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
+  }
+
+  private boolean isForkIdCompatible(final DiscoveryPeer peer) {
+    try {
+      return peerDiscoveryAgent.checkForkId(peer);
+    } catch (final RuntimeException e) {
+      LOG.atDebug()
+          .setMessage("Skipping discovered peer {}: its fork ID could not be checked")
+          .addArgument(peer::getId)
+          .setCause(e)
+          .log();
+      return false;
+    }
   }
 
   @Override
