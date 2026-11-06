@@ -486,7 +486,11 @@ public class MempoolPrewarmer implements AutoCloseable {
         protocolSpec
             .getFeeMarket()
             .blobGasPricePerGas(calculateExcessBlobGasForParent(protocolSpec, head));
-    return new Execution(header, protocolSpec, blobGasPrice);
+    final BlockHashLookup blockHashLookup =
+        protocolSpec
+            .getPreExecutionProcessor()
+            .createBlockHashLookup(protocolContext.getBlockchain(), header);
+    return new Execution(header, protocolSpec, blobGasPrice, blockHashLookup);
   }
 
   private Set<Hash> transactionsOf(final BlockHeader head) {
@@ -570,10 +574,8 @@ public class MempoolPrewarmer implements AutoCloseable {
       final ProtocolSpec protocolSpec = execution.protocolSpec();
       final MainnetTransactionProcessor transactionProcessor =
           protocolSpec.getTransactionProcessor();
-      final BlockHashLookup blockHashLookup =
-          protocolSpec
-              .getPreExecutionProcessor()
-              .createBlockHashLookup(protocolContext.getBlockchain(), execution.header());
+      // the senders share the hashes found, each walking the chain on its own
+      final BlockHashLookup blockHashLookup = execution.blockHashLookup().forkForParallelWorker();
       final WorldUpdater updater = worldState.updater();
       final OperationTracer tracer = new StoppingTracer(warming);
       for (final Transaction transaction : transactions) {
@@ -682,7 +684,10 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   private record Execution(
-      ProcessableBlockHeader header, ProtocolSpec protocolSpec, Wei blobGasPrice) {}
+      ProcessableBlockHeader header,
+      ProtocolSpec protocolSpec,
+      Wei blobGasPrice,
+      BlockHashLookup blockHashLookup) {}
 
   private record ChangedSlot(Address address, StorageSlotKey slotKey) {}
 
