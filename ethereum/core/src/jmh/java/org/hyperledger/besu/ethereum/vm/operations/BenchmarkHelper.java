@@ -299,4 +299,32 @@ public class BenchmarkHelper {
       pool[i] = AddressStorageSlotKeyHashing.collidingHash(address, offset + i);
     }
   }
+
+  /**
+   * Fills a Bytes array with slots that only differ in the top `k` bits of each of their four
+   * little-endian 64-bit words. `k` is computed from the number of different slots required to fill
+   * up the pool.
+   *
+   * @param pool destination array
+   * @param offset free variable with which to generate slots, so pools with different offsets do
+   *     not share slots
+   */
+  public static void fillPoolWithTopBitsSlots(final Bytes[] pool, final int offset) {
+    final long slotCount = (long) offset + pool.length;
+    int bitsPerWord = 1;
+    while (1L << (4 * bitsPerWord) < slotCount) {
+      bitsPerWord++;
+    }
+    final int mask = (1 << bitsPerWord) - 1;
+    for (int i = 0; i < pool.length; i++) {
+      final int index = offset + i;
+      final byte[] slot = new byte[32];
+      for (int word = 0; word < 4; word++) {
+        // the last byte of a little-endian word holds its top bits
+        slot[word * 8 + 7] =
+            (byte) (((index >>> (word * bitsPerWord)) & mask) << (8 - bitsPerWord));
+      }
+      pool[i] = Bytes.wrap(slot);
+    }
+  }
 }
