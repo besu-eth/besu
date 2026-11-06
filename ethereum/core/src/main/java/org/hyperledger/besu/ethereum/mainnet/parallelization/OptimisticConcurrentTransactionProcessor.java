@@ -40,6 +40,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Optimizes transaction processing by executing transactions in parallel within a given block.
@@ -49,6 +51,9 @@ import com.google.common.annotations.VisibleForTesting;
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTransactionProcessor {
+
+  private static final Logger LOG =
+      LoggerFactory.getLogger(OptimisticConcurrentTransactionProcessor.class);
 
   private final MainnetTransactionProcessor transactionProcessor;
 
@@ -209,6 +214,12 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     final CompletableFuture<ParallelizedTransactionContext> future =
         removeFuture(transactionLocation);
 
+    if (future != null && future.state() == Future.State.FAILED) {
+      LOG.debug(
+          "Parallel execution of transaction {} failed, executing it sequentially",
+          transaction.getHash(),
+          future.exceptionNow());
+    }
     if (future != null && future.state() == Future.State.SUCCESS) {
       final ParallelizedTransactionContext parallelizedTransactionContext = future.resultNow();
       if (parallelizedTransactionContext == null) {
