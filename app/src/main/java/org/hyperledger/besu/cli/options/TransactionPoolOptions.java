@@ -280,7 +280,8 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     private static final String ETH65_TX_ANNOUNCED_BUFFERING_PERIOD_FLAG =
         "--Xeth65-tx-announced-buffering-period-milliseconds";
 
-    private static final String MAX_TRACKED_SEEN_TXS = "--Xmax-tracked-seen-txs";
+    private static final String MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2 =
+        "--Xmax-tracked-seen-txs-buckets-log2";
     private static final String MAX_SEND_QUEUE_SIZE_PER_PEER = "--Xmax-send-queue-size-per-peer";
     private static final String PEER_TRACKER_FORGET_EVICTED_TXS_FLAG =
         "--Xpeer-tracker-forget-evicted-txs";
@@ -307,13 +308,19 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         TransactionPoolConfiguration.Unstable.ETH65_TRX_ANNOUNCED_BUFFERING_PERIOD;
 
     @CommandLine.Option(
-        names = {MAX_TRACKED_SEEN_TXS},
-        paramLabel = "<LONG>",
+        names = {MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2},
+        paramLabel = "<INTEGER>",
         hidden = true,
         description =
-            "The max number of exchanged txs that are remembered, to minimize broadcasting duplicates (default: ${DEFAULT-VALUE})")
-    private int maxTrackedSeenTxs =
-        TransactionPoolConfiguration.Unstable.DEFAULT_MAX_TRACKED_SEEN_TXS;
+            "Log2 of the bucket count of the table of exchanged txs that are remembered, to minimize broadcasting duplicates. "
+                + "Up to 80% of the buckets are filled, so 19 remembers up to 419430 txs. "
+                + "Must be between "
+                + TransactionPoolConfiguration.Unstable.MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2
+                + " and "
+                + TransactionPoolConfiguration.Unstable.MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2
+                + " (default: ${DEFAULT-VALUE})")
+    private int maxTrackedSeenTxsBucketsLog2 =
+        TransactionPoolConfiguration.Unstable.DEFAULT_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2;
 
     @CommandLine.Option(
         names = {MAX_SEND_QUEUE_SIZE_PER_PEER},
@@ -407,7 +414,8 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         config.getUnstable().getTxMessageKeepAliveSeconds();
     options.unstableOptions.eth65TrxAnnouncedBufferingPeriod =
         config.getUnstable().getEth65TrxAnnouncedBufferingPeriod();
-    options.unstableOptions.maxTrackedSeenTxs = config.getUnstable().getMaxTrackedSeenTxs();
+    options.unstableOptions.maxTrackedSeenTxsBucketsLog2 =
+        config.getUnstable().getMaxTrackedSeenTxsBucketsLog2();
     options.unstableOptions.maxSendQueueSizePerPeer =
         config.getUnstable().getMaxSendQueueSizePerPeer();
     options.unstableOptions.peerTrackerForgetEvictedTxs =
@@ -449,6 +457,19 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     if (maxTxBytes <= 0) {
       throw new CommandLine.ParameterException(
           commandLine, "Max transaction bytes must be greater than 0");
+    }
+
+    if (unstableOptions.maxTrackedSeenTxsBucketsLog2
+            < TransactionPoolConfiguration.Unstable.MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2
+        || unstableOptions.maxTrackedSeenTxsBucketsLog2
+            > TransactionPoolConfiguration.Unstable.MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2) {
+      throw new CommandLine.ParameterException(
+          commandLine,
+          Unstable.MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2
+              + " must be between "
+              + TransactionPoolConfiguration.Unstable.MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2
+              + " and "
+              + TransactionPoolConfiguration.Unstable.MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2);
     }
 
     if (sequencedOptions.pendingTxRetentionSeconds <= 0
@@ -501,7 +522,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
             ImmutableTransactionPoolConfiguration.Unstable.builder()
                 .txMessageKeepAliveSeconds(unstableOptions.txMessageKeepAliveSeconds)
                 .eth65TrxAnnouncedBufferingPeriod(unstableOptions.eth65TrxAnnouncedBufferingPeriod)
-                .maxTrackedSeenTxs(unstableOptions.maxTrackedSeenTxs)
+                .maxTrackedSeenTxsBucketsLog2(unstableOptions.maxTrackedSeenTxsBucketsLog2)
                 .maxSendQueueSizePerPeer(unstableOptions.maxSendQueueSizePerPeer)
                 .peerTrackerForgetEvictedTxs(
                     Optional.ofNullable(unstableOptions.peerTrackerForgetEvictedTxs)
