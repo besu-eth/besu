@@ -242,6 +242,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
     this.mergeBlockCreatorFactory = mergeBlockCreatorFactory;
     this.mempoolPrewarmer = mempoolPrewarmer;
+    // prewarming stops before the payload's checks, which run before its execution
+    mempoolPrewarmer.ifPresent(
+        prewarmer -> mergeContext.addNewUnverifiedPayloadListener(prewarmer::stopForPayload));
 
     this.backwardSyncContext.subscribeBadChainListener(this);
   }
