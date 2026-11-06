@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.eth.sync.snap2.chain;
 
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
@@ -42,14 +41,12 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Stores in the background the bodies and receipts below the lowest block whose body a sync stored,
- * from the end of the initial sync. The back-fill sends through a SNAP2 scheduler that runs until
- * it ends.
+ * from the end of the initial sync. The back-fill sends through a scope of the node's request
+ * scheduler, which it stops when it ends.
  */
 public final class BackgroundBackfill implements InitialSyncCompletionListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(BackgroundBackfill.class);
-  // decoding an answer is short next to waiting for it
-  private static final int DECODE_THREADS = 2;
   // a stopped back-fill writes nothing, its workers only end the reads they started
   private static final Duration WORKERS_TIMEOUT = Duration.ofSeconds(30);
 
@@ -74,7 +71,7 @@ public final class BackgroundBackfill implements InitialSyncCompletionListener {
   public static BackgroundBackfill create(
       final MutableBlockchain blockchain,
       final ProtocolSchedule protocolSchedule,
-      final EthPeers ethPeers,
+      final RequestScheduler requestScheduler,
       final SyncState syncState,
       final Optional<ChainDataPruner> chainDataPruner,
       final SnapSyncConfiguration config,
@@ -89,8 +86,8 @@ public final class BackgroundBackfill implements InitialSyncCompletionListener {
         config.isSnap2BackfillEnabled(),
         settings,
         metricsSystem,
-        // a scheduler of its own, when no SNAP2 sync handed over the one it ran on
-        () -> RequestScheduler.forSync(ethPeers, metricsSystem, DECODE_THREADS),
+        // a scope of the node's scheduler, when no SNAP2 sync handed over the one it ran on
+        () -> requestScheduler.scope(),
         () ->
             Executors.newFixedThreadPool(
                 settings.parallelism(),
