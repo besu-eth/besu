@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes32;
@@ -50,6 +51,7 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
       final ProtocolContext context,
       final Block block,
       final List<TransactionReceipt> receipts,
+      final Supplier<Hash> receiptsRoot,
       final Hash worldStateRootHash,
       final HeaderValidationMode ommerValidationMode,
       final BodyValidationMode bodyValidationMode,
@@ -68,25 +70,27 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
 
     if (bodyValidationMode == BodyValidationMode.ROOT_ONLY
         || bodyValidationMode == BodyValidationMode.FULL) {
-      return validateBodyRoots(block, receipts, worldStateRootHash);
+      return validateBodyRoots(block, receipts, receiptsRoot, worldStateRootHash);
     }
     return true;
   }
 
   @VisibleForTesting
   protected boolean validateBodyRoots(
-      final Block block, final List<TransactionReceipt> receipts, final Hash worldStateRootHash) {
+      final Block block,
+      final List<TransactionReceipt> receipts,
+      final Supplier<Hash> receiptsRootSupplier,
+      final Hash worldStateRootHash) {
     final BlockHeader header = block.getHeader();
     final BlockBody body = block.getBody();
 
-    final Bytes32 transactionsRoot =
-        Bytes32.wrap(BodyValidation.transactionsRoot(body.getTransactions()).getBytes());
+    final Bytes32 transactionsRoot = Bytes32.wrap(body.getTransactionsRoot().getBytes());
     if (!validateTransactionsRoot(
         header, Bytes32.wrap(header.getTransactionsRoot().getBytes()), transactionsRoot)) {
       return false;
     }
 
-    final Bytes32 receiptsRoot = Bytes32.wrap(BodyValidation.receiptsRoot(receipts).getBytes());
+    final Bytes32 receiptsRoot = Bytes32.wrap(receiptsRootSupplier.get().getBytes());
     if (!validateReceiptsRoot(
         header, Bytes32.wrap(header.getReceiptsRoot().getBytes()), receiptsRoot)) {
       return false;
