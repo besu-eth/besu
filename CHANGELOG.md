@@ -29,6 +29,7 @@
 - Block access lists of the last blocks are now cached as RLP, at most 128 MiB by default (`--cache-last-blocks-max-capacity`), and `--cache-last-blocks` now defaults to 128. [#11455](https://github.com/besu-eth/besu/pull/11455)
 - Snap sync no longer stalls on an account with large, frequently changing storage, or on an account whose storage was cleared while snap sync was downloading it. [#11654](https://github.com/besu-eth/besu/pull/11654)
 - `trace_block`, `trace_filter` and `trace_replayBlockTransactions` replay a mined transaction whose sender is no longer on the node's local account allowlist, instead of tracing it as a call that ran no code and changed no state. [#11406](https://github.com/besu-eth/besu/pull/11406)
+- A node stopped while importing a block no longer gets stuck after a restart, failing to process the next block because the parent world state is not available. [#11882](https://github.com/besu-eth/besu/pull/11882)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
