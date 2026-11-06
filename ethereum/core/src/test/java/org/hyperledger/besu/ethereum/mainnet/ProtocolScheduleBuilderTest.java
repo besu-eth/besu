@@ -221,10 +221,12 @@ class ProtocolScheduleBuilderTest {
   void aBlockModificationDoesNotCarryIntoTheTimestampEra() {
     when(configOptions.getShanghaiTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP));
     final ProtocolSpecModification blockModification =
-        new ProtocolSpecModification(blockNumber(5), spec -> spec.blockReward(Wei.of(11)));
+        new ProtocolSpecModification(
+            blockNumber(5), spec -> spec.blockRewardProcessor(BlockRewardProcessor.of(Wei.of(11))));
     final ProtocolSpecModification timestampModification =
         new ProtocolSpecModification(
-            timestamp(PRE_SHANGHAI_TIMESTAMP + 10), spec -> spec.blockReward(Wei.of(22)));
+            timestamp(PRE_SHANGHAI_TIMESTAMP + 10),
+            spec -> spec.blockRewardProcessor(BlockRewardProcessor.of(Wei.of(22))));
     final ProtocolScheduleCustomization customization =
         new ProtocolScheduleCustomization(
             "typed", List.of(blockModification, timestampModification));
@@ -253,11 +255,12 @@ class ProtocolScheduleBuilderTest {
         protocolSchedule.getByBlockHeader(blockHeader(7, PRE_SHANGHAI_TIMESTAMP + 10));
 
     assertThat(inBlockEra.getHardforkId()).isEqualTo(FRONTIER);
-    assertThat(inBlockEra.getBlockReward()).isEqualTo(Wei.of(11));
+    assertThat(inBlockEra.getBlockRewardProcessor().getBlockReward()).isEqualTo(Wei.of(11));
     assertThat(betweenModifications.getHardforkId()).isEqualTo(SHANGHAI);
-    assertThat(betweenModifications.getBlockReward()).isEqualTo(stockShanghai.getBlockReward());
+    assertThat(betweenModifications.getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(stockShanghai.getBlockRewardProcessor().getBlockReward());
     assertThat(inTimestampEra.getHardforkId()).isEqualTo(SHANGHAI);
-    assertThat(inTimestampEra.getBlockReward()).isEqualTo(Wei.of(22));
+    assertThat(inTimestampEra.getBlockRewardProcessor().getBlockReward()).isEqualTo(Wei.of(22));
   }
 
   @Test
@@ -443,7 +446,9 @@ class ProtocolScheduleBuilderTest {
             List.of(
                 new ProtocolSpecModification(
                     ProtocolScheduleActivation.blockNumber(10),
-                    specBuilder -> specBuilder.blockReward(overriddenReward)),
+                    specBuilder ->
+                        specBuilder.blockRewardProcessor(
+                            BlockRewardProcessor.of(overriddenReward))),
                 new ProtocolSpecModification(
                     ProtocolScheduleActivation.blockNumber(20), UnaryOperator.identity())));
 
@@ -461,10 +466,13 @@ class ProtocolScheduleBuilderTest {
                 new NoOpMetricsSystem())
             .createProtocolSchedule();
 
-    final Wei frontierReward = schedule.getByBlockHeader(blockHeader(0)).getBlockReward();
-    assertThat(schedule.getByBlockHeader(blockHeader(10)).getBlockReward())
+    final Wei frontierReward =
+        schedule.getByBlockHeader(blockHeader(0)).getBlockRewardProcessor().getBlockReward();
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(10)).getBlockRewardProcessor().getBlockReward())
         .isEqualTo(overriddenReward);
-    assertThat(schedule.getByBlockHeader(blockHeader(20)).getBlockReward())
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(20)).getBlockRewardProcessor().getBlockReward())
         .isEqualTo(frontierReward);
   }
 
@@ -494,11 +502,17 @@ class ProtocolScheduleBuilderTest {
     final ProtocolSchedule schedule =
         scheduleWith(Map.of(0L, Function.identity(), 16L, Function.identity()));
 
-    assertThat(schedule.getByBlockHeader(blockHeader(10)).getBlockReward()).isEqualTo(Wei.of(42));
-    assertThat(schedule.getByBlockHeader(blockHeader(16)).getBlockReward()).isEqualTo(Wei.of(42));
-    final Wei byzantiumBase = schedule.getByBlockHeader(blockHeader(18)).getBlockReward();
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(10)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(Wei.of(42));
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(16)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(Wei.of(42));
+    final Wei byzantiumBase =
+        schedule.getByBlockHeader(blockHeader(18)).getBlockRewardProcessor().getBlockReward();
     assertThat(byzantiumBase).isNotEqualTo(Wei.of(42));
-    assertThat(schedule.getByBlockHeader(blockHeader(25)).getBlockReward())
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(25)).getBlockRewardProcessor().getBlockReward())
         .isEqualTo(byzantiumBase);
   }
 
@@ -510,7 +524,8 @@ class ProtocolScheduleBuilderTest {
             List.of(
                 new ProtocolSpecModification(
                     ProtocolScheduleActivation.blockNumber(10),
-                    specBuilder -> specBuilder.blockReward(Wei.of(42))),
+                    specBuilder ->
+                        specBuilder.blockRewardProcessor(BlockRewardProcessor.of(Wei.of(42)))),
                 new ProtocolSpecModification(
                     ProtocolScheduleActivation.blockNumber(18), UnaryOperator.identity())));
     return new ProtocolScheduleBuilder(
@@ -543,7 +558,8 @@ class ProtocolScheduleBuilderTest {
                 new ProtocolSpecAdapters(
                     Map.of(
                         0L,
-                        specBuilder -> specBuilder.blockReward(reward),
+                        specBuilder ->
+                            specBuilder.blockRewardProcessor(BlockRewardProcessor.of(reward)),
                         20L,
                         Function.identity())),
                 false,
@@ -555,8 +571,12 @@ class ProtocolScheduleBuilderTest {
                 new NoOpMetricsSystem())
             .createProtocolSchedule();
 
-    assertThat(schedule.getByBlockHeader(blockHeader(110)).getBlockReward()).isEqualTo(reward);
-    assertThat(schedule.getByBlockHeader(blockHeader(111)).getBlockReward()).isEqualTo(reward);
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(110)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(reward);
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(111)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(reward);
   }
 
   private MilestoneStreamingProtocolSchedule createScheduleModifiedAt(final int blockNumber) {

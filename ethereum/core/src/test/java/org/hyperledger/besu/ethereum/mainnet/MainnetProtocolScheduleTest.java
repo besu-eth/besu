@@ -263,18 +263,31 @@ public class MainnetProtocolScheduleTest {
     final ProtocolSchedule baseline =
         scheduleFromConfig(json, ProtocolScheduleCustomization.none());
     final ProtocolSpecModification modification =
-        new ProtocolSpecModification(blockNumber(16), builder -> builder.blockReward(customReward));
+        new ProtocolSpecModification(
+            blockNumber(16),
+            builder -> builder.blockRewardProcessor(BlockRewardProcessor.of(customReward)));
     final ProtocolSchedule customized =
         scheduleFromConfig(json, new ProtocolScheduleCustomization("test", List.of(modification)));
 
     // Below the adapter's floor block the protocol spec is left untouched.
-    Assertions.assertThat(customized.getByBlockHeader(blockHeader(1L)).getBlockReward())
-        .isEqualTo(baseline.getByBlockHeader(blockHeader(1L)).getBlockReward());
+    Assertions.assertThat(
+            customized.getByBlockHeader(blockHeader(1L)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(
+            baseline.getByBlockHeader(blockHeader(1L)).getBlockRewardProcessor().getBlockReward());
     // At and after the adapter's floor block the customizer's change applies.
-    Assertions.assertThat(customized.getByBlockHeader(blockHeader(16L)).getBlockReward())
+    Assertions.assertThat(
+            customized
+                .getByBlockHeader(blockHeader(16L))
+                .getBlockRewardProcessor()
+                .getBlockReward())
         .isEqualTo(customReward)
-        .isNotEqualTo(baseline.getByBlockHeader(blockHeader(16L)).getBlockReward());
-    Assertions.assertThat(customized.getByBlockHeader(blockHeader(100L)).getBlockReward())
+        .isNotEqualTo(
+            baseline.getByBlockHeader(blockHeader(16L)).getBlockRewardProcessor().getBlockReward());
+    Assertions.assertThat(
+            customized
+                .getByBlockHeader(blockHeader(100L))
+                .getBlockRewardProcessor()
+                .getBlockReward())
         .isEqualTo(customReward);
   }
 

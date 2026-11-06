@@ -24,6 +24,7 @@ import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecModification;
@@ -65,7 +66,8 @@ class TransitionBesuControllerBuilderTest {
             "example-chain",
             List.of(
                 new ProtocolSpecModification(
-                    blockNumber(1), builder -> builder.blockReward(Wei.of(42)))));
+                    blockNumber(1),
+                    builder -> builder.blockRewardProcessor(BlockRewardProcessor.of(Wei.of(42))))));
 
     transition.protocolScheduleCustomization(customization);
 
@@ -90,6 +92,7 @@ class TransitionBesuControllerBuilderTest {
   private static Wei rewardAtBlockOne(final ProtocolSchedule schedule) {
     return schedule
         .getByBlockHeader(new BlockHeaderTestFixture().number(1L).buildHeader())
+        .getBlockRewardProcessor()
         .getBlockReward();
   }
 
