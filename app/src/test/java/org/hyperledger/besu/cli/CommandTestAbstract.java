@@ -113,6 +113,7 @@ import java.util.function.Supplier;
 import inet.ipaddr.IPAddress;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.vertx.core.Vertx;
+import io.vertx.core.VertxOptions;
 import io.vertx.core.json.JsonObject;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -510,6 +511,8 @@ public abstract class CommandTestAbstract {
 
     @CommandLine.Spec CommandLine.Model.CommandSpec spec;
     private Vertx vertx;
+    private VertxOptions vertxOptions;
+    private VertxOptions engineVertxOptions;
 
     TestBesuCommand(
         final Supplier<RlpBlockImporter> mockBlockImporter,
@@ -553,6 +556,18 @@ public abstract class CommandTestAbstract {
     }
 
     @Override
+    protected VertxOptions createVertxOptions() {
+      vertxOptions = super.createVertxOptions();
+      return vertxOptions;
+    }
+
+    @Override
+    protected VertxOptions createEngineVertxOptions() {
+      engineVertxOptions = super.createEngineVertxOptions();
+      return engineVertxOptions;
+    }
+
+    @Override
     protected Vertx createVertx(final MetricsSystem metricsSystem) {
       vertx = super.createVertx(metricsSystem);
       return vertx;
@@ -568,6 +583,14 @@ public abstract class CommandTestAbstract {
 
     public NetworkingOptions getNetworkingOptions() {
       return unstableNetworkingOptions;
+    }
+
+    public VertxOptions getVertxOptions() {
+      return vertxOptions;
+    }
+
+    public VertxOptions getEngineVertxOptions() {
+      return engineVertxOptions;
     }
 
     public P2PDiscoveryOptions getP2PDiscoveryOptions() {

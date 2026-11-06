@@ -42,6 +42,7 @@
 - Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
 - EVM v2 runs untraced execution, such as block import, in a faster loop of its own. [#11687](https://github.com/besu-eth/besu/pull/11687)
 - RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
+- The Engine API runs on its own Vert.x instance, so a JSON-RPC load such as `eth_sendRawTransaction` no longer takes the worker threads that Engine API calls need. Its pool metrics are labelled with an `engine-api-` prefix, e.g. `poolName="engine-api-vert.x-worker-thread"`. Hidden options size the pools: `--Xengine-rpc-vertx-worker-pool-size` (default 8) and `--Xengine-rpc-vertx-event-loop-pool-size` (default 2) for the Engine API, and `--Xrpc-vertx-worker-pool-size` (default 20, unchanged) for JSON-RPC. [#11764](https://github.com/besu-eth/besu/pull/11764)
 
 ## 26.11.0
 
