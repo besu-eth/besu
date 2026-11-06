@@ -221,11 +221,11 @@ public class DefaultSynchronizerTest {
             () ->
                 Snap2SyncFactory.create(
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
-                    any()))
+                    any(), any()))
         .thenAnswer(
             invocation -> {
-              selectors.add(invocation.getArgument(9));
-              handOvers.add(invocation.getArgument(11));
+              selectors.add(invocation.getArgument(10));
+              handOvers.add(invocation.getArgument(12));
               return Optional.of(snapSyncController);
             });
     when(snapSyncController.start())

@@ -73,7 +73,8 @@ public final class Snap2SyncFactory {
    * @param pivotBlockSelector the source of the chain head, when it is one
    * @param terminalTotalDifficulty where proof of stake starts, none on a network that does not
    *     merge
-   * @param handOver takes the scheduler of the sync once it completes
+   * @param requestScheduler the scheduler of the node; the sync sends through a scope of its own
+   * @param handOver takes the scope of the sync once it completes
    * @return the sync, or empty when none is needed
    */
   public static Optional<SnapSyncController> create(
@@ -83,6 +84,7 @@ public final class Snap2SyncFactory {
       final ProtocolContext protocolContext,
       final MetricsSystem metricsSystem,
       final EthPeers ethPeers,
+      final RequestScheduler requestScheduler,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final StorageProvider storageProvider,
       final SyncState syncState,
@@ -103,8 +105,7 @@ public final class Snap2SyncFactory {
             syncConfig.isSnapSyncHeadersToCheckpointOnly(),
             syncConfig.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled(),
             terminalTotalDifficulty);
-    final RequestScheduler scheduler =
-        RequestScheduler.forSync(ethPeers, metricsSystem, config.workerThreads());
+    final RequestSender scheduler = requestScheduler.scope();
     // without a consensus client, the head the best peer announced
     final ChainHeadSource heads =
         pivotBlockSelector instanceof ChainHeadSource source
