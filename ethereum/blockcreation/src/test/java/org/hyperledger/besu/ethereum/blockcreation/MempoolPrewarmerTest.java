@@ -257,6 +257,35 @@ class MempoolPrewarmerTest {
   }
 
   @Test
+  void executesNothingOnceAPayloadArrives() {
+    prewarmer.start(head());
+    prewarmer.stopForPayload();
+    addCandidate(transfer(0));
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 0);
+  }
+
+  @Test
+  void countsTheBlockOfAPayloadAgainstThePrewarmingThePayloadStopped() {
+    final Transaction prewarmed = transfer(0);
+    addCandidate(prewarmed);
+    prewarmer.start(head());
+    awaitExecuted(1);
+    prewarmer.stopForPayload();
+
+    final Block block = childBlock(prewarmed, transfer(1));
+    prewarmer.stop(Optional.of(block));
+    prewarmer.stop(Optional.of(block));
+
+    assertThat(blockTransactions("true")).isEqualTo(1);
+    assertThat(blockTransactions("false")).isEqualTo(1);
+  }
+
+  @Test
   void countsNothingForABlockArrivingAfterBlockBuilding() {
     addCandidate(transfer(0));
     prewarmer.start(head());

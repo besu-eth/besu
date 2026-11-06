@@ -74,6 +74,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -125,6 +126,8 @@ public class MempoolPrewarmer implements AutoCloseable {
   private final Set<CompletableFuture<Void>> preloads = ConcurrentHashMap.newKeySet();
   private final long poolSubscription;
   @Nullable private volatile Warming warming;
+  // the last prewarming a payload stopped, which its block counts against once the block is known
+  private final AtomicReference<Warming> stoppedForPayload = new AtomicReference<>();
 
   private final Counter executedTransactions;
   private final Counter invalidTransactions;
@@ -285,16 +288,31 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
+   * Stops prewarming, as a payload arrived and is about to be checked. Executions already running
+   * stop when their transaction next enters or leaves a call.
+   */
+  public void stopForPayload() {
+    final Warming stopped = warming;
+    final long running = generation.getAndIncrement();
+    if (stopped != null && stopped.generation() == running) {
+      stoppedForPayload.set(stopped);
+    }
+  }
+
+  /**
    * Stops prewarming, as a block arrived or mining stops. Executions already running stop when
    * their transaction next enters or leaves a call.
    *
    * @param arrivingBlock the block that arrived, if one did
    */
   public void stop(final Optional<Block> arrivingBlock) {
-    final Warming stopped = warming;
+    final Warming current = warming;
     final long running = generation.getAndIncrement();
-    // a block counts once, and only against prewarming that ran until it arrived
-    if (stopped == null || stopped.generation() != running) {
+    final Warming stoppedEarlier = stoppedForPayload.getAndSet(null);
+    // a block counts once, and only against prewarming that ran until it or its payload arrived
+    final Warming stopped =
+        current != null && current.generation() == running ? current : stoppedEarlier;
+    if (stopped == null) {
       return;
     }
     arrivingBlock

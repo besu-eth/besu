@@ -40,6 +40,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
+import org.hyperledger.besu.consensus.merge.UnverifiedPayloadListener;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
@@ -1082,6 +1083,27 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     inOrder.verify(prewarmer).stop(Optional.of(terminal));
     inOrder.verify(prewarmer).start(terminalHeader);
     inOrder.verify(prewarmer).stopForBlockBuilding();
+  }
+
+  @Test
+  public void stopsPrewarmingWhenAPayloadArrives() {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+    final ArgumentCaptor<UnverifiedPayloadListener> listener =
+        ArgumentCaptor.forClass(UnverifiedPayloadListener.class);
+    verify(mergeContext).addNewUnverifiedPayloadListener(listener.capture());
+
+    listener.getValue().onNewUnverifiedPayload();
+
+    verify(prewarmer).stopForPayload();
   }
 
   @Test
