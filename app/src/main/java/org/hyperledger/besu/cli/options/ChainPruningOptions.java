@@ -71,7 +71,9 @@ public class ChainPruningOptions implements CLIOptions<ChainPrunerConfiguration>
       description =
           "The number of recent blocks ending at the safe block (PoS) or head (BFT) for which to keep block access lists."
               + " Newer BALs are also retained; PoS pruning pauses while the safe block is unknown."
-              + " Must be >= 0 and no greater than blocks retained in ALL mode (default: ${DEFAULT-VALUE})")
+              + " Must be >= "
+              + ChainPrunerConfiguration.MINIMUM_RETENTION
+              + " and no greater than blocks retained in ALL mode (default: ${DEFAULT-VALUE})")
   private final Long chainDataPruningBalsRetained = CHAIN_DATA_PRUNING_RETAINED_MINIMUM;
 
   @CommandLine.Option(
@@ -79,6 +81,9 @@ public class ChainPruningOptions implements CLIOptions<ChainPrunerConfiguration>
       names = {CHAIN_PRUNING_RETAINED_MINIMUM_FLAG},
       description =
           "Allows setting the limit below which no more block data can be pruned. This prevents setting block retention lower than this limit; it does not constrain BAL retention."
+              + " Must be >= "
+              + ChainPrunerConfiguration.MINIMUM_RETENTION
+              + " in ALL mode."
               + " This flag should be used with caution as reducing the limit may have unintended side effects."
               + " (default: ${DEFAULT-VALUE})")
   private final Long chainDataPruningRetainedMinimum = CHAIN_DATA_PRUNING_RETAINED_MINIMUM;

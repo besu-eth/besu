@@ -73,6 +73,7 @@ import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromSafeBlock;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.BackgroundBackfill;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.ForkchoiceHeadTracker;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
@@ -835,7 +836,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final Optional<ChainDataPruner> chainDataPruner;
     if (pruningMode != ChainPruningStrategy.NONE) {
       LOG.info("Adding ChainDataPruner to observe block added events");
-      final ChainDataPruner pruner = createChainPruner(blockchainStorage, protocolSchedule);
+      final ChainDataPruner pruner =
+          createChainPruner(blockchainStorage, blockchain, protocolSchedule);
       blockchain.observeBlockAdded(pruner);
       chainDataPruner = Optional.of(pruner);
 
@@ -1494,7 +1496,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   private ChainDataPruner createChainPruner(
-      final BlockchainStorage blockchainStorage, final ProtocolSchedule protocolSchedule) {
+      final BlockchainStorage blockchainStorage,
+      final MutableBlockchain blockchain,
+      final ProtocolSchedule protocolSchedule) {
     return new ChainDataPruner(
         blockchainStorage,
         new ChainDataPrunerStorage(
@@ -1503,7 +1507,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         chainPrunerConfiguration,
         (genesisConfigOptions.isIbft2() || genesisConfigOptions.isQbft())
             && !genesisConfigOptions.hasPos(),
+        ChainPrunerConfiguration.MINIMUM_RETENTION,
         header -> protocolSchedule.getByBlockHeader(header).getBlockAccessListFactory().isPresent(),
+        lowestToBackfill -> BackgroundBackfill.bodiesMissing(blockchain, lowestToBackfill),
         MonitoredExecutors.newBoundedThreadPool(
             EthScheduler.class.getSimpleName() + "-ChainDataPruner",
             1,

@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
@@ -61,8 +60,7 @@ public class SnapDownloaderFactory {
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SyncState syncState,
       final Clock clock,
-      final SyncDurationMetrics syncDurationMetrics,
-      final Optional<ChainDataPruner> chainDataPruner) {
+      final SyncDurationMetrics syncDurationMetrics) {
     final Path syncDataDirectory = dataDirectory.resolve(SYNC_FOLDER);
 
     ensureDirectoryExists(syncDataDirectory.toFile());
@@ -114,8 +112,7 @@ public class SnapDownloaderFactory {
                 syncState,
                 pivotBlockSelector,
                 metricsSystem,
-                syncDataDirectory,
-                chainDataPruner),
+                syncDataDirectory),
             snapWorldStateDownloader,
             syncDataDirectory,
             snapSyncState,

@@ -165,8 +165,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
                       worldStateStorageCoordinator,
                       syncState,
                       clock,
-                      syncDurationMetrics,
-                      chainDataPruner);
+                      syncDurationMetrics);
           case SNAP2 ->
               () ->
                   Snap2SyncFactory.create(

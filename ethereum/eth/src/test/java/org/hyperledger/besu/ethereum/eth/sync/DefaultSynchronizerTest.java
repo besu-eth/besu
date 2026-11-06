@@ -94,7 +94,7 @@ public class DefaultSynchronizerTest {
             () ->
                 SnapDownloaderFactory.createSnapDownloader(
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
-                    any(), any()))
+                    any()))
         .thenReturn(Optional.of(snapSyncController));
     snap2SyncFactory = mockStatic(Snap2SyncFactory.class);
     backgroundBackfills = mockStatic(BackgroundBackfill.class);

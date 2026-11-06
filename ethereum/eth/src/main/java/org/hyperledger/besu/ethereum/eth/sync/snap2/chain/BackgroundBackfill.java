@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snap2.chain;
 
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -207,10 +208,8 @@ public final class BackgroundBackfill implements InitialSyncCompletionListener {
   private boolean maybeStart(final Optional<RequestSender> handedOver) {
     // recorded by a sync that stored the bodies of the latest blocks only
     final Optional<Long> bodiesFrom = blockchain.getBodiesFrom();
-    final LongUnaryOperator lowestNeeded = lowestNeeded();
     final boolean bodiesMissing =
-        bodiesFrom.isPresent()
-            && bodiesFrom.get() > lowestNeeded.applyAsLong(blockchain.getChainHeadBlockNumber());
+        bodiesMissing(blockchain, lowestToBackfill(blockchain.getChainHeadBlockNumber()));
     if (bodiesMissing && !enabled) {
       LOG.info(
           "SNAP2 back-fill disabled, the bodies and receipts below block {} are not downloaded",
@@ -220,7 +219,7 @@ public final class BackgroundBackfill implements InitialSyncCompletionListener {
       return false;
     }
     final BodyBackfill backfill =
-        build(bodiesFrom.get(), lowestNeeded, handedOver.orElseGet(senders));
+        build(bodiesFrom.get(), lowestNeeded(), handedOver.orElseGet(senders));
     try {
       final ExecutorService workers = workerPools.get();
       startedPools.removeIf(ExecutorService::isTerminated);
@@ -265,12 +264,33 @@ public final class BackgroundBackfill implements InitialSyncCompletionListener {
     return () -> syncState.getBestPeerChainHead().isPresent() && syncState.isInSync();
   }
 
+  /**
+   * Returns whether a back-fill still has bodies and receipts to store: a sync stored those of the
+   * latest blocks only, from a block above both the floor of the sync and {@code lowestToBackfill}.
+   *
+   * @param blockchain the chain the sync stored the blocks of
+   * @param lowestToBackfill the lowest block a pruner keeps a pruning run later, 0 without pruning
+   * @return whether bodies and receipts below the stored ones are still missing
+   */
+  public static boolean bodiesMissing(final Blockchain blockchain, final long lowestToBackfill) {
+    // recorded by a sync that stored the bodies of the latest blocks only
+    final Optional<Long> bodiesFrom = blockchain.getBodiesFrom();
+    return bodiesFrom.isPresent()
+        && bodiesFrom.get() > lowestNeeded(blockchain.getSyncFloor().orElse(0L), lowestToBackfill);
+  }
+
   // above the floor of the sync, and a pruning run away from the blocks a pruner removes
+  private static long lowestNeeded(final long syncFloor, final long lowestToBackfill) {
+    return Math.max(syncFloor + 1, lowestToBackfill);
+  }
+
+  private long lowestToBackfill(final long head) {
+    return chainDataPruner.map(pruner -> pruner.lowestToBackfill(head)).orElse(0L);
+  }
+
   private LongUnaryOperator lowestNeeded() {
     // recorded with the bodies from, whatever the checkpoint of this run
     final long floor = blockchain.getSyncFloor().orElse(0L);
-    return head ->
-        Math.max(
-            floor + 1, chainDataPruner.map(pruner -> pruner.lowestToBackfill(head)).orElse(0L));
+    return head -> lowestNeeded(floor, lowestToBackfill(head));
   }
 }

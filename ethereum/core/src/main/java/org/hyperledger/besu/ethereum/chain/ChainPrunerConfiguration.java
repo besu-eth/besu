@@ -36,6 +36,14 @@ public record ChainPrunerConfiguration(
   /** The history expiry window converted to blocks. */
   public static final long HISTORY_PRUNE_BLOCKS = HISTORY_PRUNE_EPOCHS * SLOTS_PER_EPOCH;
 
+  /**
+   * Fewest recent blocks whose bodies, receipts and block access lists chain pruning keeps: no
+   * retention may be set lower, and no pruning target comes within this many blocks of the local
+   * chain head, whatever the safe block. Matches Bonsai's default {@code
+   * --bonsai-historical-block-limit} without following that option.
+   */
+  public static final long MINIMUM_RETENTION = 512L;
+
   public static final ChainPrunerConfiguration DEFAULT =
       new ChainPrunerConfiguration(
           ChainPruningStrategy.NONE,

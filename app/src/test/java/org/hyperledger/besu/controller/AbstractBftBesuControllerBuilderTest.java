@@ -214,7 +214,7 @@ public abstract class AbstractBftBesuControllerBuilderTest {
 
     try (final var besuController = bftBesuControllerBuilder.build()) {
       final var blockchain = besuController.getProtocolContext().getBlockchain();
-      for (long number = 1; number <= 4; number++) {
+      for (long number = 1; number <= ChainPrunerConfiguration.MINIMUM_RETENTION + 2; number++) {
         final BlockHeader parent = blockchain.getChainHeadHeader();
         final BlockHeader header =
             BlockHeaderBuilder.fromHeader(parent)

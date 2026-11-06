@@ -46,6 +46,8 @@ import java.util.Optional;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
 import jakarta.validation.constraints.NotNull;
@@ -75,7 +77,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 512, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -144,7 +148,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, 512, 512, 512, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -252,7 +258,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.BAL, 512, 512, Long.MAX_VALUE, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -348,7 +356,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, 256, 256, 256, 100),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -431,7 +441,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, 1000, 1000, 1000, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -467,7 +479,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.BAL, 256, 256, Long.MAX_VALUE, 100),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -561,7 +575,9 @@ public class ChainDataPrunerTest {
                 Long.MAX_VALUE,
                 100),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -696,7 +712,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.BAL, 10, 10, Long.MAX_VALUE, 0),
             false,
+            0,
             header -> false,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     final Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -744,7 +762,9 @@ public class ChainDataPrunerTest {
                 Long.MAX_VALUE,
                 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     final Block allModeGenesisBlock = allModeGen.genesisBlock();
     final MutableBlockchain allModeBlockchain =
@@ -780,7 +800,9 @@ public class ChainDataPrunerTest {
                 Long.MAX_VALUE,
                 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     final Block balModeGenesisBlock = balModeGen.genesisBlock();
     final MutableBlockchain balModeBlockchain =
@@ -832,7 +854,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.BAL, 100, 100, Long.MAX_VALUE, 0),
             false,
+            0,
             header -> header.getNumber() >= 21,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -928,7 +952,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, 100, 100, 100, 0),
             false,
+            0,
             header -> false,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -980,7 +1006,9 @@ public class ChainDataPrunerTest {
             prunerStorage,
             new ChainPrunerConfiguration(strategy, retained, retained, retained, 0),
             true,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     final Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -1058,7 +1086,9 @@ public class ChainDataPrunerTest {
             prunerStorage,
             new ChainPrunerConfiguration(strategy, 100, 100, 100, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             executor);
     final MutableBlockchain blockchain =
         DefaultBlockchain.createMutable(
@@ -1122,7 +1152,9 @@ public class ChainDataPrunerTest {
             prunerStorage,
             new ChainPrunerConfiguration(strategy, 100, 100, 100, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             executor);
     final MutableBlockchain blockchain =
         DefaultBlockchain.createMutable(
@@ -1142,7 +1174,7 @@ public class ChainDataPrunerTest {
   @EnumSource(
       value = ChainDataPruner.ChainPruningStrategy.class,
       names = {"ALL", "BAL"})
-  public void queuedJobRechecksAdvancingSafeBlockButDoesNotPassItsHead(
+  public void queuedJobPrunesAgainstTheCurrentHeadAndSafeBlock(
       final ChainDataPruner.ChainPruningStrategy strategy) {
     final BlockDataGenerator gen = new BlockDataGenerator();
     gen.setBlockOptionsSupplier(
@@ -1156,7 +1188,9 @@ public class ChainDataPrunerTest {
             prunerStorage,
             new ChainPrunerConfiguration(strategy, 100, 100, 100, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             executor);
     final MutableBlockchain blockchain =
         DefaultBlockchain.createMutable(
@@ -1170,14 +1204,11 @@ public class ChainDataPrunerTest {
 
     blockchain.setSafeBlock(blockchain.getChainHeadHash());
     executor.runNext();
-    assertProgress(prunerStorage, strategy, 100L);
-    assertThat(blockchain.getBlockByNumber(101)).isPresent();
+    assertProgress(prunerStorage, strategy, 150L);
+    assertThat(blockchain.getBlockByNumber(151)).isPresent();
 
     chainDataPruner.pruneForSyncedHead(eventHead);
     assertThat(executor.queued()).isEmpty();
-    chainDataPruner.pruneForSyncedHead(blockchain.getChainHeadHeader());
-    executor.runNext();
-    assertProgress(prunerStorage, strategy, 150L);
   }
 
   @ParameterizedTest
@@ -1198,7 +1229,9 @@ public class ChainDataPrunerTest {
             prunerStorage,
             new ChainPrunerConfiguration(strategy, 100, 100, 100, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             executor);
     final MutableBlockchain blockchain =
         DefaultBlockchain.createMutable(
@@ -1228,7 +1261,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.BAL, 100, 100, Long.MAX_VALUE, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     final Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
@@ -1275,7 +1310,9 @@ public class ChainDataPrunerTest {
         new ChainPrunerConfiguration(
             ChainDataPruner.ChainPruningStrategy.ALL, retained, retained, retained, 0),
         false,
+        0,
         header -> true,
+        lowestToBackfill -> false,
         new BlockingExecutor());
   }
 
@@ -1405,7 +1442,9 @@ public class ChainDataPrunerTest {
             marks,
             new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 5, 2, 0, 100),
             false,
+            0,
             balEnabled,
+            lowestToBackfill -> false,
             new BlockingExecutor())
         .pruneForSyncedHead(head);
     assertThat(marks.getBlockPruningMark()).contains(10L);
@@ -1438,7 +1477,9 @@ public class ChainDataPrunerTest {
             restartedMarks,
             new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 5, 2, 0, 0),
             false,
+            0,
             balEnabled,
+            lowestToBackfill -> false,
             new BlockingExecutor())
         .pruneForSyncedHead(restartedStorage.getBlockHeader(parentHash).orElseThrow());
     assertThat(restartedMarks.getBlockPruningMark()).contains(15L);
@@ -1603,7 +1644,9 @@ public class ChainDataPrunerTest {
             new ChainDataPrunerStorage(persistedMarks),
             new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 8, 2, 0, 2),
             true,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     restarted.pruneForSyncedHead(fixture.blockchain.getChainHeadHeader());
     assertThat(fixture.marks.getBlockPruningMark()).contains(18L);
@@ -1866,7 +1909,9 @@ public class ChainDataPrunerTest {
           marks,
           new ChainPrunerConfiguration(strategy, blocksRetained, balsRetained, 0, frequency),
           true,
+          0,
           activation,
+          lowestToBackfill -> false,
           new BlockingExecutor());
     }
 
@@ -2021,7 +2066,9 @@ public class ChainDataPrunerTest {
         new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
         new ChainPrunerConfiguration(strategy, 10, 10, 10, 4),
         false,
+        0,
         header -> true,
+        lowestToBackfill -> false,
         new BlockingExecutor());
   }
 
@@ -2051,7 +2098,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, retention, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     observePrunerWithSafeHead(blockchain, chainDataPruner);
 
@@ -2065,46 +2114,132 @@ public class ChainDataPrunerTest {
     assertThat(blockchain.getBlockByNumber(head - retention + 1)).isPresent();
   }
 
-  @Test
-  public void prunesBlocksDrivenBySyncImportHookWithoutObserverEvents() {
+  @ParameterizedTest
+  @EnumSource(
+      value = ChainDataPruner.ChainPruningStrategy.class,
+      names = {"ALL", "BAL"})
+  public void neverPrunesWithinTheMinimumHeadDistance(
+      final ChainDataPruner.ChainPruningStrategy strategy) {
     final BlockDataGenerator gen = new BlockDataGenerator();
-    final BlockchainStorage blockchainStorage =
-        new KeyValueStoragePrefixedKeyBlockchainStorage(
-            new InMemoryKeyValueStorage(),
-            new VariablesKeyValueStorage(new InMemoryKeyValueStorage()),
-            new MainnetBlockHeaderFunctions(),
-            false);
+    gen.setBlockOptionsSupplier(
+        () -> BlockDataGenerator.BlockOptions.create().withGeneratedBlockAccessList());
+    final BlockchainStorage blockchainStorage = inMemoryBlockchainStorage();
+    final ChainDataPrunerStorage prunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final ChainDataPruner chainDataPruner =
+        new ChainDataPruner(
+            blockchainStorage,
+            prunerStorage,
+            new ChainPrunerConfiguration(strategy, 100, 100, 100, 0),
+            false,
+            75,
+            header -> true,
+            lowestToBackfill -> false,
+            new BlockingExecutor());
+    final MutableBlockchain blockchain =
+        DefaultBlockchain.createMutable(
+            gen.genesisBlock(), blockchainStorage, new NoOpMetricsSystem(), 0);
+    appendBlocks(gen, blockchain, 200);
+    // stored beyond the head, so that the safe block stands 50 blocks ahead of it
+    Hash lastStored = blockchain.getChainHeadHash();
+    for (final Block block : gen.blockSequence(blockchain.getChainHeadBlock(), 50)) {
+      blockchain.storeBlock(block, gen.receipts(block));
+      lastStored = block.getHash();
+    }
+    blockchain.setSafeBlock(lastStored);
+
+    chainDataPruner.pruneForSyncedHead(blockchain.getChainHeadHeader());
+
+    // min(250 - 100, 200 - 75)
+    assertProgress(prunerStorage, strategy, 125L);
+    assertThat(blockchain.getBlockByNumber(126)).isPresent();
+  }
+
+  @Test
+  public void blockBoundaryWaitsWhileTheBackfillMissesBodies() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    gen.setBlockOptionsSupplier(
+        () -> BlockDataGenerator.BlockOptions.create().withGeneratedBlockAccessList());
+    final BlockchainStorage blockchainStorage = inMemoryBlockchainStorage();
+    final ChainDataPrunerStorage prunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final AtomicBoolean backfilling = new AtomicBoolean(true);
+    final AtomicLong askedFor = new AtomicLong();
+    final ChainDataPruner chainDataPruner =
+        new ChainDataPruner(
+            blockchainStorage,
+            prunerStorage,
+            new ChainPrunerConfiguration(
+                ChainDataPruner.ChainPruningStrategy.ALL, 100, 100, 100, 0),
+            false,
+            0,
+            header -> true,
+            lowestToBackfill -> {
+              askedFor.set(lowestToBackfill);
+              return backfilling.get();
+            },
+            new BlockingExecutor());
+    final MutableBlockchain blockchain =
+        DefaultBlockchain.createMutable(
+            gen.genesisBlock(), blockchainStorage, new NoOpMetricsSystem(), 0);
+    appendBlocks(gen, blockchain, 200);
+    blockchain.setSafeBlock(blockchain.getChainHeadHash());
+    final BlockHeader head = blockchain.getChainHeadHeader();
+
+    chainDataPruner.pruneForSyncedHead(head);
+
+    assertThat(prunerStorage.getBlockPruningMark()).isEmpty();
+    assertThat(prunerStorage.getBalPruningMark()).contains(100L);
+    assertThat(blockchain.getBlockByNumber(1)).isPresent();
+    // lowestToBackfill(200) with no frequency
+    assertThat(askedFor.get()).isEqualTo(101L);
+
+    backfilling.set(false);
+    chainDataPruner.pruneForSyncedHead(head);
+
+    assertThat(prunerStorage.getBlockPruningMark()).contains(100L);
+    assertThat(blockchain.getBlockByNumber(100)).isEmpty();
+    assertThat(blockchain.getBlockByNumber(101)).isPresent();
+  }
+
+  @Test
+  public void lowestToBackfillStaysAboveWhatPruningRemoved() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final BlockchainStorage blockchainStorage = inMemoryBlockchainStorage();
+    final ChainDataPrunerStorage prunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final ChainDataPruner chainDataPruner =
+        new ChainDataPruner(
+            blockchainStorage,
+            prunerStorage,
+            new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 10, 10, 10, 0),
+            false,
+            0,
+            header -> false,
+            lowestToBackfill -> false,
+            new BlockingExecutor());
     final Block genesisBlock = gen.genesisBlock();
     final MutableBlockchain blockchain =
         DefaultBlockchain.createMutable(
             genesisBlock, blockchainStorage, new NoOpMetricsSystem(), 0);
-
-    final int importedWithoutObserver = 40;
-    gen.blockSequence(genesisBlock, importedWithoutObserver)
+    observePrunerWithSafeHead(blockchain, chainDataPruner);
+    gen.blockSequence(genesisBlock, 40)
         .forEach(block -> blockchain.appendBlock(block, gen.receipts(block)));
+    assertThat(prunerStorage.getBlockPruningMark()).contains(30L);
 
-    final int retention = 8;
-    final ChainDataPruner chainDataPruner =
+    // retention raised after blocks up to 30 were pruned
+    final ChainDataPruner raisedRetention =
         new ChainDataPruner(
             blockchainStorage,
-            new ChainDataPrunerStorage(new InMemoryKeyValueStorage()),
-            new ChainPrunerConfiguration(
-                ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, retention, 0),
+            prunerStorage,
+            new ChainPrunerConfiguration(ChainDataPruner.ChainPruningStrategy.ALL, 100, 100, 10, 0),
             false,
-            header -> true,
+            0,
+            header -> false,
+            lowestToBackfill -> false,
             new BlockingExecutor());
 
-    // The snap-sync unsafe import path never fires BlockAddedEvents, so the pruner is not
-    // registered as an observer. Catch-up pruning is driven by pruneForSyncedHead from the
-    // sync pipeline (ImportSyncBlocksStep) after each unsafe batch commits.
-    blockchain.setSafeBlock(blockchain.getChainHeadHash());
-    chainDataPruner.pruneForSyncedHead(blockchain.getChainHeadBlock().getHeader());
-
-    final long head = blockchain.getChainHeadBlockNumber();
-    assertThat(blockchain.getBlockHeader(0)).isPresent();
-    assertThat(blockchain.getBlockHeader(head - retention)).isPresent();
-    assertThat(blockchain.getBlockByNumber(head - retention)).isEmpty();
-    assertThat(blockchain.getBlockByNumber(head - retention + 1)).isPresent();
+    assertThat(raisedRetention.lowestToBackfill(40)).isEqualTo(31L);
   }
 
   @Test
@@ -2134,7 +2269,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, retention, retention, retention, 0),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             new BlockingExecutor());
     observePrunerWithSafeHead(blockchain, chainDataPruner);
 
@@ -2165,7 +2302,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, 100, 100, 100, 0),
             false,
+            0,
             header -> false,
+            lowestToBackfill -> false,
             new BlockingExecutor());
 
     final Block genesisBlock = gen.genesisBlock();
@@ -2198,7 +2337,9 @@ public class ChainDataPrunerTest {
         prunerStorage,
         config,
         false,
+        0,
         header -> true,
+        lowestToBackfill -> false,
         new BlockingExecutor());
   }
 
@@ -2275,7 +2416,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, 256, 256, 256, 100),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             executor);
 
     final Block genesisBlock = gen.genesisBlock();
@@ -2320,7 +2463,9 @@ public class ChainDataPrunerTest {
             new ChainPrunerConfiguration(
                 ChainDataPruner.ChainPruningStrategy.ALL, 256, 256, 256, 100),
             false,
+            0,
             header -> true,
+            lowestToBackfill -> false,
             executor);
 
     final MutableBlockchain blockchain =

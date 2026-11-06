@@ -53,6 +53,8 @@ import java.util.function.Supplier;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InOrder;
 
 /**
@@ -129,6 +131,26 @@ class BackgroundBackfillTest {
     backfill().onInitialSyncCompleted();
 
     assertThat(senders).isEmpty();
+  }
+
+  @ParameterizedTest
+  @CsvSource({"41, 10, 30, true", "41, 10, 41, false", "41, 10, 0, true", "41, 40, 0, false"})
+  void bodiesAreMissingAboveTheLowestNeededBlockOnly(
+      final long bodiesFrom,
+      final long syncFloor,
+      final long lowestToBackfill,
+      final boolean missing) {
+    when(blockchain.getBodiesFrom()).thenReturn(Optional.of(bodiesFrom));
+    when(blockchain.getSyncFloor()).thenReturn(Optional.of(syncFloor));
+
+    assertThat(BackgroundBackfill.bodiesMissing(blockchain, lowestToBackfill)).isEqualTo(missing);
+  }
+
+  @Test
+  void noBodiesAreMissingWithoutAPartialSync() {
+    when(blockchain.getBodiesFrom()).thenReturn(Optional.empty());
+
+    assertThat(BackgroundBackfill.bodiesMissing(blockchain, 30)).isFalse();
   }
 
   @Test

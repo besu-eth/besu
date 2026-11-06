@@ -3153,15 +3153,16 @@ public class BesuCommandTest extends CommandTestAbstract {
   public void chainPruningAllModeWithValidValuesSucceeds() {
     parseCommand(
         "--Xchain-pruning-enabled=ALL",
-        "--Xchain-pruning-blocks-retained=" + (CHAIN_DATA_PRUNING_RETAINED_MINIMUM + 100),
-        "--Xchain-pruning-bals-retained=100",
-        "--Xchain-pruning-retained-minimum=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
+        "--Xchain-pruning-blocks-retained=" + ChainPrunerConfiguration.MINIMUM_RETENTION,
+        "--Xchain-pruning-bals-retained=" + ChainPrunerConfiguration.MINIMUM_RETENTION,
+        "--Xchain-pruning-retained-minimum=" + ChainPrunerConfiguration.MINIMUM_RETENTION);
 
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @ParameterizedTest
-  @ValueSource(longs = {0, 1, CHAIN_DATA_PRUNING_RETAINED_MINIMUM - 1})
+  @ValueSource(
+      longs = {ChainPrunerConfiguration.MINIMUM_RETENTION, CHAIN_DATA_PRUNING_RETAINED_MINIMUM - 1})
   public void chainPruningBalModeDoesNotApplyBlockMinimumOrRetention(final long balsRetained) {
     parseCommand(
         "--Xchain-pruning-enabled=BAL",
@@ -3183,16 +3184,34 @@ public class BesuCommandTest extends CommandTestAbstract {
   @EnumSource(
       value = ChainPruningStrategy.class,
       names = {"ALL", "BAL"})
-  public void chainPruningRejectsNegativeBalRetention(final ChainPruningStrategy strategy) {
-    parseCommand("--Xchain-pruning-enabled=" + strategy, "--Xchain-pruning-bals-retained=-1");
+  public void chainPruningRejectsBalRetentionBelowTheMinimum(final ChainPruningStrategy strategy) {
+    parseCommand(
+        "--Xchain-pruning-enabled=" + strategy,
+        "--Xchain-pruning-bals-retained=" + (ChainPrunerConfiguration.MINIMUM_RETENTION - 1));
 
-    assertThat(commandErrorOutput.toString(UTF_8)).isNotEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--Xchain-pruning-bals-retained must be >= 512");
+    verify(mockControllerBuilder, never()).build();
+  }
+
+  @Test
+  public void chainPruningAllModeRejectsRetainedMinimumBelowTheMinimum() {
+    parseCommand(
+        "--Xchain-pruning-enabled=ALL",
+        "--Xchain-pruning-retained-minimum=" + (ChainPrunerConfiguration.MINIMUM_RETENTION - 1));
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--Xchain-pruning-retained-minimum must be >= 512");
     verify(mockControllerBuilder, never()).build();
   }
 
   @ParameterizedTest
   @ValueSource(
-      longs = {0, CHAIN_DATA_PRUNING_RETAINED_MINIMUM - 1, CHAIN_DATA_PRUNING_RETAINED_MINIMUM})
+      longs = {
+        ChainPrunerConfiguration.MINIMUM_RETENTION,
+        CHAIN_DATA_PRUNING_RETAINED_MINIMUM - 1,
+        CHAIN_DATA_PRUNING_RETAINED_MINIMUM
+      })
   public void chainPruningAllModeAcceptsBalRetentionThroughBlockRetention(final long balsRetained) {
     parseCommand("--Xchain-pruning-enabled=ALL", "--Xchain-pruning-bals-retained=" + balsRetained);
 

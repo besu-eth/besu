@@ -25,6 +25,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongPredicate;
 import java.util.function.Predicate;
 
 import org.slf4j.Logger;
@@ -54,7 +55,15 @@ public class ChainDataPruner implements BlockAddedObserver {
   private final ChainDataPrunerStorage prunerStorage;
   private final ChainPrunerConfiguration config;
   private final boolean pruneFromHead;
+  private final long minimumHeadDistance;
   private final Predicate<BlockHeader> isBalEnabled;
+
+  /**
+   * Whether, with blocks kept from the given one a pruning run later, a back-fill still has bodies
+   * to store below the ones a sync stored. Block pruning finds no boundary until it has none.
+   */
+  private final LongPredicate bodiesMissing;
+
   private final ExecutorService pruningExecutor;
   private final AtomicBoolean logChainPruningProgress = new AtomicBoolean(true);
   private final boolean prunesBlockData;
@@ -69,13 +78,17 @@ public class ChainDataPruner implements BlockAddedObserver {
       final ChainDataPrunerStorage prunerStorage,
       final ChainPrunerConfiguration config,
       final boolean pruneFromHead,
+      final long minimumHeadDistance,
       final Predicate<BlockHeader> isBalEnabled,
+      final LongPredicate bodiesMissing,
       final ExecutorService pruningExecutor) {
     this.blockchainStorage = blockchainStorage;
     this.prunerStorage = prunerStorage;
     this.config = config;
     this.pruneFromHead = pruneFromHead;
+    this.minimumHeadDistance = minimumHeadDistance;
     this.isBalEnabled = isBalEnabled;
+    this.bodiesMissing = bodiesMissing;
     this.pruningExecutor = pruningExecutor;
     this.prunesBlockData = config.isBlockPruningEnabled();
     this.lastPrunedBlock = prunerStorage.getBlockPruningMark().orElse(ABSENT_PRUNING_MARK);
@@ -90,10 +103,17 @@ public class ChainDataPruner implements BlockAddedObserver {
   /**
    * Returns the lowest block whose body and receipts a back-fill can store at this chain head: the
    * lowest one still retained a pruning run later, so that a run starting while the back-fill
-   * stores a block never passes over it.
+   * stores a block never passes over it, and never a block pruning already removed: no later run
+   * would find it below the completed mark.
    */
   public long lowestToBackfill(final long chainHead) {
-    return lowestRetained(chainHead + config.chainPruningFrequency());
+    return Math.max(lowestRetained(chainHead + config.chainPruningFrequency()), lowestUnpruned());
+  }
+
+  // the lowest block pruning has not removed; genesis is never pruned
+  private long lowestUnpruned() {
+    final long lastPruned = lastPrunedBlock;
+    return lastPruned <= 0 ? 0 : lastPruned + 1;
   }
 
   // the lowest block whose body and receipts stay in place at this chain head
@@ -115,30 +135,37 @@ public class ChainDataPruner implements BlockAddedObserver {
   }
 
   /**
-   * The common reference for both retention windows: head for BFT, otherwise safe bounded by head.
+   * The block both retention windows end at: the head for BFT, whose imported blocks are final,
+   * otherwise the persisted safe block, or empty while it is unknown.
    */
   private OptionalLong pruningReference(final long headBlockNumber) {
     if (pruneFromHead) {
       return OptionalLong.of(headBlockNumber);
     }
-    final Optional<BlockHeader> safeHeader =
-        blockchainStorage.getSafeBlock().flatMap(blockchainStorage::getBlockHeader);
-    if (safeHeader.isEmpty()) {
-      return OptionalLong.empty();
-    }
-    return OptionalLong.of(Math.min(safeHeader.get().getNumber(), headBlockNumber));
+    return blockchainStorage
+        .getSafeBlock()
+        .flatMap(blockchainStorage::getBlockHeader)
+        .map(safe -> OptionalLong.of(safe.getNumber()))
+        .orElseGet(OptionalLong::empty);
+  }
+
+  /** The highest block a pass may prune: its retention below the reference, never near the head. */
+  private long pruningTarget(
+      final long reference, final long headBlockNumber, final long retained) {
+    return Math.min(reference - retained, headBlockNumber - minimumHeadDistance);
+  }
+
+  private boolean pruneBals(final BlockHeader header) {
+    return config.pruningMode() != ChainPruningStrategy.NONE && isBalEnabled.test(header);
   }
 
   /**
-   * Submits a pruning job for a new canonical head. Called on every new canonical head from {@code
-   * BlockAddedEvent}, and directly by the snap-sync pipeline ({@code ImportSyncBlocksStep}), whose
-   * {@code DefaultBlockchain#unsafeImportSyncBodiesAndReceipts} bypasses those observers.
+   * Submits a pruning job for a new canonical head, unless nothing is due.
    *
    * @param header the new chain head header
    */
-  public void pruneForSyncedHead(final BlockHeader header) {
-    final boolean pruneBals =
-        config.pruningMode() != ChainPruningStrategy.NONE && isBalEnabled.test(header);
+  void pruneForSyncedHead(final BlockHeader header) {
+    final boolean pruneBals = pruneBals(header);
     if (prunesBlockData) {
       validatePruningMark(header.getNumber(), lastPrunedBlock, "blocks");
     }
@@ -152,21 +179,26 @@ public class ChainDataPruner implements BlockAddedObserver {
     final boolean blockWork =
         prunesBlockData
             && needsPruningJob(
-                reference.getAsLong() - config.chainPruningBlocksRetained(), lastPrunedBlock);
+                pruningTarget(
+                    reference.getAsLong(), header.getNumber(), config.chainPruningBlocksRetained()),
+                lastPrunedBlock);
     final boolean balWork =
         pruneBals
             && needsPruningJob(
-                reference.getAsLong() - config.chainPruningBalsRetained(), lastPrunedBal);
+                pruningTarget(
+                    reference.getAsLong(), header.getNumber(), config.chainPruningBalsRetained()),
+                lastPrunedBal);
     if (!blockWork && !balWork) {
       return;
     }
+    submitJob();
+  }
 
+  private void submitJob() {
     try {
-      pruningExecutor.submit(() -> runPruningJob(header.getNumber(), pruneBals));
+      pruningExecutor.submit(this::runPruningJob);
     } catch (final RejectedExecutionException e) {
-      LOG.debug(
-          "Chain pruning task rejected for head {}; will retry on the next head update",
-          header.getNumber());
+      LOG.debug("Chain pruning task rejected; will retry on the next head update");
     }
   }
 
@@ -184,9 +216,7 @@ public class ChainDataPruner implements BlockAddedObserver {
     // Block pruning cannot pass this head's block retention window.
     final long bound = headBlockNumber - config.chainPruningBlocksRetained() + 1;
     // Covers retention being raised after blocks were already deleted.
-    final long lastPruned = lastPrunedBlock;
-    final long lowestUnpruned = lastPruned <= 0 ? 0 : lastPruned + 1;
-    return Optional.of(Math.max(bound, lowestUnpruned));
+    return Optional.of(Math.max(bound, lowestUnpruned()));
   }
 
   private void validatePruningMark(
@@ -210,6 +240,11 @@ public class ChainDataPruner implements BlockAddedObserver {
     final long lastPruned = pruneBlocks ? lastPrunedBlock : lastPrunedBal;
     if (lastPruned != ABSENT_PRUNING_MARK) {
       return lastPruned;
+    }
+    if (pruneBlocks && bodiesMissing.test(lowestToBackfill(headBlockNumber))) {
+      // a back-fill still stores bodies below the stored ones, out of order: no boundary yet
+      LOG.debug("Block pruning waits for the back-fill to store the bodies it misses");
+      return ABSENT_PRUNING_MARK;
     }
     final Optional<Long> firstWithData =
         pruneBlocks
@@ -243,29 +278,39 @@ public class ChainDataPruner implements BlockAddedObserver {
     return initialMark;
   }
 
-  private void runPruningJob(final long headBlockNumber, final boolean pruneBals) {
+  private void runPruningJob() {
     try {
-      // Recheck once for both passes: safe may have changed while the job was queued.
-      final OptionalLong reference = pruningReference(headBlockNumber);
-      if (reference.isEmpty()) {
-        return;
-      }
-      final long blockTarget = reference.getAsLong() - config.chainPruningBlocksRetained();
-      final long balTarget = reference.getAsLong() - config.chainPruningBalsRetained();
-      final long blockStart =
-          prunesBlockData
-              ? initializePruningMark(true, headBlockNumber, blockTarget)
-              : ABSENT_PRUNING_MARK;
-      final long balStart =
-          pruneBals
-              ? initializePruningMark(false, headBlockNumber, balTarget)
-              : ABSENT_PRUNING_MARK;
-      runPruningPass(true, headBlockNumber, blockTarget, blockStart);
-      runPruningPass(false, headBlockNumber, balTarget, balStart);
+      pruneToCurrentHead();
     } catch (final RuntimeException e) {
-      LOG.warn(
-          "Chain pruning job for head {} failed; retrying on the next head", headBlockNumber, e);
+      LOG.warn("Chain pruning job failed; retrying on the next head", e);
     }
+  }
+
+  // reads the head and safe block as they are when the job runs, not when it was queued
+  private void pruneToCurrentHead() {
+    final Optional<BlockHeader> head =
+        blockchainStorage.getChainHead().flatMap(blockchainStorage::getBlockHeader);
+    if (head.isEmpty()) {
+      return;
+    }
+    final long headBlockNumber = head.get().getNumber();
+    final boolean pruneBals = pruneBals(head.get());
+    final OptionalLong reference = pruningReference(headBlockNumber);
+    if (reference.isEmpty()) {
+      return;
+    }
+    final long blockTarget =
+        pruningTarget(reference.getAsLong(), headBlockNumber, config.chainPruningBlocksRetained());
+    final long balTarget =
+        pruningTarget(reference.getAsLong(), headBlockNumber, config.chainPruningBalsRetained());
+    final long blockStart =
+        prunesBlockData
+            ? initializePruningMark(true, headBlockNumber, blockTarget)
+            : ABSENT_PRUNING_MARK;
+    final long balStart =
+        pruneBals ? initializePruningMark(false, headBlockNumber, balTarget) : ABSENT_PRUNING_MARK;
+    runPruningPass(true, headBlockNumber, blockTarget, blockStart);
+    runPruningPass(false, headBlockNumber, balTarget, balStart);
   }
 
   private long initializePruningMark(

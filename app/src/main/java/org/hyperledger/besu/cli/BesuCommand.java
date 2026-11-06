@@ -122,6 +122,7 @@ import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
+import org.hyperledger.besu.ethereum.chain.ChainPrunerConfiguration;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -1761,8 +1762,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       throw new ParameterException(
           this.commandLine, "--Xchain-pruning-blocks-retained must be >= 0");
     }
-    if (balsRetained < 0) {
-      throw new ParameterException(this.commandLine, "--Xchain-pruning-bals-retained must be >= 0");
+    if (balsRetained < ChainPrunerConfiguration.MINIMUM_RETENTION) {
+      throw new ParameterException(
+          this.commandLine,
+          "--Xchain-pruning-bals-retained must be >= "
+              + ChainPrunerConfiguration.MINIMUM_RETENTION);
     }
     if (retainedMinimum < 0) {
       throw new ParameterException(
@@ -1771,6 +1775,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     // Validate blocks pruning (when mode is ALL)
     if (chainPruningStrategy == ChainPruningStrategy.ALL) {
+      if (retainedMinimum < ChainPrunerConfiguration.MINIMUM_RETENTION) {
+        throw new ParameterException(
+            this.commandLine,
+            "--Xchain-pruning-retained-minimum must be >= "
+                + ChainPrunerConfiguration.MINIMUM_RETENTION);
+      }
       if (blocksRetained < retainedMinimum) {
         throw new ParameterException(
             this.commandLine, "--Xchain-pruning-blocks-retained must be >= " + retainedMinimum);

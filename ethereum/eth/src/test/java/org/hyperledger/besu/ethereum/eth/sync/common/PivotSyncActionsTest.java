@@ -504,8 +504,7 @@ public class PivotSyncActionsTest {
           new SyncState(blockchain, ethContext.getEthPeers(), true, Optional.empty()),
           pivotBlockSelector,
           new NoOpMetricsSystem(),
-          java.nio.file.Files.createTempDirectory("checkpoint-sync-test"),
-          Optional.empty());
+          java.nio.file.Files.createTempDirectory("checkpoint-sync-test"));
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
