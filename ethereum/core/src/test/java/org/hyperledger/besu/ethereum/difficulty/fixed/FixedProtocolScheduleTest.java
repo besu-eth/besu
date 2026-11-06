@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -82,7 +83,8 @@ public class FixedProtocolScheduleTest {
     final long activationBlock = 7L;
     final ProtocolSpecModification modification =
         new ProtocolSpecModification(
-            blockNumber(activationBlock), builder -> builder.blockReward(customReward));
+            blockNumber(activationBlock),
+            builder -> builder.blockRewardProcessor(BlockRewardProcessor.of(customReward)));
     final ProtocolScheduleCustomization customization =
         new ProtocolScheduleCustomization("test", List.of(modification));
 
@@ -102,7 +104,7 @@ public class FixedProtocolScheduleTest {
     final BlockHeader parentHeader = new BlockHeaderTestFixture().number(1).buildHeader();
 
     // the customizer's rule is enforced on the fixed-difficulty path...
-    assertThat(spec.getBlockReward()).isEqualTo(customReward);
+    assertThat(spec.getBlockRewardProcessor().getBlockReward()).isEqualTo(customReward);
     // ...composed on top of (not replacing) the earlier fixed-difficulty modifier.
     assertThat(spec.getDifficultyCalculator().nextDifficulty(1, parentHeader))
         .isEqualTo(FixedDifficultyCalculators.DEFAULT_DIFFICULTY);
