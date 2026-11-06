@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 - `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
+- The experimental `--Xmax-tracked-seen-txs` is replaced by `--Xmax-tracked-seen-txs-buckets-log2`, the log2 of the bucket count of the table of transactions seen by peers, between 2 and 30. The table holds up to 80% of its buckets, so the default 19 remembers up to 419,430 transactions, up from 300,000.
 
 ### Upcoming Breaking Changes
 - Plugin API

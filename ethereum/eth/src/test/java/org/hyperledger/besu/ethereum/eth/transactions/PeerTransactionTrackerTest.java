@@ -49,6 +49,7 @@ public class PeerTransactionTrackerTest {
   private final Transaction transaction1 = generator.transaction();
   private final Transaction transaction2 = generator.transaction();
   private final Transaction transaction3 = generator.transaction();
+  private final Transaction transaction4 = generator.transaction();
   private final PeerTransactionTracker tracker =
       new PeerTransactionTracker(TransactionPoolConfiguration.DEFAULT, ethPeers, ethScheduler);
   private final PeerTransactionTracker forgetfulTracker =
@@ -66,7 +67,8 @@ public class PeerTransactionTrackerTest {
           ImmutableTransactionPoolConfiguration.builder()
               .unstable(
                   ImmutableTransactionPoolConfiguration.Unstable.builder()
-                      .maxTrackedSeenTxs(2)
+                      // 4 buckets, holding 3 entries
+                      .maxTrackedSeenTxsBucketsLog2(2)
                       .build())
               .build(),
           ethPeers,
@@ -131,18 +133,20 @@ public class PeerTransactionTrackerTest {
   @Test
   public void shouldRemoveTheLastRecentSeenTransactionWhenTheCacheIsFull() {
     shortMemoryTracker.markTransactionsAsSeen(
-        ethPeer1, List.of(transaction1.getHash(), transaction2.getHash()));
+        ethPeer1, List.of(transaction1.getHash(), transaction2.getHash(), transaction3.getHash()));
 
     assertThat(shortMemoryTracker.alreadySeenTransaction(transaction1.getHash())).isTrue();
     assertThat(shortMemoryTracker.alreadySeenTransaction(transaction2.getHash())).isTrue();
+    assertThat(shortMemoryTracker.alreadySeenTransaction(transaction3.getHash())).isTrue();
 
     // now the cache is full and the last recent entry is the transaction1
-    // so it should be evicted when inserting transaction3
-    shortMemoryTracker.markTransactionsAsSeen(ethPeer1, List.of(transaction3.getHash()));
+    // so it should be evicted when inserting transaction4
+    shortMemoryTracker.markTransactionsAsSeen(ethPeer1, List.of(transaction4.getHash()));
 
     assertThat(shortMemoryTracker.alreadySeenTransaction(transaction1.getHash())).isFalse();
     assertThat(shortMemoryTracker.alreadySeenTransaction(transaction2.getHash())).isTrue();
     assertThat(shortMemoryTracker.alreadySeenTransaction(transaction3.getHash())).isTrue();
+    assertThat(shortMemoryTracker.alreadySeenTransaction(transaction4.getHash())).isTrue();
   }
 
   @Test
