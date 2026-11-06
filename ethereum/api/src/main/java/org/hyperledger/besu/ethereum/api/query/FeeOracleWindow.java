@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.util.OrderStatistics;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,17 +59,19 @@ final class FeeOracleWindow {
 
   private record BlockFees(Hash parentHash, FeeValues gasPrices, FeeValues priorityFees) {}
 
-  private record Window(long headNumber, Map<Hash, BlockFees> blocks) {}
+  private record Window(Hash headHash, long headNumber, Map<Hash, BlockFees> blocks) {}
 
   private final Blockchain blockchain;
   private final long windowBlocks;
-  private final double percentile;
-  private final AtomicReference<Window> retained = new AtomicReference<>(new Window(-1, Map.of()));
+  // The share of the window's fees below the returned one, from 0 to 1.
+  private final double fraction;
+  // Null until the first window is computed.
+  private final AtomicReference<Window> retained = new AtomicReference<>();
 
-  FeeOracleWindow(final Blockchain blockchain, final long windowBlocks, final double percentile) {
+  FeeOracleWindow(final Blockchain blockchain, final long windowBlocks, final double fraction) {
     this.blockchain = blockchain;
     this.windowBlocks = windowBlocks;
-    this.percentile = percentile;
+    this.fraction = fraction;
   }
 
   /**
@@ -80,7 +83,8 @@ final class FeeOracleWindow {
   Optional<Percentiles> percentilesAt(final BlockHeader head) {
     final long firstBlock = Math.max(0, head.getNumber() - windowBlocks + 1);
     final int blockCount = (int) (head.getNumber() - firstBlock + 1);
-    final Map<Hash, BlockFees> previous = retained.get().blocks();
+    final Window kept = retained.get();
+    final Map<Hash, BlockFees> previous = kept == null ? Map.of() : kept.blocks();
     final Map<Hash, BlockFees> retain =
         HashMap.newHashMap(Math.min(blockCount, MAX_RETAINED_BLOCKS));
     final List<BlockFees> blocks = new ArrayList<>(blockCount);
@@ -107,14 +111,25 @@ final class FeeOracleWindow {
       hash = fees.parentHash();
     }
 
-    // A computation for an older head can finish after one for a newer head; keeping the older
-    // window would make the next head read blocks again. The chain head's window is always kept,
-    // so after a reorg to a lower head the next heads of that branch read only their own block.
-    final boolean isChainHead = head.getBlockHash().equals(blockchain.getChainHeadHash());
+    // The chain head's window is kept, so after a reorg to a lower head the next heads of that
+    // branch read only their own block. Otherwise the newer head's window is kept: a computation
+    // for an older head can finish after one for a newer head. The chain head is read inside the
+    // update, which is retried if another window was kept meanwhile.
     retained.accumulateAndGet(
-        new Window(head.getNumber(), retain),
-        (current, next) ->
-            isChainHead || next.headNumber() >= current.headNumber() ? next : current);
+        new Window(head.getBlockHash(), head.getNumber(), retain),
+        (current, next) -> {
+          if (current == null) {
+            return next;
+          }
+          final Hash chainHeadHash = blockchain.getChainHeadHash();
+          if (next.headHash().equals(chainHeadHash)) {
+            return next;
+          }
+          if (current.headHash().equals(chainHeadHash)) {
+            return current;
+          }
+          return next.headNumber() >= current.headNumber() ? next : current;
+        });
 
     return Optional.of(
         new Percentiles(
@@ -135,7 +150,7 @@ final class FeeOracleWindow {
     if (count == 0) {
       return Optional.empty();
     }
-    final int k = Math.min(count - 1, (int) (count * percentile));
+    final int k = Math.min(count - 1, (int) (count * fraction));
 
     // The selection reorders its input, so it runs on a copy: the blocks' arrays are kept for later
     // heads.
@@ -170,36 +185,27 @@ final class FeeOracleWindow {
 
   private static FeeValues feeValuesOf(
       final List<Transaction> transactions, final Function<Transaction, Optional<Wei>> feeOf) {
+    final long[] values = new long[transactions.size()];
     int valueCount = 0;
-    int largeValueCount = 0;
+    List<Wei> largeValues = null;
     for (final Transaction transaction : transactions) {
       final Optional<Wei> fee = feeOf.apply(transaction);
       if (fee.isPresent()) {
         if (fee.get().fitsLong()) {
-          valueCount++;
+          values[valueCount++] = fee.get().toLong();
         } else {
-          largeValueCount++;
+          if (largeValues == null) {
+            largeValues = new ArrayList<>();
+          }
+          largeValues.add(fee.get());
         }
       }
     }
-    if (valueCount == 0 && largeValueCount == 0) {
+    if (valueCount == 0 && largeValues == null) {
       return NO_FEE_VALUES;
     }
-
-    final long[] values = valueCount == 0 ? NO_VALUES : new long[valueCount];
-    final Wei[] largeValues = largeValueCount == 0 ? NO_LARGE_VALUES : new Wei[largeValueCount];
-    int valueIndex = 0;
-    int largeValueIndex = 0;
-    for (final Transaction transaction : transactions) {
-      final Optional<Wei> fee = feeOf.apply(transaction);
-      if (fee.isPresent()) {
-        if (fee.get().fitsLong()) {
-          values[valueIndex++] = fee.get().toLong();
-        } else {
-          largeValues[largeValueIndex++] = fee.get();
-        }
-      }
-    }
-    return new FeeValues(values, largeValues);
+    return new FeeValues(
+        valueCount == values.length ? values : Arrays.copyOf(values, valueCount),
+        largeValues == null ? NO_LARGE_VALUES : largeValues.toArray(Wei[]::new));
   }
 }

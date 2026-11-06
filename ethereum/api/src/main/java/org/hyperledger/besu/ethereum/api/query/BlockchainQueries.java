@@ -178,22 +178,18 @@ public class BlockchainQueries {
     if (!event.isNewCanonicalHead() || !feeOracleCalled.getAndSet(false)) {
       return;
     }
-    ethScheduler.ifPresent(
-        scheduler ->
-            scheduler.scheduleServiceTask(() -> computeAndPublishSnapshot(event.getHeader())));
+    ethScheduler.ifPresent(scheduler -> scheduler.scheduleServiceTask(this::precomputeSnapshot));
   }
 
-  private void computeAndPublishSnapshot(final BlockHeader chainHeadHeader) {
+  // Computes the chain head's snapshot when the task runs rather than the event's head: heads that
+  // arrive before it runs see the flag cleared and schedule nothing.
+  private void precomputeSnapshot() {
+    final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
     try {
-      final Hash headHash = chainHeadHeader.getBlockHash();
-      if (!blockchain.getChainHeadHash().equals(headHash)) {
-        return;
+      final FeeOracleSnapshot snap = feeOracleRef.get();
+      if (snap == null || !snap.headHash().equals(chainHeadHeader.getBlockHash())) {
+        computeAndCacheSnapshot(chainHeadHeader);
       }
-      final Optional<FeeOracleSnapshot> maybeSnapshot = computeSnapshot(chainHeadHeader);
-      if (blockchain.getChainHeadHash().equals(headHash)) {
-        maybeSnapshot.ifPresent(feeOracleRef::set);
-      }
-      // A stale write is safe: the snapshot is head-hash-keyed and dropped on read if stale.
     } catch (RuntimeException e) {
       LOG.warn("Failed to precompute fee oracle for new head {}", chainHeadHeader.toLogString(), e);
     }
@@ -1201,7 +1197,10 @@ public class BlockchainQueries {
   private Optional<Wei> getOrComputeFeeOraclePercentile(
       final BlockHeader chainHeadHeader,
       final Function<FeeOracleSnapshot, Optional<Wei>> percentileSelector) {
-    feeOracleCalled.set(true);
+    // Reading first leaves the cache line shared while calls keep coming between heads.
+    if (!feeOracleCalled.get()) {
+      feeOracleCalled.set(true);
+    }
     final FeeOracleSnapshot snap = feeOracleRef.get();
     final Hash headHash = chainHeadHeader.getBlockHash();
     if (snap != null && snap.headHash().equals(headHash)) {
@@ -1210,13 +1209,15 @@ public class BlockchainQueries {
     return computeAndCacheSnapshot(chainHeadHeader).flatMap(percentileSelector);
   }
 
-  // Computes both percentiles in one pass over the window and publishes them. Concurrent cold-miss
-  // callers only
-  // waste duplicate scans (last writer wins); they don't race, as each result is a function of the
-  // immutable head hash.
+  // Computes both percentiles in one pass over the window. The snapshot is published only while its
+  // head is the chain head, so a computation that finishes after the chain moved on doesn't
+  // replace the newer head's snapshot. Concurrent cold-miss callers at the same head compute the
+  // same snapshot.
   private Optional<FeeOracleSnapshot> computeAndCacheSnapshot(final BlockHeader chainHeadHeader) {
     final Optional<FeeOracleSnapshot> snap = computeSnapshot(chainHeadHeader);
-    snap.ifPresent(feeOracleRef::set);
+    if (chainHeadHeader.getBlockHash().equals(blockchain.getChainHeadHash())) {
+      snap.ifPresent(feeOracleRef::set);
+    }
     return snap;
   }
 

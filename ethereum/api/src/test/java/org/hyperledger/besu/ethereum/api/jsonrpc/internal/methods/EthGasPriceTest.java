@@ -215,7 +215,11 @@ public class EthGasPriceTest {
 
     advanceHead(observer.getValue(), blocks.get(1001L));
     verify(blockchain).getBlockBody(blocks.get(1001L).getHash());
-    method.response(requestWithParams());
+    final JsonRpcRequestContext request = requestWithParams();
+    // 9.52 mwei, gas prices are 9.02-10.01 mwei.
+    assertThat(method.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(new JsonRpcSuccessResponse(request.getRequest().getId(), "0x914380"));
     verify(blockchain, times(101)).getBlockBody(any(Hash.class));
 
     advanceHead(observer.getValue(), blocks.get(1002L));
@@ -227,6 +231,51 @@ public class EthGasPriceTest {
     method.response(requestWithParams());
     verify(blockchain).getBlockBody(blocks.get(1003L).getHash());
     verify(blockchain, times(103)).getBlockBody(any(Hash.class));
+  }
+
+  @Test
+  public void forkBlockDoesNotClearTheCallForTheNextHead() {
+    mockBaseFeeMarket();
+    final Map<Long, Block> blocks = mockBlockchain(1001L, 1);
+    method =
+        createEthGasPriceMethod(
+            createDefaultApiConfiguration(), Optional.of(new DeterministicEthScheduler()));
+    final ArgumentCaptor<BlockAddedObserver> observer =
+        ArgumentCaptor.forClass(BlockAddedObserver.class);
+    verify(blockchain).observeBlockAdded(observer.capture());
+    advanceHead(observer.getValue(), blocks.get(1000L));
+    method.response(requestWithParams());
+
+    final Block fork = createFakeBlock(blocks.get(999L).getHash(), 1000L, 2, DEFAULT_BASE_FEE);
+    observer.getValue().onBlockAdded(BlockAddedEvent.createForFork(fork));
+    verify(blockchain, never()).getBlockBody(fork.getHash());
+
+    advanceHead(observer.getValue(), blocks.get(1001L));
+    verify(blockchain).getBlockBody(blocks.get(1001L).getHash());
+  }
+
+  @Test
+  public void headsAddedBeforeThePrecomputeRunsArePrecomputed() {
+    mockBaseFeeMarket();
+    final Map<Long, Block> blocks = mockBlockchain(1002L, 1);
+    final DeterministicEthScheduler scheduler = new DeterministicEthScheduler();
+    scheduler.disableAutoRun();
+    method = createEthGasPriceMethod(createDefaultApiConfiguration(), Optional.of(scheduler));
+    final ArgumentCaptor<BlockAddedObserver> observer =
+        ArgumentCaptor.forClass(BlockAddedObserver.class);
+    verify(blockchain).observeBlockAdded(observer.capture());
+    advanceHead(observer.getValue(), blocks.get(1000L));
+    method.response(requestWithParams());
+
+    advanceHead(observer.getValue(), blocks.get(1001L));
+    advanceHead(observer.getValue(), blocks.get(1002L));
+    scheduler.runPendingFutures();
+
+    verify(blockchain).getBlockBody(blocks.get(1001L).getHash());
+    verify(blockchain).getBlockBody(blocks.get(1002L).getHash());
+    verify(blockchain, times(102)).getBlockBody(any(Hash.class));
+    method.response(requestWithParams());
+    verify(blockchain, times(102)).getBlockBody(any(Hash.class));
   }
 
   @Test

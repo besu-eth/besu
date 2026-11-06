@@ -134,7 +134,31 @@ class FeeOracleWindowTest {
     verify(blockchain, never()).getBlockBody(chain.get(77).getHash());
     verify(blockchain, times(76)).getBlockBody(any(Hash.class));
     verify(blockchain, times(75)).getBlockHeader(any(Hash.class));
-    assertThat(percentiles).isEqualTo(freshWindowAt(chain.get(1101), 1100));
+    // Blocks 2-1101: gas prices 20-11010 and priority fees 2-1101.
+    assertThat(percentiles)
+        .contains(new Percentiles(Optional.of(Wei.of(5520)), Optional.of(Wei.of(552))));
+  }
+
+  @Test
+  void keepsTheNewest1024BlocksOfALargerWindowForTheNextHead() {
+    final List<Block> chain = chain(1102);
+    final FeeOracleWindow window = new FeeOracleWindow(blockchain, 1100, 0.5);
+    window.percentilesAt(chain.get(1100).getHeader());
+    window.percentilesAt(chain.get(1101).getHeader());
+    clearInvocations(blockchain);
+
+    final Optional<Percentiles> percentiles = window.percentilesAt(chain.get(1102).getHeader());
+
+    // The window is blocks 3-1102 and blocks 78-1101 were kept, so 1102 and 3-77 are read.
+    verify(blockchain).getBlockBody(chain.get(1102).getHash());
+    verify(blockchain).getBlockBody(chain.get(3).getHash());
+    verify(blockchain).getBlockBody(chain.get(77).getHash());
+    verify(blockchain, never()).getBlockBody(chain.get(78).getHash());
+    verify(blockchain, times(76)).getBlockBody(any(Hash.class));
+    verify(blockchain, times(75)).getBlockHeader(any(Hash.class));
+    // Blocks 3-1102: gas prices 30-11020 and priority fees 3-1102.
+    assertThat(percentiles)
+        .contains(new Percentiles(Optional.of(Wei.of(5530)), Optional.of(Wei.of(553))));
   }
 
   @Test
@@ -150,7 +174,9 @@ class FeeOracleWindowTest {
     clearInvocations(blockchain);
     final Optional<Percentiles> percentiles = window.percentilesAt(chain.get(201).getHeader());
     verify(blockchain, times(1)).getBlockBody(any(Hash.class));
-    assertThat(percentiles).isEqualTo(freshWindowAt(chain.get(201), 100));
+    // Blocks 102-201: gas prices 1020-2010 and priority fees 102-201.
+    assertThat(percentiles)
+        .contains(new Percentiles(Optional.of(Wei.of(1520)), Optional.of(Wei.of(152))));
   }
 
   @Test
@@ -202,7 +228,29 @@ class FeeOracleWindowTest {
 
     verify(blockchain).getBlockBody(nextBranchHead.getHash());
     verify(blockchain, times(1)).getBlockBody(any(Hash.class));
-    assertThat(percentiles).isEqualTo(freshWindowAt(nextBranchHead, 100));
+    // Blocks 62-150 with gas prices 620-1500 and priority fees 62-150, and branch blocks 151-161
+    // with gas prices 755-805 and priority fees 302-322.
+    assertThat(percentiles)
+        .contains(new Percentiles(Optional.of(Wei.of(1010)), Optional.of(Wei.of(112))));
+  }
+
+  @Test
+  void higherHeadOffTheChainDoesNotReplaceTheChainHeadsWindow() {
+    final List<Block> chain = chain(200);
+    final FeeOracleWindow window = new FeeOracleWindow(blockchain, 100, 0.5);
+    final Block branchHead = block(chain.get(198).getHash(), 199, Wei.of(1), Wei.of(1), 1);
+    final Block nextBranchHead = block(branchHead.getHash(), 200, Wei.of(2), Wei.of(2), 1);
+    chainHeadHash = branchHead.getHash();
+    window.percentilesAt(branchHead.getHeader());
+    // A computation for head 200 of the old branch that finishes after the reorg.
+    window.percentilesAt(chain.get(200).getHeader());
+    chainHeadHash = nextBranchHead.getHash();
+    clearInvocations(blockchain);
+
+    window.percentilesAt(nextBranchHead.getHeader());
+
+    verify(blockchain).getBlockBody(nextBranchHead.getHash());
+    verify(blockchain, times(1)).getBlockBody(any(Hash.class));
   }
 
   @Test
@@ -234,7 +282,7 @@ class FeeOracleWindowTest {
     "0.7, 9223372036854775808",
     "0.9, 18446744073709551616"
   })
-  void feesFromTwoToThe63AreCounted(final double percentile, final BigInteger expected) {
+  void feesFromTwoToThe63AreCounted(final double fraction, final BigInteger expected) {
     final Block head =
         add(
             header(Hash.ZERO, 0, 0),
@@ -246,12 +294,8 @@ class FeeOracleWindowTest {
                 legacy(Wei.of(3)),
                 legacy(Wei.of(Long.MAX_VALUE))));
 
-    assertThat(new FeeOracleWindow(blockchain, 1, percentile).percentilesAt(head.getHeader()))
+    assertThat(new FeeOracleWindow(blockchain, 1, fraction).percentilesAt(head.getHeader()))
         .contains(new Percentiles(Optional.of(Wei.of(expected)), Optional.empty()));
-  }
-
-  private Optional<Percentiles> freshWindowAt(final Block head, final long windowBlocks) {
-    return new FeeOracleWindow(blockchain, windowBlocks, 0.5).percentilesAt(head.getHeader());
   }
 
   // Block n has a legacy transaction with a gas price of 10n and an EIP-1559 transaction with a
