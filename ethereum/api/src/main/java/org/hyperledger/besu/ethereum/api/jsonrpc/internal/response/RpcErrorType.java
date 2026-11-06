@@ -65,6 +65,8 @@ public enum RpcErrorType implements RpcMethodError {
   INVALID_EXECUTION_REQUESTS_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid execution requests params"),
   INVALID_BLOCK_ACCESS_LIST_PARAMS(
       INVALID_PARAMS_ERROR_CODE, "Invalid block access list params (missing or invalid)"),
+  INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS(
+      INVALID_PARAMS_ERROR_CODE, "Invalid inclusion list transactions params"),
   INVALID_SLOT_NUMBER_PARAMS(
       INVALID_PARAMS_ERROR_CODE, "Invalid slot number params (missing or invalid)"),
   INVALID_EXTRA_DATA_PARAMS(INVALID_PARAMS_ERROR_CODE, "Invalid extra data params"),

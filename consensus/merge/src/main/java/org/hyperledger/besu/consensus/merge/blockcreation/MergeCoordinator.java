@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationRes
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.chain.InclusionListStatus;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -745,7 +746,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final InclusionListTransactions inclusionListTransactions,
+      final Optional<InclusionListTransactions> inclusionListTransactions,
       final Executor blockWriter) {
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
     final var chain = protocolContext.getBlockchain();
@@ -759,7 +760,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
-                inclusionListTransactions);
+                inclusionListTransactions.orElse(InclusionListTransactions.EMPTY));
     validationResult
         .getYield()
         .ifPresentOrElse(
@@ -768,6 +769,13 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                     () -> {
                       result.getTrieLogWrite().run();
                       chain.storeBlock(block, result.getReceipts(), result.getBlockAccessList());
+                      inclusionListTransactions.ifPresent(
+                          il ->
+                              chain.putInclusionListStatus(
+                                  block.getHash(),
+                                  new InclusionListStatus(
+                                      il.getChecksum(),
+                                      result.getInclusionListValidationResult().isValid())));
                     }),
             () -> LOG.debug("empty yield in blockProcessingResult"));
     return validationResult;

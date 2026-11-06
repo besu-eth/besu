@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.EXPERIMENTAL_EIPS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.LONDON;
@@ -104,6 +105,9 @@ public class AbstractScheduledApiTest extends TrustedSetupClassLoaderExtension {
     lenient()
         .when(protocolSchedule.milestoneFor(AMSTERDAM))
         .thenReturn(Optional.of(amsterdamHardfork.milestone()));
+    lenient()
+        .when(protocolSchedule.milestoneFor(BOGOTA))
+        .thenReturn(Optional.of(bogotaHardfork.milestone()));
     lenient()
         .when(protocolSchedule.milestoneFor(EXPERIMENTAL_EIPS))
         .thenReturn(Optional.of(experimentalHardfork.milestone()));

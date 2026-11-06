@@ -37,7 +37,7 @@ import org.slf4j.LoggerFactory;
 
 public sealed class EngineNewPayloadV5<
         EP extends ExecutionPayloadV4, NPRP extends NewPayloadRequestParametersV3<? extends EP>>
-    extends EngineNewPayloadV4<EP, NPRP> permits EngineNewPayloadWithWitnessV5 {
+    extends EngineNewPayloadV4<EP, NPRP> permits EngineNewPayloadWithWitnessV5, EngineNewPayloadV6 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadV5.class);
 
@@ -93,9 +93,11 @@ public sealed class EngineNewPayloadV5<
   }
 
   @Override
-  protected BlockProcessingResult rememberBlock(final Block block, final EP executionPayload) {
+  protected BlockProcessingResult rememberBlock(final Block block, final NPRP requestParameters) {
     return mergeCoordinator.rememberBlock(
-        block, Optional.of(executionPayload.getBlockAccessList()), writeAfterReply(block));
+        block,
+        Optional.of(requestParameters.payloadParameter().getBlockAccessList()),
+        writeAfterReply(block));
   }
 
   @Override

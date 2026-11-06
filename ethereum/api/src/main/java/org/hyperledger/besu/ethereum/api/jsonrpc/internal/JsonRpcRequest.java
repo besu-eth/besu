@@ -175,6 +175,14 @@ public class JsonRpcRequest {
     return parameterAccessor.requiredList(params, index, paramClass, configuration);
   }
 
+  public <T> List<T> getRequiredLenientList(
+      final int index,
+      final Class<T> paramClass,
+      final JsonRpcParameter.Configuration configuration)
+      throws JsonRpcParameterException {
+    return parameterAccessor.requiredLenientList(params, index, paramClass, configuration);
+  }
+
   public <T> Optional<List<T>> getOptionalList(final int index, final Class<T> paramClass)
       throws JsonRpcParameterException {
     return parameterAccessor.optionalList(

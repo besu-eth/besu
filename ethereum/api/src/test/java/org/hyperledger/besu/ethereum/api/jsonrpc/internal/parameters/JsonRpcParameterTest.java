@@ -20,8 +20,10 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.Json
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_EMPTY;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcMissingParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +32,7 @@ import java.util.Optional;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 class JsonRpcParameterTest {
@@ -352,5 +355,35 @@ class JsonRpcParameterTest {
     KnownLenient(@JsonProperty("known") final String known) {
       this.known = known;
     }
+  }
+
+  @Test
+  void requiredLenientList_skipsInvalidElementsAndKeepsOrderAndDuplicates() throws Exception {
+    final List<Object> rawList = new ArrayList<>();
+    rawList.add("0x02");
+    rawList.add(null);
+    rawList.add(List.of("not", "a", "string"));
+    rawList.add("0x01");
+    rawList.add("0x02");
+
+    final List<Bytes> result =
+        parameterAccessor.requiredLenientList(new Object[] {rawList}, 0, Bytes.class, DEFAULT);
+
+    assertThat(result)
+        .containsExactly(
+            Bytes.fromHexString("0x02"), Bytes.fromHexString("0x01"), Bytes.fromHexString("0x02"));
+  }
+
+  @Test
+  void requiredLenientList_throws_whenValueAtIndexIsMissingOrNotAList() {
+    assertThatExceptionOfType(JsonRpcMissingParameterException.class)
+        .isThrownBy(
+            () -> parameterAccessor.requiredLenientList(new Object[] {}, 0, Bytes.class, DEFAULT));
+    assertThatExceptionOfType(JsonRpcParameterException.class)
+        .isThrownBy(
+            () ->
+                parameterAccessor.requiredLenientList(
+                    new Object[] {"0x01"}, 0, Bytes.class, DEFAULT))
+        .isNotInstanceOf(JsonRpcMissingParameterException.class);
   }
 }

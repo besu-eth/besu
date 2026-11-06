@@ -144,7 +144,7 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   public BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final InclusionListTransactions inclusionListTransactions,
+      final Optional<InclusionListTransactions> inclusionListTransactions,
       final Executor blockWriter) {
     return mergeCoordinator.rememberBlock(
         block, blockAccessList, inclusionListTransactions, blockWriter);

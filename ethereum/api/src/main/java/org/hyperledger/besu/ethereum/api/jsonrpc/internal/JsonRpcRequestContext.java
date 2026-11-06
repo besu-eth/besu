@@ -103,6 +103,25 @@ public class JsonRpcRequestContext {
     return jsonRpcRequest.getRequiredList(index, listOf, configuration);
   }
 
+  /**
+   * Retrieves a required list parameter, skipping the elements that fail deserialization. See
+   * {@link JsonRpcParameter#requiredLenientList}.
+   *
+   * @param index the index of the parameter
+   * @param elementClass the type of the elements
+   * @param configuration the deserialization configuration of each element
+   * @param <T> the type of the elements
+   * @return the list of the elements that were successfully deserialized, possibly empty
+   * @throws JsonRpcParameterException if the parameter is missing or is not a list
+   */
+  public <T> List<T> getRequiredLenientList(
+      final int index,
+      final Class<T> elementClass,
+      final JsonRpcParameter.Configuration configuration)
+      throws JsonRpcParameterException {
+    return jsonRpcRequest.getRequiredLenientList(index, elementClass, configuration);
+  }
+
   public <T> Optional<List<T>> getOptionalList(final int index, final Class<T> listOf)
       throws JsonRpcParameterException {
     return jsonRpcRequest.getOptionalList(index, listOf, JsonRpcParameter.Configuration.DEFAULT);
