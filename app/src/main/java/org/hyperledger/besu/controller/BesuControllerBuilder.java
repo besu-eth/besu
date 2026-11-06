@@ -75,6 +75,7 @@ import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.ForkchoiceHeadTracker;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -799,8 +800,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             ethPeers,
             new PeerTaskRequestSender(networkingConfiguration.p2pPeerTaskTimeout()),
             metricsSystem);
+    final RequestScheduler requestScheduler = RequestScheduler.create(ethPeers, metricsSystem);
+    closeables.add(requestScheduler::stop);
     final EthContext ethContext =
-        new EthContext(ethPeers, ethMessages, snapMessages, scheduler, peerTaskExecutor);
+        new EthContext(
+            ethPeers, ethMessages, snapMessages, scheduler, peerTaskExecutor, requestScheduler);
 
     protocolContext
         .safeConsensusContext(MergeContext.class)

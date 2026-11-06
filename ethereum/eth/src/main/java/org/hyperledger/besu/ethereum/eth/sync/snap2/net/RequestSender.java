@@ -71,6 +71,14 @@ public interface RequestSender {
   /** Returns the requests the usable peers of a protocol take now, those in flight included. */
   int capacity(Protocol protocol);
 
+  /**
+   * Returns whether a usable peer serves the request, busy or not: a request no peer serves waits
+   * until one connects or its queue timeout passes.
+   */
+  default boolean hasServer(final SyncRequest<?> request) {
+    return true;
+  }
+
   /** Returns the executor for CPU work that follows a response. */
   Executor workers();
 
