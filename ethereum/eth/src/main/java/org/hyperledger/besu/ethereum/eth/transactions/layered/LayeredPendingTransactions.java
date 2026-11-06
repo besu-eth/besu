@@ -47,6 +47,7 @@ import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
 import java.util.ArrayDeque;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -77,6 +78,17 @@ public class LayeredPendingTransactions implements PendingTransactions {
     this.poolConfig = poolConfig;
     this.prioritizedTransactions = prioritizedTransactions;
     this.ethScheduler = ethScheduler;
+  }
+
+  @Override
+  public boolean requiresDelegationLimits() {
+    return true;
+  }
+
+  @Override
+  public synchronized void removeInvalidated(
+      final Collection<PendingTransaction> invalidatedTransactions) {
+    invalidatedTransactions.forEach(ptx -> prioritizedTransactions.remove(ptx, INVALIDATED));
   }
 
   @Override

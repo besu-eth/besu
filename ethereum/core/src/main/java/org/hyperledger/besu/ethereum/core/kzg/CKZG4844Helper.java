@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.core.kzg;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -106,6 +107,7 @@ public class CKZG4844Helper {
    * @return a KZGProof object computed from the Blob and KZG commitment.
    */
   public static KZGProof computeBlobKzgProof(final Blob blob, final KZGCommitment commitment) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     Bytes48 proof =
         Bytes48.wrap(
             CKZG4844JNI.computeBlobKzgProof(
@@ -120,6 +122,7 @@ public class CKZG4844Helper {
    * @return a list of KZGProof objects computed from the Blob.
    */
   public static List<KZGProof> computeBlobKzgProofs(final Blob blob) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     CellsAndProofs cellProofs = CKZG4844JNI.computeCellsAndKzgProofs(blob.getData().toArray());
     return extractKZGProofs(cellProofs.getProofs());
   }
@@ -149,6 +152,7 @@ public class CKZG4844Helper {
    * @return a bundle holding the recovered blob and every cell of it
    */
   private static BlobProofBundle recoverBundle(final BlobProofBundle bundle) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     final CellsWithMask cellsWithMask =
         bundle
             .getCellsWithMask()
@@ -219,6 +223,7 @@ public class CKZG4844Helper {
    * @return a Bytes object containing the computed cells.
    */
   public static Bytes computeCells(final Blob blob) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     return Bytes.wrap(CKZG4844JNI.computeCells(blob.getData().toArrayUnsafe()));
   }
 
@@ -233,6 +238,7 @@ public class CKZG4844Helper {
    * @return true if the KZG proofs are valid, false otherwise.
    */
   public static boolean verify4844Kzg(final BlobsWithCommitments blobsWithCommitments) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     return switch (blobsWithCommitments.getBlobType()) {
       case BlobType.KZG_PROOF ->
           CKZG4844JNI.verifyBlobKzgProofBatch(

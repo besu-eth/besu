@@ -48,9 +48,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.StreamReadConstraints;
 import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.json.jackson.DatabindCodec;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
@@ -1572,6 +1574,42 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
       final RpcErrorType expectedError = RpcErrorType.PARSE_ERROR;
       testHelper.assertValidJsonRpcError(
           json, null, expectedError.getCode(), expectedError.getMessage());
+    }
+  }
+
+  @Test
+  public void tokenDenseRequestUnderTheBodyLimitIsRejectedByTheTokenLimit() throws Exception {
+    // A batch of empty objects is tiny in bytes, so it clears BodyHandler, but every element is
+    // decoded into its own node. Only the shared decoder's token limit, which BesuCommand sets for
+    // every node, stops it before the tree is built.
+    final String req = "[" + String.join(",", Collections.nCopies(500, "{}")) + "]";
+    // the service under test uses the default configuration, see JsonRpcHttpServiceTestBase
+    assertThat((long) req.length())
+        .isLessThan(JsonRpcConfiguration.DEFAULT_MAX_REQUEST_CONTENT_LENGTH);
+
+    final StreamReadConstraints original =
+        DatabindCodec.mapper().getFactory().streamReadConstraints();
+    try {
+      // without a token limit the body is decoded in full and each element is answered
+      try (final Response resp =
+          client.newCall(buildPostRequest(RequestBody.create(req, JSON))).execute()) {
+        assertThat(resp.code()).isEqualTo(200);
+      }
+
+      DatabindCodec.mapper()
+          .getFactory()
+          .setStreamReadConstraints(StreamReadConstraints.builder().maxTokenCount(100).build());
+      try (final Response resp =
+          client.newCall(buildPostRequest(RequestBody.create(req, JSON))).execute()) {
+        assertThat(resp.code()).isEqualTo(400);
+        final JsonObject json = new JsonObject(resp.body().string());
+        final RpcErrorType expectedError = RpcErrorType.PARSE_ERROR;
+        testHelper.assertValidJsonRpcError(
+            json, null, expectedError.getCode(), expectedError.getMessage());
+      }
+    } finally {
+      // the decoder is a global singleton, leave it as it was for other tests
+      DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
     }
   }
 

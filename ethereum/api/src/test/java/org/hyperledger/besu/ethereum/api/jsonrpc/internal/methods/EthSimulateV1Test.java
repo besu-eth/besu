@@ -286,6 +286,56 @@ public class EthSimulateV1Test {
         .isNotInstanceOf(JsonRpcErrorResponse.class);
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"0x1", "0x4"})
+  public void shouldRejectPrecompileMovedToItself(final String address) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    final Address precompile = Address.fromHexString(address);
+    when(precompileContractRegistry.getPrecompileAddresses()).thenReturn(Set.of(precompile));
+
+    final JsonRpcResponse response =
+        method.response(simulateRequestWithMovedPrecompile(precompile, precompile));
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    final var error = ((JsonRpcErrorResponse) response).getError();
+    assertThat(error.getCode()).isEqualTo(-38022);
+    assertThat(error.getMessage())
+        .isEqualTo("MovePrecompileToAddress referenced itself in replacement");
+    verifyNoInteractions(blockSimulator);
+  }
+
+  @Test
+  public void shouldAcceptPrecompileMovedToDifferentAddress() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    final Address precompile = Address.fromHexString("0x4");
+    when(precompileContractRegistry.getPrecompileAddresses()).thenReturn(Set.of(precompile));
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenReturn(List.of());
+
+    assertThat(
+            method.response(
+                simulateRequestWithMovedPrecompile(precompile, Address.fromHexString("0x1234"))))
+        .isNotInstanceOf(JsonRpcErrorResponse.class);
+    verify(blockSimulator).process(any(BlockHeader.class), any(), any(OperationTracer.class));
+  }
+
+  private static JsonRpcRequestContext simulateRequestWithMovedPrecompile(
+      final Address source, final Address target) {
+    return simulateRequest(
+        Map.of(
+            "blockStateCalls",
+            List.of(
+                Map.of(
+                    "stateOverrides",
+                    Map.of(
+                        source.toHexString(),
+                        Map.of("movePrecompileToAddress", target.toHexString())),
+                    "calls",
+                    List.of()))));
+  }
+
   private static JsonRpcRequestContext simulateRequest(final Map<String, Object> simulateParam) {
     return new JsonRpcRequestContext(
         new JsonRpcRequest("2.0", "eth_simulateV1", new Object[] {simulateParam, "latest"}));

@@ -46,7 +46,6 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.time.Clock;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -144,10 +143,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   @Override
   public void evictOldTransactions() {
     final long removeTransactionsBefore =
-        clock
-            .instant()
-            .minus(poolConfig.getPendingTxRetentionPeriod(), ChronoUnit.HOURS)
-            .toEpochMilli();
+        clock.instant().minus(poolConfig.getPendingTxRetentionDuration()).toEpochMilli();
 
     pendingTransactions.values().stream()
         .filter(transaction -> transaction.getAddedAt() < removeTransactionsBefore)

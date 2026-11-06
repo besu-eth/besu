@@ -38,14 +38,14 @@ public abstract class TransactionGasAccounting {
    * Result of the gas accounting calculation.
    *
    * @param effectiveStateGas the state gas dimension
-   * @param gasUsedByTransaction floored 2D gas (max(execution, floor) + state) for
-   *     estimation/receipts
+   * @param totalGasBudget gas limit the transaction needs to execute, before refunds and raised to
+   *     the floor: max(consumed, floor). RPCs use it, block accounting does not.
    * @param usedGas post-refund gas the sender pays
    * @param executionGas the execution gas dimension for block accounting: max(consumed - state,
    *     floor)
    */
   public record GasResult(
-      long effectiveStateGas, long gasUsedByTransaction, long usedGas, long executionGas) {}
+      long effectiveStateGas, long totalGasBudget, long usedGas, long executionGas) {}
 
   /** The transaction gas limit. */
   public abstract long txGasLimit();
@@ -76,8 +76,7 @@ public abstract class TransactionGasAccounting {
   /**
    * Calculate gas accounting for a completed transaction.
    *
-   * @return the gas result containing effectiveStateGas, gasUsedByTransaction, usedGas and
-   *     executionGas
+   * @return the gas result containing effectiveStateGas, totalGasBudget, usedGas and executionGas
    */
   public GasResult calculate() {
     if (executionGasLimitExceeded()) {
@@ -101,8 +100,8 @@ public abstract class TransactionGasAccounting {
     // EIP-8037: the floor binds the execution-gas dimension, and state gas is out of executionGas
     // before the max is taken, so state spending cannot discount the floor.
     final long flooredExecutionGas = Math.max(executionGas, floorCost());
-    final long gasUsedByTransaction = flooredExecutionGas + stateGas;
+    final long totalGasBudget = Math.max(consumedGas, floorCost());
     final long usedGas = txGasLimit() - refundedGas();
-    return new GasResult(stateGas, gasUsedByTransaction, usedGas, flooredExecutionGas);
+    return new GasResult(stateGas, totalGasBudget, usedGas, flooredExecutionGas);
   }
 }

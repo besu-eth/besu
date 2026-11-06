@@ -30,7 +30,9 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.Snap2SyncFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.BackgroundBackfill;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
@@ -42,9 +44,12 @@ import org.hyperledger.besu.plugin.data.SyncStatus;
 
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,12 +66,14 @@ public class DefaultSynchronizerTest {
       mock(SyncTerminationCondition.class);
   private final SnapSyncController snapSyncController = mock(SnapSyncController.class);
   private final BackgroundBackfill backgroundBackfill = mock(BackgroundBackfill.class);
+  private final PivotBlockSelector pivotBlockSelector = mock(PivotBlockSelector.class);
   private SyncState syncState;
 
   private MockedStatic<ChainHeadTracker> chainHeadTracker;
   private MockedStatic<SnapServerChecker> snapServerChecker;
   private MockedStatic<SnapDownloaderFactory> snapDownloaderFactory;
   private MockedStatic<BackgroundBackfill> backgroundBackfills;
+  private MockedStatic<Snap2SyncFactory> snap2SyncFactory;
 
   @BeforeEach
   public void setUp() {
@@ -89,6 +96,7 @@ public class DefaultSynchronizerTest {
                     any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
                     any(), any()))
         .thenReturn(Optional.of(snapSyncController));
+    snap2SyncFactory = mockStatic(Snap2SyncFactory.class);
     backgroundBackfills = mockStatic(BackgroundBackfill.class);
     backgroundBackfills
         .when(() -> BackgroundBackfill.create(any(), any(), any(), any(), any(), any(), any()))
@@ -101,6 +109,7 @@ public class DefaultSynchronizerTest {
     snapServerChecker.close();
     snapDownloaderFactory.close();
     backgroundBackfills.close();
+    snap2SyncFactory.close();
   }
 
   @Test
@@ -202,6 +211,45 @@ public class DefaultSynchronizerTest {
     verify(snapSyncController).awaitStop();
   }
 
+  @Test
+  public void resyncsAfterASnap2SyncWithTheHeadItFollowed() {
+    // the selectors and the hand-overs each SNAP2 sync is created with
+    final List<Object> selectors = new ArrayList<>();
+    final List<Consumer<RequestSender>> handOvers = new ArrayList<>();
+    snap2SyncFactory
+        .when(
+            () ->
+                Snap2SyncFactory.create(
+                    any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                    any()))
+        .thenAnswer(
+            invocation -> {
+              selectors.add(invocation.getArgument(9));
+              handOvers.add(invocation.getArgument(11));
+              return Optional.of(snapSyncController);
+            });
+    when(snapSyncController.start())
+        .thenReturn(
+            CompletableFuture.completedFuture(
+                new SnapSyncProcessState(
+                    new BlockHeaderTestFixture().number(CHAIN_HEAD).buildHeader())));
+    final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+    when(worldStateArchive.isWorldStateAvailable(any(), any())).thenReturn(true);
+    final DefaultSynchronizer synchronizer = createSynchronizer(SyncMode.SNAP2);
+    synchronizer.start();
+
+    synchronizer.resyncWorldState();
+
+    // the head tracker, still subscribed once the first sync ended
+    assertThat(selectors).hasSize(2).containsOnly(pivotBlockSelector);
+    verify(pivotBlockSelector, never()).close();
+    // the back-fill goes on with the scheduler of the sync
+    final RequestSender scheduler = mock(RequestSender.class);
+    handOvers.getLast().accept(scheduler);
+    verify(backgroundBackfill).handOver(scheduler);
+  }
+
   private DefaultSynchronizer createSynchronizer(final SyncMode syncMode) {
     final SynchronizerConfiguration syncConfig = mock(SynchronizerConfiguration.class);
     when(syncConfig.getSyncMode()).thenReturn(syncMode);
@@ -219,7 +267,8 @@ public class DefaultSynchronizerTest {
         Clock.systemUTC(),
         new NoOpMetricsSystem(),
         terminationCondition,
-        mock(PivotBlockSelector.class),
+        pivotBlockSelector,
+        Optional.empty(),
         Optional.empty());
   }
 }

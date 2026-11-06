@@ -213,7 +213,8 @@ public class EthGetStorageValuesTest {
     final JsonRpcErrorResponse response = (JsonRpcErrorResponse) method.response(request);
 
     assertThat(response.getError().getCode()).isEqualTo(-32602);
-    assertThat(response.getError().getData()).isEqualTo("null slot list");
+    assertThat(response.getError().getMessage()).isEqualTo("Invalid params: null slot list");
+    assertThat(response.getError().getData()).isNull();
   }
 
   @Test
