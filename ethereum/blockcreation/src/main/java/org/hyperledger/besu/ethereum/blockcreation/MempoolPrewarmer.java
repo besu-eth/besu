@@ -25,7 +25,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -37,6 +36,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -252,9 +252,9 @@ public class MempoolPrewarmer implements AutoCloseable {
       // stops it
       next = current.resumed(generation.incrementAndGet());
     } else {
-      final long deadline;
+      final long timestamp;
       try {
-        deadline = deadline(head);
+        timestamp = slotTimestamp(head);
       } catch (final RuntimeException e) {
         LOG.debug("Cannot prewarm for head {}", head.toLogString(), e);
         return;
@@ -264,7 +264,7 @@ public class MempoolPrewarmer implements AutoCloseable {
           new Warming(
               generation.incrementAndGet(),
               head,
-              deadline,
+              timestamp,
               gasLimit > Long.MAX_VALUE / gasLimitMultiplier
                   ? Long.MAX_VALUE
                   : gasLimit * gasLimitMultiplier);
@@ -376,15 +376,16 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
-   * A second after the start of the first slot after the head that has not started yet, so that a
-   * head kept through a missed slot is warmed for the slot after it as well.
+   * The timestamp of the first slot after the head that has not started yet, so that a head kept
+   * through a missed slot is warmed for the slot after it.
    */
-  private long deadline(final BlockHeader head) {
-    final long slotMillis =
-        Math.max(1, protocolSchedule.getByBlockHeader(head).getSlotDuration().toMillis());
-    final long headMillis = TimeUnit.SECONDS.toMillis(head.getTimestamp());
-    final long slots = Math.max(1, Math.ceilDiv(clock.millis() - headMillis, slotMillis));
-    return headMillis + slots * slotMillis + DEADLINE_AFTER_SLOT_MILLIS;
+  private long slotTimestamp(final BlockHeader head) {
+    final long slotSeconds =
+        Math.max(1, protocolSchedule.getByBlockHeader(head).getSlotDuration().toSeconds());
+    final long sinceHeadMillis = clock.millis() - TimeUnit.SECONDS.toMillis(head.getTimestamp());
+    final long slots =
+        Math.max(1, Math.ceilDiv(sinceHeadMillis, TimeUnit.SECONDS.toMillis(slotSeconds)));
+    return head.getTimestamp() + slots * slotSeconds;
   }
 
   private void countPrewarmed(final Warming stopped, final Block block) {
@@ -406,7 +407,7 @@ public class MempoolPrewarmer implements AutoCloseable {
     final Passes passes;
     try {
       // until the pool has caught up with the head, it still offers what the head included
-      passes = new Passes(warming, execution(warming.head()), transactionsOf(warming.head()));
+      passes = new Passes(warming, execution(warming), transactionsOf(warming.head()));
     } catch (final RuntimeException e) {
       LOG.debug("Cannot prewarm for head {}", warming.head().toLogString(), e);
       // a later start for the same head tries again
@@ -474,20 +475,13 @@ public class MempoolPrewarmer implements AutoCloseable {
     return false;
   }
 
-  private Execution execution(final BlockHeader head) {
-    final long timestamp =
-        head.getTimestamp() + protocolSchedule.getByBlockHeader(head).getSlotDuration().toSeconds();
-    final ProtocolSpec protocolSpec = protocolSchedule.getForNextBlockHeader(head, timestamp);
+  private Execution execution(final Warming warming) {
+    final BlockHeader head = warming.head();
+    final ProtocolSpec protocolSpec =
+        protocolSchedule.getForNextBlockHeader(head, warming.timestamp());
     final ProcessableBlockHeader header =
-        BlockHeaderBuilder.createPending(
-                protocolSpec,
-                head,
-                miningConfiguration,
-                timestamp,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty())
-            .buildProcessableBlockHeader();
+        TransactionSimulator.simulatePendingBlockHeader(
+            protocolSchedule, miningConfiguration, head, warming.timestamp());
     final Wei blobGasPrice =
         protocolSpec
             .getFeeMarket()
@@ -754,13 +748,13 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
-   * Prewarming for one head. The transactions of a sender that were tried are in {@code attempted},
-   * those that ran in {@code warmed}.
+   * Prewarming for one head, for the slot that starts at {@code timestamp}. The transactions of a
+   * sender that were tried are in {@code attempted}, those that ran in {@code warmed}.
    */
   private record Warming(
       long generation,
       BlockHeader head,
-      long deadline,
+      long timestamp,
       AtomicLong gasBudget,
       AtomicBoolean budgetUsedUp,
       AtomicBoolean building,
@@ -771,11 +765,11 @@ public class MempoolPrewarmer implements AutoCloseable {
       Set<ChangedSlot> preloadedSlots) {
 
     private Warming(
-        final long generation, final BlockHeader head, final long deadline, final long gasBudget) {
+        final long generation, final BlockHeader head, final long timestamp, final long gasBudget) {
       this(
           generation,
           head,
-          deadline,
+          timestamp,
           new AtomicLong(gasBudget),
           new AtomicBoolean(),
           new AtomicBoolean(),
@@ -784,6 +778,13 @@ public class MempoolPrewarmer implements AutoCloseable {
           ConcurrentHashMap.newKeySet(),
           ConcurrentHashMap.newKeySet(),
           ConcurrentHashMap.newKeySet());
+    }
+
+    /**
+     * A second after the slot warmed for starts, as blocks arrive after the start of their slot.
+     */
+    private long deadline() {
+      return TimeUnit.SECONDS.toMillis(timestamp) + DEADLINE_AFTER_SLOT_MILLIS;
     }
 
     /**
@@ -797,7 +798,7 @@ public class MempoolPrewarmer implements AutoCloseable {
       return new Warming(
           generation,
           head,
-          deadline,
+          timestamp,
           gasBudget,
           budgetUsedUp,
           building,
