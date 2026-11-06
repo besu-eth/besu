@@ -554,6 +554,32 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void testCollisionWithAddressDeletedByTransaction() {
+    final Address address = Address.fromHexString("0x1");
+    final BonsaiAccount priorAccountValue = createAccount(address);
+    final BonsaiAccount nextAccountValue = new BonsaiAccount(priorAccountValue, worldState, true);
+    nextAccountValue.setBalance(Wei.MAX_WEI);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, nextAccountValue));
+
+    final Transaction transaction =
+        createTransaction(Address.fromHexString("0x2"), Address.fromHexString("0x3"));
+    // the detector relies on the commit to list the deleted account among the updated ones
+    trxUpdater.deleteAccount(address);
+    trxUpdater.commit();
+
+    boolean hasCollision =
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+
+    assertTrue(hasCollision, "Expected a collision with the address the transaction deleted");
+  }
+
+  @Test
   void testCollisionWithNoModifiedAddress() {
     final Address address = Address.fromHexString("0x1");
     final BonsaiAccount priorAccountValue = createAccount(address);

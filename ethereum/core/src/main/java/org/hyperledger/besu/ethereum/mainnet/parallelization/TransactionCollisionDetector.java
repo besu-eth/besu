@@ -35,7 +35,8 @@ public class TransactionCollisionDetector {
    * balance or code the block changed, or a slot of an account whose slot the block changed or
    * whose storage the block cleared.
    *
-   * @param transaction the transaction that executed speculatively
+   * @param transaction the transaction that executed speculatively, with a result that is not
+   *     invalid
    * @param miningBeneficiary the mining beneficiary of the block
    * @param parallelizedTransactionContext the speculative result with the state it read and wrote
    * @param blockAccumulator the state changes of the earlier transactions of the block
@@ -51,21 +52,14 @@ public class TransactionCollisionDetector {
     if (isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)) {
       return true;
     }
+    // an executed transaction loaded its sender and recipient, and the commit added the accounts
+    // it deleted
     for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
       if (hasCollision(address, transactionAccumulator, blockAccumulator)) {
         return true;
       }
     }
-    for (final Address address : transactionAccumulator.getDeletedAccountAddresses()) {
-      if (hasCollision(address, transactionAccumulator, blockAccumulator)) {
-        return true;
-      }
-    }
-    return hasCollision(transaction.getSender(), transactionAccumulator, blockAccumulator)
-        || transaction
-            .getTo()
-            .filter(to -> hasCollision(to, transactionAccumulator, blockAccumulator))
-            .isPresent();
+    return false;
   }
 
   /**
