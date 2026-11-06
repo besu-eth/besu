@@ -51,6 +51,7 @@ import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
+import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.time.Clock;
@@ -132,6 +133,7 @@ public class MempoolPrewarmer implements AutoCloseable {
   private final Counter usedUpBudgets;
   private final Counter prewarmedBlockTransactions;
   private final Counter missedBlockTransactions;
+  private final OperationTimer poolCopyTimer;
 
   /**
    * Creates a prewarmer.
@@ -225,6 +227,11 @@ public class MempoolPrewarmer implements AutoCloseable {
             "prewarmed");
     this.prewarmedBlockTransactions = blockTransactions.labels("true");
     this.missedBlockTransactions = blockTransactions.labels("false");
+    this.poolCopyTimer =
+        metricsSystem.createTimer(
+            BesuMetricCategory.BLOCK_PROCESSING,
+            "mempool_prewarm_pool_copy_duration_seconds",
+            "Time a prewarming pass takes to copy the pool's candidates and group them by sender");
   }
 
   /**
@@ -511,6 +518,14 @@ public class MempoolPrewarmer implements AutoCloseable {
     if (additions == passes.copiedAdditions && now - passes.copiedAt < POOL_COPY_INTERVAL_MILLIS) {
       return List.of();
     }
+    // copying holds the pool's lock, and a busy pool takes a while to group by sender
+    try (OperationTimer.TimingContext ignored = poolCopyTimer.startTimer()) {
+      return copySendersToWarm(passes, additions, now);
+    }
+  }
+
+  private List<List<Transaction>> copySendersToWarm(
+      final Passes passes, final long additions, final long now) {
     final Warming warming = passes.warming;
     final List<PendingTransaction> candidates = new ArrayList<>();
     // returning no results leaves the pool as it is
