@@ -70,11 +70,19 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "storageNodes", storageNodes);
   }
 
-  public void preLoadAccount(
+  /**
+   * Preloads the path of an account.
+   *
+   * @param worldStateKeyValueStorage the storage to read the trie nodes from
+   * @param worldStateRootHash the root of the account trie
+   * @param account the account
+   * @return completes once the path is preloaded
+   */
+  public CompletableFuture<Void> preLoadAccount(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Hash worldStateRootHash,
       final Address account) {
-    CompletableFuture.runAsync(
+    return CompletableFuture.runAsync(
         () -> cacheAccountNodes(worldStateKeyValueStorage, worldStateRootHash, account),
         VIRTUAL_POOL);
   }
@@ -113,16 +121,17 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
    * @param account the account of the slot
    * @param storageRoot the account's storage root, or null to read the root node from storage
    * @param slotKey the slot
+   * @return completes once the path is preloaded
    */
-  public void preLoadStorageSlot(
+  public CompletableFuture<Void> preLoadStorageSlot(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
       final @Nullable Hash storageRoot,
       final StorageSlotKey slotKey) {
     if (Hash.EMPTY_TRIE_HASH.equals(storageRoot)) {
-      return;
+      return CompletableFuture.completedFuture(null);
     }
-    CompletableFuture.runAsync(
+    return CompletableFuture.runAsync(
         () -> cacheStorageNodes(worldStateKeyValueStorage, account, storageRoot, slotKey),
         VIRTUAL_POOL);
   }

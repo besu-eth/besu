@@ -62,6 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -107,7 +108,6 @@ public class MempoolPrewarmer implements AutoCloseable {
   private static final long DEADLINE_AFTER_SLOT_MILLIS = 1_000;
   // a sender with a long queue would otherwise take the whole budget of a pass
   private static final int MAX_TRANSACTIONS_PER_SENDER = 16;
-  private static final long CLOSE_TIMEOUT_SECONDS = 5;
   private static final TransactionValidationParams VALIDATION_PARAMS =
       TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce();
 
@@ -121,6 +121,7 @@ public class MempoolPrewarmer implements AutoCloseable {
   private final ExecutorService executors;
   private final AtomicLong generation = new AtomicLong();
   private final AtomicLong poolAdditions = new AtomicLong();
+  private final Set<CompletableFuture<Void>> preloads = ConcurrentHashMap.newKeySet();
   private final long poolSubscription;
   @Nullable private volatile Warming warming;
 
@@ -307,8 +308,9 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
-   * Stops prewarming for good and waits up to five seconds for the running pass and executions to
-   * stop, so that none of them reads the chain or the state after its storage is closed.
+   * Stops prewarming for good and waits for the running pass, executions and trie preloads to end,
+   * so that none of them reads the chain or the state after its storage is closed. An execution
+   * that makes no calls runs until its gas runs out, so its gas limit bounds the wait.
    */
   @Override
   public void close() {
@@ -317,14 +319,16 @@ public class MempoolPrewarmer implements AutoCloseable {
     coordinator.shutdownNow();
     executors.shutdown();
     try {
-      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(CLOSE_TIMEOUT_SECONDS);
-      if (!coordinator.awaitTermination(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-          || !executors.awaitTermination(deadline - System.nanoTime(), TimeUnit.NANOSECONDS)) {
-        LOG.debug("Prewarming still running after {} s", CLOSE_TIMEOUT_SECONDS);
-      }
+      coordinator.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+      executors.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
+      return;
     }
+    // only the executions start preloads, and they have all ended
+    CompletableFuture.allOf(preloads.toArray(CompletableFuture[]::new))
+        .exceptionally(e -> null)
+        .join();
   }
 
   @VisibleForTesting
@@ -639,8 +643,12 @@ public class MempoolPrewarmer implements AutoCloseable {
                       if (!slot.isUnchanged()) {
                         changedAccounts.add(address);
                         if (warming.preloadedSlots().add(new ChangedSlot(address, slotKey))) {
-                          loader.preLoadStorageSlot(
-                              storage, address, accumulator.startingStorageRoot(address), slotKey);
+                          track(
+                              loader.preLoadStorageSlot(
+                                  storage,
+                                  address,
+                                  accumulator.startingStorageRoot(address),
+                                  slotKey));
                         }
                       }
                     }));
@@ -654,9 +662,15 @@ public class MempoolPrewarmer implements AutoCloseable {
             });
     for (final Address address : changedAccounts) {
       if (warming.preloadedAccounts().add(address)) {
-        loader.preLoadAccount(storage, warming.head().getStateRoot(), address);
+        track(loader.preLoadAccount(storage, warming.head().getStateRoot(), address));
       }
     }
+  }
+
+  /** Keeps a preload until it ends, so that closing can wait for it. */
+  private void track(final CompletableFuture<Void> preload) {
+    preloads.add(preload);
+    preload.whenComplete((result, error) -> preloads.remove(preload));
   }
 
   private record Execution(
