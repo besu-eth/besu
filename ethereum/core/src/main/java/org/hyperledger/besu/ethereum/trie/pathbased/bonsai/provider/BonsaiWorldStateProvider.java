@@ -122,28 +122,52 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
   }
 
   /**
-   * Rolls the world state back to the chain head when it is at a block that was never stored, as a
-   * node stopped between persisting the world state at a block and storing the block leaves it.
+   * Rolls the world state back to its parent when it is at a block that was never stored, as a node
+   * stopped between persisting the world state at a block and storing the block leaves it.
    *
-   * @return the chain head, if the world state is now at it
+   * @return the parent, if the world state is now at it
    */
   private Optional<BlockHeader> rollBackUnstoredBlock(final BonsaiWorldState headWorldState) {
     final Hash unstoredBlockHash = headWorldState.getWorldStateBlockHash();
-    // without a trie log, as during snap sync, there is nothing to roll back
-    if (worldStateKeyValueStorage.getTrieLog(unstoredBlockHash).isEmpty()) {
+    // a failure must not stop Besu from starting, debug_resyncWorldState needs it running
+    try {
+      // without a trie log, as during snap sync, there is nothing to roll back
+      if (worldStateKeyValueStorage.getTrieLog(unstoredBlockHash).isEmpty()) {
+        return Optional.empty();
+      }
+      // only the block number is known, a parent that is not canonical is left to block import,
+      // which rolls back to it when it imports the block again
+      final Optional<BlockHeader> parent =
+          worldStateKeyValueStorage
+              .getWorldStateBlockNumber()
+              .flatMap(number -> blockchain.getBlockHeader(number - 1))
+              .map(BlockHeader.class::cast);
+      if (parent.isEmpty()
+          || rollFullWorldStateToBlockHash(headWorldState, parent.get().getBlockHash(), Level.DEBUG)
+              .isEmpty()) {
+        warnUnstoredBlockNotRolledBack(unstoredBlockHash, null);
+        return Optional.empty();
+      }
+      LOG.info(
+          "Rolled the world state back from block {}, which was not stored, to its parent {} ({})",
+          unstoredBlockHash,
+          parent.get().getNumber(),
+          parent.get().getBlockHash());
+      return parent;
+    } catch (final RuntimeException e) {
+      warnUnstoredBlockNotRolledBack(unstoredBlockHash, e);
       return Optional.empty();
     }
-    final BlockHeader chainHead = blockchain.getChainHeadHeader();
-    return rollFullWorldStateToBlockHash(headWorldState, chainHead.getBlockHash(), Level.WARN)
-        .map(
-            rolled -> {
-              LOG.info(
-                  "Rolled the world state back from block {}, which was not stored, to the chain head {} ({})",
-                  unstoredBlockHash,
-                  chainHead.getNumber(),
-                  chainHead.getBlockHash());
-              return chainHead;
-            });
+  }
+
+  private static void warnUnstoredBlockNotRolledBack(
+      final Hash unstoredBlockHash, final RuntimeException cause) {
+    LOG.atWarn()
+        .setMessage(
+            "Unable to roll the world state back from block {}, which was not stored, to its parent. If block import does not resume, call debug_resyncWorldState to repair the world state")
+        .addArgument(unstoredBlockHash)
+        .setCause(cause)
+        .log();
   }
 
   @Override

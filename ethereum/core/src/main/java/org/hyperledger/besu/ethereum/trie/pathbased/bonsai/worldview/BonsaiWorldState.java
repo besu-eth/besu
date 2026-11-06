@@ -149,9 +149,12 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   @Override
-  public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
+  protected void persist(
+      final BlockHeader blockHeader,
+      final StateRootCommitter committer,
+      final boolean saveTrieLog) {
     frontierRootHashTracker.reset();
-    super.persist(blockHeader, committer);
+    super.persist(blockHeader, committer, saveTrieLog);
   }
 
   @Override

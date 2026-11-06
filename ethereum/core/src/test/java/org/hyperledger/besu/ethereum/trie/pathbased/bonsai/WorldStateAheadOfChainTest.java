@@ -35,11 +35,12 @@ import org.junit.jupiter.api.Test;
 
 /**
  * A node stopped after persisting the head world state at a block, but before storing that block,
- * restarts with the world state one block ahead of the chain head.
+ * restarts with the world state at a block that is not stored.
  */
 public class WorldStateAheadOfChainTest extends AbstractIsolationTests {
 
   private final Address recipient = Address.fromHexString("0xdeadbeef");
+  private final Address otherRecipient = Address.fromHexString("0xfeedface");
   private BonsaiWorldStateKeyValueStorage storage;
   private BlockHeader genesisHeader;
   private BlockHeader chainHead;
@@ -74,8 +75,8 @@ public class WorldStateAheadOfChainTest extends AbstractIsolationTests {
   @Test
   public void restartedNodeImportsTheUnstoredBlock() {
     final BonsaiWorldStateProvider restarted = createArchive();
-    new TrieLogPruner(storage, blockchain, Runnable::run, 512, 100, false, new NoOpMetricsSystem())
-        .initialize();
+    newTrieLogPruner().initialize();
+    assertThat(storage.getTrieLog(unstoredBlock.getHash())).isEmpty();
 
     final MutableWorldState chainHeadWorldState =
         restarted.getWorldState(withBlockHeaderAndUpdateNodeHead(chainHead)).orElseThrow();
@@ -91,5 +92,91 @@ public class WorldStateAheadOfChainTest extends AbstractIsolationTests {
 
     assertThat(genesisWorldState).isPresent();
     assertThat(genesisWorldState.get().rootHash()).isEqualTo(genesisHeader.getStateRoot());
+  }
+
+  @Test
+  public void restartRollsBackToAParentBelowTheChainHead() {
+    final Block forkBlock =
+        forTransactions(List.of(burnTransaction(sender1, 0L, otherRecipient)), genesisHeader);
+    final MutableWorldState genesisWorldState =
+        createArchive()
+            .getWorldState(withBlockHeaderAndUpdateNodeHead(genesisHeader))
+            .orElseThrow();
+    assertThat(processBlock(genesisWorldState, forkBlock).isSuccessful()).isTrue();
+    assertThat(storage.getWorldStateBlockHash()).contains(forkBlock.getHash());
+
+    final BonsaiWorldStateProvider restarted = createArchive();
+
+    assertThat(storage.getWorldStateBlockHash()).contains(genesisHeader.getHash());
+    assertThat(restarted.getWorldState().rootHash()).isEqualTo(genesisHeader.getStateRoot());
+    assertThat(restarted.getWorldState(withBlockHeaderAndUpdateNodeHead(chainHead))).isPresent();
+  }
+
+  @Test
+  public void keepsTheTrieLogForBlockImportWhenTheParentIsNotCanonical() {
+    final BonsaiWorldStateProvider running = createArchive();
+    final Block sideBlock =
+        forTransactions(List.of(burnTransaction(sender1, 0L, otherRecipient)), genesisHeader);
+    final MutableWorldState genesisWorldState =
+        running.getWorldState(withBlockHeaderAndUpdateNodeHead(genesisHeader)).orElseThrow();
+    assertThat(executeBlock(genesisWorldState, sideBlock).isSuccessful()).isTrue();
+    assertThat(blockchain.getChainHeadHeader()).isEqualTo(chainHead);
+    final Block childOfSideBlock =
+        forTransactions(
+            List.of(burnTransaction(sender1, 1L, otherRecipient)), sideBlock.getHeader());
+    assertThat(processBlock(running.getWorldState(), childOfSideBlock).isSuccessful()).isTrue();
+
+    final BonsaiWorldStateProvider restarted = createArchive();
+    newTrieLogPruner().initialize();
+
+    assertThat(storage.getWorldStateBlockHash()).contains(childOfSideBlock.getHash());
+    assertThat(storage.getTrieLog(childOfSideBlock.getHash())).isPresent();
+    final MutableWorldState sideBlockWorldState =
+        restarted
+            .getWorldState(withBlockHeaderAndUpdateNodeHead(sideBlock.getHeader()))
+            .orElseThrow();
+    assertThat(executeBlock(sideBlockWorldState, childOfSideBlock).isSuccessful()).isTrue();
+  }
+
+  @Test
+  public void rollsBackToAParentWithoutATrieLogWithoutStoringOne() {
+    // the pivot block of a snap sync has no trie log
+    storage.pruneTrieLog(chainHead.getHash());
+
+    createArchive();
+
+    assertThat(storage.getWorldStateBlockHash()).contains(chainHead.getHash());
+    assertThat(storage.getTrieLog(chainHead.getHash())).isEmpty();
+  }
+
+  @Test
+  public void keepsTheWorldStateWhenItsTrieLogIsMissing() {
+    storage.pruneTrieLog(unstoredBlock.getHash());
+
+    final BonsaiWorldStateProvider restarted = createArchive();
+
+    assertThat(storage.getWorldStateBlockHash()).contains(unstoredBlock.getHash());
+    assertThat(restarted.getWorldState().rootHash())
+        .isEqualTo(unstoredBlock.getHeader().getStateRoot());
+  }
+
+  @Test
+  public void startsWhenRollingBackFails() {
+    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
+    updater
+        .getTrieLogStorageTransaction()
+        .put(unstoredBlock.getHash().getBytes().toArrayUnsafe(), new byte[] {1});
+    updater.commitTrieLogOnly();
+
+    final BonsaiWorldStateProvider restarted = createArchive();
+
+    assertThat(storage.getWorldStateBlockHash()).contains(unstoredBlock.getHash());
+    assertThat(restarted.getWorldState().rootHash())
+        .isEqualTo(unstoredBlock.getHeader().getStateRoot());
+  }
+
+  private TrieLogPruner newTrieLogPruner() {
+    return new TrieLogPruner(
+        storage, blockchain, Runnable::run, 512, 100, false, new NoOpMetricsSystem());
   }
 }
