@@ -63,6 +63,7 @@ import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.tuweni.bytes.Bytes;
@@ -158,6 +159,10 @@ public class BlockchainReferenceTestCaseSpec {
 
   public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
     return specConfig != null ? specConfig.getBlobScheduleOptions() : Optional.empty();
+  }
+
+  public List<Address> getZeroNonceStorageAccounts() {
+    return specConfig != null ? specConfig.getZeroNonceStorageAccounts() : List.of();
   }
 
   public CandidateBlock[] getCandidateBlocks() {
@@ -389,10 +394,13 @@ public class BlockchainReferenceTestCaseSpec {
   @JsonIgnoreProperties(ignoreUnknown = true)
   public static class SpecConfig {
     private final Optional<BlobScheduleOptions> blobScheduleOptions;
+    private final List<Address> zeroNonceStorageAccounts;
 
     @JsonCreator
     public SpecConfig(
-        @JsonProperty("blobSchedule") final Map<String, Map<String, String>> blobSchedule) {
+        @JsonProperty("blobSchedule") final Map<String, Map<String, String>> blobSchedule,
+        @JsonProperty("zeroNonceStorageAccounts") final JsonNode zeroNonceStorageAccounts) {
+      this.zeroNonceStorageAccounts = parseZeroNonceStorageAccounts(zeroNonceStorageAccounts);
       if (blobSchedule == null || blobSchedule.isEmpty()) {
         this.blobScheduleOptions = Optional.empty();
       } else {
@@ -411,6 +419,36 @@ public class BlockchainReferenceTestCaseSpec {
 
     public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
       return blobScheduleOptions;
+    }
+
+    public List<Address> getZeroNonceStorageAccounts() {
+      return zeroNonceStorageAccounts;
+    }
+
+    /**
+     * Parses a fixture's {@code config.zeroNonceStorageAccounts}, the EIP-8253 account list. Shared
+     * by the blockchain and engine fixture specs so the two formats accept the same input.
+     *
+     * @param accounts the JSON value of the key, or null when the key is absent
+     * @return the listed accounts in fixture order, or an empty list when the key is absent or null
+     * @throws IllegalArgumentException if the value is not an array or an entry is not a string
+     */
+    static List<Address> parseZeroNonceStorageAccounts(final JsonNode accounts) {
+      if (accounts == null || accounts.isNull()) {
+        return List.of();
+      }
+      if (!accounts.isArray()) {
+        throw new IllegalArgumentException("zeroNonceStorageAccounts is not an array: " + accounts);
+      }
+      return accounts.valueStream().map(SpecConfig::parseZeroNonceStorageAccount).toList();
+    }
+
+    private static Address parseZeroNonceStorageAccount(final JsonNode account) {
+      if (!account.isTextual()) {
+        throw new IllegalArgumentException(
+            "zeroNonceStorageAccounts contains a non-string entry " + account);
+      }
+      return Address.fromHexString(account.asText());
     }
   }
 }

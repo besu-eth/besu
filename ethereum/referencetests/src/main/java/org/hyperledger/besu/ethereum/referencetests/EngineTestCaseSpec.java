@@ -146,6 +146,17 @@ public class EngineTestCaseSpec {
   }
 
   /**
+   * Reads the EIP-8253 accounts from the fixture's {@code config.zeroNonceStorageAccounts}.
+   *
+   * @return the listed accounts in fixture order, or an empty list when the fixture lists none
+   * @throws IllegalArgumentException if the value is not an array or an entry is not a string
+   */
+  public List<Address> getZeroNonceStorageAccounts() {
+    return BlockchainReferenceTestCaseSpec.SpecConfig.parseZeroNonceStorageAccounts(
+        config == null ? null : config.get("zeroNonceStorageAccounts"));
+  }
+
+  /**
    * Reads one blob schedule parameter, which fixtures encode either as a JSON number or as a hex
    * string. Overflow throws rather than truncating, matching {@code
    * BlockchainReferenceTestCaseSpec.SpecConfig}: a silently wrapped value would build a blob

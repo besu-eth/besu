@@ -431,14 +431,17 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     }
 
     // Build chain and protocol context. The fixture's own config.blobSchedule is passed through,
-    // because a devnet sets blob target and max to values Besu's defaults do not carry; schedules
-    // are cached per distinct blob schedule rather than rebuilt per test.
+    // because a devnet sets blob target and max to values Besu's defaults do not carry. Its
+    // EIP-8253 account list is passed through too, because each EIP-8253 fixture names its own
+    // accounts to bump. Schedules are cached per distinct config rather than rebuilt per test.
     final MutableBlockchain blockchain = spec.buildBlockchain();
     final ProtocolSchedule schedule;
     try {
       schedule =
           ReferenceTestProtocolSchedules.cached(
-                  parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                  parentCommand.getEvmConfiguration(),
+                  spec.getBlobScheduleOptions().orElse(null),
+                  spec.getZeroNonceStorageAccounts())
               .getByName(spec.getNetwork());
     } catch (final RuntimeException e) {
       recordResult(
