@@ -308,7 +308,20 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         final List<TrieLog> rollBacks = new ArrayList<>();
         final List<TrieLog> rollForwards = new ArrayList<>();
         if (maybePersistedHeader.isEmpty()) {
-          trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
+          final Optional<TrieLog> persistedTrieLog =
+              trieLogManager.getTrieLogLayer(mutableState.blockHash());
+          if (persistedTrieLog.isEmpty()) {
+            // nothing to roll back with, the state would stay at the persisted block
+            LOG.atLevel(rollingFailureLogLevel)
+                .setMessage(
+                    "State rolling failed on {} for block hash {}: the world state is at block {}, which has neither a header nor a trie log")
+                .addArgument(mutableState.getWorldStateStorage().getClass().getSimpleName())
+                .addArgument(blockHash)
+                .addArgument(mutableState.blockHash())
+                .log();
+            return Optional.empty();
+          }
+          rollBacks.add(persistedTrieLog.get());
         } else {
           BlockHeader targetHeader = headerOrThrow(blockHash);
           BlockHeader persistedHeader = maybePersistedHeader.get();
