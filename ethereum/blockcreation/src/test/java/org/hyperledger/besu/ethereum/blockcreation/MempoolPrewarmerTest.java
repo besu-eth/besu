@@ -485,6 +485,46 @@ class MempoolPrewarmerTest {
   }
 
   @Test
+  void executesWithTheTimestampOfTheSlotAfterAMissedOne() throws IOException {
+    final long headTimestamp = head().getTimestamp();
+    final long slotSeconds =
+        fixture.getProtocolSchedule().getByBlockHeader(head()).getSlotDuration().toSeconds();
+    // halfway through the slot after the head, which missed its block
+    now.set(
+        TimeUnit.SECONDS.toMillis(headTimestamp) + TimeUnit.SECONDS.toMillis(slotSeconds) * 3 / 2);
+    // writes a slot only when TIMESTAMP is the start of the slot after the missed one
+    final Address clockCheck = Address.fromHexString("0x00000000000000000000000000000000000000cc");
+    final String code =
+        String.format("0x4267%016x14600f57005b6001600055" + "00", headTimestamp + 2 * slotSeconds);
+    useGenesis(
+        GenesisConfig.fromConfig(
+            devGenesis()
+                .replace(
+                    "\"alloc\": {",
+                    "\"alloc\": {\""
+                        + clockCheck.toHexString()
+                        + "\": {\"balance\": \"0x0\", \"code\": \""
+                        + code
+                        + "\"},")),
+        4);
+    addCandidate(
+        new TransactionTestFixture()
+            .type(TransactionType.EIP1559)
+            .nonce(0)
+            .to(Optional.of(clockCheck))
+            .gasLimit(100_000)
+            .maxFeePerGas(Optional.of(Wei.of(1_000_000_000_000L)))
+            .maxPriorityFeePerGas(Optional.of(Wei.ONE))
+            .createTransaction(SENDER));
+
+    prewarmer.start(head());
+
+    awaitExecuted(1);
+    // the slot write costs more than 20,000 gas
+    assertThat(executedGas()).isGreaterThan(40_000);
+  }
+
+  @Test
   void stopsATransactionHalfwayOnceStopped() throws IOException {
     // calls the identity precompile in an endless loop
     final Address loop = Address.fromHexString("0x00000000000000000000000000000000000000bb");
