@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
@@ -48,6 +49,8 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
@@ -65,6 +68,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -457,7 +461,7 @@ class MempoolPrewarmerTest {
 
     prewarmer.stop(Optional.empty());
 
-    // closing waits up to five seconds for the executions
+    // closing waits for the executions
     final long closing = System.nanoTime();
     prewarmer.close();
     assertThat(Duration.ofNanos(System.nanoTime() - closing)).isLessThan(Duration.ofSeconds(3));
@@ -528,6 +532,33 @@ class MempoolPrewarmerTest {
     prewarmer.close();
 
     assertThat(copied).isTrue();
+  }
+
+  @Test
+  void closingWaitsForTheTriePreloads() {
+    final CompletableFuture<Void> preload = new CompletableFuture<>();
+    final BonsaiCachedMerkleTrieLoader loader = mock(BonsaiCachedMerkleTrieLoader.class);
+    when(loader.preLoadAccount(any(), any(), any())).thenReturn(preload);
+    when(loader.preLoadStorageSlot(any(), any(), any(), any())).thenReturn(preload);
+    final BonsaiWorldStateProvider archive =
+        spy((BonsaiWorldStateProvider) fixture.getStateArchive());
+    doReturn(loader).when(archive).getCachedMerkleTrieLoader();
+    final ProtocolContext protocolContext = spy(fixture.getProtocolContext());
+    when(protocolContext.getWorldStateArchive()).thenReturn(archive);
+    usePrewarmerOn(protocolContext);
+    addCandidate(transfer(0));
+    prewarmer.start(head());
+    verify(loader, timeout(10_000).atLeastOnce()).preLoadAccount(any(), any(), any());
+
+    final CompletableFuture<Void> closed = CompletableFuture.runAsync(prewarmer::close);
+
+    // longer than closing takes when nothing runs
+    Awaitility.await()
+        .during(Duration.ofMillis(500))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> !closed.isDone());
+    preload.complete(null);
+    Awaitility.await().atMost(Duration.ofSeconds(10)).until(closed::isDone);
   }
 
   @Test
