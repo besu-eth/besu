@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationProvider;
@@ -481,6 +482,15 @@ public class BesuNodeConfigurationBuilder {
             .discoveryConfiguration(DiscoveryConfiguration.create())
             .build();
 
+    // ThreadBesuNodeRunner builds the node from dataStorageConfiguration only, so
+    // the standalone revertReasonEnabled flag must be merged into it there;
+    // ProcessBesuNodeRunner also passes it through the CLI flag.
+    final DataStorageConfiguration effectiveStorageConfiguration =
+        ImmutableDataStorageConfiguration.builder()
+            .from(dataStorageConfiguration)
+            .revertReasonEnabled(revertReasonEnabled)
+            .build();
+
     return new BesuNodeConfiguration(
         name,
         dataPath,
@@ -494,7 +504,7 @@ public class BesuNodeConfigurationBuilder {
         metricsConfiguration,
         permissioningConfiguration,
         apiConfiguration,
-        dataStorageConfiguration,
+        effectiveStorageConfiguration,
         Optional.ofNullable(keyFilePath),
         devMode,
         network,
