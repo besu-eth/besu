@@ -26,11 +26,16 @@ public class DevP2PUtils {
 
   public static PooledTransactionsMessage createPooledTransactionsMessage(
       final List<Transaction> transactions) {
+    return createPooledTransactionsMessage(transactions, EncodingContext.POOLED_TRANSACTION);
+  }
+
+  public static PooledTransactionsMessage createPooledTransactionsMessage(
+      final List<Transaction> transactions, final EncodingContext encodingContext) {
     final BytesValueRLPOutput out = new BytesValueRLPOutput();
     out.writeList(
         transactions,
         (transaction, rlpOutput) -> {
-          TransactionEncoder.encodeRLP(transaction, rlpOutput, EncodingContext.POOLED_TRANSACTION);
+          TransactionEncoder.encodeRLP(transaction, rlpOutput, encodingContext);
         });
     return PooledTransactionsMessage.createUnsafe(out.encoded());
   }

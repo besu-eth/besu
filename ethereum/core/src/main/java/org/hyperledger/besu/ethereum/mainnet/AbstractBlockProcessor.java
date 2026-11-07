@@ -505,6 +505,20 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       LOG.trace("traceEndBlock for {}", blockHeader.getNumber());
       blockTracer.traceEndBlock(blockHeader, blockBody);
 
+      // EIP-8037: gas_metered = max(cumulative_execution, cumulative_state)
+      final long gasMetered = Math.max(cumulativeExecutionGasUsed, cumulativeStateGasUsed);
+
+      // persisting moves a head world state onto the block, so a mismatch must be caught first
+      final Optional<BlockExecutionContext.OutputValidator> outputValidator =
+          context.getOutputValidator();
+      if (outputValidator.isPresent() && !outputValidator.get().validate(receipts, gasMetered)) {
+        if (worldState instanceof BonsaiWorldState) {
+          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+        }
+        return new BlockProcessingResult(
+            Optional.empty(), "failed to validate output of imported block");
+      }
+
       try {
         worldState.persist(blockHeader, stateRootCommitter);
       } catch (MerkleTrieException e) {
@@ -520,9 +534,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         LOG.error("failed persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
       }
-
-      // EIP-8037: gas_metered = max(cumulative_execution, cumulative_state)
-      final long gasMetered = Math.max(cumulativeExecutionGasUsed, cumulativeStateGasUsed);
 
       return new BlockProcessingResult(
           Optional.of(

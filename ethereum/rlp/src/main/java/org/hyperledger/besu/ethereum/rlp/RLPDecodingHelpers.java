@@ -15,7 +15,8 @@
 package org.hyperledger.besu.ethereum.rlp;
 
 import java.util.function.IntUnaryOperator;
-import java.util.function.LongUnaryOperator;
+
+import org.apache.tuweni.bytes.Bytes;
 
 /**
  * Helper static methods to facilitate RLP decoding <b>within this package</b>. Neither this class
@@ -66,7 +67,7 @@ class RLPDecodingHelpers {
 
   /** Read from the provided offset a size of the provided length, assuming this is enough bytes. */
   private static int extractSizeFromLongItem(
-      final LongUnaryOperator getter, final long offset, final int sizeLength) {
+      final Bytes bytes, final long offset, final int sizeLength) {
     if (sizeLength > 4) {
       throw new RLPException(
           "RLP item at offset "
@@ -80,7 +81,7 @@ class RLPDecodingHelpers {
     long res = 0;
     int shift = 0;
     for (int i = 0; i < sizeLength; i++) {
-      res |= (getter.applyAsLong(offset + (sizeLength - 1) - i) & 0xFF) << shift;
+      res |= (bytes.get((int) (offset + (sizeLength - 1) - i)) & 0xFFL) << shift;
       shift += 8;
     }
     try {
@@ -98,8 +99,8 @@ class RLPDecodingHelpers {
   }
 
   static RLPElementMetadata rlpElementMetadata(
-      final LongUnaryOperator byteGetter, final long size, final long elementStart) {
-    final int prefix = Math.toIntExact(byteGetter.applyAsLong(elementStart)) & 0xFF;
+      final Bytes bytes, final long size, final long elementStart) {
+    final int prefix = bytes.get((int) elementStart) & 0xFF;
     final Kind kind = Kind.of(prefix);
 
     final long payloadStart;
@@ -117,7 +118,7 @@ class RLPDecodingHelpers {
       case LONG_ELEMENT -> {
         final int sizeLength = prefix - 0xb7;
         payloadStart = elementStart + 1 + sizeLength;
-        payloadSize = readLongSize(byteGetter, size, elementStart, sizeLength);
+        payloadSize = readLongSize(bytes, size, elementStart, sizeLength);
       }
       case SHORT_LIST -> {
         payloadStart = elementStart + 1;
@@ -126,7 +127,7 @@ class RLPDecodingHelpers {
       case LONG_LIST -> {
         final int sizeLength = prefix - 0xf7;
         payloadStart = elementStart + 1 + sizeLength;
-        payloadSize = readLongSize(byteGetter, size, elementStart, sizeLength);
+        payloadSize = readLongSize(bytes, size, elementStart, sizeLength);
       }
       default -> throw new IllegalStateException("Unexpected RLP kind: " + kind);
     }
@@ -136,7 +137,7 @@ class RLPDecodingHelpers {
 
   /** The size of the item payload for a "long" item, given the length in bytes of the said size. */
   private static int readLongSize(
-      final LongUnaryOperator byteGetter,
+      final Bytes bytes,
       final long sizeOfRlpEncodedByteString,
       final long item,
       final int sizeLength) {
@@ -151,11 +152,11 @@ class RLPDecodingHelpers {
     }
 
     // That size (which is at least 1 byte by construction) shouldn't have leading zeros.
-    if (byteGetter.applyAsLong(item + 1) == 0) {
+    if (bytes.get((int) (item + 1)) == 0) {
       throw new MalformedRLPInputException("Malformed RLP item: size of payload has leading zeros");
     }
 
-    final int res = RLPDecodingHelpers.extractSizeFromLongItem(byteGetter, item + 1, sizeLength);
+    final int res = RLPDecodingHelpers.extractSizeFromLongItem(bytes, item + 1, sizeLength);
 
     // We should not have had the size written separately if it was less than 56 bytes long.
     if (res < 56) {
