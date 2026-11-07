@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -59,8 +60,10 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -73,7 +76,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -827,6 +833,428 @@ class OptimisticTransactionProcessorUnitTest {
       assertNotNull(
           env.worldState().updater().get(MINING_BENEFICIARY),
           "pre-EIP-158 the zero-tip fee recipient is still created, matching the serial path");
+    }
+  }
+
+  @Nested
+  @DisplayName("Same-sender chains and serial loop progress")
+  @MockitoSettings(strictness = Strictness.LENIENT) // skipped workers never touch the env
+  class ChainAndProgressTests {
+
+    private final Address sender = Address.fromHexString("0xabc");
+
+    private Transaction mockTransactionFrom(final Address from) {
+      final Transaction transaction = mockTransaction();
+      when(transaction.getSenderIfKnown()).thenReturn(Optional.of(from));
+      return transaction;
+    }
+
+    /** A transaction the pool did not know, whose sender is known once it was recovered. */
+    private Transaction mockTransactionOfUnknownSender(final Address recovered) {
+      final Transaction transaction = mockTransaction();
+      when(transaction.getSenderIfKnown())
+          .thenReturn(Optional.empty())
+          .thenReturn(Optional.of(recovered));
+      return transaction;
+    }
+
+    private void runBlock(final List<Transaction> transactions, final Executor executor) {
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          transactions,
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          executor,
+          Optional.empty(),
+          env.maybeParentHeader());
+    }
+
+    @Test
+    @DisplayName("Transactions of one sender run in order on a single task")
+    void sameSenderTransactionsRunInOrderOnOneTask() {
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction other = mockTransactionFrom(Address.fromHexString("0xdef"));
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, other, tx2), tasks::add);
+
+      assertThat(tasks).hasSize(2);
+      tasks.forEach(Runnable::run);
+
+      final InOrder inOrder = Mockito.inOrder(transactionProcessor);
+      inOrder
+          .verify(transactionProcessor)
+          .processTransaction(any(), any(), eq(tx1), any(), any(), any(), any(), any(), any());
+      inOrder
+          .verify(transactionProcessor)
+          .processTransaction(any(), any(), eq(tx2), any(), any(), any(), any(), any(), any());
+      assertThat(processor.futures[0]).isDone();
+      assertThat(processor.futures[2]).isDone();
+      assertNotNull(processor.futures[0].resultNow());
+      assertNotNull(processor.futures[2].resultNow());
+    }
+
+    @Test
+    @DisplayName("A chain member whose run failed with an error is executed sequentially")
+    void failedChainMemberIsExecutedSequentially() {
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction tx3 = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+      when(transactionProcessor.processTransaction(
+              any(), any(), eq(tx2), any(), any(), any(), any(), any(), any()))
+          .thenThrow(new StackOverflowError());
+
+      runBlock(List.of(tx1, tx2, tx3), sameThreadExecutor);
+
+      assertNotNull(processor.futures[0].resultNow());
+      assertThat(processor.futures[1]).isCompletedExceptionally();
+      assertThat(processor.futures[2]).isDone();
+      assertNull(processor.futures[2].resultNow(), "the member after it lacks its state");
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx3), any(), any(), any(), any(), any(), any());
+      assertThat(
+              processor.getProcessingResult(
+                  env.worldState(), MINING_BENEFICIARY, tx2, 1, Optional.empty(), Optional.empty()))
+          .isEmpty();
+    }
+
+    @Test
+    @DisplayName("Transactions of a sender the pool did not know run again chained once recovered")
+    void unknownSenderIsRecoveredAndChained() {
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(sender);
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+      assertThat(tasks).as("the recovery, then both run alone").hasSize(3);
+      tasks.get(0).run();
+      verify(tx1).getSender();
+      verify(tx2).getSender();
+      tasks.get(1).run();
+      // the second member runs on the result of the first once that finished
+      assertThat(tasks).hasSize(4);
+      tasks.get(3).run();
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(), MINING_BENEFICIARY, tx2, 1, Optional.empty(), Optional.empty());
+      verify(collisionDetector)
+          .hasCollision(
+              eq(tx2),
+              eq(MINING_BENEFICIARY),
+              argThat(context -> context.chainPredecessorAccumulator() != null),
+              any());
+      assertThat(result).isNotNull();
+    }
+
+    @Test
+    @DisplayName("An unrecoverable sender does not keep the others of its batch from being chained")
+    void unrecoverableSenderDoesNotStopChaining() {
+      final Transaction unrecoverable = mockTransaction();
+      when(unrecoverable.getSenderIfKnown()).thenReturn(Optional.empty());
+      when(unrecoverable.getSender())
+          .thenThrow(new IllegalStateException("Cannot recover public key from signature"));
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(sender);
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(unrecoverable, tx1, tx2), tasks::add);
+      tasks.get(0).run();
+      verify(tx1).getSender();
+      verify(tx2).getSender();
+      tasks.get(2).run();
+
+      assertThat(tasks).as("tx2 runs again chained on tx1").hasSize(5);
+    }
+
+    @Test
+    @DisplayName("Unknown senders are recovered before the block's runs")
+    void unknownSendersAreRecoveredBeforeTheRuns() {
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(Address.fromHexString("0xdef"));
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+      tasks.get(0).run();
+
+      verify(tx1).getSender();
+      verify(tx2).getSender();
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("A recovered sender is chained together with its transactions the pool knew")
+    void recoveredSenderIsChainedWithItsKnownTransactions() {
+      final Transaction known1 = mockTransactionFrom(sender);
+      final Transaction unknown = mockTransactionOfUnknownSender(sender);
+      final Transaction known2 = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(known1, unknown, known2), tasks::add);
+      assertThat(tasks).as("the recovery, the known chain and the unknown run alone").hasSize(3);
+      tasks.get(0).run();
+      // the known chain, which skipped the unknown transaction
+      tasks.get(1).run();
+      assertThat(tasks).as("the rest runs again chained on the first known one").hasSize(4);
+      tasks.get(3).run();
+
+      verify(transactionProcessor)
+          .processTransaction(any(), any(), eq(unknown), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor, times(2))
+          .processTransaction(any(), any(), eq(known2), any(), any(), any(), any(), any(), any());
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, unknown, 1, Optional.empty(), Optional.empty());
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, known2, 2, Optional.empty(), Optional.empty());
+      final ArgumentCaptor<ParallelizedTransactionContext> contexts =
+          ArgumentCaptor.forClass(ParallelizedTransactionContext.class);
+      verify(collisionDetector, times(2)).hasCollision(any(), any(), contexts.capture(), any());
+      assertThat(contexts.getAllValues().get(1).chainPredecessorAccumulator())
+          .as("the second known transaction ran on the state the unknown one left")
+          .isSameAs(contexts.getAllValues().get(0).transactionAccumulator());
+    }
+
+    @Test
+    @DisplayName("Recovered senders are chained in block order")
+    void recoveredSendersAreChainedInBlockOrder() {
+      final Address other = Address.fromHexString("0xdef");
+      final Transaction a1 = mockTransactionOfUnknownSender(sender);
+      final Transaction b1 = mockTransactionOfUnknownSender(other);
+      final Transaction a2 = mockTransactionOfUnknownSender(sender);
+      final Transaction b2 = mockTransactionOfUnknownSender(other);
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(a1, b1, a2, b2), tasks::add);
+      // the runs alone end first, so each chain is queued as soon as it is set up
+      tasks.subList(1, 5).forEach(Runnable::run);
+      tasks.get(0).run();
+      assertThat(tasks).hasSize(7);
+      tasks.get(5).run();
+
+      verify(transactionProcessor, times(2))
+          .processTransaction(any(), any(), eq(a2), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor, times(1))
+          .processTransaction(any(), any(), eq(b2), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("The later members of a chain are warmed up against the parent state meanwhile")
+    void laterChainMembersAreWarmedUp() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction tx3 = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+
+      runBlock(List.of(tx1, tx2, tx3), task -> {});
+
+      assertThat(warmUps).hasSize(2);
+      warmUps.forEach(Runnable::run);
+      verify(transactionProcessor, times(2))
+          .processTransaction(
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              eq(OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION),
+              any(),
+              any());
+    }
+
+    @Test
+    @DisplayName("A member the serial loop has reached is not warmed up")
+    void memberTheSerialLoopReachedIsNotWarmedUp() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+
+      runBlock(List.of(tx1, tx2), task -> {});
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, tx2, 1, Optional.empty(), Optional.empty());
+      warmUps.forEach(Runnable::run);
+
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("The members of a dropped chain are still warmed up")
+    void membersOfADroppedChainAreWarmedUp() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction tx3 = mockTransactionFrom(sender);
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2, tx3), tasks::add);
+      // the serial loop reaches the first member before the chain started, which drops the rest
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, tx1, 0, Optional.empty(), Optional.empty());
+      tasks.forEach(Runnable::run);
+      warmUps.forEach(Runnable::run);
+
+      verify(transactionProcessor, times(2))
+          .processTransaction(
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              eq(OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION),
+              any(),
+              any());
+    }
+
+    @Test
+    @DisplayName("A warm-up whose parent state cannot be loaded is skipped")
+    void warmUpWithoutParentStateIsSkipped() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      when(env.worldStateArchive().getWorldState(any()))
+          .thenThrow(new StorageException("storage closed"));
+
+      runBlock(List.of(tx1, tx2), task -> {});
+
+      assertThat(warmUps).hasSize(1);
+      assertThatCode(() -> warmUps.get(0).run()).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("A chain stops at an invalid member, as the next would fail its nonce check")
+    void chainStopsAtAnInvalidMember() {
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction tx3 = mockTransactionFrom(sender);
+      when(transactionProcessor.processTransaction(
+              any(), any(), eq(tx1), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.invalid(
+                  ValidationResult.invalid(
+                      TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE)));
+
+      runBlock(List.of(tx1, tx2, tx3), sameThreadExecutor);
+
+      assertNotNull(processor.futures[0].resultNow());
+      assertNull(processor.futures[1].resultNow());
+      assertNull(processor.futures[2].resultNow());
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx2), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx3), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Aborting the block stops the late chains")
+    void abortStopsLateChains() {
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(sender);
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+      tasks.get(0).run();
+      tasks.get(1).run();
+      assertThat(tasks).as("tx2 is chained on tx1").hasSize(4);
+      processor.abort();
+      tasks.get(3).run();
+
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx2), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("A sender recovered meanwhile does not keep its transaction from running alone")
+    void senderRecoveredMeanwhileStillRunsAlone() {
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction unknown = mockTransaction();
+      // the transaction pool recovers the sender while the block's runs are being set up
+      when(unknown.getSenderIfKnown()).thenReturn(Optional.empty()).thenReturn(Optional.of(sender));
+      final Transaction tx2 = mockTransactionFrom(sender);
+
+      runBlock(List.of(tx1, unknown, tx2), task -> {});
+
+      assertNotNull(processor.futures[1], "the transaction of the unknown sender runs alone");
+    }
+
+    @Test
+    @DisplayName("A run recovers the sender of the block's transaction before copying it")
+    void runRecoversTheSenderBeforeCopyingTheTransaction() {
+      final Transaction transaction = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+
+      runBlock(List.of(transaction), sameThreadExecutor);
+
+      final InOrder inOrder = Mockito.inOrder(transaction);
+      inOrder.verify(transaction).getSender();
+      inOrder.verify(transaction).detachedCopy();
+    }
+
+    @Test
+    @DisplayName("A chain is dropped once the serial loop has reached one of its members")
+    void chainStopsWhenSerialLoopReachedAMember() {
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+      final CompletableFuture<ParallelizedTransactionContext> future1 = processor.futures[1];
+
+      // the serial loop reaches the first member before the worker started
+      assertThat(
+              processor.getProcessingResult(
+                  env.worldState(), MINING_BENEFICIARY, tx1, 0, Optional.empty(), Optional.empty()))
+          .isEmpty();
+      tasks.forEach(Runnable::run);
+
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+      assertThat(future1).isDone();
+      assertNull(future1.resultNow());
+    }
+
+    @Test
+    @DisplayName("A worker skips a transaction the serial loop has already reached")
+    void workerSkipsTransactionTheSerialLoopReached() {
+      final Transaction tx1 = mockTransaction();
+      final Transaction tx2 = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, tx1, 0, Optional.empty(), Optional.empty());
+      tasks.forEach(Runnable::run);
+
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx1), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor)
+          .processTransaction(any(), any(), eq(tx2), any(), any(), any(), any(), any(), any());
     }
   }
 
