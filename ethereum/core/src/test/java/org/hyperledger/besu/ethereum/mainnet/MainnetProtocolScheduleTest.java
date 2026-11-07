@@ -29,9 +29,11 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.MUIR_G
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PETERSBURG;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SPURIOUS_DRAGON;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.TANGERINE_WHISTLE;
+import static org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation.blockNumber;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -42,6 +44,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -249,6 +252,64 @@ public class MainnetProtocolScheduleTest {
               RequestContractAddresses.DEFAULT_CONSOLIDATION_REQUEST_CONTRACT_ADDRESS
                   .toHexString());
     }
+  }
+
+  @Test
+  public void protocolScheduleCustomizerAppliesAdaptersWithFloorSemantics() {
+    // Frontier from block 0, Byzantium from block 16.
+    final String json = "{\"config\": {\"byzantiumBlock\": 16, \"chainId\": 1234}}";
+    final Wei customReward = Wei.of(42);
+
+    final ProtocolSchedule baseline =
+        scheduleFromConfig(json, ProtocolScheduleCustomization.none());
+    final ProtocolSpecModification modification =
+        new ProtocolSpecModification(
+            blockNumber(16),
+            builder -> builder.blockRewardProcessor(BlockRewardProcessor.of(customReward)));
+    final ProtocolSchedule customized =
+        scheduleFromConfig(json, new ProtocolScheduleCustomization("test", List.of(modification)));
+
+    // Below the adapter's floor block the protocol spec is left untouched.
+    Assertions.assertThat(
+            customized.getByBlockHeader(blockHeader(1L)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(
+            baseline.getByBlockHeader(blockHeader(1L)).getBlockRewardProcessor().getBlockReward());
+    // At and after the adapter's floor block the customizer's change applies.
+    Assertions.assertThat(
+            customized
+                .getByBlockHeader(blockHeader(16L))
+                .getBlockRewardProcessor()
+                .getBlockReward())
+        .isEqualTo(customReward)
+        .isNotEqualTo(
+            baseline.getByBlockHeader(blockHeader(16L)).getBlockRewardProcessor().getBlockReward());
+    Assertions.assertThat(
+            customized
+                .getByBlockHeader(blockHeader(100L))
+                .getBlockRewardProcessor()
+                .getBlockReward())
+        .isEqualTo(customReward);
+  }
+
+  @Test
+  public void absenceOfCustomizationBuildsTheStockSchedule() {
+    final ProtocolSchedule sched = scheduleFromConfig("{}", ProtocolScheduleCustomization.none());
+    Assertions.assertThat(sched.getByBlockHeader(blockHeader(1L)).getHardforkId())
+        .isEqualTo(FRONTIER);
+  }
+
+  private ProtocolSchedule scheduleFromConfig(
+      final String json, final ProtocolScheduleCustomization customization) {
+    return MainnetProtocolSchedule.fromConfig(
+        GenesisConfig.fromConfig(json).getConfigOptions(),
+        Optional.empty(),
+        Optional.of(EvmConfiguration.DEFAULT),
+        MiningConfiguration.MINING_DISABLED,
+        new BadBlockManager(),
+        false,
+        BalConfiguration.DEFAULT,
+        new NoOpMetricsSystem(),
+        customization);
   }
 
   private BlockHeader blockHeader(final long number) {

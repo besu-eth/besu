@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.Function;
@@ -612,5 +613,24 @@ class GenesisConfigTest {
     assertThatThrownBy(getter)
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Invalid genesis block configuration");
+  }
+
+  @Test
+  public void additionalForkIdActivationsGoIntoACopy() {
+    final GenesisConfig original =
+        GenesisConfig.fromConfig("{\"config\":{\"homesteadBlock\":10}}")
+            .withOverrides(Map.of("chainId", "1234"));
+
+    final GenesisConfig extended =
+        original.withAdditionalForkIdActivations(
+            new ForkIdActivations(List.of(11L), List.of(1_000L)));
+
+    assertThat(extended).isNotSameAs(original);
+    assertThat(original.getConfigOptions().getForkIdBlockNumbers()).containsExactly(10L);
+    assertThat(original.getConfigOptions().getForkIdBlockTimestamps()).isEmpty();
+    assertThat(extended.getConfigOptions().getForkIdBlockNumbers()).containsExactly(10L, 11L);
+    assertThat(extended.getConfigOptions().getForkIdBlockTimestamps()).containsExactly(1_000L);
+    // the copy keeps the original's overrides
+    assertThat(extended.getConfigOptions().getChainId()).contains(BigInteger.valueOf(1234));
   }
 }

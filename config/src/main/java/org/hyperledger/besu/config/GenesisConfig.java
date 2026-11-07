@@ -42,6 +42,7 @@ public class GenesisConfig {
   private final GenesisReader loader;
   private final ObjectNode genesisRoot;
   private @Nullable Map<String, String> overrides;
+  private ForkIdActivations additionalForkIdActivations = ForkIdActivations.empty();
 
   private GenesisConfig(final GenesisReader loader) {
     this.loader = loader;
@@ -116,7 +117,7 @@ public class GenesisConfig {
     final ObjectNode config = loader.getConfig();
     // are there any overrides to apply?
     if (this.overrides == null) {
-      return JsonGenesisConfigOptions.fromJsonObject(config);
+      return JsonGenesisConfigOptions.fromJsonObject(config, additionalForkIdActivations);
     }
     // otherwise apply overrides
     Map<String, String> overridesRef = this.overrides;
@@ -129,7 +130,8 @@ public class GenesisConfig {
       overridesRef.put("baseFeePerGas", optBaseFee.get().toShortHexString());
     }
 
-    return JsonGenesisConfigOptions.fromJsonObjectWithOverrides(config, overridesRef);
+    return JsonGenesisConfigOptions.fromJsonObjectWithOverrides(
+        config, overridesRef, additionalForkIdActivations);
   }
 
   /**
@@ -142,6 +144,35 @@ public class GenesisConfig {
 
     this.overrides = overrides;
     return this;
+  }
+
+  /**
+   * Returns a copy of this config whose EIP-2124 fork schedule also includes the given activations,
+   * on top of those declared by the genesis config keys. Intended for activations an embedder knows
+   * out of band -- for example a {@code ProtocolScheduleCustomizer}'s fork activations -- which the
+   * genesis config cannot express as standard keys.
+   *
+   * <p>Unlike {@link #withOverrides}, this does not modify this config: whoever else holds it, such
+   * as the CLI that read the genesis file, keeps seeing only the forks the genesis declares.
+   *
+   * @param activations the additional fork activations
+   * @return a new config carrying this config's overrides and activations plus the given ones
+   */
+  public GenesisConfig withAdditionalForkIdActivations(final ForkIdActivations activations) {
+    final ForkIdActivations additions = Objects.requireNonNull(activations);
+    final GenesisConfig copy = new GenesisConfig(loader);
+    copy.overrides = overrides;
+    copy.additionalForkIdActivations =
+        new ForkIdActivations(
+            Stream.concat(
+                    additionalForkIdActivations.blockNumbers().stream(),
+                    additions.blockNumbers().stream())
+                .toList(),
+            Stream.concat(
+                    additionalForkIdActivations.timestamps().stream(),
+                    additions.timestamps().stream())
+                .toList());
+    return copy;
   }
 
   /**

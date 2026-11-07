@@ -2240,10 +2240,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     final ApiConfiguration apiConfiguration = apiConfigurationSupplier.get();
     final BalConfiguration balConfiguration = balConfigurationOptions.toDomainObject();
 
+    final EthNetworkConfig ethNetworkConfig = updateNetworkConfig(network);
+
     BesuControllerBuilder besuControllerBuilder =
         controllerBuilder
             .checkpoint(checkpoint)
-            .fromEthNetworkConfig(updateNetworkConfig(network), getDefaultSyncModeIfNotSet())
+            // resolved once, against the forks the genesis declares, before a builder is selected
+            .protocolScheduleCustomization(
+                besuPluginContext.resolveProtocolScheduleCustomization(
+                    ethNetworkConfig.genesisConfig().getConfigOptions()))
+            .fromEthNetworkConfig(ethNetworkConfig, getDefaultSyncModeIfNotSet())
             .synchronizerConfiguration(buildSyncConfig())
             .ethProtocolConfiguration(unstableEthProtocolOptions.toDomainObject())
             .networkConfiguration(unstableNetworkingOptions.toDomainObject())

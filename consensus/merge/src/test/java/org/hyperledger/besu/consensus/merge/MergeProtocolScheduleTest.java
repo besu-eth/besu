@@ -20,6 +20,8 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
+import static org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation.blockNumber;
+import static org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation.timestamp;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
@@ -32,7 +34,9 @@ import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockRewardProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecModification;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.operation.InvalidOperation;
@@ -41,6 +45,8 @@ import org.hyperledger.besu.evm.operation.Push0Operation;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
+import java.util.List;
+import java.util.function.UnaryOperator;
 
 import org.junit.jupiter.api.Test;
 
@@ -73,6 +79,98 @@ public class MergeProtocolScheduleTest {
     assertThat(homesteadSpec).isNotEqualTo(londonSpec);
     assertThat(homesteadSpec.getFeeMarket().implementsBaseFee()).isFalse();
     assertThat(londonSpec.getFeeMarket().implementsBaseFee()).isTrue();
+  }
+
+  @Test
+  public void customizerForkActivationsAreEnforcedPostMergeAndMatchTheForkId() {
+    final String jsonInput =
+        "{\"config\": "
+            + "{\"chainId\": 1,\n"
+            + "\"homesteadBlock\": 1,\n"
+            + "\"LondonBlock\": 1559}"
+            + "}";
+    final GenesisConfigOptions config = GenesisConfig.fromConfig(jsonInput).getConfigOptions();
+
+    final long activationBlock = 5_000_000L;
+    final Wei customReward = Wei.of(42_000_000L);
+
+    final ProtocolSpecModification modification =
+        new ProtocolSpecModification(
+            blockNumber(activationBlock),
+            builder -> builder.blockRewardProcessor(BlockRewardProcessor.of(customReward)));
+    final ProtocolScheduleCustomization customization =
+        new ProtocolScheduleCustomization("test", List.of(modification));
+
+    final ProtocolSchedule protocolSchedule =
+        MergeProtocolSchedule.create(
+            config,
+            false,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem(),
+            EvmConfiguration.DEFAULT,
+            customization);
+
+    // (1) The post-merge schedule enforces the customizer's rule at its activation...
+    final ProtocolSpec customizedSpec =
+        protocolSchedule.getByBlockHeader(blockHeader(activationBlock));
+    assertThat(customizedSpec.getBlockRewardProcessor().getBlockReward()).isEqualTo(customReward);
+    assertThat(customizedSpec.getEvm().getOperationsUnsafe()[0x44])
+        .isInstanceOf(PrevRanDaoOperation.class);
+    // ...and not before it.
+    assertThat(
+            protocolSchedule
+                .getByBlockHeader(blockHeader(activationBlock - 1))
+                .getBlockRewardProcessor()
+                .getBlockReward())
+        .isNotEqualTo(customReward);
+
+    // (2) ...and that same activation is what the customizer folds into the fork ID, so the
+    // advertised fork ID cannot drift from the rules the schedule enforces.
+    assertThat(customization.toForkIdActivations().blockNumbers()).contains(activationBlock);
+  }
+
+  @Test
+  public void aContributedTimestampDoesNotDisplaceTheParisCutoff() {
+    // The cutoff that reinstates the mainnet definitions has to come from the forks the config
+    // declares, not from the activations the node advertises: the customization's own timestamp is
+    // folded into the advertised set exactly as the controller folds it, and Paris must survive.
+    final String jsonInput =
+        "{\"config\": {\"chainId\":1, \"homesteadBlock\":1, \"shanghaiTime\":1000}}";
+    final long contributedTimestamp = 500L;
+    final ProtocolScheduleCustomization customization =
+        new ProtocolScheduleCustomization(
+            "example-chain",
+            List.of(
+                new ProtocolSpecModification(
+                    timestamp(contributedTimestamp), UnaryOperator.identity())));
+    final GenesisConfigOptions config =
+        GenesisConfig.fromConfig(jsonInput)
+            .withAdditionalForkIdActivations(customization.toForkIdActivations())
+            .getConfigOptions();
+
+    final ProtocolSchedule protocolSchedule =
+        MergeProtocolSchedule.create(
+            config,
+            false,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem(),
+            EvmConfiguration.DEFAULT,
+            customization);
+
+    // between the contributed activation and Shanghai the chain is still on Paris rules
+    assertThat(
+            protocolSchedule
+                .getByBlockHeader(blockHeader(100, contributedTimestamp + 1))
+                .getEvm()
+                .getOperationsUnsafe()[0x44])
+        .isInstanceOf(PrevRanDaoOperation.class);
+    assertThat(config.getForkIdBlockTimestamps()).contains(contributedTimestamp);
   }
 
   @Test
@@ -216,6 +314,10 @@ public class MergeProtocolScheduleTest {
     assertThat(spec.getBlockRewardProcessor().getBlockReward()).isEqualTo(Wei.ZERO);
     assertThat(spec.getBlockRewardProcessor()).isSameAs(BlockRewardProcessor.NO_REWARDS);
     assertThat(spec.getBlockProcessor()).isInstanceOf(MainnetBlockProcessor.class);
+  }
+
+  private BlockHeader blockHeader(final long number, final long timestamp) {
+    return new BlockHeaderTestFixture().number(number).timestamp(timestamp).buildHeader();
   }
 
   private BlockHeader blockHeader(final long number) {
