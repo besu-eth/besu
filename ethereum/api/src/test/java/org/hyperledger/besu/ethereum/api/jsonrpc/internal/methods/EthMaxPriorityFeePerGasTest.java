@@ -16,8 +16,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -182,7 +180,7 @@ public class EthMaxPriorityFeePerGasTest {
     final var blocksByNumber = new HashMap<Long, Block>();
     final var blocksByHash = new HashMap<Hash, Block>();
 
-    final var genesisBlock = createFakeBlock(0, 0, genesisBaseFee);
+    final var genesisBlock = createFakeBlock(Hash.ZERO, 0, 0, genesisBaseFee);
     blocksByNumber.put(0L, genesisBlock);
     blocksByHash.put(genesisBlock.getHash(), genesisBlock);
 
@@ -197,7 +195,7 @@ public class EthMaxPriorityFeePerGasTest {
               parentHeader.getBaseFee().get(),
               parentHeader.getGasUsed(),
               parentHeader.getGasLimit());
-      final var block = createFakeBlock(i, txsNum, baseFee);
+      final var block = createFakeBlock(parentHeader.getHash(), i, txsNum, baseFee);
       blocksByNumber.put(i, block);
       blocksByHash.put(block.getHash(), block);
     }
@@ -205,16 +203,13 @@ public class EthMaxPriorityFeePerGasTest {
     final Block chainHeadBlock = blocksByNumber.get(chainHeadBlockNumber);
     lenient().when(blockchain.getChainHeadHeader()).thenReturn(chainHeadBlock.getHeader());
     lenient().when(blockchain.observeBlockAdded(any())).thenReturn(0L);
+    // The fee oracle window walks back from the head by parent hash.
     lenient()
-        .when(blockchain.getBlockHeaders(anyLong(), anyInt()))
+        .when(blockchain.getBlockHeader(any(Hash.class)))
         .thenAnswer(
-            invocation -> {
-              final long start = invocation.getArgument(0, Long.class);
-              final int count = invocation.getArgument(1, Integer.class);
-              return IntStream.range(0, count)
-                  .mapToObj(idx -> blocksByNumber.get(start + idx).getHeader())
-                  .toList();
-            });
+            invocation ->
+                Optional.ofNullable(blocksByHash.get(invocation.getArgument(0, Hash.class)))
+                    .map(Block::getHeader));
     lenient()
         .when(blockchain.getBlockBody(any(Hash.class)))
         .thenAnswer(
@@ -224,12 +219,19 @@ public class EthMaxPriorityFeePerGasTest {
             });
   }
 
-  private Block createFakeBlock(final long height, final int txsNum, final Wei baseFee) {
+  private Block createFakeBlock(
+      final Hash parentHash, final long height, final int txsNum, final Wei baseFee) {
     return createFakeBlock(
-        height, txsNum, baseFee, DEFAULT_BLOCK_GAS_LIMIT, DEFAULT_BLOCK_GAS_USED * txsNum);
+        parentHash,
+        height,
+        txsNum,
+        baseFee,
+        DEFAULT_BLOCK_GAS_LIMIT,
+        DEFAULT_BLOCK_GAS_USED * txsNum);
   }
 
   private Block createFakeBlock(
+      final Hash parentHash,
       final long height,
       final int txsNum,
       final Wei baseFee,
@@ -237,7 +239,7 @@ public class EthMaxPriorityFeePerGasTest {
       final long gasUsed) {
     return new Block(
         new BlockHeader(
-            Hash.EMPTY,
+            parentHash,
             Hash.EMPTY_TRIE_HASH,
             Address.ZERO,
             Hash.EMPTY_TRIE_HASH,
