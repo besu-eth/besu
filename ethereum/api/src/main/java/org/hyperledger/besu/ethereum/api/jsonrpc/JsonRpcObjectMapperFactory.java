@@ -14,9 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.json.BesuJsonModule;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
@@ -25,6 +27,8 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 
 public final class JsonRpcObjectMapperFactory {
@@ -46,7 +50,10 @@ public final class JsonRpcObjectMapperFactory {
     // copy() so configuring this mapper does not mutate the shared base/response mapper
     return getBaseMapper()
         .copy()
-        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
+        .registerModule(
+            new SimpleModule("json-rpc-parameters")
+                .addDeserializer(Address.class, new StrictAddressDeserializer()));
   }
 
   private static ObjectMapper createParameterMapperIgnoringUnknownNulls() {
@@ -80,6 +87,33 @@ public final class JsonRpcObjectMapperFactory {
 
   public static ObjectMapper getResponseMapper() {
     return RESPONSE_MAPPER;
+  }
+
+  /**
+   * Accepts only the execution-apis address form, {@code 0x} followed by exactly 40 hex digits, so
+   * a truncated address is rejected instead of being left-padded to a different account.
+   */
+  private static class StrictAddressDeserializer extends StdDeserializer<Address> {
+    private static final Pattern ADDRESS = Pattern.compile("0x[0-9a-fA-F]{40}");
+
+    private StrictAddressDeserializer() {
+      super(Address.class);
+    }
+
+    @Override
+    public Address deserialize(final JsonParser p, final DeserializationContext ctxt)
+        throws IOException {
+      if (p.currentToken() != JsonToken.VALUE_STRING) {
+        return (Address) ctxt.handleUnexpectedToken(Address.class, p);
+      }
+      final String value = p.getText();
+      if (!ADDRESS.matcher(value).matches()) {
+        return (Address)
+            ctxt.handleWeirdStringValue(
+                Address.class, value, "expected 0x followed by 40 hexadecimal digits");
+      }
+      return Address.fromHexStringStrict(value);
+    }
   }
 
   private static class IgnoreNullUnknownHandler extends DeserializationProblemHandler {

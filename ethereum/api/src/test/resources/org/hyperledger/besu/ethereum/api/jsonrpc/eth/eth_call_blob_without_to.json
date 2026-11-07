@@ -5,7 +5,7 @@
     "method": "eth_call",
     "params": [
       {
-        "from": "a94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "from": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
         "data": "0x12a7b914",
         "blobVersionedHashes" : ["0x0100000051c8833cfbaf272e62da1285b183b0405357f62b052a4894ffcdaa2d"],
         "maxFeePerBlobGas": "0x3b9aca00"
