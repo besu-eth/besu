@@ -77,6 +77,26 @@ final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
     return resolvedCustomization;
   }
 
+  /**
+   * Marks how many customizers are registered, so that those a plugin registers afterwards can be
+   * discarded if its registration fails.
+   *
+   * @return the mark
+   */
+  synchronized int registrationMark() {
+    return customizers.size();
+  }
+
+  /**
+   * Discards the customizers registered since a mark: a plugin whose registration failed is never
+   * started, so it must not change the chain's rules either.
+   *
+   * @param mark a value returned by {@link #registrationMark()}
+   */
+  synchronized void discardRegistrationsSince(final int mark) {
+    customizers.subList(mark, customizers.size()).clear();
+  }
+
   synchronized void freeze() {
     frozen = true;
   }

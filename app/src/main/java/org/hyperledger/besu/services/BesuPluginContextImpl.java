@@ -518,11 +518,16 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         && !e.getMessage().startsWith("Could not initialize class");
   }
 
-  private boolean registerPlugin(final BesuPlugin plugin) {
+  @VisibleForTesting
+  boolean registerPlugin(final BesuPlugin plugin) {
+    final int customizerMark = protocolScheduleService.registrationMark();
     try {
       plugin.register(registrationContextFor(plugin));
       LOG.info("Registered plugin of type {}.", plugin.getClass().getName());
     } catch (final Exception | LinkageError e) {
+      // a plugin that failed to register is never started, so it must not change the chain's
+      // rules either
+      protocolScheduleService.discardRegistrationsSince(customizerMark);
       final Optional<Throwable> unrecoverable = unrecoverableCause(e);
       if (unrecoverable.isPresent()) {
         throw new RuntimeException(
@@ -530,7 +535,11 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
       }
       final String failure = failureMessage("registering", plugin, e);
       if (config.isContinueOnPluginError()) {
-        LOG.error("{}, start and stop will not be called.", failure, e);
+        LOG.error(
+            "{}, start and stop will not be called and its protocol-schedule customizers are"
+                + " discarded.",
+            failure,
+            e);
         // recorded when its options were defined; a plugin that is not registered is not listed
         pluginVersions.remove(plugin.getName());
         // nothing can have looked up what it published yet, so retract it: a later plugin may
