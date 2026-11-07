@@ -63,11 +63,10 @@ final class SyncFixture {
   final FakeSnapNetwork network = spy(new FakeSnapNetwork());
   final TestChain chain;
   final MutableBlockchain blockchain;
-  final Storages storages = SyncStorageFixture.create(Format.BONSAI);
-  final SyncStateStorage storage = spy(storages.sync());
+  final Storages storages;
+  final SyncStateStorage storage;
   // where the sync records the world state root and its block
-  final BonsaiWorldStateKeyValueStorage bonsai =
-      storages.worldState().getStrategy(BonsaiWorldStateKeyValueStorage.class);
+  final BonsaiWorldStateKeyValueStorage bonsai;
   final HeaderFetcher fetcher;
   // a round without the lists fails the fetch
   final BalFetcher balFetcher = new BalFetcher(network, 32, 1 << 20, 1);
@@ -87,6 +86,17 @@ final class SyncFixture {
   }
 
   SyncFixture(final long seed, final TestWorld genesisWorld) {
+    this(seed, genesisWorld, Format.BONSAI);
+  }
+
+  SyncFixture(final long seed, final Format format) {
+    this(seed, TestWorld.random(new Random(seed), 60, 2, 50), format);
+  }
+
+  SyncFixture(final long seed, final TestWorld genesisWorld, final Format format) {
+    storages = SyncStorageFixture.create(format);
+    storage = spy(storages.sync());
+    bonsai = storages.worldState().getStrategy(BonsaiWorldStateKeyValueStorage.class);
     chain = new TestChain(new Random(seed), genesisWorld, network);
     blockchain = InMemoryKeyValueStorageProvider.createInMemoryBlockchain(chain.genesisBlock());
     fetcher = new HeaderFetcher(network, ProtocolScheduleFixture.MAINNET, chain, 8);
