@@ -1157,6 +1157,19 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("A run recovers the sender of the block's transaction before copying it")
+    void runRecoversTheSenderBeforeCopyingTheTransaction() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+
+      runBlock(List.of(transaction), sameThreadExecutor);
+
+      final InOrder inOrder = Mockito.inOrder(transaction);
+      inOrder.verify(transaction).getSender();
+      inOrder.verify(transaction).detachedCopy();
+    }
+
+    @Test
     @DisplayName("A chain is dropped once the serial loop has reached one of its members")
     void chainStopsWhenSerialLoopReachedAMember() {
       final Transaction tx1 = mockTransactionFrom(sender);
