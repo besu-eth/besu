@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -52,6 +53,7 @@ import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -208,6 +210,27 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
             fullSyncDownloader
                 .map(FullSyncDownloader::calculateTrailingPeerRequirements)
                 .orElse(TrailingPeerRequirements.UNRESTRICTED));
+  }
+
+  /**
+   * Leave the import of blocks announced by peers to the consensus layer while it owns them. See
+   * {@link BlockPropagationManager#setConsensusOwnedBlockPredicate(Predicate)}.
+   *
+   * @param consensusOwnedBlock true for a block hash owned by the consensus layer
+   */
+  public void setConsensusOwnedBlockPredicate(final Predicate<Hash> consensusOwnedBlock) {
+    blockPropagationManager.ifPresent(
+        manager -> manager.setConsensusOwnedBlockPredicate(consensusOwnedBlock));
+  }
+
+  /**
+   * The consensus layer released a block it owned. See {@link
+   * BlockPropagationManager#onConsensusOwnershipReleased(Hash)}.
+   *
+   * @param blockHash the released block hash
+   */
+  public void onConsensusOwnershipReleased(final Hash blockHash) {
+    blockPropagationManager.ifPresent(manager -> manager.onConsensusOwnershipReleased(blockHash));
   }
 
   @Override

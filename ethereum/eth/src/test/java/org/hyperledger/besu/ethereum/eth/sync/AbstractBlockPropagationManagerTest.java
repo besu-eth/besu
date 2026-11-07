@@ -76,6 +76,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.ByteUnits;
 
@@ -84,6 +85,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -291,6 +293,128 @@ public abstract class AbstractBlockPropagationManagerTest {
 
     assertThat(blockchain.contains(nextBlock.getHash())).isTrue();
     assertThat(blockchain.contains(nextNextBlock.getHash())).isTrue();
+  }
+
+  @Test
+  public void leavesImportOfNewBlockOwnedByConsensusToConsensusButRelaysIt() {
+    blockchainUtil.importFirstBlocks(2);
+    final Block nextBlock = blockchainUtil.getBlock(2);
+    blockPropagationManager.setConsensusOwnedBlockPredicate(
+        hash -> hash.equals(nextBlock.getHash()));
+    pauseScheduledTasks();
+    blockPropagationManager.start();
+
+    broadcastNewBlock(nextBlock);
+
+    assertThat(blockchain.contains(nextBlock.getHash())).isFalse();
+    // validated and relayed as usual, and kept as importing so that copies are ignored
+    verify(blockBroadcaster).propagate(eq(nextBlock), any());
+    assertThat(processingBlocksManager.alreadyImporting(nextBlock.getHash())).isTrue();
+  }
+
+  @Test
+  public void importsBlockReleasedByConsensusWithoutBeingImported() {
+    blockchainUtil.importFirstBlocks(2);
+    final Block nextBlock = blockchainUtil.getBlock(2);
+    final AtomicBoolean ownedByConsensus = new AtomicBoolean(true);
+    blockPropagationManager.setConsensusOwnedBlockPredicate(
+        hash -> ownedByConsensus.get() && hash.equals(nextBlock.getHash()));
+    pauseScheduledTasks();
+    blockPropagationManager.start();
+    broadcastNewBlock(nextBlock);
+    assertThat(blockchain.contains(nextBlock.getHash())).isFalse();
+
+    // e.g. the round changed before committing it
+    ownedByConsensus.set(false);
+    blockPropagationManager.onConsensusOwnershipReleased(nextBlock.getHash());
+
+    assertThat(blockchain.contains(nextBlock.getHash())).isTrue();
+    assertThat(processingBlocksManager.alreadyImporting(nextBlock.getHash())).isFalse();
+  }
+
+  @Test
+  public void doesNotImportBlockAgainOnceConsensusImportedIt() {
+    blockchainUtil.importFirstBlocks(2);
+    final Block nextBlock = blockchainUtil.getBlock(2);
+    final AtomicBoolean ownedByConsensus = new AtomicBoolean(true);
+    blockPropagationManager.setConsensusOwnedBlockPredicate(
+        hash -> ownedByConsensus.get() && hash.equals(nextBlock.getHash()));
+    pauseScheduledTasks();
+    blockPropagationManager.start();
+    broadcastNewBlock(nextBlock);
+
+    // the consensus import, then the release that follows it
+    blockchainUtil.importBlockAtIndex(2);
+    ownedByConsensus.set(false);
+    blockPropagationManager.onConsensusOwnershipReleased(nextBlock.getHash());
+
+    assertThat(processingBlocksManager.alreadyImporting(nextBlock.getHash())).isFalse();
+    verify(processingBlocksManager).registerBlockImportDone(nextBlock.getHash());
+  }
+
+  @Test
+  public void importsBlockOwnedByConsensusWhenNeverReleased() {
+    blockchainUtil.importFirstBlocks(2);
+    final Block nextBlock = blockchainUtil.getBlock(2);
+    blockPropagationManager.setConsensusOwnedBlockPredicate(
+        hash -> hash.equals(nextBlock.getHash()));
+    pauseScheduledTasks();
+    blockPropagationManager.start();
+    broadcastNewBlock(nextBlock);
+    assertThat(blockchain.contains(nextBlock.getHash())).isFalse();
+
+    // the longest time a block is left to consensus elapses
+    runScheduledTasks();
+
+    assertThat(blockchain.contains(nextBlock.getHash())).isTrue();
+  }
+
+  @Test
+  public void leavesImportOfFetchedParentOwnedByConsensusToConsensus() {
+    blockchainUtil.importFirstBlocks(2);
+    final Block nextBlock = blockchainUtil.getBlock(2);
+    final Block nextNextBlock = blockchainUtil.getBlock(3);
+    final AtomicBoolean ownedByConsensus = new AtomicBoolean(true);
+    blockPropagationManager.setConsensusOwnedBlockPredicate(
+        hash -> ownedByConsensus.get() && hash.equals(nextBlock.getHash()));
+    pauseScheduledTasks();
+    blockPropagationManager.start();
+
+    // the child is announced while consensus still owns its parent
+    broadcastNewBlock(nextNextBlock);
+
+    // the parent is fetched, but not executed by the ETH layer
+    assertThat(blockchain.contains(nextBlock.getHash())).isFalse();
+    assertThat(blockchain.contains(nextNextBlock.getHash())).isFalse();
+
+    // consensus imports the parent, the pending child is then imported as usual
+    blockchainUtil.importBlockAtIndex(2);
+    ownedByConsensus.set(false);
+    blockPropagationManager.onConsensusOwnershipReleased(nextBlock.getHash());
+
+    assertThat(blockchain.contains(nextNextBlock.getHash())).isTrue();
+    assertThat(processingBlocksManager.alreadyImporting(nextBlock.getHash())).isFalse();
+  }
+
+  @Test
+  public void leavesImportOfAnnouncedHashOwnedByConsensusToConsensus() {
+    blockchainUtil.importFirstBlocks(2);
+    final Block nextBlock = blockchainUtil.getBlock(2);
+    final AtomicBoolean ownedByConsensus = new AtomicBoolean(true);
+    blockPropagationManager.setConsensusOwnedBlockPredicate(
+        hash -> ownedByConsensus.get() && hash.equals(nextBlock.getHash()));
+    pauseScheduledTasks();
+    blockPropagationManager.start();
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 0);
+
+    EthProtocolManagerTestUtil.broadcastMessage(
+        ethProtocolManager, peer, createNewBlockHashMessage(nextBlock));
+    assertThat(blockchain.contains(nextBlock.getHash())).isFalse();
+
+    ownedByConsensus.set(false);
+    blockPropagationManager.onConsensusOwnershipReleased(nextBlock.getHash());
+
+    assertThat(blockchain.contains(nextBlock.getHash())).isTrue();
   }
 
   @Test
@@ -991,6 +1115,30 @@ public abstract class AbstractBlockPropagationManagerTest {
         && GetBlockHeadersMessage.readFrom(task.getRequestMessage(Set.of()))
             .hash()
             .equals(Optional.of(blockHash));
+  }
+
+  private void broadcastNewBlock(final Block block) {
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 0);
+    EthProtocolManagerTestUtil.broadcastMessage(
+        ethProtocolManager,
+        peer,
+        NewBlockMessage.create(
+            block,
+            getFullBlockchain().getTotalDifficultyByHash(block.getHash()).get(),
+            maxMessageSize));
+  }
+
+  /** Keep delayed tasks, like importing a block consensus never releases, from running at once. */
+  private void pauseScheduledTasks() {
+    ((DeterministicEthScheduler) ethProtocolManager.ethContext().getScheduler())
+        .mockScheduledExecutor()
+        .setAutoRun(false);
+  }
+
+  private void runScheduledTasks() {
+    ((DeterministicEthScheduler) ethProtocolManager.ethContext().getScheduler())
+        .mockScheduledExecutor()
+        .runPendingFutures();
   }
 
   private NewBlockHashesMessage createNewBlockHashMessage(final Block block) {

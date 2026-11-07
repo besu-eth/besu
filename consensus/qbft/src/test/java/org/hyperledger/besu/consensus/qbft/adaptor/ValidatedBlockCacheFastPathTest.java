@@ -198,7 +198,7 @@ class ValidatedBlockCacheFastPathTest {
 
   private QbftBlockImporterAdaptor importer() {
     return new QbftBlockImporterAdaptor(
-        blockImporter, blockHeaderValidator, protocolContext, validatedBlockCache);
+        blockImporter, blockHeaderValidator, protocolContext, codec, validatedBlockCache);
   }
 
   // the trie log was saved under the on-chain hash, at block creation or proposal validation

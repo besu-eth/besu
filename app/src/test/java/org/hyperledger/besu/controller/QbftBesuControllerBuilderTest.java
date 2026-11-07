@@ -16,8 +16,11 @@ package org.hyperledger.besu.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.JsonQbftConfigOptions;
@@ -29,22 +32,30 @@ import org.hyperledger.besu.consensus.qbft.MutableQbftConfigOptions;
 import org.hyperledger.besu.consensus.qbft.QbftExtraDataCodec;
 import org.hyperledger.besu.consensus.qbft.validator.ForkingValidatorProvider;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.List;
+import java.util.function.Predicate;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class QbftBesuControllerBuilderTest extends AbstractBftBesuControllerBuilderTest {
+
+  @Captor private ArgumentCaptor<Predicate<Hash>> ownedByConsensus;
 
   @Override
   public void setupBftGenesisConfig() throws JsonProcessingException {
@@ -78,7 +89,8 @@ public class QbftBesuControllerBuilderTest extends AbstractBftBesuControllerBuil
 
   @Override
   protected BesuControllerBuilder createBftControllerBuilder() {
-    return new QbftBesuControllerBuilder();
+    // spied to check how build() configures the synchronizer
+    return spy(new QbftBesuControllerBuilder());
   }
 
   @Override
@@ -110,5 +122,30 @@ public class QbftBesuControllerBuilderTest extends AbstractBftBesuControllerBuil
                     protocolContext, protocolSchedule, MiningConfiguration.newDefault()))
         .isInstanceOf(NullPointerException.class)
         .hasMessage("transactionValidatorProvider should have been initialised");
+  }
+
+  @Test
+  public void buildConfiguresTheSynchronizer() {
+    bftBesuControllerBuilder.build();
+
+    verify(bftBesuControllerBuilder).configureSynchronizer(any());
+  }
+
+  @Test
+  public void synchronizerLeavesBlocksClaimedByTheRoundToConsensus() {
+    final QbftBesuControllerBuilder builder = new QbftBesuControllerBuilder();
+    final DefaultSynchronizer synchronizer = mock(DefaultSynchronizer.class);
+    final Hash claimed = Hash.hash(Bytes.of(1));
+
+    builder.configureSynchronizer(synchronizer);
+
+    // backed by the cache shared with the QBFT validator and importer adaptors
+    verify(synchronizer).setConsensusOwnedBlockPredicate(ownedByConsensus.capture());
+    builder.getValidatedBlockCache().claim(claimed, claimed, 1L);
+    assertThat(ownedByConsensus.getValue().test(claimed)).isTrue();
+
+    builder.getValidatedBlockCache().release(claimed, claimed);
+    assertThat(ownedByConsensus.getValue().test(claimed)).isFalse();
+    verify(synchronizer).onConsensusOwnershipReleased(claimed);
   }
 }
