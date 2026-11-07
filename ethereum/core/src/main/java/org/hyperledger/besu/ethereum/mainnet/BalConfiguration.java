@@ -68,4 +68,10 @@ public interface BalConfiguration {
   default int getBalPreFetchBatchSize() {
     return 256;
   }
+
+  /** Returns the listener told which executor runs each block; a node uses none. */
+  @Value.Default
+  default BlockExecutionPathListener getExecutionPathListener() {
+    return BlockExecutionPathListener.NONE;
+  }
 }

@@ -75,6 +75,8 @@ dependencies {
   implementation 'com.google.guava:guava'
   implementation 'info.picocli:picocli'
   implementation 'io.vertx:vertx-core'
+  implementation 'org.apache.logging.log4j:log4j-core'
+  implementation 'org.apache.logging.log4j:log4j-slf4j2-impl'
   implementation 'tools.profiler:async-profiler:4.0'
   implementation 'com.github.oshi:oshi-core:6.6.5'
 
