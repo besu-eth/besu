@@ -42,7 +42,7 @@ import picocli.CommandLine;
 public class RocksDBCLIOptionsTest {
 
   private static final long MIB = 1024L * 1024L;
-  private static final long RESERVED_MEMORY = 4L * GIB;
+  private static final long RESERVED_MEMORY = 9L * GIB;
   // the four column families whose block caches fill up
   private static final long DEFAULT_BLOCK_CACHES = 4 * DEFAULT_CACHE_CAPACITY;
   private static final int MAX_OPEN_FILES_4GB = 2048;
@@ -178,19 +178,19 @@ public class RocksDBCLIOptionsTest {
 
   @Test
   public void autoMaxOpenFilesLeavesOutBlockCachesAndReserve() {
-    // 16 GiB minus a 4 GiB heap, 512 MiB of block caches and the reserve leave 7.5 GiB
+    // 16 GiB minus a 4 GiB heap, 512 MiB of block caches and the reserve leave 2.5 GiB
     final RocksDBCLIOptions options = toOptionsWithMemory(16L * GIB, heapWithMax(4L * GIB));
 
-    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(3840);
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(1280);
   }
 
   @Test
   public void autoMaxOpenFilesLeavesOutHighSpecBlockCaches() {
-    // 32 GiB minus an 8 GiB heap, four 1 GiB block caches and the reserve leave 16 GiB
+    // 32 GiB minus an 8 GiB heap, four 1 GiB block caches and the reserve leave 11 GiB
     final RocksDBCLIOptions options =
         toOptionsWithMemory(32L * GIB, heapWithMax(8L * GIB), IS_HIGH_SPEC);
 
-    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(MAX_OPEN_FILES_16GB);
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(5632);
   }
 
   @Test
