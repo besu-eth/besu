@@ -1,0 +1,20 @@
+{
+  "comment": "There is no pending block to trace, so pending is rejected rather than traced as latest",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_block",
+    "params": [
+      "pending"
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid block number params"
+    }
+  },
+  "statusCode": 200
+}
