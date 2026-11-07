@@ -360,27 +360,29 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     if (ranInChain || serialLoopHasPassed(transactionLocation) || maybeParentHeader.isEmpty()) {
       return;
     }
-    final BonsaiWorldState ws =
-        getWorldState(protocolContext, maybeParentHeader.get()).orElse(null);
-    if (ws == null) {
-      return;
-    }
     try {
-      ws.disableCacheMerkleTrieLoader();
-      transactionProcessor.processTransaction(
-          ws.updater().updater(),
-          blockHeader,
-          transaction.detachedCopy(),
-          miningBeneficiary,
-          OperationTracer.NO_TRACING,
-          blockHashLookup.forkForParallelWorker(),
-          TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce(),
-          blobGasPrice,
-          Optional.empty());
+      final BonsaiWorldState ws =
+          getWorldState(protocolContext, maybeParentHeader.get()).orElse(null);
+      if (ws == null) {
+        return;
+      }
+      try {
+        ws.disableCacheMerkleTrieLoader();
+        transactionProcessor.processTransaction(
+            ws.updater().updater(),
+            blockHeader,
+            transaction.detachedCopy(),
+            miningBeneficiary,
+            OperationTracer.NO_TRACING,
+            blockHashLookup.forkForParallelWorker(),
+            TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce(),
+            blobGasPrice,
+            Optional.empty());
+      } finally {
+        ws.close();
+      }
     } catch (final RuntimeException e) {
       // only fetching state, the chained run reports any failure
-    } finally {
-      ws.close();
     }
   }
 
