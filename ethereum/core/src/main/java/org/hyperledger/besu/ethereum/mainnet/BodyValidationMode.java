@@ -27,6 +27,15 @@ public enum BodyValidationMode {
   /** Validate transactions, state, and receipts root */
   ROOT_ONLY,
 
+  /**
+   * Validate everything but the state root, which needs the block's post state to be computed.
+   * Validates the body light, plus the transactions and receipts roots.
+   */
+  EXCEPT_STATE_ROOT,
+
+  /** Validate the state root only, for a body otherwise validated with EXCEPT_STATE_ROOT */
+  STATE_ROOT_ONLY,
+
   /** Fully validate the body */
   FULL;
 }

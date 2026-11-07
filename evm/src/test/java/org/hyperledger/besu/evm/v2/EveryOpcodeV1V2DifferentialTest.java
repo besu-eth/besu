@@ -40,7 +40,8 @@ import org.junit.jupiter.params.provider.FieldSource;
 /**
  * Runs every opcode on the v1 interpreter and on EVM v2, for each fork, and requires both to end in
  * the same state. EVM v2 takes the opcodes a fork enables, and their configuration, from the fork's
- * operation registry, and this keeps the two interpreters in line with each other.
+ * operation registry, and this keeps the two interpreters in line with each other. On EVM v2, every
+ * run is also repeated untraced, which takes the other of its two loops, and has to end the same.
  */
 class EveryOpcodeV1V2DifferentialTest {
 
@@ -220,6 +221,15 @@ class EveryOpcodeV1V2DifferentialTest {
     final Outcome onV2 = run(v2, code, gas, isStatic);
     if (!onV2.equals(onV1)) {
       differences.add(String.format("%s with %d gas:%n  v1 %s%n  v2 %s", program, gas, onV1, onV2));
+    }
+    // the untraced loop has its own copy of the most frequent operations and their gas checks
+    final Outcome untracedOnV2 =
+        ProgramRun.run(v2, code, CALLEE_CODE, Bytes.EMPTY, gas, isStatic, SLOTS);
+    if (!untracedOnV2.equals(onV2.withoutSteps())) {
+      differences.add(
+          String.format(
+              "%s with %d gas:%n  traced on v2   %s%n  untraced on v2 %s",
+              program, gas, onV2.withoutSteps(), untracedOnV2));
     }
   }
 
