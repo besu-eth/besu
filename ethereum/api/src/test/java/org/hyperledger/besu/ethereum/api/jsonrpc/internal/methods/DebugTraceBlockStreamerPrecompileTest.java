@@ -33,6 +33,8 @@ import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.ethereum.debug.TracerType;
+import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.io.ByteArrayOutputStream;
@@ -126,6 +128,30 @@ public class DebugTraceBlockStreamerPrecompileTest {
     assertThat(streamedRoot)
         .as("streaming and accumulating paths must produce identical JSON")
         .isEqualTo(accRoot);
+  }
+
+  @Test
+  public void streamingAndAccumulatingPathsMatchForPrecompileCallWithMemoryAndReturnData()
+      throws Exception {
+    final TraceOptions options =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceMemory(true)
+                .traceReturnData(true)
+                .build(),
+            java.util.Map.of());
+    final DebugTraceBlockStreamer streamer =
+        new DebugTraceBlockStreamer(
+            buildPrecompileBlock(0), options, fixture.getProtocolSchedule(), blockchainQueries);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer.streamTo(out, mapper, () -> true);
+    final JsonNode streamedRoot = mapper.readTree(out.toByteArray());
+    final JsonNode accRoot =
+        mapper.readTree(mapper.writeValueAsBytes(streamer.accumulateAll(() -> true)));
+
+    assertThat(streamedRoot).isEqualTo(accRoot);
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
