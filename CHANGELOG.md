@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 - `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
+- `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `trace_call` and `debug_traceCall` now reject a request with a fourth parameter with `Invalid params` (`-32602`), and `debug_traceCall` also rejects a `blockOverrides` member in its trace config. Block overrides are only supported by `eth_simulateV1`; these methods previously dropped them silently and returned a result for the unmodified block. Remove the fourth parameter or the `blockOverrides` member, or use `eth_simulateV1` for calls that need block overrides. [#11629](https://github.com/besu-eth/besu/pull/11629)
 
 ### Upcoming Breaking Changes
 - Plugin API
