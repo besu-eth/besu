@@ -44,10 +44,11 @@ public class RocksDBCLIOptions {
   private static final int OPEN_FILES_PER_GIB = 512;
 
   /**
-   * Memory left out when deriving max open files, for the OS and other processes on the host, such
-   * as a consensus client.
+   * Memory left out when deriving max open files for what the derivation does not count: a
+   * consensus client on the same host, the JVM's native memory, the memtables, allocator overhead
+   * and the OS. A mainnet node next to Nimbus used about 9 GiB for these.
    */
-  private static final long RESERVED_MEMORY_BYTES = 4 * GIB;
+  private static final long RESERVED_MEMORY_BYTES = 9 * GIB;
 
   /**
    * Column families whose block caches fill up: the chain and the Bonsai state, which are also the
