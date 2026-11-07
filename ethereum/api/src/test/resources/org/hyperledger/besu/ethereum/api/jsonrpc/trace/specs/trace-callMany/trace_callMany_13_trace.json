@@ -49,6 +49,7 @@
       "stateDiff" : null,
       "trace" : [ {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
           "gas" : "0xff300e",
           "init" : "0x6004600c60003960046000f3600035ff",
@@ -69,6 +70,7 @@
       "stateDiff" : null,
       "trace" : [ {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
           "gas" : "0xff2e26",
           "init" : "0x60006000600060006000738f0483125fcb9aaaefa9209d8e9d7b9c8b9fb90f5af1600060006000600060007300a00000000000000000000000000000000000005af1",
@@ -121,6 +123,7 @@
       "stateDiff" : null,
       "trace" : [ {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
           "gas" : "0xff300e",
           "init" : "0x6004600c60003960046000f3600035ff",
@@ -141,6 +144,7 @@
       "stateDiff" : null,
       "trace" : [ {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
           "gas" : "0xff2e26",
           "init" : "0x60006000600060006000732c2b9c9a4a25e24b174f26114e8926a9f2128fe45af2600060006000600060007300a00000000000000000000000000000000000005af2",
@@ -203,6 +207,7 @@
       "stateDiff" : null,
       "trace" : [ {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
           "gas" : "0xff300e",
           "init" : "0x6004600c60003960046000f3600035ff",
@@ -223,6 +228,7 @@
       "stateDiff" : null,
       "trace" : [ {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
           "gas" : "0xff2e4e",
           "init" : "0x600060006000600073fb88de099e13c3ed21f80a7a1e49f8caecf10df65af460006000600060007300a00000000000000000000000000000000000005af4",

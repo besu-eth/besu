@@ -36,6 +36,7 @@
         "type" : "call"
       }, {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x0180000000000000000000000000000000000000",
           "gas" : "0x4eaa",
           "init" : "0x600c600055602060406000f000",
