@@ -18,7 +18,11 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
@@ -43,13 +47,34 @@ public class Tracer {
       final BlockchainQueries blockchainQueries,
       final Optional<BlockHeader> blockHeader,
       final Function<TraceableState, ? extends Optional<TRACE>> mapper) {
-    return blockHeader
-        .map(BlockHeader::getParentHash)
-        .flatMap(
-            parentHash ->
-                blockchainQueries.getAndMapWorldState(
-                    parentHash,
-                    mutableWorldState -> mapper.apply(new TraceableState(mutableWorldState))));
+    return blockHeader.flatMap(
+        header ->
+            blockchainQueries.getAndMapWorldState(
+                header.getParentHash(),
+                mutableWorldState -> {
+                  processPreExecution(blockchainQueries, header, mutableWorldState);
+                  return mapper.apply(new TraceableState(mutableWorldState));
+                }));
+  }
+
+  private static void processPreExecution(
+      final BlockchainQueries blockchainQueries,
+      final BlockHeader blockHeader,
+      final MutableWorldState mutableWorldState) {
+    final ProtocolSpec protocolSpec = blockchainQueries.getProtocolSpec(blockHeader);
+    final BlockHashLookup blockHashLookup =
+        protocolSpec
+            .getPreExecutionProcessor()
+            .createBlockHashLookup(blockchainQueries.getBlockchain(), blockHeader);
+    final BlockProcessingContext blockProcessingContext =
+        new BlockProcessingContext(
+            blockHeader,
+            mutableWorldState,
+            protocolSpec,
+            blockHashLookup,
+            OperationTracer.NO_TRACING,
+            Optional.empty());
+    protocolSpec.getPreExecutionProcessor().process(blockProcessingContext, Optional.empty());
   }
 
   /**

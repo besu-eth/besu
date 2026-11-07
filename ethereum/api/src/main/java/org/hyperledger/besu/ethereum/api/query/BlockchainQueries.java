@@ -199,6 +199,10 @@ public class BlockchainQueries {
     return blockchain;
   }
 
+  public ProtocolSpec getProtocolSpec(final BlockHeader blockHeader) {
+    return protocolSchedule.getByBlockHeader(blockHeader);
+  }
+
   public WorldStateArchive getWorldStateArchive() {
     return worldStateArchive;
   }
