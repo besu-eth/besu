@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.chain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
@@ -25,6 +26,7 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.AbstractExecutorService;
@@ -39,11 +41,13 @@ import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.Logger;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.apache.logging.log4j.core.config.Property;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class ChainDataPrunerTest {
+  private static final InclusionListStatus SATISFIED = new InclusionListStatus(Bytes32.ZERO, true);
 
   @Test
   public void singleChainPruning() {
@@ -76,6 +80,8 @@ public class ChainDataPrunerTest {
 
     final int retention = 512;
     final int chainLength = retention + 8; // just past the pruning threshold
+    // hashes of the appended blocks, the one at index i has number i + 1
+    final List<Hash> blockHashes = new ArrayList<>();
 
     gen.blockSequenceWithAccessList(genesisBlock, chainLength)
         .forEach(
@@ -95,6 +101,8 @@ public class ChainDataPrunerTest {
                       });
 
               blockchain.appendBlock(blk, gen.receipts(blk));
+              blockchain.putInclusionListStatus(blk.getHash(), SATISFIED);
+              blockHashes.add(blk.getHash());
               long number = blk.getHeader().getNumber();
 
               // Verify balHash is set in the header
@@ -109,7 +117,15 @@ public class ChainDataPrunerTest {
               } else {
                 // Prune block number - retention only
                 assertThat(blockchain.getBlockHeader(number - retention)).isEmpty();
+                assertThat(
+                        blockchainStorage.getInclusionListStatus(
+                            blockHashes.get((int) (number - retention) - 1)))
+                    .isEmpty();
                 assertThat(blockchain.getBlockHeader(number - retention + 1)).isPresent();
+                assertThat(
+                        blockchainStorage.getInclusionListStatus(
+                            blockHashes.get((int) (number - retention))))
+                    .contains(SATISFIED);
               }
             });
   }
