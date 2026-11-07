@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomizer;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleService;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
 import java.lang.reflect.Method;
@@ -37,6 +38,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.Test;
 
@@ -157,11 +159,83 @@ class ProtocolScheduleServiceImplTest {
         .containsExactlyInAnyOrder("registerProtocolScheduleCustomizer");
   }
 
+  @Test
+  void customizersOfAPluginThatFailsToRegisterAreDiscarded() {
+    final ProtocolScheduleCustomizer healthyCustomizer = mock(ProtocolScheduleCustomizer.class);
+    final ProtocolScheduleCustomizer failedCustomizer = mock(ProtocolScheduleCustomizer.class);
+    final ProtocolScheduleCustomization expected = customization("healthy");
+    when(healthyCustomizer.customize(config)).thenReturn(Optional.of(expected));
+    when(failedCustomizer.customize(config)).thenReturn(Optional.of(customization("failed")));
+
+    final BesuPluginContextImpl context = registeringContext(true);
+    final BesuPlugin healthy =
+        plugin(
+            services ->
+                services
+                    .getBesuService(ProtocolScheduleService.class)
+                    .registerProtocolScheduleCustomizer(healthyCustomizer));
+    final BesuPlugin failing =
+        plugin(
+            services -> {
+              services
+                  .getBesuService(ProtocolScheduleService.class)
+                  .registerProtocolScheduleCustomizer(failedCustomizer);
+              throw new IllegalStateException("a later step of registration fails");
+            });
+
+    assertThat(context.registerPlugin(healthy)).isTrue();
+    assertThat(context.registerPlugin(failing)).isFalse();
+    context.endRegistration();
+
+    // only the healthy plugin's customizer is consulted, so there is no ambiguity either
+    assertThat(context.resolveProtocolScheduleCustomization(config)).isSameAs(expected);
+    verify(failedCustomizer, times(0)).customize(config);
+  }
+
+  @Test
+  void discardingSinceAMarkKeepsEarlierRegistrations() {
+    final ProtocolScheduleCustomizer earlier = mock(ProtocolScheduleCustomizer.class);
+    final ProtocolScheduleCustomizer later = mock(ProtocolScheduleCustomizer.class);
+    final ProtocolScheduleCustomization expected = customization("earlier");
+    when(earlier.customize(config)).thenReturn(Optional.of(expected));
+    when(later.customize(config)).thenReturn(Optional.of(customization("later")));
+    final ProtocolScheduleServiceImpl service = new ProtocolScheduleServiceImpl();
+    service.registerProtocolScheduleCustomizer(earlier);
+    final int mark = service.registrationMark();
+    service.registerProtocolScheduleCustomizer(later);
+
+    service.discardRegistrationsSince(mark);
+
+    assertThat(service.resolve(config)).isSameAs(expected);
+  }
+
+  private static BesuPlugin plugin(final Consumer<RegistrationContext> register) {
+    return new BesuPlugin() {
+      @Override
+      public void register(final RegistrationContext context) {
+        register.accept(context);
+      }
+
+      @Override
+      public void start(final StartContext context) {}
+
+      @Override
+      public void stop() {}
+    };
+  }
+
   /** A context with external plugins disabled, opened for registration. */
   private static BesuPluginContextImpl registeringContext() {
+    return registeringContext(false);
+  }
+
+  private static BesuPluginContextImpl registeringContext(final boolean continueOnPluginError) {
     final BesuPluginContextImpl context = new BesuPluginContextImpl();
     context.initialize(
-        ImmutablePluginConfiguration.builder().externalPluginsEnabled(false).build());
+        ImmutablePluginConfiguration.builder()
+            .externalPluginsEnabled(false)
+            .continueOnPluginError(continueOnPluginError)
+            .build());
     context.defineOptions(mock(PicoCLIOptions.class));
     context.beginRegistration();
     return context;
