@@ -880,6 +880,15 @@ class OptimisticTransactionProcessorUnitTest {
       return transaction;
     }
 
+    /** A transaction the pool did not know, whose sender is known once it was recovered. */
+    private Transaction mockTransactionOfUnknownSender(final Address recovered) {
+      final Transaction transaction = mockTransaction();
+      when(transaction.getSenderIfKnown())
+          .thenReturn(Optional.empty())
+          .thenReturn(Optional.of(recovered));
+      return transaction;
+    }
+
     private void runBlock(final List<Transaction> transactions, final Executor executor) {
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -948,31 +957,20 @@ class OptimisticTransactionProcessorUnitTest {
     @Test
     @DisplayName("Transactions of a sender the pool did not know run again chained once recovered")
     void unknownSenderIsRecoveredAndChained() {
-      final List<Runnable> background = new ArrayList<>();
-      processor =
-          new OptimisticConcurrentTransactionProcessor(
-              transactionProcessor, collisionDetector, background::add);
-      final Transaction tx1 = mockTransaction();
-      final Transaction tx2 = mockTransaction();
-      for (final Transaction transaction : List.of(tx1, tx2)) {
-        when(transaction.getSenderIfKnown())
-            .thenReturn(Optional.empty())
-            .thenReturn(Optional.of(sender));
-      }
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(sender);
       stubSuccessfulTransaction(Optional.empty());
       final List<Runnable> tasks = new ArrayList<>();
 
       runBlock(List.of(tx1, tx2), tasks::add);
-      assertThat(tasks).as("both run alone at first").hasSize(2);
-      // the recovery, then the chaining it leads to
-      runAll(background);
-      runAll(background);
+      assertThat(tasks).as("the recovery, then both run alone").hasSize(3);
+      tasks.get(0).run();
       verify(tx1).getSender();
       verify(tx2).getSender();
-      tasks.get(0).run();
+      tasks.get(1).run();
       // the second member runs on the result of the first once that finished
-      assertThat(tasks).hasSize(3);
-      tasks.get(2).run();
+      assertThat(tasks).hasSize(4);
+      tasks.get(3).run();
 
       final Optional<TransactionProcessingResult> result =
           processor.getProcessingResult(
@@ -989,38 +987,62 @@ class OptimisticTransactionProcessorUnitTest {
     @Test
     @DisplayName("An unrecoverable sender does not keep the others of its batch from being chained")
     void unrecoverableSenderDoesNotStopChaining() {
-      final List<Runnable> background = new ArrayList<>();
-      processor =
-          new OptimisticConcurrentTransactionProcessor(
-              transactionProcessor, collisionDetector, background::add);
       final Transaction unrecoverable = mockTransaction();
       when(unrecoverable.getSenderIfKnown()).thenReturn(Optional.empty());
       when(unrecoverable.getSender())
           .thenThrow(new IllegalStateException("Cannot recover public key from signature"));
-      final Transaction tx1 = mockTransaction();
-      final Transaction tx2 = mockTransaction();
-      for (final Transaction transaction : List.of(tx1, tx2)) {
-        when(transaction.getSenderIfKnown())
-            .thenReturn(Optional.empty())
-            .thenReturn(Optional.of(sender));
-      }
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(sender);
       stubSuccessfulTransaction(Optional.empty());
       final List<Runnable> tasks = new ArrayList<>();
 
       runBlock(List.of(unrecoverable, tx1, tx2), tasks::add);
-      runAll(background);
-      runAll(background);
+      tasks.get(0).run();
       verify(tx1).getSender();
       verify(tx2).getSender();
-      tasks.get(1).run();
+      tasks.get(2).run();
 
-      assertThat(tasks).as("tx2 runs again chained on tx1").hasSize(4);
+      assertThat(tasks).as("tx2 runs again chained on tx1").hasSize(5);
     }
 
-    private void runAll(final List<Runnable> runnables) {
-      final List<Runnable> pending = new ArrayList<>(runnables);
-      runnables.clear();
-      pending.forEach(Runnable::run);
+    @Test
+    @DisplayName("Unknown senders are recovered before the block's runs")
+    void unknownSendersAreRecoveredBeforeTheRuns() {
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(Address.fromHexString("0xdef"));
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+      tasks.get(0).run();
+
+      verify(tx1).getSender();
+      verify(tx2).getSender();
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Recovered senders are chained in block order")
+    void recoveredSendersAreChainedInBlockOrder() {
+      final Address other = Address.fromHexString("0xdef");
+      final Transaction a1 = mockTransactionOfUnknownSender(sender);
+      final Transaction b1 = mockTransactionOfUnknownSender(other);
+      final Transaction a2 = mockTransactionOfUnknownSender(sender);
+      final Transaction b2 = mockTransactionOfUnknownSender(other);
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(a1, b1, a2, b2), tasks::add);
+      // the runs alone end first, so each chain is queued as soon as it is set up
+      tasks.subList(1, 5).forEach(Runnable::run);
+      tasks.get(0).run();
+      assertThat(tasks).hasSize(7);
+      tasks.get(5).run();
+
+      verify(transactionProcessor, times(2))
+          .processTransaction(any(), any(), eq(a2), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor, times(1))
+          .processTransaction(any(), any(), eq(b2), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -1148,27 +1170,17 @@ class OptimisticTransactionProcessorUnitTest {
     @Test
     @DisplayName("Aborting the block stops the late chains")
     void abortStopsLateChains() {
-      final List<Runnable> background = new ArrayList<>();
-      processor =
-          new OptimisticConcurrentTransactionProcessor(
-              transactionProcessor, collisionDetector, background::add);
-      final Transaction tx1 = mockTransaction();
-      final Transaction tx2 = mockTransaction();
-      for (final Transaction transaction : List.of(tx1, tx2)) {
-        when(transaction.getSenderIfKnown())
-            .thenReturn(Optional.empty())
-            .thenReturn(Optional.of(sender));
-      }
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(sender);
       stubSuccessfulTransaction(Optional.empty());
       final List<Runnable> tasks = new ArrayList<>();
 
       runBlock(List.of(tx1, tx2), tasks::add);
-      runAll(background);
-      runAll(background);
       tasks.get(0).run();
-      assertThat(tasks).as("tx2 is chained on tx1").hasSize(3);
+      tasks.get(1).run();
+      assertThat(tasks).as("tx2 is chained on tx1").hasSize(4);
       processor.abort();
-      tasks.get(2).run();
+      tasks.get(3).run();
 
       verify(transactionProcessor, never())
           .processTransaction(any(), any(), eq(tx2), any(), any(), any(), any(), any(), any());
@@ -1191,7 +1203,7 @@ class OptimisticTransactionProcessorUnitTest {
     @Test
     @DisplayName("A run recovers the sender of the block's transaction before copying it")
     void runRecoversTheSenderBeforeCopyingTheTransaction() {
-      final Transaction transaction = mockTransaction();
+      final Transaction transaction = mockTransactionFrom(sender);
       stubSuccessfulTransaction(Optional.empty());
 
       runBlock(List.of(transaction), sameThreadExecutor);
