@@ -1,18 +1,21 @@
 # syntax=docker/dockerfile:1@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
 
-# Stage: Use Eclipse Temurin JRE
-# eclipse-temurin OpenJDK 25.0.3 (2026-04-21 LTS)
-FROM mirror.gcr.io/library/eclipse-temurin@sha256:68868d04fa9cfd5f5c6abec0b5cef86d8de2bf9c62c37c7d3e4f0f80f5cfd7ff AS java-base
+# Stage: Eclipse Temurin JDK (only /opt/java/openjdk is copied into the final image)
+# OpenJDK 25.0.5+8 (2026-10-20 LTS) on Ubuntu 26.04.1 LTS, image built 2026-10-29. The tag is rebuilt
+# when its OS base updates, so the digest is what is pinned.
+FROM mirror.gcr.io/library/eclipse-temurin:25.0.5_8-jdk@sha256:83f4a7fc27df94dcc7b8de04d14cbbba8da14406f921e966969c3b09000aa507 AS java-base
 
 # Remove the roots OpenJDK lists after the October 2026 eMudhra CA compromise
-# (https://openjdk.org/emudhra): emSign ECC Root CA - G3, which OpenJDK identifies as related to the
-# compromised intermediate CAs, and emSign Root CA - G1 as a precaution. emSign Root CA - G2 and AAA
-# Certificate Services are also listed but are not in the Temurin store; they are matched anyway, so
-# the step keeps working if a future base adds them. The emSign ECC Root CA - C3 and emSign Root CA -
+# (https://openjdk.org/emudhra, JDK-8395690, CVE-2026-114820): emSign Root CA - G1, emSign Root CA - G2,
+# emSign ECC Root CA - G3 and AAA Certificate Services. Temurin builds its cacerts from Mozilla's root list,
+# not OpenJDK's, so OpenJDK's fix does not reach it: Mozilla has dropped G3 but still trusts G1, so Temurin
+# 25.0.5+8 still ships G1 (G2 and AAA Certificate Services are not in it). All four are matched anyway, so the
+# step keeps working whatever the base ships. The emSign ECC Root CA - C3 and emSign Root CA -
 # C1 roots (eMudhra Inc, US) are deliberately left trusted: OpenJDK does not list them, and the
 # compromised intermediates chain to G3, not the C series. Matched by SHA-256 fingerprint, so this works
 # whatever their alias; the build then re-checks by subject name, so a wrong fingerprint cannot ship
-# a trusted root. Remove once the base drops them.
+# a trusted root. Remove once the build prints no "Removing" lines (Mozilla, and so Temurin, has dropped
+# G1), or if we decide to follow Mozilla's list instead of OpenJDK's.
 RUN set -eu; \
     DISTRUSTED_ROOTS="40:F6:AF:03:46:A9:9A:A1:CD:1D:55:5A:4E:9C:CE:62:C7:F9:63:46:03:EE:40:66:15:83:3D:C8:C8:D0:03:67|1A:A0:C2:70:9E:83:1B:D6:E3:B5:12:9A:00:BA:41:F7:EE:EF:02:08:72:F1:E6:50:4B:F0:F6:C3:F2:4F:3A:F3|86:A1:EC:BA:08:9C:4A:8D:3B:BE:27:34:C6:12:BA:34:1D:81:3E:04:3C:F9:E8:A8:62:CD:5C:57:A3:6B:BE:6B|D7:A7:A0:FB:5D:7E:27:31:D7:71:E9:48:4E:BC:DE:F7:1D:5F:0C:3E:0A:29:48:78:2B:C8:3E:E0:EA:69:9E:F4"; \
     KEYTOOL="$JAVA_HOME/bin/keytool"; \
@@ -24,15 +27,17 @@ RUN set -eu; \
     if $KEYTOOL -J-Duser.language=en -list -v $STORE | grep -qE '^Owner:.*CN=(emSign ECC Root CA - G3|emSign Root CA - G1|emSign Root CA - G2|AAA Certificate Services)(,|$)'; then echo "A distrusted root is still in cacerts" >&2; exit 1; fi
 
 # Stage: Final Besu image
-# ubuntu 24.04.5 LTS (Noble Numbat)
-FROM mirror.gcr.io/library/ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+# Ubuntu 24.04.5 LTS (Noble Numbat), image built 2026-10-25
+FROM mirror.gcr.io/library/ubuntu:noble-20261024.1@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 ARG VERSION="dev"
-ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0"
+# Acquire::Retries=0 mitigates CVE-2026-109518 (apt < 2.8.4ubuntu0.1 can install an unverified package
+# when a download is retried). Remove once the ubuntu:24.04 base ships apt >= 2.8.4ubuntu0.1.
+ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=0"
 
 # Update and install dependencies without using any cache
 RUN apt-get update $NO_PROXY_CACHE  && \
   # $NO_PROXY_CACHE must not be used here or otherwise will trigger a hadolint error
-  apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 \
+  apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=0 \
     --no-install-recommends -q --assume-yes install libjemalloc-dev=5.* && \
   # Clean apt cache
   apt-get clean  && \

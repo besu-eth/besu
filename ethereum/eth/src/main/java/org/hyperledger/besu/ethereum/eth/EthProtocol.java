@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth;
 
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
@@ -122,5 +123,17 @@ public class EthProtocol implements SubProtocol {
   public static boolean isEth72Compatible(final Capability capability) {
     return NAME.equals(capability.getName())
         && capability.getVersion() >= EthProtocolVersion.V72.getVersion();
+  }
+
+  /**
+   * The context to encode or decode a pooled transaction in, for a peer speaking this capability.
+   *
+   * @param capability the capability negotiated with the peer
+   * @return the eth/72 context for an eth/72 peer, otherwise the pre-eth/72 one
+   */
+  public static EncodingContext pooledTransactionContext(final Capability capability) {
+    return isEth72Compatible(capability)
+        ? EncodingContext.POOLED_TRANSACTION_ETH_72
+        : EncodingContext.POOLED_TRANSACTION;
   }
 }

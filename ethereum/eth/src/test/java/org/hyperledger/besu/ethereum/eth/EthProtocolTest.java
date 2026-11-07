@@ -16,7 +16,9 @@ package org.hyperledger.besu.ethereum.eth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 
 import java.util.List;
 import java.util.stream.Stream;
@@ -120,6 +122,24 @@ public class EthProtocolTest {
     assertThat(EthProtocol.get().messageName(72, EthProtocolMessages.GET_CELLS))
         .isEqualTo("GetCells");
     assertThat(EthProtocol.get().messageName(72, EthProtocolMessages.CELLS)).isEqualTo("Cells");
+  }
+
+  @Test
+  void theEth72ContextIsUsedOnlyForAnEth72Peer() {
+    assertThat(EthProtocol.pooledTransactionContext(EthProtocolVersion.V72.getCapability()))
+        .isEqualTo(EncodingContext.POOLED_TRANSACTION_ETH_72);
+    assertThat(EthProtocol.pooledTransactionContext(EthProtocolVersion.V71.getCapability()))
+        .isEqualTo(EncodingContext.POOLED_TRANSACTION);
+    assertThat(EthProtocol.pooledTransactionContext(EthProtocolVersion.V68.getCapability()))
+        .isEqualTo(EncodingContext.POOLED_TRANSACTION);
+  }
+
+  @Test
+  void anotherSubProtocolAtVersion72DoesNotGetTheEth72Context() {
+    // The version alone is not the question: snap/72, say, says nothing about how this node's
+    // pooled transactions are encoded.
+    assertThat(EthProtocol.pooledTransactionContext(Capability.create("snap", 72)))
+        .isEqualTo(EncodingContext.POOLED_TRANSACTION);
   }
 
   @Test
