@@ -92,7 +92,8 @@ public final class ParallelizedTransactionContext {
         && Objects.equals(this.transactionProcessingResult, that.transactionProcessingResult)
         && this.isMiningBeneficiaryTouchedPreRewardByTransaction
             == that.isMiningBeneficiaryTouchedPreRewardByTransaction
-        && Objects.equals(this.miningBeneficiaryReward, that.miningBeneficiaryReward);
+        && Objects.equals(this.miningBeneficiaryReward, that.miningBeneficiaryReward)
+        && Objects.equals(this.chainPredecessorAccumulator, that.chainPredecessorAccumulator);
   }
 
   @Override
@@ -101,7 +102,8 @@ public final class ParallelizedTransactionContext {
         transactionAccumulator,
         transactionProcessingResult,
         isMiningBeneficiaryTouchedPreRewardByTransaction,
-        miningBeneficiaryReward);
+        miningBeneficiaryReward,
+        chainPredecessorAccumulator);
   }
 
   @Override
@@ -118,6 +120,9 @@ public final class ParallelizedTransactionContext {
         + ", "
         + "miningBeneficiaryReward="
         + miningBeneficiaryReward
+        + ", "
+        + "chainPredecessorAccumulator="
+        + chainPredecessorAccumulator
         + ']';
   }
 
