@@ -1126,6 +1126,30 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("A chain stops at an invalid member, as the next would fail its nonce check")
+    void chainStopsAtAnInvalidMember() {
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction tx3 = mockTransactionFrom(sender);
+      when(transactionProcessor.processTransaction(
+              any(), any(), eq(tx1), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.invalid(
+                  ValidationResult.invalid(
+                      TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE)));
+
+      runBlock(List.of(tx1, tx2, tx3), sameThreadExecutor);
+
+      assertNotNull(processor.futures[0].resultNow());
+      assertNull(processor.futures[1].resultNow());
+      assertNull(processor.futures[2].resultNow());
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx2), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx3), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("A chain is dropped once the serial loop has reached one of its members")
     void chainStopsWhenSerialLoopReachedAMember() {
       final Transaction tx1 = mockTransactionFrom(sender);

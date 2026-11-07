@@ -436,7 +436,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         return;
       }
       future.complete(context);
-      if (context == null) {
+      // an invalid member leaves the sender's nonce as it was, so the next would fail its check
+      if (context == null || context.transactionProcessingResult().isInvalid()) {
         dropFrom(chainFutures, k + 1);
         return;
       }
