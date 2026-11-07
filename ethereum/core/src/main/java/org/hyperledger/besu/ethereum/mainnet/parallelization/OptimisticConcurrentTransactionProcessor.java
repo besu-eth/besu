@@ -179,6 +179,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                     transactions,
                     chain,
                     chainFutures,
+                    0,
+                    null,
                     miningBeneficiary,
                     blockHashLookup,
                     blobGasPrice,
@@ -319,34 +321,23 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
-    PathBasedWorldStateUpdateAccumulator<?> previous =
-        first == null || first.transactionProcessingResult().isInvalid()
-            ? null
-            : first.transactionAccumulator();
-    for (int k = 1; k < chain.size(); k++) {
-      final int txIndex = chain.get(k);
-      final CompletableFuture<ParallelizedTransactionContext> future = chainFutures.get(k);
-      if (previous == null || future.isCancelled() || serialLoopHasPassed(txIndex)) {
-        for (int j = k; j < chain.size(); j++) {
-          chainFutures.get(j).complete(null);
-        }
-        return;
-      }
-      final ParallelizedTransactionContext context =
-          runTransaction(
-              protocolContext,
-              blockHeader,
-              txIndex,
-              transactions.get(txIndex),
-              miningBeneficiary,
-              blockHashLookup,
-              blobGasPrice,
-              blockAccessListBuilder,
-              maybeParentHeader,
-              previous);
-      future.complete(context);
-      previous = context == null ? null : context.transactionAccumulator();
+    if (first == null || first.transactionProcessingResult().isInvalid()) {
+      dropFrom(chainFutures, 1);
+      return;
     }
+    runChain(
+        protocolContext,
+        blockHeader,
+        transactions,
+        chain,
+        chainFutures,
+        1,
+        first.transactionAccumulator(),
+        miningBeneficiary,
+        blockHashLookup,
+        blobGasPrice,
+        blockAccessListBuilder,
+        maybeParentHeader);
   }
 
   /**
@@ -393,49 +384,69 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     }
   }
 
+  /**
+   * Runs the members of a chain from the given one on, each on the state the previous one left.
+   *
+   * @param from the first member to run
+   * @param previous the state the member before it left, or null if it is the first of the chain
+   */
   private void runChain(
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
       final List<Transaction> transactions,
       final List<Integer> chain,
       final List<CompletableFuture<ParallelizedTransactionContext>> chainFutures,
+      final int from,
+      final PathBasedWorldStateUpdateAccumulator<?> previous,
       final Address miningBeneficiary,
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
-    PathBasedWorldStateUpdateAccumulator<?> previous = null;
-    for (int k = 0; k < chain.size(); k++) {
+    PathBasedWorldStateUpdateAccumulator<?> state = previous;
+    for (int k = from; k < chain.size(); k++) {
       final int txIndex = chain.get(k);
       final CompletableFuture<ParallelizedTransactionContext> future = chainFutures.get(k);
       // Once the serial loop has reached a member, the rest of the chain would run without the
       // state that member leaves behind, so the whole remainder is dropped.
       if (future.isCancelled() || serialLoopHasPassed(txIndex)) {
-        for (int j = k; j < chain.size(); j++) {
-          chainFutures.get(j).complete(null);
-        }
+        dropFrom(chainFutures, k);
         return;
       }
-      final ParallelizedTransactionContext context =
-          runTransaction(
-              protocolContext,
-              blockHeader,
-              txIndex,
-              transactions.get(txIndex),
-              miningBeneficiary,
-              blockHashLookup,
-              blobGasPrice,
-              blockAccessListBuilder,
-              maybeParentHeader,
-              previous);
+      final ParallelizedTransactionContext context;
+      try {
+        context =
+            runTransaction(
+                protocolContext,
+                blockHeader,
+                txIndex,
+                transactions.get(txIndex),
+                miningBeneficiary,
+                blockHashLookup,
+                blobGasPrice,
+                blockAccessListBuilder,
+                maybeParentHeader,
+                state);
+      } catch (final Throwable t) {
+        // completed with the error so that the serial loop reports it, as for a run alone
+        future.completeExceptionally(t);
+        dropFrom(chainFutures, k + 1);
+        return;
+      }
       future.complete(context);
       if (context == null) {
-        for (int j = k + 1; j < chain.size(); j++) {
-          chainFutures.get(j).complete(null);
-        }
+        dropFrom(chainFutures, k + 1);
         return;
       }
-      previous = context.transactionAccumulator();
+      state = context.transactionAccumulator();
+    }
+  }
+
+  /** Leaves the members from the given one on without a result, so they run in the serial loop. */
+  private static void dropFrom(
+      final List<CompletableFuture<ParallelizedTransactionContext>> chainFutures, final int from) {
+    for (int k = from; k < chainFutures.size(); k++) {
+      chainFutures.get(k).complete(null);
     }
   }
 
