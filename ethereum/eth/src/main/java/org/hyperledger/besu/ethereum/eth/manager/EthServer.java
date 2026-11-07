@@ -25,16 +25,23 @@ import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
+import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
+import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
+import org.hyperledger.besu.ethereum.core.kzg.Cell;
+import org.hyperledger.besu.ethereum.core.kzg.CellMask;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationException;
 import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
+import org.hyperledger.besu.ethereum.eth.messages.CellsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
+import org.hyperledger.besu.ethereum.eth.messages.GetCellsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPaginatedReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetReceiptsMessage;
@@ -53,11 +60,22 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 class EthServer {
   private static final Logger LOG = LoggerFactory.getLogger(EthServer.class);
+
+  // Upper bounds for sizing a Cells response. Every RLP item is charged the largest possible
+  // prefix, so the estimate only ever overshoots: overshooting drops a transaction or two from a
+  // full response, whereas undershooting would emit a message the peer rejects.
+  private static final int CELL_RLP_MAX_SIZE = Cell.SIZE + RLP.MAX_PREFIX_SIZE;
+  private static final int HASH_RLP_MAX_SIZE = Bytes32.SIZE + RLP.MAX_PREFIX_SIZE;
+  // The three top level item headers, the cells bitmap, and the request id envelope that
+  // RequestManager prepends.
+  private static final int CELLS_RESPONSE_FIXED_OVERHEAD =
+      CellMask.BYTE_LENGTH + 5 * RLP.MAX_PREFIX_SIZE;
   private final Blockchain blockchain;
   private final TransactionPool transactionPool;
   private final EthMessages ethMessages;
@@ -129,6 +147,15 @@ class EthServer {
                 blockchain,
                 messageData,
                 ethereumWireProtocolConfiguration.getMaxGetBlockAccessLists(),
+                maxMessageSize));
+    ethMessages.registerResponseConstructor(
+        EthProtocolMessages.GET_CELLS,
+        (peer, messageData, capability) ->
+            constructGetCellsResponse(
+                transactionPool,
+                peer,
+                messageData,
+                ethereumWireProtocolConfiguration.getMaxGetCellsTransactions(),
                 maxMessageSize));
   }
 
@@ -478,5 +505,129 @@ class EthServer {
     }
 
     return PooledTransactionsMessage.createUnsafe(rlp.encoded());
+  }
+
+  static MessageData constructGetCellsResponse(
+      final TransactionPool transactionPool,
+      final EthPeer peer,
+      final MessageData message,
+      final int requestLimit,
+      final int maxMessageSize) {
+    final GetCellsMessage getCells = GetCellsMessage.readFrom(message);
+    final Iterable<Hash> hashes = getCells.pooledTransactions();
+    final CellMask reqCellMask = getCells.cellMask();
+
+    final boolean traceEnabled = LOG.isTraceEnabled();
+    final Iterable<Hash> hashesToProcess;
+    if (traceEnabled) {
+      final List<Hash> requested = new ArrayList<>();
+      hashes.forEach(requested::add);
+      LOG.atTrace()
+          .setMessage(
+              "Requested cells for pooled transactions: peer={}, requested hashes={}, cell mask={}")
+          .addArgument(peer)
+          .addArgument(requested)
+          .addArgument(reqCellMask)
+          .log();
+      hashesToProcess = requested;
+    } else {
+      hashesToProcess = hashes;
+    }
+
+    int requestedCount = 0;
+
+    // Indexed in parallel: returnedCells.get(i) holds the cells for returnedHashes.get(i).
+    final List<Hash> returnedHashes = new ArrayList<>();
+    final List<List<Cell>> returnedCells = new ArrayList<>();
+    int responseSizeEstimate = CELLS_RESPONSE_FIXED_OVERHEAD;
+
+    for (final Hash hash : hashesToProcess) {
+      if (requestedCount >= requestLimit) {
+        LOG.atTrace()
+            .setMessage("Requested txs (for cells) limit reached: peer={}, requested hashes={}")
+            .addArgument(peer)
+            .addArgument(hashesToProcess)
+            .log();
+        break;
+      }
+      requestedCount++;
+
+      final Optional<Transaction> maybeTx = transactionPool.getTransactionByHash(hash);
+      if (maybeTx.isEmpty()) {
+        continue;
+      }
+
+      final Transaction tx = maybeTx.get();
+
+      if (!tx.getType().supportsBlob()) {
+        continue;
+      }
+
+      final BlobsWithCommitments bwc = tx.getBlobsWithCommitments().orElseThrow();
+
+      if (!bwc.hasCells()) {
+        // A blob type from before cells existed. Its mask reads as full, so this has to be asked
+        // before the mask is trusted, or the cells read below would not be there.
+        LOG.atTrace()
+            .setMessage("Ignoring blob tx {} of a blob type that carries no cells")
+            .addArgument(tx::toTraceLog)
+            .log();
+        continue;
+      }
+
+      // All blobs of a transaction share one mask, enforced by BlobsWithCommitments, so a single
+      // check covers every bundle read below.
+      final CellMask cellMask = bwc.getCellMask();
+
+      if (!cellMask.containsAll(reqCellMask)) {
+        LOG.atTrace()
+            .setMessage(
+                "Ignoring blob tx {} with cell mask {} since it does not contain all requested cells {}")
+            .addArgument(tx::toTraceLog)
+            .addArgument(cellMask)
+            .addArgument(reqCellMask)
+            .log();
+        continue;
+      }
+
+      final List<BlobProofBundle> bundles = bwc.getBlobProofBundles();
+
+      // How many cells this transaction contributes is known before building them, so the budget
+      // is checked first and an oversized transaction costs nothing to skip.
+      final int cellCount = reqCellMask.cardinality() * bundles.size();
+      final int txSizeEstimate =
+          HASH_RLP_MAX_SIZE + RLP.MAX_PREFIX_SIZE + cellCount * CELL_RLP_MAX_SIZE;
+      if (responseSizeEstimate + txSizeEstimate > maxMessageSize) {
+        LOG.atTrace()
+            .setMessage("Response size limit reached: peer={}, returned txs={}, estimated size={}")
+            .addArgument(peer)
+            .addArgument(returnedHashes::size)
+            .addArgument(responseSizeEstimate)
+            .log();
+        break;
+      }
+      responseSizeEstimate += txSizeEstimate;
+
+      // Serve exactly the requested cells, so the response matches the cell mask it is labelled
+      // with. The group is ordered blob major: for each blob in transaction order, its requested
+      // cells by ascending index.
+      // Safe for every bundle: the mask checked above is shared by all of them.
+      final List<Cell> txCells = new ArrayList<>(cellCount);
+      for (final BlobProofBundle bundle : bundles) {
+        final CellsWithMask cellsWithMask = bundle.getCellsWithMask().orElseThrow();
+        reqCellMask.streamIndexes().forEach(index -> txCells.add(cellsWithMask.getCell(index)));
+      }
+      returnedHashes.add(hash);
+      returnedCells.add(txCells);
+    }
+
+    LOG.atTrace()
+        .setMessage("Sending cells: peer={}, returned hashes={}, cell mask={}")
+        .addArgument(peer)
+        .addArgument(returnedHashes)
+        .addArgument(reqCellMask)
+        .log();
+
+    return CellsMessage.create(returnedHashes, returnedCells, reqCellMask);
   }
 }

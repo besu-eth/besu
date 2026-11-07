@@ -118,6 +118,7 @@ public final class DisconnectMessage extends AbstractMessageData {
     BREACH_OF_PROTOCOL_NON_SEQUENTIAL_HEADERS((byte) 0x02, "Non-sequential headers received"),
     BREACH_OF_PROTOCOL_INVALID_BLOCK((byte) 0x02, "Invalid block detected"),
     BREACH_OF_PROTOCOL_INVALID_HEADERS((byte) 0x02, "Invalid headers detected"),
+    BREACH_OF_PROTOCOL_INVALID_CELLS((byte) 0x02, "Blob cells that do not open their commitment"),
     BREACH_OF_PROTOCOL_INVALID_MESSAGE_CODE_FOR_PROTOCOL(
         (byte) 0x02, "Invalid message code for specified protocol"),
     BREACH_OF_PROTOCOL_MESSAGE_RECEIVED_BEFORE_HELLO_EXCHANGE(
