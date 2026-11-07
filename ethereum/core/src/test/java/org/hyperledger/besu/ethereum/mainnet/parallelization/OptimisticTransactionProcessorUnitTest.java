@@ -76,6 +76,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -987,6 +988,39 @@ class OptimisticTransactionProcessorUnitTest {
       verify(tx2).getSender();
       verify(transactionProcessor, never())
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("A recovered sender is chained together with its transactions the pool knew")
+    void recoveredSenderIsChainedWithItsKnownTransactions() {
+      final Transaction known1 = mockTransactionFrom(sender);
+      final Transaction unknown = mockTransactionOfUnknownSender(sender);
+      final Transaction known2 = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(known1, unknown, known2), tasks::add);
+      assertThat(tasks).as("the recovery, the known chain and the unknown run alone").hasSize(3);
+      tasks.get(0).run();
+      // the known chain, which skipped the unknown transaction
+      tasks.get(1).run();
+      assertThat(tasks).as("the rest runs again chained on the first known one").hasSize(4);
+      tasks.get(3).run();
+
+      verify(transactionProcessor)
+          .processTransaction(any(), any(), eq(unknown), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor, times(2))
+          .processTransaction(any(), any(), eq(known2), any(), any(), any(), any(), any(), any());
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, unknown, 1, Optional.empty(), Optional.empty());
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, known2, 2, Optional.empty(), Optional.empty());
+      final ArgumentCaptor<ParallelizedTransactionContext> contexts =
+          ArgumentCaptor.forClass(ParallelizedTransactionContext.class);
+      verify(collisionDetector, times(2)).hasCollision(any(), any(), contexts.capture(), any());
+      assertThat(contexts.getAllValues().get(1).chainPredecessorAccumulator())
+          .as("the second known transaction ran on the state the unknown one left")
+          .isSameAs(contexts.getAllValues().get(0).transactionAccumulator());
     }
 
     @Test

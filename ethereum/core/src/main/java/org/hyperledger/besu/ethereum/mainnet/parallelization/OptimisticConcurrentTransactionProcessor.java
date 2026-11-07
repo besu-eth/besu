@@ -36,8 +36,8 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -220,6 +220,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           protocolContext,
           blockHeader,
           transactions,
+          senders,
+          bySender,
           unknownSenders,
           recovered,
           miningBeneficiary,
@@ -251,13 +253,20 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   /**
    * The transaction pool knows the senders of the transactions it saw, but not those sent to block
    * builders directly, so those run alone at first and the later ones of a sender fail their nonce
-   * check. Once their senders are recovered, the transactions that turn out to share a sender run
-   * again chained on the result of the first one, which ran alone correctly.
+   * check. Once their senders are recovered, the transactions of a sender, together with those of
+   * it the pool knew, run again chained from the last result that already ran on the state before
+   * it: the result of the last known transaction before the first unknown one, or the first unknown
+   * one's own run.
+   *
+   * @param senders the sender of each transaction known when the runs were set up, else null
+   * @param knownBySender the transactions of each sender known then, in block order
    */
   private void chainUnknownSenders(
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
       final List<Transaction> transactions,
+      final Address[] senders,
+      final Map<Address, List<Integer>> knownBySender,
       final List<Integer> unknownSenders,
       final CompletableFuture<Void> recovered,
       final Address miningBeneficiary,
@@ -266,31 +275,44 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Executor executor,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
-    final Map<Integer, CompletableFuture<ParallelizedTransactionContext>> aloneRuns =
-        new HashMap<>();
-    for (final int txIndex : unknownSenders) {
-      aloneRuns.put(txIndex, futures[txIndex]);
-    }
+    // the serial loop takes the runs out of the futures meanwhile
+    final CompletableFuture<ParallelizedTransactionContext>[] runs = futures.clone();
     // run where the last recovery ends rather than queued behind the block's runs
     recovered.thenRun(
         () -> {
-          // in the block order of each sender's first transaction, the order they are needed in
-          final Map<Address, List<Integer>> bySender = new LinkedHashMap<>();
+          final Map<Address, List<Integer>> bySender = new HashMap<>();
           for (final int txIndex : unknownSenders) {
             transactions
                 .get(txIndex)
                 .getSenderIfKnown()
                 .ifPresent(
                     sender ->
-                        bySender.computeIfAbsent(sender, k -> new ArrayList<>(1)).add(txIndex));
+                        bySender
+                            .computeIfAbsent(
+                                sender,
+                                s -> new ArrayList<>(knownBySender.getOrDefault(s, List.of())))
+                            .add(txIndex));
           }
-          for (final List<Integer> chain : bySender.values()) {
-            if (chain.size() < 2) {
-              continue;
+          final List<List<Integer>> lateChains = new ArrayList<>();
+          for (final List<Integer> transactionsOfSender : bySender.values()) {
+            transactionsOfSender.sort(null);
+            int firstUnknown = 0;
+            while (senders[transactionsOfSender.get(firstUnknown)] != null) {
+              firstUnknown++;
             }
+            final List<Integer> chain =
+                transactionsOfSender.subList(
+                    Math.max(0, firstUnknown - 1), transactionsOfSender.size());
+            if (chain.size() > 1) {
+              lateChains.add(chain);
+            }
+          }
+          // in block order, the order they are needed in
+          lateChains.sort(Comparator.comparing(chain -> chain.get(0)));
+          for (final List<Integer> chain : lateChains) {
             final List<CompletableFuture<ParallelizedTransactionContext>> chainFutures =
                 new ArrayList<>(chain.size());
-            chainFutures.add(aloneRuns.get(chain.get(0)));
+            chainFutures.add(runs[chain.get(0)]);
             for (int k = 1; k < chain.size(); k++) {
               final CompletableFuture<ParallelizedTransactionContext> future =
                   new CompletableFuture<>();
@@ -326,7 +348,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     }
   }
 
-  /** Runs the rest of a chain on the result of its first member, which ran alone. */
+  /** Runs the rest of a chain on the result of its first member. */
   private void runChainAfter(
       final ParallelizedTransactionContext first,
       final ProtocolContext protocolContext,
