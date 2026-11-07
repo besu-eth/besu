@@ -18,6 +18,7 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.io.Closeable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -142,6 +143,75 @@ public interface SegmentedKeyValueStorage extends Closeable {
    */
   default SegmentedKeyValueStorageTransaction startBatchTransaction() throws StorageException {
     return startTransaction();
+  }
+
+  /**
+   * Tells the storage that a large amount of data is about to be loaded into the segments, mostly
+   * through {@link #startSortedWriter}. Until the returned load is closed the storage may hold back
+   * the background work that reorganises the segments: during the load that work rewrites entries
+   * over and over that are about to be put where they belong anyway.
+   *
+   * <p>Reads and regular writes keep working during the load, but may be slower than usual. The
+   * default implementation does nothing.
+   *
+   * @param segmentIdentifiers the segments that are loaded
+   * @return the bulk load, which has to be closed when the data is in
+   */
+  default SegmentBulkLoad startBulkLoad(final List<SegmentIdentifier> segmentIdentifiers) {
+    return () -> {};
+  }
+
+  /**
+   * Starts a bulk load as {@link #startBulkLoad(List)} does, which also takes in large values
+   * through regular writes in no particular key order, each written once. Until the load is closed
+   * the storage may keep those values apart from their keys, so that reorganising their segments
+   * moves the keys only. The values written meanwhile stay apart. The default implementation does
+   * not.
+   *
+   * @param segmentIdentifiers the segments that are loaded
+   * @param separateValueSegments the segments of large values written in no particular key order,
+   *     none of them also in {@code segmentIdentifiers}
+   * @return the bulk load, which has to be closed when the data is in
+   */
+  default SegmentBulkLoad startBulkLoad(
+      final List<SegmentIdentifier> segmentIdentifiers,
+      final List<SegmentIdentifier> separateValueSegments) {
+    return startBulkLoad(segmentIdentifiers);
+  }
+
+  /**
+   * Starts adding entries to a segment in increasing key order, written to a file then added to the
+   * segment at once, without going through the memtable and its compactions. Storage that cannot
+   * add files falls back to a batch transaction.
+   *
+   * @param segment the segment the entries are added to
+   * @return the writer, not shared between threads
+   * @throws StorageException problem encountered when starting the writer
+   */
+  default SortedWriter startSortedWriter(final SegmentIdentifier segment) throws StorageException {
+    final SegmentedKeyValueStorageTransaction transaction = startBatchTransaction();
+    return new SortedWriter() {
+      private byte[] last;
+
+      @Override
+      public void put(final byte[] key, final byte[] value) {
+        if (last != null && Arrays.compareUnsigned(key, last) <= 0) {
+          throw new StorageException("keys must be added in increasing order");
+        }
+        last = key;
+        transaction.put(segment, key, value);
+      }
+
+      @Override
+      public void commit() {
+        transaction.commit();
+      }
+
+      @Override
+      public void rollback() {
+        transaction.rollback();
+      }
+    };
   }
 
   /**
