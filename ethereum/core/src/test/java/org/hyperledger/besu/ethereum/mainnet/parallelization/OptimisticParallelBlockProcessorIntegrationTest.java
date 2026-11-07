@@ -26,12 +26,19 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
 
 import org.hyperledger.besu.crypto.KeyPair;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.math.BigInteger;
 import java.util.Optional;
@@ -280,6 +287,41 @@ class OptimisticParallelBlockProcessorIntegrationTest {
       assertThat(result.parResult().getNbParallelizedTransactions())
           .as("only the speculative result of the first transaction is kept")
           .contains(1);
+    }
+
+    @Test
+    @DisplayName("A warm-up executes a transaction whose sender cannot pay its gas at the parent")
+    void warmUpExecutesWhenTheSenderCannotPayItsGasAtTheParent() {
+      final ExecutionContextTestFixture ctx = createFreshContext();
+      final MainnetTransactionProcessor transactionProcessor =
+          ctx.getProtocolSchedule()
+              .getByBlockHeader(ctx.getBlockchain().getChainHeadHeader())
+              .getTransactionProcessor();
+      final BlockHeader blockHeader = createBlock(ctx, Hash.ZERO, Wei.of(5)).getHeader();
+      // a sender that an earlier transaction of the block funds has nothing at the parent
+      final Transaction transaction =
+          createTransferTransaction(
+              0,
+              0L,
+              21_000L,
+              0L,
+              5L,
+              ACCOUNT_4,
+              SignatureAlgorithmFactory.getInstance().generateKeyPair());
+
+      final TransactionProcessingResult result =
+          transactionProcessor.processTransaction(
+              ctx.getStateArchive().getWorldState().updater(),
+              blockHeader,
+              transaction,
+              blockHeader.getCoinbase(),
+              OperationTracer.NO_TRACING,
+              (frame, number) -> Hash.ZERO,
+              OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION,
+              Wei.ZERO,
+              Optional.empty());
+
+      assertThat(result.isSuccessful()).as(result.getValidationResult().toString()).isTrue();
     }
 
     private Transaction call(final Address to, final Bytes payload, final KeyPair keyPair) {

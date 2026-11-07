@@ -77,6 +77,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // senders recovered per task, few enough to spread over the executor's threads
   private static final int SENDER_RECOVERY_BATCH = 8;
 
+  // a warm-up runs before the member's predecessors, which may pay its nonce and gas
+  @VisibleForTesting
+  static final TransactionValidationParams WARM_UP_VALIDATION =
+      TransactionValidationParams.transactionSimulatorAllowUnderpricedAndFutureNonce();
+
   /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
    * processor is responsible for the individual processing of transactions.
@@ -343,8 +348,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   /**
    * Executes a chained transaction against the parent state only for what it reads, so that its run
-   * on top of its predecessors finds that state cached. Its nonce and balance checks are relaxed as
-   * the predecessors have not run, and its result is discarded.
+   * on top of its predecessors finds that state cached. Its nonce and gas payment checks are
+   * relaxed as the predecessors have not run, and its result is discarded.
    */
   private void warmUp(
       final ProtocolContext protocolContext,
@@ -376,7 +381,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
             miningBeneficiary,
             OperationTracer.NO_TRACING,
             blockHashLookup.forkForParallelWorker(),
-            TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce(),
+            WARM_UP_VALIDATION,
             blobGasPrice,
             Optional.empty());
       } finally {

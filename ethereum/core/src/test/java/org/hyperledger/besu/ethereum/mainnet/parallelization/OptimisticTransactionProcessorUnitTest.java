@@ -1015,9 +1015,7 @@ class OptimisticTransactionProcessorUnitTest {
               any(),
               any(),
               any(),
-              eq(
-                  TransactionValidationParams
-                      .transactionSimulatorAllowExceedingBalanceAndFutureNonce()),
+              eq(OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION),
               any(),
               any());
     }
@@ -1068,9 +1066,7 @@ class OptimisticTransactionProcessorUnitTest {
               any(),
               any(),
               any(),
-              eq(
-                  TransactionValidationParams
-                      .transactionSimulatorAllowExceedingBalanceAndFutureNonce()),
+              eq(OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION),
               any(),
               any());
     }
