@@ -96,7 +96,7 @@ dependencies {
     api 'com.google.dagger:dagger-compiler:2.59.2'
     api 'com.google.dagger:dagger:2.59.2'
 
-    api 'com.google.guava:guava:33.7.2-jre'
+    api 'com.google.guava:guava:33.8.0-jre'
 
     api 'org.checkerframework:checker-qual:3.43.0'
 

@@ -93,6 +93,76 @@ public class OrderStatistics {
     }
   }
 
+  /**
+   * Select the kth-smallest element from {@code array} (0-based) using an in-place selection
+   * algorithm.
+   *
+   * <p>Note: the input array will be mutated (elements may be reordered).
+   *
+   * @param array the array to select from
+   * @param k the desired order statistic (0-based)
+   * @return the element that would be at position {@code k} if the array were fully sorted
+   */
+  public static long selectKthInPlace(final long[] array, final int k) {
+    Objects.requireNonNull(array);
+
+    if (array.length == 0) {
+      throw new IllegalArgumentException("array must not be empty");
+    }
+    if (k < 0 || k >= array.length) {
+      throw new IllegalArgumentException("k out of range: " + k);
+    }
+
+    int left = 0;
+    int right = array.length - 1;
+
+    while (true) {
+      if (left == right) {
+        return array[left];
+      }
+
+      if (right - left < SMALL_PARTITION_SORT_THRESHOLD) {
+        Arrays.sort(array, left, right + 1);
+        return array[k];
+      }
+
+      final long pivot =
+          medianOfThree(array[left], array[left + ((right - left) >>> 1)], array[right]);
+
+      // 3-way partition: [left, lt) < pivot, [lt, gt] == pivot, (gt, right] > pivot.
+      int lt = left;
+      int i = left;
+      int gt = right;
+      while (i <= gt) {
+        if (array[i] < pivot) {
+          swap(array, lt++, i++);
+        } else if (array[i] > pivot) {
+          swap(array, i, gt--);
+        } else {
+          i++;
+        }
+      }
+
+      if (k < lt) {
+        right = lt - 1;
+      } else if (k > gt) {
+        left = gt + 1;
+      } else {
+        return pivot;
+      }
+    }
+  }
+
+  private static long medianOfThree(final long a, final long b, final long c) {
+    return Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+  }
+
+  private static void swap(final long[] a, final int i, final int j) {
+    final long tmp = a[i];
+    a[i] = a[j];
+    a[j] = tmp;
+  }
+
   private static <T> int medianOfThree(
       final T[] a, final int i, final int j, final int k, final Comparator<? super T> comparator) {
     final T ai = a[i];
