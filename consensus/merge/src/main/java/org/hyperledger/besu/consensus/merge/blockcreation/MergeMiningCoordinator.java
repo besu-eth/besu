@@ -98,23 +98,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    */
   default BlockProcessingResult rememberBlock(
       final Block block, final Optional<BlockAccessList> blockAccessList) {
-    return rememberBlock(block, blockAccessList, InclusionListTransactions.EMPTY, Runnable::run);
-  }
-
-  /**
-   * Remember block with optional block access list, checking whether it satisfies the inclusion
-   * list (EIP-7805).
-   *
-   * @param block the block
-   * @param blockAccessList optional block access list
-   * @param inclusionListTransactions inclusion list transactions
-   * @return the block processing result
-   */
-  default BlockProcessingResult rememberBlock(
-      final Block block,
-      final Optional<BlockAccessList> blockAccessList,
-      final InclusionListTransactions inclusionListTransactions) {
-    return rememberBlock(block, blockAccessList, inclusionListTransactions, Runnable::run);
+    return rememberBlock(block, blockAccessList, Optional.empty(), Runnable::run);
   }
 
   /**
@@ -131,25 +115,26 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
       final Executor blockWriter) {
-    return rememberBlock(block, blockAccessList, InclusionListTransactions.EMPTY, blockWriter);
+    return rememberBlock(block, blockAccessList, Optional.empty(), blockWriter);
   }
 
   /**
    * Remember a block, checking whether it satisfies the inclusion list (EIP-7805), and handing the
    * writes that store a valid one to the given writer, which may run them later. They write the
    * block's trie log ahead of the block, since moving the head to a stored block needs its trie
-   * log.
+   * log, and the block's inclusion list status after the block, if an inclusion list is given.
    *
    * @param block the block
    * @param blockAccessList optional block access list
-   * @param inclusionListTransactions inclusion list transactions
+   * @param inclusionListTransactions the inclusion list transactions, if the block is checked
+   *     against an inclusion list and its status stored
    * @param blockWriter runs the writes that store the block
    * @return the block processing result
    */
   BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final InclusionListTransactions inclusionListTransactions,
+      final Optional<InclusionListTransactions> inclusionListTransactions,
       final Executor blockWriter);
 
   /**

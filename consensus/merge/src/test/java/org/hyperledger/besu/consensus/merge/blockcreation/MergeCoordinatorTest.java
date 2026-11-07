@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryWorldStateArchive;
@@ -29,6 +30,8 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -53,6 +56,7 @@ import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.GenesisState;
+import org.hyperledger.besu.ethereum.chain.InclusionListStatus;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -80,6 +84,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTrans
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -119,6 +124,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -1474,6 +1480,57 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .isFalse();
 
     when(mergeContext.getFinalized()).thenReturn(finalizedHeader);
+  }
+
+  @Test
+  public void storesTheInclusionListStatusAfterTheBlock() {
+    final Block block = new Block(terminalPowBlock(), BlockBody.empty());
+
+    assertThat(
+            coordinator
+                .rememberBlock(
+                    block,
+                    Optional.empty(),
+                    Optional.of(InclusionListTransactions.EMPTY),
+                    Runnable::run)
+                .getYield())
+        .isPresent();
+
+    // a stored status always has its block, so it is pruned with it
+    final InOrder inOrder = inOrder(blockchain);
+    inOrder.verify(blockchain).storeBlock(eq(block), any(), any());
+    inOrder.verify(blockchain).putInclusionListStatus(eq(block.getHash()), any());
+    assertThat(blockchain.getInclusionListStatus(block.getHash()))
+        .contains(new InclusionListStatus(InclusionListTransactions.EMPTY.getChecksum(), true));
+  }
+
+  @Test
+  public void doesNotStoreTheInclusionListStatusIfStoringTheBlockFails() {
+    final Block block = new Block(terminalPowBlock(), BlockBody.empty());
+    doThrow(new IllegalStateException("storing the block failed"))
+        .when(blockchain)
+        .storeBlock(eq(block), any(), any());
+
+    assertThatThrownBy(
+            () ->
+                coordinator.rememberBlock(
+                    block,
+                    Optional.empty(),
+                    Optional.of(InclusionListTransactions.EMPTY),
+                    Runnable::run))
+        .hasMessage("storing the block failed");
+
+    verify(blockchain, never()).putInclusionListStatus(any(), any());
+  }
+
+  @Test
+  public void doesNotStoreAnInclusionListStatusWithoutAnInclusionList() {
+    final Block block = new Block(terminalPowBlock(), BlockBody.empty());
+
+    assertThat(coordinator.rememberBlock(block).getYield()).isPresent();
+
+    verify(blockchain).storeBlock(eq(block), any(), any());
+    verify(blockchain, never()).putInclusionListStatus(any(), any());
   }
 
   private BlockHeader terminalPowBlock() {

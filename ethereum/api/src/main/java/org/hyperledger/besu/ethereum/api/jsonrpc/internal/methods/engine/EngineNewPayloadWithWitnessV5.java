@@ -21,7 +21,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -30,7 +29,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExecutionWitnessResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadWithWitnessResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadPostExecutionValidationResultV1;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -89,10 +87,9 @@ public final class EngineNewPayloadWithWitnessV5<
   @Override
   protected JsonRpcResponse respondWithValid(
       final Object requestId,
-      final ExecutionPayloadV1 param,
+      final NPRP requestParameters,
       final BlockHeader newBlockHeader,
-      final BlockProcessingResult executionResult,
-      final PayloadPostExecutionValidationResultV1 postExecutionResult) {
+      final BlockProcessingResult executionResult) {
     final Hash validHash = newBlockHeader.getHash();
     final Optional<BlockAccessList> blockAccessList =
         executionResult.getYield().flatMap(BlockProcessingOutputs::getBlockAccessList);
@@ -123,7 +120,7 @@ public final class EngineNewPayloadWithWitnessV5<
       return new JsonRpcErrorResponse(requestId, RpcErrorType.INTERNAL_ERROR);
     }
 
-    logNewPayloadResponse(param, validHash, VALID);
+    logNewPayloadResponse(requestParameters.payloadParameter(), validHash, VALID);
     return new JsonRpcSuccessResponse(
         requestId,
         new EnginePayloadWithWitnessResult(

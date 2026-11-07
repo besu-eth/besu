@@ -24,11 +24,13 @@ import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ConstructorArgumentsBuilder;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadPostExecutionValidationResultV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -47,6 +49,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.vertx.core.Vertx;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -72,17 +75,27 @@ class EngineNewPayloadWithWitnessV5Test {
   @Mock private EthPeers ethPeers;
   @Mock private EngineCallListener engineCallListener;
   @Mock private TransactionPool transactionPool;
-  @Mock private ExecutionPayloadV1 param;
+  @Mock private ExecutionPayloadV4 param;
 
   private final BlockHeader newBlockHeader = new BlockHeaderTestFixture().buildHeader();
-  private EngineNewPayloadWithWitnessV5<?, ?> method;
+  private EngineNewPayloadWithWitnessV5<
+          ExecutionPayloadV4, NewPayloadRequestParametersV3<ExecutionPayloadV4>>
+      method;
+  private NewPayloadRequestParametersV3<ExecutionPayloadV4> requestParameters;
 
   @BeforeEach
   void setUp() {
     method = newMethod();
+    requestParameters =
+        new NewPayloadRequestParametersV3<>(
+            new NewPayloadRequestParametersV2<>(
+                new NewPayloadRequestParametersV1<>(param), List.of(), Bytes32.ZERO),
+            List.of());
   }
 
-  private EngineNewPayloadWithWitnessV5<?, ?> newMethod() {
+  private EngineNewPayloadWithWitnessV5<
+          ExecutionPayloadV4, NewPayloadRequestParametersV3<ExecutionPayloadV4>>
+      newMethod() {
     return new EngineNewPayloadWithWitnessV5<>(
         new ConstructorArgumentsBuilder()
             .protocolSchedule(protocolSchedule)
@@ -109,10 +122,9 @@ class EngineNewPayloadWithWitnessV5Test {
     final JsonRpcResponse resp =
         method.respondWithValid(
             REQUEST_ID,
-            param,
+            requestParameters,
             newBlockHeader,
-            new BlockProcessingResult(Optional.empty()),
-            PayloadPostExecutionValidationResultV1.SUCCESS);
+            new BlockProcessingResult(Optional.empty()));
 
     assertInternalError(resp);
   }
@@ -129,10 +141,9 @@ class EngineNewPayloadWithWitnessV5Test {
     final JsonRpcResponse resp =
         method.respondWithValid(
             REQUEST_ID,
-            param,
+            requestParameters,
             newBlockHeader,
-            new BlockProcessingResult(Optional.of(outputs)),
-            PayloadPostExecutionValidationResultV1.SUCCESS);
+            new BlockProcessingResult(Optional.of(outputs)));
 
     assertInternalError(resp);
   }

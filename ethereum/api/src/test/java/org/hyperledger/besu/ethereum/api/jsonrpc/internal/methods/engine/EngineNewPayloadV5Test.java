@@ -100,7 +100,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
 
   @Override
   protected OptionalLong getMaxSupportedTimestamp() {
-    return OptionalLong.empty();
+    return OptionalLong.of(bogotaHardfork.milestone() - 1);
   }
 
   @Test
