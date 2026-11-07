@@ -93,6 +93,16 @@ public class TransactionTracer {
       final Hash blockHash,
       final Optional<TransactionTraceParams> transactionTraceParams,
       final Path traceDir) {
+    return traceTransactionToFile(
+        mutableWorldState, blockHash, transactionTraceParams, traceDir, 0L);
+  }
+
+  public List<String> traceTransactionToFile(
+      final MutableWorldState mutableWorldState,
+      final Hash blockHash,
+      final Optional<TransactionTraceParams> transactionTraceParams,
+      final Path traceDir,
+      final long stepLimit) {
 
     final Optional<Hash> selectedHash =
         transactionTraceParams
@@ -121,6 +131,7 @@ public class TransactionTracer {
                     .map(TransactionTraceParams::opcodes)
                     .orElse(Collections.emptySet()))
             .eip3155Strict(true)
+            .limit(Math.clamp(stepLimit, 0, Integer.MAX_VALUE))
             .build();
 
     if (!Files.isDirectory(traceDir) && !traceDir.toFile().mkdirs()) {
