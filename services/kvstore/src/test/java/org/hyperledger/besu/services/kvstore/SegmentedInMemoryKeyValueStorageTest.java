@@ -22,8 +22,10 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.junit.jupiter.api.Test;
@@ -206,6 +208,31 @@ public class SegmentedInMemoryKeyValueStorageTest {
       ended.add("close");
       delegate.close();
     }
+  }
+
+  @Test
+  public void streamsKeysOfDifferentLengthsInUnsignedByteOrder() {
+    final SegmentedInMemoryKeyValueStorage storage = new SegmentedInMemoryKeyValueStorage();
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    for (final byte[] key :
+        List.of(bytesOf(0x80), bytesOf(3), bytesOf(2, 0), bytesOf(2), bytesOf(1, 5), bytesOf(0))) {
+      tx.put(TestSegment.FOO, key, bytesOf(1));
+    }
+    tx.put(TestSegment.FOO, bytesOf(), bytesOf(1));
+    tx.commit();
+
+    // RocksDB's order, which the layered storage merge relies on; comparing keys as numbers would
+    // put 0x02 before 0x0105, 0x80 before 0x0200, and treat the empty key and 0x00 as equal
+    assertThat(keys(storage.stream(TestSegment.FOO)))
+        .containsExactly("", "00", "0105", "02", "0200", "03", "80");
+    assertThat(keys(storage.streamFromKey(TestSegment.FOO, bytesOf(1))))
+        .containsExactly("0105", "02", "0200", "03", "80");
+    assertThat(keys(storage.streamFromKey(TestSegment.FOO, bytesOf(1), bytesOf(3))))
+        .containsExactly("0105", "02", "0200", "03");
+  }
+
+  private static List<String> keys(final Stream<Pair<byte[], byte[]>> stream) {
+    return stream.map(pair -> HexFormat.of().formatHex(pair.getKey())).toList();
   }
 
   private static void putOneTwoThree(final SegmentedInMemoryKeyValueStorage storage) {

@@ -44,6 +44,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -159,6 +160,39 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     assertThat(values.get(1).get()).isEqualTo(bytesOf(10));
 
     store.close();
+  }
+
+  @Test
+  public void streamFromKeyWithEndKeyBoundsKeysOfDifferentLengthsInUnsignedByteOrder()
+      throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    putKeysOfDifferentLengths(store);
+
+    assertThat(streamedKeysFromOneToThree(store)).containsExactly("01", "0105", "02", "0200", "03");
+
+    store.close();
+  }
+
+  /** Writes keys whose unsigned byte order differs from their numeric order. */
+  protected void putKeysOfDifferentLengths(final SegmentedKeyValueStorage store) {
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    for (final byte[] key :
+        List.of(bytesOf(0), bytesOf(1), bytesOf(1, 5), bytesOf(2), bytesOf(2, 0), bytesOf(3))) {
+      tx.put(TestSegment.FOO, key, bytesOf(1));
+    }
+    tx.put(TestSegment.FOO, bytesOf(3, 0), bytesOf(1));
+    tx.commit();
+  }
+
+  /**
+   * Streams the range [0x01, 0x03]. Comparing the end key numerically would stop at 0x0105, which
+   * is greater than 0x03 as a number but sorts before it in RocksDB.
+   */
+  protected List<String> streamedKeysFromOneToThree(final SegmentedKeyValueStorage store) {
+    try (Stream<Pair<byte[], byte[]>> stream =
+        store.streamFromKey(TestSegment.FOO, bytesOf(1), bytesOf(3))) {
+      return stream.map(pair -> HexFormat.of().formatHex(pair.getKey())).toList();
+    }
   }
 
   @Test

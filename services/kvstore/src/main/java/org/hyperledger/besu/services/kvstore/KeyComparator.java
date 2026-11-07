@@ -14,6 +14,9 @@
  */
 package org.hyperledger.besu.services.kvstore;
 
+import java.util.Arrays;
+import java.util.Comparator;
+
 import org.apache.tuweni.bytes.Bytes;
 
 /**
@@ -24,6 +27,15 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>>0x01 is smaller than 0x0101 or 0x01 is smaller than 0x02.
  */
 public class KeyComparator {
+
+  /**
+   * Unsigned byte-wise key order, the same order RocksDB uses. Unlike {@link Bytes#compareTo},
+   * which compares keys as numbers, it orders keys of different lengths by their bytes and keeps
+   * all-zero keys of different lengths (such as the empty key and 0x00) distinct. Every in-memory
+   * segment map, and every stream merged with RocksDB data, must use this order.
+   */
+  public static final Comparator<Bytes> UNSIGNED_KEY_ORDER =
+      Comparator.comparing(Bytes::toArrayUnsafe, Arrays::compareUnsigned);
 
   /** Instantiates a new KeyComparator */
   public KeyComparator() {}
