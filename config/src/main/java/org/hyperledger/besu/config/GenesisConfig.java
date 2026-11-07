@@ -147,17 +147,22 @@ public class GenesisConfig {
   }
 
   /**
-   * Adds fork activations to be merged into the EIP-2124 fork schedule, on top of those declared by
-   * the genesis config keys. Intended for activations an embedder knows out of band -- for example
-   * a {@code ProtocolScheduleCustomizer}'s fork activations -- which the genesis config cannot
-   * express as standard keys. Mutates and returns this config (as does {@link #withOverrides}).
+   * Returns a copy of this config whose EIP-2124 fork schedule also includes the given activations,
+   * on top of those declared by the genesis config keys. Intended for activations an embedder knows
+   * out of band -- for example a {@code ProtocolScheduleCustomizer}'s fork activations -- which the
+   * genesis config cannot express as standard keys.
+   *
+   * <p>Unlike {@link #withOverrides}, this does not modify this config: whoever else holds it, such
+   * as the CLI that read the genesis file, keeps seeing only the forks the genesis declares.
    *
    * @param activations the additional fork activations
-   * @return this config
+   * @return a new config carrying this config's overrides and activations plus the given ones
    */
   public GenesisConfig withAdditionalForkIdActivations(final ForkIdActivations activations) {
     final ForkIdActivations additions = Objects.requireNonNull(activations);
-    this.additionalForkIdActivations =
+    final GenesisConfig copy = new GenesisConfig(loader);
+    copy.overrides = overrides;
+    copy.additionalForkIdActivations =
         new ForkIdActivations(
             Stream.concat(
                     additionalForkIdActivations.blockNumbers().stream(),
@@ -167,7 +172,7 @@ public class GenesisConfig {
                     additionalForkIdActivations.timestamps().stream(),
                     additions.timestamps().stream())
                 .toList());
-    return this;
+    return copy;
   }
 
   /**

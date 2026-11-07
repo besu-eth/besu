@@ -33,6 +33,8 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
   private static final String POW_GENESIS =
       "{\"config\":{\"chainId\":1234,\"homesteadBlock\":10,\"ethash\":{}}}";
 
+  private static final String QBFT_GENESIS = "{\"config\":{\"chainId\":1234,\"qbft\":{}}}";
+
   private static final ProtocolScheduleCustomization CUSTOMIZATION =
       new ProtocolScheduleCustomization(
           "example-chain",
@@ -57,6 +59,22 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
     assertThat(builder.genesisConfigOptions.getForkBlockNumbers()).containsExactly(10L);
     assertThat(builder.genesisConfigOptions.getForkBlockTimestamps()).isEmpty();
     assertThat(builder.protocolScheduleCustomization).isSameAs(CUSTOMIZATION);
+    // the caller's config is left as it was: the activations went into the builder's copy
+    assertThat(genesisConfig.getConfigOptions().getForkIdBlockNumbers()).containsExactly(10L);
+    assertThat(genesisConfig.getConfigOptions().getForkIdBlockTimestamps()).isEmpty();
+  }
+
+  @Test
+  void anUnsupportedConsensusMechanismIsRefusedWhenTheBuilderIsSelected() {
+    final GenesisConfig genesisConfig = GenesisConfig.fromConfig(QBFT_GENESIS);
+    final BesuController.Builder controllerBuilder =
+        new BesuController.Builder().protocolScheduleCustomization(CUSTOMIZATION);
+
+    assertThatThrownBy(() -> controllerBuilder.fromGenesisFile(genesisConfig, SyncMode.FULL))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("example-chain")
+        .hasMessageContaining("QbftBesuControllerBuilder");
+    assertThat(genesisConfig.getConfigOptions().getForkIdBlockNumbers()).isEmpty();
   }
 
   @Test
