@@ -38,6 +38,9 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FilterOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -51,11 +54,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Used to produce debug traces of transactions */
 public class TransactionTracer {
 
   public static final String TRACE_PATH = "traces";
+  private static final Logger LOG = LoggerFactory.getLogger(TransactionTracer.class);
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   private final BlockReplay blockReplay;
@@ -93,6 +99,23 @@ public class TransactionTracer {
       final Hash blockHash,
       final Optional<TransactionTraceParams> transactionTraceParams,
       final Path traceDir) {
+    return traceTransactionToFile(
+        mutableWorldState, blockHash, transactionTraceParams, traceDir, 0L);
+  }
+
+  /**
+   * Traces the transactions of a block to files in {@code traceDir}.
+   *
+   * @param maxDirSize maximum total size in bytes of {@code traceDir}; 0 means unlimited. If a
+   *     trace would push the directory past this size, the partially written file is deleted and a
+   *     {@link TraceFilesDirSizeLimitExceededException} is thrown.
+   */
+  public List<String> traceTransactionToFile(
+      final MutableWorldState mutableWorldState,
+      final Hash blockHash,
+      final Optional<TransactionTraceParams> transactionTraceParams,
+      final Path traceDir,
+      final long maxDirSize) {
 
     final Optional<Hash> selectedHash =
         transactionTraceParams
@@ -150,7 +173,18 @@ public class TransactionTracer {
                 if (selectedHash.isEmpty()
                     || selectedHash.filter(isEqual(transaction.getHash())).isPresent()) {
                   final File traceFile = generateTraceFile(traceDir, blockHash, i, transaction);
-                  try (PrintStream out = new PrintStream(new FileOutputStream(traceFile))) {
+                  final long remaining =
+                      maxDirSize > 0
+                          ? maxDirSize - directorySizeExcluding(traceDir, traceFile)
+                          : Long.MAX_VALUE;
+                  if (remaining <= 0) {
+                    throw dirSizeLimitExceeded(traceDir, maxDirSize);
+                  }
+                  boolean completed = false;
+                  try (PrintStream out =
+                      new PrintStream(
+                          new SizeLimitedOutputStream(
+                              new FileOutputStream(traceFile), remaining))) {
                     final Stopwatch timer = Stopwatch.createStarted();
                     final TransactionProcessingResult result =
                         processTransaction(
@@ -164,10 +198,18 @@ public class TransactionTracer {
                     out.println(
                         summaryTrace(
                             transaction, timer.stop().elapsed(TimeUnit.NANOSECONDS), result));
+                    if (out.checkError()) {
+                      throw dirSizeLimitExceeded(traceDir, maxDirSize);
+                    }
                     traces.add(traceFile.getPath());
+                    completed = true;
                   } catch (FileNotFoundException e) {
                     throw new RuntimeException(
                         "Unable to create transaction trace : " + e.getMessage());
+                  } finally {
+                    if (!completed) {
+                      deleteQuietly(traceFile);
+                    }
                   }
                 } else {
                   processTransaction(
@@ -193,12 +235,71 @@ public class TransactionTracer {
     return traceDir
         .resolve(
             String.format(
-                "block_%.10s-%d-%.10s-%s",
+                "block_%.10s-%d-%.10s",
                 blockHash.getBytes().toHexString(),
                 indexTransaction,
-                transaction.getHash().getBytes().toHexString(),
-                System.currentTimeMillis()))
+                transaction.getHash().getBytes().toHexString()))
         .toFile();
+  }
+
+  private static long directorySizeExcluding(final Path dir, final File excluded) {
+    final File[] files = dir.toFile().listFiles();
+    if (files == null) {
+      return 0L;
+    }
+    long size = 0L;
+    for (final File file : files) {
+      if (file.isFile() && !file.equals(excluded)) {
+        size += file.length();
+      }
+    }
+    return size;
+  }
+
+  private static TraceFilesDirSizeLimitExceededException dirSizeLimitExceeded(
+      final Path traceDir, final long maxDirSize) {
+    return new TraceFilesDirSizeLimitExceededException(
+        String.format(
+            "Trace directory '%s' would exceed the configured limit of %d bytes",
+            traceDir, maxDirSize));
+  }
+
+  private static void deleteQuietly(final File file) {
+    try {
+      Files.deleteIfExists(file.toPath());
+    } catch (final IOException e) {
+      LOG.warn("Unable to delete partial trace file {}", file, e);
+    }
+  }
+
+  /** Output stream that fails once more than {@code limit} bytes have been written. */
+  private static final class SizeLimitedOutputStream extends FilterOutputStream {
+    private long remaining;
+
+    SizeLimitedOutputStream(final OutputStream out, final long limit) {
+      super(out);
+      this.remaining = limit;
+    }
+
+    @Override
+    public void write(final int b) throws IOException {
+      reserve(1);
+      out.write(b);
+    }
+
+    @Override
+    public void write(final byte[] b, final int off, final int len) throws IOException {
+      reserve(len);
+      out.write(b, off, len);
+    }
+
+    private void reserve(final int len) throws IOException {
+      if (len > remaining) {
+        remaining = -1;
+        throw new IOException("Trace file size limit exceeded");
+      }
+      remaining -= len;
+    }
   }
 
   private TransactionProcessingResult processTransaction(
