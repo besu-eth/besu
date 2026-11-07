@@ -1147,6 +1147,20 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("A sender recovered meanwhile does not keep its transaction from running alone")
+    void senderRecoveredMeanwhileStillRunsAlone() {
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction unknown = mockTransaction();
+      // the transaction pool recovers the sender while the block's runs are being set up
+      when(unknown.getSenderIfKnown()).thenReturn(Optional.empty()).thenReturn(Optional.of(sender));
+      final Transaction tx2 = mockTransactionFrom(sender);
+
+      runBlock(List.of(tx1, unknown, tx2), task -> {});
+
+      assertNotNull(processor.futures[1], "the transaction of the unknown sender runs alone");
+    }
+
+    @Test
     @DisplayName("A chain is dropped once the serial loop has reached one of its members")
     void chainStopsWhenSerialLoopReachedAMember() {
       final Transaction tx1 = mockTransactionFrom(sender);

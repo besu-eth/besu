@@ -128,23 +128,24 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
+    // looked up once, as the transaction pool may recover a sender while the runs are set up
+    final Address[] senders = new Address[transactions.size()];
     final Map<Address, List<Integer>> bySender = new HashMap<>();
     final List<Integer> unknownSenders = new ArrayList<>();
     for (int i = 0; i < transactions.size(); i++) {
-      final int txIndex = i;
-      transactions
-          .get(i)
-          .getSenderIfKnown()
-          .ifPresentOrElse(
-              sender -> bySender.computeIfAbsent(sender, k -> new ArrayList<>(1)).add(txIndex),
-              () -> unknownSenders.add(txIndex));
+      senders[i] = transactions.get(i).getSenderIfKnown().orElse(null);
+      if (senders[i] == null) {
+        unknownSenders.add(i);
+      } else {
+        bySender.computeIfAbsent(senders[i], k -> new ArrayList<>(1)).add(i);
+      }
     }
 
     futures = new CompletableFuture[transactions.size()];
     lateChainFutures = new AtomicReferenceArray<>(transactions.size());
     for (int i = 0; i < transactions.size(); i++) {
       final Transaction transaction = transactions.get(i);
-      final List<Integer> chain = transaction.getSenderIfKnown().map(bySender::get).orElse(null);
+      final List<Integer> chain = senders[i] == null ? null : bySender.get(senders[i]);
       if (chain == null || chain.size() == 1) {
         final int txIndex = i;
         futures[i] =
