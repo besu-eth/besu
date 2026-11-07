@@ -108,7 +108,6 @@ import org.hyperledger.besu.evm.v2.operation.ModOperationV2;
 import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
 import org.hyperledger.besu.evm.v2.operation.MulOperationV2;
 import org.hyperledger.besu.evm.v2.operation.NotOperationV2;
-import org.hyperledger.besu.evm.v2.operation.OperationsV2;
 import org.hyperledger.besu.evm.v2.operation.OrOperationV2;
 import org.hyperledger.besu.evm.v2.operation.PopOperationV2;
 import org.hyperledger.besu.evm.v2.operation.PushOperationV2;
@@ -130,6 +129,7 @@ import java.util.Arrays;
 import java.util.Optional;
 import java.util.function.Function;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -200,7 +200,7 @@ public class EVM {
   private final Operation[] operationsV2;
 
   /**
-   * Instantiates a new Evm.
+   * Instantiates a new Evm without EVM v2 operations, so the configuration must not enable EVM v2.
    *
    * @param operations the operations
    * @param gasCalculator the gas calculator
@@ -212,6 +212,31 @@ public class EVM {
       final GasCalculator gasCalculator,
       final EvmConfiguration evmConfiguration,
       final EvmSpecVersion evmSpecVersion) {
+    this(operations, null, gasCalculator, evmConfiguration, evmSpecVersion);
+  }
+
+  /**
+   * Instantiates a new Evm.
+   *
+   * @param operations the operations
+   * @param operationsV2 the EVM v2 operations of the fork, or null when the configuration does not
+   *     enable EVM v2
+   * @param gasCalculator the gas calculator
+   * @param evmConfiguration the evm configuration
+   * @param evmSpecVersion the evm spec version
+   * @throws IllegalArgumentException if the configuration enables EVM v2 and there are no EVM v2
+   *     operations
+   */
+  public EVM(
+      final OperationRegistry operations,
+      final OperationRegistry operationsV2,
+      final GasCalculator gasCalculator,
+      final EvmConfiguration evmConfiguration,
+      final EvmSpecVersion evmSpecVersion) {
+    if (evmConfiguration.enableEvmV2() && operationsV2 == null) {
+      throw new IllegalArgumentException(
+          "EVM v2 is enabled, but there are no EVM v2 operations for " + evmSpecVersion);
+    }
     this.operations = operations;
     this.gasCalculator = gasCalculator;
     this.endOfScriptStop = new VirtualOperation(new StopOperation(gasCalculator));
@@ -224,10 +249,7 @@ public class EVM {
     enableAmsterdam = EvmSpecVersion.AMSTERDAM.ordinal() <= evmSpecVersion.ordinal();
     enableOsaka = EvmSpecVersion.OSAKA.ordinal() <= evmSpecVersion.ordinal();
 
-    operationsV2 =
-        evmConfiguration.enableEvmV2()
-            ? OperationsV2.of(operations.getOperations(), gasCalculator, evmSpecVersion)
-            : null;
+    this.operationsV2 = operationsV2 == null ? null : operationsV2.getOperations();
   }
 
   /**
@@ -967,6 +989,11 @@ public class EVM {
    */
   public Operation[] getOperationsUnsafe() {
     return operations.getOperations();
+  }
+
+  @VisibleForTesting
+  Operation[] getOperationsV2() {
+    return operationsV2;
   }
 
   private OperationResult shiftOperation(
