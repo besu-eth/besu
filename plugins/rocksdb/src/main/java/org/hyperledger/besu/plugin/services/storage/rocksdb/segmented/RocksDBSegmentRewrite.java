@@ -46,7 +46,6 @@ import java.util.stream.Stream;
 import org.apache.commons.lang3.tuple.Pair;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.EnvOptions;
-import org.rocksdb.IngestExternalFileOptions;
 import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -268,14 +267,12 @@ final class RocksDBSegmentRewrite {
     private final ExecutorService executor = Executors.newFixedThreadPool(writerThreads);
     private final Semaphore inFlight = new Semaphore(writerThreads + 2);
     private final List<Future<?>> files = new ArrayList<>();
-    // the ingestion only accepts files written with the column family's own comparator and
-    // compression, which the column family options carry
     private final Options sstOptions;
     private final EnvOptions envOptions = new EnvOptions();
 
     FileWriters(final BiFunction<byte[], byte[], byte[]> transform) {
       this.transform = transform;
-      this.sstOptions = new Options(storage.options, storage.columnFamilyOptions(segment));
+      this.sstOptions = storage.sstFileOptions(segment);
     }
 
     /**
@@ -464,15 +461,7 @@ final class RocksDBSegmentRewrite {
       ingested = files;
       linked = false;
     }
-    try (final IngestExternalFileOptions options =
-        new IngestExternalFileOptions().setMoveFiles(linked)) {
-      storage
-          .getDB()
-          .ingestExternalFile(
-              storage.safeColumnHandle(segment),
-              ingested.stream().map(Path::toString).toList(),
-              options);
-    }
+    storage.ingest(segment, ingested.stream().map(Path::toString).toList(), linked);
   }
 
   /**
