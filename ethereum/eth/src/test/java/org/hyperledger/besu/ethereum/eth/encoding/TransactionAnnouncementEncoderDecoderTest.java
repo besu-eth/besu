@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
+import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -139,7 +140,8 @@ public class TransactionAnnouncementEncoderDecoderTest {
   @Test
   void shouldThrowInvalidArgumentExceptionWhenCreatingListsWithDifferentSizes() {
     assertThatThrownBy(
-            () -> TransactionAnnouncement.create(new ArrayList<>(), List.of(1L), new ArrayList<>()))
+            () ->
+                TransactionAnnouncements.create(new ArrayList<>(), List.of(1L), new ArrayList<>()))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("Hashes, sizes and types must have the same number of elements");
   }
@@ -206,19 +208,19 @@ public class TransactionAnnouncementEncoderDecoderTest {
   void shouldThrowNullPointerIfArgumentsAreNull() {
     final Hash hash = Hash.hash(Bytes.random(32));
 
-    assertThatThrownBy(() -> new TransactionAnnouncement(null, TransactionType.EIP1559, 0L))
+    assertThatThrownBy(() -> TransactionAnnouncements.create(null, TransactionType.EIP1559, 0L))
         .isInstanceOf(NullPointerException.class)
         .hasMessage("Hash cannot be null");
 
-    assertThatThrownBy(() -> new TransactionAnnouncement(hash, null, 0L))
+    assertThatThrownBy(() -> TransactionAnnouncements.create(hash, null, 0L))
         .isInstanceOf(NullPointerException.class)
         .hasMessage("Type cannot be null");
 
-    assertThatThrownBy(() -> new TransactionAnnouncement(hash, TransactionType.EIP1559, null))
+    assertThatThrownBy(() -> TransactionAnnouncements.create(hash, TransactionType.EIP1559, null))
         .isInstanceOf(NullPointerException.class)
         .hasMessage("Size cannot be null");
 
-    assertThatThrownBy(() -> new TransactionAnnouncement(null))
+    assertThatThrownBy(() -> TransactionAnnouncements.create((Transaction) null))
         .isInstanceOf(NullPointerException.class)
         .hasMessage("Transaction cannot be null");
   }
@@ -381,12 +383,15 @@ public class TransactionAnnouncementEncoderDecoderTest {
 
   /**
    * A transaction whose announcement has the largest possible encoding: a size that needs the full
-   * 4-byte scalar. Mocked, since a real transaction of that size would be gigabytes.
+   * 4-byte scalar. Mocked, since a real transaction of that size would be gigabytes. Both size
+   * getters are stubbed, since each version announces by its own: leaving the eth/72 one at the
+   * mock default of zero would encode 1-byte scalars and hide an overflow on that version.
    */
   private static Transaction worstCaseAnnouncedTransaction() {
     final Transaction transaction = mock(Transaction.class);
     when(transaction.getType()).thenReturn(TransactionType.DELEGATE_CODE);
     when(transaction.getSizeForAnnouncement()).thenReturn(Integer.MAX_VALUE);
+    when(transaction.getSizeForEth72Announcement()).thenReturn(Integer.MAX_VALUE);
     when(transaction.getHash()).thenReturn(Hash.hash(Bytes.of(1)));
     return transaction;
   }
