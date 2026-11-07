@@ -449,8 +449,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     for (int k = from; k < chain.size(); k++) {
       final int txIndex = chain.get(k);
       final CompletableFuture<ParallelizedTransactionContext> future = chainFutures.get(k);
-      // Once the serial loop has reached a member, the rest of the chain would run without the
-      // state that member leaves behind, so the whole remainder is dropped.
+      // The rest of the chain needs the state this member leaves. Running a member the serial
+      // loop already reached only to pass that state on would leave the chain behind the serial
+      // loop still, so the rest is dropped. A member overtaken while it runs passes its state on,
+      // as that costs nothing more.
       if (future.isCancelled() || serialLoopHasPassed(txIndex)) {
         dropFrom(chainFutures, k);
         return;
