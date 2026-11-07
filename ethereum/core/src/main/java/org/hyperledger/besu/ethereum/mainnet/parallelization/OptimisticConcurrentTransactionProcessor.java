@@ -355,9 +355,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Optional<BlockHeader> maybeParentHeader) {
-    if (future.isDone()
-        || serialLoopHasPassed(transactionLocation)
-        || maybeParentHeader.isEmpty()) {
+    // a member dropped from its chain is executed by the serial loop, which the warm-up still helps
+    final boolean ranInChain = future.state() == Future.State.SUCCESS && future.resultNow() != null;
+    if (ranInChain || serialLoopHasPassed(transactionLocation) || maybeParentHeader.isEmpty()) {
       return;
     }
     final BonsaiWorldState ws =

@@ -1072,6 +1072,40 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("The members of a dropped chain are still warmed up")
+    void membersOfADroppedChainAreWarmedUp() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction tx3 = mockTransactionFrom(sender);
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2, tx3), tasks::add);
+      // the serial loop reaches the first member before the chain started, which drops the rest
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, tx1, 0, Optional.empty(), Optional.empty());
+      tasks.forEach(Runnable::run);
+      warmUps.forEach(Runnable::run);
+
+      verify(transactionProcessor, times(2))
+          .processTransaction(
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              eq(
+                  TransactionValidationParams
+                      .transactionSimulatorAllowExceedingBalanceAndFutureNonce()),
+              any(),
+              any());
+    }
+
+    @Test
     @DisplayName("A chain is dropped once the serial loop has reached one of its members")
     void chainStopsWhenSerialLoopReachedAMember() {
       final Transaction tx1 = mockTransactionFrom(sender);
