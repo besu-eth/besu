@@ -18,6 +18,7 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.io.Closeable;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -142,6 +143,41 @@ public interface SegmentedKeyValueStorage extends Closeable {
    */
   default SegmentedKeyValueStorageTransaction startBatchTransaction() throws StorageException {
     return startTransaction();
+  }
+
+  /**
+   * Starts adding entries to a segment in increasing key order, written to a file then added to the
+   * segment at once, without going through the memtable and its compactions. Storage that cannot
+   * add files falls back to a batch transaction.
+   *
+   * @param segment the segment the entries are added to
+   * @return the writer, not shared between threads
+   * @throws StorageException problem encountered when starting the writer
+   */
+  default SortedWriter startSortedWriter(final SegmentIdentifier segment) throws StorageException {
+    final SegmentedKeyValueStorageTransaction transaction = startBatchTransaction();
+    return new SortedWriter() {
+      private byte[] last;
+
+      @Override
+      public void put(final byte[] key, final byte[] value) {
+        if (last != null && Arrays.compareUnsigned(key, last) <= 0) {
+          throw new StorageException("keys must be added in increasing order");
+        }
+        last = key;
+        transaction.put(segment, key, value);
+      }
+
+      @Override
+      public void commit() {
+        transaction.commit();
+      }
+
+      @Override
+      public void rollback() {
+        transaction.rollback();
+      }
+    };
   }
 
   /**
