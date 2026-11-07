@@ -62,6 +62,20 @@
       "codeDecompiled": "PUSH0 PUSH0 REVERT",
       "storage": {}
     },
+    "0x0000000000000000000000000000000000001111": {
+      "comment": "Slot gate: with empty call data it sets slot 0 to 1, with any call data it reverts unless slot 0 is set.",
+      "balance": "0",
+      "code": "3660095760015F55005B5F546012575F5FFD5B00",
+      "codeDecompiled": "CALLDATASIZE PUSH1 0x09 JUMPI PUSH1 1 PUSH0 SSTORE STOP JUMPDEST PUSH0 SLOAD PUSH1 0x12 JUMPI PUSH0 PUSH0 REVERT JUMPDEST STOP",
+      "storage": {}
+    },
+    "0x0000000000000000000000000000000000002222": {
+      "comment": "Calls the slot gate 0x1111 with one byte of call data and reverts if that call fails.",
+      "balance": "0",
+      "code": "5F5F60015F5F7300000000000000000000000000000000000011115AF16023575F5FFD5B00",
+      "codeDecompiled": "PUSH0 PUSH0 PUSH1 1 PUSH0 PUSH0 PUSH20 0x1111 GAS CALL PUSH1 0x23 JUMPI PUSH0 PUSH0 REVERT JUMPDEST STOP",
+      "storage": {}
+    },
     "0x0000000000000000000000000000000000009999": {
       "comment": "Contract sends all its Ether to the address provided as a call data.",
       "balance": "0",
