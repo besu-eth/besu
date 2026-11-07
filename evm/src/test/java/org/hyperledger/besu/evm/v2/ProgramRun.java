@@ -168,7 +168,31 @@ final class ProgramRun {
       Set<String> accounts,
       Set<String> transientStorage,
       Set<String> accesses,
-      List<String> steps) {}
+      List<String> steps) {
+
+    /** The outcome without the recorded steps, as an untraced run of the program ends. */
+    Outcome withoutSteps() {
+      return new Outcome(
+          state,
+          haltReason,
+          remainingGas,
+          gasRefund,
+          stateGasUsed,
+          stack,
+          memory,
+          output,
+          returnData,
+          revertReason,
+          logs,
+          selfDestructs,
+          creates,
+          refunds,
+          accounts,
+          transientStorage,
+          accesses,
+          List.of());
+    }
+  }
 
   /** The outermost frame and the world it ran against, after a run, with its outcome. */
   record Execution(MessageFrame frame, WorldUpdater worldUpdater, Outcome outcome) {}

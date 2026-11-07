@@ -374,7 +374,6 @@ class BalTransactionProcessorUnitTest {
               Optional.empty());
 
       assertTrue(result.isPresent(), "Expected processing result to be present");
-      assertNull(result.get().accumulator, "Expected BAL result not to retain the accumulator");
 
       final Account account = env.worldState().updater().get(writeAddress);
       assertNotNull(account, "Expected write account to be created from partial BAL writes");

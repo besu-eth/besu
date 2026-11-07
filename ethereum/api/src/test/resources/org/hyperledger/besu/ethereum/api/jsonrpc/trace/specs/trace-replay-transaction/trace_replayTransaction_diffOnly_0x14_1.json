@@ -1,0 +1,91 @@
+{
+  "comment": "Transaction 1 of block 0x14; the result equals trace_replayBlockTransactions for that transaction.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_replayTransaction",
+    "params": [
+      "0xaf151fc10eb21e76efb0bc74da179a674083e420280fb2985f76b0326682864a",
+      [
+        "stateDiff"
+      ]
+    ],
+    "id": 415
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": {
+      "output": "0x",
+      "stateDiff": {
+        "0x0000000000000000000000000000000000000000": {
+          "balance": {
+            "*": {
+              "from": "0x20f5b1eadb3995aec",
+              "to": "0x20f5b1eadb539536d"
+            }
+          },
+          "code": "=",
+          "nonce": "=",
+          "storage": {}
+        },
+        "0x0140000000000000000000000000000000000000": {
+          "balance": "=",
+          "code": "=",
+          "nonce": {
+            "*": {
+              "from": "0x0",
+              "to": "0x1"
+            }
+          },
+          "storage": {
+            "0x0000000000000000000000000000000000000000000000000000000000000000": {
+              "*": {
+                "from": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "to": "0x0000000000000000000000000deea5bd06fb86553643c1e94a2f5aac632b9ec9"
+              }
+            }
+          }
+        },
+        "0x0deea5bd06fb86553643c1e94a2f5aac632b9ec9": {
+          "balance": {
+            "+": "0x0"
+          },
+          "code": {
+            "+": "0xff"
+          },
+          "nonce": {
+            "+": "0x1"
+          },
+          "storage": {
+            "0x0000000000000000000000000000000000000000000000000000000000000001": {
+              "+": "0x0000000000000000000000000000000000000000000000000000000000000001"
+            },
+            "0x0000000000000000000000000000000000000000000000000000000000000002": {
+              "+": "0x0000000000000000000000000000000000000000000000000000000000000001"
+            }
+          }
+        },
+        "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73": {
+          "balance": {
+            "*": {
+              "from": "0xffffffffffffffffffffffffffffffffd2ad89534",
+              "to": "0xffffffffffffffffffffffffffffffffd29389cb3"
+            }
+          },
+          "code": "=",
+          "nonce": {
+            "*": {
+              "from": "0x16",
+              "to": "0x17"
+            }
+          },
+          "storage": {}
+        }
+      },
+      "trace": [],
+      "transactionHash": "0xaf151fc10eb21e76efb0bc74da179a674083e420280fb2985f76b0326682864a",
+      "vmTrace": null
+    },
+    "id": 415
+  },
+  "statusCode": 200
+}
