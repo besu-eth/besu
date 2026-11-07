@@ -289,6 +289,7 @@ public class ChainDataPruner implements BlockAddedObserver {
     updater.removeBlockBody(blockHash);
     updater.removeTransactionReceipts(blockHash);
     updater.removeTotalDifficulty(blockHash);
+    updater.removeInclusionListStatus(blockHash);
     removeTransactionLocations(updater, blockHash);
   }
 
