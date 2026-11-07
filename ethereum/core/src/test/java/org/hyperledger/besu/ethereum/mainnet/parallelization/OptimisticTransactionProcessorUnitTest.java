@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -59,6 +60,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -1071,6 +1073,24 @@ class OptimisticTransactionProcessorUnitTest {
                       .transactionSimulatorAllowExceedingBalanceAndFutureNonce()),
               any(),
               any());
+    }
+
+    @Test
+    @DisplayName("A warm-up whose parent state cannot be loaded is skipped")
+    void warmUpWithoutParentStateIsSkipped() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      when(env.worldStateArchive().getWorldState(any()))
+          .thenThrow(new StorageException("storage closed"));
+
+      runBlock(List.of(tx1, tx2), task -> {});
+
+      assertThat(warmUps).hasSize(1);
+      assertThatCode(() -> warmUps.get(0).run()).doesNotThrowAnyException();
     }
 
     @Test
