@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.blockcreation.txselection;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
@@ -81,6 +82,24 @@ public class InterruptibleOperationTracer implements OperationTracer {
   public void traceStartTransaction(final WorldView worldView, final Transaction transaction) {
     checkInterrupt();
     delegate.traceStartTransaction(worldView, transaction);
+  }
+
+  @Override
+  public boolean isCodeAccessTracing() {
+    checkInterrupt();
+    return delegate.isCodeAccessTracing();
+  }
+
+  @Override
+  public void traceCodeRead(final Address address, final Hash codeHash) {
+    checkInterrupt();
+    delegate.traceCodeRead(address, codeHash);
+  }
+
+  @Override
+  public void traceCodeWrite(final Address address, final Hash codeHash) {
+    checkInterrupt();
+    delegate.traceCodeWrite(address, codeHash);
   }
 
   @Override

@@ -20,6 +20,7 @@ import static org.hyperledger.besu.evm.internal.Words.clampedToLong;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.frame.CodeAccessTracer;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -78,6 +79,10 @@ public class ExtCodeCopyOperation extends AbstractOperation {
     final Account account = getAccount(address, frame);
     final Bytes code = account != null ? account.getCode() : Bytes.EMPTY;
 
+    final CodeAccessTracer codeAccessTracer = frame.getCodeAccessTracer();
+    if (codeAccessTracer.isCodeAccessTracing() && account != null) {
+      codeAccessTracer.traceCodeRead(address, account.getCodeHash());
+    }
     frame.writeMemory(memOffset, sourceOffset, numBytes, code);
 
     return new OperationResult(cost, null);
