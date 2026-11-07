@@ -16,6 +16,7 @@ package org.hyperledger.besu.evm.v2.operation;
 
 import static org.hyperledger.besu.evm.v2.operation.StackUtil.setLong;
 
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
@@ -27,6 +28,14 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
  */
 public final class EqOperationV2 extends AbstractFixedCostOperationV2 {
 
+  private static final OperationResult EQ_SUCCESS = new OperationResult(3, null);
+  private static final OperationResult EQ_OUT_OF_GAS =
+      new OperationResult(3, ExceptionalHaltReason.INSUFFICIENT_GAS);
+  // v1 charges the cost on a stack underflow of EQ, unlike the shared UNDERFLOW_RESPONSE, and
+  // traces show it
+  private static final OperationResult EQ_UNDERFLOW =
+      new OperationResult(3, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+
   /**
    * Instantiates a new Eq operation.
    *
@@ -36,19 +45,27 @@ public final class EqOperationV2 extends AbstractFixedCostOperationV2 {
     super(0x14, "EQ", 2, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
   }
 
+  @Override
+  public OperationResult executeFixedCostOperation(final MessageFrame frame) {
+    return equal(frame);
+  }
+
   /**
    * Execute the EQ opcode on the v2 long[] stack.
    *
    * <p>EQ: stack[top-2] = stack[top-1] == stack[top-2] ? 1 : 0, return top-1.
    *
    * @param frame the message frame
+   * @param gas the gas left, which the untraced loop holds outside the frame
    * @return the operation result
    */
-  @Override
-  public OperationResult executeFixedCostOperation(final MessageFrame frame) {
-    // v1 charges the cost on a stack underflow of EQ, unlike the shared UNDERFLOW_RESPONSE, and
-    // traces show it
-    if (!frame.stackHasItemsV2(2)) return haltPoppingAll(frame, underflowResponse);
+  public static OperationResult staticOperation(final MessageFrame frame, final long gas) {
+    // v1 checks the gas of EQ before its stack, so an EQ that has neither halts for the gas
+    return gas < 3 ? EQ_OUT_OF_GAS : equal(frame);
+  }
+
+  private static OperationResult equal(final MessageFrame frame) {
+    if (!frame.stackHasItemsV2(2)) return haltPoppingAll(frame, EQ_UNDERFLOW);
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();
     final int aOffset = (top - 1) << 2;
@@ -60,6 +77,6 @@ public final class EqOperationV2 extends AbstractFixedCostOperationV2 {
             && stack[aOffset + 3] == stack[bOffset + 3];
     setLong(equal ? 1L : 0L, stack, top - 2);
     frame.setTopV2(top - 1);
-    return successResponse;
+    return EQ_SUCCESS;
   }
 }
