@@ -373,18 +373,23 @@ public class BesuController implements java.io.Closeable {
      */
     public BesuControllerBuilder fromGenesisFile(
         final GenesisConfig genesisConfig, final SyncMode syncMode) {
-      // Contribute the activations before anything reads the config: the builder's copy of the
+      // Contribute the activations before the builder reads the config: the builder's copy of the
       // options, taken in genesisConfig(GenesisConfig), is what the advertised fork ID is built
-      // from. Selecting the builder below is unaffected either way -- it reads the consensus keys
-      // and the forks the config declares, and a customization moves neither.
-      if (!protocolScheduleCustomization.modifications().isEmpty()) {
-        genesisConfig.withAdditionalForkIdActivations(
-            protocolScheduleCustomization.toForkIdActivations());
-      }
-      final GenesisConfigOptions configOptions = genesisConfig.getConfigOptions();
-      return createControllerBuilder(genesisConfig, configOptions, syncMode)
-          .protocolScheduleCustomization(protocolScheduleCustomization)
-          .checkpoint(checkpoint);
+      // from. They go into a copy, so the caller's config keeps only the forks the genesis
+      // declares. Selecting the builder below is unaffected either way -- it reads the consensus
+      // keys and the forks the config declares, and a customization moves neither.
+      final GenesisConfig effectiveGenesisConfig =
+          protocolScheduleCustomization.modifications().isEmpty()
+              ? genesisConfig
+              : genesisConfig.withAdditionalForkIdActivations(
+                  protocolScheduleCustomization.toForkIdActivations());
+      final GenesisConfigOptions configOptions = effectiveGenesisConfig.getConfigOptions();
+      final BesuControllerBuilder builder =
+          createControllerBuilder(effectiveGenesisConfig, configOptions, syncMode)
+              .protocolScheduleCustomization(protocolScheduleCustomization);
+      // refuse as soon as the consensus mechanism is known, rather than when the node is built
+      builder.verifyProtocolScheduleCustomizationIsSupported();
+      return builder.checkpoint(checkpoint);
     }
 
     private BesuControllerBuilder createControllerBuilder(
