@@ -1150,6 +1150,35 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("Aborting the block stops the late chains")
+    void abortStopsLateChains() {
+      final List<Runnable> background = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, background::add);
+      final Transaction tx1 = mockTransaction();
+      final Transaction tx2 = mockTransaction();
+      for (final Transaction transaction : List.of(tx1, tx2)) {
+        when(transaction.getSenderIfKnown())
+            .thenReturn(Optional.empty())
+            .thenReturn(Optional.of(sender));
+      }
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+      runAll(background);
+      runAll(background);
+      tasks.get(0).run();
+      assertThat(tasks).as("tx2 is chained on tx1").hasSize(3);
+      processor.abort();
+      tasks.get(2).run();
+
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx2), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("A chain is dropped once the serial loop has reached one of its members")
     void chainStopsWhenSerialLoopReachedAMember() {
       final Transaction tx1 = mockTransactionFrom(sender);
