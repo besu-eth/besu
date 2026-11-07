@@ -221,15 +221,21 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     }
   }
 
-  private boolean registerPlugin(final BesuPlugin plugin) {
+  @VisibleForTesting
+  boolean registerPlugin(final BesuPlugin plugin) {
+    final int customizerMark = protocolScheduleService.registrationMark();
     try {
       plugin.register(this);
       pluginVersions.put(plugin.getName(), plugin.getVersion());
       LOG.info("Registered plugin of type {}.", plugin.getClass().getName());
     } catch (final Exception e) {
+      // a plugin that failed to register is never started, so it must not change the chain's
+      // rules either
+      protocolScheduleService.discardRegistrationsSince(customizerMark);
       if (config.isContinueOnPluginError()) {
         LOG.error(
-            "Error registering plugin of type {}, start and stop will not be called.",
+            "Error registering plugin of type {}, start and stop will not be called and its"
+                + " protocol-schedule customizers are discarded.",
             plugin.getClass().getName(),
             e);
       } else {

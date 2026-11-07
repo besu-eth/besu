@@ -27,12 +27,15 @@ import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomizer;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleService;
+import org.hyperledger.besu.plugin.BesuPlugin;
+import org.hyperledger.besu.plugin.ServiceManager;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.Test;
 
@@ -138,6 +141,77 @@ class ProtocolScheduleServiceImplTest {
     assertThat(
             Arrays.stream(ProtocolScheduleService.class.getDeclaredMethods()).map(Method::getName))
         .containsExactlyInAnyOrder("registerProtocolScheduleCustomizer");
+  }
+
+  @Test
+  void customizersOfAPluginThatFailsToRegisterAreDiscarded() {
+    final ProtocolScheduleCustomizer healthyCustomizer = mock(ProtocolScheduleCustomizer.class);
+    final ProtocolScheduleCustomizer failedCustomizer = mock(ProtocolScheduleCustomizer.class);
+    final ProtocolScheduleCustomization expected = customization("healthy");
+    when(healthyCustomizer.customize(config)).thenReturn(Optional.of(expected));
+    when(failedCustomizer.customize(config)).thenReturn(Optional.of(customization("failed")));
+
+    final BesuPluginContextImpl context = new BesuPluginContextImpl();
+    context.initialize(
+        ImmutablePluginConfiguration.builder()
+            .externalPluginsEnabled(false)
+            .continueOnPluginError(true)
+            .build());
+    final BesuPlugin healthy =
+        plugin(
+            services ->
+                services
+                    .getService(ProtocolScheduleService.class)
+                    .orElseThrow()
+                    .registerProtocolScheduleCustomizer(healthyCustomizer));
+    final BesuPlugin failing =
+        plugin(
+            services -> {
+              services
+                  .getService(ProtocolScheduleService.class)
+                  .orElseThrow()
+                  .registerProtocolScheduleCustomizer(failedCustomizer);
+              throw new IllegalStateException("a later step of registration fails");
+            });
+
+    assertThat(context.registerPlugin(healthy)).isTrue();
+    assertThat(context.registerPlugin(failing)).isFalse();
+
+    // only the healthy plugin's customizer is consulted, so there is no ambiguity either
+    assertThat(context.resolveProtocolScheduleCustomization(config)).isSameAs(expected);
+    verify(failedCustomizer, times(0)).customize(config);
+  }
+
+  @Test
+  void discardingSinceAMarkKeepsEarlierRegistrations() {
+    final ProtocolScheduleCustomizer earlier = mock(ProtocolScheduleCustomizer.class);
+    final ProtocolScheduleCustomizer later = mock(ProtocolScheduleCustomizer.class);
+    final ProtocolScheduleCustomization expected = customization("earlier");
+    when(earlier.customize(config)).thenReturn(Optional.of(expected));
+    when(later.customize(config)).thenReturn(Optional.of(customization("later")));
+    final ProtocolScheduleServiceImpl service = new ProtocolScheduleServiceImpl();
+    service.registerProtocolScheduleCustomizer(earlier);
+    final int mark = service.registrationMark();
+    service.registerProtocolScheduleCustomizer(later);
+
+    service.discardRegistrationsSince(mark);
+
+    assertThat(service.resolve(config)).isSameAs(expected);
+  }
+
+  private static BesuPlugin plugin(final Consumer<ServiceManager> register) {
+    return new BesuPlugin() {
+      @Override
+      public void register(final ServiceManager context) {
+        register.accept(context);
+      }
+
+      @Override
+      public void start() {}
+
+      @Override
+      public void stop() {}
+    };
   }
 
   private static ProtocolScheduleCustomization customization(final String name) {
