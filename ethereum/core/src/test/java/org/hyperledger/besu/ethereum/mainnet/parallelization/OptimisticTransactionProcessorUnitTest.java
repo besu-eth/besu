@@ -919,6 +919,31 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("A chain member whose run failed with an error is executed sequentially")
+    void failedChainMemberIsExecutedSequentially() {
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final Transaction tx3 = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+      when(transactionProcessor.processTransaction(
+              any(), any(), eq(tx2), any(), any(), any(), any(), any(), any()))
+          .thenThrow(new StackOverflowError());
+
+      runBlock(List.of(tx1, tx2, tx3), sameThreadExecutor);
+
+      assertNotNull(processor.futures[0].resultNow());
+      assertThat(processor.futures[1]).isCompletedExceptionally();
+      assertThat(processor.futures[2]).isDone();
+      assertNull(processor.futures[2].resultNow(), "the member after it lacks its state");
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), eq(tx3), any(), any(), any(), any(), any(), any());
+      assertThat(
+              processor.getProcessingResult(
+                  env.worldState(), MINING_BENEFICIARY, tx2, 1, Optional.empty(), Optional.empty()))
+          .isEmpty();
+    }
+
+    @Test
     @DisplayName("Transactions of a sender the pool did not know run again chained once recovered")
     void unknownSenderIsRecoveredAndChained() {
       final List<Runnable> background = new ArrayList<>();
