@@ -457,6 +457,16 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     return txIndex <= serialLoopPosition.get();
   }
 
+  /**
+   * Also stops what the futures of the block do not cover: the late chains and the chains and
+   * warm-ups not started yet skip every transaction once the block is done with.
+   */
+  @Override
+  public void abort() {
+    serialLoopPosition.set(Integer.MAX_VALUE);
+    super.abort();
+  }
+
   @Override
   @VisibleForTesting
   protected ParallelizedTransactionContext runTransaction(
