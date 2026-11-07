@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.AbstractCallOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
@@ -125,6 +126,12 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
     final Optional<Code> maybeCode =
         Optional.ofNullable(frame.getMessageFrameStack().peek()).map(MessageFrame::getCode);
+    // Capture the child's actual gas, including the fork's cap and value stipend, before it runs.
+    final OptionalLong gasAvailableForChildCall =
+        currentOperation instanceof AbstractCallOperation
+                && frame.getState() == MessageFrame.State.CODE_SUSPENDED
+            ? OptionalLong.of(frame.getMessageFrameStack().getFirst().getRemainingGas())
+            : operationResult.getGasAvailableForChildCall();
     lastFrame =
         TraceFrame.builder()
             .setPc(pc)
@@ -153,7 +160,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .setMaybeUpdatedMemory(frame.getMaybeUpdatedMemory())
             .setMaybeUpdatedStorage(frame.getMaybeUpdatedStorage())
             .setSoftFailureReason(operationResult.getSoftFailureReason())
-            .setGasAvailableForChildCall(operationResult.getGasAvailableForChildCall())
+            .setGasAvailableForChildCall(gasAvailableForChildCall)
             .build();
 
     traceFrames.add(lastFrame);
@@ -208,27 +215,16 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     haltReason.ifPresent(
         exceptionalHaltReason -> {
           if (!traceFrames.isEmpty()) {
-            updateFirstNonReturnFrame(exceptionalHaltReason);
+            // The creation fails after its last traced operation, usually the RETURN of its code.
+            final TraceFrame lastTraceFrame = traceFrames.removeLast();
+            traceFrames.add(
+                TraceFrame.from(lastTraceFrame)
+                    .setExceptionalHaltReason(Optional.of(exceptionalHaltReason))
+                    .build());
           } else {
             addNewTraceFrame(frame, exceptionalHaltReason);
           }
         });
-  }
-
-  private void updateFirstNonReturnFrame(final ExceptionalHaltReason exceptionalHaltReason) {
-    // Find the last non-RETURN frame
-    for (int i = traceFrames.size() - 1; i >= 0; i--) {
-      final TraceFrame currentFrame = traceFrames.get(i);
-      if (!"RETURN".equals(currentFrame.getOpcode())) {
-        // Create updated frame with the exceptional halt reason
-        final TraceFrame updatedFrame =
-            TraceFrame.from(currentFrame)
-                .setExceptionalHaltReason(Optional.of(exceptionalHaltReason))
-                .build();
-        traceFrames.set(i, updatedFrame);
-        break;
-      }
-    }
   }
 
   private void addNewTraceFrame(
