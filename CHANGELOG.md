@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- `eth_estimateGas` and `eth_createAccessList` now default to the `latest` block when the block parameter is omitted, as other clients do. Previously they defaulted to `pending` [#8627](https://github.com/besu-eth/besu/pull/8627). Pass `"pending"` to keep the previous behavior. `eth_call` now also accepts an omitted block parameter and uses `latest`. It returned `-32602`. [#11490](https://github.com/besu-eth/besu/pull/11490)
 - `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
 - The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
 
