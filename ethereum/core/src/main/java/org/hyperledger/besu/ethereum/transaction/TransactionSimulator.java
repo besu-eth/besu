@@ -186,23 +186,38 @@ public class TransactionSimulator {
             .plusSeconds(chainHeadHeader.getTimestamp())
             .toSeconds();
 
-    final ProtocolSpec protocolSpec =
-        protocolSchedule.getForNextBlockHeader(chainHeadHeader, timestamp);
-
     final var simulatedBlockHeader =
-        BlockHeaderBuilder.createPending(
-                protocolSpec,
-                chainHeadHeader,
-                miningConfiguration,
-                timestamp,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty())
-            .buildProcessableBlockHeader();
+        simulatePendingBlockHeader(
+            protocolSchedule, miningConfiguration, chainHeadHeader, timestamp);
 
     LOG.trace("Simulated block header: {}", simulatedBlockHeader);
 
     return simulatedBlockHeader;
+  }
+
+  /**
+   * The header of a pending block on a parent, as block building creates it.
+   *
+   * @param protocolSchedule the protocol schedule
+   * @param miningConfiguration the mining configuration
+   * @param parent the parent of the pending block
+   * @param timestamp the timestamp of the pending block
+   * @return the pending block header
+   */
+  public static ProcessableBlockHeader simulatePendingBlockHeader(
+      final ProtocolSchedule protocolSchedule,
+      final MiningConfiguration miningConfiguration,
+      final BlockHeader parent,
+      final long timestamp) {
+    return BlockHeaderBuilder.createPending(
+            protocolSchedule.getForNextBlockHeader(parent, timestamp),
+            parent,
+            miningConfiguration,
+            timestamp,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty())
+        .buildProcessableBlockHeader();
   }
 
   private MutableWorldState duplicateWorldStateAtParent(final Hash parentHash) {
