@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -109,14 +110,17 @@ public class BlockReplay {
                   action.performAction(
                       transaction, i, block, blockchain, transactionProcessor, blobGasPrice));
             } else {
+              // an updater per transaction, as block import does
+              final WorldUpdater transactionUpdater = mutableWorldState.updater().updater();
               transactionProcessor.processTransaction(
-                  mutableWorldState.updater(),
+                  transactionUpdater,
                   header,
                   transaction,
                   protocolSpec.getMiningBeneficiaryCalculator().calculateBeneficiary(header),
                   blockHashLookup,
                   TransactionValidationParams.blockReplay(),
                   blobGasPrice);
+              transactionUpdater.commit();
             }
           }
           return Optional.empty();
@@ -135,14 +139,16 @@ public class BlockReplay {
         (transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice) -> {
           final BlockHeader blockHeader = block.getHeader();
           final ProtocolSpec spec = protocolSchedule.getByBlockHeader(blockHeader);
+          final WorldUpdater transactionUpdater = mutableWorldState.updater().updater();
           transactionProcessor.processTransaction(
-              mutableWorldState.updater(),
+              transactionUpdater,
               blockHeader,
               transaction,
               spec.getMiningBeneficiaryCalculator().calculateBeneficiary(blockHeader),
               spec.getPreExecutionProcessor().createBlockHashLookup(blockchain, blockHeader),
               TransactionValidationParams.blockReplay(),
               blobGasPrice);
+          transactionUpdater.commit();
           return action.performAction(
               transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice);
         });

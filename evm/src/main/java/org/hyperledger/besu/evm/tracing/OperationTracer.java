@@ -185,4 +185,15 @@ public interface OperationTracer {
   default boolean tracesOperations() {
     return isEnabled();
   }
+
+  /**
+   * Check whether EVM v2 may share one journal between the call frames of a transaction this tracer
+   * follows. A tracer that reads or changes the world state through the frames and world views it
+   * is given must not allow it, since the journal keeps the frames apart only for the running one.
+   *
+   * @return true if the call frames may share a journal, by default whether the tracer is disabled
+   */
+  default boolean allowsJournal() {
+    return !isEnabled();
+  }
 }
