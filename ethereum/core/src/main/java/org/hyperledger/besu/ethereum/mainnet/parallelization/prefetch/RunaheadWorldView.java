@@ -74,8 +74,16 @@ final class RunaheadWorldView implements BonsaiWorldView {
       return inMemory.get().map(UInt256::fromBytes);
     }
     loads.load(address, storageSlotKey);
-    return Optional.empty();
+    return PLACEHOLDER;
   }
+
+  // what a slot that is not in memory reads as: zero, or a value a check for a set slot passes
+  private static final Optional<UInt256> PLACEHOLDER =
+      switch (System.getProperty("besu.runahead.placeholder", "0")) {
+        case "1" -> Optional.of(UInt256.ONE);
+        case "max" -> Optional.of(UInt256.MAX_VALUE);
+        default -> Optional.empty();
+      };
 
   @Override
   public UInt256 getPriorStorageValue(final Address address, final UInt256 key) {
