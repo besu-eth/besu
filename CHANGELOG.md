@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- `eth_createAccessList` now returns an error for a transaction that is not valid at the target block, as `eth_estimateGas` does. This includes a block before Berlin, where an access list transaction is not valid, and fee fields before London. Previously the method returned an empty access list, or an `execution reverted` result with the gas cap as `gasUsed`. [#11631](https://github.com/besu-eth/besu/pull/11631)
 - `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
 
 ### Upcoming Breaking Changes
