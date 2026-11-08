@@ -369,6 +369,7 @@ public final class RunaheadPrefetcher {
     // the passes running and the next start scheduled; the last of them to end finishes the run
     private final AtomicInteger outstanding = new AtomicInteger(1);
     private final AtomicInteger passes = new AtomicInteger();
+    private final AtomicInteger runningPasses = new AtomicInteger();
     private final Queue<String> passLog = new ConcurrentLinkedQueue<>();
     private volatile String outcome = "?";
     private volatile boolean stoppedEarly;
@@ -431,6 +432,7 @@ public final class RunaheadPrefetcher {
       loads = new Loads(worldState);
       evmConfiguration =
           ((PathBasedWorldStateUpdateAccumulator<?>) worldState.updater()).getEvmConfiguration();
+      runningPasses.incrementAndGet();
       try {
         scheduleNext(1, 0);
         runPass(0);
@@ -451,23 +453,32 @@ public final class RunaheadPrefetcher {
             () -> {
               try {
                 final int requestedNow = loads.requested.size();
+                if (stopped.getAsBoolean()) {
+                  return;
+                }
                 // a pass started while loads are in flight waits for them and gets further
-                if ((requestedNow > requestedBefore || loads.pendingValues() > 0)
-                    && !stopped.getAsBoolean()) {
-                  scheduleNext(pass + 1, requestedNow);
-                  outstanding.incrementAndGet();
-                  try {
-                    RUNS.execute(
-                        () -> {
-                          try {
-                            runPass(pass);
-                          } finally {
-                            ended();
-                          }
-                        });
-                  } catch (final RejectedExecutionException e) {
-                    ended();
+                if (requestedNow <= requestedBefore && loads.pendingValues() == 0) {
+                  // a pass still running may find more, so the next pass waits for it
+                  if (runningPasses.get() > 0) {
+                    scheduleNext(pass, requestedNow);
                   }
+                  return;
+                }
+                scheduleNext(pass + 1, requestedNow);
+                outstanding.incrementAndGet();
+                runningPasses.incrementAndGet();
+                try {
+                  RUNS.execute(
+                      () -> {
+                        try {
+                          runPass(pass);
+                        } finally {
+                          ended();
+                        }
+                      });
+                } catch (final RejectedExecutionException e) {
+                  runningPasses.decrementAndGet();
+                  ended();
                 }
               } finally {
                 ended();
@@ -480,7 +491,16 @@ public final class RunaheadPrefetcher {
       }
     }
 
+    /** Runs a pass, which counts as running from when it was submitted until it ends. */
     private void runPass(final int pass) {
+      try {
+        runPassBody(pass);
+      } finally {
+        runningPasses.decrementAndGet();
+      }
+    }
+
+    private void runPassBody(final int pass) {
       if (stopped.getAsBoolean()) {
         stoppedEarly = true;
         return;
