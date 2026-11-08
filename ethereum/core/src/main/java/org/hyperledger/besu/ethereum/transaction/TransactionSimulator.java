@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.transaction;
 
-import static org.hyperledger.besu.ethereum.mainnet.feemarket.BlobFeeMarket.MIN_BLOB_GASPRICE;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
@@ -386,13 +385,6 @@ public class TransactionSimulator {
         (protocolSpec, maybeParentHeader) -> {
           if (isUnpricedBlobCall(callParams)) {
             return Wei.ZERO;
-          }
-          if (transactionValidationParams.isAllowExceedingBalance()
-              && !transactionValidationParams.isPreserveCallerGasPricing()
-              && callParams.getMaxFeePerBlobGas().isEmpty()) {
-            // An unpriced call without blob fields never sees a blob base fee of 0, which is
-            // spec-illegal for an ordinary call.
-            return MIN_BLOB_GASPRICE;
           }
           return protocolSpec
               .getFeeMarket()
