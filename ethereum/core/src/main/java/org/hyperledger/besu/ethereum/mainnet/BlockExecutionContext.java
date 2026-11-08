@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.jspecify.annotations.Nullable;
 
@@ -57,10 +59,12 @@ public class BlockExecutionContext {
      * Returns whether the block's execution output is valid.
      *
      * @param receipts the receipts of the block's transactions
+     * @param receiptsRoot the root of {@code receipts}, which may already be under computation
      * @param gasMetered the gas the block used
      * @return {@code true} if the output is valid and the post state may be persisted
      */
-    boolean validate(List<TransactionReceipt> receipts, long gasMetered);
+    boolean validate(
+        List<TransactionReceipt> receipts, Supplier<Hash> receiptsRoot, long gasMetered);
   }
 
   private final ProtocolContext protocolContext;

@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAcces
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidator;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
@@ -63,8 +64,11 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Suppliers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -508,10 +512,17 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       // EIP-8037: gas_metered = max(cumulative_execution, cumulative_state)
       final long gasMetered = Math.max(cumulativeExecutionGasUsed, cumulativeStateGasUsed);
 
+      // the receipts are final, so a worker computes their root; whoever needs it first waits for
+      // that computation or runs it on its own thread
+      final Supplier<Hash> receiptsRoot =
+          Suppliers.memoize(() -> BodyValidation.receiptsRoot(receipts));
+      CompletableFuture.supplyAsync(receiptsRoot, BlockProcessingExecutors.cpuExecutor());
+
       // persisting moves a head world state onto the block, so a mismatch must be caught first
       final Optional<BlockExecutionContext.OutputValidator> outputValidator =
           context.getOutputValidator();
-      if (outputValidator.isPresent() && !outputValidator.get().validate(receipts, gasMetered)) {
+      if (outputValidator.isPresent()
+          && !outputValidator.get().validate(receipts, receiptsRoot, gasMetered)) {
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -544,7 +555,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   maybeBlockAccessList,
                   gasMetered,
                   blockHashLookup.getAccessedAncestors(),
-                  inclusionListValidationResult)),
+                  inclusionListValidationResult,
+                  receiptsRoot)),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } catch (final MerkleTrieException | StorageException e) {
       // the block may be processed again on this world state, without the transactions before
