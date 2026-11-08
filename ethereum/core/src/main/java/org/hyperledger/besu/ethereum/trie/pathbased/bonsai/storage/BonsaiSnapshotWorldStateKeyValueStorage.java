@@ -112,6 +112,11 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
+  public Optional<Bytes> getTrieNodeFromCacheOrStorage(final Bytes key, final Bytes32 nodeHash) {
+    return isClosedGet() ? Optional.empty() : super.getTrieNodeFromCacheOrStorage(key, nodeHash);
+  }
+
+  @Override
   public Optional<byte[]> getTrieLog(final Hash blockHash) {
     return isClosedGet() ? Optional.empty() : super.getTrieLog(blockHash);
   }

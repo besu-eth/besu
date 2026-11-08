@@ -28,6 +28,7 @@ import java.util.OptionalLong;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -200,6 +201,19 @@ public class StructLogTest {
     Bytes emptyBytes = Bytes.EMPTY;
     String result = StructLog.toCompactHex(emptyBytes, false);
     assertEquals("0", result, "Expected '0' for an empty byte array without prefix");
+  }
+
+  @Test
+  public void testToCompactHexZeroWordIsTheSharedConstant() {
+    // EVM v2 shows tracers zero as a 32-byte word, where v1 often holds empty bytes
+    assertThat(StructLog.toCompactHex(Bytes32.ZERO, true))
+        .isEqualTo("0x0")
+        .isSameAs(StructLog.toCompactHex(Bytes.EMPTY, true));
+    assertThat(StructLog.toCompactHex(Bytes32.ZERO, false))
+        .isEqualTo("0")
+        .isSameAs(StructLog.toCompactHex(Bytes.EMPTY, false));
+    assertThat(StructLog.toCompactHex(Bytes.fromHexString("0x0000"), true)).isEqualTo("0x0");
+    assertThat(StructLog.toCompactHex(Bytes.fromHexString("0x0001"), true)).isEqualTo("0x1");
   }
 
   @Test

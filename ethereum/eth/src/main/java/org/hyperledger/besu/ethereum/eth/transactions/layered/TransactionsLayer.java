@@ -19,8 +19,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason;
@@ -131,14 +129,6 @@ public interface TransactionsLayer {
       final long freeSpace,
       final int freeSlots,
       final int[] remainingPromotionsPerType);
-
-  long subscribeToAdded(PendingTransactionAddedListener listener);
-
-  void unsubscribeFromAdded(long id);
-
-  long subscribeToDropped(PendingTransactionDroppedListener listener);
-
-  void unsubscribeFromDropped(long id);
 
   PendingTransaction promoteFor(Address sender, long nonce, final int[] remainingPromotionsPerType);
 

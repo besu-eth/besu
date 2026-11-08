@@ -120,6 +120,7 @@ class AbstractCallOperationTest {
 
   private MessageFrame createParentFrame(final SimpleWorld world) {
     return MessageFrame.builder()
+        .enableEvmV2(false)
         .type(MessageFrame.Type.MESSAGE_CALL)
         .contract(STATE_CONTEXT)
         .inputData(Bytes.EMPTY)

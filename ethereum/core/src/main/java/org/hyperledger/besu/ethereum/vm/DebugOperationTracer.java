@@ -23,6 +23,7 @@ import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
+import org.hyperledger.besu.evm.tracing.TracedStack;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
@@ -44,6 +45,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   private Bytes inputData;
   private int stepCount;
   private boolean limitReached;
+  // set when a frame is added, as the next operation's starting gas is that frame's remaining gas
+  private boolean lastFrameNeedsGasPostExecution;
 
   /**
    * Creates the operation tracer.
@@ -68,8 +71,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     if (traceOpcode
         && options.traceStorage()
         && "SLOAD".equals(operationName)
-        && frame.stackSize() > 0) {
-      preExecutionStorageKey = Optional.of(UInt256.fromBytes(frame.getStackItem(0)));
+        && TracedStack.size(frame) > 0) {
+      preExecutionStorageKey = Optional.of(UInt256.fromBytes(TracedStack.item(frame, 0)));
     } else {
       preExecutionStorageKey = Optional.empty();
     }
@@ -79,6 +82,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   protected void capturePreExecutionState(final MessageFrame frame) {
     if (options.limit() > 0 && stepCount >= options.limit()) {
       limitReached = true;
+      traceOpcode = false;
       return;
     }
     limitReached = false;
@@ -95,19 +99,20 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
     final WorldUpdater worldUpdater = frame.getWorldUpdater();
     final Bytes outputData = frame.getOutputData();
-    final Optional<Bytes[]> memory = captureMemory(frame);
-    final Optional<Bytes> returnData = captureReturnData(frame);
-    final Optional<Bytes[]> stackPostExecution = captureStack(frame);
 
-    if (!traceFrames.isEmpty()) {
+    if (lastFrameNeedsGasPostExecution) {
       final TraceFrame lastTraceFrame = traceFrames.removeLast();
       final TraceFrame updatedLast =
           TraceFrame.from(lastTraceFrame).setGasRemainingPostExecution(gasRemaining).build();
       traceFrames.add(updatedLast);
+      lastFrameNeedsGasPostExecution = false;
     }
-    if (limitReached || !traceOpcode) {
+    if (!traceOpcode) {
       return;
     }
+    final Optional<Bytes[]> memory = captureMemory(frame);
+    final Optional<Bytes> returnData = captureReturnData(frame);
+    final Optional<Bytes[]> stackPostExecution = captureStack(frame);
 
     final Optional<Map<UInt256, UInt256>> storage =
         captureStorage(frame, currentOperation, operationResult);
@@ -152,6 +157,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .build();
 
     traceFrames.add(lastFrame);
+    lastFrameNeedsGasPostExecution = true;
     frame.reset();
   }
 
@@ -182,6 +188,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
               .setPrecompileIOData(recipient, inputData, output)
               .build();
       traceFrames.add(traceFrame);
+      lastFrameNeedsGasPostExecution = true;
     } else {
       final TraceFrame lastTraceFrame = traceFrames.removeLast();
       final TraceFrame updatedTraceFrame =
@@ -245,6 +252,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .setVirtualOperation(true)
             .build();
     traceFrames.add(traceFrame);
+    lastFrameNeedsGasPostExecution = true;
   }
 
   private Optional<Bytes> captureReturnData(final MessageFrame frame) {
@@ -284,10 +292,10 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       // after SLOAD executes the loaded value sits at the top of the stack.
       return preExecutionStorageKey.flatMap(
           key -> {
-            if (frame.stackSize() == 0) {
+            if (TracedStack.size(frame) == 0) {
               return Optional.empty();
             }
-            final UInt256 loadedValue = UInt256.fromBytes(frame.getStackItem(0));
+            final UInt256 loadedValue = UInt256.fromBytes(TracedStack.item(frame, 0));
             final Map<UInt256, UInt256> map = new TreeMap<>();
             map.put(key, loadedValue);
             return Optional.of(map);
@@ -335,6 +343,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     lastFrame = null;
     stepCount = 0;
     limitReached = false;
+    lastFrameNeedsGasPostExecution = false;
     preExecutionStorageKey = Optional.empty();
   }
 

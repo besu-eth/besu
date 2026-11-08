@@ -20,6 +20,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.ImmutableEthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.encoding.TransactionAnnouncementEncoder;
 
 import java.util.List;
 import java.util.function.ToIntFunction;
@@ -43,7 +44,13 @@ public class EthProtocolOptionsTest
               "--Xeth-max-message-size", EthProtocolConfiguration::getMaxMessageSize),
           new MaxSizeTestInput(
               "--Xeth-max-transactions-message-size",
-              EthProtocolConfiguration::getMaxTransactionsMessageSize));
+              EthProtocolConfiguration::getMaxTransactionsMessageSize),
+          new MaxSizeTestInput(
+              "--Xewp-max-transactions-per-message",
+              EthProtocolConfiguration::getMaxTransactionsPerMessage),
+          new MaxSizeTestInput(
+              "--Xewp-max-announcements-per-message",
+              EthProtocolConfiguration::getMaxAnnouncementsPerMessage));
 
   @ParameterizedTest
   @FieldSource("parsesValidMaxSizeOptions")
@@ -67,6 +74,18 @@ public class EthProtocolOptionsTest
         .contains(
             "Invalid value for option '%s': cannot convert '-4' to PositiveNumber"
                 .formatted(input.optionName));
+  }
+
+  @Test
+  public void maxNewPooledTransactionHashesMessageSizeFollowsMaxAnnouncements() {
+    final TestBesuCommand cmd = parseCommand("--Xewp-max-announcements-per-message", "10");
+
+    final EthProtocolConfiguration config = getOptionsFromBesuCommand(cmd).toDomainObject();
+    assertThat(config.getMaxNewPooledTransactionHashesMessageSize())
+        .isEqualTo(
+            TransactionAnnouncementEncoder.MAX_ENCODED_MESSAGE_OVERHEAD
+                + 10 * TransactionAnnouncementEncoder.MAX_ENCODED_ANNOUNCEMENT_SIZE);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test
@@ -175,6 +194,10 @@ public class EthProtocolOptionsTest
         .maxGetBlockBodies(EthProtocolConfiguration.DEFAULT_MAX_GET_BLOCK_BODIES + 2)
         .maxGetReceipts(EthProtocolConfiguration.DEFAULT_MAX_GET_RECEIPTS + 2)
         .maxGetPooledTransactions(EthProtocolConfiguration.DEFAULT_MAX_GET_POOLED_TRANSACTIONS + 2)
+        .maxTransactionsPerMessage(
+            EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE + 2)
+        .maxAnnouncementsPerMessage(
+            EthProtocolConfiguration.DEFAULT_MAX_ANNOUNCEMENTS_PER_MESSAGE + 2)
         .maxEthCapability(EthProtocolConfiguration.DEFAULT_MAX_CAPABILITY)
         .minEthCapability(EthProtocolConfiguration.DEFAULT_MIN_CAPABILITY)
         .build();

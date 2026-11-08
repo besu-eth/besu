@@ -172,7 +172,9 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     final List<Capability> capabilities = new ArrayList<>();
 
     for (final EthProtocolVersion version : EthProtocolVersion.values()) {
-      capabilities.add(version.getCapability());
+      if (version.isAdvertised()) {
+        capabilities.add(version.getCapability());
+      }
     }
     capabilities.removeIf(cap -> cap.getVersion() > ethProtocolConfiguration.getMaxEthCapability());
     capabilities.removeIf(cap -> cap.getVersion() < ethProtocolConfiguration.getMinEthCapability());
@@ -492,12 +494,10 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
   }
 
   private StatusMessage.BlockRange createBlockRange() {
+    final long chainHead = blockchain.getChainHeadBlockNumber();
     return blockchain
-        .getEarliestBlockNumber()
-        .map(
-            earliestBlockNumber ->
-                new StatusMessage.BlockRange(
-                    earliestBlockNumber, blockchain.getChainHeadBlockNumber()))
+        .getEarliestBlockNumber(chainHead)
+        .map(earliestBlockNumber -> new StatusMessage.BlockRange(earliestBlockNumber, chainHead))
         .orElseGet(() -> new StatusMessage.BlockRange(0, 0));
   }
 }

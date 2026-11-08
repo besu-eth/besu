@@ -135,6 +135,28 @@ public class PipelineBuilderTest {
   }
 
   @Test
+  public void shouldRejectZeroMaximumBatchSizeWithStopCondition() {
+    assertThatThrownBy(
+            () ->
+                PipelineBuilder.<Integer>createPipeline(
+                        "source", 20, NO_OP_LABELLED_2_COUNTER, false, "test")
+                    .inBatches(0, batch -> 0))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Maximum batch size must be greater than 0");
+  }
+
+  @Test
+  public void shouldRejectNegativeMaximumBatchSizeWithStopCondition() {
+    assertThatThrownBy(
+            () ->
+                PipelineBuilder.<Integer>createPipeline(
+                        "source", 20, NO_OP_LABELLED_2_COUNTER, false, "test")
+                    .inBatches(-1, batch -> 0))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("Maximum batch size must be greater than 0");
+  }
+
+  @Test
   public void shouldAggregateAllBatchesIntoSingleBatch() throws Exception {
     final BlockingQueue<List<Integer>> output = new ArrayBlockingQueue<>(1);
     final Pipeline<Integer> pipeline =

@@ -33,7 +33,9 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatD
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.TrieNodeHealingRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -121,21 +123,35 @@ public class RequestDataStep {
 
   public CompletableFuture<List<Task<SnapDataRequest>>> requestStorage(
       final List<Task<SnapDataRequest>> requestTasks) {
+    final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
+    final Hash stateRoot = blockHeader.getStateRoot();
+    // Peers send nothing for an account without storage, which would never complete its requests,
+    // so the requests of an account that a refresh proved empty at this pivot are completed here.
+    final List<StorageRangeDataRequest> requestsToSend = new ArrayList<>();
+    for (final Task<SnapDataRequest> task : requestTasks) {
+      // the storage pipelines only carry storage range requests
+      final StorageRangeDataRequest request = (StorageRangeDataRequest) task.getData();
+      if (isProvenWithoutStorage(request.getAccountHash(), stateRoot)) {
+        request.setRootHash(stateRoot);
+        request.addResponse(
+            downloadState, worldStateProofProvider, new TreeMap<>(), new ArrayDeque<>());
+      } else {
+        requestsToSend.add(request);
+      }
+    }
+    if (requestsToSend.isEmpty()) {
+      return CompletableFuture.completedFuture(requestTasks);
+    }
     final List<Hash> accountHashes =
-        requestTasks.stream()
-            .map(Task::getData)
-            .map(StorageRangeDataRequest.class::cast)
+        requestsToSend.stream()
             .map(StorageRangeDataRequest::getAccountHash)
             .collect(Collectors.toList());
-    final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
     final Bytes32 minRange =
-        requestTasks.size() == 1
-            ? ((StorageRangeDataRequest) requestTasks.get(0).getData()).getStartKeyHash()
+        requestsToSend.size() == 1
+            ? requestsToSend.get(0).getStartKeyHash()
             : RangeManager.MIN_RANGE;
     final Bytes32 maxRange =
-        requestTasks.size() == 1
-            ? ((StorageRangeDataRequest) requestTasks.get(0).getData()).getEndKeyHash()
-            : RangeManager.MAX_RANGE;
+        requestsToSend.size() == 1 ? requestsToSend.get(0).getEndKeyHash() : RangeManager.MAX_RANGE;
     final List<Bytes32> accountHashesAsBytes32 =
         accountHashes.stream()
             .map(hash -> Bytes32.wrap(hash.getBytes()))
@@ -168,14 +184,16 @@ public class RequestDataStep {
                     slots.addAll(response.slots());
                   }
                   for (int i = 0; i < slots.size(); i++) {
-                    final StorageRangeDataRequest request =
-                        (StorageRangeDataRequest) requestTasks.get(i).getData();
-                    request.setRootHash(blockHeader.getStateRoot());
+                    final StorageRangeDataRequest request = requestsToSend.get(i);
+                    request.setRootHash(stateRoot);
                     request.addResponse(
                         downloadState,
                         worldStateProofProvider,
                         slots.get(i),
                         i < slots.size() - 1 ? new ArrayDeque<>() : response.proofs());
+                  }
+                  if (response.slots().isEmpty() && response.proofs().isEmpty()) {
+                    refreshOutdatedStorageRoots(requestsToSend, stateRoot);
                   }
                 } catch (final Exception e) {
                   LOG.error("Error while processing storage range response", e);
@@ -189,6 +207,32 @@ public class RequestDataStep {
               }
               return requestTasks;
             });
+  }
+
+  private boolean isProvenWithoutStorage(final Hash accountHash, final Hash stateRoot) {
+    return downloadState
+        .getRefreshedStorageRoot(accountHash)
+        .filter(
+            refreshed ->
+                refreshed.stateRoot().equals(stateRoot)
+                    && refreshed.storageRoot().equals(MerkleTrie.EMPTY_TRIE_NODE_HASH))
+        .isPresent();
+  }
+
+  /**
+   * A peer that sends neither slots nor proofs has no storage to give for the requested accounts,
+   * as is the case for an account whose storage was cleared since the pivot its storage root is
+   * from. A peer that cannot serve the request answers the same way, so the storage roots that may
+   * be outdated are refreshed to tell the two apart. A root already proven at this pivot cannot be
+   * outdated and is not refreshed.
+   */
+  private void refreshOutdatedStorageRoots(
+      final List<StorageRangeDataRequest> requests, final Hash stateRoot) {
+    for (final StorageRangeDataRequest request : requests) {
+      if (!request.isStorageRootValidAt(stateRoot)) {
+        downloadState.requestStorageRootRefresh(request.getAccountHash());
+      }
+    }
   }
 
   public CompletableFuture<List<Task<SnapDataRequest>>> requestCode(
@@ -280,28 +324,39 @@ public class RequestDataStep {
    * Retrieves local accounts from the flat database and generates the necessary proof, updates the
    * data request with the retrieved information, and returns the modified data request task.
    *
+   * <p>Reading a range and proving it against the trie is local work that only depends on the
+   * request, so it runs on the computation threads and several ranges are checked at once.
+   *
    * @param requestTask request data to fill
    * @return data request with local accounts
    */
   public CompletableFuture<Task<SnapDataRequest>> requestLocalFlatAccounts(
       final Task<SnapDataRequest> requestTask) {
+    return ethContext
+        .getScheduler()
+        .scheduleComputationTask(
+            () -> {
+              loadLocalFlatAccounts(requestTask);
+              return requestTask;
+            });
+  }
+
+  private void loadLocalFlatAccounts(final Task<SnapDataRequest> requestTask) {
 
     final AccountFlatDatabaseHealingRangeRequest accountDataRequest =
         (AccountFlatDatabaseHealingRangeRequest) requestTask.getData();
     final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
 
-    // retrieve accounts from flat database
-    final TreeMap<Bytes32, Bytes> accounts = new TreeMap<>();
-
-    worldStateStorageCoordinator.applyOnMatchingFlatMode(
-        FlatDbMode.FULL,
-        onBonsai -> {
-          accounts.putAll(
-              onBonsai.streamFlatAccounts(
-                  accountDataRequest.getStartKeyHash(),
-                  accountDataRequest.getEndKeyHash(),
-                  snapSyncConfiguration.getLocalFlatAccountCountToHealPerRequest()));
-        });
+    // the map comes back sorted, and copying it into another one would sort every entry again
+    final NavigableMap<Bytes32, Bytes> accounts =
+        worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
+            ? worldStateStorageCoordinator
+                .getStrategy(BonsaiWorldStateKeyValueStorage.class)
+                .streamFlatAccounts(
+                    accountDataRequest.getStartKeyHash(),
+                    accountDataRequest.getEndKeyHash(),
+                    snapSyncConfiguration.getLocalFlatAccountCountToHealPerRequest())
+            : new TreeMap<>();
 
     final List<Bytes> proofs = new ArrayList<>();
     if (!accounts.isEmpty()) {
@@ -316,19 +371,29 @@ public class RequestDataStep {
 
     accountDataRequest.setRootHash(blockHeader.getStateRoot());
     accountDataRequest.addLocalData(worldStateProofProvider, accounts, new ArrayDeque<>(proofs));
-
-    return CompletableFuture.completedFuture(requestTask);
   }
 
   /**
    * Retrieves local storage slots from the flat database and generates the necessary proof, updates
    * the data request with the retrieved information, and returns the modified data request task.
    *
+   * <p>Like {@link #requestLocalFlatAccounts}, this runs on the computation threads.
+   *
    * @param requestTask request data to fill
    * @return data request with local slots
    */
   public CompletableFuture<Task<SnapDataRequest>> requestLocalFlatStorages(
       final Task<SnapDataRequest> requestTask) {
+    return ethContext
+        .getScheduler()
+        .scheduleComputationTask(
+            () -> {
+              loadLocalFlatStorages(requestTask);
+              return requestTask;
+            });
+  }
+
+  private void loadLocalFlatStorages(final Task<SnapDataRequest> requestTask) {
 
     final StorageFlatDatabaseHealingRangeRequest storageDataRequest =
         (StorageFlatDatabaseHealingRangeRequest) requestTask.getData();
@@ -336,18 +401,17 @@ public class RequestDataStep {
 
     storageDataRequest.setRootHash(blockHeader.getStateRoot());
 
-    // retrieve slots from flat database
-    final TreeMap<Bytes32, Bytes> slots = new TreeMap<>();
-    worldStateStorageCoordinator.applyOnMatchingFlatMode(
-        FlatDbMode.FULL,
-        onBonsai -> {
-          slots.putAll(
-              onBonsai.streamFlatStorages(
-                  storageDataRequest.getAccountHash(),
-                  storageDataRequest.getStartKeyHash(),
-                  storageDataRequest.getEndKeyHash(),
-                  snapSyncConfiguration.getLocalFlatStorageCountToHealPerRequest()));
-        });
+    // the map comes back sorted, and copying it into another one would sort every entry again
+    final NavigableMap<Bytes32, Bytes> slots =
+        worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
+            ? worldStateStorageCoordinator
+                .getStrategy(BonsaiWorldStateKeyValueStorage.class)
+                .streamFlatStorages(
+                    storageDataRequest.getAccountHash(),
+                    storageDataRequest.getStartKeyHash(),
+                    storageDataRequest.getEndKeyHash(),
+                    snapSyncConfiguration.getLocalFlatStorageCountToHealPerRequest())
+            : new TreeMap<>();
 
     final List<Bytes> proofs = new ArrayList<>();
     if (!slots.isEmpty()) {
@@ -364,7 +428,5 @@ public class RequestDataStep {
               slots.lastKey()));
     }
     storageDataRequest.addLocalData(worldStateProofProvider, slots, new ArrayDeque<>(proofs));
-
-    return CompletableFuture.completedFuture(requestTask);
   }
 }

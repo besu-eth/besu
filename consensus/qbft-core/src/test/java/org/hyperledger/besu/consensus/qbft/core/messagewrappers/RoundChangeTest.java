@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
 import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
+import org.hyperledger.besu.consensus.common.bft.payload.NonRecoverableSignature;
 import org.hyperledger.besu.consensus.common.bft.payload.SignedData;
 import org.hyperledger.besu.consensus.qbft.core.QbftBlockTestFixture;
 import org.hyperledger.besu.consensus.qbft.core.messagedata.QbftV1;
@@ -361,6 +362,35 @@ public class RoundChangeTest {
     assertThatThrownBy(() -> RoundChange.decode(oversized, blockEncoder, 3))
         .isInstanceOf(RLPException.class)
         .hasMessageContaining("exceeds the maximum permitted size");
+  }
+
+  @Test
+  public void decodeRejectsAnEmbeddedPrepareWhoseSignatureDoesNotRecover() {
+    // The prepares are written after the outer signed payload, so its signature does not cover
+    // them: a peer can swap one into a genuine round change without a validator key. Its author
+    // would be null and throw when looked up in the validator TreeSet, so decode must reject it.
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final RoundChangePayload payload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 1), Optional.empty());
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), Hash.ZERO);
+
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    rlpOut.startList();
+    signedRoundChangePayload.writeTo(rlpOut);
+    rlpOut.writeEmptyList(); // no proposed block
+    rlpOut.writeNull(); // no block access list
+    rlpOut.startList();
+    NonRecoverableSignature.writeSigned(preparePayload, rlpOut);
+    rlpOut.endList();
+    rlpOut.endList();
+
+    assertThatThrownBy(() -> RoundChange.decode(rlpOut.encoded(), blockEncoder))
+        .hasRootCauseInstanceOf(IllegalArgumentException.class)
+        .hasRootCauseMessage("Signature does not recover to an address");
   }
 
   @Test

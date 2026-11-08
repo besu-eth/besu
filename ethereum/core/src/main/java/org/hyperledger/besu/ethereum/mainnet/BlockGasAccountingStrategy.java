@@ -85,12 +85,12 @@ public interface BlockGasAccountingStrategy {
   /**
    * Amsterdam (EIP-7778 + EIP-8037): Uses pre-refund gas split into execution and state dimensions.
    *
-   * <p>EIP-7778: Block gas is calculated pre-refund (estimateGasUsedByTransaction), preventing
-   * block gas limit circumvention through refund credits.
+   * <p>EIP-7778: Block gas is calculated pre-refund, preventing block gas limit circumvention
+   * through refund credits.
    *
-   * <p>EIP-8037: Gas is split into execution and state portions. Execution gas =
-   * estimateGasUsedByTransaction - stateGasUsed. Block gas_metered = max(cumulative_execution,
-   * cumulative_state).
+   * <p>EIP-8037: Gas is split into execution and state portions. Execution gas = max(consumed -
+   * state, calldata floor), from {@link TransactionProcessingResult#getExecutionGasUsedForBlock()}.
+   * Block gas_metered = max(cumulative_execution, cumulative_state).
    */
   BlockGasAccountingStrategy AMSTERDAM =
       new BlockGasAccountingStrategy() {

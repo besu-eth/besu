@@ -112,6 +112,8 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
   protected static final Wei DEFAULT_MIN_GAS_PRICE = Wei.of(50L);
 
   protected final EthScheduler ethScheduler = new DeterministicEthScheduler();
+  protected final TransactionEventNotifier transactionEventNotifier =
+      new TransactionEventNotifier(ethScheduler);
 
   @Mock(answer = Answers.RETURNS_DEEP_STUBS)
   protected TransactionValidatorFactory transactionValidatorFactory;
@@ -144,6 +146,8 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
   private ExecutionContextTestFixture executionContext;
   protected ProtocolContext protocolContext;
   protected TransactionPool transactionPool;
+  // the pending transactions instance created when the transaction pool was last enabled
+  protected PendingTransactions lastCreatedPendingTransactions;
   protected long blockGasLimit;
   protected EthProtocolManager ethProtocolManager;
   protected EthContext ethContext;
@@ -218,6 +222,10 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
 
   protected abstract FeeMarket getFeeMarket();
 
+  protected ExecutionContextTestFixture getExecutionContext() {
+    return executionContext;
+  }
+
   @BeforeEach
   public void setUp() {
     executionContext = createExecutionContextTestFixture();
@@ -261,7 +269,7 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
     return createTransactionPool(b -> b.minGasPrice(Wei.of(2)));
   }
 
-  TransactionPool createTransactionPool(
+  protected TransactionPool createTransactionPool(
       final Consumer<ImmutableTransactionPoolConfiguration.Builder> configConsumer) {
     final ImmutableTransactionPoolConfiguration.Builder configBuilder =
         ImmutableTransactionPoolConfiguration.builder();
@@ -279,14 +287,17 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
 
     final TransactionPool txPool =
         new TransactionPool(
-            () -> createPendingTransactions(poolConfig, transactionReplacementTester),
+            () ->
+                lastCreatedPendingTransactions =
+                    createPendingTransactions(poolConfig, transactionReplacementTester),
             protocolSchedule,
             protocolContext,
             transactionBroadcaster,
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConfig,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
     txPool.setEnabled();
     return txPool;
   }

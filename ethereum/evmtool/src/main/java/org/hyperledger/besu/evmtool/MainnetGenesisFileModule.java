@@ -165,6 +165,13 @@ class MainnetGenesisFileModule extends GenesisFileModule {
             createSchedule(
                 new StubGenesisConfigOptions().bpo2Time(0).baseFeePerGas(0x0a).chainId(chainId))),
         Map.entry(
+            "amsterdam",
+            createSchedule(
+                new StubGenesisConfigOptions()
+                    .amsterdamTime(0)
+                    .baseFeePerGas(0x0a)
+                    .chainId(chainId))),
+        Map.entry(
             "bpo3",
             createSchedule(
                 new StubGenesisConfigOptions().bpo3Time(0).baseFeePerGas(0x0a).chainId(chainId))),
@@ -176,13 +183,6 @@ class MainnetGenesisFileModule extends GenesisFileModule {
             "bpo5",
             createSchedule(
                 new StubGenesisConfigOptions().bpo5Time(0).baseFeePerGas(0x0a).chainId(chainId))),
-        Map.entry(
-            "amsterdam",
-            createSchedule(
-                new StubGenesisConfigOptions()
-                    .amsterdamTime(0)
-                    .baseFeePerGas(0x0a)
-                    .chainId(chainId))),
         Map.entry(
             "bogota",
             createSchedule(

@@ -17,9 +17,12 @@ package org.hyperledger.besu.metrics.opentelemetry;
 import java.util.List;
 
 import io.opentelemetry.api.metrics.Meter;
+import io.opentelemetry.api.metrics.ObservableDoubleCounter;
 
 /** The Open telemetry supplied counter. */
 public class OpenTelemetrySuppliedCounter extends OpenTelemetryLabelledSuppliedMetric {
+  private final ObservableDoubleCounter counter;
+
   /**
    * Instantiates a new Open telemetry supplied counter.
    *
@@ -34,10 +37,16 @@ public class OpenTelemetrySuppliedCounter extends OpenTelemetryLabelledSuppliedM
       final Meter meter,
       final List<String> labelNames) {
     super(labelNames);
-    meter
-        .counterBuilder(metricName)
-        .setDescription(help)
-        .ofDoubles()
-        .buildWithCallback(this::updater);
+    counter =
+        meter
+            .counterBuilder(metricName)
+            .setDescription(help)
+            .ofDoubles()
+            .buildWithCallback(this::updater);
+  }
+
+  @Override
+  void close() {
+    counter.close();
   }
 }
