@@ -1131,6 +1131,110 @@ public class UInt256Test {
     }
   }
 
+  @Test
+  void mulModWideMatchesBigInteger() {
+    final Random random = new Random(14);
+    for (int i = 0; i < 300_000; i++) {
+      final BigInteger m = wideModulus(random, i);
+      final BigInteger a = wideOperand(random, m, i);
+      final BigInteger b = wideOperand(random, m, i / 11);
+      assertThat(mulModWide(a, b, m)).as("%s * %s mod %s", a, b, m).isEqualTo(a.multiply(b).mod(m));
+    }
+  }
+
+  @Test
+  void mulModWideAtTheEdges() {
+    final BigInteger max = TWO_256.subtract(BigInteger.ONE);
+    for (final BigInteger m :
+        new BigInteger[] {
+          BN254_P,
+          BN254_R,
+          max,
+          BigInteger.ONE.shiftLeft(255),
+          BigInteger.ONE.shiftLeft(192),
+          BigInteger.ONE.shiftLeft(192).add(BigInteger.ONE),
+          BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE.shiftLeft(192)),
+          BigInteger.ONE.shiftLeft(255).add(BigInteger.ONE)
+        }) {
+      for (final BigInteger a :
+          new BigInteger[] {
+            BigInteger.ZERO,
+            BigInteger.ONE,
+            BigInteger.TWO,
+            m.subtract(BigInteger.ONE),
+            m,
+            m.add(BigInteger.ONE).min(max),
+            max,
+            max.shiftRight(1)
+          }) {
+        for (final BigInteger b :
+            new BigInteger[] {BigInteger.ZERO, BigInteger.ONE, m.subtract(BigInteger.ONE), max}) {
+          assertThat(mulModWide(a, b, m))
+              .as("%s * %s mod %s", a, b, m)
+              .isEqualTo(a.multiply(b).mod(m));
+        }
+      }
+    }
+  }
+
+  @Test
+  void mulModWideLeavesTheOperandsAndWritesOverTheModulus() {
+    final long[] stack = new long[12];
+    final BigInteger a = BN254_P.subtract(BigInteger.TWO);
+    final BigInteger b = BN254_P.subtract(BigInteger.valueOf(3));
+    put(stack, 8, a);
+    put(stack, 4, b);
+    put(stack, 0, BN254_P);
+    UInt256.mulModWide(stack, 8, 4, 0);
+    assertThat(get(stack, 0)).isEqualTo(a.multiply(b).mod(BN254_P));
+    assertThat(get(stack, 4)).isEqualTo(b);
+    assertThat(get(stack, 8)).isEqualTo(a);
+  }
+
+  private static BigInteger mulModWide(final BigInteger a, final BigInteger b, final BigInteger m) {
+    final long[] stack = new long[12];
+    put(stack, 8, a);
+    put(stack, 4, b);
+    put(stack, 0, m);
+    UInt256.mulModWide(stack, 8, 4, 0);
+    return get(stack, 0);
+  }
+
+  private static void put(final long[] stack, final int offset, final BigInteger value) {
+    final UInt256 u = uint(value);
+    stack[offset] = u.u3();
+    stack[offset + 1] = u.u2();
+    stack[offset + 2] = u.u1();
+    stack[offset + 3] = u.u0();
+  }
+
+  private static BigInteger get(final long[] stack, final int offset) {
+    return new UInt256(stack[offset], stack[offset + 1], stack[offset + 2], stack[offset + 3])
+        .toBigInteger();
+  }
+
+  /** Moduli with a nonzero top limb and every number of leading zero bits, switching often. */
+  private static BigInteger wideModulus(final Random random, final int i) {
+    return switch (i % 8) {
+      case 0 -> BN254_P;
+      case 1 -> BN254_R;
+      case 2 -> TWO_256.subtract(BigInteger.valueOf(random.nextInt(1000) + 1));
+      case 3 -> BigInteger.ONE.shiftLeft(192 + random.nextInt(64));
+      default -> new BigInteger(193 + random.nextInt(64), random).setBit(192);
+    };
+  }
+
+  /** Operands below the modulus, at or above it, and of every size up to 2^256 - 1. */
+  private static BigInteger wideOperand(final Random random, final BigInteger m, final int i) {
+    return switch (i % 6) {
+      case 0 -> m.subtract(BigInteger.ONE);
+      case 1 -> new BigInteger(256, random);
+      case 2 -> new BigInteger(1 + random.nextInt(256), random);
+      case 3 -> TWO_256.subtract(BigInteger.ONE).subtract(BigInteger.valueOf(random.nextInt(4)));
+      default -> new BigInteger(256, random).mod(m);
+    };
+  }
+
   /** Odd moduli with a nonzero top limb, among them some just below 2^256 and the BN254 ones. */
   private static BigInteger oddFourLimbModulus(final Random random, final int i) {
     return switch (i % 6) {

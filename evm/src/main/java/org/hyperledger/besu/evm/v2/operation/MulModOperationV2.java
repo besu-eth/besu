@@ -54,6 +54,11 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     final int mOffset = (top - 3) << 2;
 
     final long[] stack = frame.stackDataV2();
+    if (stack[mOffset] != 0) {
+      UInt256.mulModWide(stack, aOffset, bOffset, mOffset);
+      frame.setTopV2(top - 2);
+      return MUL_MOD_SUCCESS;
+    }
     final UInt256 valueA =
         new UInt256(stack[aOffset], stack[aOffset + 1], stack[aOffset + 2], stack[aOffset + 3]);
     final UInt256 valueB =
