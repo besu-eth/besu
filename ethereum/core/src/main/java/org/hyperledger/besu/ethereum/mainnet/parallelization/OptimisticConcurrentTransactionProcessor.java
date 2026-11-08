@@ -78,6 +78,12 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // senders recovered per task, few enough to spread over the executor's threads
   private static final int SENDER_RECOVERY_BATCH = 8;
 
+  // a long transaction submitted first runs alongside the rest of the block instead of after it
+  private static final long HEAVY_FIRST_GAS = Long.getLong("besu.t14.heavyFirstGas", 0L);
+
+  // workers warm the trie paths of what they touch, so the state root finds them loaded
+  private static final boolean WORKER_PRELOAD = Boolean.getBoolean("besu.t14.workerPreload");
+
   // a warm-up runs before the member's predecessors, which may pay its nonce and gas
   @VisibleForTesting
   static final TransactionValidationParams WARM_UP_VALIDATION =
@@ -152,7 +158,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     // queued ahead of the runs, as chaining the unknown senders waits for every recovery
     final CompletableFuture<Void> recovered =
         recoverSenders(transactions, unknownSenders, executor);
-    for (int i = 0; i < transactions.size(); i++) {
+    for (final int i : submissionOrder(transactions)) {
       final Transaction transaction = transactions.get(i);
       final List<Integer> chain = senders[i] == null ? null : bySender.get(senders[i]);
       if (chain == null || chain.size() == 1) {
@@ -231,6 +237,41 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           blockAccessListBuilder,
           maybeParentHeader);
     }
+  }
+
+  /**
+   * Block order, or with heavyFirstGas set the transactions at or above it first, largest first.
+   */
+  private static int[] submissionOrder(final List<Transaction> transactions) {
+    final int n = transactions.size();
+    final int[] order = new int[n];
+    if (HEAVY_FIRST_GAS <= 0) {
+      for (int i = 0; i < n; i++) {
+        order[i] = i;
+      }
+      return order;
+    }
+    final List<Integer> heavy = new ArrayList<>();
+    for (int i = 0; i < n; i++) {
+      if (transactions.get(i).getGasLimit() >= HEAVY_FIRST_GAS) {
+        heavy.add(i);
+      }
+    }
+    heavy.sort(
+        (x, y) ->
+            Long.compare(transactions.get(y).getGasLimit(), transactions.get(x).getGasLimit()));
+    final boolean[] taken = new boolean[n];
+    int k = 0;
+    for (final int i : heavy) {
+      order[k++] = i;
+      taken[i] = true;
+    }
+    for (int i = 0; i < n; i++) {
+      if (!taken[i]) {
+        order[k++] = i;
+      }
+    }
+    return order;
   }
 
   /** Recovers the unknown senders on the block's workers, a batch per task. */
@@ -559,7 +600,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     }
 
     try {
-      ws.disableCacheMerkleTrieLoader();
+      if (!WORKER_PRELOAD) {
+        ws.disableCacheMerkleTrieLoader();
+      }
       final ParallelizedTransactionContext.Builder contextBuilder =
           new ParallelizedTransactionContext.Builder();
       final PathBasedWorldStateUpdateAccumulator<?> roundWorldStateUpdater =
