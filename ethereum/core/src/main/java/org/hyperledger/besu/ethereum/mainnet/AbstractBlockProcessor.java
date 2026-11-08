@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
@@ -162,6 +163,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final MutableWorldState worldState = context.getWorldState();
     final Block block = context.getBlock();
     final Optional<BlockAccessList> blockAccessList = context.getBlockAccessList();
+    // Shared by the state root and the parallel execution, so the block's accounts are indexed and
+    // hashed once.
+    final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup =
+        blockAccessList.map(BlockAccessListAccountLookup::of);
     final List<TransactionReceipt> receipts = new ArrayList<>();
     // EIP-7778: Track two separate cumulative gas values
     // cumulativeExecutionGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
@@ -196,7 +201,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final StateRootCommitter stateRootCommitter =
         protocolSpec
             .getStateRootCommitterFactory()
-            .forBlock(protocolContext, blockHeader, blockAccessList, worldState.isStorageFrozen())
+            .forBlock(
+                protocolContext,
+                blockHeader,
+                blockAccessListAccountLookup,
+                worldState.isStorageFrozen())
             .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
     final Optional<BlockAccessListBuilder> blockAccessListBuilder =
@@ -244,7 +253,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 blockHashLookup,
                 blobGasPrice,
                 blockAccessListBuilder,
-                blockAccessList,
+                blockAccessListAccountLookup,
                 maybeParentHeader);
       }
 
@@ -593,7 +602,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup,
       final Optional<BlockHeader> maybeParentHeader) {
     return Optional.empty();
   }

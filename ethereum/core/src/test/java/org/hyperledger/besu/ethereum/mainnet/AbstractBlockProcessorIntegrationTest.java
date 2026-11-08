@@ -660,7 +660,7 @@ class AbstractBlockProcessorIntegrationTest {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> blockAccessList,
+        final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup,
         final Optional<BlockHeader> maybeParentHeader) {
       parallelAttempts++;
       return Optional.of(failingProcessor(blockHeader));
@@ -724,7 +724,7 @@ class AbstractBlockProcessorIntegrationTest {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> blockAccessList,
+        final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup,
         final Optional<BlockHeader> maybeParentHeader) {
       final Optional<ParallelBlockTransactionProcessor> parallelProcessor =
           super.startParallelExecution(
@@ -735,7 +735,7 @@ class AbstractBlockProcessorIntegrationTest {
               blockHashLookup,
               blobGasPrice,
               blockAccessListBuilder,
-              blockAccessList,
+              blockAccessListAccountLookup,
               maybeParentHeader);
       parallelProcessor.ifPresent(startedProcessors::add);
       return parallelProcessor;

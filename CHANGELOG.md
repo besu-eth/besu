@@ -94,6 +94,7 @@
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, including after a round change, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469) [#11817](https://github.com/besu-eth/besu/pull/11817)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
 - EVM v2 (`--Xevm-v2`) keeps a transaction's accounts and slots in one journal instead of an updater per call frame. [#11754](https://github.com/besu-eth/besu/pull/11754)
+- Block import recovers each sender once and builds the BAL account lookup and the transactions root once per block. [#11812](https://github.com/besu-eth/besu/pull/11812)
 
 ## 26.10.2
 

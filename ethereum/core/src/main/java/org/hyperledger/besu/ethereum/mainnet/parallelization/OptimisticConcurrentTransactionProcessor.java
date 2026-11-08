@@ -579,7 +579,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           transactionProcessor.processTransaction(
               transactionUpdater,
               blockHeader,
-              transaction.detachedCopy(),
+              detachedCopyWithSender(transaction),
               miningBeneficiary,
               new OperationTracer() {
                 @Override
