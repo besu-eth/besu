@@ -669,6 +669,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     private final Map<Object, TreeSet<Integer>> readers = new HashMap<>();
     private final ParallelizedTransactionContext[] results;
     private final int[] predecessor;
+    // how often each transaction finished a run, and which of its predecessor's runs the latest
+    // re-run ran on, so that a newer result of the predecessor starts another re-run
+    private final int[] resultVersion;
+    private final int[] baseVersion;
     private final int[] reruns;
     // the latest re-run of each transaction, and whether it started
     private final AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>>
@@ -698,6 +702,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       this.results = new ParallelizedTransactionContext[n];
       this.predecessor = new int[n];
       java.util.Arrays.fill(predecessor, -1);
+      this.resultVersion = new int[n];
+      this.baseVersion = new int[n];
       this.reruns = new int[n];
       this.rerunFutures = new AtomicReferenceArray<>(n);
       this.rerunStarted = new AtomicIntegerArray(n);
@@ -722,6 +728,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         return;
       }
       results[index] = context;
+      resultVersion[index]++;
       final List<Object> changed = new ArrayList<>();
       final List<Object> touched = new ArrayList<>();
       collect(context.transactionAccumulator(), changed, touched);
@@ -793,7 +800,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
     /** Runs the transaction again on top of the result of an earlier one it depends on. */
     private void rerunOnTop(final int index, final int earlier) {
-      if (earlier <= predecessor[index]
+      if (earlier < predecessor[index]
+          || (earlier == predecessor[index] && resultVersion[earlier] == baseVersion[index])
           || reruns[index] >= MAX_RERUNS
           || inChain.get(index) == 1
           || serialLoopHasPassed(index)
@@ -802,8 +810,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       }
       final Transaction transaction = transactions.get(index);
       final ParallelizedTransactionContext earlierResult = results[earlier];
-      final PathBasedWorldStateUpdateAccumulator<?> base = earlierResult.transactionAccumulator();
+      final PathBasedWorldStateUpdateAccumulator<?> onTopOf =
+          earlierResult.transactionAccumulator();
       predecessor[index] = earlier;
+      baseVersion[index] = resultVersion[earlier];
       reruns[index]++;
       if (LOG_TX_TIMES) {
         LOG.info(
@@ -835,7 +845,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                         blobGasPrice,
                         blockAccessListBuilder,
                         maybeParentHeader,
-                        base));
+                        onTopOf));
               } catch (final Throwable t) {
                 rerun.completeExceptionally(t);
               }
