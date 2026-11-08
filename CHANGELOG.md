@@ -46,6 +46,7 @@
 - The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` keeps the fees of up to 1024 recent blocks between chain heads, and precomputes new heads only while it is called. [#11825](https://github.com/besu-eth/besu/pull/11825)
 - Parallel transaction execution keeps the result of a reverted or halted transaction when nothing it read changed, instead of executing it again. [#11806](https://github.com/besu-eth/besu/pull/11806)
 - `--Xmempool-prewarm-enabled` prewarms the state for the next block from the transaction pool. [#11759](https://github.com/besu-eth/besu/pull/11759)
+- Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
 
 ## 26.11.0
 
