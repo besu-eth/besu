@@ -29,6 +29,12 @@ import java.util.Optional;
 
 public class MainnetBlockImporter implements BlockImporter {
 
+  private static final org.slf4j.Logger LOG =
+      org.slf4j.LoggerFactory.getLogger(MainnetBlockImporter.class);
+
+  // replay benchmarks: log the time of each block's validation and processing, as newPayload has it
+  private static final boolean LOG_BLOCK_TIMES = Boolean.getBoolean("besu.bench.logBlockTimes");
+
   final BlockValidator blockValidator;
 
   public MainnetBlockImporter(final BlockValidator blockValidator) {
@@ -55,6 +61,7 @@ public class MainnetBlockImporter implements BlockImporter {
       return new BlockImportResult(BlockImportStatus.ALREADY_IMPORTED);
     }
 
+    final long benchStart = LOG_BLOCK_TIMES ? System.nanoTime() : 0L;
     final var result =
         blockValidator.validateAndProcessBlock(
             context,
@@ -64,6 +71,12 @@ public class MainnetBlockImporter implements BlockImporter {
             blockAccessList,
             InclusionListTransactions.EMPTY,
             false);
+    if (LOG_BLOCK_TIMES) {
+      LOG.info(
+          "Bench valproc block {} us {}",
+          block.getHeader().getNumber(),
+          (System.nanoTime() - benchStart) / 1000);
+    }
 
     if (result.isSuccessful()) {
       result
