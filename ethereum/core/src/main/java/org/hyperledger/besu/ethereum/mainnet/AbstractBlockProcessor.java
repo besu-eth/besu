@@ -88,6 +88,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractBlockProcessor.class);
 
+  // replay benchmarks: log each sequential execution's time
+  private static final boolean LOG_TX_TIMES = Boolean.getBoolean("besu.bench.logTxTimes");
+
   protected final MainnetTransactionProcessor transactionProcessor;
 
   protected final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory;
@@ -641,16 +644,28 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Transaction transaction,
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    return transactionProcessor.processTransaction(
-        transactionUpdater,
-        blockProcessingContext.getBlockHeader(),
-        transaction,
-        miningBeneficiary,
-        blockProcessingContext.getOperationTracer(),
-        blockHashLookup,
-        TransactionValidationParams.processingBlock(),
-        blobGasPrice,
-        accessLocationTracker);
+    final long start = LOG_TX_TIMES ? System.nanoTime() : 0L;
+    final TransactionProcessingResult result =
+        transactionProcessor.processTransaction(
+            transactionUpdater,
+            blockProcessingContext.getBlockHeader(),
+            transaction,
+            miningBeneficiary,
+            blockProcessingContext.getOperationTracer(),
+            blockHashLookup,
+            TransactionValidationParams.processingBlock(),
+            blobGasPrice,
+            accessLocationTracker);
+    if (LOG_TX_TIMES) {
+      LOG.info(
+          "Bench tx seq block {} hash {} to {} gas {} us {}",
+          blockProcessingContext.getBlockHeader().getNumber(),
+          transaction.getHash().toHexString(),
+          transaction.getTo().map(a -> a.toHexString()).orElse("create"),
+          transaction.getGasLimit() - result.getGasRemaining(),
+          (System.nanoTime() - start) / 1000);
+    }
+    return result;
   }
 
   @VisibleForTesting

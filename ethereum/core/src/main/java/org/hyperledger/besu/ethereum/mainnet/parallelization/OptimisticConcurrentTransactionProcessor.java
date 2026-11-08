@@ -81,6 +81,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // a long transaction submitted first runs alongside the rest of the block instead of after it
   private static final long HEAVY_FIRST_GAS = Long.getLong("besu.t14.heavyFirstGas", 0L);
 
+  // replay benchmarks: log each worker execution's time
+  private static final boolean LOG_TX_TIMES = Boolean.getBoolean("besu.bench.logTxTimes");
+
   // workers warm the trie paths of what they touch, so the state root finds them loaded
   private static final boolean WORKER_PRELOAD = Boolean.getBoolean("besu.t14.workerPreload");
 
@@ -618,6 +621,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               b ->
                   BlockAccessListBuilder.createTransactionAccessLocationTracker(
                       transactionLocation));
+      final long benchStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
       final TransactionProcessingResult result =
           transactionProcessor.processTransaction(
               transactionUpdater,
@@ -658,6 +662,17 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               blobGasPrice,
               transactionLocationTracker);
 
+      if (LOG_TX_TIMES) {
+        LOG.info(
+            "Bench tx par block {} idx {} hash {} to {} gas {} us {} chained {}",
+            blockHeader.getNumber(),
+            transactionLocation,
+            transaction.getHash().toHexString(),
+            transaction.getTo().map(a -> a.toHexString()).orElse("create"),
+            transaction.getGasLimit() - result.getGasRemaining(),
+            (System.nanoTime() - benchStart) / 1000,
+            previousInChain != null);
+      }
       // commit the accumulator in order to apply all the modifications
       transactionUpdater.commit();
       roundWorldStateUpdater.commit();
