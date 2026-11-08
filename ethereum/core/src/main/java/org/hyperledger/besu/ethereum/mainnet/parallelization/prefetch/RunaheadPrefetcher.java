@@ -38,13 +38,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 
@@ -125,6 +129,17 @@ public final class RunaheadPrefetcher {
 
   private static final Map<Bytes, AtomicInteger> UNPRODUCTIVE = new ConcurrentHashMap<>();
 
+  // experiment: run the passes side by side, each starting this long after the one before while
+  // the passes keep finding slots, instead of one after the other. A pass then reads the values
+  // the one before it loaded a moment earlier and finds the slots that depend on them, so a chain
+  // of
+  // dependent reads is found in about one pass instead of one pass per link. 0 runs them in turn.
+  private static final long STAGGER_NANOS =
+      Long.getLong("besu.runahead.staggerMicros", 0L) * 1_000L;
+
+  private static final ScheduledExecutorService STAGGER =
+      Executors.newSingleThreadScheduledExecutor(daemonThreads("besu-runahead-stagger"));
+
   static {
     RunaheadCalls.Switch.enable();
   }
@@ -173,6 +188,24 @@ public final class RunaheadPrefetcher {
     final CompletableFuture<Void> firstPass = new CompletableFuture<>();
     for (final Optional<UInt256> placeholder : PLACEHOLDERS) {
       final BlockHashLookup lookup = blockHashLookup.forkForParallelWorker();
+      if (STAGGER_NANOS > 0) {
+        new StaggeredRun(
+                transactionProcessor,
+                protocolContext,
+                parentHeader,
+                blockHeader,
+                transaction,
+                miningBeneficiary,
+                lookup,
+                blobGasPrice,
+                validationParams,
+                placeholder,
+                kind,
+                stopped,
+                firstPass)
+            .start();
+        continue;
+      }
       try {
         RUNS.execute(
             () ->
@@ -317,6 +350,209 @@ public final class RunaheadPrefetcher {
     }
   }
 
+  /** A run ahead whose passes run side by side, each a little after the one before. */
+  private static final class StaggeredRun {
+    private final MainnetTransactionProcessor transactionProcessor;
+    private final ProtocolContext protocolContext;
+    private final BlockHeader parentHeader;
+    private final BlockHeader blockHeader;
+    private final Transaction transaction;
+    private final Address miningBeneficiary;
+    private final BlockHashLookup blockHashLookup;
+    private final Wei blobGasPrice;
+    private final TransactionValidationParams validationParams;
+    private final Optional<UInt256> placeholder;
+    private final Bytes kind;
+    private final BooleanSupplier stopped;
+    private final CompletableFuture<Void> firstPass;
+    private final long start = System.nanoTime();
+    // the passes running and the next start scheduled; the last of them to end finishes the run
+    private final AtomicInteger outstanding = new AtomicInteger(1);
+    private final AtomicInteger passes = new AtomicInteger();
+    private final Queue<String> passLog = new ConcurrentLinkedQueue<>();
+    private volatile String outcome = "?";
+    private volatile boolean stoppedEarly;
+    private BonsaiWorldState worldState;
+    private Loads loads;
+    private EvmConfiguration evmConfiguration;
+
+    StaggeredRun(
+        final MainnetTransactionProcessor transactionProcessor,
+        final ProtocolContext protocolContext,
+        final BlockHeader parentHeader,
+        final BlockHeader blockHeader,
+        final Transaction transaction,
+        final Address miningBeneficiary,
+        final BlockHashLookup blockHashLookup,
+        final Wei blobGasPrice,
+        final TransactionValidationParams validationParams,
+        final Optional<UInt256> placeholder,
+        final Bytes kind,
+        final BooleanSupplier stopped,
+        final CompletableFuture<Void> firstPass) {
+      this.transactionProcessor = transactionProcessor;
+      this.protocolContext = protocolContext;
+      this.parentHeader = parentHeader;
+      this.blockHeader = blockHeader;
+      this.transaction = transaction;
+      this.miningBeneficiary = miningBeneficiary;
+      this.blockHashLookup = blockHashLookup;
+      this.blobGasPrice = blobGasPrice;
+      this.validationParams = validationParams;
+      this.placeholder = placeholder;
+      this.kind = kind;
+      this.stopped = stopped;
+      this.firstPass = firstPass;
+    }
+
+    void start() {
+      try {
+        RUNS.execute(this::firstPassThenSchedule);
+      } catch (final RejectedExecutionException e) {
+        firstPass.complete(null);
+      }
+    }
+
+    private void firstPassThenSchedule() {
+      if (stopped.getAsBoolean()) {
+        firstPass.complete(null);
+        return;
+      }
+      worldState =
+          protocolContext
+              .getWorldStateArchive()
+              .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
+              .map(BonsaiWorldState.class::cast)
+              .orElse(null);
+      if (worldState == null) {
+        firstPass.complete(null);
+        return;
+      }
+      loads = new Loads(worldState);
+      evmConfiguration =
+          ((PathBasedWorldStateUpdateAccumulator<?>) worldState.updater()).getEvmConfiguration();
+      try {
+        scheduleNext(1, 0);
+        runPass(0);
+      } finally {
+        firstPass.complete(null);
+        ended();
+      }
+    }
+
+    /** Starts the given pass after the stagger if the passes found new slots in the meantime. */
+    private void scheduleNext(final int pass, final int requestedBefore) {
+      if (pass >= MAX_PASSES) {
+        return;
+      }
+      outstanding.incrementAndGet();
+      try {
+        STAGGER.schedule(
+            () -> {
+              try {
+                final int requestedNow = loads.requested.size();
+                if (requestedNow > requestedBefore && !stopped.getAsBoolean()) {
+                  scheduleNext(pass + 1, requestedNow);
+                  outstanding.incrementAndGet();
+                  try {
+                    RUNS.execute(
+                        () -> {
+                          try {
+                            runPass(pass);
+                          } finally {
+                            ended();
+                          }
+                        });
+                  } catch (final RejectedExecutionException e) {
+                    ended();
+                  }
+                }
+              } finally {
+                ended();
+              }
+            },
+            STAGGER_NANOS,
+            TimeUnit.NANOSECONDS);
+      } catch (final RejectedExecutionException e) {
+        ended();
+      }
+    }
+
+    private void runPass(final int pass) {
+      if (stopped.getAsBoolean()) {
+        stoppedEarly = true;
+        return;
+      }
+      passes.incrementAndGet();
+      final long passStart = System.nanoTime();
+      final RunaheadWorldView view = new RunaheadWorldView(worldState, loads, placeholder);
+      final BonsaiWorldStateUpdateAccumulator accumulator =
+          new BonsaiWorldStateUpdateAccumulator(
+              view,
+              (address, value) -> {},
+              (address, value) -> {},
+              evmConfiguration,
+              worldState.codeCache());
+      RunaheadCalls.CURRENT.set(new Calls());
+      try {
+        final TransactionProcessingResult result =
+            transactionProcessor.processTransaction(
+                accumulator.updater(),
+                blockHeader,
+                transaction.detachedCopy(),
+                miningBeneficiary,
+                OperationTracer.NO_TRACING,
+                blockHashLookup.forkForParallelWorker(),
+                validationParams,
+                blobGasPrice,
+                Optional.empty());
+        outcome =
+            result.isInvalid()
+                ? "invalid " + result.getValidationResult().getErrorMessage()
+                : result.isSuccessful() ? "success" : "failed " + result.getRevertReason();
+      } catch (final RuntimeException e) {
+        // it only loads state, the execution reports any failure
+        outcome = "exception " + e;
+        LOG.trace("Run ahead of {} stopped", transaction.getHash(), e);
+      } finally {
+        RunaheadCalls.CURRENT.remove();
+        if (LOG_RUNS) {
+          passLog.add(
+              pass
+                  + "@"
+                  + (passStart - start) / 1000
+                  + ":"
+                  + (System.nanoTime() - passStart) / 1000
+                  + "/"
+                  + view.requestedLoads());
+        }
+      }
+    }
+
+    private void ended() {
+      if (outstanding.decrementAndGet() > 0) {
+        return;
+      }
+      final long micros = (System.nanoTime() - start) / 1000;
+      if (kind != null) {
+        recordProductivity(kind, loads.requested.size(), micros);
+      }
+      if (LOG_RUNS) {
+        LOG.info(
+            "Bench runahead block {} hash {} placeholder {} us {} passes {} loads {} outcome {} pass_us_loads {}",
+            blockHeader.getNumber(),
+            transaction.getHash().toHexString(),
+            placeholder.map(UInt256::toShortHexString).orElse("0"),
+            micros,
+            passes.get(),
+            loads.requested.size(),
+            stoppedEarly ? outcome + " stopped" : outcome,
+            String.join(",", passLog));
+      }
+      loads.runDone();
+    }
+  }
+
   private static Bytes kindOf(final Transaction transaction) {
     final Bytes payload = transaction.getPayload();
     return Bytes.concatenate(
@@ -385,20 +621,21 @@ public final class RunaheadPrefetcher {
       this.worldState = worldState;
     }
 
-    void load(final Address address, final StorageSlotKey storageSlotKey) {
+    boolean load(final Address address, final StorageSlotKey storageSlotKey) {
       if (!requested.add(
           Bytes.concatenate(
               address.addressHash().getBytes(), storageSlotKey.getSlotHash().getBytes()))) {
-        return;
+        return false;
       }
       submit(
           () -> worldState.getStorageValueByStorageSlotKey(address, storageSlotKey),
           () -> worldState.loadStorageTriePath(address, storageSlotKey));
+      return true;
     }
 
-    void loadAccount(final Address address) {
+    boolean loadAccount(final Address address) {
       if (!requested.add(address.getBytes())) {
-        return;
+        return false;
       }
       submit(
           () -> {
@@ -408,6 +645,7 @@ public final class RunaheadPrefetcher {
             }
           },
           () -> worldState.loadAccountTriePath(address));
+      return true;
     }
 
     private void submit(final Runnable value, final Runnable triePath) {

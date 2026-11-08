@@ -48,6 +48,8 @@ final class RunaheadWorldView implements BonsaiWorldView {
   private final RunaheadPrefetcher.Loads loads;
   // what a slot that is not in memory reads as: zero, or a value a check for a set slot passes
   private final Optional<UInt256> placeholder;
+  // the loads this view requested, which nobody requested before
+  private int requestedLoads;
 
   RunaheadWorldView(
       final BonsaiWorldState worldState,
@@ -73,7 +75,9 @@ final class RunaheadWorldView implements BonsaiWorldView {
           .map(rlp -> BonsaiAccount.fromRLP(this, address, rlp, false, worldState.codeCache()))
           .orElse(null);
     }
-    loads.loadAccount(address);
+    if (loads.loadAccount(address)) {
+      requestedLoads++;
+    }
     return new BonsaiAccount(
         this,
         address,
@@ -114,8 +118,14 @@ final class RunaheadWorldView implements BonsaiWorldView {
     if (inMemory.isPresent()) {
       return inMemory.get().map(UInt256::fromBytes);
     }
-    loads.load(address, storageSlotKey);
+    if (loads.load(address, storageSlotKey)) {
+      requestedLoads++;
+    }
     return placeholder;
+  }
+
+  int requestedLoads() {
+    return requestedLoads;
   }
 
   @Override
