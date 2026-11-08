@@ -30,6 +30,8 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,6 +42,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,6 +72,22 @@ public final class RunaheadPrefetcher {
 
   private static final int MAX_PASSES = Integer.getInteger("besu.runahead.passes", 4);
 
+  // one run per placeholder, side by side: checks that a slot is set pass with one, checks that it
+  // is not with zero
+  private static final List<Optional<UInt256>> PLACEHOLDERS =
+      Arrays.stream(System.getProperty("besu.runahead.placeholder", "1").split(","))
+          .map(String::trim)
+          .map(
+              v ->
+                  v.equals("0")
+                      ? Optional.<UInt256>empty()
+                      : Optional.of(
+                          UInt256.fromHexString(
+                              v.equals("max")
+                                  ? "0x" + "ff".repeat(32)
+                                  : "0x" + Long.toHexString(Long.parseLong(v)))))
+          .toList();
+
   private static final long LOAD_WAIT_NANOS =
       Long.getLong("besu.runahead.loadWaitMicros", 5_000L) * 1_000L;
 
@@ -97,22 +116,25 @@ public final class RunaheadPrefetcher {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final TransactionValidationParams validationParams) {
-    final BlockHashLookup lookup = blockHashLookup.forkForParallelWorker();
-    try {
-      RUNS.execute(
-          () ->
-              run(
-                  transactionProcessor,
-                  protocolContext,
-                  parentHeader,
-                  blockHeader,
-                  transaction,
-                  miningBeneficiary,
-                  lookup,
-                  blobGasPrice,
-                  validationParams));
-    } catch (final RejectedExecutionException e) {
-      LOG.trace("Run ahead of {} not started", transaction.getHash(), e);
+    for (final Optional<UInt256> placeholder : PLACEHOLDERS) {
+      final BlockHashLookup lookup = blockHashLookup.forkForParallelWorker();
+      try {
+        RUNS.execute(
+            () ->
+                run(
+                    transactionProcessor,
+                    protocolContext,
+                    parentHeader,
+                    blockHeader,
+                    transaction,
+                    miningBeneficiary,
+                    lookup,
+                    blobGasPrice,
+                    validationParams,
+                    placeholder));
+      } catch (final RejectedExecutionException e) {
+        LOG.trace("Run ahead of {} not started", transaction.getHash(), e);
+      }
     }
   }
 
@@ -125,7 +147,8 @@ public final class RunaheadPrefetcher {
       final Address miningBeneficiary,
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
-      final TransactionValidationParams validationParams) {
+      final TransactionValidationParams validationParams,
+      final Optional<UInt256> placeholder) {
     final BonsaiWorldState worldState =
         protocolContext
             .getWorldStateArchive()
@@ -140,7 +163,7 @@ public final class RunaheadPrefetcher {
     String outcome = "?";
     int passes = 0;
     try {
-      final RunaheadWorldView view = new RunaheadWorldView(worldState, loads);
+      final RunaheadWorldView view = new RunaheadWorldView(worldState, loads, placeholder);
       final EvmConfiguration evmConfiguration =
           ((PathBasedWorldStateUpdateAccumulator<?>) worldState.updater()).getEvmConfiguration();
       while (passes < MAX_PASSES) {
@@ -182,9 +205,10 @@ public final class RunaheadPrefetcher {
     } finally {
       if (LOG_RUNS) {
         LOG.info(
-            "Bench runahead block {} hash {} us {} passes {} loads {} outcome {}",
+            "Bench runahead block {} hash {} placeholder {} us {} passes {} loads {} outcome {}",
             blockHeader.getNumber(),
             transaction.getHash().toHexString(),
+            placeholder.map(UInt256::toShortHexString).orElse("0"),
             (System.nanoTime() - start) / 1000,
             passes,
             loads.requested.size(),
