@@ -294,6 +294,7 @@ public class EthGetLogsTest {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
     assertThat(errorResponse.getErrorType()).isEqualTo(RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+    assertThat(errorResponse.getError().getData()).isEqualTo("20");
   }
 
   @Test

@@ -47,7 +47,7 @@ public class MLoadOperationV2 extends AbstractOperationV2 {
           frame, 1, new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS));
     }
 
-    setBytes(frame.readMutableMemory(location, 32, true), stack, top - 1);
+    setBytes(frame.readMutableMemoryV2(location, 32), stack, top - 1);
     return new OperationResult(cost, null);
   }
 }

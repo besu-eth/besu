@@ -16,11 +16,14 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -41,16 +44,33 @@ import org.jspecify.annotations.Nullable;
  * <p>A block tracer can optionally be set, see {@link Builder#blockTracer}. It requires sequential
  * execution.
  *
+ * <p>An output validator can optionally be set, see {@link Builder#outputValidator}.
+ *
  * <p>Construct instances via {@link #builder()}.
  */
 public class BlockExecutionContext {
+
+  /** Checks the output of a block's execution before its post state is persisted. */
+  @FunctionalInterface
+  public interface OutputValidator {
+    /**
+     * Returns whether the block's execution output is valid.
+     *
+     * @param receipts the receipts of the block's transactions
+     * @param gasMetered the gas the block used
+     * @return {@code true} if the output is valid and the post state may be persisted
+     */
+    boolean validate(List<TransactionReceipt> receipts, long gasMetered);
+  }
 
   private final ProtocolContext protocolContext;
   private final MutableWorldState worldState;
   private final Block block;
   @Nullable private final BlockAccessList blockAccessList;
+  private final InclusionListTransactions inclusionListTransactions;
   private final boolean sequentialExecutionRequested;
   @Nullable private final BlockAwareOperationTracer blockTracer;
+  @Nullable private final OutputValidator outputValidator;
   private final Function<ProtocolSpec, Optional<BlockAccessListFactory>>
       blockAccessListFactoryProvider;
 
@@ -59,8 +79,10 @@ public class BlockExecutionContext {
     this.worldState = builder.worldState;
     this.block = builder.block;
     this.blockAccessList = builder.blockAccessList;
+    this.inclusionListTransactions = builder.inclusionListTransactions;
     this.sequentialExecutionRequested = builder.sequentialExecutionRequested;
     this.blockTracer = builder.blockTracer;
+    this.outputValidator = builder.outputValidator;
     this.blockAccessListFactoryProvider = builder.blockAccessListFactoryProvider;
   }
 
@@ -101,6 +123,10 @@ public class BlockExecutionContext {
     return Optional.ofNullable(blockAccessList);
   }
 
+  public InclusionListTransactions getInclusionListTransactions() {
+    return inclusionListTransactions;
+  }
+
   /**
    * Returns whether the caller requested sequential execution for this execution of the block. See
    * {@link Builder#sequentialExecutionRequested(boolean)}.
@@ -121,6 +147,16 @@ public class BlockExecutionContext {
   }
 
   /**
+   * Returns the check to run on the block's output before its post state is persisted. See {@link
+   * Builder#outputValidator}.
+   *
+   * @return the output validator, or empty to persist without checking the output
+   */
+  public Optional<OutputValidator> getOutputValidator() {
+    return Optional.ofNullable(outputValidator);
+  }
+
+  /**
    * Returns a {@link Builder} initialized with this context's fields.
    *
    * @return a new {@link Builder} copying this context
@@ -133,9 +169,13 @@ public class BlockExecutionContext {
             .block(block)
             .blockAccessList(getBlockAccessList())
             .sequentialExecutionRequested(sequentialExecutionRequested)
-            .blockAccessListFactoryProvider(blockAccessListFactoryProvider);
+            .blockAccessListFactoryProvider(blockAccessListFactoryProvider)
+            .inclusionListTransactions(inclusionListTransactions);
     if (blockTracer != null) {
       builder.blockTracer(blockTracer);
+    }
+    if (outputValidator != null) {
+      builder.outputValidator(outputValidator);
     }
     return builder;
   }
@@ -169,9 +209,11 @@ public class BlockExecutionContext {
     private MutableWorldState worldState;
     private Block block;
     @Nullable private BlockAccessList blockAccessList = null;
+    private InclusionListTransactions inclusionListTransactions = InclusionListTransactions.EMPTY;
     private boolean blockAccessListSet = false;
     private boolean sequentialExecutionRequested = false;
     @Nullable private BlockAwareOperationTracer blockTracer = null;
+    @Nullable private OutputValidator outputValidator = null;
     private Function<ProtocolSpec, Optional<BlockAccessListFactory>>
         blockAccessListFactoryProvider = ProtocolSpec::getBlockAccessListFactory;
 
@@ -223,6 +265,20 @@ public class BlockExecutionContext {
     }
 
     /**
+     * Sets the inclusion list the block is checked against (EIP-7805) (optional, defaults to an
+     * empty inclusion list, which the block always satisfies).
+     *
+     * @param inclusionListTransactions the inclusion list transactions
+     * @return this builder
+     */
+    public Builder inclusionListTransactions(
+        final InclusionListTransactions inclusionListTransactions) {
+      this.inclusionListTransactions =
+          Objects.requireNonNull(inclusionListTransactions, "inclusionListTransactions");
+      return this;
+    }
+
+    /**
      * Sets whether the block's transactions must be executed in order only, without speculative
      * parallel execution (optional, defaults to {@code false}).
      *
@@ -249,6 +305,18 @@ public class BlockExecutionContext {
      */
     public Builder blockTracer(final BlockAwareOperationTracer blockTracer) {
       this.blockTracer = Objects.requireNonNull(blockTracer, "blockTracer");
+      return this;
+    }
+
+    /**
+     * Sets the check to run on the block's output before its post state is persisted (optional). If
+     * it fails, the block is not persisted and processing fails.
+     *
+     * @param outputValidator the output validator
+     * @return this builder
+     */
+    public Builder outputValidator(final OutputValidator outputValidator) {
+      this.outputValidator = Objects.requireNonNull(outputValidator, "outputValidator");
       return this;
     }
 

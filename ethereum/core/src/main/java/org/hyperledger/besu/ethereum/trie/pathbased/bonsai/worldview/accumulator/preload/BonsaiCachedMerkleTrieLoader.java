@@ -39,6 +39,7 @@ import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 
 public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
 
@@ -104,46 +105,77 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     }
   }
 
+  /**
+   * Preloads the path of a storage slot. A known storage root saves reading the root node from
+   * storage to find it, and an empty storage trie has no path to preload.
+   *
+   * @param worldStateKeyValueStorage the storage to read the trie nodes from
+   * @param account the account of the slot
+   * @param storageRoot the account's storage root, or null to read the root node from storage
+   * @param slotKey the slot
+   */
   public void preLoadStorageSlot(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
+      final @Nullable Hash storageRoot,
       final StorageSlotKey slotKey) {
+    if (Hash.EMPTY_TRIE_HASH.equals(storageRoot)) {
+      return;
+    }
     CompletableFuture.runAsync(
-        () -> cacheStorageNodes(worldStateKeyValueStorage, account, slotKey), VIRTUAL_POOL);
+        () -> cacheStorageNodes(worldStateKeyValueStorage, account, storageRoot, slotKey),
+        VIRTUAL_POOL);
   }
 
   @VisibleForTesting
   public void cacheStorageNodes(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Address account,
+      final @Nullable Hash storageRoot,
       final StorageSlotKey slotKey) {
     final Hash accountHash = account.addressHash();
     final long storageSubscriberId = worldStateKeyValueStorage.subscribe(this);
     try {
-      worldStateKeyValueStorage
-          .getTrieNodeUnsafe(TrieNodeKey.of(accountHash, Bytes.EMPTY))
-          .ifPresent(
-              storageRoot -> {
-                try {
-                  final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
-                      new StoredMerklePatriciaTrie<Bytes, Bytes>(
-                          (location, hash) ->
-                              loadAndCache(
-                                  storageNodes,
-                                  hash,
-                                  () ->
-                                      worldStateKeyValueStorage.getTrieNodeFromCacheOrStorage(
-                                          TrieNodeKey.of(accountHash, location), hash)),
-                          Bytes32.wrap(Hash.hash(storageRoot).getBytes()),
-                          Function.identity(),
-                          Function.identity());
-                  storageTrie.get(slotKey.getSlotHash().getBytes());
-                } catch (MerkleTrieException e) {
-                  // ignore exception for the cache
-                }
-              });
+      if (storageRoot != null) {
+        walkStorageTrie(
+            worldStateKeyValueStorage, accountHash, Bytes32.wrap(storageRoot.getBytes()), slotKey);
+      } else {
+        worldStateKeyValueStorage
+            .getTrieNodeUnsafe(TrieNodeKey.of(accountHash, Bytes.EMPTY))
+            .ifPresent(
+                rootNode ->
+                    walkStorageTrie(
+                        worldStateKeyValueStorage,
+                        accountHash,
+                        Bytes32.wrap(Hash.hash(rootNode).getBytes()),
+                        slotKey));
+      }
     } finally {
       worldStateKeyValueStorage.unSubscribe(storageSubscriberId);
+    }
+  }
+
+  private void walkStorageTrie(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final Hash accountHash,
+      final Bytes32 storageRoot,
+      final StorageSlotKey slotKey) {
+    try {
+      final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
+          new StoredMerklePatriciaTrie<Bytes, Bytes>(
+              (location, hash) ->
+                  loadAndCache(
+                      storageNodes,
+                      hash,
+                      () ->
+                          worldStateKeyValueStorage.getTrieNodeFromCacheOrStorage(
+                              TrieNodeKey.of(accountHash, location), hash)),
+              storageRoot,
+              Function.identity(),
+              Function.identity());
+      storageTrie.get(slotKey.getSlotHash().getBytes());
+    } catch (MerkleTrieException e) {
+      // ignore exception for the cache
     }
   }
 

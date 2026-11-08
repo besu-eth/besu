@@ -60,13 +60,15 @@ class UpdateTrackingAccountTest {
   void doesNotReadTheCodeOfTheWrappedAccountAgainWithoutACodeCache() {
     final StubAccount wrapped = new StubAccount(new Code(CODE, Hash.hash(CODE)), null);
     final UpdateTrackingAccount<Account> tracker = new UpdateTrackingAccount<>(wrapped);
-    final int codeReads = wrapped.codeReads;
+    assertThat(wrapped.codeReads).isZero();
 
     final Code code = tracker.getOrCreateCachedCode();
 
     assertThat(code.getBytes()).isEqualTo(CODE);
     assertThat(code.getCodeHash()).isEqualTo(Hash.hash(CODE));
-    assertThat(wrapped.codeReads).isEqualTo(codeReads);
+    assertThat(wrapped.codeReads).isOne();
+    assertThat(tracker.getOrCreateCachedCode()).isSameAs(code);
+    assertThat(wrapped.codeReads).isOne();
     assertThat(wrapped.cachedCodeReads).isZero();
   }
 
@@ -141,6 +143,39 @@ class UpdateTrackingAccountTest {
     assertThat(child.getCode()).isEqualTo(CODE);
     assertThat(child.getOrCreateCachedCode().getBytes()).isEqualTo(CODE);
     assertThat(parent.getOrCreateCachedCode().getBytes()).isEqualTo(OTHER_CODE);
+  }
+
+  @Test
+  void keepsItsSnapshotOfTheCodeTheWrappedTrackerSet() {
+    final UpdateTrackingAccount<Account> parent =
+        new UpdateTrackingAccount<>(
+            new StubAccount(new Code(CODE, Hash.hash(CODE)), new MapCodeCache()));
+    parent.setCode(OTHER_CODE);
+    final UpdateTrackingAccount<Account> child = new UpdateTrackingAccount<>(parent);
+
+    parent.setCode(CODE);
+
+    assertThat(child.getCodeHash()).isEqualTo(Hash.hash(OTHER_CODE));
+    assertThat(child.getCode()).isEqualTo(OTHER_CODE);
+    assertThat(child.getOrCreateCachedCode().getBytes()).isEqualTo(OTHER_CODE);
+  }
+
+  @Test
+  void doesNotLoadCodeWhenOnlyMetadataOrCodeHashIsQueried() {
+    final MapCodeCache cache = new MapCodeCache();
+    final StubAccount wrapped = new StubAccount(new Code(CODE, Hash.hash(CODE)), cache);
+
+    final UpdateTrackingAccount<Account> tracker = new UpdateTrackingAccount<>(wrapped);
+    final UpdateTrackingAccount<Account> nested = new UpdateTrackingAccount<>(tracker);
+
+    assertThat(nested.getCodeHash()).isEqualTo(Hash.hash(CODE));
+    assertThat(nested.hasCode()).isTrue();
+    assertThat(nested.isEmpty()).isFalse();
+    assertThat(nested.getNonce()).isEqualTo(1L);
+    assertThat(nested.getBalance()).isEqualTo(Wei.ZERO);
+
+    assertThat(wrapped.codeReads).isZero();
+    assertThat(wrapped.cachedCodeReads).isZero();
   }
 
   private static final class MapCodeCache implements CodeCache {

@@ -30,6 +30,7 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -73,6 +74,7 @@ import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
@@ -308,6 +310,39 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
         .map(PendingTransaction::getTransaction)
         .contains(firstTxs.get(0));
     verify(droppedListener).onTransactionDropped(firstTxs.get(0), DROPPED);
+  }
+
+  @Test
+  public void notifyAddedBeforeDroppedWhenAddedTransactionIsEvicted() {
+    smallLayers.eventNotifier().subscribePendingTransactionAdded(listener);
+    smallLayers.eventNotifier().subscribePendingTransactionDropped(droppedListener);
+
+    // the nonce gap makes the tx go to the sparse layer, where it does not fit, so it evicts itself
+    final Account sender = mock(Account.class);
+    when(sender.getNonce()).thenReturn(0L);
+    final Transaction evictedOnAdd =
+        createTransactionOfSize(
+            1,
+            DEFAULT_BASE_FEE,
+            (int) smallPoolConfig.getPendingTransactionsLayerMaxCapacityBytes() + 1,
+            SIGNATURE_ALGORITHM.generateKeyPair());
+    assertThat(
+            smallPendingTransactions.addTransaction(
+                createRemotePendingTransaction(evictedOnAdd), Optional.of(sender)))
+        .isEqualTo(ADDED);
+    assertTransactionNotPending(smallPendingTransactions, evictedOnAdd);
+
+    final InOrder inOrder = inOrder(listener, droppedListener);
+    inOrder.verify(listener).onTransactionAdded(evictedOnAdd);
+    inOrder.verify(droppedListener).onTransactionDropped(evictedOnAdd, DROPPED);
+    verifyNoMoreInteractions(listener, droppedListener);
+
+    assertThat(getAddedCount(REMOTE, NO_PRIORITY, NEW, smallLayers.sparseTransactions.name()))
+        .isEqualTo(1);
+    assertThat(
+            getRemovedCount(
+                REMOTE, NO_PRIORITY, DROPPED.label(), smallLayers.evictedCollector.name()))
+        .isEqualTo(1);
   }
 
   @Test

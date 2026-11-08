@@ -101,7 +101,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
                     getWorldStateStorage(), worldStateRootHash, addr),
             (addr, value) ->
                 this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                    getWorldStateStorage(), addr, value),
+                    getWorldStateStorage(), addr, startingStorageRoot(addr), value),
             evmConfiguration,
             codeCache);
     this.setAccumulator(acc);
@@ -129,6 +129,23 @@ public class BonsaiWorldState extends PathBasedWorldState {
     // Keep frontier-derived caches aligned with accumulator resets.
     acc.setCommittedTransactionListener(frontierRootHashTracker);
     this.codeCache = codeCache;
+  }
+
+  /**
+   * The root of the storage trie the block's slot changes apply to: the storage root the
+   * accumulator loaded, or the empty root if the account did not exist or the block cleared its
+   * storage. Null if the accumulator has not loaded the account.
+   */
+  private Hash startingStorageRoot(final Address address) {
+    if (accumulator.getStorageToClear().contains(address)) {
+      return Hash.EMPTY_TRIE_HASH;
+    }
+    final var accountValue = accumulator.getAccountsToUpdate().get(address);
+    if (accountValue == null) {
+      return null;
+    }
+    final BonsaiAccount prior = accountValue.getPrior();
+    return prior == null ? Hash.EMPTY_TRIE_HASH : prior.getStorageRoot();
   }
 
   @Override
