@@ -30,6 +30,8 @@
 - Block access lists of the last blocks are now cached as RLP, at most 128 MiB by default (`--cache-last-blocks-max-capacity`), and `--cache-last-blocks` now defaults to 128. [#11455](https://github.com/besu-eth/besu/pull/11455)
 - Snap sync no longer stalls on an account with large, frequently changing storage, or on an account whose storage was cleared while snap sync was downloading it. [#11654](https://github.com/besu-eth/besu/pull/11654)
 - `trace_block`, `trace_filter` and `trace_replayBlockTransactions` replay a mined transaction whose sender is no longer on the node's local account allowlist, instead of tracing it as a call that ran no code and changed no state. [#11406](https://github.com/besu-eth/besu/pull/11406)
+- A block that fails the receipts root or gas used check is now rejected before its world state is persisted, so processing it on the head world state, as backward sync does, no longer leaves the head world state on that block. A later `engine_forkchoiceUpdated` to a block other than the rejected block's parent failed with `Failed to set new head`. [#11858](https://github.com/besu-eth/besu/pull/11858)
+- A transaction whose parallel execution failed with an error is executed again in order, instead of failing the block import. [#11806](https://github.com/besu-eth/besu/pull/11806)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
@@ -41,6 +43,9 @@
 - Add `trace_replayTransaction` to the `TRACE` API. It replays one mined transaction on top of the transactions before it in its block and returns the same result as `trace_replayBlockTransactions` for that transaction. [#11406](https://github.com/besu-eth/besu/pull/11406)
 - Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
 - EVM v2 runs untraced execution, such as block import, in a faster loop of its own. [#11687](https://github.com/besu-eth/besu/pull/11687)
+- RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
+- The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` keeps the fees of up to 1024 recent blocks between chain heads, and precomputes new heads only while it is called. [#11825](https://github.com/besu-eth/besu/pull/11825)
+- Parallel transaction execution keeps the result of a reverted or halted transaction when nothing it read changed, instead of executing it again. [#11806](https://github.com/besu-eth/besu/pull/11806)
 
 ## 26.11.0
 
