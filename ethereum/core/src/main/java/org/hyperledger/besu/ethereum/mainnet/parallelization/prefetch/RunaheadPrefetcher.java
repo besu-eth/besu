@@ -402,20 +402,23 @@ public final class RunaheadPrefetcher {
       try {
         LOADS.execute(
             () -> {
+              boolean triePathQueued = false;
               try {
-                value.run();
-                if (!TRIE_AFTER) {
-                  triePath.run();
+                try {
+                  value.run();
+                  if (!TRIE_AFTER) {
+                    triePath.run();
+                  }
+                } catch (final RuntimeException e) {
+                  LOG.trace("A run ahead's load failed", e);
+                } finally {
+                  valueDone();
                 }
-              } catch (final RuntimeException e) {
-                LOG.trace("A run ahead's load failed", e);
+                triePathQueued = TRIE_AFTER && queueTriePath(triePath);
               } finally {
-                valueDone();
-              }
-              if (TRIE_AFTER) {
-                loadTriePath(triePath);
-              } else {
-                release();
+                if (!triePathQueued) {
+                  release();
+                }
               }
             });
       } catch (final RejectedExecutionException e) {
@@ -424,7 +427,8 @@ public final class RunaheadPrefetcher {
       }
     }
 
-    private void loadTriePath(final Runnable triePath) {
+    /** Queues a trie path load, which releases the world state once done. */
+    private boolean queueTriePath(final Runnable triePath) {
       try {
         TRIE_LOADS.execute(
             () -> {
@@ -436,8 +440,9 @@ public final class RunaheadPrefetcher {
                 release();
               }
             });
+        return true;
       } catch (final RejectedExecutionException e) {
-        release();
+        return false;
       }
     }
 
