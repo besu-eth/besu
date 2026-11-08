@@ -124,6 +124,25 @@ public interface FlatDbCacheManager {
     return Optional.empty();
   }
 
+  /**
+   * Looks the key up in the cache only, never in storage.
+   *
+   * @param segment the segment
+   * @param key the key
+   * @param version the highest version a cached value may have
+   * @return empty if the cache does not hold the key at or below {@code version}; otherwise the
+   *     cached value, where an empty inner value is a cached absence
+   */
+  default Optional<Optional<Bytes>> peek(
+      final SegmentIdentifier segment, final Bytes key, final long version) {
+    final Optional<VersionedValue> cached = getCachedValue(segment, key);
+    if (cached.isEmpty() || cached.get().version > version) {
+      return Optional.empty();
+    }
+    final VersionedValue value = cached.get();
+    return Optional.of(value.isRemoval ? Optional.empty() : Optional.ofNullable(value.value));
+  }
+
   /** A trie node and the hash it is referenced by. */
   record TrieNode(Bytes32 hash, Bytes node) {}
 

@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.RunaheadPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -80,6 +81,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   // a long transaction submitted first runs alongside the rest of the block instead of after it
   private static final long HEAVY_FIRST_GAS = Long.getLong("besu.t14.heavyFirstGas", 0L);
+
+  // transactions at or above this gas limit are run ahead to load their slots, 0 turns it off
+  private static final long RUNAHEAD_GAS = Long.getLong("besu.t14.runaheadGas", 0L);
 
   // replay benchmarks: log each worker execution's time
   private static final boolean LOG_TX_TIMES = Boolean.getBoolean("besu.bench.logTxTimes");
@@ -142,6 +146,23 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Executor executor,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
+
+    if (RUNAHEAD_GAS > 0 && maybeParentHeader.isPresent()) {
+      for (final Transaction transaction : transactions) {
+        if (transaction.getGasLimit() >= RUNAHEAD_GAS) {
+          RunaheadPrefetcher.runAhead(
+              transactionProcessor,
+              protocolContext,
+              maybeParentHeader.get(),
+              blockHeader,
+              transaction,
+              miningBeneficiary,
+              blockHashLookup,
+              blobGasPrice,
+              WARM_UP_VALIDATION);
+        }
+      }
+    }
 
     // looked up once, as the transaction pool may recover a sender while the runs are set up
     final Address[] senders = new Address[transactions.size()];

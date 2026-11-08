@@ -392,6 +392,22 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
                     composedWorldStateStorage));
   }
 
+  /**
+   * The value of a storage slot if it is held in memory, without reading storage.
+   *
+   * @param accountHash the hash of the account
+   * @param storageSlotKey the slot
+   * @return empty if the value is not in memory; otherwise the value, where an empty inner value
+   *     means the slot is known to be empty
+   */
+  public Optional<Optional<Bytes>> peekStorageValueByStorageSlotKey(
+      final Hash accountHash, final StorageSlotKey storageSlotKey) {
+    return cacheManager.peek(
+        ACCOUNT_STORAGE_STORAGE,
+        TrieBytes.concat(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes()),
+        getCurrentVersion());
+  }
+
   public List<Optional<Bytes>> getMultipleFlat(
       final SegmentIdentifier segmentIdentifier, final List<byte[]> keys) {
     final List<Bytes> bytesKeys = new ArrayList<>(keys.size());
