@@ -648,13 +648,16 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   private record SlotKey(Address address, StorageSlotKey slot) {}
 
   /**
-   * What the runs of a block's transactions touched and changed. A transaction that touched what an
-   * earlier one changed runs again on top of that one's result, the latest such one, as the serial
-   * loop would otherwise find the result colliding and run the transaction itself. A run on top of
-   * another is checked like a chained run: it holds if the block reaches it with the values it
-   * started from.
+   * What the runs of a block's transactions touched and changed. A transaction that touched what
+   * earlier ones changed runs again on top of the latest of them, if that one's result includes the
+   * others, as the serial loop would otherwise find the transaction's result colliding and run it
+   * itself. A run on top of another is checked like a chained run: it holds if the block reaches it
+   * with the values it started from.
    */
   private final class Dependencies {
+    // marks the runs of this class, whose results it records itself
+    private static final ThreadLocal<Boolean> RERUNNING = ThreadLocal.withInitial(() -> false);
+
     private final ProtocolContext protocolContext;
     private final BlockHeader blockHeader;
     private final List<Transaction> transactions;
@@ -668,10 +671,12 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     private final Map<Object, TreeSet<Integer>> writers = new HashMap<>();
     private final Map<Object, TreeSet<Integer>> readers = new HashMap<>();
     private final ParallelizedTransactionContext[] results;
-    private final int[] predecessor;
-    // how often each transaction finished a run, and which of its predecessor's runs the latest
-    // re-run ran on, so that a newer result of the predecessor starts another re-run
+    private final List<?>[] touchedKeys;
+    // the transactions whose changes each latest result includes
+    private final java.util.BitSet[] ancestry;
+    // how often each transaction got a new result, and which result of its base its re-run used
     private final int[] resultVersion;
+    private final int[] predecessor;
     private final int[] baseVersion;
     private final int[] reruns;
     // the latest re-run of each transaction, and whether it started
@@ -700,9 +705,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       this.maybeParentHeader = maybeParentHeader;
       final int n = transactions.size();
       this.results = new ParallelizedTransactionContext[n];
+      this.touchedKeys = new List<?>[n];
+      this.ancestry = new java.util.BitSet[n];
+      this.resultVersion = new int[n];
       this.predecessor = new int[n];
       java.util.Arrays.fill(predecessor, -1);
-      this.resultVersion = new int[n];
       this.baseVersion = new int[n];
       this.reruns = new int[n];
       this.rerunFutures = new AtomicReferenceArray<>(n);
@@ -721,39 +728,78 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       return rerun;
     }
 
-    synchronized void finished(final int index, final ParallelizedTransactionContext context) {
+    /** Records the result of a run other than a re-run of this class. */
+    void finished(final int index, final ParallelizedTransactionContext context) {
+      if (RERUNNING.get()) {
+        return;
+      }
+      final java.util.BitSet itself = new java.util.BitSet();
+      itself.set(index);
+      record(index, context, itself);
+    }
+
+    private synchronized void record(
+        final int index,
+        final ParallelizedTransactionContext context,
+        final java.util.BitSet includes) {
       if (index >= results.length
           || context == null
           || context.transactionProcessingResult().isInvalid()) {
         return;
       }
       results[index] = context;
+      ancestry[index] = includes;
       resultVersion[index]++;
       final List<Object> changed = new ArrayList<>();
       final List<Object> touched = new ArrayList<>();
       collect(context.transactionAccumulator(), changed, touched);
-      // the later transactions that touched what this one changed depend on it
+      touchedKeys[index] = touched;
+      for (final Object key : touched) {
+        readers.computeIfAbsent(key, k -> new TreeSet<>()).add(index);
+      }
+      // the later transactions that touched what this one changed may run again on top of it
+      final java.util.BitSet later = new java.util.BitSet();
       for (final Object key : changed) {
         writers.computeIfAbsent(key, k -> new TreeSet<>()).add(index);
         final TreeSet<Integer> keyReaders = readers.get(key);
         if (keyReaders != null) {
           for (final int reader : keyReaders.tailSet(index, false)) {
-            rerunOnTop(reader, index);
+            later.set(reader);
           }
         }
       }
-      // and this one depends on the latest earlier transaction that changed what it touched
-      int latestWriter = -1;
+      consider(index);
+      for (int reader = later.nextSetBit(0); reader >= 0; reader = later.nextSetBit(reader + 1)) {
+        consider(reader);
+      }
+    }
+
+    /** Runs the transaction again on top of the latest earlier writer, if its result can hold. */
+    private void consider(final int index) {
+      final List<?> touched = touchedKeys[index];
+      if (touched == null) {
+        return;
+      }
+      final java.util.BitSet earlierWriters = new java.util.BitSet();
       for (final Object key : touched) {
-        readers.computeIfAbsent(key, k -> new TreeSet<>()).add(index);
         final TreeSet<Integer> keyWriters = writers.get(key);
-        final Integer writer = keyWriters == null ? null : keyWriters.lower(index);
-        if (writer != null && writer > latestWriter) {
-          latestWriter = writer;
+        if (keyWriters != null) {
+          for (final int writer : keyWriters.headSet(index, false)) {
+            earlierWriters.set(writer);
+          }
         }
       }
-      if (latestWriter >= 0) {
-        rerunOnTop(index, latestWriter);
+      if (earlierWriters.isEmpty()) {
+        return;
+      }
+      final int latest = earlierWriters.previousSetBit(index - 1);
+      if (ancestry[latest] == null) {
+        return;
+      }
+      // on top of the latest writer only, the changes of another earlier writer would be missing
+      earlierWriters.andNot(ancestry[latest]);
+      if (earlierWriters.isEmpty()) {
+        rerunOnTop(index, latest);
       }
     }
 
@@ -809,19 +855,20 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         return;
       }
       final Transaction transaction = transactions.get(index);
-      final ParallelizedTransactionContext earlierResult = results[earlier];
       final PathBasedWorldStateUpdateAccumulator<?> onTopOf =
-          earlierResult.transactionAccumulator();
+          results[earlier].transactionAccumulator();
+      final java.util.BitSet includes = (java.util.BitSet) ancestry[earlier].clone();
+      includes.set(index);
       predecessor[index] = earlier;
       baseVersion[index] = resultVersion[earlier];
-      reruns[index]++;
+      final int run = ++reruns[index];
       if (LOG_TX_TIMES) {
         LOG.info(
             "Bench rerun block {} idx {} after {} rerun {}",
             blockHeader.getNumber(),
             index,
             earlier,
-            reruns[index]);
+            run);
       }
       final CompletableFuture<ParallelizedTransactionContext> rerun = new CompletableFuture<>();
       rerunFutures.set(index, rerun);
@@ -833,8 +880,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                 return;
               }
               rerunStarted.set(index, 1);
+              final ParallelizedTransactionContext context;
+              RERUNNING.set(true);
               try {
-                rerun.complete(
+                context =
                     runTransaction(
                         protocolContext,
                         blockHeader,
@@ -845,9 +894,19 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                         blobGasPrice,
                         blockAccessListBuilder,
                         maybeParentHeader,
-                        onTopOf));
+                        onTopOf);
               } catch (final Throwable t) {
                 rerun.completeExceptionally(t);
+                return;
+              } finally {
+                RERUNNING.set(false);
+              }
+              rerun.complete(context);
+              synchronized (this) {
+                // a later re-run of the transaction replaces this one
+                if (reruns[index] == run) {
+                  record(index, context, includes);
+                }
               }
             });
       } catch (final java.util.concurrent.RejectedExecutionException e) {
