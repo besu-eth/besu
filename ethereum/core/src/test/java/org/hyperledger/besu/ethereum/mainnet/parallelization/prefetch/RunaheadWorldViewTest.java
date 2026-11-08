@@ -119,7 +119,8 @@ class RunaheadWorldViewTest {
     final Account target = view.get(ADDRESS);
 
     assertThat(RunaheadCalls.isPlaceholder(target)).isTrue();
-    verify(worldState, timeout(5_000)).loadAccountAndTriePath(ADDRESS);
+    verify(worldState, timeout(5_000)).get(ADDRESS);
+    verify(worldState, timeout(5_000)).loadAccountTriePath(ADDRESS);
     // reading its code must not put the placeholder's code into the code cache all executions use
     assertThat(target.getCode()).isEqualTo(Bytes.of(0));
     assertThat(codeCache.getIfPresent(RunaheadCalls.PLACEHOLDER_CODE_HASH)).isNull();

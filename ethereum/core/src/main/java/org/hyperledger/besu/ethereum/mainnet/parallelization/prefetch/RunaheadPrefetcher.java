@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -97,6 +98,32 @@ public final class RunaheadPrefetcher {
   private static final long LOAD_WAIT_NANOS =
       Long.getLong("besu.runahead.loadWaitMicros", 5_000L) * 1_000L;
 
+  // experiment: load the trie nodes on a slot's or account's path on their own threads, after its
+  // value, so that the next pass waits for the values only; the nodes only matter for the state
+  // root
+  private static final boolean TRIE_AFTER = Boolean.getBoolean("besu.runahead.trieAfter");
+
+  private static final ExecutorService TRIE_LOADS =
+      Executors.newFixedThreadPool(
+          Integer.getInteger("besu.runahead.trieLoadThreads", 8),
+          daemonThreads("besu-runahead-trie"));
+
+  // experiment: skip the run ahead of a transaction when the last one with the same sender, target
+  // and function loaded fewer values per millisecond than this, since such a run (a long
+  // computation) only competes with the execution for a core
+  private static final double MIN_LOADS_PER_MS =
+      Double.parseDouble(System.getProperty("besu.runahead.minLoadsPerMs", "0"));
+
+  // a kind of transaction that is skipped still runs ahead now and then, in case it starts loading
+  private static final int PROBE_EVERY = Integer.getInteger("besu.runahead.probeEvery", 8);
+
+  // runs shorter than this cost too little to be worth skipping
+  private static final long MIN_SKIPPED_RUN_MICROS = 2_000L;
+
+  private static final int MAX_UNPRODUCTIVE_KINDS = 4_096;
+
+  private static final Map<Bytes, AtomicInteger> UNPRODUCTIVE = new ConcurrentHashMap<>();
+
   static {
     RunaheadCalls.Switch.enable();
   }
@@ -127,6 +154,19 @@ public final class RunaheadPrefetcher {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final TransactionValidationParams validationParams) {
+    final Bytes kind = MIN_LOADS_PER_MS > 0 ? kindOf(transaction) : null;
+    if (kind != null) {
+      final AtomicInteger skips = UNPRODUCTIVE.get(kind);
+      if (skips != null && skips.incrementAndGet() % PROBE_EVERY != 0) {
+        if (LOG_RUNS) {
+          LOG.info(
+              "Bench runahead block {} hash {} skipped",
+              blockHeader.getNumber(),
+              transaction.getHash().toHexString());
+        }
+        return CompletableFuture.completedFuture(null);
+      }
+    }
     final CompletableFuture<Void> firstPass = new CompletableFuture<>();
     for (final Optional<UInt256> placeholder : PLACEHOLDERS) {
       final BlockHashLookup lookup = blockHashLookup.forkForParallelWorker();
@@ -144,6 +184,7 @@ public final class RunaheadPrefetcher {
                     blobGasPrice,
                     validationParams,
                     placeholder,
+                    kind,
                     firstPass));
       } catch (final RejectedExecutionException e) {
         LOG.trace("Run ahead of {} not started", transaction.getHash(), e);
@@ -164,6 +205,7 @@ public final class RunaheadPrefetcher {
       final Wei blobGasPrice,
       final TransactionValidationParams validationParams,
       final Optional<UInt256> placeholder,
+      final Bytes kind,
       final CompletableFuture<Void> firstPass) {
     final BonsaiWorldState worldState =
         protocolContext
@@ -179,12 +221,14 @@ public final class RunaheadPrefetcher {
     final long start = System.nanoTime();
     String outcome = "?";
     int passes = 0;
+    final StringBuilder passLog = LOG_RUNS ? new StringBuilder() : null;
     try {
       final RunaheadWorldView view = new RunaheadWorldView(worldState, loads, placeholder);
       final EvmConfiguration evmConfiguration =
           ((PathBasedWorldStateUpdateAccumulator<?>) worldState.updater()).getEvmConfiguration();
       while (passes < MAX_PASSES) {
         passes++;
+        final long passStart = System.nanoTime();
         final int requestedBefore = loads.requested.size();
         final BonsaiWorldStateUpdateAccumulator accumulator =
             new BonsaiWorldStateUpdateAccumulator(
@@ -214,12 +258,23 @@ public final class RunaheadPrefetcher {
             result.isInvalid()
                 ? "invalid " + result.getValidationResult().getErrorMessage()
                 : result.isSuccessful() ? "success" : "failed " + result.getRevertReason();
+        if (passLog != null) {
+          passLog
+              .append(passLog.isEmpty() ? "" : ",")
+              .append((System.nanoTime() - passStart) / 1000)
+              .append('/')
+              .append(loads.requested.size() - requestedBefore);
+        }
         if (loads.requested.size() == requestedBefore) {
           // a further pass would read the same as this one
           break;
         }
         // a slot read as empty can stop a pass early, the next one reads its value and gets further
+        final long waitStart = System.nanoTime();
         loads.awaitLoads(LOAD_WAIT_NANOS);
+        if (passLog != null) {
+          passLog.append('+').append((System.nanoTime() - waitStart) / 1000);
+        }
         firstPass.complete(null);
       }
     } catch (final RuntimeException e) {
@@ -227,19 +282,46 @@ public final class RunaheadPrefetcher {
       outcome = "exception " + e;
       LOG.trace("Run ahead of {} stopped", transaction.getHash(), e);
     } finally {
+      final long micros = (System.nanoTime() - start) / 1000;
+      if (kind != null) {
+        recordProductivity(kind, loads.requested.size(), micros);
+      }
       if (LOG_RUNS) {
         LOG.info(
-            "Bench runahead block {} hash {} placeholder {} us {} passes {} loads {} outcome {}",
+            "Bench runahead block {} hash {} placeholder {} us {} passes {} loads {} outcome {} pass_us_loads {}",
             blockHeader.getNumber(),
             transaction.getHash().toHexString(),
             placeholder.map(UInt256::toShortHexString).orElse("0"),
-            (System.nanoTime() - start) / 1000,
+            micros,
             passes,
             loads.requested.size(),
-            outcome);
+            outcome,
+            passLog);
       }
       firstPass.complete(null);
       loads.runDone();
+    }
+  }
+
+  private static Bytes kindOf(final Transaction transaction) {
+    final Bytes payload = transaction.getPayload();
+    return Bytes.concatenate(
+        transaction.getSender().getBytes(),
+        transaction.getTo().map(Address::getBytes).orElse(Bytes.EMPTY),
+        payload.slice(0, Math.min(4, payload.size())));
+  }
+
+  private static void recordProductivity(final Bytes kind, final int loads, final long micros) {
+    if (micros < MIN_SKIPPED_RUN_MICROS) {
+      return;
+    }
+    if (loads < MIN_LOADS_PER_MS * micros / 1000.0) {
+      if (UNPRODUCTIVE.size() >= MAX_UNPRODUCTIVE_KINDS) {
+        UNPRODUCTIVE.clear();
+      }
+      UNPRODUCTIVE.putIfAbsent(kind, new AtomicInteger());
+    } else {
+      UNPRODUCTIVE.remove(kind);
     }
   }
 
@@ -280,6 +362,8 @@ public final class RunaheadPrefetcher {
     private final BonsaiWorldState worldState;
     // the run itself holds one
     private final AtomicInteger pending = new AtomicInteger(1);
+    // the loads whose values are not in memory yet, which the next pass waits for
+    private final AtomicInteger pendingValues = new AtomicInteger();
     private final Set<Bytes> requested = ConcurrentHashMap.newKeySet();
     private final Object idle = new Object();
 
@@ -293,36 +377,61 @@ public final class RunaheadPrefetcher {
               address.addressHash().getBytes(), storageSlotKey.getSlotHash().getBytes()))) {
         return;
       }
-      pending.incrementAndGet();
-      try {
-        LOADS.execute(
-            () -> {
-              try {
-                worldState.getStorageValueByStorageSlotKey(address, storageSlotKey);
-                worldState.loadStorageTriePath(address, storageSlotKey);
-              } catch (final RuntimeException e) {
-                LOG.trace("Load of a slot of {} failed", address, e);
-              } finally {
-                release();
-              }
-            });
-      } catch (final RejectedExecutionException e) {
-        release();
-      }
+      submit(
+          () -> worldState.getStorageValueByStorageSlotKey(address, storageSlotKey),
+          () -> worldState.loadStorageTriePath(address, storageSlotKey));
     }
 
     void loadAccount(final Address address) {
       if (!requested.add(address.getBytes())) {
         return;
       }
+      submit(
+          () -> {
+            final Account account = worldState.get(address);
+            if (account != null) {
+              account.getCode();
+            }
+          },
+          () -> worldState.loadAccountTriePath(address));
+    }
+
+    private void submit(final Runnable value, final Runnable triePath) {
       pending.incrementAndGet();
+      pendingValues.incrementAndGet();
       try {
         LOADS.execute(
             () -> {
               try {
-                worldState.loadAccountAndTriePath(address);
+                value.run();
+                if (!TRIE_AFTER) {
+                  triePath.run();
+                }
               } catch (final RuntimeException e) {
-                LOG.trace("Load of account {} failed", address, e);
+                LOG.trace("A run ahead's load failed", e);
+              } finally {
+                valueDone();
+              }
+              if (TRIE_AFTER) {
+                loadTriePath(triePath);
+              } else {
+                release();
+              }
+            });
+      } catch (final RejectedExecutionException e) {
+        valueDone();
+        release();
+      }
+    }
+
+    private void loadTriePath(final Runnable triePath) {
+      try {
+        TRIE_LOADS.execute(
+            () -> {
+              try {
+                triePath.run();
+              } catch (final RuntimeException e) {
+                LOG.trace("A run ahead's trie path load failed", e);
               } finally {
                 release();
               }
@@ -336,11 +445,11 @@ public final class RunaheadPrefetcher {
       release();
     }
 
-    /** Waits until the loads requested so far are done, or the timeout passed. */
+    /** Waits until the values requested so far are in memory, or the timeout passed. */
     void awaitLoads(final long timeoutNanos) {
       final long deadline = System.nanoTime() + timeoutNanos;
       synchronized (idle) {
-        while (pending.get() > 1) {
+        while (pendingValues.get() > 0) {
           final long left = deadline - System.nanoTime();
           if (left <= 0) {
             return;
@@ -355,14 +464,17 @@ public final class RunaheadPrefetcher {
       }
     }
 
-    private void release() {
-      final int left = pending.decrementAndGet();
-      if (left == 0) {
-        worldState.close();
-      } else if (left == 1) {
+    private void valueDone() {
+      if (pendingValues.decrementAndGet() == 0) {
         synchronized (idle) {
           idle.notifyAll();
         }
+      }
+    }
+
+    private void release() {
+      if (pending.decrementAndGet() == 0) {
+        worldState.close();
       }
     }
   }
