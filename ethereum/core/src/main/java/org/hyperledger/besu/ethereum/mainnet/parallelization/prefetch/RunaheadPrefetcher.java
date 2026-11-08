@@ -64,6 +64,8 @@ public final class RunaheadPrefetcher {
       Executors.newFixedThreadPool(
           Integer.getInteger("besu.runahead.loadThreads", 32), daemonThreads("besu-runahead-load"));
 
+  private static final boolean LOG_RUNS = Boolean.getBoolean("besu.bench.logRunahead");
+
   private RunaheadPrefetcher() {}
 
   /**
@@ -128,6 +130,8 @@ public final class RunaheadPrefetcher {
       return;
     }
     final Loads loads = new Loads(worldState);
+    final long start = System.nanoTime();
+    String outcome = "?";
     try {
       final BonsaiWorldStateUpdateAccumulator accumulator =
           new BonsaiWorldStateUpdateAccumulator(
@@ -137,20 +141,35 @@ public final class RunaheadPrefetcher {
               ((PathBasedWorldStateUpdateAccumulator<?>) worldState.updater())
                   .getEvmConfiguration(),
               worldState.codeCache());
-      transactionProcessor.processTransaction(
-          accumulator.updater(),
-          blockHeader,
-          transaction.detachedCopy(),
-          miningBeneficiary,
-          OperationTracer.NO_TRACING,
-          blockHashLookup,
-          validationParams,
-          blobGasPrice,
-          Optional.empty());
+      final var result =
+          transactionProcessor.processTransaction(
+              accumulator.updater(),
+              blockHeader,
+              transaction.detachedCopy(),
+              miningBeneficiary,
+              OperationTracer.NO_TRACING,
+              blockHashLookup,
+              validationParams,
+              blobGasPrice,
+              Optional.empty());
+      outcome =
+          result.isInvalid()
+              ? "invalid " + result.getValidationResult().getErrorMessage()
+              : result.isSuccessful() ? "success" : "failed " + result.getRevertReason();
     } catch (final RuntimeException e) {
       // it only loads state, the execution reports any failure
+      outcome = "exception " + e;
       LOG.trace("Run ahead of {} stopped", transaction.getHash(), e);
     } finally {
+      if (LOG_RUNS) {
+        LOG.info(
+            "Bench runahead block {} hash {} us {} loads {} outcome {}",
+            blockHeader.getNumber(),
+            transaction.getHash().toHexString(),
+            (System.nanoTime() - start) / 1000,
+            loads.requested.size(),
+            outcome);
+      }
       loads.runDone();
     }
   }
