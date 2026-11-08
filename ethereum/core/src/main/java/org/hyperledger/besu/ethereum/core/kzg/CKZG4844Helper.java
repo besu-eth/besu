@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.core.kzg;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,15 @@ public class CKZG4844Helper {
 
   /** Number of cells an extended blob is split into, and therefore the range of a cell index. */
   public static final int CELLS_PER_EXT_BLOB = CKZG4844JNI.CELLS_PER_EXT_BLOB;
+
+  /**
+   * How many cells of a blob are enough to recover the rest of them, and with them the blob itself.
+   * The extension doubles the data, so any half of it suffices.
+   */
+  public static final int CELLS_TO_RECOVER_BLOB = CELLS_PER_EXT_BLOB / 2;
+
+  /** A blob is exactly the un-extended half of its cells. */
+  private static final int BLOB_SIZE = CELLS_TO_RECOVER_BLOB * Cell.SIZE;
 
   /**
    * Converts the given BlobsWithCommitments to version 1.
@@ -97,6 +107,7 @@ public class CKZG4844Helper {
    * @return a KZGProof object computed from the Blob and KZG commitment.
    */
   public static KZGProof computeBlobKzgProof(final Blob blob, final KZGCommitment commitment) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     Bytes48 proof =
         Bytes48.wrap(
             CKZG4844JNI.computeBlobKzgProof(
@@ -111,8 +122,98 @@ public class CKZG4844Helper {
    * @return a list of KZGProof objects computed from the Blob.
    */
   public static List<KZGProof> computeBlobKzgProofs(final Blob blob) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     CellsAndProofs cellProofs = CKZG4844JNI.computeCellsAndKzgProofs(blob.getData().toArray());
     return extractKZGProofs(cellProofs.getProofs());
+  }
+
+  /**
+   * Recovers the blobs of a sidecar that holds at least {@link #CELLS_TO_RECOVER_BLOB} cells of
+   * each of them, which is what a node ends up with after sampling a transaction over eth/72.
+   *
+   * <p>This does not verify the cells it is given: a recovery from corrupt cells produces a corrupt
+   * blob, so callers must have established that the cells open their commitments. {@code
+   * TransactionsLimbo} does so as each peer answers, which is also the only point at which a peer
+   * answering with bad cells can still be identified.
+   *
+   * @param sparse a sidecar holding cells and no blobs
+   * @return the same commitments, proofs and versioned hashes, with the blobs recovered
+   */
+  public static BlobsWithCommitments recoverBlobs(final BlobsWithCommitments sparse) {
+    return BlobsWithCommitments.createFromBundles(
+        sparse.getBlobProofBundles().stream().map(CKZG4844Helper::recoverBundle).toList());
+  }
+
+  /**
+   * Recovers the blob of a bundle holding enough of its cells, keeping everything the transaction
+   * arrived with.
+   *
+   * @param bundle the bundle to recover the blob of
+   * @return a bundle holding the recovered blob and every cell of it
+   */
+  private static BlobProofBundle recoverBundle(final BlobProofBundle bundle) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
+    final CellsWithMask cellsWithMask =
+        bundle
+            .getCellsWithMask()
+            .orElseThrow(
+                () -> new IllegalArgumentException("Bundle holds no cells to recover from"));
+    final CellMask heldCells = cellsWithMask.getCellMask();
+    checkArgument(
+        heldCells.cardinality() >= CELLS_TO_RECOVER_BLOB,
+        "Recovering a blob needs at least %s of its cells, got %s",
+        CELLS_TO_RECOVER_BLOB,
+        heldCells.cardinality());
+
+    final CellsAndProofs recovered =
+        CKZG4844JNI.recoverCellsAndKzgProofs(
+            heldCells.streamIndexes().asLongStream().toArray(),
+            bundle.getBlobCellsBytes().orElseThrow().toArrayUnsafe());
+    final Bytes extendedCells = Bytes.wrap(recovered.getCells());
+
+    checkProofsAreTheRecoveredOnes(bundle, recovered);
+
+    // The recovered cells are handed over rather than left to be computed from the blob: recovery
+    // has just produced them, and they are the whole set, so the bundle can serve every cell.
+    return new BlobProofBundle(
+        bundle.getBlobType(),
+        // The extension is systematic: it doubles the data, leaving the blob itself as the first
+        // half of the extended cells.
+        new Blob(extendedCells.slice(0, BLOB_SIZE)),
+        extendedCells,
+        bundle.getKzgCommitment(),
+        // the proofs the transaction arrived with, now known to be the blob's own
+        bundle.getKzgProof(),
+        bundle.getVersionedHash());
+  }
+
+  /**
+   * Checks the cell proofs the transaction arrived with against the ones recovery computed.
+   *
+   * <p>A partially sampled bundle can only have been verified over the cells it holds, so the
+   * proofs for every other cell arrived unchecked, and the recovered bundle presents all of them as
+   * the blob's. Recovery computes them anyway on its way to the cells, so comparing costs nothing
+   * beyond the comparison itself, and a cell proof is determined by the blob and the cell index:
+   * the recovered ones are therefore the only proofs the blob can have.
+   *
+   * <p>A mismatch means the transaction is not valid and no node will accept it. It is refused here
+   * rather than repaired with the recovered proofs, which would leave this node the only one
+   * holding a version of the transaction that verifies.
+   *
+   * @param bundle the bundle being recovered
+   * @param recovered what recovery returned for it
+   */
+  private static void checkProofsAreTheRecoveredOnes(
+      final BlobProofBundle bundle, final CellsAndProofs recovered) {
+    final List<KZGProof> sentProofs = bundle.getKzgProof();
+    final List<KZGProof> recoveredProofs = extractKZGProofs(recovered.getProofs());
+    for (int cellIndex = 0; cellIndex < recoveredProofs.size(); cellIndex++) {
+      checkArgument(
+          recoveredProofs.get(cellIndex).equals(sentProofs.get(cellIndex)),
+          "Proof for cell %s of blob %s is not the proof of the cell it recovers to",
+          cellIndex,
+          bundle.getVersionedHash());
+    }
   }
 
   /**
@@ -122,6 +223,7 @@ public class CKZG4844Helper {
    * @return a Bytes object containing the computed cells.
    */
   public static Bytes computeCells(final Blob blob) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     return Bytes.wrap(CKZG4844JNI.computeCells(blob.getData().toArrayUnsafe()));
   }
 
@@ -136,6 +238,7 @@ public class CKZG4844Helper {
    * @return true if the KZG proofs are valid, false otherwise.
    */
   public static boolean verify4844Kzg(final BlobsWithCommitments blobsWithCommitments) {
+    KZGPointEvalPrecompiledContract.awaitTrustedSetup();
     return switch (blobsWithCommitments.getBlobType()) {
       case BlobType.KZG_PROOF ->
           CKZG4844JNI.verifyBlobKzgProofBatch(

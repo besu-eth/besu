@@ -37,8 +37,11 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Optimizes transaction processing by executing transactions in parallel within a given block.
@@ -48,6 +51,9 @@ import com.google.common.annotations.VisibleForTesting;
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTransactionProcessor {
+
+  private static final Logger LOG =
+      LoggerFactory.getLogger(OptimisticConcurrentTransactionProcessor.class);
 
   private final MainnetTransactionProcessor transactionProcessor;
 
@@ -115,6 +121,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               miningBeneficiary,
               new OperationTracer() {
                 @Override
+                public boolean tracesOperations() {
+                  return false;
+                }
+
+                @Override
                 public void traceBeforeRewardTransaction(
                     final WorldView worldView,
                     final org.hyperledger.besu.datatypes.Transaction tx,
@@ -125,10 +136,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                    * it means that the value is necessary for the proper execution of the transaction and will therefore be considered in collision detection.
                    * If this is not the case, we can ignore this address during conflict detection.
                    */
-                  if (transactionCollisionDetector
-                      .getAddressesTouchedByTransaction(
-                          transaction, Optional.of(roundWorldStateUpdater))
-                      .contains(miningBeneficiary)) {
+                  if (transactionCollisionDetector.isAddressTouchedByTransaction(
+                      transaction, roundWorldStateUpdater, miningBeneficiary)) {
                     contextBuilder.isMiningBeneficiaryTouchedPreRewardByTransaction(true);
                   }
                   contextBuilder.miningBeneficiaryReward(miningReward);
@@ -151,10 +160,15 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()) {
         /*
          * If the address of the mining beneficiary has been touched only for adding rewards,
-         * we remove it from the accumulator to avoid a false positive collision.
-         * The balance will be increased during the sequential processing.
+         * we remove it from the accumulator to avoid a false positive collision. Its code and
+         * storage are removed too, as the merge would otherwise overwrite the block's ones while
+         * the collision detection skips it. It stays in the deleted accounts, so a deletion still
+         * collides. The balance will be increased during the sequential processing.
          */
         roundWorldStateUpdater.getAccountsToUpdate().remove(miningBeneficiary);
+        roundWorldStateUpdater.getCodeToUpdate().remove(miningBeneficiary);
+        roundWorldStateUpdater.getStorageToUpdate().remove(miningBeneficiary);
+        roundWorldStateUpdater.getStorageToClear().remove(miningBeneficiary);
       }
       return parallelizedTransactionContext;
     } catch (Exception ex) {
@@ -200,7 +214,13 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     final CompletableFuture<ParallelizedTransactionContext> future =
         removeFuture(transactionLocation);
 
-    if (future != null && future.isDone()) {
+    if (future != null && future.state() == Future.State.FAILED) {
+      LOG.debug(
+          "Parallel execution of transaction {} failed, executing it sequentially",
+          transaction.getHash(),
+          future.exceptionNow());
+    }
+    if (future != null && future.state() == Future.State.SUCCESS) {
       final ParallelizedTransactionContext parallelizedTransactionContext = future.resultNow();
       if (parallelizedTransactionContext == null) {
         return Optional.empty();
@@ -213,8 +233,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           parallelizedTransactionContext.transactionAccumulator();
       final TransactionProcessingResult transactionProcessingResult =
           parallelizedTransactionContext.transactionProcessingResult();
-      // an unsuccessful result is replayed anyway, and its sender may not even be recoverable
-      if (transactionProcessingResult.isSuccessful()
+      // a reverted or halted execution is as repeatable as a successful one when nothing it read
+      // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
+      if (!transactionProcessingResult.isInvalid()
           && !transactionCollisionDetector.hasCollision(
               transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator)) {
         final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
@@ -242,11 +263,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
 
-        if (confirmedParallelizedTransactionCounter.isPresent()) {
-          confirmedParallelizedTransactionCounter.get().inc();
-          transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
-          transactionProcessingResult.accumulator = transactionAccumulator;
-        }
+        confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
+        transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
         return Optional.of(transactionProcessingResult);
       } else {
         blockAccumulator.importPriorStateFromSource(transactionAccumulator);

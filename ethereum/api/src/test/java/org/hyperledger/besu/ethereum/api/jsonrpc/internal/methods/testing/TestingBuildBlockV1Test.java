@@ -106,6 +106,9 @@ class TestingBuildBlockV1Test {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
     assertThat(errorResponse.getError().getCode()).isEqualTo(RpcErrorType.INVALID_PARAMS.getCode());
+    assertThat(errorResponse.getError().getMessage())
+        .isEqualTo("Invalid params: Parent block not found: " + Hash.ZERO.toHexString());
+    assertThat(errorResponse.getError().getData()).isNull();
   }
 
   @Test
@@ -138,6 +141,9 @@ class TestingBuildBlockV1Test {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
     assertThat(errorResponse.getError().getCode()).isEqualTo(RpcErrorType.INVALID_PARAMS.getCode());
+    assertThat(errorResponse.getError().getMessage())
+        .isEqualTo("Invalid params: Missing or invalid timestamp field");
+    assertThat(errorResponse.getError().getData()).isNull();
   }
 
   @Test

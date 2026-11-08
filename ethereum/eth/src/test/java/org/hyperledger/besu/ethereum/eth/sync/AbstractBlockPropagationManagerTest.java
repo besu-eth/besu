@@ -120,7 +120,7 @@ public abstract class AbstractBlockPropagationManagerTest {
   protected SyncState syncState;
   protected final MetricsSystem metricsSystem = new NoOpMetricsSystem();
   private final Hash finalizedHash = Hash.fromHexStringLenient("0x1337");
-  private final int maxMessageSize = 10 * ByteUnits.MEGABYTE;
+  private final int maxMessageSize = 10 * ByteUnits.MEBIBYTE;
 
   protected void setup(final DataStorageFormat dataStorageFormat) {
     peerTaskExecutor = Mockito.mock(PeerTaskExecutor.class);

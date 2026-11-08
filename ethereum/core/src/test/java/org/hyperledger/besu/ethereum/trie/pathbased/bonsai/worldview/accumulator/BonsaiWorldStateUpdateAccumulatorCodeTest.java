@@ -15,14 +15,12 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.NoOpTrieLogManager;
@@ -121,13 +119,11 @@ class BonsaiWorldStateUpdateAccumulatorCodeTest {
   }
 
   @Test
-  void missingCodeThrowsOnEveryAccess() {
+  void missingCodeIsEmptyOnEveryAccess() {
     final Address unknown = Address.fromHexString("0x3333333333333333333333333333333333333333");
     final Hash unknownHash = Hash.hash(Bytes.of(1));
 
-    assertThatThrownBy(() -> accumulator.getCode(unknown, unknownHash))
-        .isInstanceOf(MerkleTrieException.class);
-    assertThatThrownBy(() -> accumulator.getCode(unknown, unknownHash))
-        .isInstanceOf(MerkleTrieException.class);
+    assertThat(accumulator.getCode(unknown, unknownHash)).isEmpty();
+    assertThat(accumulator.getCode(unknown, unknownHash)).isEmpty();
   }
 }

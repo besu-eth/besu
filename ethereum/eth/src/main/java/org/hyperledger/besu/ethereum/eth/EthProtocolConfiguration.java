@@ -14,20 +14,22 @@
  */
 package org.hyperledger.besu.ethereum.eth;
 
+import org.hyperledger.besu.ethereum.eth.encoding.TransactionAnnouncementEncoder;
 import org.hyperledger.besu.util.number.ByteUnits;
 
 import org.immutables.value.Value;
 
 @Value.Immutable
 public interface EthProtocolConfiguration {
-  int DEFAULT_MAX_MESSAGE_SIZE = 10 * ByteUnits.MEGABYTE;
-  int DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE = ByteUnits.MEGABYTE;
+  int DEFAULT_MAX_MESSAGE_SIZE = 10 * ByteUnits.MEBIBYTE;
+  int DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE = ByteUnits.MEBIBYTE;
   int DEFAULT_MAX_GET_BLOCK_HEADERS = 512;
   int DEFAULT_MAX_GET_BLOCK_BODIES = 128;
   int DEFAULT_MAX_GET_BLOCK_ACCESS_LISTS = 128;
   int DEFAULT_MAX_GET_RECEIPTS = 256;
   int DEFAULT_MAX_GET_POOLED_TRANSACTIONS = 256;
   int DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE = 4096;
+  int DEFAULT_MAX_ANNOUNCEMENTS_PER_MESSAGE = 4096;
   int DEFAULT_MAX_CAPABILITY = Integer.MAX_VALUE;
   int DEFAULT_MIN_CAPABILITY = 0;
 
@@ -41,6 +43,17 @@ public interface EthProtocolConfiguration {
   @Value.Default
   default int getMaxTransactionsMessageSize() {
     return DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE;
+  }
+
+  /**
+   * The maximum size of a NewPooledTransactionHashes message. It is not configurable on its own: it
+   * is the largest encoding that {@link #getMaxAnnouncementsPerMessage()} announcements can have,
+   * so the size and count limits can never disagree.
+   *
+   * @return the maximum NewPooledTransactionHashes message size in bytes
+   */
+  default int getMaxNewPooledTransactionHashesMessageSize() {
+    return TransactionAnnouncementEncoder.maxMessageSize(getMaxAnnouncementsPerMessage());
   }
 
   @Value.Default
@@ -71,6 +84,11 @@ public interface EthProtocolConfiguration {
   @Value.Default
   default int getMaxTransactionsPerMessage() {
     return DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE;
+  }
+
+  @Value.Default
+  default int getMaxAnnouncementsPerMessage() {
+    return DEFAULT_MAX_ANNOUNCEMENTS_PER_MESSAGE;
   }
 
   @Value.Default

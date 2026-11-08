@@ -32,9 +32,11 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
@@ -255,6 +257,121 @@ public class EthSchedulerTest {
     Awaitility.await().until(() -> processedStrings.size() == numOfItems);
 
     assertThat(processedStrings).containsExactlyElementsOf(expectedStrings);
+  }
+
+  @Test
+  public void tasksSubmittedToOrderedProcessorAreRunInOrder() throws InterruptedException {
+    final int numOfTasks = 100;
+    final Random random = new Random();
+    final EthScheduler realEthScheduler = new EthScheduler(1, 1, 1, new NoOpMetricsSystem());
+    try {
+      final List<Integer> executedTasks = new CopyOnWriteArrayList<>();
+
+      final var orderedProcessor = realEthScheduler.createOrderedProcessor(Runnable::run);
+      IntStream.range(0, numOfTasks)
+          .forEach(
+              i -> {
+                orderedProcessor.submit(
+                    () -> {
+                      executedTasks.add(i);
+                      sleep(random.nextInt(20));
+                    });
+                sleep(random.nextInt(20));
+              });
+
+      Awaitility.await().until(() -> executedTasks.size() == numOfTasks);
+
+      assertThat(executedTasks)
+          .containsExactlyElementsOf(IntStream.range(0, numOfTasks).boxed().toList());
+    } finally {
+      realEthScheduler.stop();
+      realEthScheduler.awaitStop();
+    }
+  }
+
+  @Test
+  public void orderedProcessorRunsOneTaskAtATimeWithConcurrentSubmitters()
+      throws InterruptedException {
+    final int numOfSubmitters = 4;
+    final int numOfTasksPerSubmitter = 100;
+    final EthScheduler realEthScheduler = new EthScheduler(1, 1, 1, new NoOpMetricsSystem());
+    try {
+      final AtomicInteger runningTasks = new AtomicInteger();
+      final AtomicInteger maxRunningTasks = new AtomicInteger();
+      final List<List<Integer>> executedTasksBySubmitter =
+          IntStream.range(0, numOfSubmitters)
+              .<List<Integer>>mapToObj(unused -> new CopyOnWriteArrayList<>())
+              .toList();
+
+      final var orderedProcessor = realEthScheduler.createOrderedProcessor(Runnable::run);
+      final CountDownLatch start = new CountDownLatch(1);
+      final List<Thread> submitters =
+          IntStream.range(0, numOfSubmitters)
+              .mapToObj(
+                  s ->
+                      new Thread(
+                          () -> {
+                            try {
+                              start.await();
+                            } catch (InterruptedException e) {
+                              throw new RuntimeException(e);
+                            }
+                            for (int i = 0; i < numOfTasksPerSubmitter; i++) {
+                              final int taskNum = i;
+                              orderedProcessor.submit(
+                                  () -> {
+                                    maxRunningTasks.accumulateAndGet(
+                                        runningTasks.incrementAndGet(), Math::max);
+                                    executedTasksBySubmitter.get(s).add(taskNum);
+                                    sleep(1);
+                                    runningTasks.decrementAndGet();
+                                  });
+                            }
+                          }))
+              .toList();
+      submitters.forEach(Thread::start);
+      start.countDown();
+      for (final Thread submitter : submitters) {
+        submitter.join();
+      }
+
+      Awaitility.await()
+          .until(
+              () ->
+                  executedTasksBySubmitter.stream().mapToInt(List::size).sum()
+                      == numOfSubmitters * numOfTasksPerSubmitter);
+
+      assertThat(maxRunningTasks.get()).isEqualTo(1);
+      final List<Integer> expectedOrder =
+          IntStream.range(0, numOfTasksPerSubmitter).boxed().toList();
+      executedTasksBySubmitter.forEach(
+          executedTasks -> assertThat(executedTasks).containsExactlyElementsOf(expectedOrder));
+    } finally {
+      realEthScheduler.stop();
+      realEthScheduler.awaitStop();
+    }
+  }
+
+  @Test
+  public void orderedProcessorDoesNotRunTasksOnTheCallerThread() {
+    ethScheduler.disableAutoRun();
+    final List<Integer> executedTasks = new ArrayList<>();
+    final var orderedProcessor = ethScheduler.createOrderedProcessor(Runnable::run);
+
+    orderedProcessor.submit(() -> executedTasks.add(1));
+    orderedProcessor.submit(() -> executedTasks.add(2));
+    assertThat(executedTasks).isEmpty();
+
+    ethScheduler.runPendingFutures();
+    assertThat(executedTasks).containsExactly(1, 2);
+  }
+
+  private static void sleep(final long millis) {
+    try {
+      Thread.sleep(millis);
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   @Test

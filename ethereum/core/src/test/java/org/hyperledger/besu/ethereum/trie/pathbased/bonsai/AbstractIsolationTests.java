@@ -52,6 +52,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolCo
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -177,6 +178,8 @@ public abstract class AbstractIsolationTests {
             .build();
     ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(ethScheduler);
 
     sorter =
         new LayeredPendingTransactions(
@@ -184,13 +187,13 @@ public abstract class AbstractIsolationTests {
             poolConfiguration,
             new GasPricePrioritizedTransactions(
                 poolConfiguration,
-                ethScheduler,
-                new EndLayer(txPoolMetrics),
+                new EndLayer(txPoolMetrics, transactionEventNotifier.newEmitter()),
                 txPoolMetrics,
                 transactionReplacementTester,
                 new BlobCache(),
                 MiningConfiguration.newDefault(),
-                senderBalanceChecker),
+                senderBalanceChecker,
+                transactionEventNotifier.newEmitter()),
             ethScheduler);
 
     transactionPool =
@@ -202,7 +205,8 @@ public abstract class AbstractIsolationTests {
             ethContext,
             txPoolMetrics,
             poolConfiguration,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
     transactionPool.setEnabled();
   }
 

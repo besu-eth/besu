@@ -165,7 +165,7 @@ public class BytesValueRLPInput implements RLPInput {
     // payload.
     try {
       final RLPDecodingHelpers.RLPElementMetadata elementMetadata =
-          RLPDecodingHelpers.rlpElementMetadata(this::inputByte, size, currentItem);
+          RLPDecodingHelpers.rlpElementMetadata(value, size, currentItem);
       currentKind = elementMetadata.kind;
       currentPayloadOffset = elementMetadata.payloadStart;
       currentPayloadSize = elementMetadata.payloadSize;
@@ -366,6 +366,14 @@ public class BytesValueRLPInput implements RLPInput {
   @Override
   public BigInteger readBigIntegerScalar() {
     checkScalar("arbitrary precision scalar");
+    final BigInteger res = getUnsignedBigInteger(currentPayloadOffset, currentPayloadSize);
+    setTo(nextItem());
+    return res;
+  }
+
+  @Override
+  public BigInteger readBigIntegerScalar(final int maxSizeBytes) {
+    checkScalar("arbitrary precision scalar", maxSizeBytes);
     final BigInteger res = getUnsignedBigInteger(currentPayloadOffset, currentPayloadSize);
     setTo(nextItem());
     return res;
