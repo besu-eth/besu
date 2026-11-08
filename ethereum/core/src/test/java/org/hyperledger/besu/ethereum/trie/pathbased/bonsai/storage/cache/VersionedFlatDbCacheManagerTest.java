@@ -51,6 +51,36 @@ class VersionedFlatDbCacheManagerTest {
   }
 
   @Test
+  void peek_isEmptyForAKeyTheCacheDoesNotHold() {
+    assertThat(cacheManager.peek(ACCOUNT_INFO_STATE, Bytes.of(1), 0L)).isEmpty();
+  }
+
+  @Test
+  void peek_returnsACachedValueWithoutReadingStorage() {
+    final Bytes key = Bytes.of(1);
+    cacheManager.getFromCacheOrStorage(ACCOUNT_INFO_STATE, key, 0L, () -> Optional.of(Bytes.of(7)));
+
+    assertThat(cacheManager.peek(ACCOUNT_INFO_STATE, key, 0L)).contains(Optional.of(Bytes.of(7)));
+  }
+
+  @Test
+  void peek_returnsACachedAbsenceAsAnEmptyValue() {
+    final Bytes key = Bytes.of(1);
+    cacheManager.getFromCacheOrStorage(ACCOUNT_INFO_STATE, key, 0L, Optional::empty);
+
+    assertThat(cacheManager.peek(ACCOUNT_INFO_STATE, key, 0L)).contains(Optional.empty());
+  }
+
+  @Test
+  void peek_ignoresAValueCachedAtANewerVersion() {
+    final Bytes key = Bytes.of(1);
+    cacheManager.putInCache(ACCOUNT_INFO_STATE, key, Bytes.of(7), 5L);
+
+    assertThat(cacheManager.peek(ACCOUNT_INFO_STATE, key, 4L)).isEmpty();
+    assertThat(cacheManager.peek(ACCOUNT_INFO_STATE, key, 5L)).contains(Optional.of(Bytes.of(7)));
+  }
+
+  @Test
   void emptyFetcherResult_leavesMissesUnresolvedAndDoesNotCache() {
     final Bytes key = Bytes.of(1);
     final List<Optional<Bytes>> results =
