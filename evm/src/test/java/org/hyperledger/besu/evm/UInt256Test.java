@@ -1101,7 +1101,7 @@ public class UInt256Test {
   }
 
   @Test
-  void mulModByTheSameModuliInTurnUsesTheRightConstants() {
+  void mulModByAlternatingModuli() {
     final Random random = new Random(13);
     final BigInteger[] moduli = {
       BN254_P, BN254_R, TWO_256.subtract(BigInteger.ONE), BN254_P.add(BigInteger.TWO), BN254_R
