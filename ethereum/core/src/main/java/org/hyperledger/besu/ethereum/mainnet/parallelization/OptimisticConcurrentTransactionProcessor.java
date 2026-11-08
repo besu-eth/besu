@@ -83,6 +83,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   private volatile AtomicIntegerArray started = new AtomicIntegerArray(0);
   private volatile AtomicIntegerArray inChain = new AtomicIntegerArray(0);
   private volatile long[] gasLimits = new long[0];
+  // the first pass of each transaction's run ahead, which a worker may wait for before its run
+  private volatile CompletableFuture<?>[] runaheads = new CompletableFuture<?>[0];
+  private static final long RUNAHEAD_WAIT_MS = Long.getLong("besu.t14.runaheadWaitMs", 0L);
   // chained runs of transactions whose sender was recovered only after they ran alone
   private volatile AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>>
       lateChainFutures = new AtomicReferenceArray<>(0);
@@ -164,19 +167,24 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
+    final CompletableFuture<?>[] runaheadFirstPasses =
+        new CompletableFuture<?>[transactions.size()];
+    runaheads = runaheadFirstPasses;
     if (RUNAHEAD_GAS > 0 && maybeParentHeader.isPresent()) {
-      for (final Transaction transaction : transactions) {
+      for (int i = 0; i < transactions.size(); i++) {
+        final Transaction transaction = transactions.get(i);
         if (transaction.getGasLimit() >= RUNAHEAD_GAS) {
-          RunaheadPrefetcher.runAhead(
-              transactionProcessor,
-              protocolContext,
-              maybeParentHeader.get(),
-              blockHeader,
-              transaction,
-              miningBeneficiary,
-              blockHashLookup,
-              blobGasPrice,
-              WARM_UP_VALIDATION);
+          runaheadFirstPasses[i] =
+              RunaheadPrefetcher.runAhead(
+                  transactionProcessor,
+                  protocolContext,
+                  maybeParentHeader.get(),
+                  blockHeader,
+                  transaction,
+                  miningBeneficiary,
+                  blockHashLookup,
+                  blobGasPrice,
+                  WARM_UP_VALIDATION);
         }
       }
     }
@@ -658,6 +666,20 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     final AtomicIntegerArray startedRuns = started;
     if (transactionLocation < startedRuns.length()) {
       startedRuns.set(transactionLocation, 1);
+    }
+    final CompletableFuture<?>[] firstPasses = runaheads;
+    if (RUNAHEAD_WAIT_MS > 0
+        && previousInChain == null
+        && transactionLocation < firstPasses.length
+        && firstPasses[transactionLocation] != null) {
+      // a run that starts once the run ahead loaded what it reads waits for memory, not the disk
+      try {
+        firstPasses[transactionLocation].get(RUNAHEAD_WAIT_MS, TimeUnit.MILLISECONDS);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (final ExecutionException | TimeoutException | CancellationException e) {
+        // runs anyway
+      }
     }
     // on the block's transaction, whose lock the background recovery takes too, so that the copy
     // executed below carries the sender instead of recovering it a second time

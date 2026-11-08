@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -114,8 +115,9 @@ public final class RunaheadPrefetcher {
    * @param blockHashLookup the block hash lookup, forked for the run
    * @param blobGasPrice the blob gas price of the block
    * @param validationParams the validation that lets the transaction run on the parent state
+   * @return completes once the first pass and its loads are done
    */
-  public static void runAhead(
+  public static CompletableFuture<Void> runAhead(
       final MainnetTransactionProcessor transactionProcessor,
       final ProtocolContext protocolContext,
       final BlockHeader parentHeader,
@@ -125,6 +127,7 @@ public final class RunaheadPrefetcher {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final TransactionValidationParams validationParams) {
+    final CompletableFuture<Void> firstPass = new CompletableFuture<>();
     for (final Optional<UInt256> placeholder : PLACEHOLDERS) {
       final BlockHashLookup lookup = blockHashLookup.forkForParallelWorker();
       try {
@@ -140,11 +143,14 @@ public final class RunaheadPrefetcher {
                     lookup,
                     blobGasPrice,
                     validationParams,
-                    placeholder));
+                    placeholder,
+                    firstPass));
       } catch (final RejectedExecutionException e) {
         LOG.trace("Run ahead of {} not started", transaction.getHash(), e);
+        firstPass.complete(null);
       }
     }
+    return firstPass;
   }
 
   private static void run(
@@ -157,7 +163,8 @@ public final class RunaheadPrefetcher {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final TransactionValidationParams validationParams,
-      final Optional<UInt256> placeholder) {
+      final Optional<UInt256> placeholder,
+      final CompletableFuture<Void> firstPass) {
     final BonsaiWorldState worldState =
         protocolContext
             .getWorldStateArchive()
@@ -165,6 +172,7 @@ public final class RunaheadPrefetcher {
             .map(BonsaiWorldState.class::cast)
             .orElse(null);
     if (worldState == null) {
+      firstPass.complete(null);
       return;
     }
     final Loads loads = new Loads(worldState);
@@ -212,6 +220,7 @@ public final class RunaheadPrefetcher {
         }
         // a slot read as empty can stop a pass early, the next one reads its value and gets further
         loads.awaitLoads(LOAD_WAIT_NANOS);
+        firstPass.complete(null);
       }
     } catch (final RuntimeException e) {
       // it only loads state, the execution reports any failure
@@ -229,6 +238,7 @@ public final class RunaheadPrefetcher {
             loads.requested.size(),
             outcome);
       }
+      firstPass.complete(null);
       loads.runDone();
     }
   }
