@@ -42,10 +42,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -73,6 +78,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // Index the serial loop has reached. A speculative run for that index or an earlier one can no
   // longer be used, so workers skip it instead of competing with the import for cores.
   private final AtomicInteger serialLoopPosition = new AtomicInteger(-1);
+
+  // which transactions a worker has started, and which run in a chain
+  private volatile AtomicIntegerArray started = new AtomicIntegerArray(0);
+  private volatile AtomicIntegerArray inChain = new AtomicIntegerArray(0);
   // chained runs of transactions whose sender was recovered only after they ran alone
   private volatile AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>>
       lateChainFutures = new AtomicReferenceArray<>(0);
@@ -81,6 +90,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   // a long transaction submitted first runs alongside the rest of the block instead of after it
   private static final long HEAVY_FIRST_GAS = Long.getLong("besu.t14.heavyFirstGas", 0L);
+
+  // none: the serial loop runs a transaction whose run has not finished itself; chained: it waits
+  // for a running chain member; all: it waits for any running transaction
+  private static final String WAIT_RUNNING = System.getProperty("besu.t14.waitRunning", "none");
+  private static final long WAIT_RUNNING_MS = Long.getLong("besu.t14.waitRunningMs", 500L);
 
   // transactions at or above this gas limit are run ahead to load their slots, 0 turns it off
   private static final long RUNAHEAD_GAS = Long.getLong("besu.t14.runaheadGas", 0L);
@@ -179,6 +193,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
     futures = new CompletableFuture[transactions.size()];
     lateChainFutures = new AtomicReferenceArray<>(transactions.size());
+    started = new AtomicIntegerArray(transactions.size());
+    inChain = new AtomicIntegerArray(transactions.size());
     // queued ahead of the runs, as chaining the unknown senders waits for every recovery
     final CompletableFuture<Void> recovered =
         recoverSenders(transactions, unknownSenders, executor);
@@ -210,6 +226,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         for (final int member : chain) {
           futures[member] = new CompletableFuture<>();
           chainFutures.add(futures[member]);
+          inChain.set(member, 1);
         }
         executor.execute(
             () ->
@@ -261,6 +278,18 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           blockAccessListBuilder,
           maybeParentHeader);
     }
+  }
+
+  /** Whether the serial loop waits for the run of the transaction rather than running it itself. */
+  private boolean shouldWaitFor(final int transactionLocation) {
+    if (transactionLocation >= started.length() || started.get(transactionLocation) == 0) {
+      return false;
+    }
+    return switch (WAIT_RUNNING) {
+      case "all" -> true;
+      case "chained" -> inChain.get(transactionLocation) == 1;
+      default -> false;
+    };
   }
 
   /**
@@ -383,6 +412,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                   new CompletableFuture<>();
               lateChainFutures.set(chain.get(k), future);
               chainFutures.add(future);
+              inChain.set(chain.get(k), 1);
             }
             chainFutures
                 .get(0)
@@ -614,6 +644,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     if (maybeParentHeader.isEmpty()) {
       return null;
     }
+    final AtomicIntegerArray startedRuns = started;
+    if (transactionLocation < startedRuns.length()) {
+      startedRuns.set(transactionLocation, 1);
+    }
     // on the block's transaction, whose lock the background recovery takes too, so that the copy
     // executed below carries the sender instead of recovering it a second time
     recoverSender(transaction);
@@ -767,6 +801,15 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
             : null;
     final CompletableFuture<ParallelizedTransactionContext> future =
         lateChained != null ? lateChained : aloneOrChained;
+    if (future != null && !future.isDone() && shouldWaitFor(transactionLocation)) {
+      try {
+        future.get(WAIT_RUNNING_MS, TimeUnit.MILLISECONDS);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (final ExecutionException | TimeoutException | CancellationException e) {
+        // handled below as a run that did not finish
+      }
+    }
 
     if (future != null && future.state() == Future.State.FAILED) {
       LOG.debug(
