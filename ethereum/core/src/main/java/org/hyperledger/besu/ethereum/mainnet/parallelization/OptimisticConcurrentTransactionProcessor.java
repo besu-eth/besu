@@ -82,6 +82,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // which transactions a worker has started, and which run in a chain
   private volatile AtomicIntegerArray started = new AtomicIntegerArray(0);
   private volatile AtomicIntegerArray inChain = new AtomicIntegerArray(0);
+  private volatile long[] gasLimits = new long[0];
   // chained runs of transactions whose sender was recovered only after they ran alone
   private volatile AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>>
       lateChainFutures = new AtomicReferenceArray<>(0);
@@ -92,8 +93,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   private static final long HEAVY_FIRST_GAS = Long.getLong("besu.t14.heavyFirstGas", 0L);
 
   // none: the serial loop runs a transaction whose run has not finished itself; chained: it waits
-  // for a running chain member; all: it waits for any running transaction
+  // for a running chain member; heavy: also for a running transaction with a large gas limit;
+  // all: it waits for any running transaction
   private static final String WAIT_RUNNING = System.getProperty("besu.t14.waitRunning", "none");
+  private static final long WAIT_HEAVY_GAS = Long.getLong("besu.t14.waitHeavyGas", 2_000_000L);
   private static final long WAIT_RUNNING_MS = Long.getLong("besu.t14.waitRunningMs", 500L);
 
   // transactions at or above this gas limit are run ahead to load their slots, 0 turns it off
@@ -195,6 +198,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     lateChainFutures = new AtomicReferenceArray<>(transactions.size());
     started = new AtomicIntegerArray(transactions.size());
     inChain = new AtomicIntegerArray(transactions.size());
+    gasLimits = new long[transactions.size()];
+    for (int i = 0; i < transactions.size(); i++) {
+      gasLimits[i] = transactions.get(i).getGasLimit();
+    }
     // queued ahead of the runs, as chaining the unknown senders waits for every recovery
     final CompletableFuture<Void> recovered =
         recoverSenders(transactions, unknownSenders, executor);
@@ -288,6 +295,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     return switch (WAIT_RUNNING) {
       case "all" -> true;
       case "chained" -> inChain.get(transactionLocation) == 1;
+      case "heavy" ->
+          inChain.get(transactionLocation) == 1
+              || (transactionLocation < gasLimits.length
+                  && gasLimits[transactionLocation] >= WAIT_HEAVY_GAS);
       default -> false;
     };
   }
