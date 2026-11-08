@@ -429,6 +429,68 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void testCollisionWhenTransactionReadsSlotOfStorageClearedByBlock() {
+    // Before Cancun, SELFDESTRUCT and a CREATE2 of the same code re-create an account with the
+    // same nonce, balance and code but empty storage, and the block keeps no entries of its slots.
+    final Address address = Address.fromHexString("0x1");
+    final BonsaiAccount priorAccountValue = createAccount(address);
+    final BonsaiAccount recreatedAccountValue =
+        new BonsaiAccount(priorAccountValue, worldState, true);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, recreatedAccountValue));
+    bonsaiUpdater.getStorageToClear().add(address);
+
+    final Transaction transaction = createTransaction(address, address);
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
+    trxUpdater
+        .getStorageToUpdate()
+        .computeIfAbsent(
+            address,
+            __ -> new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), (___, ____) -> {}))
+        .put(new StorageSlotKey(UInt256.ONE), new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
+
+    boolean hasCollision =
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+
+    assertTrue(hasCollision, "Expected collision when tx read a slot of storage the block cleared");
+  }
+
+  @Test
+  void testNoCollisionWhenTransactionTouchesNoSlotOfStorageClearedByBlock() {
+    final Address address = Address.fromHexString("0x1");
+    final BonsaiAccount priorAccountValue = createAccount(address);
+    final BonsaiAccount recreatedAccountValue =
+        new BonsaiAccount(priorAccountValue, worldState, true);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, recreatedAccountValue));
+    bonsaiUpdater.getStorageToClear().add(address);
+
+    final Transaction transaction = createTransaction(address, address);
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
+
+    boolean hasCollision =
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+
+    assertFalse(
+        hasCollision,
+        "Expected no collision when tx touched no slot of the storage the block cleared");
+  }
+
+  @Test
   void testCollisionWithMiningBeneficiaryAddress() {
     final Address miningBeneficiary = Address.ZERO;
     final Address address = Address.fromHexString("0x1");
@@ -489,6 +551,32 @@ class TransactionCollisionDetectorTest {
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected a collision with the deleted address");
+  }
+
+  @Test
+  void testCollisionWithAddressDeletedByTransaction() {
+    final Address address = Address.fromHexString("0x1");
+    final BonsaiAccount priorAccountValue = createAccount(address);
+    final BonsaiAccount nextAccountValue = new BonsaiAccount(priorAccountValue, worldState, true);
+    nextAccountValue.setBalance(Wei.MAX_WEI);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(address, new BonsaiValue<>(priorAccountValue, nextAccountValue));
+
+    final Transaction transaction =
+        createTransaction(Address.fromHexString("0x2"), Address.fromHexString("0x3"));
+    // the detector relies on the commit to list the deleted account among the updated ones
+    trxUpdater.deleteAccount(address);
+    trxUpdater.commit();
+
+    boolean hasCollision =
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+
+    assertTrue(hasCollision, "Expected a collision with the address the transaction deleted");
   }
 
   @Test
