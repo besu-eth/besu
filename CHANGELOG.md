@@ -22,7 +22,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
-- The `BLOBBASEFEE` opcode now returns the block's blob base fee in a call without fee fields and without blob fields, as in Geth, Nethermind, Erigon and Reth. Previously it returned 1. This applies to `eth_call`, `debug_traceCall`, `trace_call`, `trace_callMany` and GraphQL `call`, and to `eth_estimateGas` and `eth_createAccessList` with `strict: false`. [#PRNUM](https://github.com/besu-eth/besu/pull/PRNUM)
+- The `BLOBBASEFEE` opcode now returns the block's blob base fee in a call without fee fields and without blob fields, as in Geth, Nethermind, Erigon and Reth. Previously it returned 1. This applies to `eth_call`, `debug_traceCall`, `trace_call`, `trace_callMany` and GraphQL `call`, and to `eth_estimateGas` and `eth_createAccessList` with `strict: false`. [#11890](https://github.com/besu-eth/besu/pull/11890)
 - `eth_getStorageValues`, `testing_buildBlockV1` and `testing_commitBlockV1` now return the error detail in `message`, not in `data`, as [execution-apis#967](https://github.com/ethereum/execution-apis/pull/967) specifies. [#11861](https://github.com/besu-eth/besu/pull/11861)
 - Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
 - `eth_simulateV1` now rejects precompiles moved to their own address with error `-38022`. [#11793](https://github.com/besu-eth/besu/issues/11793)
