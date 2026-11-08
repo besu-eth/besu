@@ -251,7 +251,7 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     return new JsonRpcErrorResponse(request.getRequest().getId(), jsonRpcError);
   }
 
-  protected static TransactionValidationParams getTransactionValidationParams(
+  protected TransactionValidationParams getTransactionValidationParams(
       final CallParameter callParams) {
     final boolean isAllowExceedingBalance = !callParams.getStrict().orElse(Boolean.TRUE);
 

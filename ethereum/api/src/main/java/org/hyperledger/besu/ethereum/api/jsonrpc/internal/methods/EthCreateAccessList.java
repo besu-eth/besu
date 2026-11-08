@@ -15,12 +15,14 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessListResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -73,6 +75,24 @@ public class EthCreateAccessList extends AbstractEstimateGas {
     } else {
       return createResponse(requestContext, new AccessListSimulatorResult(firstResult, tracer));
     }
+  }
+
+  // Without fee fields, or with zero fees, simulate with zero fees as eth_call does, so that a
+  // sender who cannot pay the default fees still gets an access list.
+  @Override
+  protected TransactionValidationParams getTransactionValidationParams(
+      final CallParameter callParams) {
+    if (callParams.getStrict().isEmpty()
+        && isZeroOrAbsent(callParams.getGasPrice())
+        && isZeroOrAbsent(callParams.getMaxFeePerGas())
+        && isZeroOrAbsent(callParams.getMaxPriorityFeePerGas())) {
+      return TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce();
+    }
+    return super.getTransactionValidationParams(callParams);
+  }
+
+  private static boolean isZeroOrAbsent(final Optional<Wei> fee) {
+    return fee.map(Wei.ZERO::equals).orElse(true);
   }
 
   private CallParameter withAccessList(final CallParameter callParams) {

@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.methods.fork.london;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.StateOverride;
+import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.BlockchainImporter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcTestMethodsFactory;
@@ -75,6 +77,23 @@ public class EthCreateAccessListIntegrationTest {
         ImmutableCallParameter.builder().sender(UNFUNDED_SENDER).to(RECIPIENT).build();
 
     assertThat(method.response(requestWithParams(callParameter, "latest")))
+        .usingRecursiveComparison()
+        .isEqualTo(new JsonRpcSuccessResponse(null, new CreateAccessListResult(List.of(), 0x5208)));
+  }
+
+  @Test
+  public void shouldSucceedWhenSenderCanPayValueButNotFeesWithoutFeeFields() {
+    final Wei balance = Wei.fromEth(100);
+    final StateOverrideMap stateOverrides = new StateOverrideMap();
+    stateOverrides.put(UNFUNDED_SENDER, new StateOverride.Builder().withBalance(balance).build());
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(UNFUNDED_SENDER)
+            .to(RECIPIENT)
+            .value(balance)
+            .build();
+
+    assertThat(method.response(requestWithParams(callParameter, "latest", stateOverrides)))
         .usingRecursiveComparison()
         .isEqualTo(new JsonRpcSuccessResponse(null, new CreateAccessListResult(List.of(), 0x5208)));
   }

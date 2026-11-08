@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessLi
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
@@ -245,6 +246,71 @@ public class EthCreateAccessListTest {
             any(),
             eq(latestBlockHeader));
     assertThat(callParameterCaptor.getValue().getAccessList()).contains(List.of());
+  }
+
+  @Test
+  public void shouldSimulateWithZeroFeesWhenNoFeeFieldsAreGiven() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter).isAllowExceedingBalance()).isTrue();
+  }
+
+  @Test
+  public void shouldSimulateWithZeroFeesWhenFeeFieldsAreZero() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .maxFeePerGas(Wei.ZERO)
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter).isAllowExceedingBalance()).isTrue();
+  }
+
+  @Test
+  public void shouldSimulateWithCallerFeesWhenFeeFieldsAreGiven() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .maxFeePerGas(Wei.ONE)
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter).isAllowExceedingBalance()).isFalse();
+  }
+
+  @Test
+  public void shouldSimulateWithCallerFeesWhenStrictIsGiven() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .strict(true)
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter).isAllowExceedingBalance()).isFalse();
+  }
+
+  private TransactionValidationParams validationParamsUsedFor(final CallParameter callParameter) {
+    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, latestBlockHeader);
+
+    method.response(ethCreateAccessListRequest(callParameter, "latest"));
+
+    final ArgumentCaptor<TransactionValidationParams> validationParamsCaptor =
+        ArgumentCaptor.forClass(TransactionValidationParams.class);
+    verify(transactionSimulator)
+        .process(
+            any(),
+            eq(Optional.empty()),
+            validationParamsCaptor.capture(),
+            any(),
+            eq(latestBlockHeader));
+    return validationParamsCaptor.getValue();
   }
 
   @Test
