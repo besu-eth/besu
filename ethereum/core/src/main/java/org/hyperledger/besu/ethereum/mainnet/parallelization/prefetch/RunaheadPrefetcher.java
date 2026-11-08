@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
@@ -29,9 +30,12 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.worldstate.RunaheadCalls;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,6 +46,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,6 +95,10 @@ public final class RunaheadPrefetcher {
 
   private static final long LOAD_WAIT_NANOS =
       Long.getLong("besu.runahead.loadWaitMicros", 5_000L) * 1_000L;
+
+  static {
+    RunaheadCalls.Switch.enable();
+  }
 
   private RunaheadPrefetcher() {}
 
@@ -176,17 +185,23 @@ public final class RunaheadPrefetcher {
                 (address, value) -> {},
                 evmConfiguration,
                 worldState.codeCache());
-        final var result =
-            transactionProcessor.processTransaction(
-                accumulator.updater(),
-                blockHeader,
-                transaction.detachedCopy(),
-                miningBeneficiary,
-                OperationTracer.NO_TRACING,
-                blockHashLookup,
-                validationParams,
-                blobGasPrice,
-                Optional.empty());
+        RunaheadCalls.CURRENT.set(new Calls());
+        final TransactionProcessingResult result;
+        try {
+          result =
+              transactionProcessor.processTransaction(
+                  accumulator.updater(),
+                  blockHeader,
+                  transaction.detachedCopy(),
+                  miningBeneficiary,
+                  OperationTracer.NO_TRACING,
+                  blockHashLookup,
+                  validationParams,
+                  blobGasPrice,
+                  Optional.empty());
+        } finally {
+          RunaheadCalls.CURRENT.remove();
+        }
         outcome =
             result.isInvalid()
                 ? "invalid " + result.getValidationResult().getErrorMessage()
@@ -218,6 +233,38 @@ public final class RunaheadPrefetcher {
     }
   }
 
+  /** Predicts the output of a skipped call from the last call with the same function selector. */
+  private static final class Calls implements RunaheadCalls {
+    // a call that returns nothing yet reads as returning one, like a set slot
+    private static final Bytes DEFAULT_OUTPUT = Bytes32.leftPad(Bytes.of(1));
+    private final Map<Bytes, Bytes> outputs = new HashMap<>();
+    private boolean lookingUp;
+
+    @Override
+    public void lookingUpCallTarget(final boolean lookingUp) {
+      this.lookingUp = lookingUp;
+    }
+
+    @Override
+    public boolean isLookingUpCallTarget() {
+      return lookingUp;
+    }
+
+    @Override
+    public Bytes predictedReturn(final Bytes input) {
+      return outputs.getOrDefault(selector(input), DEFAULT_OUTPUT);
+    }
+
+    @Override
+    public void recordReturn(final Bytes input, final Bytes output) {
+      outputs.put(selector(input), output.copy());
+    }
+
+    private static Bytes selector(final Bytes input) {
+      return input.size() >= 4 ? input.slice(0, 4).copy() : Bytes.EMPTY;
+    }
+  }
+
   /** The loads of one run ahead; the parent world state closes once the run and they are done. */
   static final class Loads {
     private final BonsaiWorldState worldState;
@@ -245,6 +292,27 @@ public final class RunaheadPrefetcher {
                 worldState.loadStorageTriePath(address, storageSlotKey);
               } catch (final RuntimeException e) {
                 LOG.trace("Load of a slot of {} failed", address, e);
+              } finally {
+                release();
+              }
+            });
+      } catch (final RejectedExecutionException e) {
+        release();
+      }
+    }
+
+    void loadAccount(final Address address) {
+      if (!requested.add(address.getBytes())) {
+        return;
+      }
+      pending.incrementAndGet();
+      try {
+        LOADS.execute(
+            () -> {
+              try {
+                worldState.loadAccountAndTriePath(address);
+              } catch (final RuntimeException e) {
+                LOG.trace("Load of account {} failed", address, e);
               } finally {
                 release();
               }

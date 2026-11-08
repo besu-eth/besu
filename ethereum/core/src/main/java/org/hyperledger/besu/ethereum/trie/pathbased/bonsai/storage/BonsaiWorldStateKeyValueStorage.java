@@ -393,6 +393,17 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
   }
 
   /**
+   * The flat account if it is held in memory, without reading storage.
+   *
+   * @param accountHash the hash of the account
+   * @return empty if the account is not in memory; otherwise the account, where an empty inner
+   *     value means the account is known not to exist
+   */
+  public Optional<Optional<Bytes>> peekAccount(final Hash accountHash) {
+    return cacheManager.peek(ACCOUNT_INFO_STATE, accountHash.getBytes(), getCurrentVersion());
+  }
+
+  /**
    * The value of a storage slot if it is held in memory, without reading storage.
    *
    * @param accountHash the hash of the account

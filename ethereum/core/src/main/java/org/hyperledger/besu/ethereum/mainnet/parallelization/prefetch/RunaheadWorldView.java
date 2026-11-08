@@ -17,12 +17,16 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.trie.common.MptStorageRootStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.worldstate.RunaheadCalls;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Map;
@@ -56,13 +60,43 @@ final class RunaheadWorldView implements BonsaiWorldView {
 
   @Override
   public Account get(final Address address) {
-    return worldState.get(address);
+    final RunaheadCalls calls = RunaheadCalls.current();
+    if (calls == null || !calls.isLookingUpCallTarget()) {
+      return worldState.get(address);
+    }
+    // a call's target that is not in memory reads as a placeholder while it loads
+    final Optional<Optional<Bytes>> inMemory =
+        worldState.getWorldStateStorage().peekAccount(address.addressHash());
+    if (inMemory.isPresent()) {
+      return inMemory
+          .get()
+          .map(rlp -> BonsaiAccount.fromRLP(this, address, rlp, false, worldState.codeCache()))
+          .orElse(null);
+    }
+    loads.loadAccount(address);
+    return new BonsaiAccount(
+        this,
+        address,
+        address.addressHash(),
+        1,
+        Wei.ZERO,
+        new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
+        RunaheadCalls.PLACEHOLDER_CODE_HASH,
+        false,
+        worldState.codeCache());
   }
 
   @Override
   public Optional<Code> getCode(final Address address, final Hash codeHash) {
+    if (RunaheadCalls.PLACEHOLDER_CODE_HASH.equals(codeHash)) {
+      return Optional.of(PLACEHOLDER_CODE);
+    }
     return worldState.getCode(address, codeHash);
   }
+
+  // a placeholder has code, so checks for code pass, but its calls are skipped before they run it
+  private static final Code PLACEHOLDER_CODE =
+      new Code(Bytes.of(0), RunaheadCalls.PLACEHOLDER_CODE_HASH);
 
   @Override
   public UInt256 getStorageValue(final Address address, final UInt256 key) {

@@ -240,6 +240,20 @@ public class BonsaiWorldState extends PathBasedWorldState {
     }
   }
 
+  /**
+   * Loads the account, its code and the account trie nodes on its path, on the calling thread.
+   *
+   * @param address the account
+   */
+  public void loadAccountAndTriePath(final Address address) {
+    final Account account = get(address);
+    if (account != null) {
+      account.getCode();
+    }
+    bonsaiCachedMerkleTrieLoader.cacheAccountNodes(
+        getWorldStateStorage(), worldStateRootHash, address);
+  }
+
   public void disableCacheMerkleTrieLoader() {
     this.bonsaiCachedMerkleTrieLoader = NoOpBonsaiCachedMerkleTrieLoader.INSTANCE;
   }

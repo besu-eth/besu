@@ -35,6 +35,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame.State;
 import org.hyperledger.besu.evm.frame.SoftFailureReason;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
+import org.hyperledger.besu.evm.worldstate.RunaheadCalls;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -215,7 +216,28 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    final Account contract = getAccount(to, frame);
+    final RunaheadCalls runahead = RunaheadCalls.current();
+    final Account contract;
+    if (runahead == null) {
+      contract = getAccount(to, frame);
+    } else {
+      runahead.lookingUpCallTarget(true);
+      try {
+        contract = getAccount(to, frame);
+      } finally {
+        runahead.lookingUpCallTarget(false);
+      }
+      if (RunaheadCalls.isPlaceholder(contract)) {
+        return skipCallToPlaceholder(
+            frame,
+            runahead,
+            cost,
+            inputDataOffset,
+            inputDataLength,
+            outputDataOffset,
+            outputDataLength);
+      }
+    }
     cost = clampedAdd(cost, gasCalculator().calculateCodeDelegationResolutionGas(frame, contract));
 
     if (frame.getRemainingGas() < cost) {
@@ -313,6 +335,11 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
     final long outputSize = outputDataLength(frame);
     final Bytes outputData = childFrame.getOutputData();
 
+    final RunaheadCalls runahead = RunaheadCalls.current();
+    if (runahead != null && childFrame.getState() == State.COMPLETED_SUCCESS) {
+      runahead.recordReturn(childFrame.getInputData(), outputData);
+    }
+
     if (outputSize > outputData.size()) {
       frame.expandMemory(outputOffset, outputSize);
       frame.writeMemoryV2(outputOffset, outputData.size(), outputData);
@@ -347,6 +374,31 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
 
     final int currentPC = frame.getPC();
     frame.setPC(currentPC + 1);
+  }
+
+  /**
+   * A run ahead calls a target that is still loading: the call returns what the last call with the
+   * same function selector returned, without running, so the run goes on.
+   */
+  private OperationResult skipCallToPlaceholder(
+      final MessageFrame frame,
+      final RunaheadCalls runahead,
+      final long cost,
+      final long inputDataOffset,
+      final long inputDataLength,
+      final long outputDataOffset,
+      final long outputDataLength) {
+    final Bytes output =
+        runahead.predictedReturn(frame.readMutableMemory(inputDataOffset, inputDataLength));
+    if (outputDataLength > output.size()) {
+      frame.expandMemory(outputDataOffset, outputDataLength);
+      frame.writeMemoryV2(outputDataOffset, output.size(), output);
+    } else if (outputDataLength > 0) {
+      frame.writeMemoryV2(outputDataOffset, outputDataLength, output);
+    }
+    frame.setReturnData(output);
+    popArgumentsAndPushResult(frame, true);
+    return new OperationResult(cost, null);
   }
 
   private void popArgumentsAndPushResult(final MessageFrame frame, final boolean success) {

@@ -97,6 +97,11 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
   }
 
   @Override
+  public Optional<Optional<Bytes>> peekAccount(final Hash accountHash) {
+    return isClosedGet() ? Optional.empty() : super.peekAccount(accountHash);
+  }
+
+  @Override
   public Optional<Optional<Bytes>> peekStorageValueByStorageSlotKey(
       final Hash accountHash, final StorageSlotKey storageSlotKey) {
     return isClosedGet()
