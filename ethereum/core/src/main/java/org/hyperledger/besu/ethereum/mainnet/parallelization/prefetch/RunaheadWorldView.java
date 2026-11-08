@@ -83,7 +83,8 @@ final class RunaheadWorldView implements BonsaiWorldView {
         new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
         RunaheadCalls.PLACEHOLDER_CODE_HASH,
         false,
-        worldState.codeCache());
+        // no code cache, so that the placeholder's code never reaches the shared one
+        null);
   }
 
   @Override

@@ -17,9 +17,8 @@ package org.hyperledger.besu.evm.worldstate;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.evm.account.Account;
 
-import java.nio.charset.StandardCharsets;
-
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * The calls of a transaction that runs ahead of its execution only to load the state it reads.
@@ -30,9 +29,11 @@ import org.apache.tuweni.bytes.Bytes;
  */
 public interface RunaheadCalls {
 
-  /** The code hash of a placeholder account. */
-  Hash PLACEHOLDER_CODE_HASH =
-      Hash.hash(Bytes.wrap("besu run ahead placeholder".getBytes(StandardCharsets.UTF_8)));
+  /**
+   * The code hash of a placeholder account. Random per process, so that no code that can be
+   * deployed is known to hash to it.
+   */
+  Hash PLACEHOLDER_CODE_HASH = Hash.wrap(Bytes32.random());
 
   /** The run ahead on the current thread, if any. */
   ThreadLocal<RunaheadCalls> CURRENT = new ThreadLocal<>();
