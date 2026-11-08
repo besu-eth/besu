@@ -109,7 +109,8 @@ class SignatureRecoveryPrecomputationTest {
     runScheduledTasks();
 
     for (int i = 0; i < transactions.size(); i++) {
-      verify(transactions.get(i), times(i <= 3 ? 1 : 0)).getSender();
+      // recovery runs from the last transaction to the first
+      verify(transactions.get(i), times(i >= 3 ? 1 : 0)).getSender();
     }
   }
 
