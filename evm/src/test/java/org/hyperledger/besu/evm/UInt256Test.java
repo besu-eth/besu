@@ -1067,6 +1067,103 @@ public class UInt256Test {
         .isEqualTo(expected);
   }
 
+  // the BN254 base and scalar fields, the moduli verifier contracts reduce by
+  private static final BigInteger BN254_P =
+      new BigInteger("30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47", 16);
+  private static final BigInteger BN254_R =
+      new BigInteger("30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001", 16);
+  private static final BigInteger TWO_256 = BigInteger.ONE.shiftLeft(256);
+
+  @Test
+  void mulModMatchesBigIntegerForOddModuliAndReducedOperands() {
+    final Random random = new Random(11);
+    for (int i = 0; i < 200_000; i++) {
+      final BigInteger m = oddFourLimbModulus(random, i);
+      final BigInteger a = belowModulus(random, m, i);
+      final BigInteger b = belowModulus(random, m, i / 7);
+      assertThat(uint(a).mulMod(uint(b), uint(m)).toBigInteger())
+          .as("%s * %s mod %s", a, b, m)
+          .isEqualTo(a.multiply(b).mod(m));
+    }
+  }
+
+  @Test
+  void addModMatchesBigIntegerForReducedOperands() {
+    final Random random = new Random(12);
+    for (int i = 0; i < 200_000; i++) {
+      final BigInteger m = fourLimbModulus(random, i);
+      final BigInteger a = belowModulus(random, m, i);
+      final BigInteger b = belowModulus(random, m, i / 5);
+      assertThat(uint(a).addMod(uint(b), uint(m)).toBigInteger())
+          .as("%s + %s mod %s", a, b, m)
+          .isEqualTo(a.add(b).mod(m));
+    }
+  }
+
+  @Test
+  void mulModByTheSameModuliInTurnUsesTheRightConstants() {
+    final Random random = new Random(13);
+    final BigInteger[] moduli = {
+      BN254_P, BN254_R, TWO_256.subtract(BigInteger.ONE), BN254_P.add(BigInteger.TWO), BN254_R
+    };
+    for (int i = 0; i < 50_000; i++) {
+      final BigInteger m = moduli[i % moduli.length];
+      final BigInteger a = new BigInteger(256, random).mod(m);
+      final BigInteger b = new BigInteger(256, random).mod(m);
+      assertThat(uint(a).mulMod(uint(b), uint(m)).toBigInteger()).isEqualTo(a.multiply(b).mod(m));
+    }
+  }
+
+  @Test
+  void mulModAtTheEdgesOfTheReducedRange() {
+    for (final BigInteger m :
+        new BigInteger[] {BN254_P, BN254_R, TWO_256.subtract(BigInteger.ONE)}) {
+      final BigInteger top = m.subtract(BigInteger.ONE);
+      for (final BigInteger a :
+          new BigInteger[] {BigInteger.TWO, top, top.shiftRight(1), m.shiftRight(128)}) {
+        for (final BigInteger b :
+            new BigInteger[] {BigInteger.TWO, top, top.subtract(BigInteger.ONE)}) {
+          assertThat(uint(a).mulMod(uint(b), uint(m)).toBigInteger())
+              .isEqualTo(a.multiply(b).mod(m));
+          assertThat(uint(a).addMod(uint(b), uint(m)).toBigInteger()).isEqualTo(a.add(b).mod(m));
+        }
+      }
+    }
+  }
+
+  /** Odd moduli with a nonzero top limb, among them some just below 2^256 and the BN254 ones. */
+  private static BigInteger oddFourLimbModulus(final Random random, final int i) {
+    return switch (i % 6) {
+      case 0 -> BN254_R;
+      case 1 -> BN254_P;
+      case 2 -> TWO_256.subtract(BigInteger.valueOf(2L * random.nextInt(1000) + 1));
+      case 3 -> BigInteger.ONE.shiftLeft(192).add(new BigInteger(190, random)).setBit(0);
+      default -> new BigInteger(256, random).setBit(200).setBit(0);
+    };
+  }
+
+  /** Moduli with a nonzero top limb, odd or even, among them some just below 2^256. */
+  private static BigInteger fourLimbModulus(final Random random, final int i) {
+    return switch (i % 4) {
+      case 0 -> BN254_R;
+      case 1 -> TWO_256.subtract(BigInteger.valueOf(random.nextInt(1000) + 1));
+      default -> new BigInteger(256, random).setBit(200);
+    };
+  }
+
+  private static BigInteger belowModulus(final Random random, final BigInteger m, final int i) {
+    return switch (i % 5) {
+      case 0 -> m.subtract(BigInteger.ONE);
+      case 1 -> m.subtract(BigInteger.valueOf(random.nextInt(1 << 20) + 1));
+      default -> new BigInteger(256, random).mod(m);
+    };
+  }
+
+  private static UInt256 uint(final BigInteger value) {
+    return UInt256.fromBytesBE(
+        Bytes32.leftPad(Bytes.wrap(value.toByteArray()).trimLeadingZeros()).toArrayUnsafe());
+  }
+
   private static byte[] hex(final String s) {
     return Bytes.fromHexString(s).toArray();
   }

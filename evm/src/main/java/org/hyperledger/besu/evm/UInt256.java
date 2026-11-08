@@ -771,6 +771,9 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       if ((modulus.u3 & (modulus.u3 - 1)) == 0 && (modulus.u2 | modulus.u1 | modulus.u0) == 0) {
         return mul(other).maskLow(192 + Long.numberOfTrailingZeros(modulus.u3));
       }
+      if ((modulus.u0 & 1L) != 0 && modulus.compareTo(this) > 0 && modulus.compareTo(other) > 0) {
+        return montgomeryMulMod(this, other, modulus);
+      }
       return modulus.mul(this, other);
     }
     if (modulus.u2 != 0) {
@@ -1293,6 +1296,12 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       int cmp = compareTo(sum.UInt256Value());
       if (cmp == 0) return ZERO;
       if (cmp > 0) return sum.UInt256Value();
+    }
+    // Operands below the modulus sum to below twice the modulus, so one subtraction reduces the
+    // sum. The difference is below the modulus, so a wrapping subtraction is exact even when the
+    // sum carried out of 256 bits.
+    if (compareTo(a) > 0 && compareTo(b) > 0) {
+      return sum.UInt256Value().sub(this);
     }
     int shift = Long.numberOfLeadingZeros(u3);
     UInt256 m = shiftLeft(shift);
@@ -2270,6 +2279,317 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       return new UInt512(z7, z6, z5, z4, z3, z2, z1, z0);
     }
   }
+
+  // --------------------------------------------------------------------------
+  // region Montgomery multiplication
+  //
+  // Verifier contracts reduce millions of products by the same odd modulus. Two Montgomery
+  // products, x * y * R^-1 and then times R^2, give x * y mod n with multiplications and adds only,
+  // where the generic path divides. The constants of the last few moduli are kept.
+  // --------------------------------------------------------------------------
+
+  /** The constants for Montgomery multiplication by an odd modulus n, with R = 2^256. */
+  private static final class Montgomery {
+    private final long n3, n2, n1, n0;
+    // -n^-1 mod 2^64
+    private final long nPrime;
+    // R^2 mod n
+    private final long r3, r2, r1, r0;
+
+    private Montgomery(final UInt256 n) {
+      n3 = n.u3;
+      n2 = n.u2;
+      n1 = n.u1;
+      n0 = n.u0;
+      // Newton's iteration doubles the correct low bits; an odd n0 is its own inverse mod 2^3
+      long inverse = n0;
+      for (int i = 0; i < 5; i++) {
+        inverse *= 2 - n0 * inverse;
+      }
+      nPrime = -inverse;
+      final BigInteger rr = BigInteger.ONE.shiftLeft(512).mod(n.toBigInteger());
+      r3 = rr.shiftRight(192).longValue();
+      r2 = rr.shiftRight(128).longValue();
+      r1 = rr.shiftRight(64).longValue();
+      r0 = rr.longValue();
+    }
+
+    private boolean isFor(final UInt256 n) {
+      return n0 == n.u0 && n1 == n.u1 && n2 == n.u2 && n3 == n.u3;
+    }
+  }
+
+  private static final java.util.concurrent.atomic.AtomicReferenceArray<Montgomery> MONTGOMERY =
+      new java.util.concurrent.atomic.AtomicReferenceArray<>(4);
+  private static final java.util.concurrent.atomic.AtomicInteger MONTGOMERY_NEXT =
+      new java.util.concurrent.atomic.AtomicInteger();
+
+  private static Montgomery montgomeryFor(final UInt256 n) {
+    for (int i = 0; i < 4; i++) {
+      final Montgomery mont = MONTGOMERY.get(i);
+      if (mont != null && mont.isFor(n)) {
+        return mont;
+      }
+    }
+    final Montgomery mont = new Montgomery(n);
+    MONTGOMERY.set(MONTGOMERY_NEXT.getAndIncrement() & 3, mont);
+    return mont;
+  }
+
+  /** a * b mod n, for an odd n with a nonzero top limb and a, b below n. */
+  private static UInt256 montgomeryMulMod(final UInt256 a, final UInt256 b, final UInt256 n) {
+    final Montgomery mont = montgomeryFor(n);
+    final UInt256 abOverR = montgomeryProduct(a.u3, a.u2, a.u1, a.u0, b.u3, b.u2, b.u1, b.u0, mont);
+    return montgomeryProduct(
+        abOverR.u3, abOverR.u2, abOverR.u1, abOverR.u0, mont.r3, mont.r2, mont.r1, mont.r0, mont);
+  }
+
+  /** x * y * 2^-256 mod n for x, y below n (coarsely integrated operand scanning). */
+  @SuppressWarnings("UnusedVariable")
+  private static UInt256 montgomeryProduct(
+      final long x3,
+      final long x2,
+      final long x1,
+      final long x0,
+      final long y3,
+      final long y2,
+      final long y1,
+      final long y0,
+      final Montgomery mont) {
+    long t0 = 0, t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5;
+    long lo, hi, c, s, k, m;
+    // t += x * y0
+    lo = x0 * y0;
+    hi = Math.unsignedMultiplyHigh(x0, y0);
+    t0 += lo;
+    c = hi + (Long.compareUnsigned(t0, lo) < 0 ? 1 : 0);
+    lo = x1 * y0;
+    hi = Math.unsignedMultiplyHigh(x1, y0);
+    s = t1 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t1 = s + c;
+    c = hi + k + (Long.compareUnsigned(t1, c) < 0 ? 1 : 0);
+    lo = x2 * y0;
+    hi = Math.unsignedMultiplyHigh(x2, y0);
+    s = t2 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t2 = s + c;
+    c = hi + k + (Long.compareUnsigned(t2, c) < 0 ? 1 : 0);
+    lo = x3 * y0;
+    hi = Math.unsignedMultiplyHigh(x3, y0);
+    s = t3 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t3 = s + c;
+    c = hi + k + (Long.compareUnsigned(t3, c) < 0 ? 1 : 0);
+    t4 += c;
+    t5 = Long.compareUnsigned(t4, c) < 0 ? 1 : 0;
+    // t = (t + m * n) / 2^64, with m chosen to clear the lowest limb
+    m = t0 * mont.nPrime;
+    lo = m * mont.n0;
+    hi = Math.unsignedMultiplyHigh(m, mont.n0);
+    c = hi + (Long.compareUnsigned(t0 + lo, lo) < 0 ? 1 : 0);
+    lo = m * mont.n1;
+    hi = Math.unsignedMultiplyHigh(m, mont.n1);
+    s = t1 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t0 = s + c;
+    c = hi + k + (Long.compareUnsigned(t0, c) < 0 ? 1 : 0);
+    lo = m * mont.n2;
+    hi = Math.unsignedMultiplyHigh(m, mont.n2);
+    s = t2 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t1 = s + c;
+    c = hi + k + (Long.compareUnsigned(t1, c) < 0 ? 1 : 0);
+    lo = m * mont.n3;
+    hi = Math.unsignedMultiplyHigh(m, mont.n3);
+    s = t3 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t2 = s + c;
+    c = hi + k + (Long.compareUnsigned(t2, c) < 0 ? 1 : 0);
+    t3 = t4 + c;
+    t4 = t5 + (Long.compareUnsigned(t3, c) < 0 ? 1 : 0);
+    // t += x * y1
+    lo = x0 * y1;
+    hi = Math.unsignedMultiplyHigh(x0, y1);
+    t0 += lo;
+    c = hi + (Long.compareUnsigned(t0, lo) < 0 ? 1 : 0);
+    lo = x1 * y1;
+    hi = Math.unsignedMultiplyHigh(x1, y1);
+    s = t1 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t1 = s + c;
+    c = hi + k + (Long.compareUnsigned(t1, c) < 0 ? 1 : 0);
+    lo = x2 * y1;
+    hi = Math.unsignedMultiplyHigh(x2, y1);
+    s = t2 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t2 = s + c;
+    c = hi + k + (Long.compareUnsigned(t2, c) < 0 ? 1 : 0);
+    lo = x3 * y1;
+    hi = Math.unsignedMultiplyHigh(x3, y1);
+    s = t3 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t3 = s + c;
+    c = hi + k + (Long.compareUnsigned(t3, c) < 0 ? 1 : 0);
+    t4 += c;
+    t5 = Long.compareUnsigned(t4, c) < 0 ? 1 : 0;
+    // t = (t + m * n) / 2^64, with m chosen to clear the lowest limb
+    m = t0 * mont.nPrime;
+    lo = m * mont.n0;
+    hi = Math.unsignedMultiplyHigh(m, mont.n0);
+    c = hi + (Long.compareUnsigned(t0 + lo, lo) < 0 ? 1 : 0);
+    lo = m * mont.n1;
+    hi = Math.unsignedMultiplyHigh(m, mont.n1);
+    s = t1 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t0 = s + c;
+    c = hi + k + (Long.compareUnsigned(t0, c) < 0 ? 1 : 0);
+    lo = m * mont.n2;
+    hi = Math.unsignedMultiplyHigh(m, mont.n2);
+    s = t2 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t1 = s + c;
+    c = hi + k + (Long.compareUnsigned(t1, c) < 0 ? 1 : 0);
+    lo = m * mont.n3;
+    hi = Math.unsignedMultiplyHigh(m, mont.n3);
+    s = t3 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t2 = s + c;
+    c = hi + k + (Long.compareUnsigned(t2, c) < 0 ? 1 : 0);
+    t3 = t4 + c;
+    t4 = t5 + (Long.compareUnsigned(t3, c) < 0 ? 1 : 0);
+    // t += x * y2
+    lo = x0 * y2;
+    hi = Math.unsignedMultiplyHigh(x0, y2);
+    t0 += lo;
+    c = hi + (Long.compareUnsigned(t0, lo) < 0 ? 1 : 0);
+    lo = x1 * y2;
+    hi = Math.unsignedMultiplyHigh(x1, y2);
+    s = t1 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t1 = s + c;
+    c = hi + k + (Long.compareUnsigned(t1, c) < 0 ? 1 : 0);
+    lo = x2 * y2;
+    hi = Math.unsignedMultiplyHigh(x2, y2);
+    s = t2 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t2 = s + c;
+    c = hi + k + (Long.compareUnsigned(t2, c) < 0 ? 1 : 0);
+    lo = x3 * y2;
+    hi = Math.unsignedMultiplyHigh(x3, y2);
+    s = t3 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t3 = s + c;
+    c = hi + k + (Long.compareUnsigned(t3, c) < 0 ? 1 : 0);
+    t4 += c;
+    t5 = Long.compareUnsigned(t4, c) < 0 ? 1 : 0;
+    // t = (t + m * n) / 2^64, with m chosen to clear the lowest limb
+    m = t0 * mont.nPrime;
+    lo = m * mont.n0;
+    hi = Math.unsignedMultiplyHigh(m, mont.n0);
+    c = hi + (Long.compareUnsigned(t0 + lo, lo) < 0 ? 1 : 0);
+    lo = m * mont.n1;
+    hi = Math.unsignedMultiplyHigh(m, mont.n1);
+    s = t1 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t0 = s + c;
+    c = hi + k + (Long.compareUnsigned(t0, c) < 0 ? 1 : 0);
+    lo = m * mont.n2;
+    hi = Math.unsignedMultiplyHigh(m, mont.n2);
+    s = t2 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t1 = s + c;
+    c = hi + k + (Long.compareUnsigned(t1, c) < 0 ? 1 : 0);
+    lo = m * mont.n3;
+    hi = Math.unsignedMultiplyHigh(m, mont.n3);
+    s = t3 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t2 = s + c;
+    c = hi + k + (Long.compareUnsigned(t2, c) < 0 ? 1 : 0);
+    t3 = t4 + c;
+    t4 = t5 + (Long.compareUnsigned(t3, c) < 0 ? 1 : 0);
+    // t += x * y3
+    lo = x0 * y3;
+    hi = Math.unsignedMultiplyHigh(x0, y3);
+    t0 += lo;
+    c = hi + (Long.compareUnsigned(t0, lo) < 0 ? 1 : 0);
+    lo = x1 * y3;
+    hi = Math.unsignedMultiplyHigh(x1, y3);
+    s = t1 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t1 = s + c;
+    c = hi + k + (Long.compareUnsigned(t1, c) < 0 ? 1 : 0);
+    lo = x2 * y3;
+    hi = Math.unsignedMultiplyHigh(x2, y3);
+    s = t2 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t2 = s + c;
+    c = hi + k + (Long.compareUnsigned(t2, c) < 0 ? 1 : 0);
+    lo = x3 * y3;
+    hi = Math.unsignedMultiplyHigh(x3, y3);
+    s = t3 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t3 = s + c;
+    c = hi + k + (Long.compareUnsigned(t3, c) < 0 ? 1 : 0);
+    t4 += c;
+    t5 = Long.compareUnsigned(t4, c) < 0 ? 1 : 0;
+    // t = (t + m * n) / 2^64, with m chosen to clear the lowest limb
+    m = t0 * mont.nPrime;
+    lo = m * mont.n0;
+    hi = Math.unsignedMultiplyHigh(m, mont.n0);
+    c = hi + (Long.compareUnsigned(t0 + lo, lo) < 0 ? 1 : 0);
+    lo = m * mont.n1;
+    hi = Math.unsignedMultiplyHigh(m, mont.n1);
+    s = t1 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t0 = s + c;
+    c = hi + k + (Long.compareUnsigned(t0, c) < 0 ? 1 : 0);
+    lo = m * mont.n2;
+    hi = Math.unsignedMultiplyHigh(m, mont.n2);
+    s = t2 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t1 = s + c;
+    c = hi + k + (Long.compareUnsigned(t1, c) < 0 ? 1 : 0);
+    lo = m * mont.n3;
+    hi = Math.unsignedMultiplyHigh(m, mont.n3);
+    s = t3 + lo;
+    k = Long.compareUnsigned(s, lo) < 0 ? 1 : 0;
+    t2 = s + c;
+    c = hi + k + (Long.compareUnsigned(t2, c) < 0 ? 1 : 0);
+    t3 = t4 + c;
+    t4 = t5 + (Long.compareUnsigned(t3, c) < 0 ? 1 : 0);
+    // the product is below 2n, so one subtraction of n is the most it needs
+    final boolean atLeastN =
+        t4 != 0 || compareLimbs(t3, t2, t1, t0, mont.n3, mont.n2, mont.n1, mont.n0) >= 0;
+    if (!atLeastN) {
+      return new UInt256(t3, t2, t1, t0);
+    }
+    final long z0 = t0 - mont.n0;
+    long borrow = Long.compareUnsigned(t0, mont.n0) < 0 ? 1 : 0;
+    final long z1 = t1 - mont.n1 - borrow;
+    borrow = (Long.compareUnsigned(t1, mont.n1) < 0 || (t1 == mont.n1 && borrow != 0)) ? 1 : 0;
+    final long z2 = t2 - mont.n2 - borrow;
+    borrow = (Long.compareUnsigned(t2, mont.n2) < 0 || (t2 == mont.n2 && borrow != 0)) ? 1 : 0;
+    final long z3 = t3 - mont.n3 - borrow;
+    return new UInt256(z3, z2, z1, z0);
+  }
+
+  private static int compareLimbs(
+      final long a3,
+      final long a2,
+      final long a1,
+      final long a0,
+      final long b3,
+      final long b2,
+      final long b1,
+      final long b0) {
+    if (a3 != b3) return Long.compareUnsigned(a3, b3);
+    if (a2 != b2) return Long.compareUnsigned(a2, b2);
+    if (a1 != b1) return Long.compareUnsigned(a1, b1);
+    return Long.compareUnsigned(a0, b0);
+  }
+
+  // endregion
 
   private record UInt512(long u7, long u6, long u5, long u4, long u3, long u2, long u1, long u0) {
     UInt256 UInt256Value() {
