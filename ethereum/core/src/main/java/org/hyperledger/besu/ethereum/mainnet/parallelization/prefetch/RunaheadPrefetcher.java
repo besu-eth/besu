@@ -46,6 +46,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -142,6 +143,7 @@ public final class RunaheadPrefetcher {
    * @param blockHashLookup the block hash lookup, forked for the run
    * @param blobGasPrice the blob gas price of the block
    * @param validationParams the validation that lets the transaction run on the parent state
+   * @param stopped whether the transaction was executed, after which further passes are wasted
    * @return completes once the first pass and its loads are done
    */
   public static CompletableFuture<Void> runAhead(
@@ -153,7 +155,8 @@ public final class RunaheadPrefetcher {
       final Address miningBeneficiary,
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
-      final TransactionValidationParams validationParams) {
+      final TransactionValidationParams validationParams,
+      final BooleanSupplier stopped) {
     final Bytes kind = MIN_LOADS_PER_MS > 0 ? kindOf(transaction) : null;
     if (kind != null) {
       final AtomicInteger skips = UNPRODUCTIVE.get(kind);
@@ -185,6 +188,7 @@ public final class RunaheadPrefetcher {
                     validationParams,
                     placeholder,
                     kind,
+                    stopped,
                     firstPass));
       } catch (final RejectedExecutionException e) {
         LOG.trace("Run ahead of {} not started", transaction.getHash(), e);
@@ -206,7 +210,13 @@ public final class RunaheadPrefetcher {
       final TransactionValidationParams validationParams,
       final Optional<UInt256> placeholder,
       final Bytes kind,
+      final BooleanSupplier stopped,
       final CompletableFuture<Void> firstPass) {
+    if (stopped.getAsBoolean()) {
+      // queued until its transaction was executed
+      firstPass.complete(null);
+      return;
+    }
     final BonsaiWorldState worldState =
         protocolContext
             .getWorldStateArchive()
@@ -227,6 +237,10 @@ public final class RunaheadPrefetcher {
       final EvmConfiguration evmConfiguration =
           ((PathBasedWorldStateUpdateAccumulator<?>) worldState.updater()).getEvmConfiguration();
       while (passes < MAX_PASSES) {
+        if (stopped.getAsBoolean()) {
+          outcome += " stopped";
+          break;
+        }
         passes++;
         final long passStart = System.nanoTime();
         final int requestedBefore = loads.requested.size();

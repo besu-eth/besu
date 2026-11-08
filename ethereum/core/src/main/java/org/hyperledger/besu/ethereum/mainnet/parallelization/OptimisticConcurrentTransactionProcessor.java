@@ -85,6 +85,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   private volatile long[] gasLimits = new long[0];
   // the first pass of each transaction's run ahead, which a worker may wait for before its run
   private volatile CompletableFuture<?>[] runaheads = new CompletableFuture<?>[0];
+  // transactions a worker has run or the serial loop has taken, whose run ahead can stop
+  private volatile AtomicIntegerArray finished = new AtomicIntegerArray(0);
   private static final long RUNAHEAD_WAIT_MS = Long.getLong("besu.t14.runaheadWaitMs", 0L);
   // chained runs of transactions whose sender was recovered only after they ran alone
   private volatile AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>>
@@ -170,10 +172,13 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     final CompletableFuture<?>[] runaheadFirstPasses =
         new CompletableFuture<?>[transactions.size()];
     runaheads = runaheadFirstPasses;
+    final AtomicIntegerArray finishedRuns = new AtomicIntegerArray(transactions.size());
+    finished = finishedRuns;
     if (RUNAHEAD_GAS > 0 && maybeParentHeader.isPresent()) {
       for (int i = 0; i < transactions.size(); i++) {
         final Transaction transaction = transactions.get(i);
         if (transaction.getGasLimit() >= RUNAHEAD_GAS) {
+          final int location = i;
           runaheadFirstPasses[i] =
               RunaheadPrefetcher.runAhead(
                   transactionProcessor,
@@ -184,7 +189,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                   miningBeneficiary,
                   blockHashLookup,
                   blobGasPrice,
-                  WARM_UP_VALIDATION);
+                  WARM_UP_VALIDATION,
+                  () -> finishedRuns.get(location) == 1);
         }
       }
     }
@@ -667,6 +673,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     if (transactionLocation < startedRuns.length()) {
       startedRuns.set(transactionLocation, 1);
     }
+    final AtomicIntegerArray finishedRuns = finished;
     final CompletableFuture<?>[] firstPasses = runaheads;
     if (RUNAHEAD_WAIT_MS > 0
         && previousInChain == null
@@ -789,6 +796,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       return null;
     } finally {
       if (ws != null) ws.close();
+      if (transactionLocation < finishedRuns.length()) {
+        finishedRuns.set(transactionLocation, 1);
+      }
     }
   }
 
@@ -844,6 +854,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       }
     }
 
+    final AtomicIntegerArray finishedRuns = finished;
+    if (transactionLocation < finishedRuns.length()) {
+      finishedRuns.set(transactionLocation, 1);
+    }
     if (future != null && future.state() == Future.State.FAILED) {
       LOG.debug(
           "Parallel execution of transaction {} failed, executing it sequentially",
