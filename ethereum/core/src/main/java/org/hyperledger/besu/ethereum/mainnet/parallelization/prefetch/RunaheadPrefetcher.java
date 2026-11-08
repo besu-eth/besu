@@ -451,7 +451,9 @@ public final class RunaheadPrefetcher {
             () -> {
               try {
                 final int requestedNow = loads.requested.size();
-                if (requestedNow > requestedBefore && !stopped.getAsBoolean()) {
+                // a pass started while loads are in flight waits for them and gets further
+                if ((requestedNow > requestedBefore || loads.pendingValues() > 0)
+                    && !stopped.getAsBoolean()) {
                   scheduleNext(pass + 1, requestedNow);
                   outstanding.incrementAndGet();
                   try {
@@ -615,29 +617,42 @@ public final class RunaheadPrefetcher {
     // the loads whose values are not in memory yet, which the next pass waits for
     private final AtomicInteger pendingValues = new AtomicInteger();
     private final Set<Bytes> requested = ConcurrentHashMap.newKeySet();
+    // the loads whose values are not in memory yet, which a pass can wait for
+    private final Map<Bytes, CompletableFuture<Void>> inFlight = new ConcurrentHashMap<>();
     private final Object idle = new Object();
 
     Loads(final BonsaiWorldState worldState) {
       this.worldState = worldState;
     }
 
+    static Bytes slotKey(final Address address, final StorageSlotKey storageSlotKey) {
+      return Bytes.concatenate(
+          address.addressHash().getBytes(), storageSlotKey.getSlotHash().getBytes());
+    }
+
+    static Bytes accountKey(final Address address) {
+      return address.getBytes();
+    }
+
     boolean load(final Address address, final StorageSlotKey storageSlotKey) {
-      if (!requested.add(
-          Bytes.concatenate(
-              address.addressHash().getBytes(), storageSlotKey.getSlotHash().getBytes()))) {
+      final Bytes key = slotKey(address, storageSlotKey);
+      if (!requested.add(key)) {
         return false;
       }
       submit(
+          key,
           () -> worldState.getStorageValueByStorageSlotKey(address, storageSlotKey),
           () -> worldState.loadStorageTriePath(address, storageSlotKey));
       return true;
     }
 
     boolean loadAccount(final Address address) {
-      if (!requested.add(address.getBytes())) {
+      final Bytes key = accountKey(address);
+      if (!requested.add(key)) {
         return false;
       }
       submit(
+          key,
           () -> {
             final Account account = worldState.get(address);
             if (account != null) {
@@ -648,7 +663,35 @@ public final class RunaheadPrefetcher {
       return true;
     }
 
-    private void submit(final Runnable value, final Runnable triePath) {
+    /**
+     * Waits for a load that is in flight.
+     *
+     * @return whether the load was in flight and its value is in memory now
+     */
+    boolean awaitInFlight(final Bytes key, final long timeoutNanos) {
+      final CompletableFuture<Void> load = inFlight.get(key);
+      if (load == null) {
+        return false;
+      }
+      try {
+        load.get(timeoutNanos, TimeUnit.NANOSECONDS);
+        return true;
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
+      } catch (final java.util.concurrent.ExecutionException
+          | java.util.concurrent.TimeoutException e) {
+        return false;
+      }
+    }
+
+    int pendingValues() {
+      return pendingValues.get();
+    }
+
+    private void submit(final Bytes key, final Runnable value, final Runnable triePath) {
+      final CompletableFuture<Void> loaded = new CompletableFuture<>();
+      inFlight.put(key, loaded);
       pending.incrementAndGet();
       pendingValues.incrementAndGet();
       try {
@@ -664,6 +707,8 @@ public final class RunaheadPrefetcher {
                 } catch (final RuntimeException e) {
                   LOG.trace("A run ahead's load failed", e);
                 } finally {
+                  inFlight.remove(key);
+                  loaded.complete(null);
                   valueDone();
                 }
                 triePathQueued = TRIE_AFTER && queueTriePath(triePath);
@@ -674,6 +719,8 @@ public final class RunaheadPrefetcher {
               }
             });
       } catch (final RejectedExecutionException e) {
+        inFlight.remove(key);
+        loaded.complete(null);
         valueDone();
         release();
       }

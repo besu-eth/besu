@@ -44,6 +44,11 @@ import org.apache.tuweni.units.bigints.UInt256;
  */
 final class RunaheadWorldView implements BonsaiWorldView {
 
+  // experiment: a read of what is being loaded waits this long for the load instead of reading as
+  // the placeholder, so that a pass after another one reads the values the one before requested
+  private static final long IN_FLIGHT_WAIT_NANOS =
+      Long.getLong("besu.runahead.inFlightWaitMicros", 0L) * 1_000L;
+
   private final BonsaiWorldState worldState;
   private final RunaheadPrefetcher.Loads loads;
   // what a slot that is not in memory reads as: zero, or a value a check for a set slot passes
@@ -67,8 +72,14 @@ final class RunaheadWorldView implements BonsaiWorldView {
       return worldState.get(address);
     }
     // a call's target that is not in memory reads as a placeholder while it loads
-    final Optional<Optional<Bytes>> inMemory =
+    Optional<Optional<Bytes>> inMemory =
         worldState.getWorldStateStorage().peekAccount(address.addressHash());
+    if (inMemory.isEmpty()
+        && IN_FLIGHT_WAIT_NANOS > 0
+        && loads.awaitInFlight(
+            RunaheadPrefetcher.Loads.accountKey(address), IN_FLIGHT_WAIT_NANOS)) {
+      inMemory = worldState.getWorldStateStorage().peekAccount(address.addressHash());
+    }
     if (inMemory.isPresent()) {
       return inMemory
           .get()
@@ -111,10 +122,19 @@ final class RunaheadWorldView implements BonsaiWorldView {
   @Override
   public Optional<UInt256> getStorageValueByStorageSlotKey(
       final Address address, final StorageSlotKey storageSlotKey) {
-    final Optional<Optional<Bytes>> inMemory =
+    Optional<Optional<Bytes>> inMemory =
         worldState
             .getWorldStateStorage()
             .peekStorageValueByStorageSlotKey(address.addressHash(), storageSlotKey);
+    if (inMemory.isEmpty()
+        && IN_FLIGHT_WAIT_NANOS > 0
+        && loads.awaitInFlight(
+            RunaheadPrefetcher.Loads.slotKey(address, storageSlotKey), IN_FLIGHT_WAIT_NANOS)) {
+      inMemory =
+          worldState
+              .getWorldStateStorage()
+              .peekStorageValueByStorageSlotKey(address.addressHash(), storageSlotKey);
+    }
     if (inMemory.isPresent()) {
       return inMemory.get().map(UInt256::fromBytes);
     }
