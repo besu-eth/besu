@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Optional;
@@ -65,6 +66,11 @@ public final class RunaheadPrefetcher {
           Integer.getInteger("besu.runahead.loadThreads", 32), daemonThreads("besu-runahead-load"));
 
   private static final boolean LOG_RUNS = Boolean.getBoolean("besu.bench.logRunahead");
+
+  private static final int MAX_PASSES = Integer.getInteger("besu.runahead.passes", 4);
+
+  private static final long LOAD_WAIT_NANOS =
+      Long.getLong("besu.runahead.loadWaitMicros", 5_000L) * 1_000L;
 
   private RunaheadPrefetcher() {}
 
@@ -132,30 +138,43 @@ public final class RunaheadPrefetcher {
     final Loads loads = new Loads(worldState);
     final long start = System.nanoTime();
     String outcome = "?";
+    int passes = 0;
     try {
-      final BonsaiWorldStateUpdateAccumulator accumulator =
-          new BonsaiWorldStateUpdateAccumulator(
-              new RunaheadWorldView(worldState, loads),
-              (address, value) -> {},
-              (address, value) -> {},
-              ((PathBasedWorldStateUpdateAccumulator<?>) worldState.updater())
-                  .getEvmConfiguration(),
-              worldState.codeCache());
-      final var result =
-          transactionProcessor.processTransaction(
-              accumulator.updater(),
-              blockHeader,
-              transaction.detachedCopy(),
-              miningBeneficiary,
-              OperationTracer.NO_TRACING,
-              blockHashLookup,
-              validationParams,
-              blobGasPrice,
-              Optional.empty());
-      outcome =
-          result.isInvalid()
-              ? "invalid " + result.getValidationResult().getErrorMessage()
-              : result.isSuccessful() ? "success" : "failed " + result.getRevertReason();
+      final RunaheadWorldView view = new RunaheadWorldView(worldState, loads);
+      final EvmConfiguration evmConfiguration =
+          ((PathBasedWorldStateUpdateAccumulator<?>) worldState.updater()).getEvmConfiguration();
+      while (passes < MAX_PASSES) {
+        passes++;
+        final int requestedBefore = loads.requested.size();
+        final BonsaiWorldStateUpdateAccumulator accumulator =
+            new BonsaiWorldStateUpdateAccumulator(
+                view,
+                (address, value) -> {},
+                (address, value) -> {},
+                evmConfiguration,
+                worldState.codeCache());
+        final var result =
+            transactionProcessor.processTransaction(
+                accumulator.updater(),
+                blockHeader,
+                transaction.detachedCopy(),
+                miningBeneficiary,
+                OperationTracer.NO_TRACING,
+                blockHashLookup,
+                validationParams,
+                blobGasPrice,
+                Optional.empty());
+        outcome =
+            result.isInvalid()
+                ? "invalid " + result.getValidationResult().getErrorMessage()
+                : result.isSuccessful() ? "success" : "failed " + result.getRevertReason();
+        if (loads.requested.size() == requestedBefore) {
+          // a further pass would read the same as this one
+          break;
+        }
+        // a slot read as empty can stop a pass early, the next one reads its value and gets further
+        loads.awaitLoads(LOAD_WAIT_NANOS);
+      }
     } catch (final RuntimeException e) {
       // it only loads state, the execution reports any failure
       outcome = "exception " + e;
@@ -163,10 +182,11 @@ public final class RunaheadPrefetcher {
     } finally {
       if (LOG_RUNS) {
         LOG.info(
-            "Bench runahead block {} hash {} us {} loads {} outcome {}",
+            "Bench runahead block {} hash {} us {} passes {} loads {} outcome {}",
             blockHeader.getNumber(),
             transaction.getHash().toHexString(),
             (System.nanoTime() - start) / 1000,
+            passes,
             loads.requested.size(),
             outcome);
       }
@@ -180,6 +200,7 @@ public final class RunaheadPrefetcher {
     // the run itself holds one
     private final AtomicInteger pending = new AtomicInteger(1);
     private final Set<Bytes> requested = ConcurrentHashMap.newKeySet();
+    private final Object idle = new Object();
 
     Loads(final BonsaiWorldState worldState) {
       this.worldState = worldState;
@@ -213,9 +234,33 @@ public final class RunaheadPrefetcher {
       release();
     }
 
+    /** Waits until the loads requested so far are done, or the timeout passed. */
+    void awaitLoads(final long timeoutNanos) {
+      final long deadline = System.nanoTime() + timeoutNanos;
+      synchronized (idle) {
+        while (pending.get() > 1) {
+          final long left = deadline - System.nanoTime();
+          if (left <= 0) {
+            return;
+          }
+          try {
+            idle.wait(left / 1_000_000L, (int) (left % 1_000_000L));
+          } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+        }
+      }
+    }
+
     private void release() {
-      if (pending.decrementAndGet() == 0) {
+      final int left = pending.decrementAndGet();
+      if (left == 0) {
         worldState.close();
+      } else if (left == 1) {
+        synchronized (idle) {
+          idle.notifyAll();
+        }
       }
     }
   }
