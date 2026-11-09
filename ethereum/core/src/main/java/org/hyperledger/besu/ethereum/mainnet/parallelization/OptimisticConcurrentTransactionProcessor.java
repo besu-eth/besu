@@ -1617,7 +1617,15 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       if (sender.equals(miningBeneficiary)
           || !TransactionCollisionDetector.isSenderChangeCarried(
               transaction, transactionAccumulator, blockAccumulator)) {
-        logIndependent(transactionLocation, "sender");
+        if (LOG_CONFLICTS) {
+          logIndependent(
+              transactionLocation,
+              "sender "
+                  + (sender.equals(miningBeneficiary)
+                      ? "coinbase"
+                      : TransactionCollisionDetector.senderCarryRefusal(
+                          transaction, transactionAccumulator, blockAccumulator)));
+        }
         return Optional.empty();
       }
       final BonsaiAccount senderAtTurn =
@@ -1631,7 +1639,13 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final List<Address> balancesCarried = new ArrayList<>(0);
       if (transactionCollisionDetector.hasCollisionExceptSender(
           transaction, miningBeneficiary, context, blockAccumulator, balancesCarried)) {
-        logIndependent(transactionLocation, "collision");
+        if (LOG_CONFLICTS) {
+          logIndependent(
+              transactionLocation,
+              "collision "
+                  + transactionCollisionDetector.collisionReason(
+                      transaction, miningBeneficiary, context, blockAccumulator, true, true));
+        }
         return Optional.empty();
       }
       final Wei reward = context.miningBeneficiaryReward();

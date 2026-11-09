@@ -429,6 +429,27 @@ public class TransactionCollisionDetector {
       final ParallelizedTransactionContext parallelizedTransactionContext,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
       final boolean carryBalances) {
+    return collisionReason(
+        transaction,
+        miningBeneficiary,
+        parallelizedTransactionContext,
+        blockAccumulator,
+        carryBalances,
+        false);
+  }
+
+  /**
+   * Replay benchmarks: like {@link #collisionReason(Transaction, Address,
+   * ParallelizedTransactionContext, PathBasedWorldStateUpdateAccumulator, boolean)}, optionally
+   * leaving the sender's account to {@link #isSenderChangeCarried}, and naming a colliding slot.
+   */
+  public @Nullable String collisionReason(
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final ParallelizedTransactionContext parallelizedTransactionContext,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
+      final boolean carryBalances,
+      final boolean exceptSender) {
     final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
         parallelizedTransactionContext.transactionAccumulator();
     final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
@@ -452,7 +473,8 @@ public class TransactionCollisionDetector {
       if (inBlock == null) {
         continue;
       }
-      if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
+      if (!(exceptSender && address.equals(transaction.getSender()))
+          && !areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
         final String kind =
             accountChangeKind(transaction, transactionAccumulator, address, inBlock, carryBalances);
         if (kind != null) {
@@ -475,11 +497,58 @@ public class TransactionCollisionDetector {
       for (final StorageSlotKey slot : slots.keySet()) {
         final BonsaiValue<UInt256> inBlockSlot = blockSlots.get(slot);
         if (inBlockSlot != null && inBlockSlot.isChanged()) {
-          return "slot " + address;
+          return exceptSender
+              ? "slot "
+                  + address
+                  + " "
+                  + slot.getSlotKey().map(UInt256::toShortHexString).orElse("?")
+              : "slot " + address;
         }
       }
     }
     return null;
+  }
+
+  /**
+   * Replay benchmarks: why {@link #isSenderChangeCarried} refuses the sender's account, or null.
+   */
+  public static @Nullable String senderCarryRefusal(
+      final Transaction transaction,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
+    final Address sender = transaction.getSender();
+    final Set<Address> observedBalances = transactionAccumulator.getObservedBalances();
+    if (observedBalances == null) {
+      return "unrecorded";
+    }
+    if (observedBalances.contains(sender)) {
+      return "balance-read";
+    }
+    if (transactionAccumulator.getBalanceMargin(sender).isPresent()) {
+      return "margin";
+    }
+    final BonsaiValue<? extends BonsaiAccount> inTransaction =
+        transactionAccumulator.getAccountsToUpdate().get(sender);
+    final BonsaiValue<? extends BonsaiAccount> inBlock =
+        blockAccumulator.getAccountsToUpdate().get(sender);
+    if (inBlock == null || inBlock.getUpdated() == null) {
+      return "untouched-in-block";
+    }
+    if (inTransaction == null
+        || inTransaction.getPrior() == null
+        || inTransaction.getUpdated() == null) {
+      return "missing-in-run";
+    }
+    if (!Hash.EMPTY.equals(inBlock.getUpdated().getCodeHash())
+        || !Hash.EMPTY.equals(inTransaction.getPrior().getCodeHash())) {
+      return "code";
+    }
+    if (inBlock.getUpdated().getNonce() != transaction.getNonce()) {
+      return "nonce " + inBlock.getUpdated().getNonce() + "!=" + transaction.getNonce();
+    }
+    return isSenderChangeCarried(transaction, transactionAccumulator, blockAccumulator)
+        ? null
+        : "other";
   }
 
   private static @Nullable String accountChangeKind(
