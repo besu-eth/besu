@@ -81,6 +81,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -295,16 +296,55 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     verify(protocolSchedule, atLeastOnce()).getByBlockHeader(block.getHeader());
   }
 
+  @Test
+  public void rememberBlockShouldNotExecuteBuiltBlockThatIncludesInclusionList() throws Exception {
+    final PendingTransaction transaction = createLocalTransaction(0);
+    final Block block = buildPayloadByThisNode(List.of(transaction)).blockWithReceipts().getBlock();
+    clearInvocations(protocolSchedule);
+
+    coordinator.rememberBlock(
+        block,
+        Optional.empty(),
+        new InclusionListTransactions(List.of(transaction.getTransaction())));
+
+    verify(protocolSchedule, never()).getByBlockHeader(any());
+  }
+
+  @Test
+  public void rememberBlockShouldExecuteBuiltBlockThatLeavesOutInclusionListTransaction()
+      throws Exception {
+    final Block block = buildPayloadByThisNode().blockWithReceipts().getBlock();
+    clearInvocations(protocolSchedule);
+
+    coordinator.rememberBlock(
+        block,
+        Optional.empty(),
+        new InclusionListTransactions(List.of(createLocalTransaction(0).getTransaction())));
+
+    verify(protocolSchedule, atLeastOnce()).getByBlockHeader(block.getHeader());
+  }
+
   private PayloadWrapper buildPayloadByThisNode() throws Exception {
-    // stop rebuilding after the first payload, so no build runs concurrently with the assertions
+    return buildPayloadByThisNode(List.of());
+  }
+
+  private PayloadWrapper buildPayloadByThisNode(
+      final List<PendingTransaction> transactionsToInclude) throws Exception {
+    // stop rebuilding once a payload includes the transactions, so no build runs concurrently with
+    // the assertions
     doAnswer(
             invocation -> {
-              coordinator.finalizeProposalById(
-                  invocation.getArgument(0, PayloadWrapper.class).payloadIdentifier());
+              final PayloadWrapper payload = invocation.getArgument(0, PayloadWrapper.class);
+              if (payload.blockWithReceipts().getBlock().getBody().getTransactions().size()
+                  == transactionsToInclude.size()) {
+                coordinator.finalizeProposalById(payload.payloadIdentifier());
+              }
               return null;
             })
         .when(mergeContext)
         .putPayloadById(any());
+    transactionsToInclude.forEach(
+        transaction -> transactions.addTransaction(transaction, Optional.empty()));
 
     final var payloadId =
         coordinator.preparePayload(

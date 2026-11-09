@@ -763,6 +763,12 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     final var validationResult =
         Optional.ofNullable(validatedBlockCache.getIfPresent(block.getHash()))
             .filter(validated -> validated.blockAccessList().equals(blockAccessList))
+            // built without the inclusion list: reusable only if the block includes all of it
+            .filter(
+                validated ->
+                    inclusionListTransactions
+                        .notIncludedIn(block.getBody().getTransactions())
+                        .isEmpty())
             .map(ValidatedBlock::result)
             .orElseGet(
                 () ->
