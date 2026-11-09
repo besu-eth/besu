@@ -67,10 +67,13 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -817,6 +820,54 @@ class BalTransactionProcessorUnitTest {
                   0,
                   Optional.empty(),
                   Optional.empty()));
+    }
+  }
+
+  @Nested
+  @DisplayName("Queued transactions")
+  class QueuedTransactionTests {
+
+    @Test
+    @DisplayName(
+        "Executes in parallel a transaction still queued when the import loop waits for it")
+    void executesQueuedTransactionTheImportLoopWaitsFor() throws Exception {
+      final TestEnvironment env = createTestEnvironment();
+      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction();
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+      final List<Runnable> queuedTasks = new ArrayList<>();
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          queuedTasks::add,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      // The import loop waits for the transaction before a worker has picked it up.
+      final CompletableFuture<Optional<TransactionProcessingResult>> result =
+          ParallelBlockProcessorTestSupport.callUntilWaiting(
+              () ->
+                  processor.getProcessingResult(
+                      env.worldState(),
+                      MINING_BENEFICIARY,
+                      transaction,
+                      0,
+                      Optional.empty(),
+                      Optional.empty()));
+      queuedTasks.forEach(Runnable::run);
+
+      assertTrue(
+          result.get(10, TimeUnit.SECONDS).isPresent(), "Expected the parallel execution result");
+      verify(transactionProcessor, times(1))
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
   }
 }

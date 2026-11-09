@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 
 public abstract class ParallelBlockTransactionProcessor {
 
@@ -40,37 +40,25 @@ public abstract class ParallelBlockTransactionProcessor {
    * Gas limit threshold above which a transaction is hoisted to the front of the parallel execution
    * queue so long-running transactions start warming and executing immediately.
    */
-  public static final long HEAVY_TRANSACTION_GAS_THRESHOLD = 4_000_000L;
+  static final long HEAVY_TRANSACTION_GAS_THRESHOLD = 4_000_000L;
 
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
-  /**
-   * Tracks the highest transaction index already reached by the sequential block-import loop so
-   * queued background tasks that have been overtaken can exit before loading world state.
-   */
-  protected final AtomicInteger currentSequentialTxIndex = new AtomicInteger(-1);
+  /** Set to 1 by a worker once it starts executing the transaction at that index. */
+  private AtomicIntegerArray inFlight;
 
   protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
-    currentSequentialTxIndex.lazySet(txIndex);
     final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
     futures[txIndex] = null;
     return future;
   }
 
-  protected void markInFlight(final int txIndex) {
-    if (inFlight != null) {
-      inFlight[txIndex] = true;
-    }
-  }
-
+  /**
+   * Whether a worker has started executing the transaction at this index. Its future is still
+   * running when the transaction has started but not finished, and also when it is still queued.
+   */
   protected boolean isInFlight(final int txIndex) {
-    return inFlight != null && inFlight[txIndex];
-  }
-
-  protected volatile boolean[] inFlight;
-
-  protected boolean isOvertaken(final int txIndex) {
-    return txIndex <= currentSequentialTxIndex.get();
+    return inFlight.get(txIndex) != 0;
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -87,8 +75,8 @@ public abstract class ParallelBlockTransactionProcessor {
 
     final int size = transactions.size();
     futures = new CompletableFuture[size];
-    inFlight = new boolean[size];
-    currentSequentialTxIndex.set(-1);
+    final AtomicIntegerArray started = new AtomicIntegerArray(size);
+    inFlight = started;
 
     final int[] executionOrder = computeExecutionOrder(transactions);
 
@@ -99,10 +87,7 @@ public abstract class ParallelBlockTransactionProcessor {
       futures[txIndex] =
           CompletableFuture.supplyAsync(
               () -> {
-                if (isOvertaken(txIndex)) {
-                  return null;
-                }
-                markInFlight(txIndex);
+                started.set(txIndex, 1);
                 return runTransaction(
                     protocolContext,
                     blockHeader,

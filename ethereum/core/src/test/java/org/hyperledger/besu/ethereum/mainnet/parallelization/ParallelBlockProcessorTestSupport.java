@@ -20,12 +20,61 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 
+import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+
 import org.apache.tuweni.bytes.Bytes32;
 
-/** Shared constants and utilities for parallel block processor integration tests. */
+/** Shared constants and utilities for parallel block processor tests. */
 public final class ParallelBlockProcessorTestSupport {
 
   private ParallelBlockProcessorTestSupport() {}
+
+  /**
+   * Makes the call on a thread of its own, as the block import loop does, and returns once that
+   * thread waits on a {@link CompletableFuture}, such as the future of a transaction that a
+   * parallel processor's {@code getProcessingResult} waits for.
+   *
+   * @param call the call the block import loop makes
+   * @param <T> the type of the call's result
+   * @return the call's result, completed once the call returns
+   * @throws InterruptedException if interrupted while waiting for the call to wait
+   */
+  public static <T> CompletableFuture<T> callUntilWaiting(final Supplier<T> call)
+      throws InterruptedException {
+    final CompletableFuture<T> result = new CompletableFuture<>();
+    final Thread importLoop =
+        new Thread(
+            () -> {
+              try {
+                result.complete(call.get());
+              } catch (final Throwable t) {
+                result.completeExceptionally(t);
+              }
+            },
+            "block-import-loop");
+    importLoop.setDaemon(true);
+    importLoop.start();
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (!isWaitingOnFuture(importLoop)) {
+      if (result.isDone()) {
+        throw new AssertionError("The call returned without waiting on a future");
+      }
+      if (System.nanoTime() - deadline > 0) {
+        throw new AssertionError("The call did not wait on a future within 10 seconds");
+      }
+      Thread.sleep(1);
+    }
+    return result;
+  }
+
+  private static boolean isWaitingOnFuture(final Thread thread) {
+    return thread.getState() == Thread.State.WAITING
+        && Arrays.stream(thread.getStackTrace())
+            .anyMatch(frame -> frame.getClassName().equals(CompletableFuture.class.getName()));
+  }
 
   public static final String GENESIS_CONFIG =
       "/org/hyperledger/besu/ethereum/mainnet/parallelization/genesis-it.json";

@@ -45,6 +45,7 @@
 - RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
 - The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` keeps the fees of up to 1024 recent blocks between chain heads, and precomputes new heads only while it is called. [#11825](https://github.com/besu-eth/besu/pull/11825)
 - Parallel transaction execution keeps the result of a reverted or halted transaction when nothing it read changed, instead of executing it again. [#11806](https://github.com/besu-eth/besu/pull/11806)
+- Parallel transaction execution starts the transactions with a gas limit above 4 million first, and the block import waits for such a transaction that a worker is already executing instead of executing it again, which shortens the import of blocks with heavy transactions.
 
 ## 26.11.0
 

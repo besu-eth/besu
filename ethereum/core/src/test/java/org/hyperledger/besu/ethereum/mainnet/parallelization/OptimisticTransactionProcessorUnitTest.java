@@ -61,11 +61,17 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -884,14 +890,109 @@ class OptimisticTransactionProcessorUnitTest {
   }
 
   @Nested
-  @DisplayName("Heavy Transaction Hoisting and Overtake Skip")
+  @DisplayName("Heavy transaction scheduling")
   @MockitoSettings(strictness = Strictness.LENIENT)
   class HeavyTransactionSchedulingTests {
+
+    private static final long HEAVY_GAS_LIMIT = 10_000_000L;
 
     private Transaction mockTransactionWithGasLimit(final long gasLimit) {
       final Transaction transaction = mockTransaction();
       when(transaction.getGasLimit()).thenReturn(gasLimit);
       return transaction;
+    }
+
+    private void runAsyncBlock(final Transaction transaction, final Executor executor) {
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          List.of(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          executor,
+          Optional.empty(),
+          env.maybeParentHeader());
+    }
+
+    private Optional<TransactionProcessingResult> getProcessingResult(
+        final Transaction transaction) {
+      return processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, transaction, 0, Optional.empty(), Optional.empty());
+    }
+
+    /** A stubbed transaction execution that a test releases once the worker has started it. */
+    private record HeldExecution(CountDownLatch started, CountDownLatch release) {}
+
+    private HeldExecution stubExecutionHeldUntilReleased(
+        final Supplier<TransactionProcessingResult> action) {
+      final CountDownLatch started = new CountDownLatch(1);
+      final CountDownLatch release = new CountDownLatch(1);
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenAnswer(
+              invocation -> {
+                started.countDown();
+                release.await();
+                return action.get();
+              });
+      return new HeldExecution(started, release);
+    }
+
+    @Test
+    @DisplayName("Waits for a heavy transaction a worker is executing and uses its result")
+    void waitsForHeavyTransactionInFlight() throws Exception {
+      final Transaction heavy = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
+      final HeldExecution execution =
+          stubExecutionHeldUntilReleased(
+              () ->
+                  TransactionProcessingResult.successful(
+                      Collections.emptyList(),
+                      0,
+                      0,
+                      Bytes.EMPTY,
+                      Optional.empty(),
+                      ValidationResult.valid()));
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      final ExecutorService worker = Executors.newSingleThreadExecutor();
+      try {
+        runAsyncBlock(heavy, worker);
+        assertTrue(execution.started().await(10, TimeUnit.SECONDS), "Expected the worker to start");
+
+        final CompletableFuture<Optional<TransactionProcessingResult>> result =
+            ParallelBlockProcessorTestSupport.callUntilWaiting(() -> getProcessingResult(heavy));
+        execution.release().countDown();
+
+        assertThat(result.get(10, TimeUnit.SECONDS)).isPresent();
+        verify(transactionProcessor, times(1))
+            .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+      } finally {
+        worker.shutdownNow();
+      }
+    }
+
+    @Test
+    @DisplayName("Executes a heavy transaction sequentially when the worker it waits for fails")
+    void fallsBackWhenHeavyTransactionInFlightFails() throws Exception {
+      final Transaction heavy = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
+      final HeldExecution execution =
+          stubExecutionHeldUntilReleased(
+              () -> {
+                throw new StackOverflowError();
+              });
+      final ExecutorService worker = Executors.newSingleThreadExecutor();
+      try {
+        runAsyncBlock(heavy, worker);
+        assertTrue(execution.started().await(10, TimeUnit.SECONDS), "Expected the worker to start");
+
+        final CompletableFuture<Optional<TransactionProcessingResult>> result =
+            ParallelBlockProcessorTestSupport.callUntilWaiting(() -> getProcessingResult(heavy));
+        execution.release().countDown();
+
+        assertThat(result.get(10, TimeUnit.SECONDS)).isEmpty();
+      } finally {
+        worker.shutdownNow();
+      }
     }
 
     @Test
@@ -915,11 +1016,11 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
-    @DisplayName("Skips background execution of transactions already overtaken by sequential loop")
-    void skipsOvertakenTransactionsBeforeExecution() {
+    @DisplayName("Does not execute a queued transaction the block import loop has already reached")
+    void doesNotExecuteQueuedTransactionReachedByImportLoop() {
       final Transaction tx0 = mockTransactionWithGasLimit(100_000L);
       final Transaction tx1 = mockTransactionWithGasLimit(100_000L);
-      final java.util.List<Runnable> queuedTasks = new java.util.ArrayList<>();
+      final List<Runnable> queuedTasks = new ArrayList<>();
       final Executor deferredExecutor = queuedTasks::add;
 
       processor.runAsyncBlock(
@@ -933,14 +1034,15 @@ class OptimisticTransactionProcessorUnitTest {
           Optional.empty(),
           env.maybeParentHeader());
 
-      // Main sequential loop reaches tx 0 before background worker starts tx 0
+      // The import loop reaches tx 0 before a worker starts it, so tx 0 is cancelled and executed
+      // sequentially.
       final Optional<TransactionProcessingResult> res0 =
           processor.getProcessingResult(
               env.worldState(), MINING_BENEFICIARY, tx0, 0, Optional.empty(), Optional.empty());
       assertThat(res0).isEmpty();
 
-      // Now run both queued tasks: task 0 was overtaken so it must exit early without calling
-      // processTransaction; task 1 has not been overtaken yet so it executes normally.
+      // A worker then picks up both tasks: the cancelled task 0 does not execute its transaction,
+      // task 1 does.
       queuedTasks.forEach(Runnable::run);
 
       verify(transactionProcessor, never())

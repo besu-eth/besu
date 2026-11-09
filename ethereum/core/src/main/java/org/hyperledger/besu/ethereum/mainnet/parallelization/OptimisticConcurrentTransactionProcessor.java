@@ -36,7 +36,9 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Future;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -217,18 +219,26 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       return Optional.empty();
     }
 
-    // If a worker has already started executing this heavy transaction, waiting for it to finish
-    // is faster than cancelling it mid-flight and restarting the entire transaction from scratch
-    // on the main thread.
     final ParallelizedTransactionContext parallelizedTransactionContext;
-    if (future.state() == Future.State.RUNNING
-        && isInFlight(transactionLocation)
-        && transaction.getGasLimit() > HEAVY_TRANSACTION_GAS_THRESHOLD) {
-      parallelizedTransactionContext = future.join();
-    } else if (future.state() == Future.State.SUCCESS) {
+    final Future.State state = future.state();
+    if (state == Future.State.SUCCESS) {
       parallelizedTransactionContext = future.resultNow();
+    } else if (state == Future.State.RUNNING
+        && transaction.getGasLimit() > HEAVY_TRANSACTION_GAS_THRESHOLD
+        && isInFlight(transactionLocation)) {
+      // A worker is already executing this heavy transaction: waiting for it to finish is faster
+      // than cancelling it and executing the whole transaction again from scratch.
+      try {
+        parallelizedTransactionContext = future.join();
+      } catch (final CompletionException | CancellationException e) {
+        LOG.debug(
+            "Parallel execution of transaction {} failed, executing it sequentially",
+            transaction.getHash(),
+            e);
+        return Optional.empty();
+      }
     } else {
-      if (future.state() == Future.State.FAILED) {
+      if (state == Future.State.FAILED) {
         LOG.debug(
             "Parallel execution of transaction {} failed, executing it sequentially",
             transaction.getHash(),
