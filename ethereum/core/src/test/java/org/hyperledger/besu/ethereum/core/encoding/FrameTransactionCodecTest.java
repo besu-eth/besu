@@ -346,7 +346,7 @@ class FrameTransactionCodecTest {
 
     assertThatThrownBy(
             () -> TransactionDecoder.decodeOpaqueBytes(encoded, EncodingContext.BLOCK_BODY))
-        .isInstanceOf(FrameFieldException.class)
+        .isInstanceOf(RLPException.class)
         .hasMessage("max fee exceeds 2^256-1");
   }
 

@@ -99,14 +99,14 @@ public class FrameTransactionDecoder {
    */
   private static long readBoundedLong(final RLPInput input, final String field) {
     if (input.nextSize() > 8) {
-      throw new FrameFieldException(field + " exceeds 2^64-1");
+      throw new RLPException(field + " exceeds 2^64-1");
     }
     return input.readLongScalar();
   }
 
   private static UInt256 readNonceKey(final RLPInput input) {
     if (input.nextSize() > 32) {
-      throw new FrameFieldException("nonce key exceeds 2^256-1");
+      throw new RLPException("nonce key exceeds 2^256-1");
     }
     return input.readUInt256Scalar();
   }
@@ -114,7 +114,7 @@ public class FrameTransactionDecoder {
   /** Reads a scalar the EIP bounds at {@code 2^256}, naming the field when it does not fit. */
   private static Wei readBoundedWei(final RLPInput input, final String field) {
     if (input.nextSize() > 32) {
-      throw new FrameFieldException(field + " exceeds 2^256-1");
+      throw new RLPException(field + " exceeds 2^256-1");
     }
     return Wei.of(input.readUInt256Scalar());
   }
