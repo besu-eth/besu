@@ -15,10 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.transactions;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Unstable.DEFAULT_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2;
-import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Unstable.MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2;
-import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Unstable.MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2;
+import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Unstable.DEFAULT_MAX_TRACKED_SEEN_TXS;
 
 import org.hyperledger.besu.ethereum.eth.transactions.PeerTransactionTracker.FixedCapacityLRUMap;
 
@@ -32,58 +29,52 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 class FixedCapacityLRUMapTest {
 
-  @ParameterizedTest
-  @ValueSource(ints = {MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2, 3, 10, 18, 19, 20})
-  void tableHasTwoToTheBucketsLog2BucketsAndIsNeverResized(final int bucketsLog2) {
-    final int buckets = 1 << bucketsLog2;
-    final BucketRecordingMap map = new BucketRecordingMap(bucketsLog2);
-    final Random random = new Random(bucketsLog2);
-
-    assertThat(map.maxSize()).isEqualTo((int) (buckets * 4L / 5));
-
-    // overfill so that the map evicts as well as adds
-    for (int i = 0; i < 3 * map.maxSize(); i++) {
-      map.put(random.nextInt(), i);
-    }
-
-    assertThat(map.size()).isEqualTo(map.maxSize());
-    assertThat(map.tableSizes).as("table sizes seen by hashIndex").containsExactly(buckets);
-  }
-
-  @Test
-  void defaultHoldsFourFifthsOfItsBuckets() {
-    assertThat(FixedCapacityLRUMap.maxEntries(DEFAULT_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2))
-        .isEqualTo(419_430);
-  }
-
+  // 209_715 / 0.8 is just below 2^18 and 209_716 / 0.8 just above it; 262_143 to 262_145 are
+  // entry counts just below, at and above 2^18
   @ParameterizedTest
   @ValueSource(
       ints = {
-        Integer.MIN_VALUE,
-        0,
-        MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2 - 1,
-        MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2 + 1,
-        Integer.MAX_VALUE
+        1,
+        2,
+        1_000,
+        209_715,
+        209_716,
+        262_143,
+        262_144,
+        262_145,
+        DEFAULT_MAX_TRACKED_SEEN_TXS
       })
-  void rejectsBucketsLog2OutOfRange(final int bucketsLog2) {
-    assertThatThrownBy(() -> new FixedCapacityLRUMap<Integer, Integer>(bucketsLog2))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("bucketsLog2 must be between");
+  void tableIsAPowerOfTwoSizedForTheLoadFactorAndNeverResized(final int maxEntries) {
+    final BucketRecordingMap map = new BucketRecordingMap(maxEntries);
+    final Random random = new Random(maxEntries);
+
+    // overfill so that the map evicts as well as adds
+    for (int i = 0; i < 3 * maxEntries; i++) {
+      map.put(random.nextInt(), i);
+    }
+
+    assertThat(map.size()).isEqualTo(maxEntries);
+    assertThat(map.tableSizes).as("table sizes seen by hashIndex").hasSize(1);
+    final int buckets = map.tableSizes.iterator().next();
+    // maxEntries / 0.8 rounded up, in exact integer arithmetic
+    final int minBuckets = (int) ((5L * maxEntries + 3) / 4);
+    assertThat(Integer.bitCount(buckets)).as("%d buckets is a power of two", buckets).isOne();
+    assertThat(buckets).isGreaterThanOrEqualTo(minBuckets).isLessThan(2 * minBuckets);
   }
 
   @Test
   void entriesSpreadOverTheBuckets() {
-    final BucketRecordingMap map =
-        new BucketRecordingMap(DEFAULT_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2);
+    final int maxEntries = DEFAULT_MAX_TRACKED_SEEN_TXS;
+    final BucketRecordingMap map = new BucketRecordingMap(maxEntries);
     final Random random = new Random(1);
 
-    for (int i = 0; i < map.maxSize(); i++) {
+    for (int i = 0; i < maxEntries; i++) {
       map.put(random.nextInt(), i);
     }
 
-    // random keys fill 1 - e^-0.8 of the buckets, about 288k of 524288 here; a bucket mask that
-    // is not all ones reaches only 2^bitCount(mask) of them
-    assertThat(map.usedBuckets).hasSizeGreaterThan(map.maxSize() / 2);
+    // random keys fill 1 - e^-load of the buckets, about 228k of 524288 here; a bucket mask that
+    // is not all ones reaches only 2^bitCount(mask) of them, 4096 for a 375000 bucket table
+    assertThat(map.usedBuckets).hasSizeGreaterThan(maxEntries / 2);
   }
 
   /** Records the table size and bucket index of every lookup the map makes. */
@@ -91,8 +82,8 @@ class FixedCapacityLRUMapTest {
     private final Set<Integer> tableSizes = new HashSet<>();
     private final Set<Integer> usedBuckets = new HashSet<>();
 
-    BucketRecordingMap(final int bucketsLog2) {
-      super(bucketsLog2);
+    BucketRecordingMap(final int maxEntries) {
+      super(maxEntries);
     }
 
     @Override

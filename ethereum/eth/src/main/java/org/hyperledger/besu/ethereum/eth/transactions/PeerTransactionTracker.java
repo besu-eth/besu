@@ -14,12 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.eth.transactions;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Collections.emptyList;
 import static java.util.Objects.requireNonNullElse;
 import static org.hyperledger.besu.ethereum.core.Transaction.toHashList;
-import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Unstable.MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2;
-import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Unstable.MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
@@ -80,7 +77,7 @@ public class PeerTransactionTracker
     this.maxSendQueueSizePerPeer = txPoolConfig.getUnstable().getMaxSendQueueSizePerPeer();
     this.forgetEvictedTxsEnabled = txPoolConfig.getUnstable().getPeerTrackerForgetEvictedTxs();
     this.peersSeenStateByHash =
-        new FixedCapacityLRUMap<>(txPoolConfig.getUnstable().getMaxTrackedSeenTxsBucketsLog2());
+        new FixedCapacityLRUMap<>(txPoolConfig.getUnstable().getMaxTrackedSeenTxs());
     this.peerToSlotIndexMap = HashBiMap.create(ethPeers.getMaxPeers());
     ethScheduler.scheduleFutureTaskWithFixedDelay(
         this::logStats, Duration.ofMinutes(1), Duration.ofMinutes(1));
@@ -527,40 +524,32 @@ public class PeerTransactionTracker
   }
 
   /**
-   * An LRU map with a strictly fixed table of {@code 2^bucketsLog2} buckets, which holds at most
-   * {@link #maxEntries(int) 80 %} of them as entries and evicts the least recently used one beyond
-   * that.
+   * An LRU map with a strictly fixed capacity. The parent {@link LRUMap} grows beyond its declared
+   * maximum when the internal hash table needs to be resized (because the number of buckets is
+   * calculated from {@code maxEntries * loadFactor}). This subclass prevents that by:
    *
-   * <p>The parent {@link LRUMap} sizes its table as the smallest power of two holding {@code
-   * maxEntries}, which is {@code 2^bucketsLog2} because 80 % of it is more than half of it. It
-   * would also double the table once the entries reach {@code buckets * loadFactor}, so {@link
-   * #checkCapacity} is a no-op: the map never grows past {@code maxEntries} entries, and the table
-   * is never resized.
+   * <ul>
+   *   <li>Overriding {@link #calculateNewCapacity} to pre-size the backing array to the smallest
+   *       power of two of at least {@code proposedCapacity / loadFactor} buckets, so no rehash is
+   *       ever triggered.
+   *   <li>Making {@link #checkCapacity} a no-op, because the map will never grow past {@code
+   *       maxEntries} entries and a capacity check would be misleading.
+   * </ul>
+   *
+   * <p>The {@link #DEFAULT_LOAD_FACTOR load factor} of {@code 0.8} is an upper bound: the table is
+   * filled to between 40 % and 80 % of its buckets once the map is full.
    */
   @VisibleForTesting
   static class FixedCapacityLRUMap<K, V> extends LRUMap<K, V> {
-    private static final float LOAD_FACTOR = 0.8f;
+    private static final float DEFAULT_LOAD_FACTOR = 0.8f;
 
-    public FixedCapacityLRUMap(final int bucketsLog2) {
-      super(maxEntries(bucketsLog2), LOAD_FACTOR);
+    public FixedCapacityLRUMap(final int maxEntries) {
+      super(maxEntries, DEFAULT_LOAD_FACTOR);
     }
 
-    /**
-     * Returns the number of entries a map with {@code 2^bucketsLog2} buckets holds.
-     *
-     * @param bucketsLog2 log2 of the bucket count
-     * @return 80 % of the bucket count, rounded down
-     */
-    static int maxEntries(final int bucketsLog2) {
-      checkArgument(
-          bucketsLog2 >= MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2
-              && bucketsLog2 <= MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2,
-          "bucketsLog2 must be between %s and %s, but was %s",
-          MIN_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2,
-          MAX_MAX_TRACKED_SEEN_TXS_BUCKETS_LOG2,
-          bucketsLog2);
-      // 4 / 5 is LOAD_FACTOR, in integer arithmetic so that it is exact for every table size
-      return (int) ((1L << bucketsLog2) * 4 / 5);
+    @Override
+    protected int calculateNewCapacity(final int proposedCapacity) {
+      return super.calculateNewCapacity((int) Math.ceil(proposedCapacity / DEFAULT_LOAD_FACTOR));
     }
 
     @Override

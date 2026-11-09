@@ -481,30 +481,6 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
-  public void maxTrackedSeenTxsBucketsLog2() {
-    internalTestSuccess(
-        config -> assertThat(config.getUnstable().getMaxTrackedSeenTxsBucketsLog2()).isEqualTo(21),
-        "--Xmax-tracked-seen-txs-buckets-log2",
-        "21");
-  }
-
-  @Test
-  public void maxTrackedSeenTxsBucketsLog2BelowRangeShouldFail() {
-    internalTestFailure(
-        "--Xmax-tracked-seen-txs-buckets-log2 must be between 2 and 30",
-        "--Xmax-tracked-seen-txs-buckets-log2",
-        "1");
-  }
-
-  @Test
-  public void maxTrackedSeenTxsBucketsLog2AboveRangeShouldFail() {
-    internalTestFailure(
-        "--Xmax-tracked-seen-txs-buckets-log2 must be between 2 and 30",
-        "--Xmax-tracked-seen-txs-buckets-log2",
-        "31");
-  }
-
-  @Test
   public void eth65TrxAnnouncedBufferingPeriod() {
     final Duration eth65TrxAnnouncedBufferingPeriod = Duration.ofMillis(999);
     internalTestSuccess(
