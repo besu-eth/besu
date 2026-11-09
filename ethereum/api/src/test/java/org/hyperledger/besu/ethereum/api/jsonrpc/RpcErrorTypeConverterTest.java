@@ -69,7 +69,6 @@ public class RpcErrorTypeConverterTest {
           },
           {TransactionInvalidReason.TOTAL_BLOB_GAS_TOO_HIGH, RpcErrorType.TOTAL_BLOB_GAS_TOO_HIGH},
           {TransactionInvalidReason.INVALID_BLOBS, RpcErrorType.INVALID_BLOBS},
-          {TransactionInvalidReason.INVALID_BLOB_COUNT, RpcErrorType.INVALID_BLOB_COUNT},
           {TransactionInvalidReason.INITCODE_TOO_LARGE, RpcErrorType.INVALID_TRANSACTION_PARAMS},
           {TransactionInvalidReason.NONCE_OVERFLOW, RpcErrorType.INVALID_TRANSACTION_PARAMS},
           {

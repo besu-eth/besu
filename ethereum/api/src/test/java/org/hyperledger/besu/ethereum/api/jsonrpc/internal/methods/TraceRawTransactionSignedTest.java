@@ -56,6 +56,8 @@ class TraceRawTransactionSignedTest extends AbstractJsonRpcHttpServiceTest {
 
   @Override
   protected BlockchainSetupUtil getBlockchainSetupUtil(final DataStorageFormat format) {
+    // Every case runs against the genesis state, so blocks.bin is empty: there are no blocks to
+    // import after genesis.
     return createBlockchainSetupUtil(
         "trace/signed-transaction/genesis.json", "trace/signed-transaction/blocks.bin", format);
   }
@@ -101,6 +103,17 @@ class TraceRawTransactionSignedTest extends AbstractJsonRpcHttpServiceTest {
                 "signed-gas-over-cap",
                 "0xf86b0a842da282a983030d4094000000000000000000000000000000000000100201808718e5bb3abd10a0a02bfe1071ab946fcf37c9c53b25e79519a9b3123276ce10d17eb998020befefb3a04fd7fb37cf8dff46b28ee7d6a1b23383c787987387d5ad116297dd09c407f949",
                 RpcErrorType.EXCEEDS_TRANSACTION_GAS_LIMIT,
+                false),
+            new SignedCase(
+                "nonce-ahead-of-sender",
+                "0xf86b0b842da282a9830186a094000000000000000000000000000000000000100201808718e5bb3abd109fa0cde86efe8d1780193d811c3aef88881a59c50bbb93d8e631339c79c9801145f3a00dddb7c31c0b032a1804f5cc09c46c20f824c7dd25e56aae7ba8354256a177e4",
+                RpcErrorType.NONCE_TOO_HIGH,
+                false),
+            // 100,000 gas at 20,000 gwei costs 2 ETH up front; the sender holds 1 ETH.
+            new SignedCase(
+                "gas-cost-over-balance",
+                "0xf86d0a8612309ce54000830186a094000000000000000000000000000000000000100201808718e5bb3abd109fa0396cfbe56ac5d9b584ae2b8d7a6d1c20fdcc65c4293cba4d99b1481c507d983da01c5aaa1f990fbdd45fd493706acbf1164e19c70ae1af3637bccdc665cdeea15b",
+                RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE,
                 false),
             new SignedCase(
                 "execution-out-of-gas",
