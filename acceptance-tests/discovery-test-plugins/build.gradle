@@ -4,6 +4,8 @@ dependencies {
 
   implementation project(':plugin-api')
   implementation 'com.google.auto.service:auto-service'
+  // on the compile class path only: MissingDependencyPlugin needs it and the node does not have it
+  compileOnly 'org.junit.jupiter:junit-jupiter-api'
 
   testImplementation 'org.assertj:assertj-core'
   testImplementation 'org.junit.jupiter:junit-jupiter'

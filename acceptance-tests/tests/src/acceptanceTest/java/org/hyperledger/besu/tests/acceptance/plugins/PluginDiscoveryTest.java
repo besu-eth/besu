@@ -32,19 +32,23 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.jar.Attributes;
 import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
 
 import org.junit.jupiter.api.Test;
 
 /**
  * Plugin discovery and selection: jars load in file name order, {@code --plugins} takes a plugin id
- * or an unambiguous simple class name and is applied before any plugin is instantiated, and a
- * plugins directory that cannot be read, a jar that cannot be opened or a declaration that cannot
- * be loaded stops the node.
+ * or an unambiguous simple class name and is applied before any plugin is instantiated, a plugins
+ * directory that cannot be read or a jar that cannot be opened stops the node, and a plugin whose
+ * class cannot be loaded stops it only when the plugin is selected.
  *
  * <p>{@code discoveryTestPlugins.jar} holds a second {@code TestPicoCLIPlugin}, in another package,
- * and a plugin whose constructor throws; its file name sorts before {@code testPlugins.jar}.
+ * and four plugins that fail: in the constructor, in the static initializer, at class loading for
+ * want of a library, and for want of a constructor without arguments; its file name sorts before
+ * {@code testPlugins.jar}.
  */
 public class PluginDiscoveryTest extends AcceptanceTestBase {
   // ids as strings: discoveryTestPlugins.jar is deliberately not on the test class path, so that
@@ -57,6 +61,10 @@ public class PluginDiscoveryTest extends AcceptanceTestBase {
       "org.hyperledger.besu.tests.acceptance.plugins.discovery.BrokenConstructorPlugin";
   private static final String BROKEN_STATIC_INITIALIZER_PLUGIN =
       "org.hyperledger.besu.tests.acceptance.plugins.discovery.BrokenStaticInitializerPlugin";
+  private static final String MISSING_DEPENDENCY_PLUGIN =
+      "org.hyperledger.besu.tests.acceptance.plugins.discovery.MissingDependencyPlugin";
+  private static final String NO_DEFAULT_CONSTRUCTOR_PLUGIN =
+      "org.hyperledger.besu.tests.acceptance.plugins.discovery.NoDefaultConstructorPlugin";
 
   private BesuNode node;
 
@@ -145,6 +153,15 @@ public class PluginDiscoveryTest extends AcceptanceTestBase {
     }
   }
 
+  /** Writes a jar holding only a manifest, whose class path names the given jar. */
+  private static void writeJarWithClassPath(final Path jar, final String classPath)
+      throws IOException {
+    final Manifest manifest = new Manifest();
+    manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+    manifest.getMainAttributes().put(Attributes.Name.CLASS_PATH, classPath);
+    new JarOutputStream(Files.newOutputStream(jar), manifest).close();
+  }
+
   @Test
   public void pluginsRegisterInJarFileNameOrderAndUnselectedPluginsNeverRun() throws IOException {
     // testPlugins.jar is copied into the plugins directory first, but sorts last
@@ -166,6 +183,10 @@ public class PluginDiscoveryTest extends AcceptanceTestBase {
             " - " + BROKEN_CONSTRUCTOR_PLUGIN,
             " - " + BROKEN_STATIC_INITIALIZER_PLUGIN);
     assertThat(console).doesNotContain("Error instantiating plugin");
+    // the plugin whose class cannot be loaded is declared ahead of both registered plugins, and
+    // did not stop discovery from reaching them
+    assertThat(unframe(console))
+        .contains(" - " + MISSING_DEPENDENCY_PLUGIN + " (could not be loaded)");
   }
 
   @Test
@@ -227,15 +248,73 @@ public class PluginDiscoveryTest extends AcceptanceTestBase {
   }
 
   @Test
-  public void pluginDeclarationThatCannotBeLoadedStopsTheNode() throws IOException {
+  public void selectedPluginWithAMissingDependencyStopsTheNodeNamingItsJarAndTheMissingClass()
+      throws IOException {
+    node = nodeWith(List.of("discoveryTestPlugins"), List.of(MISSING_DEPENDENCY_PLUGIN));
+
+    assertStartupFails(
+        node,
+        "Plugin of type "
+            + MISSING_DEPENDENCY_PLUGIN
+            + " (declared by discoveryTestPlugins.jar) needs class"
+            + " org/junit/jupiter/api/function/Executable, which is not available;"
+            + " a dependency may be missing from the plugin");
+  }
+
+  @Test
+  public void declaredPluginWhoseClassIsMissingStopsTheNodeNamingItAndItsJar() throws IOException {
     node = nodeWith(List.of("testPlugins"), List.of());
     final Path pluginsDir = node.homeDirectory().resolve("plugins");
     writeJarDeclaring(pluginsDir.resolve("broken.jar"), "com.acme.MissingPlugin");
 
     assertStartupFails(
+        node, "Error loading plugin of type com.acme.MissingPlugin (declared by broken.jar)");
+  }
+
+  @Test
+  public void selectedPluginWithoutAConstructorWithoutArgumentsStopsTheNodeNamingItAndItsJar()
+      throws IOException {
+    node = nodeWith(List.of("discoveryTestPlugins"), List.of(NO_DEFAULT_CONSTRUCTOR_PLUGIN));
+
+    assertStartupFails(
         node,
-        "Cannot load a plugin declared by a jar in " + pluginsDir.toAbsolutePath(),
-        "com.acme.MissingPlugin");
+        "Error loading plugin of type "
+            + NO_DEFAULT_CONSTRUCTOR_PLUGIN
+            + " (declared by discoveryTestPlugins.jar)",
+        "java.lang.NoSuchMethodException: " + NO_DEFAULT_CONSTRUCTOR_PLUGIN + ".<init>()");
+  }
+
+  @Test
+  public void unloadablePluginThatNoJarOfThePluginsDirectoryDeclaresStopsTheNodeNamingIt()
+      throws IOException {
+    node = nodeWith(List.of("testPlugins"), List.of(MAIN_PLUGIN));
+    final Path pluginsDir = node.homeDirectory().resolve("plugins");
+    // an unloadable plugin that is not selected, so by itself it would be ignored; its jar sorts
+    // first, so the service loader reports it first
+    writeJarDeclaring(pluginsDir.resolve("broken.jar"), "com.acme.MissingPlugin");
+    // the manifest of linking.jar puts lib/library.jar on the plugin class path, so the service
+    // loader also reports the plugin of a jar that is not in the plugins directory
+    Files.createDirectory(pluginsDir.resolve("lib"));
+    writeJarDeclaring(pluginsDir.resolve("lib").resolve("library.jar"), "com.acme.OutsidePlugin");
+    writeJarWithClassPath(pluginsDir.resolve("linking.jar"), "lib/library.jar");
+
+    assertStartupFails(
+        node,
+        "Cannot load a plugin that no jar in " + pluginsDir.toAbsolutePath() + " declares",
+        "Provider com.acme.OutsidePlugin not found");
+  }
+
+  @Test
+  public void declaredClassThatIsNotAPluginStopsTheNodeNamingItAndItsJar() throws IOException {
+    node = nodeWith(List.of("testPlugins"), List.of());
+    final Path pluginsDir = node.homeDirectory().resolve("plugins");
+    // a class every node has, and that is no plugin
+    writeJarDeclaring(pluginsDir.resolve("notaplugin.jar"), "java.lang.String");
+
+    assertStartupFails(
+        node,
+        "Error loading plugin of type java.lang.String (declared by notaplugin.jar)",
+        "java.lang.String does not implement org.hyperledger.besu.plugin.BesuPlugin");
   }
 
   @Test

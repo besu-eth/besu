@@ -202,12 +202,30 @@ public class BesuPluginContextImplTest {
   /** A context that detects the given providers instead of scanning a plugins directory. */
   private static BesuPluginContextImpl contextDetecting(
       final List<ServiceLoader.Provider<BesuPlugin>> providers) {
+    return contextDetecting(providers, List.of());
+  }
+
+  /**
+   * A context that detects the given providers, and the given plugins whose class could not be
+   * loaded, instead of scanning a plugins directory.
+   */
+  private static BesuPluginContextImpl contextDetecting(
+      final List<ServiceLoader.Provider<BesuPlugin>> providers,
+      final List<BesuPluginContextImpl.UnloadablePlugin> unloadable) {
     return new BesuPluginContextImpl() {
       @Override
-      List<ServiceLoader.Provider<BesuPlugin>> detectPlugins() {
-        return providers;
+      DetectedPlugins detectPlugins() {
+        return new DetectedPlugins(providers, unloadable);
       }
     };
+  }
+
+  /** A plugin whose parent class comes from a library that was not copied next to its jar. */
+  private static BesuPluginContextImpl.UnloadablePlugin pluginMissingItsLibrary() {
+    return new BesuPluginContextImpl.UnloadablePlugin(
+        "com.acme.BridgePlugin",
+        Path.of("plugins", "bridge.jar"),
+        new NoClassDefFoundError("com/acme/LibBase"));
   }
 
   /** What the service loader hands over for an already constructed plugin. */
@@ -250,9 +268,18 @@ public class BesuPluginContextImplTest {
       final boolean continueOnPluginError,
       final List<String> requestedPlugins,
       final List<ServiceLoader.Provider<BesuPlugin>> detected) {
+    return contextSelecting(continueOnPluginError, requestedPlugins, detected, List.of());
+  }
+
+  /** As above, with detected plugins whose class could not be loaded. */
+  private static BesuPluginContextImpl contextSelecting(
+      final boolean continueOnPluginError,
+      final List<String> requestedPlugins,
+      final List<ServiceLoader.Provider<BesuPlugin>> detected,
+      final List<BesuPluginContextImpl.UnloadablePlugin> unloadable) {
     final CommandLine commandLine = new CommandLine(CommandSpec.create());
     final PicoCLIOptionsImpl picoCLIOptions = new PicoCLIOptionsImpl(commandLine);
-    final BesuPluginContextImpl context = contextDetecting(detected);
+    final BesuPluginContextImpl context = contextDetecting(detected, unloadable);
     context.initialize(
         ImmutablePluginConfiguration.builder()
             .continueOnPluginError(continueOnPluginError)
@@ -266,8 +293,18 @@ public class BesuPluginContextImplTest {
 
   /** A context that scans the given plugins directory, with its options phase not yet run. */
   private static BesuPluginContextImpl contextScanning(final Path pluginsDir) {
+    return contextScanning(pluginsDir, List.of());
+  }
+
+  /** As above, with the given {@code --plugins} list. */
+  private static BesuPluginContextImpl contextScanning(
+      final Path pluginsDir, final List<String> requestedPlugins) {
     final BesuPluginContextImpl context = new BesuPluginContextImpl();
-    context.initialize(ImmutablePluginConfiguration.builder().pluginsDir(pluginsDir).build());
+    context.initialize(
+        ImmutablePluginConfiguration.builder()
+            .pluginsDir(pluginsDir)
+            .requestedPluginsInfo(requestedPlugins.stream().map(PluginInfo::new).toList())
+            .build());
     return context;
   }
 
@@ -1163,6 +1200,83 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
+  void pluginWhoseClassCannotBeLoadedFailsStartupNamingItsJarAndTheMissingClass() {
+    final List<ServiceLoader.Provider<BesuPlugin>> detected =
+        List.of(providerOf(new OptionPlugin()));
+
+    assertThatThrownBy(
+            () -> contextSelecting(false, List.of(), detected, List.of(pluginMissingItsLibrary())))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining(
+            "Plugin of type com.acme.BridgePlugin (declared by bridge.jar) needs class"
+                + " com/acme/LibBase, which is not available; a dependency may be missing");
+  }
+
+  @Test
+  void pluginWhoseClassNeedsAMissingBesuClassIsReportedAsIncompatible() {
+    final BesuPluginContextImpl.UnloadablePlugin outdated =
+        new BesuPluginContextImpl.UnloadablePlugin(
+            "com.acme.OutdatedPlugin",
+            Path.of("plugins", "outdated.jar"),
+            new NoClassDefFoundError("org/hyperledger/besu/plugin/services/GoneService"));
+
+    assertThatThrownBy(() -> contextSelecting(false, List.of(), List.of(), List.of(outdated)))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining(
+            "Plugin of type com.acme.OutdatedPlugin (declared by outdated.jar) is not compatible"
+                + " with the plugin API of this Besu version");
+  }
+
+  @Test
+  void pluginWhoseClassCannotBeLoadedIsIgnoredWhenLeftOutOfTheSelection() {
+    final OptionPlugin option = new OptionPlugin();
+    final BesuPluginContextImpl context =
+        contextSelecting(
+            false,
+            List.of("OptionPlugin"),
+            List.of(providerOf(option)),
+            List.of(pluginMissingItsLibrary()));
+    register(context);
+
+    assertThat(context.getRegisteredPlugins()).containsExactly(option);
+    assertThat(context.getPluginsSummaryLog())
+        .containsSubsequence(
+            "Detected but not selected:",
+            " - com.acme.BridgePlugin (could not be loaded)",
+            "TOTAL = 1 of 2 plugins successfully registered.");
+  }
+
+  @Test
+  void pluginWhoseClassCannotBeLoadedIsStillSelectedBySimpleClassName() {
+    final List<ServiceLoader.Provider<BesuPlugin>> detected =
+        List.of(providerOf(new OptionPlugin()));
+
+    // it is a selected plugin that fails, not a requested name that was not found
+    assertThatThrownBy(
+            () ->
+                contextSelecting(
+                    false, List.of("BridgePlugin"), detected, List.of(pluginMissingItsLibrary())))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("Plugin of type com.acme.BridgePlugin (declared by bridge.jar)");
+  }
+
+  @Test
+  void pluginWhoseClassCannotBeLoadedIsSkippedWhenContinueOnErrorIsSet() {
+    final OptionPlugin option = new OptionPlugin();
+    final BesuPluginContextImpl context =
+        contextSelecting(
+            true, List.of(), List.of(providerOf(option)), List.of(pluginMissingItsLibrary()));
+    register(context);
+
+    assertThat(context.getRegisteredPlugins()).containsExactly(option);
+    assertThat(context.getPluginsSummaryLog())
+        .containsSubsequence(
+            "Detected but not registered:",
+            " - com.acme.BridgePlugin (could not be loaded)",
+            "TOTAL = 1 of 2 plugins successfully registered.");
+  }
+
+  @Test
   void jarsAreLoadedInFileNameOrder(@TempDir final Path tempDir) throws IOException {
     final Path pluginsDir = Files.createDirectory(tempDir.resolve("plugins"));
     // written in the reverse of their file name order; with four jars, an unsorted directory
@@ -1246,17 +1360,82 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
-  void pluginDeclarationThatCannotBeLoadedFailsStartupNamingTheDirectory(
-      @TempDir final Path tempDir) throws IOException {
+  void pluginsDirectoryBehindAnInaccessibleParentFailsStartupSayingSo(@TempDir final Path tempDir)
+      throws IOException {
+    final Path parent = Files.createDirectory(tempDir.resolve("parent"));
+    final Path pluginsDir = Files.createDirectory(parent.resolve("plugins"));
+    assumeTrue(Files.getFileStore(parent).supportsFileAttributeView(PosixFileAttributeView.class));
+    Files.setPosixFilePermissions(parent, Set.of());
+    try {
+      assumeTrue(
+          !Files.exists(pluginsDir) && !Files.notExists(pluginsDir),
+          "this user traverses the directory regardless");
+      final BesuPluginContextImpl context = contextScanning(pluginsDir);
+
+      assertThatThrownBy(() -> context.defineOptions(freshPicoCLIOptions()))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessage("Cannot access the plugins directory " + pluginsDir.toAbsolutePath());
+    } finally {
+      Files.setPosixFilePermissions(parent, PosixFilePermissions.fromString("rwxr-xr-x"));
+    }
+  }
+
+  @Test
+  void declaredPluginWhoseClassIsMissingFailsStartupNamingItAndItsJar(@TempDir final Path tempDir)
+      throws IOException {
     final Path pluginsDir = Files.createDirectory(tempDir.resolve("plugins"));
     writeJarDeclaring(pluginsDir.resolve("broken.jar"), "com.acme.MissingPlugin");
     final BesuPluginContextImpl context = contextScanning(pluginsDir);
 
     assertThatThrownBy(() -> context.defineOptions(freshPicoCLIOptions()))
-        .isInstanceOf(IllegalStateException.class)
+        .isInstanceOf(RuntimeException.class)
         .hasMessageContaining(
-            "Cannot load a plugin declared by a jar in " + pluginsDir.toAbsolutePath())
-        .hasMessageContaining("com.acme.MissingPlugin");
+            "Error loading plugin of type com.acme.MissingPlugin (declared by broken.jar)")
+        .hasMessageContaining("ClassNotFoundException");
+  }
+
+  @Test
+  void discoveryCarriesOnPastADeclaredPluginWhoseClassIsMissing(@TempDir final Path tempDir)
+      throws IOException {
+    final Path pluginsDir = Files.createDirectory(tempDir.resolve("plugins"));
+    // the broken declaration comes first, in the first jar, ahead of the two plugins that load
+    writeJarDeclaring(
+        pluginsDir.resolve("a.jar"), "com.acme.MissingPlugin", First.Plugin.class.getName());
+    writeJarDeclaring(pluginsDir.resolve("b.jar"), Second.Plugin.class.getName());
+    final BesuPluginContextImpl context =
+        contextScanning(
+            pluginsDir, List.of(First.Plugin.class.getName(), Second.Plugin.class.getName()));
+
+    context.defineOptions(freshPicoCLIOptions());
+
+    assertThat(context.getPluginsSummaryLog())
+        .containsSubsequence(
+            "Detected but not registered:",
+            " - " + First.Plugin.class.getName() + " (" + new First.Plugin().getVersion() + ")",
+            " - " + Second.Plugin.class.getName() + " (" + new Second.Plugin().getVersion() + ")",
+            "Detected but not selected:",
+            " - com.acme.MissingPlugin (could not be loaded)",
+            "TOTAL = 0 of 3 plugins successfully registered.");
+  }
+
+  @Test
+  void serviceFileWithAMalformedLineFailsStartupNamingThePluginItHidesAndTheLine(
+      @TempDir final Path tempDir) throws IOException {
+    final Path pluginsDir = Files.createDirectory(tempDir.resolve("plugins"));
+    // the loader rejects the whole file for one bad line, so the plugin before it never arrives
+    final Path jar = pluginsDir.resolve("bundle.jar");
+    writeJarDeclaring(jar, First.Plugin.class.getName(), "not a class name");
+    final BesuPluginContextImpl context = contextScanning(pluginsDir);
+
+    assertThatThrownBy(() -> context.defineOptions(freshPicoCLIOptions()))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageStartingWith(
+            "Plugin "
+                + First.Plugin.class.getName()
+                + " declared by "
+                + jar.toAbsolutePath()
+                + " was not discovered by the service loader, which reported: ")
+        .hasMessageContaining(":2: Illegal configuration-file syntax");
   }
 
   @Test
