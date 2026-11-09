@@ -359,7 +359,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           }
           pathBasedUpdater.commit();
 
-          mutableState.persistWithoutTrieLog(headerOrThrow(blockHash));
+          mutableState.persist(headerOrThrow(blockHash));
 
           LOG.debug(
               "Archive rolling finished, {} now at {}",

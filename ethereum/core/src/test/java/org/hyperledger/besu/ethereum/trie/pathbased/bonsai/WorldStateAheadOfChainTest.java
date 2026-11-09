@@ -139,17 +139,6 @@ public class WorldStateAheadOfChainTest extends AbstractIsolationTests {
   }
 
   @Test
-  public void rollsBackToAParentWithoutATrieLogWithoutStoringOne() {
-    // the pivot block of a snap sync has no trie log
-    storage.pruneTrieLog(chainHead.getHash());
-
-    createArchive();
-
-    assertThat(storage.getWorldStateBlockHash()).contains(chainHead.getHash());
-    assertThat(storage.getTrieLog(chainHead.getHash())).isEmpty();
-  }
-
-  @Test
   public void keepsTheWorldStateWhenItsTrieLogIsMissing() {
     storage.pruneTrieLog(unstoredBlock.getHash());
 
