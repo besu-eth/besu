@@ -1,0 +1,161 @@
+name: Hive
+on:
+  workflow_dispatch:
+    inputs:
+      simulator:
+        description: 'Hive simulator, e.g. ethereum/rpc-compat, ethereum/engine, ethereum/consensus'
+        required: true
+        default: 'ethereum/rpc-compat'
+        type: string
+      sim_limit:
+        description: 'Hive --sim.limit: "<suite regex>/<test regex>". Go simulators (consensus, engine) match unanchored; pytest-based ones (eest/consume-*) need a leading ".*". Blank runs the whole simulator.'
+        required: false
+        type: string
+      sim_parallelism:
+        description: 'Hive --sim.parallelism'
+        required: false
+        default: '4'
+        type: string
+      besu_ref:
+        required: true
+        type: string
+        default: main
+        description: Branch to test
+      besu_repo:
+        required: false
+        type: string
+        description: 'Custom git repository to checkout branch from. Expected format: owner/repo (e.g., besu-eth/besu)'
+      hive_ref:
+        required: false
+        type: string
+        description: 'ethereum/hive commit to run. Blank uses the pinned default.'
+
+env:
+  GRADLE_OPTS: "-Xmx6g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true"
+  BESU_REF: ${{ inputs.besu_ref || 'main' }}
+  BESU_REPO: ${{ inputs.besu_repo || github.repository }}
+  # ethereum/hive master at 2026-10-22. Update deliberately: simulator behaviour changes with it.
+  HIVE_REF: ${{ inputs.hive_ref || 'e1ad81006c63555915e05a121df3e68953fa9138' }}
+  SIMULATOR: ${{ inputs.simulator }}
+  SIM_LIMIT: ${{ inputs.sim_limit }}
+  SIM_PARALLELISM: ${{ inputs.sim_parallelism || '4' }}
+
+jobs:
+  hive:
+    name: "Hive (${{ inputs.simulator }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - name: Log what is being tested
+        run: |
+          {
+            echo "### Hive target"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Repository | $BESU_REPO |"
+            echo "| Ref (branch/commit) | $BESU_REF |"
+            echo "| Simulator | $SIMULATOR |"
+            echo "| --sim.limit | ${SIM_LIMIT:-(all)} |"
+            echo "| --sim.parallelism | $SIM_PARALLELISM |"
+            echo "| Hive commit | $HIVE_REF |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Checkout Besu
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.BESU_REF }}
+          repository: ${{ env.BESU_REPO }}
+          path: besu
+          persist-credentials: false
+      - name: Checkout Hive
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ethereum/hive
+          ref: ${{ env.HIVE_REF }}
+          path: hive
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 25
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-read-only: true
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: hive/go.mod
+          # The Actions cache is shared and near its size limit; hive builds in about a minute.
+          cache: false
+      - name: Build Besu docker image
+        working-directory: besu
+        run: |
+          # Without the pyroscope agent: its download from GitHub often fails, and hive does not use it.
+          ./gradlew :distDockerCopy
+          sed -i '/^ADD .*pyroscope\.jar/d' build/docker-besu/Dockerfile
+          ./gradlew :distDocker -x :distDockerCopy
+          tag=$(docker images hyperledger/besu --format '{{.Tag}}' | head -1)
+          echo "Built hyperledger/besu:$tag"
+          printf -- '- client: besu\n  nametag: besu-local\n  build_args:\n    baseimage: hyperledger/besu\n    tag: %s\n' "$tag" \
+            > ../hive/client-config.yaml
+      - name: Build Hive
+        working-directory: hive
+        run: go build .
+      - name: Run Hive
+        id: hive
+        working-directory: hive
+        run: |
+          args=(--sim "$SIMULATOR" --client besu --client-file client-config.yaml
+            --client.checktimelimit 180s --sim.parallelism "$SIM_PARALLELISM")
+          if [ -n "$SIM_LIMIT" ]; then
+            args+=(--sim.limit "$SIM_LIMIT")
+          fi
+          # hive exits non-zero when a test fails; summarise first, fail the job at the end.
+          status=0
+          ./hive "${args[@]}" || status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          df -h / | tail -1
+      - name: Summarise results
+        if: always()
+        working-directory: hive
+        run: |
+          # One results file per suite; hive.json is hive's own metadata.
+          shopt -s nullglob
+          results=(workspace/logs/[0-9]*.json)
+          if [ ${#results[@]} -eq 0 ]; then
+            echo "No hive results were written." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - "${results[@]}" <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, sys
+          print("### Hive results\n")
+          for path in sys.argv[1:]:
+              with open(path) as f:
+                  suite = json.load(f)
+              cases = suite.get("testCases", {}).values()
+              failed = sorted(c["name"] for c in cases if not c["summaryResult"]["pass"])
+              print(f"**{suite.get('name')}**: {len(cases) - len(failed)} passed, {len(failed)} failed\n")
+              for name in failed[:200]:
+                  print(f"- {name}")
+              if len(failed) > 200:
+                  print(f"- … and {len(failed) - 200} more, see the hive-results artifact")
+              print()
+          EOF
+      - name: Upload Hive results
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: hive-results
+          path: hive/workspace/logs
+          retention-days: 7
+      - name: Fail if any test failed
+        if: steps.hive.outputs.status != '0'
+        env:
+          HIVE_STATUS: ${{ steps.hive.outputs.status }}
+        run: |
+          echo "Hive exited with status $HIVE_STATUS: at least one test failed"
+          exit 1
