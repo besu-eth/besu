@@ -37,17 +37,17 @@ class ProtocolScheduleCustomizationTest {
                 new ProtocolSpecModification(blockNumber(10), builder -> builder),
                 new ProtocolSpecModification(timestamp(10), builder -> builder)));
 
-    assertThat(customization.toForkIdActivations().blockNumbers()).containsExactly(10L);
-    assertThat(customization.toForkIdActivations().timestamps()).containsExactly(10L);
+    assertThat(customization.toContributedForkActivations().blockNumbers()).containsExactly(10L);
+    assertThat(customization.toContributedForkActivations().timestamps()).containsExactly(10L);
   }
 
   @Test
-  void forkIdActivationsAreDerivedFromRules() {
+  void contributedForkActivationsAreDerivedFromRules() {
     final ProtocolScheduleCustomization customization =
         new ProtocolScheduleCustomization(
             "test", List.of(new ProtocolSpecModification(blockNumber(10), builder -> builder)));
 
-    assertThat(customization.toForkIdActivations().blockNumbers()).containsExactly(10L);
+    assertThat(customization.toContributedForkActivations().blockNumbers()).containsExactly(10L);
   }
 
   @Test

@@ -57,8 +57,8 @@ public class EthConfig implements JsonRpcMethod {
     forkIdManager =
         new ForkIdManager(
             blockchain.getBlockchain(),
-            genesisConfigOptions.getForkIdBlockNumbers(),
-            genesisConfigOptions.getForkIdBlockTimestamps());
+            genesisConfigOptions.getForkBlockNumbersWithContributed(),
+            genesisConfigOptions.getForkBlockTimestampsWithContributed());
   }
 
   @Override

@@ -18,17 +18,20 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * EIP-2124 fork activations declared out of band of the genesis config keys: the block numbers and
- * timestamps of consensus changes peers must agree on, merged into the fork schedule the config
- * advertises. Block-number and timestamp activations are kept as two type-partitioned lists, as
- * EIP-2124 / EIP-6122 require; the two kinds are never compared against each other.
+ * Fork activations contributed from outside the genesis config keys, such as those of a plugin's
+ * protocol-schedule customization. They are the block numbers and timestamps of consensus changes
+ * that peers must agree on, so they are merged into the fork list the EIP-2124 fork ID is computed
+ * from (see {@link GenesisConfigOptions#getForkBlockNumbersWithContributed()}). Block-number and
+ * timestamp activations are kept as two type-partitioned lists, as EIP-2124 / EIP-6122 require; the
+ * two kinds are never compared against each other.
  *
  * @param blockNumbers the block-number fork activations
  * @param timestamps the timestamp fork activations
  */
-public record ForkIdActivations(List<Long> blockNumbers, List<Long> timestamps) {
+public record ContributedForkActivations(List<Long> blockNumbers, List<Long> timestamps) {
 
-  private static final ForkIdActivations EMPTY = new ForkIdActivations(List.of(), List.of());
+  private static final ContributedForkActivations EMPTY =
+      new ContributedForkActivations(List.of(), List.of());
 
   /**
    * Canonical constructor; validates and canonicalizes each activation domain so semantic equality
@@ -37,7 +40,7 @@ public record ForkIdActivations(List<Long> blockNumbers, List<Long> timestamps) 
    * @param blockNumbers the block-number fork activations
    * @param timestamps the timestamp fork activations
    */
-  public ForkIdActivations(final List<Long> blockNumbers, final List<Long> timestamps) {
+  public ContributedForkActivations(final List<Long> blockNumbers, final List<Long> timestamps) {
     this.blockNumbers = canonicalize(blockNumbers, "block numbers");
     this.timestamps = canonicalize(timestamps, "timestamps");
   }
@@ -47,7 +50,7 @@ public record ForkIdActivations(List<Long> blockNumbers, List<Long> timestamps) 
    *
    * @return the empty fork activations
    */
-  public static ForkIdActivations empty() {
+  public static ContributedForkActivations empty() {
     return EMPTY;
   }
 

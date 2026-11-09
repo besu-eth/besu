@@ -616,20 +616,23 @@ class GenesisConfigTest {
   }
 
   @Test
-  public void additionalForkIdActivationsGoIntoACopy() {
+  public void contributedForkActivationsGoIntoACopy() {
     final GenesisConfig original =
         GenesisConfig.fromConfig("{\"config\":{\"homesteadBlock\":10}}")
             .withOverrides(Map.of("chainId", "1234"));
 
     final GenesisConfig extended =
-        original.withAdditionalForkIdActivations(
-            new ForkIdActivations(List.of(11L), List.of(1_000L)));
+        original.withContributedForkActivations(
+            new ContributedForkActivations(List.of(11L), List.of(1_000L)));
 
     assertThat(extended).isNotSameAs(original);
-    assertThat(original.getConfigOptions().getForkIdBlockNumbers()).containsExactly(10L);
-    assertThat(original.getConfigOptions().getForkIdBlockTimestamps()).isEmpty();
-    assertThat(extended.getConfigOptions().getForkIdBlockNumbers()).containsExactly(10L, 11L);
-    assertThat(extended.getConfigOptions().getForkIdBlockTimestamps()).containsExactly(1_000L);
+    assertThat(original.getConfigOptions().getForkBlockNumbersWithContributed())
+        .containsExactly(10L);
+    assertThat(original.getConfigOptions().getForkBlockTimestampsWithContributed()).isEmpty();
+    assertThat(extended.getConfigOptions().getForkBlockNumbersWithContributed())
+        .containsExactly(10L, 11L);
+    assertThat(extended.getConfigOptions().getForkBlockTimestampsWithContributed())
+        .containsExactly(1_000L);
     // the copy keeps the original's overrides
     assertThat(extended.getConfigOptions().getChainId()).contains(BigInteger.valueOf(1234));
   }

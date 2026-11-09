@@ -364,23 +364,27 @@ public interface GenesisConfigOptions {
   Optional<Hash> getTerminalBlockHash();
 
   /**
-   * Gets the fork block numbers this config declares.
+   * Gets the fork block numbers declared by this config's own keys. Activations contributed from
+   * outside the genesis config, such as those of a plugin's protocol-schedule customization, are
+   * not included.
    *
-   * <p>Schedule construction reads this: it is the set of forks Besu itself builds specs for. Use
-   * {@link #getForkIdBlockNumbers()} to advertise a fork ID.
+   * <p>Use this for questions about the forks the genesis defines, such as which specs Besu builds
+   * or where a contribution may activate. Anything that peers must agree on, such as the EIP-2124
+   * fork ID, needs every fork the node runs: use {@link #getForkBlockNumbersWithContributed()}.
    *
-   * @return the fork block numbers
+   * @return the declared fork block numbers
    */
   List<Long> getForkBlockNumbers();
 
   /**
-   * Gets the block activations to advertise under EIP-2124.
+   * Gets the fork block numbers declared by this config's keys plus those contributed from outside
+   * the genesis config, such as a plugin's protocol-schedule customization: every fork the node
+   * runs. The EIP-2124 fork ID is computed from this list, so the Status handshake, the ENR and
+   * {@code eth_config} must all use it.
    *
-   * <p>The declared fork blocks plus any activation contributed from outside the genesis config.
-   *
-   * @return the fork-ID block activations
+   * @return the declared and contributed fork block numbers
    */
-  default List<Long> getForkIdBlockNumbers() {
+  default List<Long> getForkBlockNumbersWithContributed() {
     return getForkBlockNumbers();
   }
 
@@ -400,24 +404,27 @@ public interface GenesisConfigOptions {
   }
 
   /**
-   * Gets the fork block timestamps this config declares.
+   * Gets the fork block timestamps declared by this config's own keys. Activations contributed from
+   * outside the genesis config, such as those of a plugin's protocol-schedule customization, are
+   * not included.
    *
-   * <p>Schedule construction reads this: it is the set of forks Besu itself builds specs for. Use
-   * {@link #getForkIdBlockTimestamps()} to advertise a fork ID.
+   * <p>Use this for questions about the forks the genesis defines, such as which specs Besu builds
+   * or where a contribution may activate. Anything that peers must agree on, such as the EIP-2124
+   * fork ID, needs every fork the node runs: use {@link #getForkBlockTimestampsWithContributed()}.
    *
-   * @return the fork block timestamps
+   * @return the declared fork block timestamps
    */
   List<Long> getForkBlockTimestamps();
 
   /**
-   * Gets the timestamp activations to advertise under EIP-2124.
+   * Gets the fork block timestamps declared by this config's keys plus those contributed from
+   * outside the genesis config, such as a plugin's protocol-schedule customization: every fork the
+   * node runs. The EIP-2124 fork ID is computed from this list, so the Status handshake, the ENR
+   * and {@code eth_config} must all use it.
    *
-   * <p>The declared fork timestamps plus any activation contributed from outside the genesis
-   * config.
-   *
-   * @return the fork-ID timestamp activations
+   * @return the declared and contributed fork block timestamps
    */
-  default List<Long> getForkIdBlockTimestamps() {
+  default List<Long> getForkBlockTimestampsWithContributed() {
     return getForkBlockTimestamps();
   }
 

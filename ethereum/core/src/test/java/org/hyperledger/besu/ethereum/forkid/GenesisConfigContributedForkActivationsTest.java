@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.forkid;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.forkid.ForkIdTestUtil.mockBlockchain;
 
-import org.hyperledger.besu.config.ForkIdActivations;
+import org.hyperledger.besu.config.ContributedForkActivations;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.forkid.ForkIdTestUtil.GenesisHash;
@@ -27,11 +27,10 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Proves the fork activations carried by {@link GenesisConfig#withAdditionalForkIdActivations}
- * reach the EIP-2124 fork ID a {@link ForkIdManager} computes, exactly as the genesis-declared
- * forks do.
+ * Proves the fork activations carried by {@link GenesisConfig#withContributedForkActivations} reach
+ * the EIP-2124 fork ID a {@link ForkIdManager} computes, exactly as the genesis-declared forks do.
  */
-public class GenesisConfigForkIdActivationsTest {
+public class GenesisConfigContributedForkActivationsTest {
 
   // beyond mainnet's last block fork (Gray Glacier, 15_050_000) but ordered before its
   // timestamp forks, as EIP-6122 requires of any block-number activation
@@ -45,8 +44,9 @@ public class GenesisConfigForkIdActivationsTest {
     final List<ForkId> extended =
         allForkIds(
             GenesisConfig.mainnet()
-                .withAdditionalForkIdActivations(
-                    new ForkIdActivations(List.of(EXTRA_BLOCK_FORK), List.of(EXTRA_TIMESTAMP_FORK)))
+                .withContributedForkActivations(
+                    new ContributedForkActivations(
+                        List.of(EXTRA_BLOCK_FORK), List.of(EXTRA_TIMESTAMP_FORK)))
                 .getConfigOptions());
 
     assertThat(stock).noneMatch(forkId -> forkId.getNext() == EXTRA_BLOCK_FORK);
@@ -68,8 +68,8 @@ public class GenesisConfigForkIdActivationsTest {
     final ForkId extended =
         forkIdManager(
                 GenesisConfig.mainnet()
-                    .withAdditionalForkIdActivations(
-                        new ForkIdActivations(List.of(EXTRA_BLOCK_FORK), List.of()))
+                    .withContributedForkActivations(
+                        new ContributedForkActivations(List.of(EXTRA_BLOCK_FORK), List.of()))
                     .getConfigOptions(),
                 head,
                 headTimestamp)
@@ -90,7 +90,7 @@ public class GenesisConfigForkIdActivationsTest {
       final GenesisConfigOptions options, final long chainHeight, final long timestamp) {
     return new ForkIdManager(
         mockBlockchain(GenesisHash.MAINNET, chainHeight, timestamp),
-        options.getForkIdBlockNumbers(),
-        options.getForkIdBlockTimestamps());
+        options.getForkBlockNumbersWithContributed(),
+        options.getForkBlockTimestampsWithContributed());
   }
 }

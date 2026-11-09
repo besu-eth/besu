@@ -801,8 +801,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final ForkIdManager forkIdManager =
         new ForkIdManager(
             blockchain,
-            genesisConfigOptions.getForkIdBlockNumbers(),
-            genesisConfigOptions.getForkIdBlockTimestamps());
+            genesisConfigOptions.getForkBlockNumbersWithContributed(),
+            genesisConfigOptions.getForkBlockTimestampsWithContributed());
     final EthPeers ethPeers =
         new EthPeers(
             currentProtocolSpecSupplier,

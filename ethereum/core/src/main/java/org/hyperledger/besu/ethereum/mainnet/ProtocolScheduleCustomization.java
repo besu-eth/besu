@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import org.hyperledger.besu.config.ForkIdActivations;
+import org.hyperledger.besu.config.ContributedForkActivations;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.plugin.Unstable;
 
@@ -172,12 +172,13 @@ public record ProtocolScheduleCustomization(
   }
 
   /**
-   * Converts the typed fork activations to the configuration representation used by EIP-2124.
+   * Converts this customization's activations to the fork activations it contributes to the genesis
+   * config, from which the EIP-2124 fork ID is computed.
    *
    * <p>Every activation reaches one of the two lists: the switch is over a sealed type, so a domain
    * added later fails to compile here rather than dropping out of the advertised fork ID.
    */
-  public ForkIdActivations toForkIdActivations() {
+  public ContributedForkActivations toContributedForkActivations() {
     final List<Long> blockNumbers = new ArrayList<>();
     final List<Long> timestamps = new ArrayList<>();
     for (final ProtocolSpecModification modification : modifications) {
@@ -186,6 +187,6 @@ public record ProtocolScheduleCustomization(
         case ProtocolScheduleActivation.Timestamp timestamp -> timestamps.add(timestamp.value());
       }
     }
-    return new ForkIdActivations(blockNumbers, timestamps);
+    return new ContributedForkActivations(blockNumbers, timestamps);
   }
 }

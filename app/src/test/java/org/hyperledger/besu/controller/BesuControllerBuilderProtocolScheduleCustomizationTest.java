@@ -53,15 +53,18 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
 
     // the fork ID a node advertises carries what the plugin contributed: a node enforcing rules it
     // does not announce is rejected by every peer running another client
-    assertThat(builder.genesisConfigOptions.getForkIdBlockNumbers()).containsExactly(10L, 11L);
-    assertThat(builder.genesisConfigOptions.getForkIdBlockTimestamps()).containsExactly(1_000L);
+    assertThat(builder.genesisConfigOptions.getForkBlockNumbersWithContributed())
+        .containsExactly(10L, 11L);
+    assertThat(builder.genesisConfigOptions.getForkBlockTimestampsWithContributed())
+        .containsExactly(1_000L);
     // the forks the config declares are unchanged, so schedule construction is unaffected
     assertThat(builder.genesisConfigOptions.getForkBlockNumbers()).containsExactly(10L);
     assertThat(builder.genesisConfigOptions.getForkBlockTimestamps()).isEmpty();
     assertThat(builder.protocolScheduleCustomization).isSameAs(CUSTOMIZATION);
     // the caller's config is left as it was: the activations went into the builder's copy
-    assertThat(genesisConfig.getConfigOptions().getForkIdBlockNumbers()).containsExactly(10L);
-    assertThat(genesisConfig.getConfigOptions().getForkIdBlockTimestamps()).isEmpty();
+    assertThat(genesisConfig.getConfigOptions().getForkBlockNumbersWithContributed())
+        .containsExactly(10L);
+    assertThat(genesisConfig.getConfigOptions().getForkBlockTimestampsWithContributed()).isEmpty();
   }
 
   @Test
@@ -74,7 +77,7 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("example-chain")
         .hasMessageContaining("QbftBesuControllerBuilder");
-    assertThat(genesisConfig.getConfigOptions().getForkIdBlockNumbers()).isEmpty();
+    assertThat(genesisConfig.getConfigOptions().getForkBlockNumbersWithContributed()).isEmpty();
   }
 
   @Test
@@ -90,7 +93,8 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
         new BesuController.Builder()
             .fromGenesisFile(GenesisConfig.fromConfig(POW_GENESIS), SyncMode.FULL);
 
-    assertThat(builder.genesisConfigOptions.getForkIdBlockNumbers()).containsExactly(10L);
+    assertThat(builder.genesisConfigOptions.getForkBlockNumbersWithContributed())
+        .containsExactly(10L);
     assertThat(builder.protocolScheduleCustomization.modifications()).isEmpty();
   }
 
