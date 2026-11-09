@@ -572,6 +572,79 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("Returns a reverted result when no collision detected")
+    void returnsRevertedResultWhenNoCollision() {
+      final Transaction transaction = mockTransaction();
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.failed(
+                  0,
+                  0,
+                  ValidationResult.valid(),
+                  Optional.of(Bytes.EMPTY),
+                  Optional.empty(),
+                  Optional.empty()));
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected the reverted result when no collision");
+      assertTrue(result.get().isFailed(), "Expected a failed result");
+    }
+
+    @Test
+    @DisplayName("Returns empty when the worker failed with an error")
+    void returnsEmptyWhenWorkerFailedWithError() {
+      final Transaction transaction = mockTransaction();
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenThrow(new StackOverflowError());
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      assertThat(processor.futures[0]).isCompletedExceptionally();
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isEmpty(), "Expected the transaction to be executed sequentially");
+    }
+
+    @Test
     @DisplayName("First transaction succeeds, second triggers fallback")
     void partialFallbackOnSecondTransaction() {
       final Transaction tx1 = mockTransaction();
