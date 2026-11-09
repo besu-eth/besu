@@ -50,8 +50,8 @@ public class NativeLibraryOptions {
       hidden = true,
       names = {"--Xmodexp-native-enabled"},
       description =
-          "Per default a native library is used for modexp. "
-              + "If the Java implementation should be used instead, this option must be set to false",
+          "Per default the Java implementation is used for modexp. "
+              + "If the native library should be used instead, this option must be set to true",
       arity = "1")
   private final Boolean nativeModExp = Boolean.FALSE;
 

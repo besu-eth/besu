@@ -27,6 +27,7 @@ import org.hyperledger.besu.nativelib.arithmetic.LibArithmetic;
 import java.math.BigInteger;
 import java.util.Optional;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.sun.jna.ptr.IntByReference;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
@@ -117,8 +118,8 @@ public class BigIntegerModularExponentiationPrecompiledContract
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }
 
-    // OPTIMIZATION: overwrite native setting for this case
-    if (LibArithmetic.ENABLED) {
+    // OPTIMIZATION: use the native library for an even base, unless native has been disabled
+    if (useNative && LibArithmetic.ENABLED) {
       final int baseOffset = clampedToInt(BASE_OFFSET);
       final int baseLength = clampedToInt(length_of_BASE);
       final int modulusLength = clampedToInt(length_of_MODULUS);
@@ -275,8 +276,8 @@ public class BigIntegerModularExponentiationPrecompiledContract
     return clampedMultiply(n, n);
   }
 
-  private PrecompileContractResult computeNative(
-      final @NotNull Bytes input, final int modulusLength) {
+  @VisibleForTesting
+  PrecompileContractResult computeNative(final @NotNull Bytes input, final int modulusLength) {
     final IntByReference o_len = new IntByReference(modulusLength);
 
     final byte[] result = new byte[modulusLength];
