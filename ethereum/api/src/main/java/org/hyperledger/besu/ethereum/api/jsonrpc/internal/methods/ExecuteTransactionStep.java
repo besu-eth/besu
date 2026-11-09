@@ -22,9 +22,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionT
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -106,7 +106,7 @@ public class ExecuteTransactionStep implements Function<TransactionTrace, Transa
               header.getCoinbase(),
               tracer,
               blockHashLookup,
-              ImmutableTransactionValidationParams.builder().build(),
+              TransactionValidationParams.blockReplay(),
               blobGasPrice,
               Optional.empty());
 

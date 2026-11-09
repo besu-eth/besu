@@ -718,6 +718,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
+                InclusionListTransactions.EMPTY,
                 false);
 
     return validationResult;
@@ -735,6 +736,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
+                // the inclusion list validation result is not used for a proposed block
+                InclusionListTransactions.EMPTY,
                 false,
                 false);
     if (validationResult.isSuccessful()) {
@@ -751,14 +754,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public BlockProcessingResult rememberBlock(
-      final Block block, final Optional<BlockAccessList> blockAccessList) {
-    return rememberBlock(block, blockAccessList, Runnable::run);
-  }
-
-  @Override
-  public BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
+      final InclusionListTransactions inclusionListTransactions,
       final Executor blockWriter) {
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
     final var chain = protocolContext.getBlockchain();
@@ -776,7 +774,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                             block,
                             HeaderValidationMode.FULL,
                             HeaderValidationMode.NONE,
-                            blockAccessList));
+                            blockAccessList,
+                            inclusionListTransactions));
     validationResult
         .getYield()
         .ifPresentOrElse(

@@ -130,7 +130,7 @@ public class DebugGetRawExecutionRequestsTest {
   @Test
   public void shouldReturnInternalErrorWhenReExecutionFails() {
     when(blockValidator.validateAndProcessBlock(
-            any(), eq(block), any(), any(), any(), anyBoolean(), anyBoolean()))
+            any(), eq(block), any(), any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(BlockProcessingResult.FAILED);
 
     final JsonRpcErrorResponse response = (JsonRpcErrorResponse) request();
@@ -150,7 +150,7 @@ public class DebugGetRawExecutionRequestsTest {
   private void reExecutionYields(final Optional<List<Request>> requests) {
     final BlockProcessingOutputs outputs = new BlockProcessingOutputs(List.of(), requests);
     when(blockValidator.validateAndProcessBlock(
-            any(), eq(block), any(), any(), any(), anyBoolean(), anyBoolean()))
+            any(), eq(block), any(), any(), any(), any(), anyBoolean(), anyBoolean()))
         .thenReturn(new BlockProcessingResult(Optional.of(outputs)));
   }
 

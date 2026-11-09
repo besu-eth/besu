@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.SEQ_NO_S
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockchainStorage;
+import org.hyperledger.besu.ethereum.chain.InclusionListStatus;
 import org.hyperledger.besu.ethereum.chain.TransactionLocation;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -70,6 +71,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   private static final Bytes TRANSACTION_LOCATION_PREFIX = Bytes.of(7);
   private static final Bytes BLOCK_ACCESS_LIST_PREFIX = Bytes.of(8);
   private static final Bytes SENDER_NONCE_TO_TX_HASH_PREFIX = Bytes.of(9);
+  private static final Bytes INCLUSION_LIST_STATUS_PREFIX = Bytes.of(10);
   private static final SimpleNoCopyRlpEncoder NO_COPY_RLP_ENCODER = new SimpleNoCopyRlpEncoder();
 
   final KeyValueStorage blockchainStorage;
@@ -146,6 +148,11 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   }
 
   @Override
+  public Optional<Long> getSyncFloor() {
+    return variablesStorage.getSyncFloor();
+  }
+
+  @Override
   public Optional<BlockHeader> getBlockHeader(final Hash blockHash) {
     return get(BLOCK_HEADER_PREFIX, blockHash.getBytes())
         .map(b -> BlockHeader.readFrom(RLP.input(b), blockHeaderFunctions, blockHash));
@@ -158,8 +165,23 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   }
 
   @Override
+  public Optional<Bytes> getBlockBodyRlp(final Hash blockHash) {
+    return get(BLOCK_BODY_PREFIX, blockHash.getBytes());
+  }
+
+  @Override
   public Optional<BlockAccessList> getBlockAccessList(final Hash blockHash) {
-    return get(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes()).map(this::rlpDecodeBlockAccessList);
+    return get(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes()).map(this::decodeBlockAccessList);
+  }
+
+  @Override
+  public Optional<Bytes> getBlockAccessListRlp(final Hash blockHash) {
+    return get(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes());
+  }
+
+  @Override
+  public BlockAccessList decodeBlockAccessList(final Bytes rlp) {
+    return BlockAccessListDecoder.decode(RLP.input(rlp));
   }
 
   @Override
@@ -191,6 +213,11 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
         .map(bytes -> Hash.wrap(Bytes32.wrap(bytes, 0)));
   }
 
+  @Override
+  public Optional<InclusionListStatus> getInclusionListStatus(final Hash blockHash) {
+    return get(INCLUSION_LIST_STATUS_PREFIX, blockHash.getBytes()).map(InclusionListStatus::decode);
+  }
+
   private static Bytes senderNonceKey(final Address sender, final long nonce) {
     return Bytes.concatenate(sender.getBytes(), Bytes.ofUnsignedLong(nonce));
   }
@@ -209,10 +236,6 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
 
   private List<TransactionReceipt> rlpDecodeTransactionReceipts(final Bytes bytes) {
     return RLP.input(bytes).readList(in -> TransactionReceiptDecoder.readFrom(in, true));
-  }
-
-  private BlockAccessList rlpDecodeBlockAccessList(final Bytes bytes) {
-    return BlockAccessListDecoder.decode(RLP.input(bytes));
   }
 
   private Hash bytesToHash(final Bytes bytes) {
@@ -363,8 +386,10 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     }
 
     @Override
-    public void putBlockAccessList(final Hash blockHash, final BlockAccessList blockAccessList) {
-      set(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes(), rlpEncode(blockAccessList));
+    public Bytes putBlockAccessList(final Hash blockHash, final BlockAccessList blockAccessList) {
+      final Bytes rlp = rlpEncode(blockAccessList);
+      set(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes(), rlp);
+      return rlp;
     }
 
     @Override
@@ -436,6 +461,11 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     }
 
     @Override
+    public void setSyncFloor(final long blockNumber) {
+      variablesUpdater.setSyncFloor(blockNumber);
+    }
+
+    @Override
     public void removeBlockHash(final long blockNumber) {
       remove(BLOCK_HASH_PREFIX, UInt256.valueOf(blockNumber));
     }
@@ -482,6 +512,17 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     @Override
     public void removeTotalDifficulty(final Hash blockHash) {
       remove(TOTAL_DIFFICULTY_PREFIX, blockHash.getBytes());
+    }
+
+    @Override
+    public void removeInclusionListStatus(final Hash blockHash) {
+      remove(INCLUSION_LIST_STATUS_PREFIX, blockHash.getBytes());
+    }
+
+    @Override
+    public void putInclusionListStatus(
+        final Hash blockHash, final InclusionListStatus inclusionListStatus) {
+      set(INCLUSION_LIST_STATUS_PREFIX, blockHash.getBytes(), inclusionListStatus.encode());
     }
 
     @Override

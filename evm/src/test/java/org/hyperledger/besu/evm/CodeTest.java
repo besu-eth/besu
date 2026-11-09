@@ -71,6 +71,7 @@ class CodeTest {
   private MessageFrame createJumpFrame(final Code getsCached) {
     final MessageFrame frame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MESSAGE_CALL)
             .worldUpdater(mock(WorldUpdater.class))
             .initialGas(10_000L)

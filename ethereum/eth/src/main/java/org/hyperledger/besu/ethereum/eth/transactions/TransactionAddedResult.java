@@ -35,6 +35,11 @@ public final class TransactionAddedResult {
       new TransactionAddedResult(TransactionInvalidReason.TRANSACTION_REPLACEMENT_UNDERPRICED);
   public static final TransactionAddedResult NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER =
       new TransactionAddedResult(TransactionInvalidReason.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER);
+  public static final TransactionAddedResult DELEGATION_AUTHORITY_HAS_PENDING_TRANSACTIONS =
+      new TransactionAddedResult(
+          TransactionInvalidReason.DELEGATION_AUTHORITY_HAS_PENDING_TRANSACTIONS);
+  public static final TransactionAddedResult NONCE_ALREADY_CONSUMED_FOR_SENDER =
+      new TransactionAddedResult(TransactionInvalidReason.NONCE_ALREADY_CONSUMED_FOR_SENDER);
 
   public static final TransactionAddedResult ADDED = new TransactionAddedResult(Status.ADDED);
   public static final TransactionAddedResult TRY_NEXT_LAYER =

@@ -85,6 +85,14 @@ final class StateServers {
     return record != null && record.servedEpoch >= 0;
   }
 
+  /** Returns the number of peers that served state and are not left out at this time. */
+  int serving(final long now) {
+    return (int)
+        answers.values().stream()
+            .filter(record -> record.servedEpoch >= 0 && record.excludedUntil <= now)
+            .count();
+  }
+
   /** Returns the peers left out at this time, forgetting the disconnected ones. */
   Set<EthPeer> excluded(final long now) {
     answers.keySet().removeIf(EthPeer::isDisconnected);

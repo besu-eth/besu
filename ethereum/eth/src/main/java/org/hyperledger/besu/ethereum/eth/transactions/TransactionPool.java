@@ -26,6 +26,7 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
@@ -56,7 +57,6 @@ import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.fluent.SimpleAccount;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
 
 import java.io.BufferedReader;
@@ -111,6 +111,9 @@ public class TransactionPool implements BlockAddedObserver {
   private final Supplier<PendingTransactions> pendingTransactionsSupplier;
   private final BlobCache cacheForBlobsOfTransactionsAddedToABlock;
   private volatile PendingTransactions pendingTransactions = new DisabledPendingTransactions();
+  // only for the pools that require it, it is an attack mitigation for the pools that are exposed
+  // to untrusted senders, and it is not applied to the ones that are not, as the gas-free ones
+  private volatile Optional<DelegationLimits> delegationLimits = Optional.empty();
   private final ProtocolSchedule protocolSchedule;
   private final ProtocolContext protocolContext;
   private final EthContext ethContext;
@@ -286,10 +289,26 @@ public class TransactionPool implements BlockAddedObserver {
         validateTransaction(transaction, isLocal, hasPriority);
 
     if (validationResult.result.isValid()) {
+      // recovering the authorities of the code delegations is expensive, and the result is cached
+      // in
+      // the transaction, so do it now, before the pool lock is taken to add the transaction
+      transaction
+          .getCodeDelegationList()
+          .ifPresent(codeDelegations -> codeDelegations.forEach(CodeDelegation::authorizer));
+
+      final PendingTransaction pendingTransaction =
+          PendingTransaction.newPendingTransaction(transaction, isLocal, hasPriority, score);
+      final Optional<DelegationLimits> limits = delegationLimits;
       final TransactionAddedResult status =
-          pendingTransactions.addTransaction(
-              PendingTransaction.newPendingTransaction(transaction, isLocal, hasPriority, score),
-              validationResult.maybeAccount);
+          limits.isPresent()
+              ? limits
+                  .get()
+                  .addTransaction(
+                      pendingTransaction,
+                      validationResult.maybeAccount,
+                      validationResult.chainHeadHash)
+              : pendingTransactions.addTransaction(
+                  pendingTransaction, validationResult.maybeAccount);
       if (status.isSuccess()) {
         LOG.atTrace()
             .setMessage("Added {} transaction {}")
@@ -433,6 +452,8 @@ public class TransactionPool implements BlockAddedObserver {
         e.getAddedTransactions(),
         e.getRemovedTransactions(),
         protocolSchedule.getByBlockHeader(e.getHeader()).getFeeMarket());
+    delegationLimits.ifPresent(
+        limits -> limits.blockAdded(e.getHeader(), e.getAddedTransactions()));
     reAddTransactions(e.getRemovedTransactions());
     LOG.atTrace()
         .setMessage("Block added event {} processed in {}ms")
@@ -578,6 +599,7 @@ public class TransactionPool implements BlockAddedObserver {
       final Account senderAccount = worldState.get(transaction.getSender());
       return new ValidationResultAndAccount(
           senderAccount,
+          chainHeadBlockHeader.getHash(),
           getTransactionValidator()
               .validateForSender(
                   transaction, senderAccount, TransactionValidationParams.transactionPool()));
@@ -663,6 +685,10 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.size();
   }
 
+  public TransactionPoolConfiguration getConfiguration() {
+    return configuration;
+  }
+
   public Collection<PendingTransaction> getPendingTransactions() {
     return pendingTransactions.getPendingTransactions();
   }
@@ -707,6 +733,11 @@ public class TransactionPool implements BlockAddedObserver {
   }
 
   @VisibleForTesting
+  public int trackedDelegationTransactionCount() {
+    return delegationLimits.map(DelegationLimits::trackedTransactionCount).orElse(0);
+  }
+
+  @VisibleForTesting
   Class<? extends PendingTransactions> pendingTransactionsImplementation() {
     return pendingTransactions.getClass();
   }
@@ -719,19 +750,22 @@ public class TransactionPool implements BlockAddedObserver {
   private static class ValidationResultAndAccount {
     final ValidationResult<TransactionInvalidReason> result;
     final Optional<Account> maybeAccount;
+    // the hash of the chain head that the account was read from
+    final Hash chainHeadHash;
 
     ValidationResultAndAccount(
-        final Account account, final ValidationResult<TransactionInvalidReason> result) {
+        final Account account,
+        final Hash chainHeadHash,
+        final ValidationResult<TransactionInvalidReason> result) {
       this.result = result;
-      this.maybeAccount =
-          Optional.ofNullable(account)
-              .map(
-                  acct -> new SimpleAccount(acct.getAddress(), acct.getNonce(), acct.getBalance()));
+      this.maybeAccount = Optional.ofNullable(account).map(DelegationLimits::detach);
+      this.chainHeadHash = chainHeadHash;
     }
 
     ValidationResultAndAccount(final ValidationResult<TransactionInvalidReason> result) {
       this.result = result;
       this.maybeAccount = Optional.empty();
+      this.chainHeadHash = null;
     }
 
     static ValidationResultAndAccount invalid(
@@ -749,6 +783,10 @@ public class TransactionPool implements BlockAddedObserver {
       if (!isEnabled()) {
         logStart(configuration, getChainHeadBlockHeader());
         pendingTransactions = pendingTransactionsSupplier.get();
+        delegationLimits =
+            pendingTransactions.requiresDelegationLimits()
+                ? Optional.of(new DelegationLimits(pendingTransactions, protocolContext))
+                : Optional.empty();
         isPoolEnabled.set(true);
         subscribeConnectId =
             OptionalLong.of(ethContext.getEthPeers().subscribeConnect(this::handleConnect));
@@ -799,6 +837,7 @@ public class TransactionPool implements BlockAddedObserver {
                       }
                     });
         pendingTransactions = new DisabledPendingTransactions();
+        delegationLimits = Optional.empty();
         logStop();
         return saveOperation;
       }

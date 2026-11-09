@@ -44,7 +44,6 @@ public class SnapSyncConfiguration {
       1024; // The default number of flat slots entries to verify and heal per request.
 
   public static final Boolean DEFAULT_SNAP_SERVER_ENABLED = Boolean.FALSE;
-  public static final Boolean DEFAULT_SNAP2_ENABLED = Boolean.FALSE;
 
   /**
    * Default cap on the number of snap/1-2 GET_* requests from a single peer that may have a service
@@ -116,11 +115,6 @@ public class SnapSyncConfiguration {
   @Value.Default
   public Boolean isSnapServerEnabled() {
     return DEFAULT_SNAP_SERVER_ENABLED;
-  }
-
-  @Value.Default
-  public Boolean isSnap2Enabled() {
-    return DEFAULT_SNAP2_ENABLED;
   }
 
   @Value.Default
