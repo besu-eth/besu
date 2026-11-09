@@ -328,14 +328,14 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
     // During head commit publish, ignore the cache completely: no stale hits, no miss inserts.
     if (isCommitCacheBypassActive()) {
       cacheMissCounter.inc();
-      return storageGetter.get();
+      return BenchReads.timed(storageGetter);
     }
 
     final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
 
     if (cache == null) {
       cacheMissCounter.inc();
-      return storageGetter.get();
+      return BenchReads.timed(storageGetter);
     }
 
     final CacheKey cacheKey = CacheKey.of(key);
@@ -347,7 +347,7 @@ public class VersionedFlatDbCacheManager implements FlatDbCacheManager, Closeabl
     }
 
     cacheMissCounter.inc();
-    final Optional<Bytes> result = storageGetter.get();
+    final Optional<Bytes> result = BenchReads.timed(storageGetter);
 
     if (version == globalVersion.get()) {
       cacheInsertCounter.inc();

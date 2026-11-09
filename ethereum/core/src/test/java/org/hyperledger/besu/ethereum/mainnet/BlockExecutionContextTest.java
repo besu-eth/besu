@@ -236,7 +236,8 @@ class BlockExecutionContextTest {
 
   @Test
   void outputValidatorIsKeptAndCopiedByToBuilder() {
-    final BlockExecutionContext.OutputValidator outputValidator = (receipts, gasMetered) -> false;
+    final BlockExecutionContext.OutputValidator outputValidator =
+        (receipts, receiptsRoot, gasMetered) -> false;
     final BlockExecutionContext context =
         BlockExecutionContext.builder()
             .protocolContext(protocolContext)

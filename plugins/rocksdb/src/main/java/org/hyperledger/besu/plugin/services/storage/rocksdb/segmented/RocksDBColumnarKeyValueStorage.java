@@ -90,6 +90,24 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   private static final int ROCKSDB_FORMAT_VERSION = 5;
   private static final long ROCKSDB_BLOCK_SIZE = 32768;
 
+  // experiment: the block size of the flat state column families, whose point reads pull a whole
+  // block for one entry; applies to the SSTs written from then on (see compactSegments)
+  private static final long EXP_BLOCK_SIZE = Long.getLong("besu.rocksdb.exp.blockSize", 0L);
+  private static final List<String> EXP_BLOCK_SIZE_SEGMENTS =
+      Splitter.on(',')
+          .omitEmptyStrings()
+          .trimResults()
+          .splitToList(
+              System.getProperty(
+                  "besu.rocksdb.exp.blockSizeSegments",
+                  "ACCOUNT_INFO_STATE,ACCOUNT_STORAGE_STORAGE"));
+  // experiment: compact these column families at startup, which rewrites them with the options in
+  // place
+  private static final String EXP_COMPACT_SEGMENTS =
+      System.getProperty("besu.rocksdb.exp.compactSegments", "");
+  private static final int EXP_COMPACT_THREADS =
+      Integer.getInteger("besu.rocksdb.exp.compactThreads", 8);
+
   /** RocksDb blockcache size when using the high spec option */
   protected static final long ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC = 1_073_741_824L;
 
@@ -318,7 +336,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         .setFilterPolicy(new BloomFilter(10, false))
         .setPartitionFilters(true)
         .setCacheIndexAndFilterBlocks(segment.isCacheIndexAndFilterBlocks())
-        .setBlockSize(ROCKSDB_BLOCK_SIZE);
+        .setBlockSize(blockSizeFor(segment));
+  }
+
+  private static long blockSizeFor(final SegmentIdentifier segment) {
+    return EXP_BLOCK_SIZE > 0 && EXP_BLOCK_SIZE_SEGMENTS.contains(segment.getName())
+        ? EXP_BLOCK_SIZE
+        : ROCKSDB_BLOCK_SIZE;
   }
 
   /***
@@ -443,8 +467,40 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /** Runs the configured startup warm-ups when enabled. */
   public void warmUpAtStartup() {
+    compactSegmentsForExperiment();
     if (configuration.isTableCacheWarmupEnabled()) {
       warmUpTableCache();
+    }
+  }
+
+  private void compactSegmentsForExperiment() {
+    for (final String name : Splitter.on(',').omitEmptyStrings().split(EXP_COMPACT_SEGMENTS)) {
+      final SegmentIdentifier segment =
+          trimmedSegments.stream()
+              .filter(s -> s.getName().equals(name))
+              .findFirst()
+              .orElseThrow(() -> new IllegalArgumentException("Unknown segment " + name));
+      final ColumnFamilyHandle handle = safeColumnHandle(segment);
+      try (org.rocksdb.CompactRangeOptions compactOptions =
+          new org.rocksdb.CompactRangeOptions()
+              .setBottommostLevelCompaction(
+                  org.rocksdb.CompactRangeOptions.BottommostLevelCompaction.kForce)
+              .setExclusiveManualCompaction(true)
+              .setMaxSubcompactions(EXP_COMPACT_THREADS)) {
+        final long start = System.currentTimeMillis();
+        LOG.info(
+            "Experiment: compacting {}, {} bytes of SSTs",
+            name,
+            getDB().getLongProperty(handle, "rocksdb.total-sst-files-size"));
+        getDB().compactRange(handle, null, null, compactOptions);
+        LOG.info(
+            "Experiment: compacted {} in {} s, {} bytes of SSTs",
+            name,
+            (System.currentTimeMillis() - start) / 1000,
+            getDB().getLongProperty(handle, "rocksdb.total-sst-files-size"));
+      } catch (final RocksDBException e) {
+        throw new StorageException(e);
+      }
     }
   }
 

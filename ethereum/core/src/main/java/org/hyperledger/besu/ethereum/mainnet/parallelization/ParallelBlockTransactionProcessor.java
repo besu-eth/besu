@@ -63,18 +63,28 @@ public abstract class ParallelBlockTransactionProcessor {
       futures[i] =
           CompletableFuture.supplyAsync(
               () ->
-                  runTransaction(
-                      protocolContext,
-                      blockHeader,
-                      txIndex,
-                      transaction,
-                      miningBeneficiary,
-                      blockHashLookup,
-                      blobGasPrice,
-                      blockAccessListBuilder,
-                      maybeParentHeader),
+                  precomputeLogsBloom(
+                      runTransaction(
+                          protocolContext,
+                          blockHeader,
+                          txIndex,
+                          transaction,
+                          miningBeneficiary,
+                          blockHashLookup,
+                          blobGasPrice,
+                          blockAccessListBuilder,
+                          maybeParentHeader)),
               executor);
     }
+  }
+
+  // the receipt's bloom depends on this transaction alone, so it is hashed on the worker
+  protected static ParallelizedTransactionContext precomputeLogsBloom(
+      final ParallelizedTransactionContext context) {
+    if (context != null && context.transactionProcessingResult() != null) {
+      context.transactionProcessingResult().getLogsBloom();
+    }
+    return context;
   }
 
   /**
@@ -101,6 +111,19 @@ public abstract class ParallelBlockTransactionProcessor {
         .getWorldStateArchive()
         .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
         .map(BonsaiWorldState.class::cast);
+  }
+
+  /**
+   * Copies the transaction for a worker after recovering its sender on the block's own transaction,
+   * which newPayload's sender precompute also uses, so each sender is recovered once.
+   */
+  protected static Transaction detachedCopyWithSender(final Transaction transaction) {
+    try {
+      transaction.getSender();
+    } catch (final IllegalArgumentException | IllegalStateException e) {
+      // The copy's validation reports a signature that does not recover a sender
+    }
+    return transaction.detachedCopy();
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(

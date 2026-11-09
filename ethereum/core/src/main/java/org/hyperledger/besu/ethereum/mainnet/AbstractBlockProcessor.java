@@ -32,11 +32,13 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidator;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
@@ -44,6 +46,7 @@ import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.BenchReads;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -58,13 +61,17 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
+import org.hyperledger.besu.util.platform.ThreadAffinity;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Suppliers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,6 +89,15 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   }
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractBlockProcessor.class);
+
+  // replay benchmarks: log each sequential execution's time
+  private static final boolean LOG_TX_TIMES = Boolean.getBoolean("besu.bench.logTxTimes");
+
+  // experiment: the thread that runs the block's transactions in order, the critical path, is bound
+  // to these CPUs, which the node's other threads are kept off
+  private static final String SERIAL_CPUS = System.getProperty("besu.t14.serialCpus");
+  private static final ThreadLocal<Boolean> SERIAL_THREAD_BOUND =
+      ThreadLocal.withInitial(() -> false);
 
   protected final MainnetTransactionProcessor transactionProcessor;
 
@@ -153,11 +169,25 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   @Override
   public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    if (SERIAL_CPUS != null && !SERIAL_THREAD_BOUND.get()) {
+      SERIAL_THREAD_BOUND.set(true);
+      final boolean bound = ThreadAffinity.bindCurrentThread(ThreadAffinity.parse(SERIAL_CPUS));
+      LOG.info(
+          "Thread {} processing blocks bound to CPUs {}: {}",
+          Thread.currentThread().getName(),
+          SERIAL_CPUS,
+          bound);
+    }
+    final long benchStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
     final ProtocolContext protocolContext = context.getProtocolContext();
     final Blockchain blockchain = protocolContext.getBlockchain();
     final MutableWorldState worldState = context.getWorldState();
     final Block block = context.getBlock();
     final Optional<BlockAccessList> blockAccessList = context.getBlockAccessList();
+    // Shared by the state root and the parallel execution, so the block's accounts are indexed and
+    // hashed once.
+    final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup =
+        blockAccessList.map(BlockAccessListAccountLookup::of);
     final List<TransactionReceipt> receipts = new ArrayList<>();
     // EIP-7778: Track two separate cumulative gas values
     // cumulativeExecutionGasUsed: For block gas limit enforcement (uses protocol-specific strategy)
@@ -192,7 +222,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final StateRootCommitter stateRootCommitter =
         protocolSpec
             .getStateRootCommitterFactory()
-            .forBlock(protocolContext, blockHeader, blockAccessList, worldState.isStorageFrozen())
+            .forBlock(
+                protocolContext,
+                blockHeader,
+                blockAccessListAccountLookup,
+                worldState.isStorageFrozen())
             .timed(blockProcessingMetrics.stateRootCalculationTimer());
 
     final Optional<BlockAccessListBuilder> blockAccessListBuilder =
@@ -240,13 +274,14 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 blockHashLookup,
                 blobGasPrice,
                 blockAccessListBuilder,
-                blockAccessList,
+                blockAccessListAccountLookup,
                 maybeParentHeader);
       }
 
       boolean parallelizedTxFound = false;
       int nbParallelTx = 0;
 
+      final long benchLoopStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
       for (int i = 0; i < transactions.size(); i++) {
         final WorldUpdater blockUpdater = worldState.updater();
         final Transaction transaction = transactions.get(i);
@@ -346,6 +381,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       }
 
+      final long benchLoopEnd = LOG_TX_TIMES ? System.nanoTime() : 0L;
       final var optionalHeaderBlobGasUsed = blockHeader.getBlobGasUsed();
       if (optionalHeaderBlobGasUsed.isPresent()) {
         final long headerBlobGasUsed = optionalHeaderBlobGasUsed.get();
@@ -508,10 +544,17 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       // EIP-8037: gas_metered = max(cumulative_execution, cumulative_state)
       final long gasMetered = Math.max(cumulativeExecutionGasUsed, cumulativeStateGasUsed);
 
+      // the receipts are final, so a worker computes their root; whoever needs it first waits for
+      // that computation or runs it on its own thread
+      final Supplier<Hash> receiptsRoot =
+          Suppliers.memoize(() -> BodyValidation.receiptsRoot(receipts));
+      CompletableFuture.supplyAsync(receiptsRoot, BlockProcessingExecutors.cpuExecutor());
+
       // persisting moves a head world state onto the block, so a mismatch must be caught first
       final Optional<BlockExecutionContext.OutputValidator> outputValidator =
           context.getOutputValidator();
-      if (outputValidator.isPresent() && !outputValidator.get().validate(receipts, gasMetered)) {
+      if (outputValidator.isPresent()
+          && !outputValidator.get().validate(receipts, receiptsRoot, gasMetered)) {
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -519,6 +562,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             Optional.empty(), "failed to validate output of imported block");
       }
 
+      final long benchPersistStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
       try {
         worldState.persist(blockHeader, stateRootCommitter);
       } catch (MerkleTrieException e) {
@@ -534,6 +578,17 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         LOG.error("failed persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
       }
+      if (LOG_TX_TIMES) {
+        final long benchEnd = System.nanoTime();
+        LOG.info(
+            "Bench phases block {} pre_us {} loop_us {} post_us {} persist_us {} t {}",
+            blockHeader.getNumber(),
+            (benchLoopStart - benchStart) / 1000,
+            (benchLoopEnd - benchLoopStart) / 1000,
+            (benchPersistStart - benchLoopEnd) / 1000,
+            (benchEnd - benchPersistStart) / 1000,
+            benchStart / 1000);
+      }
 
       return new BlockProcessingResult(
           Optional.of(
@@ -544,7 +599,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   maybeBlockAccessList,
                   gasMetered,
                   blockHashLookup.getAccessedAncestors(),
-                  inclusionListValidationResult)),
+                  inclusionListValidationResult,
+                  receiptsRoot)),
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } catch (final MerkleTrieException | StorageException e) {
       // the block may be processed again on this world state, without the transactions before
@@ -581,7 +637,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-      final Optional<BlockAccessList> blockAccessList,
+      final Optional<BlockAccessListAccountLookup> blockAccessListAccountLookup,
       final Optional<BlockHeader> maybeParentHeader) {
     return Optional.empty();
   }
@@ -620,16 +676,35 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Transaction transaction,
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    return transactionProcessor.processTransaction(
-        transactionUpdater,
-        blockProcessingContext.getBlockHeader(),
-        transaction,
-        miningBeneficiary,
-        blockProcessingContext.getOperationTracer(),
-        blockHashLookup,
-        TransactionValidationParams.processingBlock(),
-        blobGasPrice,
-        accessLocationTracker);
+    final long start = LOG_TX_TIMES ? System.nanoTime() : 0L;
+    if (LOG_TX_TIMES) {
+      BenchReads.take();
+    }
+    final TransactionProcessingResult result =
+        transactionProcessor.processTransaction(
+            transactionUpdater,
+            blockProcessingContext.getBlockHeader(),
+            transaction,
+            miningBeneficiary,
+            blockProcessingContext.getOperationTracer(),
+            blockHashLookup,
+            TransactionValidationParams.processingBlock(),
+            blobGasPrice,
+            accessLocationTracker);
+    if (LOG_TX_TIMES) {
+      final long[] reads = BenchReads.take();
+      LOG.info(
+          "Bench tx seq block {} hash {} to {} gas {} us {} t {} db {} {}",
+          blockProcessingContext.getBlockHeader().getNumber(),
+          transaction.getHash().toHexString(),
+          transaction.getTo().map(a -> a.toHexString()).orElse("create"),
+          transaction.getGasLimit() - result.getGasRemaining(),
+          (System.nanoTime() - start) / 1000,
+          start / 1000,
+          reads[0],
+          reads[1]);
+    }
+    return result;
   }
 
   @VisibleForTesting

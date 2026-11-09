@@ -1067,6 +1067,207 @@ public class UInt256Test {
         .isEqualTo(expected);
   }
 
+  // the BN254 base and scalar fields, the moduli verifier contracts reduce by
+  private static final BigInteger BN254_P =
+      new BigInteger("30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47", 16);
+  private static final BigInteger BN254_R =
+      new BigInteger("30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001", 16);
+  private static final BigInteger TWO_256 = BigInteger.ONE.shiftLeft(256);
+
+  @Test
+  void mulModMatchesBigIntegerForOddModuliAndReducedOperands() {
+    final Random random = new Random(11);
+    for (int i = 0; i < 200_000; i++) {
+      final BigInteger m = oddFourLimbModulus(random, i);
+      final BigInteger a = belowModulus(random, m, i);
+      final BigInteger b = belowModulus(random, m, i / 7);
+      assertThat(uint(a).mulMod(uint(b), uint(m)).toBigInteger())
+          .as("%s * %s mod %s", a, b, m)
+          .isEqualTo(a.multiply(b).mod(m));
+    }
+  }
+
+  @Test
+  void addModMatchesBigIntegerForReducedOperands() {
+    final Random random = new Random(12);
+    for (int i = 0; i < 200_000; i++) {
+      final BigInteger m = fourLimbModulus(random, i);
+      final BigInteger a = belowModulus(random, m, i);
+      final BigInteger b = belowModulus(random, m, i / 5);
+      assertThat(uint(a).addMod(uint(b), uint(m)).toBigInteger())
+          .as("%s + %s mod %s", a, b, m)
+          .isEqualTo(a.add(b).mod(m));
+    }
+  }
+
+  @Test
+  void mulModByAlternatingModuli() {
+    final Random random = new Random(13);
+    final BigInteger[] moduli = {
+      BN254_P, BN254_R, TWO_256.subtract(BigInteger.ONE), BN254_P.add(BigInteger.TWO), BN254_R
+    };
+    for (int i = 0; i < 50_000; i++) {
+      final BigInteger m = moduli[i % moduli.length];
+      final BigInteger a = new BigInteger(256, random).mod(m);
+      final BigInteger b = new BigInteger(256, random).mod(m);
+      assertThat(uint(a).mulMod(uint(b), uint(m)).toBigInteger()).isEqualTo(a.multiply(b).mod(m));
+    }
+  }
+
+  @Test
+  void mulModAtTheEdgesOfTheReducedRange() {
+    for (final BigInteger m :
+        new BigInteger[] {BN254_P, BN254_R, TWO_256.subtract(BigInteger.ONE)}) {
+      final BigInteger top = m.subtract(BigInteger.ONE);
+      for (final BigInteger a :
+          new BigInteger[] {BigInteger.TWO, top, top.shiftRight(1), m.shiftRight(128)}) {
+        for (final BigInteger b :
+            new BigInteger[] {BigInteger.TWO, top, top.subtract(BigInteger.ONE)}) {
+          assertThat(uint(a).mulMod(uint(b), uint(m)).toBigInteger())
+              .isEqualTo(a.multiply(b).mod(m));
+          assertThat(uint(a).addMod(uint(b), uint(m)).toBigInteger()).isEqualTo(a.add(b).mod(m));
+        }
+      }
+    }
+  }
+
+  @Test
+  void mulModWideMatchesBigInteger() {
+    final Random random = new Random(14);
+    for (int i = 0; i < 300_000; i++) {
+      final BigInteger m = wideModulus(random, i);
+      final BigInteger a = wideOperand(random, m, i);
+      final BigInteger b = wideOperand(random, m, i / 11);
+      assertThat(mulModWide(a, b, m)).as("%s * %s mod %s", a, b, m).isEqualTo(a.multiply(b).mod(m));
+    }
+  }
+
+  @Test
+  void mulModWideAtTheEdges() {
+    final BigInteger max = TWO_256.subtract(BigInteger.ONE);
+    for (final BigInteger m :
+        new BigInteger[] {
+          BN254_P,
+          BN254_R,
+          max,
+          BigInteger.ONE.shiftLeft(255),
+          BigInteger.ONE.shiftLeft(192),
+          BigInteger.ONE.shiftLeft(192).add(BigInteger.ONE),
+          BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE.shiftLeft(192)),
+          BigInteger.ONE.shiftLeft(255).add(BigInteger.ONE)
+        }) {
+      for (final BigInteger a :
+          new BigInteger[] {
+            BigInteger.ZERO,
+            BigInteger.ONE,
+            BigInteger.TWO,
+            m.subtract(BigInteger.ONE),
+            m,
+            m.add(BigInteger.ONE).min(max),
+            max,
+            max.shiftRight(1)
+          }) {
+        for (final BigInteger b :
+            new BigInteger[] {BigInteger.ZERO, BigInteger.ONE, m.subtract(BigInteger.ONE), max}) {
+          assertThat(mulModWide(a, b, m))
+              .as("%s * %s mod %s", a, b, m)
+              .isEqualTo(a.multiply(b).mod(m));
+        }
+      }
+    }
+  }
+
+  @Test
+  void mulModWideLeavesTheOperandsAndWritesOverTheModulus() {
+    final long[] stack = new long[12];
+    final BigInteger a = BN254_P.subtract(BigInteger.TWO);
+    final BigInteger b = BN254_P.subtract(BigInteger.valueOf(3));
+    put(stack, 8, a);
+    put(stack, 4, b);
+    put(stack, 0, BN254_P);
+    UInt256.mulModWide(stack, 8, 4, 0);
+    assertThat(get(stack, 0)).isEqualTo(a.multiply(b).mod(BN254_P));
+    assertThat(get(stack, 4)).isEqualTo(b);
+    assertThat(get(stack, 8)).isEqualTo(a);
+  }
+
+  private static BigInteger mulModWide(final BigInteger a, final BigInteger b, final BigInteger m) {
+    final long[] stack = new long[12];
+    put(stack, 8, a);
+    put(stack, 4, b);
+    put(stack, 0, m);
+    UInt256.mulModWide(stack, 8, 4, 0);
+    return get(stack, 0);
+  }
+
+  private static void put(final long[] stack, final int offset, final BigInteger value) {
+    final UInt256 u = uint(value);
+    stack[offset] = u.u3();
+    stack[offset + 1] = u.u2();
+    stack[offset + 2] = u.u1();
+    stack[offset + 3] = u.u0();
+  }
+
+  private static BigInteger get(final long[] stack, final int offset) {
+    return new UInt256(stack[offset], stack[offset + 1], stack[offset + 2], stack[offset + 3])
+        .toBigInteger();
+  }
+
+  /** Moduli with a nonzero top limb and every number of leading zero bits, switching often. */
+  private static BigInteger wideModulus(final Random random, final int i) {
+    return switch (i % 8) {
+      case 0 -> BN254_P;
+      case 1 -> BN254_R;
+      case 2 -> TWO_256.subtract(BigInteger.valueOf(random.nextInt(1000) + 1));
+      case 3 -> BigInteger.ONE.shiftLeft(192 + random.nextInt(64));
+      default -> new BigInteger(193 + random.nextInt(64), random).setBit(192);
+    };
+  }
+
+  /** Operands below the modulus, at or above it, and of every size up to 2^256 - 1. */
+  private static BigInteger wideOperand(final Random random, final BigInteger m, final int i) {
+    return switch (i % 6) {
+      case 0 -> m.subtract(BigInteger.ONE);
+      case 1 -> new BigInteger(256, random);
+      case 2 -> new BigInteger(1 + random.nextInt(256), random);
+      case 3 -> TWO_256.subtract(BigInteger.ONE).subtract(BigInteger.valueOf(random.nextInt(4)));
+      default -> new BigInteger(256, random).mod(m);
+    };
+  }
+
+  /** Odd moduli with a nonzero top limb, among them some just below 2^256 and the BN254 ones. */
+  private static BigInteger oddFourLimbModulus(final Random random, final int i) {
+    return switch (i % 6) {
+      case 0 -> BN254_R;
+      case 1 -> BN254_P;
+      case 2 -> TWO_256.subtract(BigInteger.valueOf(2L * random.nextInt(1000) + 1));
+      case 3 -> BigInteger.ONE.shiftLeft(192).add(new BigInteger(190, random)).setBit(0);
+      default -> new BigInteger(256, random).setBit(200).setBit(0);
+    };
+  }
+
+  /** Moduli with a nonzero top limb, odd or even, among them some just below 2^256. */
+  private static BigInteger fourLimbModulus(final Random random, final int i) {
+    return switch (i % 4) {
+      case 0 -> BN254_R;
+      case 1 -> TWO_256.subtract(BigInteger.valueOf(random.nextInt(1000) + 1));
+      default -> new BigInteger(256, random).setBit(200);
+    };
+  }
+
+  private static BigInteger belowModulus(final Random random, final BigInteger m, final int i) {
+    return switch (i % 5) {
+      case 0 -> m.subtract(BigInteger.ONE);
+      case 1 -> m.subtract(BigInteger.valueOf(random.nextInt(1 << 20) + 1));
+      default -> new BigInteger(256, random).mod(m);
+    };
+  }
+
+  private static UInt256 uint(final BigInteger value) {
+    return UInt256.fromBytesBE(
+        Bytes32.leftPad(Bytes.wrap(value.toByteArray()).trimLeadingZeros()).toArrayUnsafe());
+  }
+
   private static byte[] hex(final String s) {
     return Bytes.fromHexString(s).toArray();
   }

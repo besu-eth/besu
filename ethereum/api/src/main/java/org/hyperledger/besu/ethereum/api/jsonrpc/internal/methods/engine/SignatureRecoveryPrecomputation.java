@@ -76,8 +76,10 @@ final class SignatureRecoveryPrecomputation {
 
   private Void recoverUntilDoneOrCancelled() {
     int index;
+    // the block's execution recovers senders from the first transaction on; starting from the last
+    // keeps the two from contending for the same transactions
     while (!cancelled && (index = nextTransaction.getAndIncrement()) < transactions.size()) {
-      recover(transactions.get(index));
+      recover(transactions.get(transactions.size() - 1 - index));
     }
     return null;
   }

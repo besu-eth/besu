@@ -93,6 +93,49 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
                             persistentStorage)));
   }
 
+  // marks a key that no layer holds and the flat cache does not hold either
+  private static final Bytes NOT_IN_MEMORY = Bytes.wrap(new byte[] {0});
+
+  @Override
+  public Optional<Optional<Bytes>> peekAccount(final Hash accountHash) {
+    if (isClosedGet()) {
+      return Optional.empty();
+    }
+    final Bytes key = accountHash.getBytes();
+    final Optional<Bytes> found =
+        getWithCache(
+            ACCOUNT_INFO_STATE,
+            key,
+            persistentStorage ->
+                cacheManager
+                    .peek(ACCOUNT_INFO_STATE, key, getCurrentVersion())
+                    .orElse(Optional.of(NOT_IN_MEMORY)));
+    return found.isPresent() && found.get() == NOT_IN_MEMORY
+        ? Optional.empty()
+        : Optional.of(found);
+  }
+
+  @Override
+  public Optional<Optional<Bytes>> peekStorageValueByStorageSlotKey(
+      final Hash accountHash, final StorageSlotKey storageSlotKey) {
+    if (isClosedGet()) {
+      return Optional.empty();
+    }
+    final Bytes key =
+        TrieBytes.concat(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes());
+    final Optional<Bytes> found =
+        getWithCache(
+            ACCOUNT_STORAGE_STORAGE,
+            key,
+            persistentStorage ->
+                cacheManager
+                    .peek(ACCOUNT_STORAGE_STORAGE, key, getCurrentVersion())
+                    .orElse(Optional.of(NOT_IN_MEMORY)));
+    return found.isPresent() && found.get() == NOT_IN_MEMORY
+        ? Optional.empty()
+        : Optional.of(found);
+  }
+
   @Override
   public Optional<Bytes> getStorageValueByStorageSlotKey(
       final Supplier<Optional<Hash>> storageRootSupplier,

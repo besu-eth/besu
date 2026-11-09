@@ -791,6 +791,268 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return modulus.asUInt64().mul(this, other);
   }
 
+  /**
+   * Modular multiplication on stack words, limbs most significant first, for a modulus whose top
+   * limb is not zero: writes (a * b) mod m over the modulus.
+   *
+   * @param stack the words
+   * @param aOffset the offset of a
+   * @param bOffset the offset of b
+   * @param mOffset the offset of the modulus, which receives the result
+   */
+  public static void mulModWide(
+      final long[] stack, final int aOffset, final int bOffset, final int mOffset) {
+    final long a3 = stack[aOffset];
+    final long a2 = stack[aOffset + 1];
+    final long a1 = stack[aOffset + 2];
+    final long a0 = stack[aOffset + 3];
+    final long b3 = stack[bOffset];
+    final long b2 = stack[bOffset + 1];
+    final long b1 = stack[bOffset + 2];
+    final long b0 = stack[bOffset + 3];
+    final long m3 = stack[mOffset];
+    final long m2 = stack[mOffset + 1];
+    final long m1 = stack[mOffset + 2];
+    final long m0 = stack[mOffset + 3];
+    WideModulus mod = lastWideModulus;
+    if (!mod.is(m3, m2, m1, m0)) {
+      mod = WideModulus.of(m3, m2, m1, m0);
+      lastWideModulus = mod;
+    }
+
+    // the 512-bit product, a row per limb of b
+    long lo;
+    long hi;
+    long c;
+    final long p0 = a0 * b0;
+    c = Math.unsignedMultiplyHigh(a0, b0);
+    lo = a1 * b0;
+    hi = Math.unsignedMultiplyHigh(a1, b0);
+    long p1 = lo + c;
+    c = hi + (Long.compareUnsigned(p1, lo) < 0 ? 1 : 0);
+    lo = a2 * b0;
+    hi = Math.unsignedMultiplyHigh(a2, b0);
+    long p2 = lo + c;
+    c = hi + (Long.compareUnsigned(p2, lo) < 0 ? 1 : 0);
+    lo = a3 * b0;
+    hi = Math.unsignedMultiplyHigh(a3, b0);
+    long p3 = lo + c;
+    c = hi + (Long.compareUnsigned(p3, lo) < 0 ? 1 : 0);
+    long p4 = c;
+
+    lo = a0 * b1;
+    hi = Math.unsignedMultiplyHigh(a0, b1);
+    p1 += lo;
+    c = hi + (Long.compareUnsigned(p1, lo) < 0 ? 1 : 0);
+    lo = a1 * b1 + c;
+    hi = Math.unsignedMultiplyHigh(a1, b1) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p2 += lo;
+    c = hi + (Long.compareUnsigned(p2, lo) < 0 ? 1 : 0);
+    lo = a2 * b1 + c;
+    hi = Math.unsignedMultiplyHigh(a2, b1) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p3 += lo;
+    c = hi + (Long.compareUnsigned(p3, lo) < 0 ? 1 : 0);
+    lo = a3 * b1 + c;
+    hi = Math.unsignedMultiplyHigh(a3, b1) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p4 += lo;
+    c = hi + (Long.compareUnsigned(p4, lo) < 0 ? 1 : 0);
+    long p5 = c;
+
+    lo = a0 * b2;
+    hi = Math.unsignedMultiplyHigh(a0, b2);
+    p2 += lo;
+    c = hi + (Long.compareUnsigned(p2, lo) < 0 ? 1 : 0);
+    lo = a1 * b2 + c;
+    hi = Math.unsignedMultiplyHigh(a1, b2) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p3 += lo;
+    c = hi + (Long.compareUnsigned(p3, lo) < 0 ? 1 : 0);
+    lo = a2 * b2 + c;
+    hi = Math.unsignedMultiplyHigh(a2, b2) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p4 += lo;
+    c = hi + (Long.compareUnsigned(p4, lo) < 0 ? 1 : 0);
+    lo = a3 * b2 + c;
+    hi = Math.unsignedMultiplyHigh(a3, b2) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p5 += lo;
+    c = hi + (Long.compareUnsigned(p5, lo) < 0 ? 1 : 0);
+    long p6 = c;
+
+    lo = a0 * b3;
+    hi = Math.unsignedMultiplyHigh(a0, b3);
+    p3 += lo;
+    c = hi + (Long.compareUnsigned(p3, lo) < 0 ? 1 : 0);
+    lo = a1 * b3 + c;
+    hi = Math.unsignedMultiplyHigh(a1, b3) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p4 += lo;
+    c = hi + (Long.compareUnsigned(p4, lo) < 0 ? 1 : 0);
+    lo = a2 * b3 + c;
+    hi = Math.unsignedMultiplyHigh(a2, b3) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p5 += lo;
+    c = hi + (Long.compareUnsigned(p5, lo) < 0 ? 1 : 0);
+    lo = a3 * b3 + c;
+    hi = Math.unsignedMultiplyHigh(a3, b3) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+    p6 += lo;
+    c = hi + (Long.compareUnsigned(p6, lo) < 0 ? 1 : 0);
+    final long p7 = c;
+
+    // shifted like the modulus, so that its top limb has the top bit set
+    final int shift = mod.shift;
+    final long n8;
+    final long n7;
+    final long n6;
+    final long n5;
+    final long n4;
+    final long n3;
+    final long n2;
+    final long n1;
+    final long n0;
+    if (shift == 0) {
+      n8 = 0;
+      n7 = p7;
+      n6 = p6;
+      n5 = p5;
+      n4 = p4;
+      n3 = p3;
+      n2 = p2;
+      n1 = p1;
+      n0 = p0;
+    } else {
+      final int back = N_BITS_PER_LIMB - shift;
+      n8 = p7 >>> back;
+      n7 = (p7 << shift) | (p6 >>> back);
+      n6 = (p6 << shift) | (p5 >>> back);
+      n5 = (p5 << shift) | (p4 >>> back);
+      n4 = (p4 << shift) | (p3 >>> back);
+      n3 = (p3 << shift) | (p2 >>> back);
+      n2 = (p2 << shift) | (p1 >>> back);
+      n1 = (p1 << shift) | (p0 >>> back);
+      n0 = p0 << shift;
+    }
+
+    // Schoolbook division (Knuth's algorithm D), keeping only the remainder: each step takes one
+    // quotient digit off the top five limbs of the running remainder.
+    final long d3 = mod.d3;
+    final long d2 = mod.d2;
+    final long d1 = mod.d1;
+    final long d0 = mod.d0;
+    long w4 = n8;
+    long w3 = n7;
+    long w2 = n6;
+    long w1 = n5;
+    long w0 = n4;
+    for (int j = 4; ; j--) {
+      if (w4 != 0 || Long.compareUnsigned(w3, d3) >= 0) {
+        // w4 <= d3 holds, and the estimate is at most two too large
+        final long q = w4 == d3 ? -1L : quotient2by1(w4, w3, d3, mod.inv);
+        lo = q * d0;
+        hi = Math.unsignedMultiplyHigh(q, d0);
+        long r0 = w0 - lo;
+        c = hi + (Long.compareUnsigned(w0, lo) < 0 ? 1 : 0);
+        lo = q * d1 + c;
+        hi = Math.unsignedMultiplyHigh(q, d1) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+        long r1 = w1 - lo;
+        c = hi + (Long.compareUnsigned(w1, lo) < 0 ? 1 : 0);
+        lo = q * d2 + c;
+        hi = Math.unsignedMultiplyHigh(q, d2) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+        long r2 = w2 - lo;
+        c = hi + (Long.compareUnsigned(w2, lo) < 0 ? 1 : 0);
+        lo = q * d3 + c;
+        hi = Math.unsignedMultiplyHigh(q, d3) + (Long.compareUnsigned(lo, c) < 0 ? 1 : 0);
+        long r3 = w3 - lo;
+        c = hi + (Long.compareUnsigned(w3, lo) < 0 ? 1 : 0);
+        // a negative remainder has a nonzero fifth limb: add the modulus back until it is not
+        long top = w4 - c;
+        while (top != 0) {
+          final long s0 = r0 + d0;
+          long k = Long.compareUnsigned(s0, r0) < 0 ? 1 : 0;
+          long s1 = r1 + d1;
+          long k1 = Long.compareUnsigned(s1, r1) < 0 ? 1 : 0;
+          s1 += k;
+          k = k1 + (Long.compareUnsigned(s1, k) < 0 ? 1 : 0);
+          long s2 = r2 + d2;
+          k1 = Long.compareUnsigned(s2, r2) < 0 ? 1 : 0;
+          s2 += k;
+          k = k1 + (Long.compareUnsigned(s2, k) < 0 ? 1 : 0);
+          long s3 = r3 + d3;
+          k1 = Long.compareUnsigned(s3, r3) < 0 ? 1 : 0;
+          s3 += k;
+          k = k1 + (Long.compareUnsigned(s3, k) < 0 ? 1 : 0);
+          r0 = s0;
+          r1 = s1;
+          r2 = s2;
+          r3 = s3;
+          top += k;
+        }
+        w3 = r3;
+        w2 = r2;
+        w1 = r1;
+        w0 = r0;
+      }
+      if (j == 0) {
+        break;
+      }
+      w4 = w3;
+      w3 = w2;
+      w2 = w1;
+      w1 = w0;
+      w0 =
+          switch (j) {
+            case 4 -> n3;
+            case 3 -> n2;
+            case 2 -> n1;
+            default -> n0;
+          };
+    }
+
+    if (shift == 0) {
+      stack[mOffset] = w3;
+      stack[mOffset + 1] = w2;
+      stack[mOffset + 2] = w1;
+      stack[mOffset + 3] = w0;
+    } else {
+      final int back = N_BITS_PER_LIMB - shift;
+      stack[mOffset] = w3 >>> shift;
+      stack[mOffset + 1] = (w2 >>> shift) | (w3 << back);
+      stack[mOffset + 2] = (w1 >>> shift) | (w2 << back);
+      stack[mOffset + 3] = (w0 >>> shift) | (w1 << back);
+    }
+  }
+
+  /**
+   * A modulus with a nonzero top limb, shifted so that the top bit is set, with the reciprocal of
+   * its top limb. Verifier contracts reduce by the same one or two moduli over and over.
+   */
+  private record WideModulus(
+      long m3, long m2, long m1, long m0, int shift, long d3, long d2, long d1, long d0, long inv) {
+
+    boolean is(final long n3, final long n2, final long n1, final long n0) {
+      return m0 == n0 && m1 == n1 && m2 == n2 && m3 == n3;
+    }
+
+    static WideModulus of(final long m3, final long m2, final long m1, final long m0) {
+      final int shift = Long.numberOfLeadingZeros(m3);
+      if (shift == 0) {
+        return new WideModulus(m3, m2, m1, m0, 0, m3, m2, m1, m0, reciprocal(m3));
+      }
+      final int back = N_BITS_PER_LIMB - shift;
+      final long d3 = (m3 << shift) | (m2 >>> back);
+      return new WideModulus(
+          m3,
+          m2,
+          m1,
+          m0,
+          shift,
+          d3,
+          (m2 << shift) | (m1 >>> back),
+          (m1 << shift) | (m0 >>> back),
+          m0 << shift,
+          reciprocal(d3));
+    }
+  }
+
+  // the last wide modulus; a race only costs a recomputation, as the record is immutable. A zero
+  // top limb matches no wide modulus.
+  private static WideModulus lastWideModulus = new WideModulus(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
   // --------------------------------------------------------------------------
   // endregion
 
@@ -1294,6 +1556,12 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       if (cmp == 0) return ZERO;
       if (cmp > 0) return sum.UInt256Value();
     }
+    // Operands below the modulus sum to below twice the modulus, so one subtraction reduces the
+    // sum. The difference is below the modulus, so a wrapping subtraction is exact even when the
+    // sum carried out of 256 bits.
+    if (compareTo(a) > 0 && compareTo(b) > 0) {
+      return sum.UInt256Value().sub(this);
+    }
     int shift = Long.numberOfLeadingZeros(u3);
     UInt256 m = shiftLeft(shift);
     long inv = reciprocal(m.u3);
@@ -1552,6 +1820,24 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     r -= y * adjust;
 
     return new QR64(q1, r);
+  }
+
+  // the quotient of div2by1 only
+  private static long quotient2by1(final long x1, final long x0, final long y, final long yInv) {
+    final long q0 = x1 * yInv;
+    long q1 = Math.unsignedMultiplyHigh(x1, yInv);
+    final long sum = q0 + x0;
+    final long carry = ((q0 & x0) | ((q0 | x0) & ~sum)) >>> 63;
+    q1 += x1 + carry + 1;
+    long r = x0 - q1 * y;
+    if (Long.compareUnsigned(sum, r) < 0) {
+      q1--;
+      r += y;
+    }
+    if (Long.compareUnsigned(y, r) <= 0) {
+      q1++;
+    }
+    return q1;
   }
 
   // --------------------------------------------------------------------------

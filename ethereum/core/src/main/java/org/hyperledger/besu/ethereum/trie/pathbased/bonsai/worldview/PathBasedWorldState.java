@@ -60,6 +60,8 @@ public abstract class PathBasedWorldState
     implements MutableWorldState, BonsaiWorldView, StorageSubscriber {
 
   private static final Logger LOG = LoggerFactory.getLogger(PathBasedWorldState.class);
+  // replay benchmarks: log the phases of persisting a block's state
+  private static final boolean LOG_PERSIST = Boolean.getBoolean("besu.bench.logTxTimes");
 
   protected static final DefaultStateRootCommitter DEFAULT_STATE_ROOT_COMMITTER =
       new DefaultStateRootCommitter();
@@ -243,11 +245,14 @@ public abstract class PathBasedWorldState
     final BonsaiWorldStateKeyValueStorage.Updater stateUpdater =
         worldStateKeyValueStorage.updater();
     try {
+      final long benchStart = LOG_PERSIST ? System.nanoTime() : 0L;
       final StateRootComputation computation = committer.compute(this, blockHeader, accumulator);
+      final long benchComputed = LOG_PERSIST ? System.nanoTime() : 0L;
       if (!isStorageFrozen()) {
         computation.applyTo(stateUpdater);
       }
       final Hash calculatedRootHash = computation.root();
+      final long benchRoot = LOG_PERSIST ? System.nanoTime() : 0L;
       stageWorldStateKeys(
           stateUpdater, committer.getTrieBranchType(), blockHeader, calculatedRootHash);
 
@@ -260,14 +265,26 @@ public abstract class PathBasedWorldState
           trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
         }
       }
+      final long benchTrieLog = LOG_PERSIST ? System.nanoTime() : 0L;
 
       stateUpdater.commitComposedOnly();
+      final long benchCommitted = LOG_PERSIST ? System.nanoTime() : 0L;
       // Advance in-memory head only after trielog + composed commit succeeded, so a failing
       // observer (e.g. TrieLogPruner during EthScheduler shutdown) cannot leave a half-updated
       // worldstate that later cascades into MerkleTrieException / heal.
       setWorldStateHead(blockHeader, calculatedRootHash);
       if (blockHeader != null && !isStorageFrozen) {
         worldStateCacheManager.addCachedLayer(blockHeader, calculatedRootHash, this);
+      }
+      if (LOG_PERSIST && blockHeader != null) {
+        LOG.info(
+            "Bench persist block {} compute_us {} root_us {} trielog_us {} commit_us {} head_us {}",
+            blockHeader.getNumber(),
+            (benchComputed - benchStart) / 1000,
+            (benchRoot - benchComputed) / 1000,
+            (benchTrieLog - benchRoot) / 1000,
+            (benchCommitted - benchTrieLog) / 1000,
+            (System.nanoTime() - benchCommitted) / 1000);
       }
     } catch (final RuntimeException | Error e) {
       try {

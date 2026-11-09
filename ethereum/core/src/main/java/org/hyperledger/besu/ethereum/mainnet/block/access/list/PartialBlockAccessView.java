@@ -110,7 +110,7 @@ public final class PartialBlockAccessView {
   public static final class AccountChanges {
     private final Address address;
     private Optional<Wei> postBalance;
-    private final Optional<Long> nonceChange;
+    private Optional<Long> nonceChange;
     private final Optional<Bytes> newCode;
     private final List<StorageSlotKey> storageReads;
     private final List<SlotChange> storageChanges;
@@ -144,6 +144,10 @@ public final class PartialBlockAccessView {
 
     public Optional<Long> getNonceChange() {
       return nonceChange;
+    }
+
+    public void setNonceChange(final long nonce) {
+      this.nonceChange = Optional.of(nonce);
     }
 
     public Optional<Bytes> getNewCode() {

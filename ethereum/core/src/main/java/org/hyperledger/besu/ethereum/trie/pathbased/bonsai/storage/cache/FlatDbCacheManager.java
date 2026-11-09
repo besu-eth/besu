@@ -73,7 +73,7 @@ public interface FlatDbCacheManager {
       final long version,
       final Supplier<Optional<Bytes>> storageGetter) {
     // Always bypass cache and go directly to storage
-    return storageGetter.get();
+    return BenchReads.timed(storageGetter);
   }
 
   default List<Optional<Bytes>> getMultipleFromCacheOrStorage(
@@ -122,6 +122,25 @@ public interface FlatDbCacheManager {
   default Optional<VersionedValue> getCachedValue(
       final SegmentIdentifier segment, final Bytes key) {
     return Optional.empty();
+  }
+
+  /**
+   * Looks the key up in the cache only, never in storage.
+   *
+   * @param segment the segment
+   * @param key the key
+   * @param version the highest version a cached value may have
+   * @return empty if the cache does not hold the key at or below {@code version}; otherwise the
+   *     cached value, where an empty inner value is a cached absence
+   */
+  default Optional<Optional<Bytes>> peek(
+      final SegmentIdentifier segment, final Bytes key, final long version) {
+    final Optional<VersionedValue> cached = getCachedValue(segment, key);
+    if (cached.isEmpty() || cached.get().version > version) {
+      return Optional.empty();
+    }
+    final VersionedValue value = cached.get();
+    return Optional.of(value.isRemoval ? Optional.empty() : Optional.ofNullable(value.value));
   }
 
   /** A trie node and the hash it is referenced by. */

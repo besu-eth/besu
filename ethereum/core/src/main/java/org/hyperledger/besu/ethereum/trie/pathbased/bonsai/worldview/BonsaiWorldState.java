@@ -101,7 +101,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
                     getWorldStateStorage(), worldStateRootHash, addr),
             (addr, value) ->
                 this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                    getWorldStateStorage(), addr, startingStorageRoot(addr), value),
+                    getWorldStateStorage(), addr, accumulator.startingStorageRoot(addr), value),
             evmConfiguration,
             codeCache);
     this.setAccumulator(acc);
@@ -129,23 +129,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
     // Keep frontier-derived caches aligned with accumulator resets.
     acc.setCommittedTransactionListener(frontierRootHashTracker);
     this.codeCache = codeCache;
-  }
-
-  /**
-   * The root of the storage trie the block's slot changes apply to: the storage root the
-   * accumulator loaded, or the empty root if the account did not exist or the block cleared its
-   * storage. Null if the accumulator has not loaded the account.
-   */
-  private Hash startingStorageRoot(final Address address) {
-    if (accumulator.getStorageToClear().contains(address)) {
-      return Hash.EMPTY_TRIE_HASH;
-    }
-    final var accountValue = accumulator.getAccountsToUpdate().get(address);
-    if (accountValue == null) {
-      return null;
-    }
-    final BonsaiAccount prior = accountValue.getPrior();
-    return prior == null ? Hash.EMPTY_TRIE_HASH : prior.getStorageRoot();
   }
 
   @Override
@@ -241,6 +224,30 @@ public class BonsaiWorldState extends PathBasedWorldState {
     this.isStorageFrozen = true;
     this.worldStateKeyValueStorage = new BonsaiWorldStateLayerStorage(getWorldStateStorage());
     return this;
+  }
+
+  /**
+   * Loads the trie nodes on the path of a storage slot into the trie node cache, on the calling
+   * thread.
+   *
+   * @param address the account
+   * @param storageSlotKey the slot
+   */
+  public void loadStorageTriePath(final Address address, final StorageSlotKey storageSlotKey) {
+    if (get(address) instanceof BonsaiAccount account) {
+      bonsaiCachedMerkleTrieLoader.cacheStorageNodes(
+          getWorldStateStorage(), address, account.getStorageRoot(), storageSlotKey);
+    }
+  }
+
+  /**
+   * Loads the account trie nodes on the path to an account, on the calling thread.
+   *
+   * @param address the account
+   */
+  public void loadAccountTriePath(final Address address) {
+    bonsaiCachedMerkleTrieLoader.cacheAccountNodes(
+        getWorldStateStorage(), worldStateRootHash, address);
   }
 
   public void disableCacheMerkleTrieLoader() {

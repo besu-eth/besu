@@ -62,6 +62,7 @@ public class BalanceOperation extends AbstractOperation {
         return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
       } else {
         final Account account = getAccount(address, frame);
+        frame.getWorldUpdater().observeBalance(address);
         frame.pushStackItem(account == null ? Bytes.EMPTY : account.getBalance());
         return new OperationResult(cost, null);
       }

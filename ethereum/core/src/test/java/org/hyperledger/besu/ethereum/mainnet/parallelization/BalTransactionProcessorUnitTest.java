@@ -45,6 +45,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -210,7 +211,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -248,7 +251,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -275,7 +280,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -347,7 +354,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -433,7 +442,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -476,7 +487,9 @@ class BalTransactionProcessorUnitTest {
       final BonsaiWorldState worldStateForResult = createEmptyWorldState();
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           protocolContext,
@@ -513,7 +526,9 @@ class BalTransactionProcessorUnitTest {
       final Transaction transaction = mock(Transaction.class);
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -551,7 +566,9 @@ class BalTransactionProcessorUnitTest {
       final BlockHeader parent = env.maybeParentHeader().orElseThrow();
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -694,7 +711,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       final Transaction tx0 = mockTransaction();
       final Transaction tx1 = mockTransaction();
@@ -749,7 +768,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -785,7 +806,9 @@ class BalTransactionProcessorUnitTest {
 
       final BalConcurrentTransactionProcessor processor =
           new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+              transactionProcessor,
+              BlockAccessListAccountLookup.of(blockAccessList),
+              BalConfiguration.DEFAULT);
 
       processor.runAsyncBlock(
           env.protocolContext(),
