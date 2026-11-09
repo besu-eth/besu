@@ -72,6 +72,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class EthFeeHistoryTest {
   final BlockDataGenerator gen = new BlockDataGenerator();
@@ -405,6 +407,33 @@ public class EthFeeHistoryTest {
             ((JsonRpcErrorResponse) feeHistoryRequest("0x2", "0xb", new double[] {100.0}))
                 .getErrorType())
         .isEqualTo(RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"finalized", "safe"})
+  public void resolvesFinalizedAndSafeToTheirBlock(final String tag) {
+    stubHeader(tag, blockchain.getBlockHeader(5));
+    final FeeHistory.FeeHistoryResult result =
+        (ImmutableFeeHistoryResult)
+            ((JsonRpcSuccessResponse) feeHistoryRequest("0x1", tag)).getResult();
+    assertThat(Long.decode(result.getOldestBlock())).isEqualTo(5);
+    assertThat(result.getGasUsedRatio()).hasSize(1);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"finalized", "safe"})
+  public void unknownBlockWhenFinalizedOrSafeBlockIsNotKnown(final String tag) {
+    stubHeader(tag, Optional.empty());
+    assertThat(((JsonRpcErrorResponse) feeHistoryRequest("0x1", tag)).getErrorType())
+        .isEqualTo(RpcErrorType.UNKNOWN_BLOCK);
+  }
+
+  private void stubHeader(final String tag, final Optional<BlockHeader> header) {
+    if ("finalized".equals(tag)) {
+      when(blockchainQueries.finalizedBlockHeader()).thenReturn(header);
+    } else {
+      when(blockchainQueries.safeBlockHeader()).thenReturn(header);
+    }
   }
 
   @Test

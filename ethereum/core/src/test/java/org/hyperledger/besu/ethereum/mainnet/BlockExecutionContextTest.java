@@ -235,6 +235,23 @@ class BlockExecutionContextTest {
   }
 
   @Test
+  void outputValidatorIsKeptAndCopiedByToBuilder() {
+    final BlockExecutionContext.OutputValidator outputValidator = (receipts, gasMetered) -> false;
+    final BlockExecutionContext context =
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(block)
+            .blockAccessList(Optional.empty())
+            .outputValidator(outputValidator)
+            .build();
+
+    assertThat(context.getOutputValidator()).containsSame(outputValidator);
+    assertThat(context.toBuilder().sequentialExecutionRequested(true).build().getOutputValidator())
+        .containsSame(outputValidator);
+  }
+
+  @Test
   void inclusionListCannotBeNull() {
     assertThatNullPointerException()
         .isThrownBy(() -> BlockExecutionContext.builder().inclusionListTransactions(null))
