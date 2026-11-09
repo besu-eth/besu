@@ -42,7 +42,8 @@ public class GenesisConfig {
   private final GenesisReader loader;
   private final ObjectNode genesisRoot;
   private @Nullable Map<String, String> overrides;
-  private ForkIdActivations additionalForkIdActivations = ForkIdActivations.empty();
+  private ContributedForkActivations contributedForkActivations =
+      ContributedForkActivations.empty();
 
   private GenesisConfig(final GenesisReader loader) {
     this.loader = loader;
@@ -117,7 +118,7 @@ public class GenesisConfig {
     final ObjectNode config = loader.getConfig();
     // are there any overrides to apply?
     if (this.overrides == null) {
-      return JsonGenesisConfigOptions.fromJsonObject(config, additionalForkIdActivations);
+      return JsonGenesisConfigOptions.fromJsonObject(config, contributedForkActivations);
     }
     // otherwise apply overrides
     Map<String, String> overridesRef = this.overrides;
@@ -131,7 +132,7 @@ public class GenesisConfig {
     }
 
     return JsonGenesisConfigOptions.fromJsonObjectWithOverrides(
-        config, overridesRef, additionalForkIdActivations);
+        config, overridesRef, contributedForkActivations);
   }
 
   /**
@@ -147,29 +148,32 @@ public class GenesisConfig {
   }
 
   /**
-   * Returns a copy of this config whose EIP-2124 fork schedule also includes the given activations,
-   * on top of those declared by the genesis config keys. Intended for activations an embedder knows
-   * out of band -- for example a {@code ProtocolScheduleCustomizer}'s fork activations -- which the
-   * genesis config cannot express as standard keys.
+   * Returns a copy of this config whose {@link
+   * GenesisConfigOptions#getForkBlockNumbersWithContributed()} and {@link
+   * GenesisConfigOptions#getForkBlockTimestampsWithContributed()} also include the given
+   * activations, on top of those declared by the genesis config keys. Intended for activations an
+   * embedder knows out of band -- for example a {@code ProtocolScheduleCustomizer}'s fork
+   * activations -- which the genesis config cannot express as standard keys.
    *
    * <p>Unlike {@link #withOverrides}, this does not modify this config: whoever else holds it, such
    * as the CLI that read the genesis file, keeps seeing only the forks the genesis declares.
    *
-   * @param activations the additional fork activations
+   * @param activations the contributed fork activations
    * @return a new config carrying this config's overrides and activations plus the given ones
    */
-  public GenesisConfig withAdditionalForkIdActivations(final ForkIdActivations activations) {
-    final ForkIdActivations additions = Objects.requireNonNull(activations);
+  public GenesisConfig withContributedForkActivations(
+      final ContributedForkActivations activations) {
+    final ContributedForkActivations additions = Objects.requireNonNull(activations);
     final GenesisConfig copy = new GenesisConfig(loader);
     copy.overrides = overrides;
-    copy.additionalForkIdActivations =
-        new ForkIdActivations(
+    copy.contributedForkActivations =
+        new ContributedForkActivations(
             Stream.concat(
-                    additionalForkIdActivations.blockNumbers().stream(),
+                    contributedForkActivations.blockNumbers().stream(),
                     additions.blockNumbers().stream())
                 .toList(),
             Stream.concat(
-                    additionalForkIdActivations.timestamps().stream(),
+                    contributedForkActivations.timestamps().stream(),
                     additions.timestamps().stream())
                 .toList());
     return copy;

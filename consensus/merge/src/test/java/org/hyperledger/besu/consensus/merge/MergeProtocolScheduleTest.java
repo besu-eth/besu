@@ -129,7 +129,8 @@ public class MergeProtocolScheduleTest {
 
     // (2) ...and that same activation is what the customizer folds into the fork ID, so the
     // advertised fork ID cannot drift from the rules the schedule enforces.
-    assertThat(customization.toForkIdActivations().blockNumbers()).contains(activationBlock);
+    assertThat(customization.toContributedForkActivations().blockNumbers())
+        .contains(activationBlock);
   }
 
   @Test
@@ -148,7 +149,7 @@ public class MergeProtocolScheduleTest {
                     timestamp(contributedTimestamp), UnaryOperator.identity())));
     final GenesisConfigOptions config =
         GenesisConfig.fromConfig(jsonInput)
-            .withAdditionalForkIdActivations(customization.toForkIdActivations())
+            .withContributedForkActivations(customization.toContributedForkActivations())
             .getConfigOptions();
 
     final ProtocolSchedule protocolSchedule =
@@ -170,7 +171,7 @@ public class MergeProtocolScheduleTest {
                 .getEvm()
                 .getOperationsUnsafe()[0x44])
         .isInstanceOf(PrevRanDaoOperation.class);
-    assertThat(config.getForkIdBlockTimestamps()).contains(contributedTimestamp);
+    assertThat(config.getForkBlockTimestampsWithContributed()).contains(contributedTimestamp);
   }
 
   @Test

@@ -384,8 +384,8 @@ public class BesuController implements java.io.Closeable {
       final GenesisConfig effectiveGenesisConfig =
           protocolScheduleCustomization.modifications().isEmpty()
               ? genesisConfig
-              : genesisConfig.withAdditionalForkIdActivations(
-                  protocolScheduleCustomization.toForkIdActivations());
+              : genesisConfig.withContributedForkActivations(
+                  protocolScheduleCustomization.toContributedForkActivations());
       final GenesisConfigOptions configOptions = effectiveGenesisConfig.getConfigOptions();
       final BesuControllerBuilder builder =
           createControllerBuilder(effectiveGenesisConfig, configOptions, syncMode)

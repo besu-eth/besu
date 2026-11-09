@@ -68,8 +68,8 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   private final Map<String, String> configOverrides = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
   private final TransitionsConfigOptions transitions;
   // Fork activations contributed beyond the genesis config keys; merged into the EIP-2124 fork
-  // schedule. See GenesisConfig.withAdditionalForkIdActivations.
-  private final ForkIdActivations additionalForkIdActivations;
+  // schedule. See GenesisConfig.withContributedForkActivations.
+  private final ContributedForkActivations contributedForkActivations;
 
   /**
    * From json object json genesis config options.
@@ -78,7 +78,7 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
    * @return the json genesis config options
    */
   public static JsonGenesisConfigOptions fromJsonObject(final ObjectNode configRoot) {
-    return fromJsonObject(configRoot, ForkIdActivations.empty());
+    return fromJsonObject(configRoot, ContributedForkActivations.empty());
   }
 
   /**
@@ -86,12 +86,12 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
    * fork schedule.
    *
    * @param configRoot the config root
-   * @param additionalForkIdActivations extra fork activations
+   * @param contributedForkActivations extra fork activations
    * @return the json genesis config options
    */
   static JsonGenesisConfigOptions fromJsonObject(
-      final ObjectNode configRoot, final ForkIdActivations additionalForkIdActivations) {
-    return fromJsonObjectWithOverrides(configRoot, emptyMap(), additionalForkIdActivations);
+      final ObjectNode configRoot, final ContributedForkActivations contributedForkActivations) {
+    return fromJsonObjectWithOverrides(configRoot, emptyMap(), contributedForkActivations);
   }
 
   /**
@@ -103,7 +103,8 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
    */
   static JsonGenesisConfigOptions fromJsonObjectWithOverrides(
       final ObjectNode configRoot, final Map<String, String> configOverrides) {
-    return fromJsonObjectWithOverrides(configRoot, configOverrides, ForkIdActivations.empty());
+    return fromJsonObjectWithOverrides(
+        configRoot, configOverrides, ContributedForkActivations.empty());
   }
 
   /**
@@ -112,16 +113,16 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
    *
    * @param configRoot the config root
    * @param configOverrides the config overrides
-   * @param additionalForkIdActivations extra fork activations
+   * @param contributedForkActivations extra fork activations
    * @return the json genesis config options
    */
   static JsonGenesisConfigOptions fromJsonObjectWithOverrides(
       final ObjectNode configRoot,
       final Map<String, String> configOverrides,
-      final ForkIdActivations additionalForkIdActivations) {
+      final ContributedForkActivations contributedForkActivations) {
     final TransitionsConfigOptions transitionsConfigOptions = loadTransitionsFrom(configRoot);
     return new JsonGenesisConfigOptions(
-        configRoot, configOverrides, transitionsConfigOptions, additionalForkIdActivations);
+        configRoot, configOverrides, transitionsConfigOptions, contributedForkActivations);
   }
 
   private static TransitionsConfigOptions loadTransitionsFrom(final ObjectNode parentNode) {
@@ -145,20 +146,20 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
       final ObjectNode maybeConfig,
       final Map<String, String> configOverrides,
       final TransitionsConfigOptions transitionsConfig) {
-    this(maybeConfig, configOverrides, transitionsConfig, ForkIdActivations.empty());
+    this(maybeConfig, configOverrides, transitionsConfig, ContributedForkActivations.empty());
   }
 
   JsonGenesisConfigOptions(
       final ObjectNode maybeConfig,
       final Map<String, String> configOverrides,
       final TransitionsConfigOptions transitionsConfig,
-      final ForkIdActivations additionalForkIdActivations) {
+      final ContributedForkActivations contributedForkActivations) {
     this.configRoot = isNull(maybeConfig) ? JsonUtil.createEmptyObjectNode() : maybeConfig;
     if (configOverrides != null) {
       this.configOverrides.putAll(configOverrides);
     }
     this.transitions = transitionsConfig;
-    this.additionalForkIdActivations = Objects.requireNonNull(additionalForkIdActivations);
+    this.contributedForkActivations = Objects.requireNonNull(contributedForkActivations);
   }
 
   @Override
@@ -674,9 +675,9 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
-  public List<Long> getForkIdBlockNumbers() {
+  public List<Long> getForkBlockNumbersWithContributed() {
     return Stream.concat(
-            getForkBlockNumbers().stream(), additionalForkIdActivations.blockNumbers().stream())
+            getForkBlockNumbers().stream(), contributedForkActivations.blockNumbers().stream())
         .distinct()
         .sorted()
         .toList();
@@ -710,9 +711,9 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
-  public List<Long> getForkIdBlockTimestamps() {
+  public List<Long> getForkBlockTimestampsWithContributed() {
     return Stream.concat(
-            getForkBlockTimestamps().stream(), additionalForkIdActivations.timestamps().stream())
+            getForkBlockTimestamps().stream(), contributedForkActivations.timestamps().stream())
         .distinct()
         .sorted()
         .toList();
@@ -725,11 +726,11 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     final JsonGenesisConfigOptions that = (JsonGenesisConfigOptions) o;
     return Objects.equals(configRoot, that.configRoot)
         && Objects.equals(configOverrides, that.configOverrides)
-        && Objects.equals(additionalForkIdActivations, that.additionalForkIdActivations);
+        && Objects.equals(contributedForkActivations, that.contributedForkActivations);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(configRoot, configOverrides, additionalForkIdActivations);
+    return Objects.hash(configRoot, configOverrides, contributedForkActivations);
   }
 }
