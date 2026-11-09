@@ -429,11 +429,21 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       final Address accountAddress,
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
-    // Empty means no world state for the block; failures propagate so callers do not mistake
-    // them for missing state.
-    try (PathBasedWorldState ws =
-        (PathBasedWorldState)
-            getWorldState(withBlockHeaderAndNoUpdateNodeHead(blockHeader)).orElse(null)) {
+    // Empty means no world state for the block, including when it cannot be loaded, e.g. a trie
+    // log missing for the roll or a cached layer closed while it is being layered on. Failures
+    // building the proof propagate so callers do not mistake them for missing state.
+    final Optional<MutableWorldState> maybeWorldState;
+    try {
+      maybeWorldState = getWorldState(withBlockHeaderAndNoUpdateNodeHead(blockHeader));
+    } catch (final RuntimeException e) {
+      LOG.atDebug()
+          .setMessage("Cannot load world state for proof query at block {}")
+          .addArgument(blockHeader::toLogString)
+          .setCause(e)
+          .log();
+      return Optional.empty();
+    }
+    try (PathBasedWorldState ws = (PathBasedWorldState) maybeWorldState.orElse(null)) {
       if (ws == null) {
         return Optional.empty();
       }

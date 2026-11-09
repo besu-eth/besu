@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogLayer;
@@ -386,6 +387,66 @@ class BonsaiWorldStateProviderTest {
                       throw failure;
                     }))
         .isSameAs(failure);
+  }
+
+  @Test
+  void getAccountProofReturnsEmptyWhenTrieLogIsMissing() {
+    bonsaiWorldStateArchive = createBonsaiWorldStateProvider();
+
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    final BlockHeader blockHeader1 =
+        blockBuilder.number(1).parentHash(genesis.getHash()).buildHeader();
+    when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis));
+    when(blockchain.getBlockHeader(blockHeader1.getHash())).thenReturn(Optional.of(blockHeader1));
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader1);
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(512L);
+    // the nearest cached state is at block 1, and the trie log to roll it back is missing
+    final BonsaiWorldState worldState1 = createMockWorldState(blockHeader1.getHash());
+    when(worldStateCacheManager.getNearestWorldState(genesis)).thenReturn(Optional.of(worldState1));
+    when(trieLogManager.getTrieLogLayer(blockHeader1.getHash())).thenReturn(Optional.empty());
+
+    assertThatThrownBy(
+            () ->
+                bonsaiWorldStateArchive.getWorldState(withBlockHeaderAndNoUpdateNodeHead(genesis)))
+        .isInstanceOf(MerkleTrieException.class);
+
+    final AtomicBoolean mapperCalled = new AtomicBoolean();
+    assertThat(
+            bonsaiWorldStateArchive.getAccountProof(
+                genesis,
+                Address.ZERO,
+                List.of(),
+                proof -> {
+                  mapperCalled.set(true);
+                  return Optional.of(proof);
+                }))
+        .isEmpty();
+    assertThat(mapperCalled).isFalse();
+  }
+
+  @Test
+  void getAccountProofReturnsEmptyWhenCachedLayerIsClosed() {
+    bonsaiWorldStateArchive = createBonsaiWorldStateProvider();
+
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    when(blockchain.getChainHeadHeader()).thenReturn(genesis);
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(512L);
+    // the cached layer was scrubbed between the cache lookup and layering on it
+    when(worldStateCacheManager.getWorldState(genesis.getHash()))
+        .thenThrow(new RuntimeException("Storage is marked to close or has already closed"));
+
+    final AtomicBoolean mapperCalled = new AtomicBoolean();
+    assertThat(
+            bonsaiWorldStateArchive.getAccountProof(
+                genesis,
+                Address.ZERO,
+                List.of(),
+                proof -> {
+                  mapperCalled.set(true);
+                  return Optional.of(proof);
+                }))
+        .isEmpty();
+    assertThat(mapperCalled).isFalse();
   }
 
   // Helper methods
