@@ -882,4 +882,73 @@ class OptimisticTransactionProcessorUnitTest {
       processor.abort();
     }
   }
+
+  @Nested
+  @DisplayName("Heavy Transaction Hoisting and Overtake Skip")
+  @MockitoSettings(strictness = Strictness.LENIENT)
+  class HeavyTransactionSchedulingTests {
+
+    private Transaction mockTransactionWithGasLimit(final long gasLimit) {
+      final Transaction transaction = mockTransaction();
+      when(transaction.getGasLimit()).thenReturn(gasLimit);
+      return transaction;
+    }
+
+    @Test
+    @DisplayName(
+        "computeExecutionOrder hoists transactions above threshold in descending gas order")
+    void computeExecutionOrderHoistsHeavyTransactions() {
+      final Transaction light0 = mockTransactionWithGasLimit(100_000L);
+      final Transaction light1 = mockTransactionWithGasLimit(4_000_000L);
+      final Transaction heavy2 = mockTransactionWithGasLimit(7_500_000L);
+      final Transaction light3 = mockTransactionWithGasLimit(250_000L);
+      final Transaction heavy4 = mockTransactionWithGasLimit(12_000_000L);
+      final Transaction heavy5 = mockTransactionWithGasLimit(7_500_000L);
+
+      final int[] order =
+          ParallelBlockTransactionProcessor.computeExecutionOrder(
+              List.of(light0, light1, heavy2, light3, heavy4, heavy5));
+
+      // Heavy txs (> 4M gas) come first in descending gas order (tie-broken by block index: 4, 2,
+      // 5), followed by light txs in original block order (0, 1, 3).
+      assertThat(order).containsExactly(4, 2, 5, 0, 1, 3);
+    }
+
+    @Test
+    @DisplayName("Skips background execution of transactions already overtaken by sequential loop")
+    void skipsOvertakenTransactionsBeforeExecution() {
+      final Transaction tx0 = mockTransactionWithGasLimit(100_000L);
+      final Transaction tx1 = mockTransactionWithGasLimit(100_000L);
+      final java.util.List<Runnable> queuedTasks = new java.util.ArrayList<>();
+      final Executor deferredExecutor = queuedTasks::add;
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          List.of(tx0, tx1),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          deferredExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      // Main sequential loop reaches tx 0 before background worker starts tx 0
+      final Optional<TransactionProcessingResult> res0 =
+          processor.getProcessingResult(
+              env.worldState(), MINING_BENEFICIARY, tx0, 0, Optional.empty(), Optional.empty());
+      assertThat(res0).isEmpty();
+
+      // Now run both queued tasks: task 0 was overtaken so it must exit early without calling
+      // processTransaction; task 1 has not been overtaken yet so it executes normally.
+      queuedTasks.forEach(Runnable::run);
+
+      verify(transactionProcessor, never())
+          .processTransaction(
+              any(), eq(env.blockHeader()), eq(tx0), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor, times(1))
+          .processTransaction(
+              any(), eq(env.blockHeader()), eq(tx1), any(), any(), any(), any(), any(), any());
+    }
+  }
 }

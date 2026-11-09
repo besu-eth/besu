@@ -27,19 +27,50 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public abstract class ParallelBlockTransactionProcessor {
 
+  /**
+   * Gas limit threshold above which a transaction is hoisted to the front of the parallel execution
+   * queue so long-running transactions start warming and executing immediately.
+   */
+  public static final long HEAVY_TRANSACTION_GAS_THRESHOLD = 4_000_000L;
+
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
+  /**
+   * Tracks the highest transaction index already reached by the sequential block-import loop so
+   * queued background tasks that have been overtaken can exit before loading world state.
+   */
+  protected final AtomicInteger currentSequentialTxIndex = new AtomicInteger(-1);
+
   protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
+    currentSequentialTxIndex.lazySet(txIndex);
     final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
     futures[txIndex] = null;
     return future;
+  }
+
+  protected void markInFlight(final int txIndex) {
+    if (inFlight != null) {
+      inFlight[txIndex] = true;
+    }
+  }
+
+  protected boolean isInFlight(final int txIndex) {
+    return inFlight != null && inFlight[txIndex];
+  }
+
+  protected volatile boolean[] inFlight;
+
+  protected boolean isOvertaken(final int txIndex) {
+    return txIndex <= currentSequentialTxIndex.get();
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -54,27 +85,79 @@ public abstract class ParallelBlockTransactionProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
-    futures = new CompletableFuture[transactions.size()];
+    final int size = transactions.size();
+    futures = new CompletableFuture[size];
+    inFlight = new boolean[size];
+    currentSequentialTxIndex.set(-1);
 
-    for (int i = 0; i < transactions.size(); i++) {
-      final int txIndex = i;
-      final Transaction transaction = transactions.get(i);
+    final int[] executionOrder = computeExecutionOrder(transactions);
 
-      futures[i] =
+    for (int i = 0; i < size; i++) {
+      final int txIndex = executionOrder[i];
+      final Transaction transaction = transactions.get(txIndex);
+
+      futures[txIndex] =
           CompletableFuture.supplyAsync(
-              () ->
-                  runTransaction(
-                      protocolContext,
-                      blockHeader,
-                      txIndex,
-                      transaction,
-                      miningBeneficiary,
-                      blockHashLookup,
-                      blobGasPrice,
-                      blockAccessListBuilder,
-                      maybeParentHeader),
+              () -> {
+                if (isOvertaken(txIndex)) {
+                  return null;
+                }
+                markInFlight(txIndex);
+                return runTransaction(
+                    protocolContext,
+                    blockHeader,
+                    txIndex,
+                    transaction,
+                    miningBeneficiary,
+                    blockHashLookup,
+                    blobGasPrice,
+                    blockAccessListBuilder,
+                    maybeParentHeader);
+              },
               executor);
     }
+  }
+
+  /**
+   * Orders transactions so that heavy transactions (gas limit &gt; {@link
+   * #HEAVY_TRANSACTION_GAS_THRESHOLD}) are scheduled first (in descending gas limit order,
+   * tie-broken by block index), followed by all remaining transactions in original block order.
+   */
+  static int[] computeExecutionOrder(final List<Transaction> transactions) {
+    final int size = transactions.size();
+    final int[] order = new int[size];
+    int heavyCount = 0;
+    for (int i = 0; i < size; i++) {
+      if (transactions.get(i).getGasLimit() > HEAVY_TRANSACTION_GAS_THRESHOLD) {
+        heavyCount++;
+      }
+    }
+    if (heavyCount == 0) {
+      for (int i = 0; i < size; i++) {
+        order[i] = i;
+      }
+      return order;
+    }
+
+    final long[] heavyPacked = new long[heavyCount];
+    int h = 0;
+    int l = heavyCount;
+    for (int i = 0; i < size; i++) {
+      final long gasLimit = transactions.get(i).getGasLimit();
+      if (gasLimit > HEAVY_TRANSACTION_GAS_THRESHOLD) {
+        // Pack inverted gasLimit in high 42 bits and index in low 22 bits so ascending sort
+        // orders by gasLimit DESC, then txIndex ASC.
+        final long clampedGas = Math.min(gasLimit, (1L << 41) - 1L);
+        heavyPacked[h++] = ((~clampedGas & ((1L << 42) - 1L)) << 22) | (i & 0x3FFFFFL);
+      } else {
+        order[l++] = i;
+      }
+    }
+    Arrays.sort(heavyPacked);
+    for (int i = 0; i < heavyCount; i++) {
+      order[i] = (int) (heavyPacked[i] & 0x3FFFFFL);
+    }
+    return order;
   }
 
   /**
