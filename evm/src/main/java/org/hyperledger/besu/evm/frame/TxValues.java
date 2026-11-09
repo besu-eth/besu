@@ -58,6 +58,7 @@ public class TxValues {
   private final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage;
   private final UndoSet<Address> creates;
   private final UndoSet<Address> selfDestructs;
+  private final UndoSet<Address> adoptedCode;
   private final UndoScalar<Long> gasRefunds;
   private final UndoScalar<Long> stateGasUsed;
   private final UndoScalar<Long> stateGasReservoir;
@@ -79,6 +80,7 @@ public class TxValues {
       final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage,
       final UndoSet<Address> creates,
       final UndoSet<Address> selfDestructs,
+      final UndoSet<Address> adoptedCode,
       final UndoScalar<Long> gasRefunds,
       final UndoScalar<Long> stateGasUsed,
       final UndoScalar<Long> stateGasReservoir) {
@@ -96,6 +98,7 @@ public class TxValues {
     this.transientStorage = transientStorage;
     this.creates = creates;
     this.selfDestructs = selfDestructs;
+    this.adoptedCode = adoptedCode;
     this.gasRefunds = gasRefunds;
     this.stateGasUsed = stateGasUsed;
     this.stateGasReservoir = stateGasReservoir;
@@ -144,6 +147,7 @@ public class TxValues {
         new UndoMap<>(new HashMap<>()),
         UndoSet.of(new HashSet<>()),
         UndoSet.of(new HashSet<>()),
+        UndoSet.of(new HashSet<>()),
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
         new UndoScalar<>(initialStateGasReservoir));
@@ -160,6 +164,7 @@ public class TxValues {
     transientStorage.undo(mark);
     creates.undo(mark);
     selfDestructs.undo(mark);
+    adoptedCode.undo(mark);
     gasRefunds.undo(mark);
     stateGasUsed.undo(mark);
     stateGasReservoir.undo(mark);
@@ -319,6 +324,16 @@ public class TxValues {
    */
   public UndoSet<Address> selfDestructs() {
     return selfDestructs;
+  }
+
+  /**
+   * Returns the set of addresses that adopted code through EIP-8298 SETCODEFROM in this
+   * transaction, which the block access list records as a code hash instead of bytecode.
+   *
+   * @return the adopted-code set
+   */
+  public UndoSet<Address> adoptedCode() {
+    return adoptedCode;
   }
 
   /**

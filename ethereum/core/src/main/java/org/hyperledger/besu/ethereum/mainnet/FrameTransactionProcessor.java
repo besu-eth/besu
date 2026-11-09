@@ -623,7 +623,8 @@ public class FrameTransactionProcessor {
     // Built after self-destruct settlement and empty-account clearing, so the diff against the
     // transaction updater sees the final state, matching MainnetTransactionProcessor.
     final Optional<PartialBlockAccessView> partialBlockAccessView =
-        accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
+        accessLocationTracker.map(
+            tracker -> tracker.createPartialBlockAccessView(worldState, txValues.adoptedCode()));
 
     final TransactionProcessingResult result =
         TransactionProcessingResult.successful(

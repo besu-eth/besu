@@ -90,6 +90,21 @@ class MessageFrameTest {
   }
 
   @Test
+  void adoptedCodeIsRolledBackWithTheFrame() {
+    final Address kept = Address.fromHexString("0x1000");
+    final Address reverted = Address.fromHexString("0x2000");
+    final MessageFrame parent = messageFrameBuilder.build();
+    parent.addAdoptedCode(kept);
+    final MessageFrame child = messageFrameBuilder.parentMessageFrame(parent).build();
+    child.addAdoptedCode(kept);
+    child.addAdoptedCode(reverted);
+
+    assertThat(parent.getAdoptedCode()).containsExactlyInAnyOrder(kept, reverted);
+    child.rollback();
+    assertThat(parent.getAdoptedCode()).containsExactly(kept);
+  }
+
+  @Test
   void releasedV2StackGoesBackToTheFrameDepthOnce() {
     final MessageFrame messageFrame = messageFrameBuilder.enableEvmV2(true).build();
     final long[] stack = messageFrame.stackDataV2();

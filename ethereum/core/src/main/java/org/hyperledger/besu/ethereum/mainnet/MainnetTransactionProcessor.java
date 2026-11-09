@@ -624,7 +624,10 @@ public class MainnetTransactionProcessor {
               blockHeader, transactionGasPrice, transactionValidationParams);
       if (coinbaseCalculator.isEmpty()) {
         final Optional<PartialBlockAccessView> partialBlockAccessView =
-            accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
+            accessLocationTracker.map(
+                tracker ->
+                    tracker.createPartialBlockAccessView(
+                        worldState, initialFrame.getAdoptedCode()));
         final TransactionProcessingResult underpricedResult =
             TransactionProcessingResult.failed(
                 totalGasBudget,
@@ -680,7 +683,9 @@ public class MainnetTransactionProcessor {
       }
 
       final Optional<PartialBlockAccessView> partialBlockAccessView =
-          accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
+          accessLocationTracker.map(
+              tracker ->
+                  tracker.createPartialBlockAccessView(worldState, initialFrame.getAdoptedCode()));
 
       if (txSucceeded) {
         final TransactionProcessingResult successResult =

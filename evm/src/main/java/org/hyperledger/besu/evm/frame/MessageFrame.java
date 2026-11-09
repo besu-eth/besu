@@ -1383,6 +1383,27 @@ public class MessageFrame {
   }
 
   /**
+   * Records that the account at this address adopted code through EIP-8298 SETCODEFROM. The record
+   * is rolled back with the frame, and the account keeps it for the rest of the transaction even if
+   * its code changes again.
+   *
+   * @param address the account that adopted code
+   */
+  public void addAdoptedCode(final Address address) {
+    txValues.adoptedCode().add(address);
+  }
+
+  /**
+   * Returns the accounts that adopted code through EIP-8298 SETCODEFROM in this transaction and
+   * were not rolled back.
+   *
+   * @return the adopted-code set
+   */
+  public Set<Address> getAdoptedCode() {
+    return txValues.adoptedCode();
+  }
+
+  /**
    * Add refund to the refunds map if not already present.
    *
    * @param beneficiary the beneficiary of the refund.
