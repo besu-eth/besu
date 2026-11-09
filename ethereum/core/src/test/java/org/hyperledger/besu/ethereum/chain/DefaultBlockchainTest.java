@@ -358,6 +358,62 @@ public class DefaultBlockchainTest {
   }
 
   @Test
+  public void appendBlockPublishesTheChainHeadAfterCommit() throws Exception {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final CommitBlockingKeyValueStorage chainStorage = new CommitBlockingKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(chainStorage, new InMemoryKeyValueStorage(), genesisBlock);
+    final Block block = blockWithTwoTransactions(gen, genesisBlock);
+    final List<TransactionReceipt> receipts = gen.receipts(block);
+    final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    chainStorage.blockNextCommit();
+    final Future<?> appendFuture = executor.submit(() -> blockchain.appendBlock(block, receipts));
+    try {
+      assertThat(chainStorage.awaitCommit()).isTrue();
+      assertChainHeadIsReadable(blockchain, genesisBlock);
+
+      chainStorage.releaseCommit();
+      appendFuture.get(10, TimeUnit.SECONDS);
+
+      assertChainHeadIsReadable(blockchain, block);
+    } finally {
+      chainStorage.releaseCommit();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  public void forwardToBlockPublishesTheChainHeadAfterCommit() throws Exception {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final CommitBlockingKeyValueStorage chainStorage = new CommitBlockingKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(chainStorage, new InMemoryKeyValueStorage(), genesisBlock);
+    final Block block = blockWithTwoTransactions(gen, genesisBlock);
+    blockchain.appendBlock(block, gen.receipts(block));
+    blockchain.rewindToBlock(genesisBlock.getHash());
+    final ExecutorService executor = Executors.newSingleThreadExecutor();
+
+    chainStorage.blockNextCommit();
+    final Future<?> forwardFuture =
+        executor.submit(() -> blockchain.forwardToBlock(block.getHeader()));
+    try {
+      assertThat(chainStorage.awaitCommit()).isTrue();
+      assertChainHeadIsReadable(blockchain, genesisBlock);
+
+      chainStorage.releaseCommit();
+      forwardFuture.get(10, TimeUnit.SECONDS);
+
+      assertChainHeadIsReadable(blockchain, block);
+    } finally {
+      chainStorage.releaseCommit();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
   public void appendUnconnectedBlock() {
     final BlockDataGenerator gen = new BlockDataGenerator();
 
@@ -1359,6 +1415,14 @@ public class DefaultBlockchainTest {
     assertThat(actualReceipts).isEqualTo(receipts);
   }
 
+  // the chain head, and the block behind it, as a call at latest reads them on another thread
+  private static void assertChainHeadIsReadable(final Blockchain blockchain, final Block head) {
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+    assertThat(chainHead).isEqualTo(head.getHeader());
+    assertThat(blockchain.getBlockHeader(chainHead.getHash())).contains(head.getHeader());
+    assertThat(blockchain.getBlockHashByNumber(chainHead.getNumber())).contains(head.getHash());
+  }
+
   private void assertBlockIsHead(final Blockchain blockchain, final Block head) {
     assertThat(blockchain.getChainHeadHash()).isEqualTo(head.getHash());
     assertThat(blockchain.getChainHeadBlockNumber()).isEqualTo(head.getHeader().getNumber());
@@ -1632,6 +1696,10 @@ public class DefaultBlockchainTest {
     assertThatThrownBy(() -> blockchain.unsafeSetChainHead(header, Difficulty.ONE))
         .isInstanceOf(StorageException.class);
     assertThatThrownBy(() -> blockchain.unsafeStoreHeader(header, Difficulty.ONE))
+        .isInstanceOf(StorageException.class);
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Block block = blockWithTwoTransactions(gen, genesisBlock);
+    assertThatThrownBy(() -> blockchain.appendBlock(block, gen.receipts(block)))
         .isInstanceOf(StorageException.class);
     assertThat(blockchain.getChainHeadHeader()).isEqualTo(genesisBlock.getHeader());
   }

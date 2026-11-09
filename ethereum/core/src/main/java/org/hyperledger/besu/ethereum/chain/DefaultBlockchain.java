@@ -790,12 +790,13 @@ public class DefaultBlockchain implements MutableBlockchain {
       blockAddedEvent = handleStoreOnly(blockWithReceipts);
     } else {
       blockAddedEvent = updateCanonicalChainData(updater, blockWithReceipts, transactionIndexing);
-      if (blockAddedEvent.isNewCanonicalHead()) {
-        updateCacheForNewCanonicalHead(block, td);
-      }
     }
 
     updater.commit();
+    // once committed, so that a reader that sees the new head can also read its block by hash
+    if (blockAddedEvent.isNewCanonicalHead()) {
+      updateCacheForNewCanonicalHead(block, td);
+    }
     blockAccessListRlp.ifPresent(
         rlp -> blockAccessListCache.ifPresent(cache -> cache.put(hash, rlp)));
     blockAddedObservers.forEach(observer -> observer.onBlockAdded(blockAddedEvent));
@@ -1222,9 +1223,10 @@ public class DefaultBlockchain implements MutableBlockchain {
       final BlockWithReceipts blockWithReceipts = getBlockWithReceipts(blockHeader).get();
 
       BlockAddedEvent newHeadEvent = handleNewHead(updater, blockWithReceipts, true);
-      updateCacheForNewCanonicalHead(
-          blockWithReceipts.getBlock(), calculateTotalDifficulty(blockHeader));
+      final Difficulty totalDifficulty = calculateTotalDifficulty(blockHeader);
       updater.commit();
+      // once committed, so that a reader that sees the new head can also read its block by hash
+      updateCacheForNewCanonicalHead(blockWithReceipts.getBlock(), totalDifficulty);
       blockAddedObservers.forEach(observer -> observer.onBlockAdded(newHeadEvent));
       return true;
     } catch (final NoSuchElementException e) {
