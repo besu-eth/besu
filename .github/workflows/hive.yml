@@ -1,5 +1,9 @@
 name: Hive
 on:
+  # TEMPORARY, to test this workflow on its PR: remove before merging.
+  pull_request:
+    paths:
+      - '.github/workflows/hive.yml'
   workflow_dispatch:
     inputs:
       simulator:
@@ -49,13 +53,13 @@ env:
   BESU_REPO: ${{ inputs.besu_repo || github.repository }}
   # ethereum/hive master at 2026-10-22. Update deliberately: simulator behaviour changes with it.
   HIVE_REF: ${{ inputs.hive_ref || 'e1ad81006c63555915e05a121df3e68953fa9138' }}
-  SIMULATOR: ${{ inputs.simulator }}
+  SIMULATOR: ${{ inputs.simulator || 'ethereum/rpc-compat' }}
   SIM_LIMIT: ${{ inputs.sim_limit }}
   SIM_PARALLELISM: ${{ inputs.sim_parallelism || '4' }}
 
 jobs:
   hive:
-    name: "Hive (${{ inputs.simulator }})"
+    name: "Hive (${{ inputs.simulator || 'ethereum/rpc-compat' }})"
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
