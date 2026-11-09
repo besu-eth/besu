@@ -108,7 +108,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private final Map<Class<?>, BesuService> besuServices = new ConcurrentHashMap<>();
   private final Map<Class<?>, ServiceWithProvider> pluginServices = new ConcurrentHashMap<>();
   private final ProtocolScheduleServiceImpl protocolScheduleService =
-      new ProtocolScheduleServiceImpl();
+      new ProtocolScheduleServiceImpl(this::isRegistering);
 
   private List<BesuPlugin> detectedPlugins = new ArrayList<>();
   private List<String> requestedPlugins = new ArrayList<>();
@@ -301,10 +301,17 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   }
 
   /**
-   * Resolves protocol-schedule customizers through Besu's internal lifecycle.
+   * Resolves the protocol-schedule customizers that plugins registered, once registration has
+   * closed.
+   *
+   * <p>The result is memoized for the registration cycle: a node runs one genesis, so later calls
+   * return the first resolution whatever config they pass. {@link #resetState()} starts a new
+   * cycle.
    *
    * @param config the uncustomized genesis configuration
    * @return the single matching customization, or the empty one
+   * @throws IllegalStateException if registration is still open, if a customizer throws, or if more
+   *     than one customizer supports the chain
    */
   public ProtocolScheduleCustomization resolveProtocolScheduleCustomization(
       final GenesisConfigOptions config) {
@@ -430,7 +437,6 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         "BesuContext should be in state %s but it was in %s",
         Lifecycle.REGISTERING,
         state);
-    protocolScheduleService.freeze();
     state = Lifecycle.REGISTERED;
   }
 

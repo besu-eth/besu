@@ -24,19 +24,37 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
-/** Besu-owned protocol-schedule customizer registry. */
+/**
+ * Besu-owned protocol-schedule customizer registry.
+ *
+ * <p>Like the other registration-tier services, it accepts customizers only while the plugin
+ * context's registration window is open. It also stops accepting them once resolution has begun, so
+ * that what was resolved is everything that was registered.
+ */
 final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
 
   private final List<ProtocolScheduleCustomizer> customizers = new ArrayList<>();
+  private final BooleanSupplier registrationOpen;
   private ProtocolScheduleCustomization resolvedCustomization;
-  private boolean frozen;
+  private boolean resolving;
+
+  /**
+   * Creates the registry.
+   *
+   * @param registrationOpen whether plugin registration is currently open; customizers registered
+   *     while it is closed are rejected
+   */
+  ProtocolScheduleServiceImpl(final BooleanSupplier registrationOpen) {
+    this.registrationOpen = Objects.requireNonNull(registrationOpen);
+  }
 
   @Override
   public synchronized void registerProtocolScheduleCustomizer(
       final ProtocolScheduleCustomizer customizer) {
-    if (frozen) {
+    if (resolving || !registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException(
           "ProtocolScheduleService", "registerProtocolScheduleCustomizer");
     }
@@ -44,21 +62,34 @@ final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
   }
 
   /**
-   * Resolves the registered customizers against the active chain, memoizing the result: the first
-   * config wins and later calls return the same customization without re-evaluating.
+   * Resolves the registered customizers against the active chain.
+   *
+   * <p>A node runs one genesis per registration cycle, so the result is memoized: the first call
+   * evaluates the customizers and every later call returns the same customization, whatever config
+   * it is passed. {@link #reset()} starts a new cycle, as an Ephemery restart does.
+   *
+   * <p>A customizer that throws fails resolution, naming the customizer. This is fatal even under
+   * {@code --plugin-continue-on-error}: a node that silently ran without the rules a plugin
+   * contributes for its chain would be on a different chain.
    *
    * @param config the uncustomized genesis configuration
    * @return the single matching customization, or the empty one
+   * @throws IllegalStateException if registration is still open, if a customizer throws, or if more
+   *     than one customizer supports the chain
    */
   synchronized ProtocolScheduleCustomization resolve(final GenesisConfigOptions config) {
     Objects.requireNonNull(config, "config must not be null");
     if (resolvedCustomization != null) {
       return resolvedCustomization;
     }
-    frozen = true;
+    if (registrationOpen.getAsBoolean()) {
+      throw new IllegalStateException(
+          "Protocol-schedule customizers cannot be resolved while plugin registration is open");
+    }
+    resolving = true;
     final List<ProtocolScheduleCustomization> matchingCustomizations =
         customizers.stream()
-            .map(customizer -> customizer.customize(config))
+            .map(customizer -> customize(customizer, config))
             .flatMap(Optional::stream)
             .toList();
     if (matchingCustomizations.size() > 1) {
@@ -75,6 +106,21 @@ final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
             ? ProtocolScheduleCustomization.none()
             : matchingCustomizations.getFirst();
     return resolvedCustomization;
+  }
+
+  private static Optional<ProtocolScheduleCustomization> customize(
+      final ProtocolScheduleCustomizer customizer, final GenesisConfigOptions config) {
+    try {
+      return Objects.requireNonNull(
+          customizer.customize(config), "customize() returned null rather than Optional.empty()");
+    } catch (final RuntimeException e) {
+      throw new IllegalStateException(
+          "Protocol-schedule customizer "
+              + customizer.getClass().getName()
+              + " failed while evaluating the genesis config: "
+              + e.getMessage(),
+          e);
+    }
   }
 
   /**
@@ -97,13 +143,9 @@ final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
     customizers.subList(mark, customizers.size()).clear();
   }
 
-  synchronized void freeze() {
-    frozen = true;
-  }
-
   synchronized void reset() {
     customizers.clear();
     resolvedCustomization = null;
-    frozen = false;
+    resolving = false;
   }
 }
