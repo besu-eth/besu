@@ -23,26 +23,36 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.GENESIS_CONFIG;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
 
+import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.math.BigInteger;
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.DisplayName;
@@ -429,6 +439,35 @@ class OptimisticParallelBlockProcessorIntegrationTest {
           .payload(payload)
           .chainId(BigInteger.valueOf(42))
           .signAndBuild(keyPair);
+    }
+  }
+
+  @Nested
+  @DisplayName("Reuse of Speculative Results on EVM v2")
+  class SpeculativeResultReuseOnEvmV2 extends SpeculativeResultReuse {
+
+    // EVM v2 runs a transaction's frames on one journal, which must pass on what the transaction
+    // observes of balances like the stacked updaters do
+    @Override
+    protected ExecutionContextTestFixture createFreshContext() {
+      final GenesisConfig genesisConfig = GenesisConfig.fromResource(GENESIS_CONFIG);
+      return ExecutionContextTestFixture.builder(genesisConfig)
+          .dataStorageFormat(DataStorageFormat.BONSAI)
+          .protocolSchedule(
+              new ProtocolScheduleBuilder(
+                      genesisConfig.getConfigOptions(),
+                      Optional.of(BigInteger.valueOf(42)),
+                      ProtocolSpecAdapters.create(0, Function.identity()),
+                      false,
+                      new EvmConfiguration(
+                          32_000L, EvmConfiguration.WorldUpdaterMode.STACKED, true, true),
+                      MiningConfiguration.MINING_DISABLED,
+                      new BadBlockManager(),
+                      false,
+                      ImmutableBalConfiguration.builder().build(),
+                      new NoOpMetricsSystem())
+                  .createProtocolSchedule())
+          .build();
     }
   }
 }
