@@ -72,6 +72,7 @@ public class SelfDestructOperationTest {
     Address beneficiaryAddress = Address.fromHexString(beneficiary);
     messageFrame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)

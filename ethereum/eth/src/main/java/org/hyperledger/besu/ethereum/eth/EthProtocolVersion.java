@@ -51,6 +51,9 @@ public enum EthProtocolVersion {
    *
    * <p>Not advertised yet: the rest of the sparse blobpool is still arriving, and a peer that
    * negotiated eth/72 would expect this node to answer GetCells.
+   *
+   * <p>TODO (EIP-8070): before this version is advertised, this node has to answer GetCells, and to
+   * fetch the cells it is missing, from the peers whose announcements say they hold them.
    */
   V72(72, Messages.ETH72, false);
 
