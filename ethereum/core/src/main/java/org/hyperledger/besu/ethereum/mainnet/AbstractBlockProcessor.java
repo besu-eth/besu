@@ -61,6 +61,7 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
+import org.hyperledger.besu.util.platform.ThreadAffinity;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -91,6 +92,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   // replay benchmarks: log each sequential execution's time
   private static final boolean LOG_TX_TIMES = Boolean.getBoolean("besu.bench.logTxTimes");
+
+  // experiment: the thread that runs the block's transactions in order, the critical path, is bound
+  // to these CPUs, which the node's other threads are kept off
+  private static final String SERIAL_CPUS = System.getProperty("besu.t14.serialCpus");
+  private static final ThreadLocal<Boolean> SERIAL_THREAD_BOUND =
+      ThreadLocal.withInitial(() -> false);
 
   protected final MainnetTransactionProcessor transactionProcessor;
 
@@ -162,6 +169,15 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   @Override
   public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    if (SERIAL_CPUS != null && !SERIAL_THREAD_BOUND.get()) {
+      SERIAL_THREAD_BOUND.set(true);
+      final boolean bound = ThreadAffinity.bindCurrentThread(ThreadAffinity.parse(SERIAL_CPUS));
+      LOG.info(
+          "Thread {} processing blocks bound to CPUs {}: {}",
+          Thread.currentThread().getName(),
+          SERIAL_CPUS,
+          bound);
+    }
     final long benchStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
     final ProtocolContext protocolContext = context.getProtocolContext();
     final Blockchain blockchain = protocolContext.getBlockchain();
