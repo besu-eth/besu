@@ -83,7 +83,10 @@ public class BlockchainReferenceTestTools {
                         "test.ethereum.blockchain.eips",
                         "FrontierToHomesteadAt5,HomesteadToEIP150At5,HomesteadToDaoAt5,EIP158ToByzantiumAt5,CancunToPragueAtTime15k,BPO2ToAmsterdamAtTime15k,"
                                 + "Frontier,Homestead,EIP150,EIP158,Byzantium,Constantinople,ConstantinopleFix,Istanbul,Berlin,"
-                                + "London,Merge,Paris,Shanghai,Cancun,Prague,Osaka,Amsterdam,Bogota,Polis,Bangkok");
+                                + "London,Merge,Paris,Shanghai,Cancun,Prague,Osaka,Amsterdam,Bogota,Polis,Bangkok,"
+                                + "BPO1,BPO2,AmsterdamToBogotaAtTime15k,AmsterdamBPOIncrease,AmsterdamBPODecrease,"
+                                + "AmsterdamToBPOIncreaseAtTime15k,AmsterdamToBPODecreaseAtTime15k,"
+                                + "BogotaBPOIncrease,BogotaBPODecrease");
         NETWORKS_TO_RUN = Arrays.asList(networks.split(","));
         PROTOCOL_SCHEDULES = ReferenceTestProtocolSchedules.create();
     }

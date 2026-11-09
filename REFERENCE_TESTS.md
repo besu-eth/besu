@@ -107,12 +107,21 @@ It takes the same `--tests` filters as `referenceTests`, over classes named
 ./gradlew referenceTestsDevnet --tests "*_amsterdam_eip7928_*"
 ```
 
-This is the only runner that drives the devnet fixtures through the JUnit reference-test harness, so
-it is the one to reach for when you need that harness's tracing (see [Enabling JSON
+The Bogota devnet fixtures, pinned by `bogotaDevnetTarConfig`, have their own source set and task,
+`referenceTestsBogotaDevnet`, over classes named
+`ExecutionSpecBogotaDevnet{Blockchain,State}Test_{hardfork}_{eip_or_topic}_{batch_index}`:
+
+```bash
+./gradlew referenceTestsBogotaDevnet --tests "*_bogota_eip8141_*"
+```
+
+These are the only runners that drive the devnet fixtures through the JUnit reference-test harness,
+so they are the ones to reach for when you need that harness's tracing (see [Enabling JSON
 Tracing](#enabling-json-tracing)) — the evmtool runners below do not go through it.
 
-> `referenceTestsDevnet` is **not** a CI gate and is frequently red on `main` while a devnet is in
-> flight. Get a baseline on `main` before reading a failure on your branch as your own regression.
+> `referenceTestsDevnet` and `referenceTestsBogotaDevnet` are **not** CI gates and are frequently
+> red on `main` while a devnet is in flight. Get a baseline on `main` before reading a failure on
+> your branch as your own regression.
 
 ## Hive-Equivalent Fixture Runners (evmtool)
 
