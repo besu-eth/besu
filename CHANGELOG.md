@@ -38,6 +38,7 @@
 - A transaction whose parallel execution failed with an error is executed again in order, instead of failing the block import. [#11806](https://github.com/besu-eth/besu/pull/11806)
 - `trace_filter` resolves `safe` and `finalized` bounds to their blocks instead of failing with `Internal error` (`-32603`). It rejects them when the chain has none, and rejects `pending`, which is not a `trace_filter` bound, with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
 - Keep Parity trace errors local to the failed call instead of marking successful siblings or callers of failed precompiles as reverted, or failing a caller whose child halts in `RETURN` or `REVERT`. [#11345](https://github.com/besu-eth/besu/pull/11345)
+- Struct logs from `debug_traceTransaction` and `debug_traceCall`, and from `debug_traceBlock*` in JSON-RPC batch requests, report a failed code deposit's `error` on the creation's last operation, usually its `RETURN`, instead of the last operation that was not a `RETURN`. [#11345](https://github.com/besu-eth/besu/pull/11345)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
