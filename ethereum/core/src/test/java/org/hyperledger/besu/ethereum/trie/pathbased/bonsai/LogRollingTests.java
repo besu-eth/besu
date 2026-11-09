@@ -356,6 +356,37 @@ class LogRollingTests {
   }
 
   @Test
+  void rolledBackStateIsPersistedWithoutATrieLog() {
+    final BonsaiWorldStateKeyValueStorage storage =
+        new BonsaiWorldStateKeyValueStorage(
+            provider, new NoOpMetricsSystem(), DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+    final BonsaiWorldState worldState =
+        new BonsaiWorldState(
+            archive,
+            storage,
+            EvmConfiguration.DEFAULT,
+            createStatefulConfigWithTrie(),
+            new BonsaiCodeCache());
+    applyBlockOne(worldState.updater());
+    worldState.persist(headerOne);
+    final WorldUpdater updater = worldState.updater();
+    updater.getAccount(addressOne).setStorageValue(UInt256.ONE, UInt256.valueOf(2));
+    updater.commit();
+    worldState.persist(headerTwo);
+    // a block without a trie log, as the pivot block of a snap sync
+    storage.pruneTrieLog(headerOne.getHash());
+
+    final BonsaiWorldStateUpdateAccumulator rollbackUpdater =
+        (BonsaiWorldStateUpdateAccumulator) worldState.updater();
+    rollbackUpdater.rollBack(getTrieLogLayer(trieLogStorage, headerTwo.getHash()));
+    worldState.persistWithoutTrieLog(headerOne);
+
+    assertThat(storage.getWorldStateBlockHash()).contains(headerOne.getHash());
+    assertThat(worldState.rootHash()).isEqualTo(headerOne.getStateRoot());
+    assertThat(storage.getTrieLog(headerOne.getHash())).isEmpty();
+  }
+
+  @Test
   void deferredTrieLogMatchesOneWrittenWhilePersisting() {
     final BonsaiWorldState worldState =
         new BonsaiWorldState(
