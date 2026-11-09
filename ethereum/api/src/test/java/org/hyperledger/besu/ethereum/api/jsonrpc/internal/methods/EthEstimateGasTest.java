@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -54,6 +55,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -63,6 +65,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -525,22 +528,66 @@ public class EthEstimateGasTest {
   }
 
   @Test
-  public void shouldNotIgnoreSenderBalanceByDefault() {
-    final JsonRpcRequestContext request =
-        ethEstimateGasRequest(defaultLegacyTransactionCallParameter(Wei.ZERO));
-    failEstimationOnTxMinGas();
+  public void shouldSimulateWithZeroFeesWhenNoFeeFieldsAreGiven() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .build();
 
-    method.response(request);
+    assertThat(validationParamsUsedFor(callParameter))
+        .containsOnly(
+            TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce());
+  }
 
-    verify(transactionSimulator)
+  @Test
+  public void shouldSimulateWithZeroFeesWhenGasPriceIsZero() {
+    assertThat(validationParamsUsedFor(defaultLegacyTransactionCallParameter(Wei.ZERO)))
+        .containsOnly(
+            TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce());
+  }
+
+  @Test
+  public void shouldSimulateWithZeroFeesWhenFeeFieldsAreZero() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .maxFeePerGas(Wei.ZERO)
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter))
+        .containsOnly(
+            TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce());
+  }
+
+  @Test
+  public void shouldNotIgnoreSenderBalanceWhenFeeFieldsAreGiven() {
+    assertThat(validationParamsUsedFor(eip1559TransactionCallParameter()))
+        .containsOnly(
+            TransactionValidationParams.transactionSimulatorAllowUnderpricedAndFutureNonce());
+  }
+
+  @Test
+  public void shouldNotIgnoreSenderBalanceWhenStrictModeEnabled() {
+    assertThat(validationParamsUsedFor(legacyTransactionCallParameter(Wei.ZERO, Optional.of(true))))
+        .containsOnly(
+            TransactionValidationParams.transactionSimulatorAllowUnderpricedAndFutureNonce());
+  }
+
+  private List<TransactionValidationParams> validationParamsUsedFor(
+      final CallParameter callParameter) {
+    mockSimulationAtGasLimit(MIN_TX_GAS_COST, false, 0L);
+
+    method.response(ethEstimateGasRequest(callParameter));
+
+    final ArgumentCaptor<TransactionValidationParams> validationParamsCaptor =
+        ArgumentCaptor.forClass(TransactionValidationParams.class);
+    verify(transactionSimulator, atLeastOnce())
         .processOnPending(
-            eq(
-                modifiedLegacyTransactionCallParameter(
-                    BLOCK_GAS_LIMIT, Wei.ZERO, OptionalLong.empty(), Optional.empty())),
-            eq(Optional.empty()), // no account overrides
-            eq(TransactionValidationParams.transactionSimulatorAllowUnderpricedAndFutureNonce()),
-            any(OperationTracer.class),
-            eq(pendingBlockHeader));
+            any(), any(), validationParamsCaptor.capture(), any(), eq(pendingBlockHeader));
+    return validationParamsCaptor.getAllValues();
   }
 
   @Test

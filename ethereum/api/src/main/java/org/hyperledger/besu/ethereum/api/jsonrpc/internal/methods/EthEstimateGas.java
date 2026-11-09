@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -22,6 +23,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
@@ -131,6 +133,24 @@ public class EthEstimateGas extends AbstractEstimateGas {
     }
 
     return Quantity.create(high);
+  }
+
+  // Without fee fields, or with zero fees, simulate with zero fees as eth_call does, so that a
+  // sender who cannot pay the default fees still gets an estimate.
+  @Override
+  protected TransactionValidationParams getTransactionValidationParams(
+      final CallParameter callParams) {
+    if (callParams.getStrict().isEmpty()
+        && isZeroOrAbsent(callParams.getGasPrice())
+        && isZeroOrAbsent(callParams.getMaxFeePerGas())
+        && isZeroOrAbsent(callParams.getMaxPriorityFeePerGas())) {
+      return TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce();
+    }
+    return super.getTransactionValidationParams(callParams);
+  }
+
+  private static boolean isZeroOrAbsent(final Optional<Wei> fee) {
+    return fee.map(Wei.ZERO::equals).orElse(true);
   }
 
   private Optional<JsonRpcErrorResponse> validateSimulationResult(

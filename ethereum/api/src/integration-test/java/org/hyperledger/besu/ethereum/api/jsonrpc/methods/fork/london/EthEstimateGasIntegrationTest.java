@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.StateOverride;
+import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.BlockchainImporter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcTestMethodsFactory;
@@ -28,6 +30,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
@@ -49,6 +52,10 @@ import org.junit.jupiter.api.Test;
 public class EthEstimateGasIntegrationTest {
 
   private final String METHOD_NAME = "eth_estimateGas";
+  private static final Address UNFUNDED_SENDER =
+      Address.fromHexString("0x1111111111111111111111111111111111111111");
+  private static final Address RECIPIENT =
+      Address.fromHexString("0x8888f1f195afa192cfee860698584c030f4c9db1");
 
   private static JsonRpcTestMethodsFactory BLOCKCHAIN;
 
@@ -154,6 +161,78 @@ public class EthEstimateGasIntegrationTest {
     final JsonRpcResponse response = method.response(request);
 
     assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldSucceedForUnfundedSenderWithoutFeeFields() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder().sender(UNFUNDED_SENDER).to(RECIPIENT).build();
+
+    assertThat(method.response(requestWithParams(callParameter, "latest")))
+        .usingRecursiveComparison()
+        .isEqualTo(new JsonRpcSuccessResponse(null, "0x5208"));
+  }
+
+  @Test
+  public void shouldSucceedWhenSenderCanPayValueButNotFeesWithoutFeeFields() {
+    final Wei balance = Wei.fromEth(100);
+    final StateOverrideMap stateOverrides = new StateOverrideMap();
+    stateOverrides.put(UNFUNDED_SENDER, new StateOverride.Builder().withBalance(balance).build());
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(UNFUNDED_SENDER)
+            .to(RECIPIENT)
+            .value(balance)
+            .build();
+
+    assertThat(method.response(requestWithParams(callParameter, "latest", stateOverrides)))
+        .usingRecursiveComparison()
+        .isEqualTo(new JsonRpcSuccessResponse(null, "0x5208"));
+  }
+
+  @Test
+  public void shouldReturnErrorWhenSenderCannotPayValueWithoutFeeFields() {
+    final Wei balance = Wei.fromEth(100);
+    final StateOverrideMap stateOverrides = new StateOverrideMap();
+    stateOverrides.put(UNFUNDED_SENDER, new StateOverride.Builder().withBalance(balance).build());
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(UNFUNDED_SENDER)
+            .to(RECIPIENT)
+            .value(balance.add(Wei.ONE))
+            .build();
+
+    final JsonRpcResponse response =
+        method.response(requestWithParams(callParameter, "latest", stateOverrides));
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.INSUFFICIENT_FUNDS_FOR_TRANSFER);
+  }
+
+  @Test
+  public void shouldSucceedWithoutSender() {
+    final CallParameter callParameter = ImmutableCallParameter.builder().to(RECIPIENT).build();
+
+    assertThat(method.response(requestWithParams(callParameter, "latest")))
+        .usingRecursiveComparison()
+        .isEqualTo(new JsonRpcSuccessResponse(null, "0x5208"));
+  }
+
+  @Test
+  public void shouldReturnErrorForUnfundedSenderWithFeeFields() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(UNFUNDED_SENDER)
+            .to(RECIPIENT)
+            .maxFeePerGas(Wei.of(0x10))
+            .build();
+
+    assertThat(method.response(requestWithParams(callParameter, "latest")))
+        .usingRecursiveComparison()
+        .isEqualTo(
+            new JsonRpcErrorResponse(
+                null, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE));
   }
 
   private List<AccessListEntry> createAccessList() {
