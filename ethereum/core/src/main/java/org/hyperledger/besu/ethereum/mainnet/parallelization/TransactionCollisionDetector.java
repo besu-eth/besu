@@ -15,17 +15,23 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiPredicate;
 
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 
 public class TransactionCollisionDetector {
 
@@ -51,13 +57,46 @@ public class TransactionCollisionDetector {
       final Address miningBeneficiary,
       final ParallelizedTransactionContext parallelizedTransactionContext,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
+    return hasCollision(
+        transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator, null);
+  }
+
+  /**
+   * Like {@link #hasCollision(Transaction, Address, ParallelizedTransactionContext,
+   * PathBasedWorldStateUpdateAccumulator)}, except that an account of which earlier transactions
+   * changed only the balance is no collision when the transaction did not depend on that balance
+   * beyond it sufficing for what the transaction spent from it, and saw the account empty on no
+   * side. Such accounts are added to {@code balancesCarried}: taking the result over must then
+   * carry the transaction's balance change onto the balance the block has reached.
+   *
+   * @param transaction the transaction that executed speculatively, with a result that is not
+   *     invalid
+   * @param miningBeneficiary the mining beneficiary of the block
+   * @param parallelizedTransactionContext the speculative result with the state it read and wrote
+   * @param blockAccumulator the state changes of the earlier transactions of the block
+   * @param balancesCarried receives the accounts whose balance change must be carried over, or null
+   *     to treat every balance change as a collision
+   * @return true if the speculative result must not be used
+   */
+  public boolean hasCollision(
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final ParallelizedTransactionContext parallelizedTransactionContext,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
+      final @Nullable List<Address> balancesCarried) {
     final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
         parallelizedTransactionContext.transactionAccumulator();
-    if (isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)) {
-      return true;
-    }
     final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
         parallelizedTransactionContext.chainPredecessorAccumulator();
+    // every earlier transaction paid the beneficiary, so a transaction that touched it can only
+    // keep its result by having paid it too, without depending on its balance
+    if (isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)
+        && (balancesCarried == null
+            || chainPredecessor != null
+            || transactionAccumulator.getDeletedAccountAddresses().contains(miningBeneficiary)
+            || !transactionAccumulator.getAccountsToUpdate().containsKey(miningBeneficiary))) {
+      return true;
+    }
     if (chainPredecessor != null) {
       return hasCollisionWithChainedState(
           transactionAccumulator, chainPredecessor, blockAccumulator);
@@ -65,7 +104,8 @@ public class TransactionCollisionDetector {
     // an executed transaction loaded its sender and recipient, and the commit added the accounts
     // it deleted
     for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
-      if (hasCollision(address, transactionAccumulator, blockAccumulator)) {
+      if (hasCollision(
+          transaction, address, transactionAccumulator, blockAccumulator, balancesCarried)) {
         return true;
       }
     }
@@ -157,16 +197,22 @@ public class TransactionCollisionDetector {
   }
 
   private boolean hasCollision(
+      final Transaction transaction,
       final Address address,
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
-      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
+      final @Nullable List<Address> balancesCarried) {
     final BonsaiValue<? extends BonsaiAccount> inBlock =
         blockAccumulator.getAccountsToUpdate().get(address);
     if (inBlock == null) {
       return false;
     }
     if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
-      return true;
+      if (balancesCarried == null
+          || !isBalanceChangeCarried(transaction, transactionAccumulator, address, inBlock)) {
+        return true;
+      }
+      balancesCarried.add(address);
     }
     final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
         transactionAccumulator.getStorageToUpdate().get(address);
@@ -191,6 +237,54 @@ public class TransactionCollisionDetector {
       }
     }
     return false;
+  }
+
+  /**
+   * Whether earlier transactions changed only the balance of an account whose balance the
+   * transaction did not read, and spent from only while it sufficed by a margin the block's balance
+   * keeps, so the transaction ends the same on the balance the block has reached. Emptiness depends
+   * on the balance and decides call costs and state clearing, so an account empty on any side does
+   * not qualify, nor does one that a debit could empty.
+   */
+  private static boolean isBalanceChangeCarried(
+      final Transaction transaction,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final Address address,
+      final BonsaiValue<? extends BonsaiAccount> inBlock) {
+    final Set<Address> observedBalances = transactionAccumulator.getObservedBalances();
+    // the sender's balance pays for the gas
+    if (observedBalances == null
+        || observedBalances.contains(address)
+        || address.equals(transaction.getSender())) {
+      return false;
+    }
+    final BonsaiValue<? extends BonsaiAccount> inTransaction =
+        transactionAccumulator.getAccountsToUpdate().get(address);
+    final BonsaiAccount blockPrior = inBlock.getPrior();
+    final BonsaiAccount blockUpdated = inBlock.getUpdated();
+    if (blockPrior == null
+        || blockUpdated == null
+        || inTransaction == null
+        || inTransaction.getPrior() == null
+        || inTransaction.getUpdated() == null
+        || blockPrior.getNonce() != blockUpdated.getNonce()
+        || !blockPrior.getCodeHash().equals(blockUpdated.getCodeHash())
+        || blockPrior.isEmpty()
+        || blockUpdated.isEmpty()
+        || inTransaction.getPrior().isEmpty()
+        || inTransaction.getUpdated().isEmpty()) {
+      return false;
+    }
+    final Wei startingBalance = inTransaction.getPrior().getBalance();
+    final Optional<Wei> margin = transactionAccumulator.getBalanceMargin(address);
+    if (margin.isEmpty()) {
+      // without spending, only a credit can be carried over
+      return inTransaction.getUpdated().getBalance().compareTo(startingBalance) >= 0;
+    }
+    // every spending found the balance sufficient by at least the margin; on the block's balance
+    // a spending can leave none, which must not empty the account
+    return blockUpdated.getBalance().add(margin.get()).compareTo(startingBalance) >= 0
+        && (blockUpdated.getNonce() > 0 || !blockUpdated.getCodeHash().equals(Hash.EMPTY));
   }
 
   /**

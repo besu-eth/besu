@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -125,6 +126,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   // workers warm the trie paths of what they touch, so the state root finds them loaded
   private static final boolean WORKER_PRELOAD = Boolean.getBoolean("besu.t14.workerPreload");
+
+  // a result whose transaction did not depend on a balance the block changed carries its balance
+  // change over instead of conflicting (#11809); false turns it off for comparisons
+  private static final boolean CARRY_OVER =
+      Boolean.parseBoolean(System.getProperty("besu.t14.carryOver", "true"));
 
   // a warm-up runs before the member's predecessors, which may pay its nonce and gas
   @VisibleForTesting
@@ -1002,6 +1008,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           new ParallelizedTransactionContext.Builder();
       final PathBasedWorldStateUpdateAccumulator<?> roundWorldStateUpdater =
           (PathBasedWorldStateUpdateAccumulator<?>) ws.updater();
+      if (CARRY_OVER) {
+        roundWorldStateUpdater.recordBalanceObservations();
+      }
       if (previousInChain != null) {
         ((PathBasedWorldStateUpdateAccumulator) roundWorldStateUpdater)
             .importStateChangesFromSource(previousInChain);
@@ -1191,13 +1200,20 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           parallelizedTransactionContext.transactionAccumulator();
       final TransactionProcessingResult transactionProcessingResult =
           parallelizedTransactionContext.transactionProcessingResult();
+      final List<Address> balancesCarried = CARRY_OVER ? new ArrayList<>(0) : null;
       // a reverted or halted execution is as repeatable as a successful one when nothing it read
       // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
       if (!transactionProcessingResult.isInvalid()
           && !transactionCollisionDetector.hasCollision(
-              transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator)) {
+              transaction,
+              miningBeneficiary,
+              parallelizedTransactionContext,
+              blockAccumulator,
+              balancesCarried)) {
         final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
-        if (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts()) {
+        // a result that touched the beneficiary before its reward already holds the reward
+        if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()
+            && (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts())) {
           final MutableAccount miningBeneficiaryAccount =
               blockAccumulator.getOrCreate(miningBeneficiary);
           miningBeneficiaryAccount.incrementBalance(reward);
@@ -1219,7 +1235,15 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           }
         }
 
-        blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+        if (balancesCarried == null || balancesCarried.isEmpty()) {
+          blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+        } else {
+          importCarryingBalances(
+              blockAccumulator,
+              transactionAccumulator,
+              balancesCarried,
+              transactionProcessingResult);
+        }
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
@@ -1237,5 +1261,54 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       future.cancel(true);
     }
     return Optional.empty();
+  }
+
+  /**
+   * Takes over a result whose transaction changed balances that earlier transactions of the block
+   * changed too, without depending on them: each such balance ends at the block's balance plus the
+   * transaction's own change, in the state and in the block access list.
+   */
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static void importCarryingBalances(
+      final PathBasedWorldStateUpdateAccumulator blockAccumulator,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final List<Address> balancesCarried,
+      final TransactionProcessingResult transactionProcessingResult) {
+    final Wei[] carried = new Wei[balancesCarried.size()];
+    for (int i = 0; i < carried.length; i++) {
+      final Address address = balancesCarried.get(i);
+      final BonsaiValue<? extends BonsaiAccount> inTransaction =
+          transactionAccumulator.getAccountsToUpdate().get(address);
+      final Wei inBlock =
+          ((BonsaiValue<? extends BonsaiAccount>)
+                  blockAccumulator.getAccountsToUpdate().get(address))
+              .getUpdated()
+              .getBalance();
+      final Wei before = inTransaction.getPrior().getBalance();
+      final Wei after = inTransaction.getUpdated().getBalance();
+      carried[i] =
+          after.compareTo(before) >= 0
+              ? inBlock.add(after.subtract(before))
+              : inBlock.subtract(before.subtract(after));
+    }
+    blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+    for (int i = 0; i < carried.length; i++) {
+      final Address address = balancesCarried.get(i);
+      final Wei postBalance = carried[i];
+      ((BonsaiValue<? extends BonsaiAccount>) blockAccumulator.getAccountsToUpdate().get(address))
+          .getUpdated()
+          .setBalance(postBalance);
+      transactionProcessingResult
+          .getPartialBlockAccessView()
+          .ifPresent(
+              view ->
+                  view.accountChanges().stream()
+                      .filter(
+                          changes ->
+                              changes.getAddress().equals(address)
+                                  && changes.getPostBalance().isPresent())
+                      .findFirst()
+                      .ifPresent(changes -> changes.setPostBalance(postBalance)));
+    }
   }
 }

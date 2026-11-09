@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
 
 import org.hyperledger.besu.crypto.KeyPair;
@@ -231,6 +232,98 @@ class OptimisticParallelBlockProcessorIntegrationTest {
       assertContractStorage(result.seqWorldState(), contract, 0, 1000);
       assertContractStorageMatches(result.seqWorldState(), result.parWorldState(), contract, 0);
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("Credits to an account whose balance changed earlier in the block are reused")
+    void creditsToTheSameAccountAreReused() {
+      final String recipient = "0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, recipient),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  recipient,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A credit to an account whose balance the transaction reads is executed again")
+    void creditToAnAccountWhoseBalanceIsReadIsExecutedAgain() {
+      // the contract self-destructs to itself, which reads its balance
+      final String recipient = "0x0000000000000000000000000000000000007701";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, recipient),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  recipient,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("Spending from an account whose balance changed earlier in the block is reused")
+    void spendingFromAnAccountWhoseBalanceChangedIsReused() {
+      // the contract pays 1 wei from its own balance on every call, without reading the balance
+      final String payer = "0x0000000000000000000000000000000000007720";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, payer),
+              createTransferTransaction(0, 0L, 300_000L, 0L, 5L, payer, ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(payer));
+      assertAccountsMatch(
+          result.seqWorldState(),
+          result.parWorldState(),
+          Address.fromHexString("0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb"));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A payment to the mining beneficiary after paid priority fees is reused")
+    void paymentToTheMiningBeneficiaryIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(1),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  2L,
+                  10L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_1_KEYPAIR),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  3L,
+                  10L,
+                  MINING_BENEFICIARY.toHexString(),
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
     }
 
     @Test

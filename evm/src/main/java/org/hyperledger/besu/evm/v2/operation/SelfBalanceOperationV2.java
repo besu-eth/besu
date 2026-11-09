@@ -40,6 +40,7 @@ public class SelfBalanceOperationV2 extends AbstractFixedCostOperationV2 {
     final long[] s = frame.stackDataV2();
     final int top = frame.stackTopV2();
     final Account account = getAccount(frame.getRecipientAddress(), frame);
+    frame.getWorldUpdater().observeBalance(frame.getRecipientAddress());
     if (account == null) {
       setZero(s, top);
     } else {

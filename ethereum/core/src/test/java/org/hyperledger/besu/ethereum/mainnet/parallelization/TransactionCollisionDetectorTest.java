@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,6 +33,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -828,5 +831,236 @@ class TransactionCollisionDetectorTest {
     assertTrue(
         hasChainedCollision(createTransaction(sender, contract)),
         "Expected a collision when the block cleared a storage the transaction touched");
+  }
+
+  private boolean hasCollisionCarryingBalances(
+      final Transaction transaction, final List<Address> balancesCarried) {
+    return collisionDetector.hasCollision(
+        transaction,
+        Address.ZERO,
+        new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+        bonsaiUpdater,
+        balancesCarried);
+  }
+
+  private boolean hasStrictCollision(final Transaction transaction) {
+    return collisionDetector.hasCollision(
+        transaction,
+        Address.ZERO,
+        new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+        bonsaiUpdater);
+  }
+
+  private Transaction creditScenario(final long creditedBalance) {
+    final Address sender = Address.fromHexString("0x1");
+    final Address credited = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // an earlier transaction of the block paid the account
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            credited,
+            new BonsaiValue<>(createAccount(credited, 1, 50), createAccount(credited, 1, 70)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            credited,
+            new BonsaiValue<>(
+                createAccount(credited, 1, 50), createAccount(credited, 1, creditedBalance)));
+    return createTransaction(sender, credited);
+  }
+
+  @Test
+  void creditToAnAccountWhoseBalanceChangedIsCarriedOver() {
+    final List<Address> carried = new ArrayList<>();
+
+    assertFalse(hasCollisionCarryingBalances(creditScenario(55), carried));
+    assertThat(carried).containsExactly(Address.fromHexString("0x2"));
+  }
+
+  @Test
+  void creditIsACollisionWhenBalancesAreNotCarriedOver() {
+    assertTrue(hasStrictCollision(creditScenario(55)));
+  }
+
+  @Test
+  void creditToAnAccountWhoseBalanceWasObservedIsACollision() {
+    final Transaction transaction = creditScenario(55);
+    trxUpdater.observeBalance(Address.fromHexString("0x2"));
+
+    assertTrue(hasCollisionCarryingBalances(transaction, new ArrayList<>()));
+  }
+
+  @Test
+  void spendingFromAnAccountWhoseBalanceChangedIsACollision() {
+    assertTrue(hasCollisionCarryingBalances(creditScenario(45), new ArrayList<>()));
+  }
+
+  @Test
+  void spendingWithinItsMarginFromAnAccountWhoseBalanceChangedIsCarriedOver() {
+    final Transaction transaction = creditScenario(45);
+    // the transaction found 50 where it spent 10
+    trxUpdater.observeSufficientBalance(Address.fromHexString("0x2"), Wei.of(40));
+    final List<Address> carried = new ArrayList<>();
+
+    assertFalse(hasCollisionCarryingBalances(transaction, carried));
+    assertThat(carried).containsExactly(Address.fromHexString("0x2"));
+  }
+
+  @Test
+  void spendingBeyondItsMarginFromAnAccountWhoseBalanceChangedIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address spent = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // an earlier transaction of the block took 30 of the 50
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 20)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 5)));
+    // the transaction found 50 where it spent 45
+    trxUpdater.observeSufficientBalance(spent, Wei.of(5));
+
+    assertTrue(hasCollisionCarryingBalances(createTransaction(sender, spent), new ArrayList<>()));
+  }
+
+  @Test
+  void spendingThatCouldEmptyAnAccountWithoutNonceAndCodeIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address spent = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // an earlier transaction of the block took 10 of the 50, which the margin covers
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 0, 50), createAccount(spent, 0, 40)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 0, 50), createAccount(spent, 0, 10)));
+    // the transaction found 50 where it spent 40, so on 40 it would leave nothing
+    trxUpdater.observeSufficientBalance(spent, Wei.of(10));
+
+    assertTrue(hasCollisionCarryingBalances(createTransaction(sender, spent), new ArrayList<>()));
+  }
+
+  @Test
+  void creditWithoutRecordedObservationsIsACollision() {
+    final Transaction transaction = creditScenario(55);
+    final BonsaiWorldStateUpdateAccumulator unrecorded =
+        new BonsaiWorldStateUpdateAccumulator(
+            worldState,
+            (__, ___) -> {},
+            (__, ___) -> {},
+            EvmConfiguration.DEFAULT,
+            new BonsaiCodeCache());
+    unrecorded.getAccountsToUpdate().putAll(trxUpdater.getAccountsToUpdate());
+
+    assertTrue(
+        collisionDetector.hasCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(unrecorded, null, false, Wei.ZERO),
+            bonsaiUpdater,
+            new ArrayList<>()));
+  }
+
+  @Test
+  void creditToAnAccountTheBlockEmptiedIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address credited = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            credited,
+            new BonsaiValue<>(createAccount(credited, 0, 50), createAccount(credited, 0, 0)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            credited,
+            new BonsaiValue<>(createAccount(credited, 0, 50), createAccount(credited, 0, 60)));
+
+    assertTrue(
+        hasCollisionCarryingBalances(createTransaction(sender, credited), new ArrayList<>()));
+  }
+
+  @Test
+  void balanceChangeOfTheSenderIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 1, 70)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 2, 40)));
+
+    assertTrue(
+        hasCollisionCarryingBalances(
+            createTransaction(sender, Address.fromHexString("0x3")), new ArrayList<>()));
+  }
+
+  @Test
+  void paymentToTheMiningBeneficiaryIsCarriedOver() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // earlier transactions paid their fees to the beneficiary
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 80)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 65)));
+    final List<Address> carried = new ArrayList<>();
+
+    assertFalse(
+        collisionDetector.hasCollision(
+            createTransaction(sender, beneficiary),
+            beneficiary,
+            new ParallelizedTransactionContext(trxUpdater, null, true, Wei.ZERO),
+            bonsaiUpdater,
+            carried));
+    assertThat(carried).containsExactly(beneficiary);
+  }
+
+  @Test
+  void chainedPaymentToTheMiningBeneficiaryIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 65)));
+
+    assertTrue(
+        collisionDetector.hasCollision(
+            createTransaction(sender, beneficiary),
+            beneficiary,
+            new ParallelizedTransactionContext(
+                trxUpdater, null, true, Wei.ZERO, predecessorUpdater),
+            bonsaiUpdater,
+            new ArrayList<>()));
   }
 }

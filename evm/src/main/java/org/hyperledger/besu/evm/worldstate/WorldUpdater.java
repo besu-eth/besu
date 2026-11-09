@@ -156,4 +156,42 @@ public interface WorldUpdater extends MutableWorldView {
   default void markTransactionBoundary() {
     // default is to ignore
   }
+
+  /**
+   * Records that the executing transaction depends on the balance of an account, by reading it or
+   * by spending from it, rather than only adding to it.
+   *
+   * @param address the account whose balance the transaction depends on
+   */
+  default void observeBalance(final Address address) {
+    // default is to ignore
+  }
+
+  /**
+   * Records that the executing transaction spends from an account whose balance suffices with the
+   * given margin, so that its outcome holds for any balance lower by no more than that margin.
+   *
+   * @param address the account the transaction spends from
+   * @param margin how much the balance exceeds what the transaction spends at this point
+   */
+  default void observeSufficientBalance(final Address address, final Wei margin) {
+    // default is to ignore
+  }
+
+  /**
+   * Records that the executing transaction spends from an account: its outcome depends on the
+   * balance only through whether it suffices.
+   *
+   * @param address the account the transaction spends from
+   * @param balance the account's balance at this point
+   * @param value what the transaction spends from it
+   */
+  default void observeSpending(final Address address, final Wei balance, final Wei value) {
+    if (balance.compareTo(value) >= 0) {
+      observeSufficientBalance(address, balance.subtract(value));
+    } else {
+      // an insufficient balance makes the spending fail, which a higher balance would not
+      observeBalance(address);
+    }
+  }
 }
