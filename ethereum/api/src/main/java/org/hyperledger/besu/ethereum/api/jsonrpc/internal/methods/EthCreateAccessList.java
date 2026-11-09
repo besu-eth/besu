@@ -15,12 +15,14 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessListResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -53,28 +55,58 @@ public class EthCreateAccessList extends AbstractEstimateGas {
       final long gasLimitUpperBound,
       final long minTxCost) {
 
+    final CallParameter accessListCallParams = withAccessList(callParams);
     final AccessListOperationTracer tracer = AccessListOperationTracer.create();
     if (attemptOptimisticSimulationWithMinimumBlockGasUsed(
-        minTxCost, callParams, simulationFunction, tracer)) {
+        minTxCost, accessListCallParams, simulationFunction, tracer)) {
       return new CreateAccessListResult(tracer.getAccessList(), minTxCost);
     }
     // Otherwise, do the calculation with the provided gasLimit
     final Optional<TransactionSimulatorResult> firstResult =
-        simulationFunction.simulate(overrideGasLimit(callParams, gasLimitUpperBound), tracer);
+        simulationFunction.simulate(
+            overrideGasLimit(accessListCallParams, gasLimitUpperBound), tracer);
 
     // if the call accessList is different from the simulation result, calculate gas and return
     if (shouldProcessWithAccessListOverride(callParams, tracer)) {
       final AccessListSimulatorResult result =
           processTransactionWithAccessListOverride(
-              callParams, gasLimitUpperBound, tracer.getAccessList(), simulationFunction);
+              accessListCallParams, gasLimitUpperBound, tracer.getAccessList(), simulationFunction);
       return createResponse(requestContext, result);
     } else {
       return createResponse(requestContext, new AccessListSimulatorResult(firstResult, tracer));
     }
   }
 
+  // Without fee fields, or with zero fees, simulate with zero fees as eth_call does, so that a
+  // sender who cannot pay the default fees still gets an access list.
+  @Override
+  protected TransactionValidationParams getTransactionValidationParams(
+      final CallParameter callParams) {
+    if (callParams.getStrict().isEmpty()
+        && isZeroOrAbsent(callParams.getGasPrice())
+        && isZeroOrAbsent(callParams.getMaxFeePerGas())
+        && isZeroOrAbsent(callParams.getMaxPriorityFeePerGas())) {
+      return TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce();
+    }
+    return super.getTransactionValidationParams(callParams);
+  }
+
+  private static boolean isZeroOrAbsent(final Optional<Wei> fee) {
+    return fee.map(Wei.ZERO::equals).orElse(true);
+  }
+
+  private CallParameter withAccessList(final CallParameter callParams) {
+    if (callParams.getAccessList().isPresent()) {
+      return callParams;
+    }
+    return ImmutableCallParameter.builder().from(callParams).accessList(List.of()).build();
+  }
+
   private Object createResponse(
       final JsonRpcRequestContext requestContext, final AccessListSimulatorResult result) {
+    if (result.result().isPresent() && result.result().get().isInvalid()) {
+      return errorResponse(requestContext, result.result().get());
+    }
     return result
         .result()
         .map(createResponse(result.tracer()))

@@ -30,6 +30,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -38,9 +39,12 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessLi
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -54,6 +58,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -219,6 +224,140 @@ public class EthCreateAccessListTest {
                 List.of(), MIN_TX_GAS_COST, Optional.of("execution reverted")));
 
     assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(transactionSimulator, times(2))
+        .processOnPending(any(), eq(Optional.empty()), any(), any(), eq(pendingBlockHeader));
+  }
+
+  @Test
+  public void shouldSimulateWithEmptyAccessListWhenNoneIsGiven() {
+    final JsonRpcRequestContext request =
+        ethCreateAccessListRequest(legacyTransactionCallParameter(Wei.ZERO), "latest");
+    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, latestBlockHeader);
+
+    method.response(request);
+
+    final ArgumentCaptor<CallParameter> callParameterCaptor =
+        ArgumentCaptor.forClass(CallParameter.class);
+    verify(transactionSimulator)
+        .process(
+            callParameterCaptor.capture(),
+            eq(Optional.empty()),
+            any(),
+            any(),
+            eq(latestBlockHeader));
+    assertThat(callParameterCaptor.getValue().getAccessList()).contains(List.of());
+  }
+
+  @Test
+  public void shouldSimulateWithZeroFeesWhenNoFeeFieldsAreGiven() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter).isAllowExceedingBalance()).isTrue();
+  }
+
+  @Test
+  public void shouldSimulateWithZeroFeesWhenFeeFieldsAreZero() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .maxFeePerGas(Wei.ZERO)
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter).isAllowExceedingBalance()).isTrue();
+  }
+
+  @Test
+  public void shouldSimulateWithCallerFeesWhenFeeFieldsAreGiven() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .maxFeePerGas(Wei.ONE)
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter).isAllowExceedingBalance()).isFalse();
+  }
+
+  @Test
+  public void shouldSimulateWithCallerFeesWhenStrictIsGiven() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x0"))
+            .to(Address.fromHexString("0x0"))
+            .strict(true)
+            .build();
+
+    assertThat(validationParamsUsedFor(callParameter).isAllowExceedingBalance()).isFalse();
+  }
+
+  private TransactionValidationParams validationParamsUsedFor(final CallParameter callParameter) {
+    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, latestBlockHeader);
+
+    method.response(ethCreateAccessListRequest(callParameter, "latest"));
+
+    final ArgumentCaptor<TransactionValidationParams> validationParamsCaptor =
+        ArgumentCaptor.forClass(TransactionValidationParams.class);
+    verify(transactionSimulator)
+        .process(
+            any(),
+            eq(Optional.empty()),
+            validationParamsCaptor.capture(),
+            any(),
+            eq(latestBlockHeader));
+    return validationParamsCaptor.getValue();
+  }
+
+  @Test
+  public void shouldReturnErrorWhenTransactionIsInvalid() {
+    final JsonRpcRequestContext request =
+        ethCreateAccessListRequest(legacyTransactionCallParameter(Wei.ZERO), "latest");
+    final ValidationResult<TransactionInvalidReason> validationResult =
+        ValidationResult.invalid(
+            TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+            "Transaction type ACCESS_LIST is invalid, accepted transaction types are [FRONTIER]");
+    final TransactionSimulatorResult mockTxSimResult =
+        mockTransactionSimulatorResult(false, false, MIN_TX_GAS_COST, latestBlockHeader);
+    when(mockTxSimResult.isInvalid()).thenReturn(true);
+    when(mockTxSimResult.getValidationResult()).thenReturn(validationResult);
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, JsonRpcError.from(validationResult));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnErrorWhenTransactionWithAccessListIsInvalid() {
+    final JsonRpcRequestContext request =
+        ethCreateAccessListRequest(
+            eip1559TransactionCallParameter(Optional.empty(), null, Bytes.ofUnsignedLong(1L)));
+    final AccessListOperationTracer tracer = createMockTracer(generateRandomAccessList());
+    final TransactionSimulatorResult successfulResult =
+        mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, pendingBlockHeader);
+    final ValidationResult<TransactionInvalidReason> validationResult =
+        ValidationResult.invalid(
+            TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+            "intrinsic gas cost 25300 exceeds gas limit 25000");
+    final TransactionSimulatorResult invalidResult = mock(TransactionSimulatorResult.class);
+    when(invalidResult.isInvalid()).thenReturn(true);
+    when(invalidResult.getValidationResult()).thenReturn(validationResult);
+    when(transactionSimulator.processOnPending(
+            any(), eq(Optional.empty()), any(), any(), eq(pendingBlockHeader)))
+        .thenReturn(Optional.of(successfulResult))
+        .thenReturn(Optional.of(invalidResult));
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, JsonRpcError.from(validationResult));
+
+    assertThat(responseWithMockTracer(request, tracer))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
     verify(transactionSimulator, times(2))
         .processOnPending(any(), eq(Optional.empty()), any(), any(), eq(pendingBlockHeader));
   }
@@ -413,7 +552,7 @@ public class EthCreateAccessListTest {
   }
 
   @SuppressWarnings("ReferenceEquality")
-  private void mockTransactionSimulatorResult(
+  private TransactionSimulatorResult mockTransactionSimulatorResult(
       final boolean isSuccessful,
       final boolean isReverted,
       final long estimateGas,
@@ -434,6 +573,7 @@ public class EthCreateAccessListTest {
       when(transactionSimulator.process(any(), eq(Optional.empty()), any(), any(), eq(blockHeader)))
           .thenReturn(Optional.of(mockTxSimResult));
     }
+    return mockTxSimResult;
   }
 
   private CallParameter legacyTransactionCallParameter(final Wei gasPrice) {
