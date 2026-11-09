@@ -74,6 +74,9 @@ jobs:
           java-version: 25
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        env:
+          # Restore the build job's entry, not an older one saved by this job
+          GRADLE_BUILD_ACTION_CACHE_KEY_JOB: build
         with:
           cache-read-only: true # only the build job in ci.yml writes the Gradle cache
       - name: run BFT soak test
