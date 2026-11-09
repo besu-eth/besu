@@ -78,6 +78,13 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
   }
 
   @Test
+  void aNullCustomizationIsRefusedWhereItIsSet() {
+    assertThatThrownBy(() -> new BesuController.Builder().protocolScheduleCustomization(null))
+        .isInstanceOf(NullPointerException.class)
+        .hasMessageContaining("protocolScheduleCustomization");
+  }
+
+  @Test
   void anAbsentCustomizationLeavesTheForkScheduleAlone() {
     final BesuControllerBuilder builder =
         new BesuController.Builder()

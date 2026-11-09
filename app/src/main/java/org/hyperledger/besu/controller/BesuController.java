@@ -45,6 +45,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import org.apache.tuweni.units.bigints.UInt256;
@@ -347,7 +348,9 @@ public class BesuController implements java.io.Closeable {
      */
     public Builder protocolScheduleCustomization(
         final ProtocolScheduleCustomization protocolScheduleCustomization) {
-      this.protocolScheduleCustomization = protocolScheduleCustomization;
+      this.protocolScheduleCustomization =
+          Objects.requireNonNull(
+              protocolScheduleCustomization, "protocolScheduleCustomization must not be null");
       return this;
     }
 
