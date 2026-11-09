@@ -810,6 +810,9 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
       jars =
           pluginFiles
               .filter(p -> p.getFileName().toString().endsWith(".jar"))
+              // skip hidden files: an archive made on macOS, unpacked on another system, leaves
+              // a ._<jar name> metadata file beside each jar, which is not a jar
+              .filter(p -> !p.getFileName().toString().startsWith("."))
               .sorted(Comparator.comparing(p -> p.getFileName().toString()))
               .toList();
     } catch (final IOException e) {

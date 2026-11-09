@@ -327,6 +327,19 @@ public class PluginDiscoveryTest extends AcceptanceTestBase {
   }
 
   @Test
+  public void hiddenFileNamedLikeAJarIsIgnored() throws IOException {
+    node = nodeWith(List.of("testPlugins"), List.of(MAIN_PLUGIN));
+    // the macOS tar keeps a jar's file attributes in a companion file named ._<jar name>, which
+    // becomes a real file beside the jar when unpacked on Linux; it ends in .jar but is not a jar
+    Files.writeString(
+        node.homeDirectory().resolve("plugins").resolve("._testPlugins.jar"), "Mac OS X");
+
+    final String console = startAndCaptureConsole(node);
+
+    assertThat(console).contains("Registered plugin of type " + MAIN_PLUGIN + ".");
+  }
+
+  @Test
   public void unreadablePluginsDirectoryStopsTheNode() throws IOException {
     node = nodeWith(List.of("testPlugins"), List.of());
     final Path pluginsDir = node.homeDirectory().resolve("plugins");
