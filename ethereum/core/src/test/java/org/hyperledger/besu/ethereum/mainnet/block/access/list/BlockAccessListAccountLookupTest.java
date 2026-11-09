@@ -17,13 +17,17 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.CodeChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 
 import java.util.List;
+import java.util.Map;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
@@ -74,5 +78,78 @@ class BlockAccessListAccountLookupTest {
     assertThat(index.getAccountChanges(ABSENT_ADDRESS)).isEmpty();
     assertThat(index.getAddressHash(ABSENT_ADDRESS)).isEmpty();
     assertThat(index.getSlotChanges(ABSENT_ADDRESS, SLOT)).isEmpty();
+  }
+
+  @Test
+  void readsEachPreBlockAccountOnceAcrossAdoptedCodeHashes() {
+    final Address writer = Address.fromHexString("0x00000000000000000000000000000000000000b1");
+    final Address firstSource = Address.fromHexString("0x00000000000000000000000000000000000000b2");
+    final Address secondSource =
+        Address.fromHexString("0x00000000000000000000000000000000000000b3");
+    final Address codeless = Address.fromHexString("0x00000000000000000000000000000000000000b4");
+    final Bytes writtenCode = Bytes.fromHexString("0x01");
+    final Bytes firstCode = Bytes.fromHexString("0x02");
+    final Bytes secondCode = Bytes.fromHexString("0x03");
+    final List<Hash> unresolvable =
+        List.of(Hash.hash(Bytes.fromHexString("0x04")), Hash.hash(Bytes.fromHexString("0x05")));
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                accountChanges(ADDRESS),
+                accountChanges(writer, new CodeChange(1, writtenCode)),
+                accountChanges(firstSource),
+                accountChanges(secondSource),
+                accountChanges(codeless)));
+    final RecordingPreBlockCodeReader preBlockCode =
+        new RecordingPreBlockCodeReader(
+            Map.of(
+                ADDRESS,
+                Bytes.fromHexString("0xAA"),
+                firstSource,
+                firstCode,
+                secondSource,
+                secondCode));
+
+    final BlockAccessListAccountLookup lookup = BlockAccessListAccountLookup.of(bal);
+
+    for (int i = 0; i < 2; i++) {
+      assertThat(lookup.resolveAdoptedCode(Hash.hash(writtenCode), preBlockCode))
+          .contains(writtenCode);
+      assertThat(lookup.resolveAdoptedCode(Hash.hash(firstCode), preBlockCode)).contains(firstCode);
+      assertThat(lookup.resolveAdoptedCode(Hash.hash(secondCode), preBlockCode))
+          .contains(secondCode);
+      for (final Hash codeHash : unresolvable) {
+        assertThat(lookup.resolveAdoptedCode(codeHash, preBlockCode)).isEmpty();
+      }
+    }
+
+    assertThat(preBlockCode.codeHashReads)
+        .containsExactly(ADDRESS, writer, firstSource, secondSource, codeless);
+    assertThat(preBlockCode.codeReads).containsExactly(firstSource, secondSource);
+  }
+
+  @Test
+  void writtenCodeAloneReadsNoPreBlockState() {
+    final Bytes writtenCode = Bytes.fromHexString("0x01");
+    final BlockAccessListAccountLookup lookup =
+        BlockAccessListAccountLookup.of(
+            new BlockAccessList(List.of(accountChanges(ADDRESS, new CodeChange(1, writtenCode)))));
+    final RecordingPreBlockCodeReader preBlockCode =
+        new RecordingPreBlockCodeReader(Map.of(ADDRESS, Bytes.fromHexString("0xAA")));
+
+    assertThat(lookup.resolveWrittenCode(Hash.hash(writtenCode))).contains(writtenCode);
+    assertThat(lookup.resolveWrittenCode(Hash.hash(Bytes.fromHexString("0xAA")))).isEmpty();
+    assertThat(lookup.resolveAdoptedCode(Hash.hash(writtenCode), preBlockCode))
+        .contains(writtenCode);
+    assertThat(preBlockCode.codeHashReads).isEmpty();
+    // resolving from written code alone does not leave an empty pre-block index behind
+    assertThat(lookup.resolveAdoptedCode(Hash.hash(Bytes.fromHexString("0xAA")), preBlockCode))
+        .contains(Bytes.fromHexString("0xAA"));
+  }
+
+  private static AccountChanges accountChanges(
+      final Address address, final CodeChange... codeChanges) {
+    return new AccountChanges(
+        address, List.of(), List.of(), List.of(), List.of(), List.of(codeChanges));
   }
 }

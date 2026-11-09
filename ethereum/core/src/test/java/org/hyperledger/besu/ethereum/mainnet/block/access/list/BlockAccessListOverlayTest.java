@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.mainnet.block.access.list.RecordingPreBlockCodeReader.noPreBlockCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -36,6 +37,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
+import java.util.Map;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -45,6 +47,10 @@ class BlockAccessListOverlayTest {
 
   private static final Address ADDRESS =
       Address.fromHexString("0x00000000000000000000000000000000000000aa");
+  private static final Address ADOPTER =
+      Address.fromHexString("0x00000000000000000000000000000000000000ad");
+  private static final Address SOURCE =
+      Address.fromHexString("0x00000000000000000000000000000000000000c0");
   private static final StorageSlotKey SLOT = new StorageSlotKey(UInt256.ONE);
 
   @Test
@@ -78,7 +84,7 @@ class BlockAccessListOverlayTest {
     assertThat(storageValue.getUpdated()).isEqualTo(UInt256.valueOf(1));
 
     final BonsaiValue<Bytes> codeValue = new BonsaiValue<>(Bytes.EMPTY, Bytes.EMPTY);
-    overlay.applyToCode(ADDRESS, codeValue::setUpdated);
+    overlay.applyToCode(ADDRESS, noPreBlockCode(), codeValue::setUpdated);
     assertThat(codeValue.getUpdated()).isEqualTo(Bytes.fromHexString("0xBB"));
 
     final MutableAccount account = mock(MutableAccount.class);
@@ -109,7 +115,7 @@ class BlockAccessListOverlayTest {
     assertThat(storageValue.getUpdated()).isEqualTo(UInt256.valueOf(42));
 
     final BonsaiValue<Bytes> codeValue = new BonsaiValue<>(Bytes.EMPTY, Bytes.EMPTY);
-    overlay.applyToCode(ADDRESS, codeValue::setUpdated);
+    overlay.applyToCode(ADDRESS, noPreBlockCode(), codeValue::setUpdated);
     assertThat(codeValue.getUpdated()).isEqualTo(Bytes.EMPTY);
 
     final MutableAccount account = mock(MutableAccount.class);
@@ -119,28 +125,78 @@ class BlockAccessListOverlayTest {
   }
 
   @Test
-  void rejectsHashFormCodeChangeInsteadOfApplyingEmptyCode() {
-    final AccountChanges accountChanges =
-        new AccountChanges(
-            ADDRESS,
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(),
-            List.of(
-                new CodeChange(0, Bytes.fromHexString("0xAA")),
-                CodeChange.adoptedCode(1, Hash.hash(Bytes.fromHexString("0xBB")))));
+  void resolvesHashFormCodeFromAnotherAccountsCodeChange() {
+    final Bytes adoptedCode = Bytes.fromHexString("0xBB");
     final BlockAccessListAccountLookup lookup =
-        BlockAccessListAccountLookup.of(new BlockAccessList(List.of(accountChanges)));
+        BlockAccessListAccountLookup.of(
+            new BlockAccessList(
+                List.of(
+                    codeChanges(ADDRESS, new CodeChange(0, Bytes.fromHexString("0xAA"))),
+                    codeChanges(
+                        ADOPTER,
+                        new CodeChange(0, Bytes.fromHexString("0xAA")),
+                        CodeChange.adoptedCode(2, Hash.hash(adoptedCode))),
+                    codeChanges(SOURCE, new CodeChange(1, adoptedCode)))));
+
+    final BlockAccessListOverlay beforeAdoption = new BlockAccessListOverlay(lookup, 2L);
+    assertThat(beforeAdoption.getCode(ADOPTER, noPreBlockCode()))
+        .contains(Bytes.fromHexString("0xAA"));
+
+    final BlockAccessListOverlay afterAdoption = new BlockAccessListOverlay(lookup, 3L);
+    assertThat(afterAdoption.getCode(ADOPTER, noPreBlockCode())).contains(adoptedCode);
+    final BonsaiValue<Bytes> codeValue = new BonsaiValue<>(Bytes.EMPTY, Bytes.EMPTY);
+    afterAdoption.applyToCode(ADOPTER, noPreBlockCode(), codeValue::setUpdated);
+    assertThat(codeValue.getUpdated()).isEqualTo(adoptedCode);
+    final MutableAccount account = mock(MutableAccount.class);
+    assertThat(afterAdoption.applyToAccountState(ADOPTER, () -> account)).contains(account);
+    verify(account).setCode(eq(adoptedCode));
+  }
+
+  @Test
+  void resolvesHashFormCodeFromPreBlockCodeOfABalAccount() {
+    final Bytes adoptedCode = Bytes.fromHexString("0xBB");
+    final Hash adoptedCodeHash = Hash.hash(adoptedCode);
+    final BlockAccessListAccountLookup lookup =
+        BlockAccessListAccountLookup.of(
+            new BlockAccessList(
+                List.of(
+                    codeChanges(ADOPTER, CodeChange.adoptedCode(1, adoptedCodeHash)),
+                    codeChanges(SOURCE))));
+    final RecordingPreBlockCodeReader preBlockCode =
+        new RecordingPreBlockCodeReader(
+            Map.of(ADOPTER, Bytes.fromHexString("0xAA"), SOURCE, adoptedCode));
+
+    final BlockAccessListOverlay overlay = new BlockAccessListOverlay(lookup, 2L);
+    assertThat(overlay.getCode(ADOPTER, preBlockCode)).contains(adoptedCode);
+    final BonsaiValue<Bytes> codeValue = new BonsaiValue<>(Bytes.EMPTY, Bytes.EMPTY);
+    overlay.applyToCode(ADOPTER, preBlockCode, codeValue::setUpdated);
+    assertThat(codeValue.getUpdated()).isEqualTo(adoptedCode);
+    // the lookup keeps the code it read, the second read does not read the accounts again
+    assertThat(preBlockCode.codeHashReads).containsExactly(ADOPTER, SOURCE);
+    assertThat(preBlockCode.codeReads).containsExactly(SOURCE);
+  }
+
+  @Test
+  void rejectsHashFormCodeThatDoesNotResolve() {
+    final BlockAccessListAccountLookup lookup =
+        BlockAccessListAccountLookup.of(
+            new BlockAccessList(
+                List.of(
+                    codeChanges(
+                        ADDRESS,
+                        new CodeChange(0, Bytes.fromHexString("0xAA")),
+                        CodeChange.adoptedCode(1, Hash.hash(Bytes.fromHexString("0xBB")))),
+                    codeChanges(SOURCE))));
 
     final BlockAccessListOverlay beforeAdoption = new BlockAccessListOverlay(lookup, 1L);
-    assertThat(beforeAdoption.getCode(ADDRESS)).contains(Bytes.fromHexString("0xAA"));
+    assertThat(beforeAdoption.getCode(ADDRESS, noPreBlockCode()))
+        .contains(Bytes.fromHexString("0xAA"));
 
     final BlockAccessListOverlay afterAdoption = new BlockAccessListOverlay(lookup, 2L);
     final MutableAccount account = mock(MutableAccount.class);
-    assertThatThrownBy(() -> afterAdoption.getCode(ADDRESS))
+    assertThatThrownBy(() -> afterAdoption.getCode(ADDRESS, noPreBlockCode()))
         .isInstanceOf(IllegalStateException.class);
-    assertThatThrownBy(() -> afterAdoption.applyToCode(ADDRESS, code -> {}))
+    assertThatThrownBy(() -> afterAdoption.applyToCode(ADDRESS, noPreBlockCode(), code -> {}))
         .isInstanceOf(IllegalStateException.class);
     assertThatThrownBy(() -> afterAdoption.applyToAccountState(ADDRESS, () -> account))
         .isInstanceOf(IllegalStateException.class);
@@ -168,5 +224,10 @@ class BlockAccessListOverlayTest {
         new BonsaiValue<>(UInt256.valueOf(99), UInt256.valueOf(99));
     overlay.applyToStorage(ADDRESS, SLOT, storageValue::setUpdated);
     assertThat(storageValue.getUpdated()).isEqualTo(UInt256.ZERO);
+  }
+
+  private static AccountChanges codeChanges(final Address address, final CodeChange... changes) {
+    return new AccountChanges(
+        address, List.of(), List.of(), List.of(), List.of(), List.of(changes));
   }
 }

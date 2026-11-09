@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Address;
@@ -37,6 +38,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
@@ -50,11 +54,18 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class BonsaiBalWorldStateUpdateAccumulatorTest {
 
   private static final Address ADDRESS =
       Address.fromHexString("0x00000000000000000000000000000000000000aa");
+  private static final Address SOURCE =
+      Address.fromHexString("0x00000000000000000000000000000000000000c0");
+  // PUSH1 0; STOP and JUMPDEST; STOP
+  private static final Bytes ADDRESS_CODE = Bytes.fromHexString("0x600000");
+  private static final Bytes SOURCE_CODE = Bytes.fromHexString("0x5b00");
 
   private ExecutionContextTestFixture contextTestFixture;
   private ProtocolContext protocolContext;
@@ -252,7 +263,117 @@ class BonsaiBalWorldStateUpdateAccumulatorTest {
         });
   }
 
+  @ParameterizedTest(name = "codeStoredByCodeHash={0}")
+  @ValueSource(booleans = {true, false})
+  void hashFormCodeResolvesFromThePreBlockCodeOfABalAccount(final boolean codeStoredByCodeHash)
+      throws Exception {
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                codeChanges(ADDRESS, CodeChange.adoptedCode(0, Hash.hash(SOURCE_CODE))),
+                codeChanges(SOURCE)));
+
+    withAccumulatorOnContracts(
+        codeStoredByCodeHash,
+        bal,
+        accumulator -> {
+          assertThat(accumulator.get(ADDRESS).getCodeHash()).isEqualTo(Hash.hash(SOURCE_CODE));
+          final Code code = accumulator.getCode(ADDRESS, Hash.hash(SOURCE_CODE)).orElseThrow();
+          assertThat(code.getBytes()).isEqualTo(SOURCE_CODE);
+          assertThat(accumulator.getCodeToUpdate().get(ADDRESS).getUpdated())
+              .isEqualTo(SOURCE_CODE);
+        });
+  }
+
+  @ParameterizedTest(name = "codeStoredByCodeHash={0}")
+  @ValueSource(booleans = {true, false})
+  void unresolvedHashFormCodeFailsTheCodeRead(final boolean codeStoredByCodeHash) throws Exception {
+    final Hash unknownCodeHash = Hash.hash(Bytes.fromHexString("0x5b5b00"));
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                codeChanges(ADDRESS, CodeChange.adoptedCode(0, unknownCodeHash)),
+                codeChanges(SOURCE)));
+
+    withAccumulatorOnContracts(
+        codeStoredByCodeHash,
+        bal,
+        accumulator -> {
+          assertThat(accumulator.get(ADDRESS).getCodeHash()).isEqualTo(unknownCodeHash);
+          assertThatThrownBy(() -> accumulator.getCode(ADDRESS, unknownCodeHash))
+              .isInstanceOf(IllegalStateException.class);
+          assertThat(accumulator.getCodeToUpdate()).doesNotContainKey(ADDRESS);
+        });
+  }
+
+  /**
+   * Runs {@code consumer} on a state where {@link #ADDRESS} and {@link #SOURCE} hold different
+   * code, so with code keyed by account hash the adopter's own stored code does not match.
+   */
+  private void withAccumulatorOnContracts(
+      final boolean codeStoredByCodeHash,
+      final BlockAccessList bal,
+      final Consumer<BonsaiWorldStateUpdateAccumulator> consumer)
+      throws Exception {
+    final ExecutionContextTestFixture fixture =
+        ExecutionContextTestFixture.builder(
+                GenesisConfig.fromConfig(
+                    """
+                    {
+                      "config": { "chainId": 1337 },
+                      "difficulty": "0x1",
+                      "gasLimit": "0x1c9c380",
+                      "alloc": {
+                        "%s": { "balance": "0x1", "code": "%s" },
+                        "%s": { "balance": "0x1", "code": "%s" }
+                      }
+                    }
+                    """
+                        .formatted(
+                            ADDRESS.toHexString(),
+                            ADDRESS_CODE.toHexString(),
+                            SOURCE.toHexString(),
+                            SOURCE_CODE.toHexString())))
+            .dataStorageFormat(DataStorageFormat.BONSAI)
+            .dataStorageConfiguration(
+                ImmutableDataStorageConfiguration.builder()
+                    .from(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
+                    .extraStorageConfiguration(
+                        ImmutableExtraStorageConfiguration.builder()
+                            .unstable(
+                                ImmutableExtraStorageConfiguration.Unstable.builder()
+                                    .codeStoredByCodeHashEnabled(codeStoredByCodeHash)
+                                    .build())
+                            .build())
+                    .build())
+            .build();
+    try {
+      withAccumulator(
+          fixture.getProtocolContext(),
+          fixture.getBlockchain().getChainHeadHeader(),
+          bal,
+          1L,
+          consumer);
+    } finally {
+      fixture.getStateArchive().close();
+    }
+  }
+
+  private static AccountChanges codeChanges(final Address address, final CodeChange... changes) {
+    return new AccountChanges(
+        address, List.of(), List.of(), List.of(), List.of(), List.of(changes));
+  }
+
   private void withAccumulator(
+      final BlockAccessList bal,
+      final long maxTxIndexExclusive,
+      final Consumer<BonsaiWorldStateUpdateAccumulator> consumer) {
+    withAccumulator(protocolContext, chainHeadHeader, bal, maxTxIndexExclusive, consumer);
+  }
+
+  private static void withAccumulator(
+      final ProtocolContext protocolContext,
+      final BlockHeader chainHeadHeader,
       final BlockAccessList bal,
       final long maxTxIndexExclusive,
       final Consumer<BonsaiWorldStateUpdateAccumulator> consumer) {

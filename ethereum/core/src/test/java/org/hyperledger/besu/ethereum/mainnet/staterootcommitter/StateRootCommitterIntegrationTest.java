@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.mockito.ArgumentMatchers.any;
@@ -97,6 +98,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Integration tests for {@link org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter}
@@ -119,6 +122,9 @@ class StateRootCommitterIntegrationTest {
       Address.fromHexString("0x00000000000000000000000000000000000000ab");
   private static final Bytes CONTRACT_CODE =
       Bytes.fromHexString("0x608060405234801561001057600080fd5b50");
+  private static final Address SECOND_SOURCE =
+      Address.fromHexString("0x00000000000000000000000000000000c0df");
+  private static final Bytes DEPLOYED_CODE = Bytes.fromHexString("0x5b5b00");
   private static final StorageSlotKey SLOT = new StorageSlotKey(UInt256.valueOf(7));
   private static final UInt256 SLOT_VALUE = UInt256.valueOf(0xABCDL);
 
@@ -766,6 +772,84 @@ class StateRootCommitterIntegrationTest {
     }
   }
 
+  /** EIP-8298 hash-form code changes, which carry the adopted code hash instead of the bytes. */
+  @Nested
+  class HashFormCodeChanges {
+
+    @ParameterizedTest(name = "codeStoredByCodeHash={0}")
+    @ValueSource(booleans = {true, false})
+    void balStoresTheResolvedCodeForEachAdopter(final boolean codeStoredByCodeHash) {
+      final EmptyCrossModeHarness harness =
+          EmptyCrossModeHarness.create(codeStorage(codeStoredByCodeHash));
+      harness.persistBonsaiWithDefault(
+          BlockChange.codeAndStorage(CONTRACT, CONTRACT_CODE, SLOT, SLOT_VALUE));
+      harness.persistBonsaiWithDefault(BlockChange.balanceAndNonce(EOA, Wei.of(1), 1L));
+
+      // SECOND_SOURCE deploys DEPLOYED_CODE at index 1, EOA adopts it at index 2, then
+      // SECOND_SOURCE adopts the pre-block code of CONTRACT at index 3. DEPLOYED_CODE is only in a
+      // superseded entry, so it is stored only if EOA's entry resolves to it.
+      final BlockChange adoption =
+          new BlockChange(
+              List.of(
+                  u -> {
+                    u.getOrCreate(SECOND_SOURCE).setCode(CONTRACT_CODE);
+                    u.getOrCreate(EOA).setCode(DEPLOYED_CODE);
+                  }),
+              List.of(
+                  codeChanges(CONTRACT),
+                  codeChanges(EOA, CodeChange.adoptedCode(2, Hash.hash(DEPLOYED_CODE))),
+                  codeChanges(
+                      SECOND_SOURCE,
+                      new CodeChange(1, DEPLOYED_CODE),
+                      CodeChange.adoptedCode(3, Hash.hash(CONTRACT_CODE)))));
+      harness.persistBonsaiWithBal(adoption);
+
+      assertThat(harness.storedCode(EOA, Hash.hash(DEPLOYED_CODE))).contains(DEPLOYED_CODE);
+      assertThat(harness.storedCode(SECOND_SOURCE, Hash.hash(CONTRACT_CODE)))
+          .contains(CONTRACT_CODE);
+    }
+
+    @ParameterizedTest(name = "codeStoredByCodeHash={0}")
+    @ValueSource(booleans = {true, false})
+    void balFailsTheBlockWhenAdoptedCodeDoesNotResolve(final boolean codeStoredByCodeHash) {
+      final EmptyCrossModeHarness harness =
+          EmptyCrossModeHarness.create(codeStorage(codeStoredByCodeHash));
+      harness.persistBonsaiWithDefault(
+          BlockChange.codeAndStorage(CONTRACT, CONTRACT_CODE, SLOT, SLOT_VALUE));
+
+      final BlockChange adoption =
+          new BlockChange(
+              List.of(u -> u.getOrCreate(EOA).setCode(DEPLOYED_CODE)),
+              List.of(
+                  codeChanges(CONTRACT),
+                  codeChanges(EOA, CodeChange.adoptedCode(1, Hash.hash(DEPLOYED_CODE)))));
+
+      assertThatThrownBy(() -> harness.persistBonsaiWithBal(adoption))
+          .isInstanceOf(IllegalStateException.class)
+          .rootCause()
+          .hasMessageContaining("neither in the block access list nor in the parent state");
+      assertThat(harness.storedCode(EOA, Hash.hash(DEPLOYED_CODE))).isEmpty();
+    }
+
+    private static AccountChanges codeChanges(final Address address, final CodeChange... changes) {
+      return new AccountChanges(
+          address, List.of(), List.of(), List.of(), List.of(), List.of(changes));
+    }
+
+    private static DataStorageConfiguration codeStorage(final boolean codeStoredByCodeHash) {
+      return ImmutableDataStorageConfiguration.builder()
+          .from(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
+          .extraStorageConfiguration(
+              ImmutableExtraStorageConfiguration.builder()
+                  .unstable(
+                      ImmutableExtraStorageConfiguration.Unstable.builder()
+                          .codeStoredByCodeHashEnabled(codeStoredByCodeHash)
+                          .build())
+                  .build())
+          .build();
+    }
+  }
+
   @Nested
   class ForestStorageSemantics {
 
@@ -832,6 +916,10 @@ class StateRootCommitterIntegrationTest {
     }
 
     static EmptyCrossModeHarness create() {
+      return create(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+    }
+
+    static EmptyCrossModeHarness create(final DataStorageConfiguration bonsaiConfiguration) {
       final GenesisState genesisState =
           GenesisState.fromConfig(
               GenesisConfig.mainnet(),
@@ -854,14 +942,12 @@ class StateRootCommitterIntegrationTest {
       final InMemoryKeyValueStorageProvider bonsaiProvider = new InMemoryKeyValueStorageProvider();
       final BonsaiWorldStateKeyValueStorage bonsaiKv =
           new BonsaiWorldStateKeyValueStorage(
-              bonsaiProvider,
-              new NoOpMetricsSystem(),
-              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+              bonsaiProvider, new NoOpMetricsSystem(), bonsaiConfiguration);
       final BonsaiWorldStateProvider bonsaiArchive =
           new BonsaiWorldStateProvider(
               bonsaiKv,
               blockchain,
-              DataStorageConfiguration.DEFAULT_BONSAI_CONFIG.getExtraStorageConfiguration(),
+              bonsaiConfiguration.getExtraStorageConfiguration(),
               new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
               null,
               EvmConfiguration.DEFAULT,
@@ -934,6 +1020,10 @@ class StateRootCommitterIntegrationTest {
       updater.commit();
       forestWorldState.persist(null, ForestStateRootCommitter.INSTANCE);
       return forestWorldState.rootHash();
+    }
+
+    Optional<Bytes> storedCode(final Address address, final Hash codeHash) {
+      return bonsaiWorldState.getWorldStateStorage().getCodeBytes(codeHash, address.addressHash());
     }
 
     Hash forestGenesisRoot() {

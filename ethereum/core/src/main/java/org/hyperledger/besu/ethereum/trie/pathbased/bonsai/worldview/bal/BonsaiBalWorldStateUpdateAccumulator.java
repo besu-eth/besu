@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
@@ -85,7 +86,10 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
 
   @Override
   protected void onCodeValueLoaded(final Address address, final BonsaiValue<Bytes> codeValue) {
-    blockAccessListOverlay.applyToCode(address, codeValue::setUpdated);
+    blockAccessListOverlay.applyToCode(
+        address,
+        BlockAccessListAccountLookup.preBlockCodeOf(wrappedWorldView()),
+        codeValue::setUpdated);
   }
 
   @Override
