@@ -256,6 +256,11 @@
       "codeDecompiled": "PUSH2 0x30FF PUSH0 MSTORE PUSH1 2 PUSH1 30 SELFBALANCE CREATE PUSH0 PUSH0 PUSH0 PUSH0 PUSH0 SWAP5 GAS CALL STOP",
       "storage": {}
     },
+    "0x0000000000000000000000000000000000007730": {
+      "comment": "stores the balance of the transaction's sender in slot 0",
+      "balance": "0",
+      "code": "0x32315F5500"
+    },
     "0x0000000000000000000000000000000000007720": {
       "comment": "Pays 1 wei to the funded account 0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb whenever called, spending from its own balance without reading it.",
       "balance": "1000000000000000000",

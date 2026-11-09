@@ -768,6 +768,20 @@ public class MainnetTransactionProcessor {
     return messageCallProcessor;
   }
 
+  /**
+   * Checks a transaction against its sender's account as processing it in a block does.
+   *
+   * @param transaction the transaction
+   * @param sender the sender's account
+   * @return the result of the checks
+   */
+  public ValidationResult<TransactionInvalidReason> validateForSender(
+      final Transaction transaction, final Account sender) {
+    return transactionValidatorFactory
+        .get()
+        .validateForSender(transaction, sender, TransactionValidationParams.processingBlock());
+  }
+
   public boolean getClearEmptyAccounts() {
     return clearEmptyAccounts;
   }

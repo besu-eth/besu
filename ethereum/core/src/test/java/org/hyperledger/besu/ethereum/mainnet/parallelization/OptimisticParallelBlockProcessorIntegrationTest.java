@@ -55,6 +55,8 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -450,24 +452,153 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     // observes of balances like the stacked updaters do
     @Override
     protected ExecutionContextTestFixture createFreshContext() {
-      final GenesisConfig genesisConfig = GenesisConfig.fromResource(GENESIS_CONFIG);
-      return ExecutionContextTestFixture.builder(genesisConfig)
-          .dataStorageFormat(DataStorageFormat.BONSAI)
-          .protocolSchedule(
-              new ProtocolScheduleBuilder(
-                      genesisConfig.getConfigOptions(),
-                      Optional.of(BigInteger.valueOf(42)),
-                      ProtocolSpecAdapters.create(0, Function.identity()),
-                      false,
-                      new EvmConfiguration(
-                          32_000L, EvmConfiguration.WorldUpdaterMode.STACKED, true, true),
-                      MiningConfiguration.MINING_DISABLED,
-                      new BadBlockManager(),
-                      false,
-                      ImmutableBalConfiguration.builder().build(),
-                      new NoOpMetricsSystem())
-                  .createProtocolSchedule())
-          .build();
+      return evmV2Context();
     }
+  }
+
+  @Nested
+  @DisplayName("Reuse of Speculative Results with Chain Members Run on the Parent State")
+  class SpeculativeResultReuseWithIndependentChainRuns extends SpeculativeResultReuse {
+    private final Address sender = Address.fromHexStringStrict(ACCOUNT_GENESIS_1);
+
+    @BeforeEach
+    void runChainMembersOnTheParentState() {
+      OptimisticConcurrentTransactionProcessor.independentChainRuns = true;
+    }
+
+    @AfterEach
+    void runChainMembersOnlyInTheirChain() {
+      OptimisticConcurrentTransactionProcessor.independentChainRuns = false;
+    }
+
+    private Transaction transfer(final long nonce, final String to) {
+      return createTransferTransaction(
+          nonce, 1_000_000_000_000_000_000L, 300_000L, 0L, 5L, to, ACCOUNT_GENESIS_1_KEYPAIR);
+    }
+
+    private Transaction paymentToTheSender() {
+      return createTransferTransaction(
+          0,
+          1_000_000_000_000_000_000L,
+          300_000L,
+          0L,
+          5L,
+          ACCOUNT_GENESIS_1,
+          ACCOUNT_GENESIS_2_KEYPAIR);
+    }
+
+    @Override
+    @Test
+    @DisplayName("A chained transfer whose sender another sender paid is taken from its own run")
+    void chainedTransferIsExecutedAgainWhenItsSenderWasPaid() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5), transfer(0, ACCOUNT_4), paymentToTheSender(), transfer(1, ACCOUNT_5));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), sender);
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(ACCOUNT_5));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("Chain members that only share their sender are taken from their own runs")
+    void chainMembersSharingOnlyTheirSenderAreTakenFromTheirOwnRuns() {
+      final Address contract = Address.fromHexStringStrict(CONTRACT_ADDRESS);
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              createContractCallTransaction(
+                  0, contract, "setSlot1", ACCOUNT_GENESIS_1_KEYPAIR, Optional.of(100)),
+              paymentToTheSender(),
+              createContractCallTransaction(
+                  1, contract, "setSlot2", ACCOUNT_GENESIS_1_KEYPAIR, Optional.of(200)),
+              createContractCallTransaction(
+                  2, contract, "setSlot3", ACCOUNT_GENESIS_1_KEYPAIR, Optional.of(300)));
+
+      for (int slot = 0; slot < 3; slot++) {
+        assertContractStorageMatches(
+            result.seqWorldState(), result.parWorldState(), contract, slot);
+      }
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), sender);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(3);
+    }
+
+    @Test
+    @DisplayName("A chain member that read what its predecessor wrote is executed again")
+    void chainMemberReadingItsPredecessorsWriteIsExecutedAgain() {
+      final Address contract = Address.fromHexStringStrict(PARALLEL_TEST_CONTRACT);
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              createContractCallTransaction(
+                  0, contract, "setSlot1", ACCOUNT_GENESIS_1_KEYPAIR, Optional.of(100)),
+              paymentToTheSender(),
+              createContractCallTransaction(
+                  1, contract, "incrementSlot1", ACCOUNT_GENESIS_1_KEYPAIR, Optional.empty()));
+
+      assertContractStorage(result.seqWorldState(), contract, 0, 101);
+      assertContractStorageMatches(result.seqWorldState(), result.parWorldState(), contract, 0);
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), sender);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("A chain member that read its sender's balance is executed again")
+    void chainMemberReadingItsSendersBalanceIsExecutedAgain() {
+      // stores the balance of the transaction's sender in its slot 0
+      final Address balanceRecorder =
+          Address.fromHexStringStrict("0x0000000000000000000000000000000000007730");
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, ACCOUNT_4),
+              paymentToTheSender(),
+              createTransferTransaction(
+                  1,
+                  0L,
+                  300_000L,
+                  0L,
+                  5L,
+                  balanceRecorder.toHexString(),
+                  ACCOUNT_GENESIS_1_KEYPAIR));
+
+      assertContractStorageMatches(
+          result.seqWorldState(), result.parWorldState(), balanceRecorder, 0);
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), sender);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+  }
+
+  @Nested
+  @DisplayName("Reuse of Speculative Results with Chain Members Run on the Parent State on EVM v2")
+  class SpeculativeResultReuseWithIndependentChainRunsOnEvmV2
+      extends SpeculativeResultReuseWithIndependentChainRuns {
+
+    @Override
+    protected ExecutionContextTestFixture createFreshContext() {
+      return evmV2Context();
+    }
+  }
+
+  private static ExecutionContextTestFixture evmV2Context() {
+    final GenesisConfig genesisConfig = GenesisConfig.fromResource(GENESIS_CONFIG);
+    return ExecutionContextTestFixture.builder(genesisConfig)
+        .dataStorageFormat(DataStorageFormat.BONSAI)
+        .protocolSchedule(
+            new ProtocolScheduleBuilder(
+                    genesisConfig.getConfigOptions(),
+                    Optional.of(BigInteger.valueOf(42)),
+                    ProtocolSpecAdapters.create(0, Function.identity()),
+                    false,
+                    new EvmConfiguration(
+                        32_000L, EvmConfiguration.WorldUpdaterMode.STACKED, true, true),
+                    MiningConfiguration.MINING_DISABLED,
+                    new BadBlockManager(),
+                    false,
+                    ImmutableBalConfiguration.builder().build(),
+                    new NoOpMetricsSystem())
+                .createProtocolSchedule())
+        .build();
   }
 }

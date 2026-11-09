@@ -16,10 +16,12 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
@@ -32,6 +34,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -51,6 +54,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -145,6 +150,36 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   @VisibleForTesting
   static final TransactionValidationParams WARM_UP_VALIDATION =
       TransactionValidationParams.transactionSimulatorAllowUnderpricedAndFutureNonce();
+
+  // experiment: the later transactions of a sender also run on the parent state, as a block's
+  // transactions of one sender often depend on each other only through the sender's nonce and gas
+  // payment; the serial loop takes such a result where the chain has not delivered one
+  @VisibleForTesting
+  static volatile boolean independentChainRuns =
+      Boolean.getBoolean("besu.t14.independentChainRuns");
+
+  // as in a block, except that the run starts before the earlier transactions of its sender
+  private static final TransactionValidationParams INDEPENDENT_VALIDATION =
+      ImmutableTransactionValidationParams.builder()
+          .from(TransactionValidationParams.processingBlock())
+          .isAllowFutureNonce(true)
+          .build();
+
+  // on threads of their own, as the shared pools are busy with the block's runs and prefetches when
+  // the serial loop needs these results
+  private static final ExecutorService INDEPENDENT_RUN_EXECUTOR =
+      Executors.newFixedThreadPool(
+          Integer.getInteger("besu.t14.independentThreads", 4),
+          runnable -> {
+            final Thread thread = new Thread(runnable, "besu-independent-run");
+            thread.setDaemon(true);
+            return thread;
+          });
+
+  // the runs of chain members on the parent state, by transaction, and which of them started
+  private volatile AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>>
+      independentRuns = new AtomicReferenceArray<>(0);
+  private volatile AtomicIntegerArray independentStarted = new AtomicIntegerArray(0);
 
   /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
@@ -250,6 +285,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
     futures = new CompletableFuture[transactions.size()];
     lateChainFutures = new AtomicReferenceArray<>(transactions.size());
+    final AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>> independent =
+        new AtomicReferenceArray<>(transactions.size());
+    independentRuns = independent;
+    final AtomicIntegerArray independentStartedRuns = new AtomicIntegerArray(transactions.size());
+    independentStarted = independentStartedRuns;
     started = new AtomicIntegerArray(transactions.size());
     inChain = new AtomicIntegerArray(transactions.size());
     gasLimits = new long[transactions.size()];
@@ -321,6 +361,25 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         for (int k = 1; k < chain.size(); k++) {
           final int member = chain.get(k);
           final CompletableFuture<ParallelizedTransactionContext> future = chainFutures.get(k);
+          if (independentChainRuns && CARRY_OVER && canRunIndependently(transactions.get(member))) {
+            final CompletableFuture<ParallelizedTransactionContext> run = new CompletableFuture<>();
+            independent.set(member, run);
+            INDEPENDENT_RUN_EXECUTOR.execute(
+                () ->
+                    runIndependently(
+                        protocolContext,
+                        blockHeader,
+                        member,
+                        transactions.get(member),
+                        run,
+                        independentStartedRuns,
+                        miningBeneficiary,
+                        blockHashLookup,
+                        blobGasPrice,
+                        blockAccessListBuilder,
+                        maybeParentHeader));
+            continue;
+          }
           warmUpExecutor.execute(
               () ->
                   warmUp(
@@ -551,6 +610,62 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         blobGasPrice,
         blockAccessListBuilder,
         maybeParentHeader);
+  }
+
+  /**
+   * Whether a chain member's run on the parent state can stand for its run after its predecessors:
+   * a contract creation's address depends on the nonce, an authorization or a blob changes what
+   * else the run depends on, and the run skips the check of the highest nonce with the others.
+   */
+  private static boolean canRunIndependently(final Transaction transaction) {
+    return transaction.getTo().isPresent()
+        && transaction.getType() != TransactionType.DELEGATE_CODE
+        && !transaction.getType().supportsBlob()
+        && transaction.getNonce() != Account.MAX_NONCE;
+  }
+
+  /**
+   * Executes a chain member on the parent state, as its predecessors may only have paid its nonce
+   * and gas. Its result is taken where the chain has not delivered one, if the predecessors changed
+   * nothing else it touched. It also fetches what the member reads, as a warm-up does.
+   */
+  private void runIndependently(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final int transactionLocation,
+      final Transaction transaction,
+      final CompletableFuture<ParallelizedTransactionContext> result,
+      final AtomicIntegerArray startedRuns,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
+    // the serial loop gives up on a run that has not started when it reaches the member; one the
+    // chain ran already still runs, as the block may change the sender's account in between
+    if (result.isDone() || serialLoopHasPassed(transactionLocation)) {
+      result.complete(null);
+      return;
+    }
+    startedRuns.set(transactionLocation, 1);
+    try {
+      result.complete(
+          runTransaction(
+              protocolContext,
+              blockHeader,
+              transactionLocation,
+              transaction,
+              miningBeneficiary,
+              blockHashLookup,
+              blobGasPrice,
+              blockAccessListBuilder,
+              maybeParentHeader,
+              null,
+              true));
+    } catch (final Throwable t) {
+      // the chain or the serial loop executes the transaction
+      result.complete(null);
+    }
   }
 
   /**
@@ -997,16 +1112,46 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader,
       final PathBasedWorldStateUpdateAccumulator<?> previousInChain) {
+    return runTransaction(
+        protocolContext,
+        blockHeader,
+        transactionLocation,
+        transaction,
+        miningBeneficiary,
+        blockHashLookup,
+        blobGasPrice,
+        blockAccessListBuilder,
+        maybeParentHeader,
+        previousInChain,
+        false);
+  }
+
+  /**
+   * @param independently whether a chain member runs on the parent state ahead of its predecessors,
+   *     which neither counts as its run having started nor as a result the re-runs depend on
+   */
+  private ParallelizedTransactionContext runTransaction(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final int transactionLocation,
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader,
+      final PathBasedWorldStateUpdateAccumulator<?> previousInChain,
+      final boolean independently) {
 
     if (maybeParentHeader.isEmpty()) {
       return null;
     }
     final AtomicIntegerArray startedRuns = started;
-    if (transactionLocation < startedRuns.length()) {
+    if (!independently && transactionLocation < startedRuns.length()) {
       startedRuns.set(transactionLocation, 1);
     }
     final AtomicIntegerArray finishedRuns = finished;
-    final Dependencies blockDependencies = dependencies;
+    final Dependencies blockDependencies = independently ? null : dependencies;
     final CompletableFuture<?>[] firstPasses = runaheads;
     if (RUNAHEAD_WAIT_MS > 0
         && previousInChain == null
@@ -1092,7 +1237,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                 }
               },
               blockHashLookup.forkForParallelWorker(),
-              TransactionValidationParams.processingBlock(),
+              independently
+                  ? INDEPENDENT_VALIDATION
+                  : TransactionValidationParams.processingBlock(),
               blobGasPrice,
               transactionLocationTracker);
 
@@ -1106,7 +1253,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
             transaction.getTo().map(a -> a.toHexString()).orElse("create"),
             transaction.getGasLimit() - result.getGasRemaining(),
             (System.nanoTime() - benchStart) / 1000,
-            previousInChain != null,
+            independently ? "independent" : String.valueOf(previousInChain != null),
             benchStart / 1000,
             reads[0],
             reads[1]);
@@ -1195,6 +1342,32 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         blockDependencies == null ? null : blockDependencies.rerunToTake(transactionLocation);
     final CompletableFuture<ParallelizedTransactionContext> future =
         rerun != null ? rerun : lateChained != null ? lateChained : aloneOrChained;
+    final CompletableFuture<ParallelizedTransactionContext> independent =
+        transactionLocation < independentRuns.length()
+            ? independentRuns.getAndSet(transactionLocation, null)
+            : null;
+    boolean independentTried = false;
+    if (independent != null
+        && rerun == null
+        && lateChained == null
+        && future != null
+        && !holdsResult(future)) {
+      awaitEitherRun(transactionLocation, future, independent);
+      if (!holdsResult(future)) {
+        independentTried = true;
+        final Optional<TransactionProcessingResult> taken =
+            takeIndependentRun(
+                worldState,
+                miningBeneficiary,
+                transaction,
+                transactionLocation,
+                independent,
+                confirmedParallelizedTransactionCounter);
+        if (taken.isPresent()) {
+          return taken;
+        }
+      }
+    }
     if (rerun != null && !rerun.isDone()) {
       // a re-run that started runs a transaction whose earlier result does not hold
       try {
@@ -1223,6 +1396,56 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       }
     }
 
+    final Optional<TransactionProcessingResult> taken =
+        takeRun(
+            worldState,
+            miningBeneficiary,
+            transaction,
+            transactionLocation,
+            future,
+            confirmedParallelizedTransactionCounter,
+            conflictingButCachedTransactionCounter);
+    // a chain's result fails where the block changed the sender's account in between
+    if (taken.isPresent() || independent == null || independentTried) {
+      return taken;
+    }
+    if (!independent.isDone() && hasIndependentRunStarted(transactionLocation, independent)) {
+      final long waitStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
+      try {
+        independent.get(WAIT_RUNNING_MS, TimeUnit.MILLISECONDS);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } catch (final ExecutionException | TimeoutException | CancellationException e) {
+        // executed by the serial loop
+      }
+      if (LOG_TX_TIMES) {
+        LOG.info(
+            "Bench wait block {} idx {} us {} t {}",
+            benchBlock,
+            transactionLocation,
+            (System.nanoTime() - waitStart) / 1000,
+            waitStart / 1000);
+      }
+    }
+    return takeIndependentRun(
+        worldState,
+        miningBeneficiary,
+        transaction,
+        transactionLocation,
+        independent,
+        confirmedParallelizedTransactionCounter);
+  }
+
+  /** Takes the speculative result of the transaction if it holds, else leaves it to be executed. */
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private Optional<TransactionProcessingResult> takeRun(
+      final MutableWorldState worldState,
+      final Address miningBeneficiary,
+      final Transaction transaction,
+      final int transactionLocation,
+      final CompletableFuture<ParallelizedTransactionContext> future,
+      final Optional<Counter> confirmedParallelizedTransactionCounter,
+      final Optional<Counter> conflictingButCachedTransactionCounter) {
     final long takeStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
     try {
       final AtomicIntegerArray finishedRuns = finished;
@@ -1348,6 +1571,194 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     if (nanos > benchTakeMaxNanos) {
       benchTakeMaxNanos = nanos;
       benchTakeMaxIndex = transactionLocation;
+    }
+  }
+
+  private static boolean holdsResult(
+      final CompletableFuture<ParallelizedTransactionContext> future) {
+    return future.state() == Future.State.SUCCESS && future.resultNow() != null;
+  }
+
+  /**
+   * Takes the run of a chain member on the parent state when the chain has not delivered its
+   * result: if the member's predecessors, and the block's other earlier transactions, changed
+   * nothing it touched except for its sender's nonce and balance, and the sender's account at the
+   * member's turn passes the checks of a sender. The sender then ends with the nonce after the
+   * member's and with the balance the block reached, changed as the member changed it.
+   *
+   * @return the result, or empty if the member's result has to come from elsewhere
+   */
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private Optional<TransactionProcessingResult> takeIndependentRun(
+      final MutableWorldState worldState,
+      final Address miningBeneficiary,
+      final Transaction transaction,
+      final int transactionLocation,
+      final CompletableFuture<ParallelizedTransactionContext> independent,
+      final Optional<Counter> confirmedParallelizedTransactionCounter) {
+    if (independent.state() != Future.State.SUCCESS) {
+      logIndependent(transactionLocation, "not-done");
+      return Optional.empty();
+    }
+    final long takeStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
+    try {
+      final ParallelizedTransactionContext context = independent.resultNow();
+      if (context == null || context.transactionProcessingResult().isInvalid()) {
+        logIndependent(transactionLocation, context == null ? "no-run" : "invalid");
+        return Optional.empty();
+      }
+      final PathBasedWorldStateUpdateAccumulator blockAccumulator =
+          (PathBasedWorldStateUpdateAccumulator) ((PathBasedWorldState) worldState).updater();
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
+          context.transactionAccumulator();
+      final TransactionProcessingResult transactionProcessingResult =
+          context.transactionProcessingResult();
+      final Address sender = transaction.getSender();
+      if (sender.equals(miningBeneficiary)
+          || !TransactionCollisionDetector.isSenderChangeCarried(
+              transaction, transactionAccumulator, blockAccumulator)) {
+        logIndependent(transactionLocation, "sender");
+        return Optional.empty();
+      }
+      final BonsaiAccount senderAtTurn =
+          ((BonsaiValue<? extends BonsaiAccount>)
+                  blockAccumulator.getAccountsToUpdate().get(sender))
+              .getUpdated();
+      if (!transactionProcessor.validateForSender(transaction, senderAtTurn).isValid()) {
+        logIndependent(transactionLocation, "sender-invalid");
+        return Optional.empty();
+      }
+      final List<Address> balancesCarried = new ArrayList<>(0);
+      if (transactionCollisionDetector.hasCollisionExceptSender(
+          transaction, miningBeneficiary, context, blockAccumulator, balancesCarried)) {
+        logIndependent(transactionLocation, "collision");
+        return Optional.empty();
+      }
+      final Wei reward = context.miningBeneficiaryReward();
+      if (!context.isMiningBeneficiaryTouchedPreRewardByTransaction()
+          && (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts())) {
+        final MutableAccount miningBeneficiaryAccount =
+            blockAccumulator.getOrCreate(miningBeneficiary);
+        miningBeneficiaryAccount.incrementBalance(reward);
+        if (!reward.isZero()) {
+          setPostBalanceInAccessView(
+              transactionProcessingResult,
+              miningBeneficiary,
+              miningBeneficiaryAccount.getBalance());
+        }
+      }
+      final BonsaiValue<? extends BonsaiAccount> senderInTransaction =
+          transactionAccumulator.getAccountsToUpdate().get(sender);
+      final Wei before = senderInTransaction.getPrior().getBalance();
+      final Wei after = senderInTransaction.getUpdated().getBalance();
+      final Wei senderBalance =
+          after.compareTo(before) >= 0
+              ? senderAtTurn.getBalance().add(after.subtract(before))
+              : senderAtTurn.getBalance().subtract(before.subtract(after));
+      if (balancesCarried.isEmpty()) {
+        blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+      } else {
+        importCarryingBalances(
+            blockAccumulator, transactionAccumulator, balancesCarried, transactionProcessingResult);
+      }
+      final BonsaiAccount senderAfter =
+          ((BonsaiValue<? extends BonsaiAccount>)
+                  blockAccumulator.getAccountsToUpdate().get(sender))
+              .getUpdated();
+      senderAfter.setNonce(transaction.getNonce() + 1);
+      senderAfter.setBalance(senderBalance);
+      transactionProcessingResult
+          .getPartialBlockAccessView()
+          .ifPresent(
+              view ->
+                  view.accountChanges().stream()
+                      .filter(changes -> changes.getAddress().equals(sender))
+                      .findFirst()
+                      .ifPresent(
+                          changes -> {
+                            if (changes.getPostBalance().isPresent()) {
+                              changes.setPostBalance(senderBalance);
+                            }
+                            if (changes.getNonceChange().isPresent()) {
+                              changes.setNonceChange(transaction.getNonce() + 1);
+                            }
+                          }));
+      final AtomicIntegerArray finishedRuns = finished;
+      if (transactionLocation < finishedRuns.length()) {
+        finishedRuns.set(transactionLocation, 1);
+      }
+      confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
+      transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
+      logIndependent(transactionLocation, "taken");
+      return Optional.of(transactionProcessingResult);
+    } finally {
+      if (LOG_TX_TIMES) {
+        recordTake(transactionLocation, System.nanoTime() - takeStart);
+      }
+    }
+  }
+
+  /**
+   * Whether the member's run on the parent state started; one that did not is given up, as it would
+   * only finish after the serial loop could have executed the member itself.
+   */
+  private boolean hasIndependentRunStarted(
+      final int transactionLocation,
+      final CompletableFuture<ParallelizedTransactionContext> independent) {
+    final AtomicIntegerArray startedRuns = independentStarted;
+    if (transactionLocation < startedRuns.length() && startedRuns.get(transactionLocation) == 1) {
+      return true;
+    }
+    independent.complete(null);
+    return startedRuns.get(transactionLocation) == 1;
+  }
+
+  /**
+   * Waits for whichever of the chain's run of the member and the member's run on the parent state
+   * ends first, if the latter started.
+   */
+  private void awaitEitherRun(
+      final int transactionLocation,
+      final CompletableFuture<ParallelizedTransactionContext> chained,
+      final CompletableFuture<ParallelizedTransactionContext> independent) {
+    if (independent.isDone() || !hasIndependentRunStarted(transactionLocation, independent)) {
+      return;
+    }
+    final long waitStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
+    try {
+      CompletableFuture.anyOf(chained, independent).get(WAIT_RUNNING_MS, TimeUnit.MILLISECONDS);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+    } catch (final ExecutionException | TimeoutException | CancellationException e) {
+      // the chain's result is waited for and checked as before
+    }
+    if (LOG_TX_TIMES) {
+      LOG.info(
+          "Bench wait block {} idx {} us {} t {}",
+          benchBlock,
+          transactionLocation,
+          (System.nanoTime() - waitStart) / 1000,
+          waitStart / 1000);
+    }
+  }
+
+  private static void setPostBalanceInAccessView(
+      final TransactionProcessingResult transactionProcessingResult,
+      final Address address,
+      final Wei postBalance) {
+    transactionProcessingResult
+        .getPartialBlockAccessView()
+        .ifPresent(
+            view ->
+                view.accountChanges().stream()
+                    .filter(changes -> changes.getAddress().equals(address))
+                    .findFirst()
+                    .ifPresent(changes -> changes.setPostBalance(postBalance)));
+  }
+
+  private void logIndependent(final int transactionLocation, final String outcome) {
+    if (LOG_CONFLICTS) {
+      LOG.info("Bench independent block {} idx {} {}", benchBlock, transactionLocation, outcome);
     }
   }
 

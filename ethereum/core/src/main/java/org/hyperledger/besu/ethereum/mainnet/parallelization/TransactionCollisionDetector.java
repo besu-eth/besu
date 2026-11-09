@@ -84,6 +84,52 @@ public class TransactionCollisionDetector {
       final ParallelizedTransactionContext parallelizedTransactionContext,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
       final @Nullable List<Address> balancesCarried) {
+    return hasCollision(
+        transaction,
+        miningBeneficiary,
+        parallelizedTransactionContext,
+        blockAccumulator,
+        balancesCarried,
+        false);
+  }
+
+  /**
+   * Like {@link #hasCollision(Transaction, Address, ParallelizedTransactionContext,
+   * PathBasedWorldStateUpdateAccumulator, List)} for a transaction that ran on the parent state
+   * although earlier transactions of its sender come before it in the block. The changes those made
+   * to the sender's account are no collision here; the caller checks them with {@link
+   * #isSenderChangeCarried}.
+   *
+   * @param transaction the transaction that executed speculatively, with a result that is not
+   *     invalid
+   * @param miningBeneficiary the mining beneficiary of the block
+   * @param parallelizedTransactionContext the speculative result with the state it read and wrote
+   * @param blockAccumulator the state changes of the earlier transactions of the block
+   * @param balancesCarried receives the accounts whose balance change must be carried over
+   * @return true if the speculative result must not be used
+   */
+  public boolean hasCollisionExceptSender(
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final ParallelizedTransactionContext parallelizedTransactionContext,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
+      final List<Address> balancesCarried) {
+    return hasCollision(
+        transaction,
+        miningBeneficiary,
+        parallelizedTransactionContext,
+        blockAccumulator,
+        balancesCarried,
+        true);
+  }
+
+  private boolean hasCollision(
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final ParallelizedTransactionContext parallelizedTransactionContext,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
+      final @Nullable List<Address> balancesCarried,
+      final boolean senderChecked) {
     final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
         parallelizedTransactionContext.transactionAccumulator();
     final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
@@ -103,13 +149,73 @@ public class TransactionCollisionDetector {
     }
     // an executed transaction loaded its sender and recipient, and the commit added the accounts
     // it deleted
+    final Address checkedSender = senderChecked ? transaction.getSender() : null;
     for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
       if (hasCollision(
-          transaction, address, transactionAccumulator, blockAccumulator, balancesCarried)) {
+          transaction,
+          address,
+          transactionAccumulator,
+          blockAccumulator,
+          balancesCarried,
+          checkedSender)) {
         return true;
       }
     }
     return false;
+  }
+
+  /**
+   * Whether the changes earlier transactions of the block made to the sender's account leave the
+   * result of a transaction that ran on the parent state valid, so that taking it over only has to
+   * carry its nonce and balance change onto the account the block has reached. The transaction must
+   * not have read the sender's balance, and the sender has no code on any side, so that its
+   * execution did not depend on the account. Whether the block's account still passes the checks of
+   * the sender is left to the caller.
+   *
+   * @param transaction the transaction that executed speculatively on the parent state
+   * @param transactionAccumulator the state the transaction read and wrote
+   * @param blockAccumulator the state changes of the earlier transactions of the block
+   * @return true if the sender's account is no reason to execute the transaction again
+   */
+  public static boolean isSenderChangeCarried(
+      final Transaction transaction,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
+    final Address sender = transaction.getSender();
+    final Set<Address> observedBalances = transactionAccumulator.getObservedBalances();
+    if (observedBalances == null
+        || observedBalances.contains(sender)
+        || transactionAccumulator.getBalanceMargin(sender).isPresent()
+        || transactionAccumulator.getDeletedAccountAddresses().contains(sender)
+        || transactionAccumulator.getStorageToClear().contains(sender)
+        || transactionAccumulator.getCodeToUpdate().containsKey(sender)) {
+      return false;
+    }
+    final BonsaiValue<? extends BonsaiAccount> inTransaction =
+        transactionAccumulator.getAccountsToUpdate().get(sender);
+    final BonsaiValue<? extends BonsaiAccount> inBlock =
+        blockAccumulator.getAccountsToUpdate().get(sender);
+    if (inTransaction == null
+        || inBlock == null
+        || inTransaction.getPrior() == null
+        || inTransaction.getUpdated() == null
+        || inBlock.getPrior() == null
+        || inBlock.getUpdated() == null) {
+      return false;
+    }
+    final BonsaiAccount transactionPrior = inTransaction.getPrior();
+    final BonsaiAccount transactionUpdated = inTransaction.getUpdated();
+    final BonsaiAccount blockPrior = inBlock.getPrior();
+    final BonsaiAccount blockUpdated = inBlock.getUpdated();
+    // both ran from the parent's account, which only the sender's own transactions changed
+    return transactionPrior.getNonce() == blockPrior.getNonce()
+        && transactionPrior.getBalance().equals(blockPrior.getBalance())
+        && transactionUpdated.getNonce() == transactionPrior.getNonce() + 1
+        && blockUpdated.getNonce() == transaction.getNonce()
+        && Hash.EMPTY.equals(transactionPrior.getCodeHash())
+        && Hash.EMPTY.equals(transactionUpdated.getCodeHash())
+        && Hash.EMPTY.equals(blockPrior.getCodeHash())
+        && Hash.EMPTY.equals(blockUpdated.getCodeHash());
   }
 
   /**
@@ -201,13 +307,15 @@ public class TransactionCollisionDetector {
       final Address address,
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
-      final @Nullable List<Address> balancesCarried) {
+      final @Nullable List<Address> balancesCarried,
+      final @Nullable Address checkedSender) {
     final BonsaiValue<? extends BonsaiAccount> inBlock =
         blockAccumulator.getAccountsToUpdate().get(address);
     if (inBlock == null) {
       return false;
     }
-    if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
+    if (!address.equals(checkedSender)
+        && !areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
       if (balancesCarried == null
           || !isBalanceChangeCarried(transaction, transactionAccumulator, address, inBlock)) {
         return true;

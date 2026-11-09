@@ -1063,4 +1063,122 @@ class TransactionCollisionDetectorTest {
             bonsaiUpdater,
             new ArrayList<>()));
   }
+
+  /**
+   * The block ran an earlier transaction of the sender, which took its nonce from 0 to 1 and its
+   * balance from 100 to 90; the transaction (nonce 1) ran on the parent state and left 95.
+   */
+  private Transaction senderScenario() {
+    final Address sender = Address.fromHexString("0x1");
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            sender, new BonsaiValue<>(createAccount(sender, 0, 100), createAccount(sender, 1, 90)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            sender, new BonsaiValue<>(createAccount(sender, 0, 100), createAccount(sender, 1, 95)));
+    return createTransaction(sender, Address.fromHexString("0x3"));
+  }
+
+  private boolean isSenderChangeCarried(final Transaction transaction) {
+    return TransactionCollisionDetector.isSenderChangeCarried(
+        transaction, trxUpdater, bonsaiUpdater);
+  }
+
+  @Test
+  void nonceAndBalanceChangeOfTheSenderByItsEarlierTransactionIsCarried() {
+    assertTrue(isSenderChangeCarried(senderScenario()));
+  }
+
+  @Test
+  void senderWhoseBalanceTheTransactionReadIsNotCarried() {
+    final Transaction transaction = senderScenario();
+    trxUpdater.observeBalance(Address.fromHexString("0x1"));
+
+    assertFalse(isSenderChangeCarried(transaction));
+  }
+
+  @Test
+  void senderAtAnotherNonceThanTheTransactionsIsNotCarried() {
+    final Transaction transaction = senderScenario();
+    final Address sender = Address.fromHexString("0x1");
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            sender, new BonsaiValue<>(createAccount(sender, 0, 100), createAccount(sender, 2, 80)));
+
+    assertFalse(isSenderChangeCarried(transaction));
+  }
+
+  @Test
+  void senderWhoseRunStartedFromAnotherAccountIsNotCarried() {
+    final Transaction transaction = senderScenario();
+    final Address sender = Address.fromHexString("0x1");
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 0, 99), createAccount(sender, 1, 94)));
+
+    assertFalse(isSenderChangeCarried(transaction));
+  }
+
+  @Test
+  void senderThatGotCodeInTheBlockIsNotCarried() {
+    final Transaction transaction = senderScenario();
+    final Address sender = Address.fromHexString("0x1");
+    final BonsaiAccount delegated =
+        new BonsaiAccount(
+            worldState,
+            sender,
+            Hash.hash(sender.getBytes()),
+            1,
+            Wei.of(90),
+            new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
+            Hash.hash(Bytes.of(1)),
+            false,
+            new BonsaiCodeCache());
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 0, 100), delegated));
+
+    assertFalse(isSenderChangeCarried(transaction));
+  }
+
+  @Test
+  void sendersAccountIsNoCollisionWhenTheCallerChecksIt() {
+    final Transaction transaction = senderScenario();
+    final List<Address> carried = new ArrayList<>();
+
+    assertTrue(hasCollisionCarryingBalances(transaction, new ArrayList<>()));
+    assertFalse(
+        collisionDetector.hasCollisionExceptSender(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater,
+            carried));
+    assertThat(carried).isEmpty();
+  }
+
+  @Test
+  void otherAccountsCollideAsUsualWhenTheCallerChecksTheSender() {
+    final Transaction transaction = senderScenario();
+    final Address read = Address.fromHexString("0x3");
+    trxUpdater.observeBalance(read);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(read, new BonsaiValue<>(createAccount(read, 1, 50), createAccount(read, 1, 70)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(read, new BonsaiValue<>(createAccount(read, 1, 50), createAccount(read, 1, 50)));
+
+    assertTrue(
+        collisionDetector.hasCollisionExceptSender(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater,
+            new ArrayList<>()));
+  }
 }
