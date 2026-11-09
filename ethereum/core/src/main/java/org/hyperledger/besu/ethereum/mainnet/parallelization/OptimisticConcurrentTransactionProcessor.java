@@ -127,6 +127,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // replay benchmarks: log why a worker result could not be taken
   private static final boolean LOG_CONFLICTS = Boolean.getBoolean("besu.bench.logConflicts");
   private volatile long benchBlock;
+  // replay benchmarks: the serial loop's time to check and take the results, apart from waits
+  private long benchTakeNanos;
+  private int benchTakes;
+  private long benchTakeMaxNanos;
+  private int benchTakeMaxIndex;
 
   // workers warm the trie paths of what they touch, so the state root finds them loaded
   private static final boolean WORKER_PRELOAD = Boolean.getBoolean("besu.t14.workerPreload");
@@ -194,6 +199,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
     if (LOG_TX_TIMES) {
       benchBlock = blockHeader.getNumber();
+      benchTakeNanos = 0;
+      benchTakes = 0;
+      benchTakeMaxNanos = 0;
+      benchTakeMaxIndex = -1;
       LOG.info(
           "Bench block start {} txs {} t {}",
           blockHeader.getNumber(),
@@ -941,6 +950,15 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   public void abort() {
     serialLoopPosition.set(Integer.MAX_VALUE);
     super.abort();
+    if (LOG_TX_TIMES) {
+      LOG.info(
+          "Bench takes block {} count {} us {} max_us {} max_idx {}",
+          benchBlock,
+          benchTakes,
+          benchTakeNanos / 1000,
+          benchTakeMaxNanos / 1000,
+          benchTakeMaxIndex);
+    }
   }
 
   @Override
@@ -1205,116 +1223,132 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       }
     }
 
-    final AtomicIntegerArray finishedRuns = finished;
-    if (transactionLocation < finishedRuns.length()) {
-      finishedRuns.set(transactionLocation, 1);
-    }
-    if (future != null && future.state() == Future.State.FAILED) {
-      LOG.debug(
-          "Parallel execution of transaction {} failed, executing it sequentially",
-          transaction.getHash(),
-          future.exceptionNow());
-    }
-    if (future != null && future.state() == Future.State.SUCCESS) {
-      final ParallelizedTransactionContext parallelizedTransactionContext = future.resultNow();
-      if (parallelizedTransactionContext == null) {
-        return Optional.empty();
+    final long takeStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
+    try {
+      final AtomicIntegerArray finishedRuns = finished;
+      if (transactionLocation < finishedRuns.length()) {
+        finishedRuns.set(transactionLocation, 1);
       }
+      if (future != null && future.state() == Future.State.FAILED) {
+        LOG.debug(
+            "Parallel execution of transaction {} failed, executing it sequentially",
+            transaction.getHash(),
+            future.exceptionNow());
+      }
+      if (future != null && future.state() == Future.State.SUCCESS) {
+        final ParallelizedTransactionContext parallelizedTransactionContext = future.resultNow();
+        if (parallelizedTransactionContext == null) {
+          return Optional.empty();
+        }
 
-      final PathBasedWorldState pathBasedWorldState = (PathBasedWorldState) worldState;
-      final PathBasedWorldStateUpdateAccumulator blockAccumulator =
-          (PathBasedWorldStateUpdateAccumulator) pathBasedWorldState.updater();
-      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
-          parallelizedTransactionContext.transactionAccumulator();
-      final TransactionProcessingResult transactionProcessingResult =
-          parallelizedTransactionContext.transactionProcessingResult();
-      final List<Address> balancesCarried = CARRY_OVER ? new ArrayList<>(0) : null;
-      // a reverted or halted execution is as repeatable as a successful one when nothing it read
-      // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
-      if (!transactionProcessingResult.isInvalid()
-          && !transactionCollisionDetector.hasCollision(
-              transaction,
-              miningBeneficiary,
-              parallelizedTransactionContext,
-              blockAccumulator,
-              balancesCarried)) {
-        final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
-        // a result that touched the beneficiary before its reward already holds the reward
-        if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()
-            && (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts())) {
-          final MutableAccount miningBeneficiaryAccount =
-              blockAccumulator.getOrCreate(miningBeneficiary);
-          miningBeneficiaryAccount.incrementBalance(reward);
+        final PathBasedWorldState pathBasedWorldState = (PathBasedWorldState) worldState;
+        final PathBasedWorldStateUpdateAccumulator blockAccumulator =
+            (PathBasedWorldStateUpdateAccumulator) pathBasedWorldState.updater();
+        final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
+            parallelizedTransactionContext.transactionAccumulator();
+        final TransactionProcessingResult transactionProcessingResult =
+            parallelizedTransactionContext.transactionProcessingResult();
+        final List<Address> balancesCarried = CARRY_OVER ? new ArrayList<>(0) : null;
+        // a reverted or halted execution is as repeatable as a successful one when nothing it read
+        // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
+        if (!transactionProcessingResult.isInvalid()
+            && !transactionCollisionDetector.hasCollision(
+                transaction,
+                miningBeneficiary,
+                parallelizedTransactionContext,
+                blockAccumulator,
+                balancesCarried)) {
+          final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
+          // a result that touched the beneficiary before its reward already holds the reward
+          if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()
+              && (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts())) {
+            final MutableAccount miningBeneficiaryAccount =
+                blockAccumulator.getOrCreate(miningBeneficiary);
+            miningBeneficiaryAccount.incrementBalance(reward);
 
-          if (!reward.isZero()) {
-            final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
-            transactionProcessingResult
-                .getPartialBlockAccessView()
-                .ifPresent(
-                    partialBlockAccessView ->
-                        partialBlockAccessView.accountChanges().stream()
-                            .filter(
-                                accountChanges ->
-                                    accountChanges.getAddress().equals(miningBeneficiary))
-                            .findFirst()
-                            .ifPresent(
-                                accountChanges ->
-                                    accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+            if (!reward.isZero()) {
+              final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
+              transactionProcessingResult
+                  .getPartialBlockAccessView()
+                  .ifPresent(
+                      partialBlockAccessView ->
+                          partialBlockAccessView.accountChanges().stream()
+                              .filter(
+                                  accountChanges ->
+                                      accountChanges.getAddress().equals(miningBeneficiary))
+                              .findFirst()
+                              .ifPresent(
+                                  accountChanges ->
+                                      accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+            }
           }
-        }
 
-        if (balancesCarried == null || balancesCarried.isEmpty()) {
-          blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+          if (balancesCarried == null || balancesCarried.isEmpty()) {
+            blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+          } else {
+            importCarryingBalances(
+                blockAccumulator,
+                transactionAccumulator,
+                balancesCarried,
+                transactionProcessingResult);
+          }
+
+          confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
+          transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
+          return Optional.of(transactionProcessingResult);
         } else {
-          importCarryingBalances(
-              blockAccumulator,
-              transactionAccumulator,
-              balancesCarried,
-              transactionProcessingResult);
+          if (LOG_CONFLICTS) {
+            LOG.info(
+                "Bench conflict idx {} hash {} to {} gas {} reason {}",
+                transactionLocation,
+                transaction.getHash().toHexString(),
+                transaction.getTo().map(a -> a.toHexString()).orElse("create"),
+                transaction.getGasLimit() - transactionProcessingResult.getGasRemaining(),
+                transactionProcessingResult.isInvalid()
+                    ? "invalid"
+                    : transactionCollisionDetector.collisionReason(
+                        transaction,
+                        miningBeneficiary,
+                        parallelizedTransactionContext,
+                        blockAccumulator,
+                        CARRY_OVER));
+          }
+          blockAccumulator.importPriorStateFromSource(transactionAccumulator);
+          if (conflictingButCachedTransactionCounter.isPresent())
+            conflictingButCachedTransactionCounter.get().inc();
+          // If there is a conflict, we return an empty result to signal the block processor to
+          // re-execute the transaction.
+          return Optional.empty();
         }
-
-        confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
-        transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
-        return Optional.of(transactionProcessingResult);
-      } else {
-        if (LOG_CONFLICTS) {
-          LOG.info(
-              "Bench conflict idx {} hash {} to {} gas {} reason {}",
-              transactionLocation,
-              transaction.getHash().toHexString(),
-              transaction.getTo().map(a -> a.toHexString()).orElse("create"),
-              transaction.getGasLimit() - transactionProcessingResult.getGasRemaining(),
-              transactionProcessingResult.isInvalid()
-                  ? "invalid"
-                  : transactionCollisionDetector.collisionReason(
-                      transaction,
-                      miningBeneficiary,
-                      parallelizedTransactionContext,
-                      blockAccumulator,
-                      CARRY_OVER));
-        }
-        blockAccumulator.importPriorStateFromSource(transactionAccumulator);
-        if (conflictingButCachedTransactionCounter.isPresent())
-          conflictingButCachedTransactionCounter.get().inc();
-        // If there is a conflict, we return an empty result to signal the block processor to
-        // re-execute the transaction.
-        return Optional.empty();
+      }
+      if (LOG_CONFLICTS) {
+        LOG.info(
+            "Bench conflict idx {} hash {} to {} gas - reason {}",
+            transactionLocation,
+            transaction.getHash().toHexString(),
+            transaction.getTo().map(a -> a.toHexString()).orElse("create"),
+            future == null
+                ? "no-run"
+                : future.state() == Future.State.FAILED ? "failed" : "unfinished");
+      }
+      if (future != null) {
+        future.cancel(true);
+      }
+      return Optional.empty();
+    } finally {
+      if (LOG_TX_TIMES) {
+        recordTake(transactionLocation, System.nanoTime() - takeStart);
       }
     }
-    if (LOG_CONFLICTS) {
-      LOG.info(
-          "Bench conflict idx {} hash {} to {} gas - reason {}",
-          transactionLocation,
-          transaction.getHash().toHexString(),
-          transaction.getTo().map(a -> a.toHexString()).orElse("create"),
-          future == null
-              ? "no-run"
-              : future.state() == Future.State.FAILED ? "failed" : "unfinished");
+  }
+
+  private void recordTake(final int transactionLocation, final long nanos) {
+    benchTakeNanos += nanos;
+    benchTakes++;
+    if (nanos > benchTakeMaxNanos) {
+      benchTakeMaxNanos = nanos;
+      benchTakeMaxIndex = transactionLocation;
     }
-    if (future != null) {
-      future.cancel(true);
-    }
-    return Optional.empty();
   }
 
   /**

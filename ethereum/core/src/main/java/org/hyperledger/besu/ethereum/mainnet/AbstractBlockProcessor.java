@@ -162,6 +162,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   @Override
   public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    final long benchStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
     final ProtocolContext protocolContext = context.getProtocolContext();
     final Blockchain blockchain = protocolContext.getBlockchain();
     final MutableWorldState worldState = context.getWorldState();
@@ -264,6 +265,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       boolean parallelizedTxFound = false;
       int nbParallelTx = 0;
 
+      final long benchLoopStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
       for (int i = 0; i < transactions.size(); i++) {
         final WorldUpdater blockUpdater = worldState.updater();
         final Transaction transaction = transactions.get(i);
@@ -363,6 +365,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       }
 
+      final long benchLoopEnd = LOG_TX_TIMES ? System.nanoTime() : 0L;
       final var optionalHeaderBlobGasUsed = blockHeader.getBlobGasUsed();
       if (optionalHeaderBlobGasUsed.isPresent()) {
         final long headerBlobGasUsed = optionalHeaderBlobGasUsed.get();
@@ -543,6 +546,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             Optional.empty(), "failed to validate output of imported block");
       }
 
+      final long benchPersistStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
       try {
         worldState.persist(blockHeader, stateRootCommitter);
       } catch (MerkleTrieException e) {
@@ -557,6 +561,17 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       } catch (Exception e) {
         LOG.error("failed persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
+      }
+      if (LOG_TX_TIMES) {
+        final long benchEnd = System.nanoTime();
+        LOG.info(
+            "Bench phases block {} pre_us {} loop_us {} post_us {} persist_us {} t {}",
+            blockHeader.getNumber(),
+            (benchLoopStart - benchStart) / 1000,
+            (benchLoopEnd - benchLoopStart) / 1000,
+            (benchPersistStart - benchLoopEnd) / 1000,
+            (benchEnd - benchPersistStart) / 1000,
+            benchStart / 1000);
       }
 
       return new BlockProcessingResult(
