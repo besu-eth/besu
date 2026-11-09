@@ -44,6 +44,7 @@ import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SLoadOperation;
 import org.hyperledger.besu.evm.operation.SelfDestructOperation;
 import org.hyperledger.besu.evm.operation.SendAllOperation;
+import org.hyperledger.besu.evm.operation.SetCodeFromOperation;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -404,16 +405,22 @@ class PrestateTracerTest {
     assertThat(account.storage()).isNull();
   }
 
-  @Test
-  void balanceOpcodeLooksUpTarget() {
+  static Stream<Operation> accountReadingOperation() {
+    final GasCalculator gasCalculator = mock(GasCalculator.class);
+    // EIP-8298: SETCODEFROM reads the code of the account on top of the stack
+    return Stream.of(new BalanceOperation(gasCalculator), new SetCodeFromOperation(gasCalculator));
+  }
+
+  @ParameterizedTest
+  @MethodSource("accountReadingOperation")
+  void accountReadingOpcodeLooksUpTarget(final Operation operation) {
     final PrestateTracer tracer = newTracer(Map.of());
     startTransaction(tracer, RECIPIENT);
-    final Account contractA = mockAccount(CONTRACT_A, Wei.of(9), 0, Bytes.EMPTY);
+    final Account contractA = mockAccount(CONTRACT_A, Wei.of(9), 0, Bytes.of(0x00));
     when(world.get(CONTRACT_A)).thenReturn(contractA);
 
     final MessageFrame frame = mock(MessageFrame.class);
-    final GasCalculator gasCalculator = mock(GasCalculator.class);
-    when(frame.getCurrentOperation()).thenReturn(new BalanceOperation(gasCalculator));
+    when(frame.getCurrentOperation()).thenReturn(operation);
     when(frame.getWorldUpdater()).thenReturn(world);
     when(frame.getRecipientAddress()).thenReturn(RECIPIENT);
     when(frame.stackSize()).thenReturn(1);
@@ -426,6 +433,7 @@ class PrestateTracerTest {
     final PrestateTracerResult.Prestate result =
         (PrestateTracerResult.Prestate) tracer.buildResult();
     assertThat(result.accounts().get(CONTRACT_A.toHexString()).balance()).isEqualTo("0x9");
+    assertThat(result.accounts().get(CONTRACT_A.toHexString()).code()).isEqualTo("0x00");
   }
 
   @Test

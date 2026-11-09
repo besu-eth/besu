@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.frame.MessageFrame.State.COMPLETED_SUCCESS;
 import static org.hyperledger.besu.evm.frame.MessageFrame.State.EXCEPTIONAL_HALT;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.MainnetEVMs;
@@ -26,7 +27,9 @@ import org.hyperledger.besu.evm.contractvalidation.PrefixCodeRule;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
+import org.hyperledger.besu.evm.toy.ToyWorld;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Collections;
 
@@ -197,6 +200,29 @@ class ContractCreationProcessorTest
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
     assertThat(messageFrame.getState()).isEqualTo(COMPLETED_SUCCESS);
+  }
+
+  @Test
+  void keepsCodeAdoptedThroughSetCodeFromWithoutValidationOrDeposit() {
+    processor =
+        new ContractCreationProcessor(evm, true, Collections.singletonList(PrefixCodeRule.of()), 1);
+    final Address created = Address.fromHexString("0xc0de");
+    final Bytes adoptedCode = Bytes.fromHexString("0x6002");
+    final WorldUpdater worldUpdater = new ToyWorld().updater();
+    worldUpdater.getOrCreate(created).setCode(adoptedCode);
+    final MessageFrame messageFrame =
+        new TestMessageFrameBuilder().worldUpdater(worldUpdater).contract(created).build();
+    final Bytes returnedBytes = Bytes.fromHexString("EF01010101010101");
+    messageFrame.setOutputData(returnedBytes);
+    messageFrame.setGasRemaining(1L);
+
+    processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
+
+    assertThat(messageFrame.getState()).isEqualTo(COMPLETED_SUCCESS);
+    assertThat(messageFrame.getRemainingGas()).isEqualTo(1L);
+    assertThat(messageFrame.getStateGasUsed()).isZero();
+    assertThat(messageFrame.getOutputData()).isEqualTo(returnedBytes);
+    assertThat(worldUpdater.get(created).getCode()).isEqualTo(adoptedCode);
   }
 
   @Override

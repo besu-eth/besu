@@ -62,6 +62,10 @@ public interface ExceptionalHaltReason {
   /** EIP-8250: a payment approval would increment the account nonce past 2^64-1. */
   ExceptionalHaltReason NONCE_OVERFLOW = DefaultExceptionalHaltReason.NONCE_OVERFLOW;
 
+  /** EIP-8298: SETCODEFROM would replace the code of a system contract. */
+  ExceptionalHaltReason CODE_CHANGE_IN_SYSTEM_CONTRACT =
+      DefaultExceptionalHaltReason.CODE_CHANGE_IN_SYSTEM_CONTRACT;
+
   /**
    * Name string.
    *
@@ -132,7 +136,9 @@ public interface ExceptionalHaltReason {
     /** The Address out of range. */
     ADDRESS_OUT_OF_RANGE("Address out of range"),
     /** Nonce overflow. */
-    NONCE_OVERFLOW("Nonce overflow");
+    NONCE_OVERFLOW("Nonce overflow"),
+    /** Code change in a system contract. */
+    CODE_CHANGE_IN_SYSTEM_CONTRACT("Code change in system contract");
 
     /** The Description. */
     final String description;

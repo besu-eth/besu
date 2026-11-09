@@ -15,9 +15,14 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_1_KEYPAIR;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.GENESIS_CONFIG;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.hyperledger.besu.config.GenesisConfig;
+import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -37,15 +42,20 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.CodeChange;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 
 /**
  * Integration tests for BAL (Block Access List) based parallel block processing. Uses
@@ -364,6 +374,67 @@ class BalParallelBlockProcessorIntegrationTest {
     @Override
     protected ComparisonResult executeAndCompare(final Wei baseFee, final Transaction... txs) {
       return new BalTestBase() {}.executeAndCompare(baseFee, txs);
+    }
+  }
+
+  @Nested
+  @DisplayName("EIP-8298 SETCODEFROM")
+  class SetCodeFrom extends BalTestBase {
+
+    private static final Address SOURCE =
+        Address.fromHexStringStrict("0x" + "00".repeat(18) + "8298");
+    private static final Address ADOPTER =
+        Address.fromHexStringStrict("0x" + "00".repeat(18) + "a7a7");
+    // PUSH1 1 PUSH1 0 SSTORE STOP
+    private static final Bytes SOURCE_CODE = Bytes.fromHexString("0x600160005500");
+    // PUSH20 SOURCE SETCODEFROM POP STOP
+    private static final Bytes ADOPTER_CODE =
+        Bytes.concatenate(Bytes.of(0x73), SOURCE.getBytes(), Bytes.fromHexString("0xa75000"));
+
+    @Override
+    protected ExecutionContextTestFixture createFreshContext() {
+      final ObjectNode genesis =
+          JsonUtil.objectNodeFromURL(
+              BalParallelBlockProcessorIntegrationTest.class.getResource(GENESIS_CONFIG), false);
+      ((ObjectNode) genesis.get("config")).put("bogotaTime", 0);
+      final ObjectNode alloc = (ObjectNode) genesis.get("alloc");
+      alloc
+          .putObject(SOURCE.toHexString())
+          .put("balance", "0x0")
+          .put("code", SOURCE_CODE.toHexString());
+      alloc
+          .putObject(ADOPTER.toHexString())
+          .put("balance", "0x0")
+          .put("code", ADOPTER_CODE.toHexString());
+      return ExecutionContextTestFixture.builder(GenesisConfig.fromConfig(genesis))
+          .dataStorageFormat(DataStorageFormat.BONSAI)
+          .build();
+    }
+
+    @Test
+    @DisplayName("A later transaction runs the adopted code, resolved from the hash-form entry")
+    void parallelImportResolvesAdoptedCodeFromThePreBlockState() {
+      final Transaction adopt =
+          createTransferTransaction(
+              0, 0, 3_000_000, 0, 5, ADOPTER.toHexString(), ACCOUNT_GENESIS_1_KEYPAIR);
+      final Transaction runAdopted =
+          createTransferTransaction(
+              0, 0, 3_000_000, 0, 5, ADOPTER.toHexString(), ACCOUNT_GENESIS_2_KEYPAIR);
+
+      final ComparisonResult result = executeAndCompare(Wei.of(5), adopt, runAdopted);
+
+      final BlockAccessList bal = getBlockAccessList(result.seqResult()).orElseThrow();
+      assertThat(
+              bal.accountChanges().stream()
+                  .filter(changes -> changes.address().equals(ADOPTER))
+                  .flatMap(changes -> changes.codeChanges().stream())
+                  .toList())
+          .containsExactly(CodeChange.adoptedCode(1, Hash.hash(SOURCE_CODE)));
+      for (final MutableWorldState worldState :
+          List.of(result.seqWorldState(), result.parWorldState())) {
+        assertThat(worldState.get(ADOPTER).getCode()).isEqualTo(SOURCE_CODE);
+        assertContractStorage(worldState, ADOPTER, 0, 1);
+      }
     }
   }
 }

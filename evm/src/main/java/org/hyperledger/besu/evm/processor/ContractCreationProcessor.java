@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.processor;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.Account;
@@ -170,6 +171,17 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
 
   @Override
   public void codeSuccess(final MessageFrame frame, final OperationTracer operationTracer) {
+    // EIP-8298: code adopted through SETCODEFROM stays. The returned bytes are neither validated
+    // nor deposited, and cost nothing, but remain the frame's output.
+    final Account created = frame.getWorldUpdater().get(frame.getContractAddress());
+    if (created != null && !Hash.EMPTY.equals(created.getCodeHash())) {
+      frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
+      if (operationTracer.isExtendedTracing()) {
+        operationTracer.traceAccountCreationResult(frame, Optional.empty());
+      }
+      return;
+    }
+
     final Bytes contractCode =
         frame.getCreatedCode() == null ? frame.getOutputData() : frame.getCreatedCode().getBytes();
 

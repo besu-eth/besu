@@ -75,6 +75,7 @@ public class PrestateTracer implements OperationTracer {
   private static final int EXTCODEHASH = 0x3F;
   private static final int SLOAD = 0x54;
   private static final int SSTORE = 0x55;
+  private static final int SETCODEFROM = 0xA7;
   private static final int CREATE = 0xF0;
   private static final int CALL = 0xF1;
   private static final int CALLCODE = 0xF2;
@@ -189,7 +190,7 @@ public class PrestateTracer implements OperationTracer {
         final UInt256 value = account == null ? UInt256.ZERO : account.getStorageValue(key);
         pending = new Pending(accounts, self, key, value, null, null);
       }
-      case EXTCODECOPY, EXTCODEHASH, EXTCODESIZE, BALANCE -> {
+      case EXTCODECOPY, EXTCODEHASH, EXTCODESIZE, BALANCE, SETCODEFROM -> {
         final Address target = Words.toAddress(TracedStack.item(frame, 0));
         final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
