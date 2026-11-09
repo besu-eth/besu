@@ -102,12 +102,6 @@ jobs:
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-read-only: true
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: hive/go.mod
-          # The Actions cache is shared and near its size limit; hive builds in about a minute.
-          cache: false
       - name: Build Besu docker image
         working-directory: besu
         run: |
@@ -121,7 +115,11 @@ jobs:
             > ../hive/client-config.yaml
       - name: Build Hive
         working-directory: hive
-        run: go build .
+        # The runner's Go downloads the toolchain hive's go.mod asks for, checked against the Go
+        # checksum database. actions/setup-go is not on this repository's allowed actions list.
+        run: |
+          go build .
+          go version
       - name: Run Hive
         id: hive
         working-directory: hive
