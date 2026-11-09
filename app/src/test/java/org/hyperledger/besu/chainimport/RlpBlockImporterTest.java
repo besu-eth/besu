@@ -57,6 +57,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public final class RlpBlockImporterTest {
 
+  // Block hashes of the pos-side-chain resources
+  private static final Hash POS_GENESIS =
+      Hash.fromHexString("0xfc96de622c494ad156bddd8953449830246ebf75564ef37aaf9142db066497c0");
+  private static final Hash POS_A1 =
+      Hash.fromHexString("0xc5a489e9fa5b946aed40f09ed0074d3cfef7e28bddcc9f3996e2934155e79639");
+  private static final Hash POS_A3 =
+      Hash.fromHexString("0x3339fd43c6afc5d4ff580df7fe698f6575560b6611421f9656b1e6f1c8b223be");
+  private static final Hash POS_B4 =
+      Hash.fromHexString("0xd73a4a15d2b9f759009538aafd443198d1e8cd0b2509556f596b7f3a4b345343");
+
   @TempDir Path dataDir;
 
   private final RlpBlockImporter rlpBlockImporter = new RlpBlockImporter();
@@ -140,46 +150,57 @@ public final class RlpBlockImporterTest {
    */
   @Test
   public void posSideChainImportMovesChainHead() throws IOException {
-    final String config =
-        Resources.toString(this.getClass().getResource("/pos-side-chain-genesis.json"), UTF_8);
-    final BesuController controller =
-        new BesuController.Builder()
-            .fromGenesisFile(GenesisConfig.fromConfig(config), SyncMode.FULL)
-            .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
-            .ethProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
-            .storageProvider(new InMemoryKeyValueStorageProvider())
-            .networkId(BigInteger.ONE)
-            .miningParameters(MiningConfiguration.newDefault())
-            .nodeKey(NodeKeyUtils.generate())
-            .metricsSystem(new NoOpMetricsSystem())
-            .dataDirectory(dataDir)
-            .clock(TestClock.fixed())
-            .transactionPoolConfiguration(TransactionPoolConfiguration.DEFAULT)
-            .evmConfiguration(EvmConfiguration.DEFAULT)
-            .networkConfiguration(NetworkingConfiguration.DEFAULT)
-            .besuComponent(mock(BesuComponent.class))
-            .apiConfiguration(ImmutableApiConfiguration.builder().build())
-            .build();
+    final BesuController controller = posSideChainController();
     final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
-    assertThat(blockchain.getChainHeadHash())
-        .isEqualTo(
-            Hash.fromHexString(
-                "0xfc96de622c494ad156bddd8953449830246ebf75564ef37aaf9142db066497c0"));
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_GENESIS);
 
     rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
-    assertThat(blockchain.getChainHeadHash())
-        .isEqualTo(
-            Hash.fromHexString(
-                "0x3339fd43c6afc5d4ff580df7fe698f6575560b6611421f9656b1e6f1c8b223be"));
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
 
     rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
     final BlockHeader head = blockchain.getChainHeadHeader();
-    assertThat(head.getHash())
-        .isEqualTo(
-            Hash.fromHexString(
-                "0xd73a4a15d2b9f759009538aafd443198d1e8cd0b2509556f596b7f3a4b345343"));
+    assertThat(head.getHash()).isEqualTo(POS_B4);
     assertThat(controller.getProtocolContext().getWorldStateArchive().getWorldState().rootHash())
         .isEqualTo(head.getStateRoot());
+  }
+
+  /**
+   * A side chain that forks below the finalized block is imported, but does not become the head, as
+   * the Engine API would not make it the head either.
+   */
+  @Test
+  public void posSideChainBelowFinalizedDoesNotMoveChainHead() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    // chain B forks from the genesis block, below A1
+    blockchain.setFinalized(POS_A1);
+
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+    assertThat(blockchain.contains(POS_B4)).isTrue();
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+  }
+
+  private BesuController posSideChainController() throws IOException {
+    final String config =
+        Resources.toString(this.getClass().getResource("/pos-side-chain-genesis.json"), UTF_8);
+    return new BesuController.Builder()
+        .fromGenesisFile(GenesisConfig.fromConfig(config), SyncMode.FULL)
+        .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
+        .ethProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+        .storageProvider(new InMemoryKeyValueStorageProvider())
+        .networkId(BigInteger.ONE)
+        .miningParameters(MiningConfiguration.newDefault())
+        .nodeKey(NodeKeyUtils.generate())
+        .metricsSystem(new NoOpMetricsSystem())
+        .dataDirectory(dataDir)
+        .clock(TestClock.fixed())
+        .transactionPoolConfiguration(TransactionPoolConfiguration.DEFAULT)
+        .evmConfiguration(EvmConfiguration.DEFAULT)
+        .networkConfiguration(NetworkingConfiguration.DEFAULT)
+        .besuComponent(mock(BesuComponent.class))
+        .apiConfiguration(ImmutableApiConfiguration.builder().build())
+        .build();
   }
 
   private Path resourceFile(final String name) throws IOException {

@@ -250,10 +250,13 @@ public class RlpBlockImporter implements Closeable {
       }
       // After the merge only a fork choice update moves the chain head, so a valid block imported
       // on a side chain would otherwise never become the head. Make it the head, as the consensus
-      // client would, so that importing a side chain ends on its last block.
+      // client would, so that importing a side chain ends on its last block. A block that does not
+      // descend from the finalized block stays a side block, as the Engine API would not make it
+      // the head either.
       if (protocolSpec.isPoS()
           && forkChoice.isPresent()
-          && !context.getBlockchain().getChainHeadHash().equals(header.getHash())) {
+          && !context.getBlockchain().getChainHeadHash().equals(header.getHash())
+          && descendsFromFinalized(context.getBlockchain(), forkChoice.get(), header)) {
         final ForkchoiceResult result =
             forkChoice.get().updateForkChoice(header, Hash.ZERO, Hash.ZERO);
         if (result.getStatus() != ForkchoiceResult.Status.VALID) {
@@ -275,6 +278,17 @@ public class RlpBlockImporter implements Closeable {
         logProgress(header.getNumber());
       }
     }
+  }
+
+  private static boolean descendsFromFinalized(
+      final MutableBlockchain blockchain,
+      final MergeMiningCoordinator forkChoice,
+      final BlockHeader header) {
+    return blockchain
+        .getFinalized()
+        .flatMap(blockchain::getBlockHeader)
+        .map(finalized -> forkChoice.isDescendantOf(finalized, header))
+        .orElse(true);
   }
 
   private void logProgress(final long blockNum) {
