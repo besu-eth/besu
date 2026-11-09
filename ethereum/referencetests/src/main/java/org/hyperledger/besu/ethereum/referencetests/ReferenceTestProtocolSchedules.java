@@ -63,6 +63,18 @@ public class ReferenceTestProtocolSchedules {
   private static final Map<String, String> FORK_ALIASES =
       Map.of("tangerinewhistle", "eip150", "spuriousdragon", "eip158");
 
+  /**
+   * The client BPO slot each EEST BPO scenario's blob schedule configures. A scenario takes the
+   * first slot that no BPO fork before it uses, which is bpo3 for Amsterdam and Bogota because both
+   * build on BPO2.
+   */
+  private static final Map<String, String> BPO_SCENARIO_BLOB_SCHEDULE_KEYS =
+      Map.of(
+          "amsterdambpoincrease", "bpo3",
+          "amsterdambpodecrease", "bpo3",
+          "bogotabpoincrease", "bpo3",
+          "bogotabpodecrease", "bpo3");
+
   private static final Set<String> FORKS_WITHOUT_BLOCK_BUILDING =
       Set.of(
           "frontier",
@@ -276,9 +288,19 @@ public class ReferenceTestProtocolSchedules {
                         genesisStub.clone().pragueTime(0).osakaTime(0).bpo1Time(15000),
                         evmConfiguration)),
                 Map.entry(
+                    "BPO1",
+                    createSchedule(
+                        genesisStub.clone().pragueTime(0).osakaTime(0).bpo1Time(0),
+                        evmConfiguration)),
+                Map.entry(
                     "BPO1ToBPO2AtTime15k",
                     createSchedule(
                         genesisStub.clone().pragueTime(0).osakaTime(0).bpo1Time(0).bpo2Time(15000),
+                        evmConfiguration)),
+                Map.entry(
+                    "BPO2",
+                    createSchedule(
+                        genesisStub.clone().pragueTime(0).osakaTime(0).bpo1Time(0).bpo2Time(0),
                         evmConfiguration)),
                 Map.entry(
                     "BPO2ToBPO3AtTime15k",
@@ -325,6 +347,56 @@ public class ReferenceTestProtocolSchedules {
                             .bpo2Time(0)
                             .amsterdamTime(15000),
                         evmConfiguration)),
+                // The BPO scenarios keep their fork's rules and change only the blob schedule,
+                // which blobScheduleKey maps onto bpo3.
+                Map.entry(
+                    "AmsterdamBPOIncrease",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(0),
+                        evmConfiguration)),
+                Map.entry(
+                    "AmsterdamBPODecrease",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(0),
+                        evmConfiguration)),
+                Map.entry(
+                    "AmsterdamToBPOIncreaseAtTime15k",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(15000),
+                        evmConfiguration)),
+                Map.entry(
+                    "AmsterdamToBPODecreaseAtTime15k",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(15000),
+                        evmConfiguration)),
                 Map.entry(
                     "Bogota",
                     createSchedule(
@@ -348,6 +420,35 @@ public class ReferenceTestProtocolSchedules {
                             .bpo2Time(0)
                             .amsterdamTime(0)
                             .bogotaTime(15000),
+                        evmConfiguration)),
+                // Bogota builds on bpo3, so a bpo3 activated with it carries its blob schedule into
+                // Bogota. BogotaToBPO*AtTime15k has no entry: the milestone order puts every BPO
+                // fork after BPO2 before Bogota, so no BPO fork can follow it.
+                Map.entry(
+                    "BogotaBPOIncrease",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(0)
+                            .bogotaTime(0),
+                        evmConfiguration)),
+                Map.entry(
+                    "BogotaBPODecrease",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(0)
+                            .bogotaTime(0),
                         evmConfiguration)),
                 Map.entry(
                     "Polis",
@@ -384,6 +485,19 @@ public class ReferenceTestProtocolSchedules {
   private static String canonicalForkName(final String fork) {
     final String lowerCase = fork.toLowerCase(Locale.ROOT);
     return FORK_ALIASES.getOrDefault(lowerCase, lowerCase);
+  }
+
+  /**
+   * The genesis {@code blobSchedule} key that a fixture's {@code config.blobSchedule} entry for
+   * {@code fork} configures: the name in lower case, with a BPO scenario name resolved to the BPO
+   * slot that the scenario activates.
+   *
+   * @param fork the fork name a fixture keys its blob schedule entry on
+   * @return the blob schedule key Besu reads
+   */
+  static String blobScheduleKey(final String fork) {
+    final String lowerCase = fork.toLowerCase(Locale.ROOT);
+    return BPO_SCENARIO_BLOB_SCHEDULE_KEYS.getOrDefault(lowerCase, lowerCase);
   }
 
   /**
