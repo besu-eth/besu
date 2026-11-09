@@ -73,7 +73,7 @@ public interface FlatDbCacheManager {
       final long version,
       final Supplier<Optional<Bytes>> storageGetter) {
     // Always bypass cache and go directly to storage
-    return storageGetter.get();
+    return BenchReads.timed(storageGetter);
   }
 
   default List<Optional<Bytes>> getMultipleFromCacheOrStorage(

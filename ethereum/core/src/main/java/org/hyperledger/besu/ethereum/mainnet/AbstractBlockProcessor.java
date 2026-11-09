@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.BenchReads;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -645,6 +646,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
     final long start = LOG_TX_TIMES ? System.nanoTime() : 0L;
+    if (LOG_TX_TIMES) {
+      BenchReads.take();
+    }
     final TransactionProcessingResult result =
         transactionProcessor.processTransaction(
             transactionUpdater,
@@ -657,13 +661,17 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             blobGasPrice,
             accessLocationTracker);
     if (LOG_TX_TIMES) {
+      final long[] reads = BenchReads.take();
       LOG.info(
-          "Bench tx seq block {} hash {} to {} gas {} us {}",
+          "Bench tx seq block {} hash {} to {} gas {} us {} t {} db {} {}",
           blockProcessingContext.getBlockHeader().getNumber(),
           transaction.getHash().toHexString(),
           transaction.getTo().map(a -> a.toHexString()).orElse("create"),
           transaction.getGasLimit() - result.getGasRemaining(),
-          (System.nanoTime() - start) / 1000);
+          (System.nanoTime() - start) / 1000,
+          start / 1000,
+          reads[0],
+          reads[1]);
     }
     return result;
   }

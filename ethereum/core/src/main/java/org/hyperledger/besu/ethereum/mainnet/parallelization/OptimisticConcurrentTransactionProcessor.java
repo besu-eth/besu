@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.B
 import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.RunaheadPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.BenchReads;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
@@ -125,6 +126,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   private static final boolean LOG_TX_TIMES = Boolean.getBoolean("besu.bench.logTxTimes");
   // replay benchmarks: log why a worker result could not be taken
   private static final boolean LOG_CONFLICTS = Boolean.getBoolean("besu.bench.logConflicts");
+  private volatile long benchBlock;
 
   // workers warm the trie paths of what they touch, so the state root finds them loaded
   private static final boolean WORKER_PRELOAD = Boolean.getBoolean("besu.t14.workerPreload");
@@ -190,6 +192,14 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
+    if (LOG_TX_TIMES) {
+      benchBlock = blockHeader.getNumber();
+      LOG.info(
+          "Bench block start {} txs {} t {}",
+          blockHeader.getNumber(),
+          transactions.size(),
+          System.nanoTime() / 1000);
+    }
     final CompletableFuture<?>[] runaheadFirstPasses =
         new CompletableFuture<?>[transactions.size()];
     runaheads = runaheadFirstPasses;
@@ -1025,6 +1035,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                   BlockAccessListBuilder.createTransactionAccessLocationTracker(
                       transactionLocation));
       final long benchStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
+      if (LOG_TX_TIMES) {
+        BenchReads.take();
+      }
       final TransactionProcessingResult result =
           transactionProcessor.processTransaction(
               transactionUpdater,
@@ -1066,15 +1079,19 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               transactionLocationTracker);
 
       if (LOG_TX_TIMES) {
+        final long[] reads = BenchReads.take();
         LOG.info(
-            "Bench tx par block {} idx {} hash {} to {} gas {} us {} chained {}",
+            "Bench tx par block {} idx {} hash {} to {} gas {} us {} chained {} t {} db {} {}",
             blockHeader.getNumber(),
             transactionLocation,
             transaction.getHash().toHexString(),
             transaction.getTo().map(a -> a.toHexString()).orElse("create"),
             transaction.getGasLimit() - result.getGasRemaining(),
             (System.nanoTime() - benchStart) / 1000,
-            previousInChain != null);
+            previousInChain != null,
+            benchStart / 1000,
+            reads[0],
+            reads[1]);
       }
       // commit the accumulator in order to apply all the modifications
       transactionUpdater.commit();
@@ -1170,12 +1187,21 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         // handled below as a run that did not finish
       }
     } else if (future != null && !future.isDone() && shouldWaitFor(transactionLocation)) {
+      final long waitStart = LOG_TX_TIMES ? System.nanoTime() : 0L;
       try {
         future.get(WAIT_RUNNING_MS, TimeUnit.MILLISECONDS);
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
       } catch (final ExecutionException | TimeoutException | CancellationException e) {
         // handled below as a run that did not finish
+      }
+      if (LOG_TX_TIMES) {
+        LOG.info(
+            "Bench wait block {} idx {} us {} t {}",
+            benchBlock,
+            transactionLocation,
+            (System.nanoTime() - waitStart) / 1000,
+            waitStart / 1000);
       }
     }
 

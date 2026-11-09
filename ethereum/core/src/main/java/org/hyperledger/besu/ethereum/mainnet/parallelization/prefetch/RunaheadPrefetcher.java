@@ -335,7 +335,7 @@ public final class RunaheadPrefetcher {
       }
       if (LOG_RUNS) {
         LOG.info(
-            "Bench runahead block {} hash {} placeholder {} us {} passes {} loads {} outcome {} pass_us_loads {}",
+            "Bench runahead block {} hash {} placeholder {} us {} passes {} loads {} outcome {} pass_us_loads {} t {}",
             blockHeader.getNumber(),
             transaction.getHash().toHexString(),
             placeholder.map(UInt256::toShortHexString).orElse("0"),
@@ -343,7 +343,8 @@ public final class RunaheadPrefetcher {
             passes,
             loads.requested.size(),
             outcome,
-            passLog);
+            passLog,
+            start / 1000);
       }
       firstPass.complete(null);
       loads.runDone();
@@ -561,7 +562,7 @@ public final class RunaheadPrefetcher {
       }
       if (LOG_RUNS) {
         LOG.info(
-            "Bench runahead block {} hash {} placeholder {} us {} passes {} loads {} outcome {} pass_us_loads {}",
+            "Bench runahead block {} hash {} placeholder {} us {} passes {} loads {} outcome {} pass_us_loads {} t {}",
             blockHeader.getNumber(),
             transaction.getHash().toHexString(),
             placeholder.map(UInt256::toShortHexString).orElse("0"),
@@ -569,7 +570,8 @@ public final class RunaheadPrefetcher {
             passes.get(),
             loads.requested.size(),
             stoppedEarly ? outcome + " stopped" : outcome,
-            String.join(",", passLog));
+            String.join(",", passLog),
+            start / 1000);
       }
       loads.runDone();
     }
