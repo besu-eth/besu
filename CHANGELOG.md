@@ -36,6 +36,7 @@
 - A block that fails the receipts root or gas used check is now rejected before its world state is persisted, so processing it on the head world state, as backward sync does, no longer leaves the head world state on that block. A later `engine_forkchoiceUpdated` to a block other than the rejected block's parent failed with `Failed to set new head`. [#11858](https://github.com/besu-eth/besu/pull/11858)
 - A transaction whose parallel execution failed with an error is executed again in order, instead of failing the block import. [#11806](https://github.com/besu-eth/besu/pull/11806)
 - `trace_filter` resolves `safe` and `finalized` bounds to their blocks instead of failing with `Internal error` (`-32603`). It rejects them when the chain has none, and rejects `pending`, which is not a `trace_filter` bound, with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
+- `besu blocks import` makes a valid imported proof-of-stake block the chain head, as a fork choice update would, so importing a side chain ends on its last block. Previously the head stayed on the first chain imported, because after the merge only a fork choice update moves it. Proof-of-work, Clique, IBFT and QBFT imports are unchanged.
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)

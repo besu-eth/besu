@@ -107,12 +107,6 @@ public class BlockchainReferenceTestTools {
         params.ignore("CALLBlake2f_MaxRounds");
         params.ignore("loopMul_");
 
-        // Inconclusive fork choice rule, since in merge CL should be choosing forks and setting the
-        // chain head.
-        // Perfectly valid test pre-merge.
-        params.ignore(
-                "UncleFromSideChain_(Merge|Paris|Shanghai|Cancun|Prague|Osaka|Amsterdam|Bogota|Polis|Bangkok)");
-
         // These are for the older reference tests but EIP-2537 is covered by eip2537_bls_12_381_precompiles in the execution-spec-tests
         params.ignore("/stEIP2537/");
 
@@ -215,6 +209,12 @@ public class BlockchainReferenceTestTools {
                                             .withBlockHeader(block.getHeader())
                                             .withShouldWorldStateUpdateHead(true)
                                             .build());
+                            // After the merge only a fork choice update moves the chain head. Make
+                            // a valid block on a side chain the head, as the consensus client would.
+                            if (protocolSpec.isPoS()
+                                    && !blockchain.getChainHeadHash().equals(block.getHash())) {
+                                blockchain.rewindToBlock(block.getHash());
+                            }
                         });
                     }
 

@@ -16,7 +16,10 @@ package org.hyperledger.besu.chainimport;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.controller.BesuController;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -38,6 +41,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -105,6 +109,10 @@ public class RlpBlockImporter implements Closeable {
     final ProtocolSchedule protocolSchedule = besuController.getProtocolSchedule();
     final ProtocolContext context = besuController.getProtocolContext();
     final MutableBlockchain blockchain = context.getBlockchain();
+    final Optional<MergeMiningCoordinator> forkChoice =
+        besuController.getMiningCoordinator() instanceof MergeMiningCoordinator coordinator
+            ? Optional.of(coordinator)
+            : Optional.empty();
     int count = 0;
     final BlockHeaderFunctions blockHeaderFunctions =
         ScheduleBasedBlockHeaderFunctions.create(protocolSchedule);
@@ -165,7 +173,8 @@ public class RlpBlockImporter implements Closeable {
                         block,
                         header,
                         protocolSchedule.getByBlockHeader(header),
-                        skipPowValidation),
+                        skipPowValidation,
+                        forkChoice),
                 importExecutor);
         previousBlockFuture.exceptionally(
             exception -> {
@@ -221,7 +230,8 @@ public class RlpBlockImporter implements Closeable {
       final Block block,
       final BlockHeader header,
       final ProtocolSpec protocolSpec,
-      final boolean skipPowValidation) {
+      final boolean skipPowValidation,
+      final Optional<MergeMiningCoordinator> forkChoice) {
     try {
       cumulativeTimer.start();
       segmentTimer.start();
@@ -237,6 +247,22 @@ public class RlpBlockImporter implements Closeable {
       if (!blockImported.isImported()) {
         throw new IllegalStateException(
             "Invalid block at block number " + header.getNumber() + ".");
+      }
+      // After the merge only a fork choice update moves the chain head, so a valid block imported
+      // on a side chain would otherwise never become the head. Make it the head, as the consensus
+      // client would, so that importing a side chain ends on its last block.
+      if (protocolSpec.isPoS()
+          && forkChoice.isPresent()
+          && !context.getBlockchain().getChainHeadHash().equals(header.getHash())) {
+        final ForkchoiceResult result =
+            forkChoice.get().updateForkChoice(header, Hash.ZERO, Hash.ZERO);
+        if (result.getStatus() != ForkchoiceResult.Status.VALID) {
+          throw new IllegalStateException(
+              "Unable to make block "
+                  + header.getNumber()
+                  + " the chain head: "
+                  + result.getErrorMessage().orElse(result.getStatus().name()));
+        }
       }
     } finally {
       blockBacklog.release();

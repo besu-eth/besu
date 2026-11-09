@@ -24,7 +24,10 @@ import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -127,5 +130,61 @@ public final class RlpBlockImporterTest {
 
     // Don't count the Genesis block
     assertThat(result.count).isEqualTo(100);
+  }
+
+  /**
+   * After the merge, a valid block imported on a side chain becomes the chain head, as it would
+   * after the consensus client's fork choice update. The blocks are the Cancun blocks of
+   * ethereum/tests BlockchainTests/InvalidBlocks/bcMultiChainTest/UncleFromSideChain.json: chain A
+   * has blocks 1 to 3, side chain B blocks 1 to 4, leaving out the invalid block with uncles.
+   */
+  @Test
+  public void posSideChainImportMovesChainHead() throws IOException {
+    final String config =
+        Resources.toString(this.getClass().getResource("/pos-side-chain-genesis.json"), UTF_8);
+    final BesuController controller =
+        new BesuController.Builder()
+            .fromGenesisFile(GenesisConfig.fromConfig(config), SyncMode.FULL)
+            .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
+            .ethProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+            .storageProvider(new InMemoryKeyValueStorageProvider())
+            .networkId(BigInteger.ONE)
+            .miningParameters(MiningConfiguration.newDefault())
+            .nodeKey(NodeKeyUtils.generate())
+            .metricsSystem(new NoOpMetricsSystem())
+            .dataDirectory(dataDir)
+            .clock(TestClock.fixed())
+            .transactionPoolConfiguration(TransactionPoolConfiguration.DEFAULT)
+            .evmConfiguration(EvmConfiguration.DEFAULT)
+            .networkConfiguration(NetworkingConfiguration.DEFAULT)
+            .besuComponent(mock(BesuComponent.class))
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .build();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    assertThat(blockchain.getChainHeadHash())
+        .isEqualTo(
+            Hash.fromHexString(
+                "0xfc96de622c494ad156bddd8953449830246ebf75564ef37aaf9142db066497c0"));
+
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    assertThat(blockchain.getChainHeadHash())
+        .isEqualTo(
+            Hash.fromHexString(
+                "0x3339fd43c6afc5d4ff580df7fe698f6575560b6611421f9656b1e6f1c8b223be"));
+
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+    final BlockHeader head = blockchain.getChainHeadHeader();
+    assertThat(head.getHash())
+        .isEqualTo(
+            Hash.fromHexString(
+                "0xd73a4a15d2b9f759009538aafd443198d1e8cd0b2509556f596b7f3a4b345343"));
+    assertThat(controller.getProtocolContext().getWorldStateArchive().getWorldState().rootHash())
+        .isEqualTo(head.getStateRoot());
+  }
+
+  private Path resourceFile(final String name) throws IOException {
+    final Path file = dataDir.resolve(name);
+    Files.write(file, Resources.toByteArray(this.getClass().getResource("/" + name)));
+    return file;
   }
 }
