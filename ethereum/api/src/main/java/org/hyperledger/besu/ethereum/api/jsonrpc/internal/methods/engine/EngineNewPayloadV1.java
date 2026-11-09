@@ -47,7 +47,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
-import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
@@ -267,12 +266,20 @@ public sealed class EngineNewPayloadV1<
                     new IllegalStateException(
                         "Internal error: latestValidAncestor should always be present at this point"));
 
-    // async precompute sender to improve performance during transaction processing
-    asyncPrecomputeSenders(blockParam.getTransactions());
+    // recover senders in the background to speed up execution; the transactions are not validated
+    // yet, so the recovery is stopped as soon as execution ends, whatever its outcome
+    final SignatureRecoveryPrecomputation signatureRecovery =
+        SignatureRecoveryPrecomputation.start(
+            mergeCoordinator.getEthScheduler(), blockParam.getTransactions());
 
     // execute block and return result response
     final long startTimeNs = System.nanoTime();
-    final BlockProcessingResult executionResult = rememberBlock(block, blockParam);
+    final BlockProcessingResult executionResult;
+    try {
+      executionResult = rememberBlock(block, blockParam);
+    } finally {
+      signatureRecovery.cancel();
+    }
     if (executionResult.isSuccessful()) {
       final PayloadPostExecutionValidationResultV1 postExecutionResult =
           validatePostExecution(reqId, requestParameters, block, executionResult);
@@ -336,51 +343,6 @@ public sealed class EngineNewPayloadV1<
 
   protected Class<? extends ExecutionPayloadV1> getPayloadParameterClass() {
     return ExecutionPayloadV1.class;
-  }
-
-  private void asyncPrecomputeSenders(final List<Transaction> transactions) {
-    transactions.forEach(
-        transaction -> {
-          mergeCoordinator
-              .getEthScheduler()
-              .scheduleComputationTask(
-                  () -> {
-                    final var sender = transaction.getSender();
-                    logger()
-                        .atTrace()
-                        .setMessage("The sender for transaction {} is calculated : {}")
-                        .addArgument(transaction::getHash)
-                        .addArgument(sender)
-                        .log();
-                    return sender;
-                  });
-          if (transaction.getType().supportsDelegateCode()) {
-            asyncPrecomputeAuthorities(transaction);
-          }
-        });
-  }
-
-  private void asyncPrecomputeAuthorities(final Transaction transaction) {
-    final var codeDelegations = transaction.getCodeDelegationList().get();
-    int index = 0;
-    for (final var codeDelegation : codeDelegations) {
-      final var constIndex = index++;
-      mergeCoordinator
-          .getEthScheduler()
-          .scheduleComputationTask(
-              () -> {
-                final var authority = codeDelegation.authorizer();
-                logger()
-                    .atTrace()
-                    .setMessage(
-                        "The code delegation authority at index {} for transaction {} is calculated : {}")
-                    .addArgument(constIndex)
-                    .addArgument(transaction::getHash)
-                    .addArgument(authority)
-                    .log();
-                return authority;
-              });
-    }
   }
 
   /**

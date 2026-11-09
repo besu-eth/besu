@@ -17,6 +17,7 @@ package org.hyperledger.besu.evm.operation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.MainnetEVMs.DEV_NET_CHAIN_ID;
 import static org.hyperledger.besu.evm.frame.ExceptionalHaltReason.CODE_TOO_LARGE;
+import static org.hyperledger.besu.evm.testutils.TestEvmConfigurations.EVM_V1;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -32,7 +33,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.ConstantinopleGasCalculator;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -87,7 +87,7 @@ class CreateOperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.london(EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.london(EVM_V1);
     operation.execute(messageFrame, evm);
     final MessageFrame createFrame = messageFrame.getMessageFrameStack().peek();
     final ContractCreationProcessor ccp = new ContractCreationProcessor(evm, false, List.of(), 0);
@@ -118,7 +118,7 @@ class CreateOperationTest {
     when(account.getBalance()).thenReturn(Wei.ZERO);
     when(account.getNonce()).thenReturn(-1L);
 
-    final EVM evm = MainnetEVMs.london(EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.london(EVM_V1);
     operation.execute(messageFrame, evm);
 
     assertThat(messageFrame.getStackItem(0).trimLeadingZeros()).isEqualTo(Bytes.EMPTY);
@@ -135,7 +135,7 @@ class CreateOperationTest {
     when(account.getBalance()).thenReturn(Wei.ZERO);
     when(account.getNonce()).thenReturn(55L);
 
-    final EVM evm = MainnetEVMs.london(EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.london(EVM_V1);
     operation.execute(messageFrame, evm);
 
     assertThat(messageFrame.getStackItem(0).trimLeadingZeros()).isEqualTo(Bytes.EMPTY);
@@ -156,7 +156,7 @@ class CreateOperationTest {
     when(account.getBalance()).thenReturn(Wei.ZERO);
     when(account.getNonce()).thenReturn(55L);
 
-    final EVM evm = MainnetEVMs.london(EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.london(EVM_V1);
     operation.execute(messageFrame, evm);
 
     assertThat(messageFrame.getStackItem(0).trimLeadingZeros()).isEqualTo(Bytes.EMPTY);
@@ -177,7 +177,7 @@ class CreateOperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     final MessageFrame createFrame = messageFrame.getMessageFrameStack().peek();
     final ContractCreationProcessor ccp = new ContractCreationProcessor(evm, false, List.of(), 0);
@@ -204,7 +204,7 @@ class CreateOperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
   }
@@ -225,7 +225,7 @@ class CreateOperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     assertThat(result.getHaltReason()).isNull();
   }
@@ -246,7 +246,7 @@ class CreateOperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
   }
@@ -260,6 +260,7 @@ class CreateOperationTest {
         UInt256.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     final MessageFrame messageFrame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)
@@ -281,7 +282,7 @@ class CreateOperationTest {
     messageFrame.pushStackItem(memoryOffset);
     messageFrame.pushStackItem(UInt256.ZERO);
 
-    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
 
     assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
@@ -303,7 +304,7 @@ class CreateOperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     assertThat(result.getHaltReason()).isNull();
   }
@@ -316,6 +317,7 @@ class CreateOperationTest {
       final int depth) {
     final MessageFrame messageFrame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)

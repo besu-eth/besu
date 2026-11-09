@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       evm_v2:
-        description: 'Run the reference tests on EVM v2 (-Dtest.evm.v2=true)'
+        description: 'Run the reference tests on EVM v2 (-Dtest.evm.v2=true), otherwise on EVM v1'
         required: false
         type: boolean
         default: false
@@ -71,7 +71,7 @@ jobs:
           xargs grep -ho '"fixtures/[^"]*"' < group_${{matrix.runner_index}}.txt | tr -d '"' | sort -u > fixtureSubset.txt
           wc -l < fixtureSubset.txt
       - name: run reference tests
-        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt` -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
+        run: ./gradlew ethereum:referenceTests:referenceTests `cat refTestArgs.txt` -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt -Dtest.evm.v2=${{ inputs.evm_v2 }}
       - name: report disk usage
         if: always()
         run: |
