@@ -73,9 +73,10 @@ public class MainnetBlockImporter implements BlockImporter {
             false);
     if (LOG_BLOCK_TIMES) {
       LOG.info(
-          "Bench valproc block {} us {}",
+          "Bench valproc block {} us {} parallel {}",
           block.getHeader().getNumber(),
-          (System.nanoTime() - benchStart) / 1000);
+          (System.nanoTime() - benchStart) / 1000,
+          result.getNbParallelizedTransactions().orElse(0));
     }
 
     if (result.isSuccessful()) {
