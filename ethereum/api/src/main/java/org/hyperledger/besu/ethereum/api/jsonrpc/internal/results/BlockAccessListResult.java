@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BalanceChange;
@@ -24,6 +25,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -109,16 +111,21 @@ public final class BlockAccessListResult {
     }
   }
 
-  @JsonPropertyOrder({"index", "code"})
+  @JsonPropertyOrder({"index", "code", "newCodeHash"})
   public static class CodeChangeResult {
     public final String index;
 
     @JsonProperty("code")
     public final String code;
 
+    /** EIP-8298 adopted code hash; omitted for a code change that carries its bytes. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public final String newCodeHash;
+
     public CodeChangeResult(final CodeChange change) {
       this.index = Quantity.create(change.txIndex());
       this.code = change.newCode().toHexString();
+      this.newCodeHash = change.newCodeHash().map(Hash::toHexString).orElse(null);
     }
   }
 }

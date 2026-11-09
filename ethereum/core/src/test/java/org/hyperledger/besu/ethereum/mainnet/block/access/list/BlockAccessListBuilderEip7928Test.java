@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -106,6 +108,32 @@ class BlockAccessListBuilderEip7928Test {
     Assertions.assertThat(account.balanceChanges()).isEmpty();
     Assertions.assertThat(account.nonceChanges())
         .containsExactly(new BlockAccessList.NonceChange(1, 3L));
+  }
+
+  /** As in EELS {@code add_code_change}, the last code written at an index replaces the entry. */
+  @Test
+  void laterCodeChangeAtSameIndexReplacesEarlierOne() {
+    final Bytes adoptedCode = Bytes.of(1);
+    final Hash adoptedCodeHash = Hash.hash(adoptedCode);
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder first =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(1);
+    first.getOrCreateAccountBuilder(ADDR_1).withNewCode(Bytes.of(2));
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder second =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(1);
+    second.getOrCreateAccountBuilder(ADDR_1).withAdoptedCode(adoptedCode, adoptedCodeHash);
+    final PartialBlockAccessView.PartialBlockAccessViewBuilder later =
+        new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(2);
+    later.getOrCreateAccountBuilder(ADDR_1).withNewCode(Bytes.of(3));
+
+    final BlockAccessList.BlockAccessListBuilder builder = BlockAccessList.builder();
+    builder.apply(first.build());
+    builder.apply(second.build());
+    builder.apply(later.build());
+
+    Assertions.assertThat(builder.build().accountChanges().getFirst().codeChanges())
+        .containsExactly(
+            BlockAccessList.CodeChange.adoptedCode(1, adoptedCodeHash),
+            new BlockAccessList.CodeChange(2, Bytes.of(3)));
   }
 
   @Test

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -22,6 +23,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
@@ -113,6 +115,35 @@ class BlockAccessListOverlayTest {
     final MutableAccount account = mock(MutableAccount.class);
     assertThat(overlay.applyToAccountState(ADDRESS, () -> account)).isEmpty();
     verify(account, never()).setBalance(any());
+    verify(account, never()).setCode(any(Bytes.class));
+  }
+
+  @Test
+  void rejectsHashFormCodeChangeInsteadOfApplyingEmptyCode() {
+    final AccountChanges accountChanges =
+        new AccountChanges(
+            ADDRESS,
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(
+                new CodeChange(0, Bytes.fromHexString("0xAA")),
+                CodeChange.adoptedCode(1, Hash.hash(Bytes.fromHexString("0xBB")))));
+    final BlockAccessListAccountLookup lookup =
+        BlockAccessListAccountLookup.of(new BlockAccessList(List.of(accountChanges)));
+
+    final BlockAccessListOverlay beforeAdoption = new BlockAccessListOverlay(lookup, 1L);
+    assertThat(beforeAdoption.getCode(ADDRESS)).contains(Bytes.fromHexString("0xAA"));
+
+    final BlockAccessListOverlay afterAdoption = new BlockAccessListOverlay(lookup, 2L);
+    final MutableAccount account = mock(MutableAccount.class);
+    assertThatThrownBy(() -> afterAdoption.getCode(ADDRESS))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> afterAdoption.applyToCode(ADDRESS, code -> {}))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> afterAdoption.applyToAccountState(ADDRESS, () -> account))
+        .isInstanceOf(IllegalStateException.class);
     verify(account, never()).setCode(any(Bytes.class));
   }
 

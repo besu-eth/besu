@@ -89,7 +89,7 @@ public final class BlockAccessListOverlay {
                         accountChanges.codeChanges(),
                         maxTxIndexExclusive,
                         BlockAccessList.CodeChange::txIndex)
-                    .map(BlockAccessList.CodeChange::newCode));
+                    .map(BlockAccessListOverlay::codeOf));
   }
 
   /**
@@ -134,7 +134,7 @@ public final class BlockAccessListOverlay {
 
   private static void applyCodeChange(
       final MutableAccount account, final BlockAccessList.CodeChange change) {
-    final Bytes code = change.newCode() != null ? change.newCode() : Bytes.EMPTY;
+    final Bytes code = codeOf(change);
     if (account instanceof BonsaiAccount pathBasedAccount) {
       pathBasedAccount.setCodeHash(code.isEmpty() ? Hash.EMPTY : Hash.hash(code));
       return;
@@ -151,7 +151,19 @@ public final class BlockAccessListOverlay {
                     accountChanges.codeChanges(),
                     maxTxIndexExclusive,
                     BlockAccessList.CodeChange::txIndex))
-        .ifPresent(change -> codeApplier.accept(change.newCode()));
+        .ifPresent(change -> codeApplier.accept(codeOf(change)));
+  }
+
+  /**
+   * A hash-form (EIP-8298) code change carries no bytes and is not resolved here, so a transaction
+   * that reads one fails its parallel run and is executed again sequentially.
+   */
+  private static Bytes codeOf(final BlockAccessList.CodeChange change) {
+    if (change.isAdoptedCode()) {
+      throw new IllegalStateException(
+          "Hash-form code change at index " + change.txIndex() + " is not supported");
+    }
+    return change.newCode() != null ? change.newCode() : Bytes.EMPTY;
   }
 
   public void applyToStorage(

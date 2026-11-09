@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.core.encoding;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -25,6 +26,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.N
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotRead;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.ArrayList;
@@ -101,8 +103,17 @@ public final class BlockAccessListDecoder {
                 ccIn.enterList();
                 long txIndex = ccIn.readUnsignedIntScalar();
                 Bytes newCode = ccIn.readBytes();
+                if (ccIn.isEndOfCurrentList()) {
+                  ccIn.leaveList();
+                  return new CodeChange(txIndex, newCode);
+                }
+                // EIP-8298 hash form: [index, b"", new_code_hash]
+                final Hash newCodeHash = Hash.wrap(ccIn.readBytes32());
+                if (!newCode.isEmpty()) {
+                  throw new RLPException("Code change with a code hash must have empty code");
+                }
                 ccIn.leaveList();
-                return new CodeChange(txIndex, newCode);
+                return CodeChange.adoptedCode(txIndex, newCodeHash);
               });
 
       acctIn.leaveList();

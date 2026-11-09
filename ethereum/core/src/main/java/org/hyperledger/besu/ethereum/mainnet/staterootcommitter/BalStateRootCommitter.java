@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
+import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldView.encodeTrieValue;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -319,6 +320,11 @@ public final class BalStateRootCommitter implements StateRootCommitter {
         newCodeHash = priorAccount != null ? priorAccount.getCodeHash() : Hash.EMPTY;
       } else {
         final BlockAccessList.CodeChange codeChange = changes.codeChanges().getLast();
+        // The hash form (EIP-8298) carries no bytes to store; this path does not resolve it.
+        checkState(
+            !codeChange.isAdoptedCode(),
+            "Hash-form code change for %s is not supported by the BAL state root",
+            address);
         newCodeHash = Hash.hash(codeChange.newCode());
         if (!sink.isFrozen()) {
           if (codeChange.newCode().isEmpty()) {

@@ -863,7 +863,10 @@ public class BlockDataGenerator {
 
     final List<BlockAccessList.CodeChange> codeChanges = new ArrayList<>();
     for (int i = 0; i < codeChangeCount; i++) {
-      codeChanges.add(new BlockAccessList.CodeChange(i, bytesValue(10, 100)));
+      codeChanges.add(
+          random.nextBoolean()
+              ? BlockAccessList.CodeChange.adoptedCode(i, hash())
+              : new BlockAccessList.CodeChange(i, bytesValue(10, 100)));
     }
 
     return new BlockAccessList.AccountChanges(

@@ -74,6 +74,7 @@ public final class BlockAccessListEncoder {
                 ccOut.startList();
                 ccOut.writeUnsignedInt(cc.txIndex());
                 ccOut.writeBytes(cc.newCode());
+                cc.newCodeHash().ifPresent(hash -> ccOut.writeBytes(hash.getBytes()));
                 ccOut.endList();
               });
 
