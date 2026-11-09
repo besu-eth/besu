@@ -3,10 +3,23 @@ on:
   workflow_dispatch:
     inputs:
       simulator:
-        description: 'Hive simulator, e.g. ethereum/rpc-compat, ethereum/engine, ethereum/consensus'
+        description: 'Hive simulator. rpc-compat takes a few minutes; consensus and engine take an hour or more, so give a sim_limit.'
         required: true
         default: 'ethereum/rpc-compat'
-        type: string
+        type: choice
+        # The simulators at the default hive_ref
+        options:
+          - ethereum/rpc-compat
+          - ethereum/consensus
+          - ethereum/engine
+          - ethereum/sync
+          - ethereum/graphql
+          - devp2p
+          - ethereum/eels/consume-engine
+          - ethereum/eels/consume-rlp
+          - ethereum/eels/consume-sync
+          - ethereum/eels/consume-enginex
+          - ethereum/eels/execute-blobs
       sim_limit:
         description: 'Hive --sim.limit: "<suite regex>/<test regex>". Go simulators (consensus, engine) match unanchored; pytest-based ones (eest/consume-*) need a leading ".*". Blank runs the whole simulator.'
         required: false
