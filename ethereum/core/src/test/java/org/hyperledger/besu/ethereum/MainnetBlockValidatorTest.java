@@ -21,7 +21,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -53,7 +52,6 @@ import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
-import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -64,7 +62,6 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.RejectedExecutionException;
@@ -155,7 +152,7 @@ public class MainnetBlockValidatorTest {
             });
     when(blockHeaderValidator.validateHeader(any(), any(), any())).thenReturn(true);
     when(blockHeaderValidator.validateHeader(any(), any(), any(), any())).thenReturn(true);
-    when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(true);
     when(blockBodyValidator.validateBodyLight(any(), any(), any(), any(), any())).thenReturn(true);
     when(blockAccessListValidator.validate(any(), any(), anyInt())).thenReturn(true);
@@ -378,8 +375,7 @@ public class MainnetBlockValidatorTest {
 
   @Test
   public void validateAndProcessBlock_whenBlockBodyInvalid() {
-    when(blockBodyValidator.validateBody(
-            any(), eq(block), any(), any(), any(), any(), any(), any()))
+    when(blockBodyValidator.validateBody(any(), eq(block), any(), any(), any(), any(), any()))
         .thenReturn(false);
 
     BlockProcessingResult result =
@@ -392,33 +388,6 @@ public class MainnetBlockValidatorTest {
     final String expectedError = "failed to validate output of imported block";
     assertValidationFailed(result, expectedError);
     assertBadBlockIsTracked(block);
-  }
-
-  @Test
-  public void validateAndProcessBlock_validatesTheBodyWithTheProcessorsReceiptsRoot() {
-    final Supplier<Hash> receiptsRoot = () -> Hash.ZERO;
-    when(blockProcessor.processBlock(contextWith(Optional.empty())))
-        .thenReturn(
-            new BlockProcessingResult(
-                Optional.of(
-                    new BlockProcessingOutputs(
-                        worldState,
-                        List.of(),
-                        Optional.empty(),
-                        Optional.empty(),
-                        0,
-                        Map.of(),
-                        InclusionListValidationResult.valid(),
-                        receiptsRoot))));
-
-    mainnetFrontierBlockValidator.validateAndProcessBlock(
-        protocolContext,
-        block,
-        HeaderValidationMode.DETACHED_ONLY,
-        HeaderValidationMode.DETACHED_ONLY);
-
-    verify(blockBodyValidator)
-        .validateBody(any(), eq(block), any(), same(receiptsRoot), any(), any(), any(), any());
   }
 
   @Test
@@ -827,7 +796,7 @@ public class MainnetBlockValidatorTest {
     when(blockHeaderValidator.validateHeader(any(), any(), any(), any())).thenReturn(true);
     when(blockProcessor.processBlock(contextWith(Optional.empty())))
         .thenReturn(successfulProcessingResult);
-    when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(blockBodyValidator.validateBody(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(true);
 
     final Block block = blockchainSetupUtil.getBlock(2);

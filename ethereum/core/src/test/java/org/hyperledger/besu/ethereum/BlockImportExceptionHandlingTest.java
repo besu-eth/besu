@@ -166,7 +166,6 @@ class BlockImportExceptionHandlingTest {
             eq(goodBlock),
             any(),
             any(),
-            any(),
             eq(HeaderValidationMode.DETACHED_ONLY),
             any(),
             any()))
@@ -203,7 +202,6 @@ class BlockImportExceptionHandlingTest {
     when(blockBodyValidator.validateBody(
             eq(protocolContext),
             eq(goodBlock),
-            any(),
             any(),
             any(),
             eq(HeaderValidationMode.DETACHED_ONLY),
@@ -274,7 +272,6 @@ class BlockImportExceptionHandlingTest {
     when(blockBodyValidator.validateBody(
             eq(protocolContext),
             eq(goodBlock),
-            any(),
             any(),
             any(),
             eq(HeaderValidationMode.DETACHED_ONLY),

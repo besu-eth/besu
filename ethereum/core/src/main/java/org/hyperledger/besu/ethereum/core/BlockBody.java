@@ -37,8 +37,9 @@ public class BlockBody implements org.hyperledger.besu.plugin.data.BlockBody {
    */
   private final List<Transaction> transactions;
 
-  // filled on first use, so the root can be computed on another thread while the block executes;
-  // threads that race for it compute the same value
+  // filled on first use, possibly by another thread than the one importing the block, such as the
+  // one that matched a downloaded body to its header; threads that race for it compute the same
+  // value
   private volatile Hash transactionsRoot;
 
   private final List<BlockHeader> ommers;

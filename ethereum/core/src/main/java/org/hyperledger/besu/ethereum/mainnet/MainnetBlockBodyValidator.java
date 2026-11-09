@@ -26,7 +26,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes32;
@@ -51,7 +50,6 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
       final ProtocolContext context,
       final Block block,
       final List<TransactionReceipt> receipts,
-      final Supplier<Hash> receiptsRoot,
       final Hash worldStateRootHash,
       final HeaderValidationMode ommerValidationMode,
       final BodyValidationMode bodyValidationMode,
@@ -70,8 +68,8 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
     }
 
     return switch (bodyValidationMode) {
-      case ROOT_ONLY, FULL -> validateBodyRoots(block, receipts, receiptsRoot, worldStateRootHash);
-      case EXCEPT_STATE_ROOT -> validateTransactionsAndReceiptsRoots(block, receiptsRoot);
+      case ROOT_ONLY, FULL -> validateBodyRoots(block, receipts, worldStateRootHash);
+      case EXCEPT_STATE_ROOT -> validateTransactionsAndReceiptsRoots(block, receipts);
       case STATE_ROOT_ONLY -> validateStateRoot(block, receipts, worldStateRootHash);
       case NONE, LIGHT -> true;
     };
@@ -79,16 +77,13 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
 
   @VisibleForTesting
   protected boolean validateBodyRoots(
-      final Block block,
-      final List<TransactionReceipt> receipts,
-      final Supplier<Hash> receiptsRootSupplier,
-      final Hash worldStateRootHash) {
-    return validateTransactionsAndReceiptsRoots(block, receiptsRootSupplier)
+      final Block block, final List<TransactionReceipt> receipts, final Hash worldStateRootHash) {
+    return validateTransactionsAndReceiptsRoots(block, receipts)
         && validateStateRoot(block, receipts, worldStateRootHash);
   }
 
   private boolean validateTransactionsAndReceiptsRoots(
-      final Block block, final Supplier<Hash> receiptsRootSupplier) {
+      final Block block, final List<TransactionReceipt> receipts) {
     final BlockHeader header = block.getHeader();
     final BlockBody body = block.getBody();
 
@@ -98,7 +93,7 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
       return false;
     }
 
-    final Bytes32 receiptsRoot = Bytes32.wrap(receiptsRootSupplier.get().getBytes());
+    final Bytes32 receiptsRoot = Bytes32.wrap(BodyValidation.receiptsRoot(receipts).getBytes());
     if (!validateReceiptsRoot(
         header, Bytes32.wrap(header.getReceiptsRoot().getBytes()), receiptsRoot)) {
       return false;
