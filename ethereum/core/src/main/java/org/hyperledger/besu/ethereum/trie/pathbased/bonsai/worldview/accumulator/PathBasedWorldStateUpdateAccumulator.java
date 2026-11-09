@@ -55,7 +55,6 @@ import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -366,25 +365,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
 
   public Set<Address> getStorageToClear() {
     return storageToClear;
-  }
-
-  /**
-   * The root of the storage trie the slot changes of an account apply to: the storage root this
-   * accumulator loaded, or the empty root if the account did not exist or its storage was cleared.
-   *
-   * @param address the account
-   * @return the storage root, or null if this accumulator has not loaded the account
-   */
-  public @Nullable Hash startingStorageRoot(final Address address) {
-    if (storageToClear.contains(address)) {
-      return Hash.EMPTY_TRIE_HASH;
-    }
-    final BonsaiValue<ACCOUNT> accountValue = accountsToUpdate.get(address);
-    if (accountValue == null) {
-      return null;
-    }
-    final ACCOUNT prior = accountValue.getPrior();
-    return prior == null ? Hash.EMPTY_TRIE_HASH : prior.getStorageRoot();
   }
 
   @Override

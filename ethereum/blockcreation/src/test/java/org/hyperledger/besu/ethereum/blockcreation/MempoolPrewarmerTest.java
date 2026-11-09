@@ -18,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
@@ -50,8 +49,6 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
@@ -70,7 +67,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -201,17 +197,6 @@ class MempoolPrewarmerTest {
     assertThat(metricsSystem.getCounterValue("mempool_prewarm_transactions_total", "invalid"))
         .isZero();
     assertThat(selectionResults).isNotEmpty().allSatisfy(results -> assertThat(results).isEmpty());
-  }
-
-  @Test
-  void preloadsTheTriePathsOfTheAccountsTheTransactionsChange() {
-    addCandidate(transfer(0));
-
-    prewarmer.start(head());
-
-    Awaitility.await()
-        .atMost(Duration.ofSeconds(10))
-        .until(() -> prewarmer.preloadedAccounts().containsAll(List.of(SENDER_ADDRESS, RECIPIENT)));
   }
 
   @Test
@@ -674,33 +659,6 @@ class MempoolPrewarmerTest {
   }
 
   @Test
-  void closingWaitsForTheTriePreloads() {
-    final CompletableFuture<Void> preload = new CompletableFuture<>();
-    final BonsaiCachedMerkleTrieLoader loader = mock(BonsaiCachedMerkleTrieLoader.class);
-    when(loader.preLoadAccount(any(), any(), any())).thenReturn(preload);
-    when(loader.preLoadStorageSlot(any(), any(), any(), any())).thenReturn(preload);
-    final BonsaiWorldStateProvider archive =
-        spy((BonsaiWorldStateProvider) fixture.getStateArchive());
-    doReturn(loader).when(archive).getCachedMerkleTrieLoader();
-    final ProtocolContext protocolContext = spy(fixture.getProtocolContext());
-    when(protocolContext.getWorldStateArchive()).thenReturn(archive);
-    usePrewarmerOn(protocolContext);
-    addCandidate(transfer(0));
-    prewarmer.start(head());
-    verify(loader, timeout(10_000).atLeastOnce()).preLoadAccount(any(), any(), any());
-
-    final CompletableFuture<Void> closed = CompletableFuture.runAsync(prewarmer::close);
-
-    // longer than closing takes when nothing runs
-    Awaitility.await()
-        .during(Duration.ofMillis(500))
-        .atMost(Duration.ofSeconds(3))
-        .until(() -> !closed.isDone());
-    preload.complete(null);
-    Awaitility.await().atMost(Duration.ofSeconds(10)).until(closed::isDone);
-  }
-
-  @Test
   void rejectsNoThreadsAndNoGas() {
     assertThatThrownBy(() -> prewarmerWith(0, 4)).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> prewarmerWith(2, 0)).isInstanceOf(IllegalArgumentException.class);
@@ -820,35 +778,6 @@ class MempoolPrewarmerTest {
         .during(Duration.ofSeconds(1))
         .atMost(Duration.ofSeconds(3))
         .until(() -> executed() == 0);
-  }
-
-  @Test
-  void preloadsNoTriePathsForABlockWithAnAccessList() throws IOException {
-    final String json =
-        new String(
-            MempoolPrewarmerTest.class
-                .getResourceAsStream("/block-transaction-selector/amsterdam-genesis.json")
-                .readAllBytes(),
-            StandardCharsets.UTF_8);
-    useGenesis(
-        GenesisConfig.fromConfig(
-            json.replace("\"chainId\": 42", "\"chainId\": 1337")
-                .replace(
-                    "\"slotnumber\": \"0x42\"",
-                    "\"slotnumber\": \"0x42\", \"alloc\": {\""
-                        + SENDER_ADDRESS.toHexString()
-                        + "\": {\"balance\": \"0xad78ebc5ac6200000\"}}")),
-        4);
-    addCandidate(transfer(SENDER, 0, 100_000, Wei.of(1_000_000_000_000L)));
-
-    prewarmer.start(head());
-    awaitExecuted(1);
-
-    // longer than the execution's preloads take to start
-    Awaitility.await()
-        .during(Duration.ofMillis(500))
-        .atMost(Duration.ofSeconds(3))
-        .until(() -> prewarmer.preloadedAccounts().isEmpty());
   }
 
   @Test

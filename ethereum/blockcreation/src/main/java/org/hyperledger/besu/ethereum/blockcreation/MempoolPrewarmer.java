@@ -20,7 +20,6 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.wit
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -37,12 +36,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -58,13 +52,11 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -95,8 +87,7 @@ import org.slf4j.LoggerFactory;
  * become the head, warming resumes where it stopped. When the pool has new transactions, and at
  * least once a second, a pass takes the pool's candidates in the order block building takes them
  * and executes the senders it has not warmed yet, each sender's transactions in nonce order on its
- * own throwaway copy of the head state. The trie paths of the state the executions change are
- * preloaded as well, for the next block's state root.
+ * own throwaway copy of the head state.
  */
 public class MempoolPrewarmer implements AutoCloseable {
 
@@ -127,7 +118,6 @@ public class MempoolPrewarmer implements AutoCloseable {
   private final AtomicLong poolAdditions = new AtomicLong();
   private final AtomicInteger runningExecutions = new AtomicInteger();
   private volatile long blockStartedNanos = System.nanoTime();
-  private final Set<CompletableFuture<Void>> preloads = ConcurrentHashMap.newKeySet();
   private final long poolSubscription;
   @Nullable private volatile Warming warming;
   // the last prewarming a payload stopped, which its block counts against once the block is known
@@ -356,9 +346,9 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
-   * Stops prewarming for good and waits for the running pass, executions and trie preloads to end,
-   * so that none of them reads the chain or the state after its storage is closed. An execution
-   * that makes no calls runs until its gas runs out, so its gas limit bounds the wait.
+   * Stops prewarming for good and waits for the running pass and executions to end, so that none of
+   * them reads the chain or the state after its storage is closed. An execution that makes no calls
+   * runs until its gas runs out, so its gas limit bounds the wait.
    */
   @Override
   public void close() {
@@ -371,24 +361,13 @@ public class MempoolPrewarmer implements AutoCloseable {
       executors.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
-      return;
     }
-    // only the executions start preloads, and they have all ended
-    CompletableFuture.allOf(preloads.toArray(CompletableFuture[]::new))
-        .exceptionally(e -> null)
-        .join();
   }
 
   @VisibleForTesting
   Set<Hash> prewarmedTransactions() {
     final Warming current = warming;
     return current == null ? Set.of() : Set.copyOf(current.warmed());
-  }
-
-  @VisibleForTesting
-  Set<Address> preloadedAccounts() {
-    final Warming current = warming;
-    return current == null ? Set.of() : Set.copyOf(current.preloadedAccounts());
   }
 
   private boolean isCurrent(final Warming warming) {
@@ -679,10 +658,6 @@ public class MempoolPrewarmer implements AutoCloseable {
         executedGas.inc(transaction.getGasLimit() - result.getGasRemaining());
         warming.gasBudget().addAndGet(result.getGasRemaining());
       }
-      // the import of a block with an access list does not read the trie nodes the loader caches
-      if (isCurrent(warming) && execution.protocolSpec().getBlockAccessListFactory().isEmpty()) {
-        preloadChangedPaths(warming, updater);
-      }
     } catch (final Exception e) {
       LOG.atTrace()
           .setMessage("Prewarming the transactions of {} failed")
@@ -699,64 +674,11 @@ public class MempoolPrewarmer implements AutoCloseable {
         .orElseThrow(() -> new IllegalStateException("No world state for " + head.toLogString()));
   }
 
-  /**
-   * Preloads the trie paths of the accounts and slots the executions changed, from the head state,
-   * so the next block's state root finds them cached. Each path is preloaded once per head.
-   */
-  private void preloadChangedPaths(final Warming warming, final WorldUpdater updater) {
-    if (!(updater instanceof PathBasedWorldStateUpdateAccumulator<?> accumulator)
-        || !(protocolContext.getWorldStateArchive() instanceof BonsaiWorldStateProvider archive)) {
-      return;
-    }
-    final BonsaiCachedMerkleTrieLoader loader = archive.getCachedMerkleTrieLoader();
-    final BonsaiWorldStateKeyValueStorage storage = archive.getWorldStateKeyValueStorage();
-    final Set<Address> changedAccounts = new HashSet<>();
-    accumulator
-        .getStorageToUpdate()
-        .forEach(
-            (address, slots) ->
-                slots.forEach(
-                    (slotKey, slot) -> {
-                      if (!slot.isUnchanged()) {
-                        changedAccounts.add(address);
-                        if (warming.preloadedSlots().add(new ChangedSlot(address, slotKey))) {
-                          track(
-                              loader.preLoadStorageSlot(
-                                  storage,
-                                  address,
-                                  accumulator.startingStorageRoot(address),
-                                  slotKey));
-                        }
-                      }
-                    }));
-    accumulator
-        .getAccountsToUpdate()
-        .forEach(
-            (address, value) -> {
-              if (!BonsaiAccount.trieValueEquals(value.getPrior(), value.getUpdated())) {
-                changedAccounts.add(address);
-              }
-            });
-    for (final Address address : changedAccounts) {
-      if (warming.preloadedAccounts().add(address)) {
-        track(loader.preLoadAccount(storage, warming.head().getStateRoot(), address));
-      }
-    }
-  }
-
-  /** Keeps a preload until it ends, so that closing can wait for it. */
-  private void track(final CompletableFuture<Void> preload) {
-    preloads.add(preload);
-    preload.whenComplete((result, error) -> preloads.remove(preload));
-  }
-
   private record Execution(
       ProcessableBlockHeader header,
       ProtocolSpec protocolSpec,
       Wei blobGasPrice,
       BlockHashLookup blockHashLookup) {}
-
-  private record ChangedSlot(Address address, StorageSlotKey slotKey) {}
 
   /** What the passes of one warming carry from one pass to the next. They run one at a time. */
   private static final class Passes {
@@ -832,9 +754,7 @@ public class MempoolPrewarmer implements AutoCloseable {
       AtomicBoolean building,
       AtomicBoolean started,
       Set<Hash> attempted,
-      Set<Hash> warmed,
-      Set<Address> preloadedAccounts,
-      Set<ChangedSlot> preloadedSlots) {
+      Set<Hash> warmed) {
 
     private Warming(
         final long generation, final BlockHeader head, final long timestamp, final long gasBudget) {
@@ -846,8 +766,6 @@ public class MempoolPrewarmer implements AutoCloseable {
           new AtomicBoolean(),
           new AtomicBoolean(),
           new AtomicBoolean(),
-          ConcurrentHashMap.newKeySet(),
-          ConcurrentHashMap.newKeySet(),
           ConcurrentHashMap.newKeySet(),
           ConcurrentHashMap.newKeySet());
     }
@@ -868,17 +786,7 @@ public class MempoolPrewarmer implements AutoCloseable {
       final Set<Hash> ran = ConcurrentHashMap.newKeySet();
       ran.addAll(warmed);
       return new Warming(
-          generation,
-          head,
-          timestamp,
-          gasBudget,
-          budgetUsedUp,
-          building,
-          started,
-          ran,
-          warmed,
-          preloadedAccounts,
-          preloadedSlots);
+          generation, head, timestamp, gasBudget, budgetUsedUp, building, started, ran, warmed);
     }
   }
 }
