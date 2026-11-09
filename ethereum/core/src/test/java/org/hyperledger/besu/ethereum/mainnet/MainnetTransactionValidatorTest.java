@@ -75,6 +75,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.FieldSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -237,6 +238,31 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             validator.validate(
                 basicTransaction, Optional.empty(), Optional.empty(), transactionProcessingParams))
         .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.WRONG_CHAIN_ID));
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "18446744073709551615, 1, WRONG_CHAIN_ID",
+    "18446744073709551616, 1, INVALID_SIGNATURE",
+    "18446744073709551617, 1, INVALID_SIGNATURE",
+    "18446744073709551616, 18446744073709551616, INVALID_SIGNATURE"
+  })
+  public void shouldRejectLegacyTransactionWithChainIdWiderThan64BitsAsInvalidSignature(
+      final BigInteger transactionChainId,
+      final BigInteger networkChainId,
+      final TransactionInvalidReason expectedReason) {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator, GasLimitCalculator.constant(), false, Optional.of(networkChainId));
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .chainId(Optional.of(transactionChainId))
+            .createTransaction(senderKeys);
+
+    assertThat(
+            validator.validate(
+                transaction, Optional.empty(), Optional.empty(), transactionProcessingParams))
+        .isEqualTo(ValidationResult.invalid(expectedReason));
   }
 
   @Test

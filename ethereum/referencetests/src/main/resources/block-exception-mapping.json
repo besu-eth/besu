@@ -107,7 +107,7 @@
     "TransactionException.SENDER_NOT_EOA":                       "transaction invalid Sender 0x[0-9a-f]+ has deployed code and so is not authorized to send transactions",
 
     "_comment_tx_signature": "Transaction signature errors",
-    "TransactionException.INVALID_SIGNATURE_VRS":                "transaction invalid Signature s value should be less than \\d+, but got \\d+|Cannot recover public key from signature|sender could not be extracted from transaction signature",
+    "TransactionException.INVALID_SIGNATURE_VRS":                "transaction invalid Signature s value should be less than \\d+, but got \\d+|Cannot recover public key from signature|sender could not be extracted from transaction signature|transaction invalid Signature v value encodes a chain id wider than 64 bits",
 
     "_comment_tx_type_pre_fork": "Transaction type not supported on this fork — Besu emits the same error for all unsupported types",
     "TransactionException.TYPE_NOT_SUPPORTED":                     "transaction invalid Transaction type \\w+ is invalid, accepted transaction types are|replay protected signatures is not supported",

@@ -631,6 +631,15 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
   private ValidationResult<TransactionInvalidReason> validateTransactionSignature(
       final Transaction transaction) {
+    // A legacy v whose chain id does not fit in 64 bits is an invalid v, not a chain id mismatch
+    // (execution-specs chain_id()).
+    if (transaction.getType() == TransactionType.FRONTIER
+        && transaction.getChainId().filter(id -> id.bitLength() > Long.SIZE).isPresent()) {
+      return ValidationResult.invalid(
+          TransactionInvalidReason.INVALID_SIGNATURE,
+          "Signature v value encodes a chain id wider than 64 bits");
+    }
+
     final ChainId transactionChainId = transaction.getChainIdentifier();
     if (chainId.isPresent()
         && (transactionChainId.isPresent() && !transactionChainId.equals(chainId))) {
