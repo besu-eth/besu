@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- `eth_createAccessList` now returns an error for a transaction that is not valid at the target block, as `eth_estimateGas` does. This includes a block before Berlin, where an access list transaction is not valid, and fee fields before London. Previously the method returned an empty access list, or an `execution reverted` result with the gas cap as `gasUsed`. [#11631](https://github.com/besu-eth/besu/pull/11631)
 - `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
 - `trace_block`, `trace_replayBlockTransactions`, `trace_call` and `trace_callMany` no longer evaluate `pending` as `latest`, and reject it with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
 - The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
@@ -50,6 +51,7 @@
 - RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
 - The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` keeps the fees of up to 1024 recent blocks between chain heads, and precomputes new heads only while it is called. [#11825](https://github.com/besu-eth/besu/pull/11825)
 - Parallel transaction execution keeps the result of a reverted or halted transaction when nothing it read changed, instead of executing it again. [#11806](https://github.com/besu-eth/besu/pull/11806)
+- Add QBFT genesis config option `goquorumcompatibilitymode` (default false) which relaxes the per-block gas-limit delta validation (keeping the min/max range check), allowing chains produced by GoQuorum's QBFT (where proposers may change the gas limit by an arbitrary amount per block) to be imported. [#10723](https://github.com/besu-eth/besu/issues/10723)
 
 ## 26.11.0
 
