@@ -432,6 +432,40 @@ public class QbftBlockHeaderValidationRulesetFactoryTest {
         .isTrue();
   }
 
+  @Test
+  public void bftValidateHeaderFailsOnGasLimitRangeWhenGoQuorumCompatible() {
+    // goQuorum compatibility mode relaxes only the gas-limit delta; the min/max range check is
+    // still enforced, so a gas limit below the minimum must still be rejected.
+    final NodeKey proposerNodeKey = NodeKeyUtils.generate();
+    final Address proposerAddress = Util.publicKeyToAddress(proposerNodeKey.getPublicKey());
+
+    final List<Address> validators = singletonList(proposerAddress);
+
+    final BlockHeader parentHeader =
+        QbftBlockHeaderUtils.createPresetHeaderBuilder(
+                1, proposerNodeKey, validators, null, Optional.empty())
+            .buildHeader();
+    final BlockHeader blockHeader =
+        QbftBlockHeaderUtils.createPresetHeaderBuilder(
+                2,
+                proposerNodeKey,
+                validators,
+                parentHeader,
+                builder -> builder.gasLimit(4_999),
+                Optional.empty())
+            .buildHeader();
+
+    final BlockHeaderValidator validator =
+        QbftBlockHeaderValidationRulesetFactory.blockHeaderValidator(
+                Duration.ofSeconds(5), false, true, Optional.empty())
+            .build();
+
+    assertThat(
+            validator.validateHeader(
+                blockHeader, parentHeader, protocolContext(validators), HeaderValidationMode.FULL))
+        .isFalse();
+  }
+
   public BlockHeaderValidator getBlockHeaderValidator() {
     return QbftBlockHeaderValidationRulesetFactory.blockHeaderValidator(
             Duration.ofSeconds(5), false, false, Optional.empty())

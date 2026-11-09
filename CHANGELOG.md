@@ -42,6 +42,7 @@
 - Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
 - EVM v2 runs untraced execution, such as block import, in a faster loop of its own. [#11687](https://github.com/besu-eth/besu/pull/11687)
 - RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
+- Add QBFT genesis config option `goquorumcompatibilitymode` (default false) which relaxes the per-block gas-limit delta validation (keeping the min/max range check), allowing chains produced by GoQuorum's QBFT (where proposers may change the gas limit by an arbitrary amount per block) to be imported. [#10723](https://github.com/besu-eth/besu/issues/10723)
 
 ## 26.11.0
 
@@ -534,8 +535,6 @@ opportunity to upgrade.
 - Migrate the DiscV4 peer discovery UDP transport from Vert.x to Netty. The `vertx_eventloop_pending_tasks` metric is dropped with no replacement (it was Vert.x-specific); all other discovery metrics (`besu_network_discovery_*`) are unaffected. [#10716](https://github.com/besu-eth/besu/pull/10716)
 - DiscV4 now supports IPv6 dual-stack RLPx: a node running `--discovery-mode=V4` with `--p2p-interface-ipv6`/`--p2p-host-ipv6` set now binds a second IPv6 RLPx TCP socket and advertises IPv6 ENR/enode fields, instead of those options being ignored with a warning. [#10800](https://github.com/besu-eth/besu/pull/10800)
 - Dual-stack discovery and RLPx now support binding the same port number for both `--p2p-port` and `--p2p-port-ipv6`, using a single dual-stack socket instead of two independent per-family sockets - simplifying firewall rules for operators. Previously this configuration could fail to start with a port-conflict error. [#10800](https://github.com/besu-eth/besu/pull/10800)
-- Add QBFT genesis config option `goquorumcompatibilitymode` (default false) which skips the block gas-limit range and delta validation, allowing chains produced by GoQuorum's QBFT (where proposers may change the gas limit by an arbitrary amount per block) to be imported. [#10723](https://github.com/besu-eth/besu/issues/10723)
-
 ## 26.7.0
 
 ### Breaking Changes

@@ -21,6 +21,7 @@ import org.hyperledger.besu.consensus.common.bft.BftHelpers;
 import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftBaseFeeFitsLongValidationRule;
 import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftCoinbaseValidationRule;
 import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftCommitSealsValidationRule;
+import org.hyperledger.besu.consensus.qbft.headervalidationrules.GoQuorumGasLimitRangeValidationRule;
 import org.hyperledger.besu.consensus.qbft.headervalidationrules.QbftValidatorsValidationRule;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
@@ -49,7 +50,8 @@ public class QbftBlockHeaderValidationRulesetFactory {
    * @param minimumTimeBetweenBlocks the minimum amount of time that must elapse between blocks.
    * @param useValidatorContract whether validator selection is using a validator contract
    * @param isGoQuorumCompatibilityMode whether GoQuorum compatibility mode is enabled, in which
-   *     case the block gas-limit range and delta validation is skipped.
+   *     case only the per-block gas-limit delta validation is skipped (the min/max range check is
+   *     still enforced).
    * @param baseFeeMarket an {@link Optional} wrapping {@link BaseFeeMarket} class if appropriate.
    * @return BlockHeaderValidator configured for assessing bft block headers
    */
@@ -63,10 +65,14 @@ public class QbftBlockHeaderValidationRulesetFactory {
             .addRule(new AncestryValidationRule())
             .addRule(new GasUsageValidationRule());
 
-    // GoQuorum's QBFT permits proposers to change the gas limit by an arbitrary amount per block,
-    // so in goQuorum compatibility mode we skip Besu's gas-limit range and delta validation to
-    // allow such chains to be imported (see issue #10723).
-    if (!isGoQuorumCompatibilityMode) {
+    // GoQuorum's QBFT permits proposers to change the gas limit by an arbitrary amount per block.
+    // In goQuorum compatibility mode we therefore apply a rule that keeps the min/max range check
+    // but omits the per-block delta bound, allowing such chains to be imported (see issue #10723).
+    if (isGoQuorumCompatibilityMode) {
+      ruleBuilder.addRule(
+          new GoQuorumGasLimitRangeValidationRule(
+              DEFAULT_MIN_GAS_LIMIT, DEFAULT_MAX_GAS_LIMIT, baseFeeMarket));
+    } else {
       ruleBuilder.addRule(
           new GasLimitRangeAndDeltaValidationRule(
               DEFAULT_MIN_GAS_LIMIT, DEFAULT_MAX_GAS_LIMIT, baseFeeMarket));

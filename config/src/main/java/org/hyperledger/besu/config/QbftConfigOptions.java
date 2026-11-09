@@ -44,9 +44,9 @@ public interface QbftConfigOptions extends BftConfigOptions {
   OptionalLong getStartBlock();
 
   /**
-   * Whether GoQuorum compatibility mode is enabled. When enabled, the block gas-limit range and
-   * delta validation is skipped so that chains produced by GoQuorum's QBFT (which permits arbitrary
-   * per-block gas-limit changes) can be imported.
+   * Whether GoQuorum compatibility mode is enabled. When enabled, only the per-block gas-limit
+   * delta validation is relaxed (the min/max range check is still applied), so that chains produced
+   * by GoQuorum's QBFT (which permits arbitrary per-block gas-limit changes) can be imported.
    *
    * @return true if goQuorum compatibility mode is enabled, false otherwise.
    */
