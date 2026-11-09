@@ -123,6 +123,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   // replay benchmarks: log each worker execution's time
   private static final boolean LOG_TX_TIMES = Boolean.getBoolean("besu.bench.logTxTimes");
+  // replay benchmarks: log why a worker result could not be taken
+  private static final boolean LOG_CONFLICTS = Boolean.getBoolean("besu.bench.logConflicts");
 
   // workers warm the trie paths of what they touch, so the state root finds them loaded
   private static final boolean WORKER_PRELOAD = Boolean.getBoolean("besu.t14.workerPreload");
@@ -1249,6 +1251,22 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
         return Optional.of(transactionProcessingResult);
       } else {
+        if (LOG_CONFLICTS) {
+          LOG.info(
+              "Bench conflict idx {} hash {} to {} gas {} reason {}",
+              transactionLocation,
+              transaction.getHash().toHexString(),
+              transaction.getTo().map(a -> a.toHexString()).orElse("create"),
+              transaction.getGasLimit() - transactionProcessingResult.getGasRemaining(),
+              transactionProcessingResult.isInvalid()
+                  ? "invalid"
+                  : transactionCollisionDetector.collisionReason(
+                      transaction,
+                      miningBeneficiary,
+                      parallelizedTransactionContext,
+                      blockAccumulator,
+                      CARRY_OVER));
+        }
         blockAccumulator.importPriorStateFromSource(transactionAccumulator);
         if (conflictingButCachedTransactionCounter.isPresent())
           conflictingButCachedTransactionCounter.get().inc();
@@ -1256,6 +1274,16 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         // re-execute the transaction.
         return Optional.empty();
       }
+    }
+    if (LOG_CONFLICTS) {
+      LOG.info(
+          "Bench conflict idx {} hash {} to {} gas - reason {}",
+          transactionLocation,
+          transaction.getHash().toHexString(),
+          transaction.getTo().map(a -> a.toHexString()).orElse("create"),
+          future == null
+              ? "no-run"
+              : future.state() == Future.State.FAILED ? "failed" : "unfinished");
     }
     if (future != null) {
       future.cancel(true);

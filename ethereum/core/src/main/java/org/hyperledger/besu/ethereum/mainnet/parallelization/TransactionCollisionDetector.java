@@ -309,4 +309,102 @@ public class TransactionCollisionDetector {
             && prior.getBalance().equals(next.getBalance())
             && prior.getCodeHash().equals(next.getCodeHash()));
   }
+
+  /**
+   * Replay benchmarks: why {@link #hasCollision(Transaction, Address,
+   * ParallelizedTransactionContext, PathBasedWorldStateUpdateAccumulator, List)} found a collision,
+   * as a kind and the address it concerns, or null if it found none.
+   */
+  public @Nullable String collisionReason(
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final ParallelizedTransactionContext parallelizedTransactionContext,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
+      final boolean carryBalances) {
+    final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
+        parallelizedTransactionContext.transactionAccumulator();
+    final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
+        parallelizedTransactionContext.chainPredecessorAccumulator();
+    if (isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)
+        && (!carryBalances
+            || chainPredecessor != null
+            || transactionAccumulator.getDeletedAccountAddresses().contains(miningBeneficiary)
+            || !transactionAccumulator.getAccountsToUpdate().containsKey(miningBeneficiary))) {
+      return "coinbase " + miningBeneficiary;
+    }
+    if (chainPredecessor != null) {
+      return hasCollisionWithChainedState(
+              transactionAccumulator, chainPredecessor, blockAccumulator)
+          ? "chained " + transaction.getSender()
+          : null;
+    }
+    for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
+      final BonsaiValue<? extends BonsaiAccount> inBlock =
+          blockAccumulator.getAccountsToUpdate().get(address);
+      if (inBlock == null) {
+        continue;
+      }
+      if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
+        final String kind =
+            accountChangeKind(transaction, transactionAccumulator, address, inBlock, carryBalances);
+        if (kind != null) {
+          return kind + " " + address;
+        }
+      }
+      final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
+          transactionAccumulator.getStorageToUpdate().get(address);
+      if (slots == null || slots.isEmpty()) {
+        continue;
+      }
+      if (blockAccumulator.getStorageToClear().contains(address)) {
+        return "cleared " + address;
+      }
+      final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> blockSlots =
+          blockAccumulator.getStorageToUpdate().get(address);
+      if (blockSlots == null) {
+        continue;
+      }
+      for (final StorageSlotKey slot : slots.keySet()) {
+        final BonsaiValue<UInt256> inBlockSlot = blockSlots.get(slot);
+        if (inBlockSlot != null && inBlockSlot.isChanged()) {
+          return "slot " + address;
+        }
+      }
+    }
+    return null;
+  }
+
+  private static @Nullable String accountChangeKind(
+      final Transaction transaction,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final Address address,
+      final BonsaiValue<? extends BonsaiAccount> inBlock,
+      final boolean carryBalances) {
+    final BonsaiAccount prior = inBlock.getPrior();
+    final BonsaiAccount updated = inBlock.getUpdated();
+    if (prior == null || updated == null) {
+      return "created-or-deleted";
+    }
+    if (prior.getNonce() != updated.getNonce()
+        || !prior.getCodeHash().equals(updated.getCodeHash())) {
+      return address.equals(transaction.getSender()) ? "sender-nonce" : "nonce-or-code";
+    }
+    if (!carryBalances) {
+      return address.equals(transaction.getSender()) ? "sender-balance" : "balance";
+    }
+    if (isBalanceChangeCarried(transaction, transactionAccumulator, address, inBlock)) {
+      return null;
+    }
+    if (address.equals(transaction.getSender())) {
+      return "sender-balance";
+    }
+    final Set<Address> observed = transactionAccumulator.getObservedBalances();
+    if (observed != null && observed.contains(address)) {
+      return "balance-read";
+    }
+    if (transactionAccumulator.getBalanceMargin(address).isPresent()) {
+      return "balance-margin";
+    }
+    return "balance-other";
+  }
 }
