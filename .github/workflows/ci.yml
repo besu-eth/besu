@@ -137,7 +137,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: true # only the build job writes the Gradle cache
       - name: run spotless
         run: ./gradlew spotlessCheck
 
@@ -158,7 +158,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: true # only the build job writes the Gradle cache
       - name: run checkLicense
         run: ./gradlew --no-parallel checkLicense # no-parallel due to https://github.com/jk1/Gradle-License-Report/issues/337
       - name: upload license report
@@ -185,6 +185,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
+          # The only job that writes the Gradle cache, so that every job restores this entry.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Gradle Build
         run: ./gradlew build -x test -x spotlessCheck
@@ -237,7 +238,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: true # only the build job writes the Gradle cache
       - name: Verify source artifacts recorded in verification-metadata.xml
         run: ./gradlew verifySourceArtifacts
 
