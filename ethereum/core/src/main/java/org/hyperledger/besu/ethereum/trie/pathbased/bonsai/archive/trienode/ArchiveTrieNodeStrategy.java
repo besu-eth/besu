@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 
 import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
@@ -172,23 +173,20 @@ public class ArchiveTrieNodeStrategy
   }
 
   private boolean extendsCoverage(final BlockHeader blockHeader) {
-    final long lastArchived = historyStore.getArchivedBlockNumber();
-    if (blockHeader.getNumber() != lastArchived + 1) {
+    final Optional<ArchivedBlock> current = historyStore.getArchivedBlock();
+    if (current.isEmpty()) {
+      return blockHeader.getNumber() == 0L;
+    }
+    final ArchivedBlock lastArchived = current.get();
+    if (blockHeader.getNumber() != lastArchived.number() + 1) {
       return false;
     }
-    if (lastArchived < 0) {
-      return true;
-    }
-    final boolean buildsOnLastArchived =
-        historyStore
-            .getArchivedBlockHash()
-            .map(hash -> hash.equals(blockHeader.getParentHash()))
-            .orElse(false);
+    final boolean buildsOnLastArchived = lastArchived.hash().equals(blockHeader.getParentHash());
     if (!buildsOnLastArchived && reorgLogged.compareAndSet(false, true)) {
       LOG.error(
           "Trie-node capture stopped at block {}: the chain reorged past archived history. "
               + "Proof history needs a resync.",
-          lastArchived);
+          lastArchived.number());
     }
     return buildsOnLastArchived;
   }

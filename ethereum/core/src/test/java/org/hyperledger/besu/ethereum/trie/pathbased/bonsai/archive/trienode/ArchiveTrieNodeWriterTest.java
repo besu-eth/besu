@@ -144,8 +144,8 @@ class ArchiveTrieNodeWriterTest {
     trieNodeWriter.onBeforeCommit(tx);
     tx.commit();
 
-    assertThat(historyStore.getArchivedBlockNumber()).isEqualTo(1L);
-    assertThat(historyStore.getArchivedBlockHash()).contains(header(1L).getBlockHash());
+    assertThat(historyStore.getArchivedBlock())
+        .contains(new ArchiveNodeHistoryStore.ArchivedBlock(1L, header(1L).getBlockHash()));
   }
 
   @Test

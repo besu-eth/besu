@@ -24,6 +24,7 @@ import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
@@ -131,16 +132,12 @@ class ArchiveTrieNodeStrategyTest {
     tx.commit();
   }
 
-  private record Archived(long block, Hash hash) {}
-
-  private Optional<Archived> coverage() {
-    return historyStore
-        .getArchivedBlockHash()
-        .map(hash -> new Archived(historyStore.getArchivedBlockNumber(), hash));
+  private Optional<ArchivedBlock> coverage() {
+    return historyStore.getArchivedBlock();
   }
 
-  private Archived coverageThrough(final int last) {
-    return new Archived(last, chain.get(last).getHash());
+  private ArchivedBlock coverageThrough(final int last) {
+    return new ArchivedBlock(last, chain.get(last).getHash());
   }
 
   @Test

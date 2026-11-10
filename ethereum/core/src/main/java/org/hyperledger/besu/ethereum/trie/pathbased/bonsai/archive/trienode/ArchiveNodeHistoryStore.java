@@ -45,8 +45,11 @@ public final class ArchiveNodeHistoryStore {
   // The diff-chain counter is stored as a single unsigned byte, so its maximum value is 255
   public static final int MAX_COUNTER = 0xFF;
 
+  /** The last block whose trie nodes are archived; history covers {@code [0, number]}. */
+  public record ArchivedBlock(long number, Hash hash) {}
+
   // Last archived block number (8 bytes) and hash (32 bytes); coverage always starts at block 0.
-  static final byte[] ARCHIVE_TRIE_PROGRESS_KEY =
+  static final byte[] ARCHIVE_PROGRESS_KEY =
       "ARCHIVE_TRIE_PROGRESS".getBytes(StandardCharsets.UTF_8);
 
   private final SegmentedKeyValueStorage storage;
@@ -66,16 +69,20 @@ public final class ArchiveNodeHistoryStore {
    * @return the last archived block, or {@code -1} if none
    */
   public long getArchivedBlockNumber() {
-    return getArchiveProgress().map(b -> b.getLong(0)).orElse(-1L);
+    return getArchivedBlock().map(ArchivedBlock::number).orElse(-1L);
   }
 
   /**
-   * Returns the hash of the last archived block.
+   * Returns the last archived block's number and hash, read together.
    *
-   * @return the hash, or empty if no block is archived
+   * @return the last archived block, or empty if none
    */
-  public Optional<Hash> getArchivedBlockHash() {
-    return getArchiveProgress().map(b -> Hash.wrap(Bytes32.wrap(b.slice(8, 32))));
+  public Optional<ArchivedBlock> getArchivedBlock() {
+    return storage
+        .get(TRIE_BRANCH_STORAGE_ARCHIVE, ARCHIVE_PROGRESS_KEY)
+        .filter(raw -> raw.length == 40)
+        .map(Bytes::wrap)
+        .map(b -> new ArchivedBlock(b.getLong(0), Hash.wrap(Bytes32.wrap(b.slice(8, 32)))));
   }
 
   /**
@@ -89,15 +96,8 @@ public final class ArchiveNodeHistoryStore {
       final SegmentedKeyValueStorageTransaction tx, final long block, final Hash blockHash) {
     tx.put(
         TRIE_BRANCH_STORAGE_ARCHIVE,
-            ARCHIVE_TRIE_PROGRESS_KEY,
+        ARCHIVE_PROGRESS_KEY,
         Bytes.concatenate(Bytes.ofUnsignedLong(block), blockHash.getBytes()).toArrayUnsafe());
-  }
-
-  private Optional<Bytes> getArchiveProgress() {
-    return storage
-        .get(TRIE_BRANCH_STORAGE_ARCHIVE, ARCHIVE_TRIE_PROGRESS_KEY)
-        .filter(raw -> raw.length == 40)
-        .map(Bytes::wrap);
   }
 
   /**
