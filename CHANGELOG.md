@@ -62,6 +62,7 @@
 - Add QBFT genesis config option `goquorumcompatibilitymode` (default false) which relaxes the per-block gas-limit delta validation (keeping the min/max range check), allowing chains produced by GoQuorum's QBFT (where proposers may change the gas limit by an arbitrary amount per block) to be imported. [#10723](https://github.com/besu-eth/besu/issues/10723)
 - Support sub-hour TX pool retention for the sequenced transaction pool via `--tx-pool-retention-seconds` [#11588](https://github.com/besu-eth/besu/pull/11588)
 - Block import computes logs blooms on the transaction workers and the transactions root only once. [#11529](https://github.com/besu-eth/besu/pull/11529)
+- Faster lookups of which peers have seen a transaction, reducing CPU use and lock contention in transaction gossip. [#11886](https://github.com/besu-eth/besu/pull/11886)
 
 ## 26.11.0
 
