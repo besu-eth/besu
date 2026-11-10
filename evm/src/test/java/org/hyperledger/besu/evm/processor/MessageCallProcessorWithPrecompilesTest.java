@@ -30,6 +30,8 @@ import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
 import org.hyperledger.besu.evm.toy.ToyWorld;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -53,6 +55,32 @@ class MessageCallProcessorWithPrecompilesTest {
   @Mock TransferLogEmitter transferLogEmitter;
   @Mock PrecompiledContract precompile;
   @Mock OperationTracer operationTracer;
+
+  @Test
+  void copiesEveryFieldButThePrecompiles() throws IllegalAccessException {
+    final MessageCallProcessor original =
+        new MessageCallProcessor(
+            evm, new PrecompileContractRegistry(), Set.of(RIPEMD160), transferLogEmitter);
+    final PrecompileContractRegistry adapted = new PrecompileContractRegistry();
+
+    final MessageCallProcessor copy = original.withPrecompiles(registry -> adapted);
+
+    assertThat(copy.getPrecompiles()).isSameAs(adapted);
+    // Goes over the fields by reflection, so a field added to the processor and not copied fails
+    // here. Compares by identity: a recursive comparison would take a mock and the NOOP emitter,
+    // neither of which has fields, as equal.
+    for (Class<?> type = MessageCallProcessor.class;
+        type != Object.class;
+        type = type.getSuperclass()) {
+      for (final Field field : type.getDeclaredFields()) {
+        if (Modifier.isStatic(field.getModifiers()) || field.getName().equals("precompiles")) {
+          continue;
+        }
+        field.setAccessible(true);
+        assertThat(field.get(copy)).as(field.getName()).isSameAs(field.get(original));
+      }
+    }
+  }
 
   @Test
   void emitsTransferLogsAsTheOriginalProcessorDoes() {
