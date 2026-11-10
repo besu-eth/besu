@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -37,6 +38,7 @@ import java.util.function.Supplier;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class SignatureRecoveryPrecomputationTest {
 
@@ -81,6 +83,19 @@ class SignatureRecoveryPrecomputationTest {
   }
 
   @Test
+  void recoversFromTheLastTransactionBackwards() {
+    final List<Transaction> transactions = transactions(10);
+
+    SignatureRecoveryPrecomputation.start(scheduler, transactions);
+    runScheduledTasks();
+
+    final InOrder order = inOrder(transactions.toArray());
+    for (int i = transactions.size() - 1; i >= 0; i--) {
+      order.verify(transactions.get(i)).getSender();
+    }
+  }
+
+  @Test
   void recoversNothingWhenCancelledBeforeTheTasksRun() {
     // the payload is found invalid before the computation pool gets to the queued tasks
     final List<CodeDelegation> authorizations = authorizations(100);
@@ -98,7 +113,7 @@ class SignatureRecoveryPrecomputationTest {
   void stopsBeforeTheNextTransactionOnceCancelled() {
     final List<Transaction> transactions = transactions(100);
     final AtomicReference<SignatureRecoveryPrecomputation> precomputation = new AtomicReference<>();
-    when(transactions.get(3).getSender())
+    when(transactions.get(96).getSender())
         .thenAnswer(
             invocation -> {
               precomputation.get().cancel();
@@ -109,7 +124,7 @@ class SignatureRecoveryPrecomputationTest {
     runScheduledTasks();
 
     for (int i = 0; i < transactions.size(); i++) {
-      verify(transactions.get(i), times(i <= 3 ? 1 : 0)).getSender();
+      verify(transactions.get(i), times(i >= 96 ? 1 : 0)).getSender();
     }
   }
 
