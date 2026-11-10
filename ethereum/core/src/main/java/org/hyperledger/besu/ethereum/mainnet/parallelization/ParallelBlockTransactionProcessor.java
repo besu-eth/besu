@@ -31,15 +31,38 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 
 public abstract class ParallelBlockTransactionProcessor {
 
+  /**
+   * Gas limit above which a transaction is heavy: heavy transactions start first, and the
+   * optimistic processor waits for one that a worker is already executing instead of executing it
+   * again.
+   */
+  static final long HEAVY_TRANSACTION_GAS_THRESHOLD = 4_000_000L;
+
+  static boolean isHeavy(final Transaction transaction) {
+    return transaction.getGasLimit() > HEAVY_TRANSACTION_GAS_THRESHOLD;
+  }
+
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
+
+  /** Set to 1 by a worker once it starts executing the transaction at that index. */
+  private AtomicIntegerArray inFlight;
 
   protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
     final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
     futures[txIndex] = null;
     return future;
+  }
+
+  /**
+   * Whether a worker has started executing the transaction at this index. Its future is still
+   * running when the transaction has started but not finished, and also when it is still queued.
+   */
+  protected boolean isInFlight(final int txIndex) {
+    return inFlight.get(txIndex) != 0;
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -54,28 +77,53 @@ public abstract class ParallelBlockTransactionProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
-    futures = new CompletableFuture[transactions.size()];
+    final int size = transactions.size();
+    futures = new CompletableFuture[size];
+    final AtomicIntegerArray started = new AtomicIntegerArray(size);
+    inFlight = started;
 
-    for (int i = 0; i < transactions.size(); i++) {
-      final int txIndex = i;
-      final Transaction transaction = transactions.get(i);
+    final int[] executionOrder = computeExecutionOrder(transactions);
 
-      futures[i] =
+    for (int i = 0; i < size; i++) {
+      final int txIndex = executionOrder[i];
+      final Transaction transaction = transactions.get(txIndex);
+
+      futures[txIndex] =
           CompletableFuture.supplyAsync(
-              () ->
-                  precomputeLogsBloom(
-                      runTransaction(
-                          protocolContext,
-                          blockHeader,
-                          txIndex,
-                          transaction,
-                          miningBeneficiary,
-                          blockHashLookup,
-                          blobGasPrice,
-                          blockAccessListBuilder,
-                          maybeParentHeader)),
+              () -> {
+                started.set(txIndex, 1);
+                return precomputeLogsBloom(
+                    runTransaction(
+                        protocolContext,
+                        blockHeader,
+                        txIndex,
+                        transaction,
+                        miningBeneficiary,
+                        blockHashLookup,
+                        blobGasPrice,
+                        blockAccessListBuilder,
+                        maybeParentHeader));
+              },
               executor);
     }
+  }
+
+  /** Orders the heavy transactions first, then the others, each group in block order. */
+  static int[] computeExecutionOrder(final List<Transaction> transactions) {
+    final int size = transactions.size();
+    final int[] order = new int[size];
+    final int[] light = new int[size];
+    int heavyCount = 0;
+    int lightCount = 0;
+    for (int i = 0; i < size; i++) {
+      if (isHeavy(transactions.get(i))) {
+        order[heavyCount++] = i;
+      } else {
+        light[lightCount++] = i;
+      }
+    }
+    System.arraycopy(light, 0, order, heavyCount, lightCount);
+    return order;
   }
 
   // the receipt's bloom depends on this transaction alone, so it is hashed on the worker

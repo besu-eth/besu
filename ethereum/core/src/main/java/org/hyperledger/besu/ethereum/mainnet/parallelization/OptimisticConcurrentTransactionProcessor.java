@@ -36,7 +36,9 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -213,71 +215,94 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
     final CompletableFuture<ParallelizedTransactionContext> future =
         removeFuture(transactionLocation);
-
-    if (future != null && future.state() == Future.State.FAILED) {
-      LOG.debug(
-          "Parallel execution of transaction {} failed, executing it sequentially",
-          transaction.getHash(),
-          future.exceptionNow());
+    if (future == null) {
+      return Optional.empty();
     }
-    if (future != null && future.state() == Future.State.SUCCESS) {
-      final ParallelizedTransactionContext parallelizedTransactionContext = future.resultNow();
-      if (parallelizedTransactionContext == null) {
+
+    final ParallelizedTransactionContext parallelizedTransactionContext;
+    final Future.State state = future.state();
+    if (state == Future.State.SUCCESS) {
+      parallelizedTransactionContext = future.resultNow();
+    } else if (state == Future.State.RUNNING
+        && isHeavy(transaction)
+        && isInFlight(transactionLocation)) {
+      // A worker is already executing this heavy transaction: waiting for it to finish is faster
+      // than cancelling it and executing the whole transaction again from scratch.
+      try {
+        parallelizedTransactionContext = future.get();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return Optional.empty();
+      } catch (final ExecutionException | CancellationException e) {
+        LOG.debug(
+            "Parallel execution of transaction {} failed, executing it sequentially",
+            transaction.getHash(),
+            e);
         return Optional.empty();
       }
-
-      final PathBasedWorldState pathBasedWorldState = (PathBasedWorldState) worldState;
-      final PathBasedWorldStateUpdateAccumulator blockAccumulator =
-          (PathBasedWorldStateUpdateAccumulator) pathBasedWorldState.updater();
-      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
-          parallelizedTransactionContext.transactionAccumulator();
-      final TransactionProcessingResult transactionProcessingResult =
-          parallelizedTransactionContext.transactionProcessingResult();
-      // a reverted or halted execution is as repeatable as a successful one when nothing it read
-      // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
-      if (!transactionProcessingResult.isInvalid()
-          && !transactionCollisionDetector.hasCollision(
-              transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator)) {
-        final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
-        if (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts()) {
-          final MutableAccount miningBeneficiaryAccount =
-              blockAccumulator.getOrCreate(miningBeneficiary);
-          miningBeneficiaryAccount.incrementBalance(reward);
-
-          if (!reward.isZero()) {
-            final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
-            transactionProcessingResult
-                .getPartialBlockAccessView()
-                .ifPresent(
-                    partialBlockAccessView ->
-                        partialBlockAccessView.accountChanges().stream()
-                            .filter(
-                                accountChanges ->
-                                    accountChanges.getAddress().equals(miningBeneficiary))
-                            .findFirst()
-                            .ifPresent(
-                                accountChanges ->
-                                    accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
-          }
-        }
-
-        blockAccumulator.importStateChangesFromSource(transactionAccumulator);
-
-        confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
-        transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
-        return Optional.of(transactionProcessingResult);
+    } else {
+      if (state == Future.State.FAILED) {
+        LOG.debug(
+            "Parallel execution of transaction {} failed, executing it sequentially",
+            transaction.getHash(),
+            future.exceptionNow());
       } else {
-        blockAccumulator.importPriorStateFromSource(transactionAccumulator);
-        if (conflictingButCachedTransactionCounter.isPresent())
-          conflictingButCachedTransactionCounter.get().inc();
-        // If there is a conflict, we return an empty result to signal the block processor to
-        // re-execute the transaction.
-        return Optional.empty();
+        future.cancel(true);
       }
+      return Optional.empty();
     }
-    if (future != null) {
-      future.cancel(true);
+
+    if (parallelizedTransactionContext == null) {
+      return Optional.empty();
     }
-    return Optional.empty();
+
+    final PathBasedWorldState pathBasedWorldState = (PathBasedWorldState) worldState;
+    final PathBasedWorldStateUpdateAccumulator blockAccumulator =
+        (PathBasedWorldStateUpdateAccumulator) pathBasedWorldState.updater();
+    final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
+        parallelizedTransactionContext.transactionAccumulator();
+    final TransactionProcessingResult transactionProcessingResult =
+        parallelizedTransactionContext.transactionProcessingResult();
+    // a reverted or halted execution is as repeatable as a successful one when nothing it read
+    // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
+    if (!transactionProcessingResult.isInvalid()
+        && !transactionCollisionDetector.hasCollision(
+            transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator)) {
+      final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
+      if (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts()) {
+        final MutableAccount miningBeneficiaryAccount =
+            blockAccumulator.getOrCreate(miningBeneficiary);
+        miningBeneficiaryAccount.incrementBalance(reward);
+
+        if (!reward.isZero()) {
+          final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
+          transactionProcessingResult
+              .getPartialBlockAccessView()
+              .ifPresent(
+                  partialBlockAccessView ->
+                      partialBlockAccessView.accountChanges().stream()
+                          .filter(
+                              accountChanges ->
+                                  accountChanges.getAddress().equals(miningBeneficiary))
+                          .findFirst()
+                          .ifPresent(
+                              accountChanges ->
+                                  accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+        }
+      }
+
+      blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+
+      confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
+      transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
+      return Optional.of(transactionProcessingResult);
+    } else {
+      blockAccumulator.importPriorStateFromSource(transactionAccumulator);
+      if (conflictingButCachedTransactionCounter.isPresent())
+        conflictingButCachedTransactionCounter.get().inc();
+      // If there is a conflict, we return an empty result to signal the block processor to
+      // re-execute the transaction.
+      return Optional.empty();
+    }
   }
 }

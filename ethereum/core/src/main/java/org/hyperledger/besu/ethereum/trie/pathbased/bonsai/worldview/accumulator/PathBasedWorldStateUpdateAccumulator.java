@@ -230,6 +230,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
         .getAccountsToUpdate()
         .forEach(
             (address, srcValue) -> {
+              if (priorOnly && accountsToUpdate.containsKey(address)) {
+                return;
+              }
               final ACCOUNT copyPrior =
                   srcValue.getPrior() != null
                       ? copyAccount(srcValue.getPrior(), this, false)
@@ -257,6 +260,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
         .getCodeToUpdate()
         .forEach(
             (address, srcValue) -> {
+              if (priorOnly && codeToUpdate.containsKey(address)) {
+                return;
+              }
               final Bytes prior = srcValue.getPrior();
               final Bytes updated = priorOnly ? prior : srcValue.getUpdated();
               final BonsaiValue<Bytes> newValue =
@@ -278,6 +284,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
                   storageToUpdate.computeIfAbsent(address, this::newStorageMap);
               slots.forEach(
                   (slotKey, srcSlot) -> {
+                    if (priorOnly && targetSlots.containsKey(slotKey)) {
+                      return;
+                    }
                     final UInt256 slotPrior = srcSlot.getPrior();
                     final UInt256 slotUpdated = priorOnly ? slotPrior : srcSlot.getUpdated();
                     final BonsaiValue<UInt256> newSlotValue =

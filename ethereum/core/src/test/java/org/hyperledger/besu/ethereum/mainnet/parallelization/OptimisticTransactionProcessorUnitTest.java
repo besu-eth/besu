@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -62,11 +63,18 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -912,6 +920,170 @@ class OptimisticTransactionProcessorUnitTest {
       assertThat(future1).isCancelled();
 
       processor.abort();
+    }
+  }
+
+  @Nested
+  @DisplayName("Heavy transaction scheduling")
+  @MockitoSettings(strictness = Strictness.LENIENT)
+  class HeavyTransactionSchedulingTests {
+
+    private static final long HEAVY_GAS_LIMIT = 10_000_000L;
+
+    private Transaction mockTransactionWithGasLimit(final long gasLimit) {
+      final Transaction transaction = mockTransaction();
+      when(transaction.getGasLimit()).thenReturn(gasLimit);
+      return transaction;
+    }
+
+    private void runAsyncBlock(final Transaction transaction, final Executor executor) {
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          List.of(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          executor,
+          Optional.empty(),
+          env.maybeParentHeader());
+    }
+
+    private Optional<TransactionProcessingResult> getProcessingResult(
+        final Transaction transaction, final int location) {
+      return processor.getProcessingResult(
+          env.worldState(),
+          MINING_BENEFICIARY,
+          transaction,
+          location,
+          Optional.empty(),
+          Optional.empty());
+    }
+
+    private static TransactionProcessingResult successfulResult() {
+      return TransactionProcessingResult.successful(
+          Collections.emptyList(), 0, 0, Bytes.EMPTY, Optional.empty(), ValidationResult.valid());
+    }
+
+    /** A stubbed transaction execution that a test releases once the worker has started it. */
+    private record HeldExecution(CountDownLatch started, CountDownLatch release) {}
+
+    private HeldExecution stubExecutionHeldUntilReleased(
+        final Supplier<TransactionProcessingResult> action) {
+      final CountDownLatch started = new CountDownLatch(1);
+      final CountDownLatch release = new CountDownLatch(1);
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenAnswer(
+              invocation -> {
+                started.countDown();
+                release.await();
+                return action.get();
+              });
+      return new HeldExecution(started, release);
+    }
+
+    @Test
+    @DisplayName("Waits for a heavy transaction a worker is executing and uses its result")
+    void waitsForHeavyTransactionInFlight() throws Exception {
+      final Transaction heavy = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
+      final HeldExecution execution =
+          stubExecutionHeldUntilReleased(HeavyTransactionSchedulingTests::successfulResult);
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+      final ExecutorService worker = Executors.newSingleThreadExecutor();
+      try {
+        runAsyncBlock(heavy, worker);
+        assertTrue(execution.started().await(10, TimeUnit.SECONDS), "Expected the worker to start");
+
+        final CompletableFuture<Optional<TransactionProcessingResult>> result =
+            ParallelBlockProcessorTestSupport.callUntilWaiting(() -> getProcessingResult(heavy, 0));
+        execution.release().countDown();
+
+        assertThat(result.get(10, TimeUnit.SECONDS)).isPresent();
+        verify(transactionProcessor, times(1))
+            .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+      } finally {
+        worker.shutdownNow();
+      }
+    }
+
+    @Test
+    @DisplayName("Executes a heavy transaction sequentially when the worker it waits for fails")
+    void fallsBackWhenHeavyTransactionInFlightFails() throws Exception {
+      final Transaction heavy = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
+      final HeldExecution execution =
+          stubExecutionHeldUntilReleased(
+              () -> {
+                throw new StackOverflowError();
+              });
+      final ExecutorService worker = Executors.newSingleThreadExecutor();
+      try {
+        runAsyncBlock(heavy, worker);
+        assertTrue(execution.started().await(10, TimeUnit.SECONDS), "Expected the worker to start");
+
+        final CompletableFuture<Optional<TransactionProcessingResult>> result =
+            ParallelBlockProcessorTestSupport.callUntilWaiting(() -> getProcessingResult(heavy, 0));
+        execution.release().countDown();
+
+        assertThat(result.get(10, TimeUnit.SECONDS)).isEmpty();
+      } finally {
+        worker.shutdownNow();
+      }
+    }
+
+    @Test
+    @DisplayName("computeExecutionOrder starts heavy transactions first, each group in block order")
+    void computeExecutionOrderStartsHeavyTransactionsFirst() {
+      final Transaction light0 = mockTransactionWithGasLimit(100_000L);
+      final Transaction light1 = mockTransactionWithGasLimit(4_000_000L);
+      final Transaction heavy2 = mockTransactionWithGasLimit(7_500_000L);
+      final Transaction light3 = mockTransactionWithGasLimit(250_000L);
+      final Transaction heavy4 = mockTransactionWithGasLimit(12_000_000L);
+      final Transaction heavy5 = mockTransactionWithGasLimit(7_500_000L);
+
+      final int[] order =
+          ParallelBlockTransactionProcessor.computeExecutionOrder(
+              List.of(light0, light1, heavy2, light3, heavy4, heavy5));
+
+      // Heavy txs (> 4M gas) come first (2, 4, 5), then the others (0, 1, 3), both in block order.
+      assertThat(order).containsExactly(2, 4, 5, 0, 1, 3);
+    }
+
+    @Test
+    @DisplayName("Does not execute a queued transaction the block import loop has already reached")
+    void doesNotExecuteQueuedTransactionReachedByImportLoop() {
+      final Transaction tx0 = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
+      final Transaction tx1 = mockTransactionWithGasLimit(100_000L);
+      final List<Runnable> queuedTasks = new ArrayList<>();
+      final Executor deferredExecutor = queuedTasks::add;
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          List.of(tx0, tx1),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          deferredExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      // The import loop reaches heavy tx 0 before a worker starts it, so it does not wait for it:
+      // tx 0 is cancelled and executed sequentially.
+      final Optional<TransactionProcessingResult> res0 =
+          assertTimeoutPreemptively(Duration.ofSeconds(10), () -> getProcessingResult(tx0, 0));
+      assertThat(res0).isEmpty();
+
+      // A worker then picks up both tasks: the cancelled task 0 does not execute its transaction,
+      // task 1 does.
+      queuedTasks.forEach(Runnable::run);
+
+      verify(transactionProcessor, never())
+          .processTransaction(
+              any(), eq(env.blockHeader()), eq(tx0), any(), any(), any(), any(), any(), any());
+      verify(transactionProcessor, times(1))
+          .processTransaction(
+              any(), eq(env.blockHeader()), eq(tx1), any(), any(), any(), any(), any(), any());
     }
   }
 }
