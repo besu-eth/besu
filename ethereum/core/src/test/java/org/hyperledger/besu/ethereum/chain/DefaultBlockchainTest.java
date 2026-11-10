@@ -84,6 +84,7 @@ import java.util.stream.IntStream;
 import com.google.common.cache.Cache;
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -104,6 +105,33 @@ public class DefaultBlockchainTest {
     assertBlockIsHead(blockchain, genesisBlock);
     assertTotalDifficultiesAreConsistent(blockchain, genesisBlock);
     assertThat(blockchain.getForks()).isEmpty();
+  }
+
+  @Test
+  public void inclusionListStatusIsStoredAndSurvivesRestart() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final Hash blockHash = gen.hash();
+
+    // created with the block caches disabled, as with the default configuration
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock);
+    assertThat(blockchain.getInclusionListStatus(blockHash)).isEmpty();
+
+    final InclusionListStatus unsatisfied = new InclusionListStatus(Bytes32.random(), false);
+    blockchain.putInclusionListStatus(blockHash, unsatisfied);
+    assertThat(blockchain.getInclusionListStatus(blockHash)).contains(unsatisfied);
+
+    // a new status, e.g. for another inclusion list, replaces the cached one
+    final InclusionListStatus satisfied = new InclusionListStatus(Bytes32.random(), true);
+    blockchain.putInclusionListStatus(blockHash, satisfied);
+    assertThat(blockchain.getInclusionListStatus(blockHash)).contains(satisfied);
+
+    final DefaultBlockchain restartedBlockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock);
+    assertThat(restartedBlockchain.getInclusionListStatus(blockHash)).contains(satisfied);
   }
 
   @Test
@@ -1304,6 +1332,55 @@ public class DefaultBlockchainTest {
     assertThat(blockchain.getBlockHeadersCache().get().size()).isEqualTo(1);
     assertThat(blockchain.getBlockHeadersCache().get().getIfPresent(newBlock.getHash()))
         .isEqualTo(newBlock.getHeader());
+  }
+
+  @Test
+  public void forwardToBlockReusesCachedBlockData() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock, "/data/test", 512, 512);
+
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+    blockchain.storeBlock(newBlock, gen.receipts(newBlock));
+
+    final List<BlockAddedEvent> events = new ArrayList<>();
+    blockchain.observeBlockAdded(events::add);
+
+    assertThat(blockchain.forwardToBlock(newBlock.getHeader())).isTrue();
+
+    assertThat(events).hasSize(1);
+    assertThat(events.getFirst().getBlock().getBody()).isSameAs(newBlock.getBody());
+    assertBlockIsHead(blockchain, newBlock);
+  }
+
+  @Test
+  public void forwardToBlockReadsFromStorageWhenCachesAreDisabled() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    // 0 cache sizes disable the block and receipts caches
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock, "/data/test", 0, 0);
+
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+    final List<TransactionReceipt> receipts = gen.receipts(newBlock);
+    blockchain.storeBlock(newBlock, receipts);
+
+    final List<BlockAddedEvent> events = new ArrayList<>();
+    blockchain.observeBlockAdded(events::add);
+
+    assertThat(blockchain.forwardToBlock(newBlock.getHeader())).isTrue();
+
+    assertThat(events).hasSize(1);
+    assertThat(events.getFirst().getBlock()).isEqualTo(newBlock);
+    assertBlockIsHead(blockchain, newBlock);
+    assertBlockDataIsStored(blockchain, newBlock, receipts);
   }
 
   /*
