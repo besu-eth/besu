@@ -1,0 +1,67 @@
+{
+  "comment": "Transaction 2 of block 0x16; the result equals trace_replayBlockTransactions for that transaction.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_replayTransaction",
+    "params": [
+      "0x9eb50f31fc1d953e27331cd923f6b2f7fa11827d399c70aec00a04cf98cfd2ac",
+      [
+        "stateDiff"
+      ]
+    ],
+    "id": 415
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": {
+      "output": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "stateDiff": {
+        "0x0000000000000000000000000000000000000000": {
+          "balance": {
+            "*": {
+              "from": "0x246ddf97c55e53aa9",
+              "to": "0x246ddf97c5618cbad"
+            }
+          },
+          "code": "=",
+          "nonce": "=",
+          "storage": {}
+        },
+        "0x0060000000000000000000000000000000000000": {
+          "balance": "=",
+          "code": "=",
+          "nonce": "=",
+          "storage": {
+            "0x0000000000000000000000000000000000000000000000000000000000000001": {
+              "*": {
+                "from": "0x0000000000000000000000000000000000000000000000000000000000000003",
+                "to": "0x0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            }
+          }
+        },
+        "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+          "balance": {
+            "*": {
+              "from": "0xefffffffffffffffff74a28a2",
+              "to": "0xefffffffffffffffff716979e"
+            }
+          },
+          "code": "=",
+          "nonce": {
+            "*": {
+              "from": "0x10",
+              "to": "0x11"
+            }
+          },
+          "storage": {}
+        }
+      },
+      "trace": [],
+      "transactionHash": "0x9eb50f31fc1d953e27331cd923f6b2f7fa11827d399c70aec00a04cf98cfd2ac",
+      "vmTrace": null
+    },
+    "id": 415
+  },
+  "statusCode": 200
+}

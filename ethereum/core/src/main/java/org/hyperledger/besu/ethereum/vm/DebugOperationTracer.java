@@ -199,27 +199,16 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     haltReason.ifPresent(
         exceptionalHaltReason -> {
           if (!traceFrames.isEmpty()) {
-            updateFirstNonReturnFrame(exceptionalHaltReason);
+            // The creation fails after its last traced operation, usually the RETURN of its code.
+            final TraceFrame lastTraceFrame = traceFrames.removeLast();
+            traceFrames.add(
+                TraceFrame.from(lastTraceFrame)
+                    .setExceptionalHaltReason(Optional.of(exceptionalHaltReason))
+                    .build());
           } else {
             addNewTraceFrame(frame, exceptionalHaltReason);
           }
         });
-  }
-
-  private void updateFirstNonReturnFrame(final ExceptionalHaltReason exceptionalHaltReason) {
-    // Find the last non-RETURN frame
-    for (int i = traceFrames.size() - 1; i >= 0; i--) {
-      final TraceFrame currentFrame = traceFrames.get(i);
-      if (!"RETURN".equals(currentFrame.getOpcode())) {
-        // Create updated frame with the exceptional halt reason
-        final TraceFrame updatedFrame =
-            TraceFrame.from(currentFrame)
-                .setExceptionalHaltReason(Optional.of(exceptionalHaltReason))
-                .build();
-        traceFrames.set(i, updatedFrame);
-        break;
-      }
-    }
   }
 
   private void addNewTraceFrame(

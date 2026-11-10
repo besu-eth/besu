@@ -69,8 +69,7 @@ public class AdminLogsRemoveCache implements JsonRpcMethod {
         throw new IllegalStateException("Block not found, " + startBlock);
       }
     } else {
-      // latest, pending
-      startBlock = blockchainQueries.headBlockNumber();
+      startBlock = resolveBlockTag(startBlockParameter.get());
     }
 
     final long stopBlock;
@@ -88,8 +87,7 @@ public class AdminLogsRemoveCache implements JsonRpcMethod {
         throw new IllegalStateException("Block not found, " + stopBlock);
       }
     } else {
-      // latest, pending
-      stopBlock = blockchainQueries.headBlockNumber();
+      stopBlock = resolveBlockTag(stopBlockParameter.get());
     }
 
     if (stopBlock < startBlock) {
@@ -117,5 +115,12 @@ public class AdminLogsRemoveCache implements JsonRpcMethod {
 
     return new JsonRpcSuccessResponse(
         requestContext.getRequest().getId(), Map.of("Status", "Cache Removed"));
+  }
+
+  private long resolveBlockTag(final BlockParameter blockParameter) {
+    // latest, pending, safe, finalized
+    return blockParameter
+        .getBlockNumber(blockchainQueries)
+        .orElseThrow(() -> new IllegalStateException("Block not found, " + blockParameter));
   }
 }

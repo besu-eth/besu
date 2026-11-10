@@ -208,14 +208,16 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
 
       nextLayer.notifyAdded(addedPendingTransaction);
 
-      if (!maybeFull()) {
-        // if there is space try to see if the added tx filled some gaps
-        tryFillGap(addStatus, addedPendingTransaction, getRemainingPromotionsPerType());
-      }
-
+      // notify before making space, since the eviction could drop the added tx itself, so that the
+      // events are notified in the order they happen
       if (addReason.sendNotification()) {
         logAdded(addedPendingTransaction, gap, addReason, name());
         eventEmitter.notifyPendingTransactionAdded(addedPendingTransaction);
+      }
+
+      if (!maybeFull()) {
+        // if there is space try to see if the added tx filled some gaps
+        tryFillGap(addStatus, addedPendingTransaction, getRemainingPromotionsPerType());
       }
 
     } else {

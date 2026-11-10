@@ -175,9 +175,10 @@ public interface OperationTracer {
 
   /**
    * Check whether the tracer follows execution operation by operation. EVM v2 calls {@link
-   * #tracePreExecution} and {@link #tracePostExecution}, and sets the frame's current operation,
-   * only for tracers that do, so a tracer that only uses transaction or call hooks can return false
-   * to keep that work out of every operation.
+   * #tracePreExecution} and {@link #tracePostExecution}, sets the frame's current operation and
+   * records the memory and storage updates read through {@link MessageFrame#getMaybeUpdatedMemory}
+   * and {@link MessageFrame#getMaybeUpdatedStorage} only for tracers that do, so a tracer that only
+   * uses transaction or call hooks can return false to keep that work out of every operation.
    *
    * @return true if the tracer needs the per-operation calls, by default whether it is enabled
    */

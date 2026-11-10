@@ -408,9 +408,11 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
         message.getRoundIdentifier().getSequenceNumber(),
         message.getRoundIdentifier().getRoundNumber());
 
-    // Diagnostic logging (only logs anything if the chain has stalled)
-    roundChangeManager.storeAndLogRoundChangeSummary(message);
-
+    // The age check runs first, matching IbftBlockHeightManager. storeAndLogRoundChangeSummary
+    // validates the message - which for a RoundChange carrying a block means executing every
+    // transaction in it - so running it ahead of this early return spent a full block execution on
+    // a message the node is about to discard, purely to feed a diagnostic that by its own comment
+    // only logs anything once the chain has stalled.
     final MessageAge messageAge =
         determineAgeOfPayload(message.getRoundIdentifier().getRoundNumber());
     if (messageAge == MessageAge.PRIOR_ROUND) {
@@ -418,8 +420,19 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
       return;
     }
 
+    // Validate exactly once. Both the diagnostic summary and the append below used to validate
+    // independently, with nothing cached between them, so an accepted RoundChange carrying a block
+    // cost two full block executions rather than one.
+    if (!roundChangeManager.isMessageValid(message)) {
+      LOG.info("RoundChange message was invalid.");
+      return;
+    }
+
+    // Diagnostic logging (only logs anything if the chain has stalled)
+    roundChangeManager.storeAndLogValidatedRoundChangeSummary(message);
+
     final Optional<Collection<RoundChange>> result =
-        roundChangeManager.appendRoundChangeMessage(message);
+        roundChangeManager.appendValidatedRoundChangeMessage(message);
 
     if (!isEarlyRoundChangeEnabled) {
       if (result.isPresent()) {

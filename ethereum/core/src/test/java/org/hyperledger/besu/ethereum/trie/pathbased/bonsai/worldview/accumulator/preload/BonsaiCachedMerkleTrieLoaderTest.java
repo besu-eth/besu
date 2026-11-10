@@ -155,6 +155,7 @@ class BonsaiCachedMerkleTrieLoaderTest {
           merkleTrieLoader.cacheStorageNodes(
               inMemoryWorldState,
               accounts.get(0),
+              null,
               new StorageSlotKey(Hash.wrap(keyHash), Optional.empty()));
           originalSlots.add(node.getEncodedBytes());
           return TrieIterator.State.CONTINUE;
@@ -172,6 +173,59 @@ class BonsaiCachedMerkleTrieLoaderTest {
                 merkleTrieLoader.getAccountStorageTrieNode(
                     emptyStorage, hashAccountZero, location, Bytes32.wrap(hash)),
             Bytes32.wrap(stateTrieAccountValue.getStorageRoot().getBytes()),
+            Function.identity(),
+            Function.identity());
+    cachedTrie.visitLeafs(
+        (keyHash, node) -> {
+          cachedSlots.add(node.getEncodedBytes());
+          return TrieIterator.State.CONTINUE;
+        });
+    assertThat(originalSlots).isNotEmpty().isEqualTo(cachedSlots);
+  }
+
+  @Test
+  void shouldAddStorageNodesInCacheFromAKnownStorageRoot() {
+    final Hash hashAccountZero = accounts.get(0).addressHash();
+    final Hash storageRoot =
+        PatriciaTrieAccountValue.readFrom(
+                RLP.input(trie.get(hashAccountZero.getBytes()).orElseThrow()))
+            .getStorageRoot();
+    final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
+        new StoredMerklePatriciaTrie<>(
+            (Bytes location, Bytes32 hash) ->
+                inMemoryWorldState.getTrieNode(TrieNodeKey.of(hashAccountZero, location), hash),
+            Bytes32.wrap(storageRoot.getBytes()),
+            Function.identity(),
+            Function.identity());
+    final List<StorageSlotKey> slotKeys = new ArrayList<>();
+    final List<Bytes> originalSlots = new ArrayList<>();
+    storageTrie.visitLeafs(
+        (keyHash, node) -> {
+          slotKeys.add(new StorageSlotKey(Hash.wrap(keyHash), Optional.empty()));
+          originalSlots.add(node.getEncodedBytes());
+          return TrieIterator.State.CONTINUE;
+        });
+
+    Mockito.clearInvocations(inMemoryWorldState);
+    slotKeys.forEach(
+        slotKey ->
+            merkleTrieLoader.cacheStorageNodes(
+                inMemoryWorldState, accounts.get(0), storageRoot, slotKey));
+    // the walk starts from the given root instead of reading the root node by its location
+    Mockito.verify(inMemoryWorldState, Mockito.never()).getTrieNodeUnsafe(Mockito.any());
+
+    final List<Bytes> cachedSlots = new ArrayList<>();
+    final BonsaiWorldStateKeyValueStorage emptyStorage =
+        new BonsaiWorldStateKeyValueStorage(
+            new InMemoryKeyValueStorageProvider(),
+            new NoOpMetricsSystem(),
+            DataStorageConfiguration.DEFAULT_CONFIG);
+    final StoredMerklePatriciaTrie<Bytes, Bytes> cachedTrie =
+        new StoredMerklePatriciaTrie<>(
+            (Bytes location, Bytes32 hash) ->
+                merkleTrieLoader.getAccountStorageTrieNode(
+                    emptyStorage, hashAccountZero, location, Bytes32.wrap(hash)),
+            Bytes32.wrap(storageRoot.getBytes()),
             Function.identity(),
             Function.identity());
     cachedTrie.visitLeafs(

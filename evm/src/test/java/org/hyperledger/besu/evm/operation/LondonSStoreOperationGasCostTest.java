@@ -15,11 +15,11 @@
 package org.hyperledger.besu.evm.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.evm.testutils.TestEvmConfigurations.EVM_V1;
 
 import org.hyperledger.besu.evm.MainnetEVMs;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.MessageFrame.State;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.testutils.TestCodeExecutor;
 
 import org.apache.tuweni.units.bigints.UInt256;
@@ -56,7 +56,7 @@ public class LondonSStoreOperationGasCostTest {
 
   @BeforeEach
   public void setUp() {
-    codeExecutor = new TestCodeExecutor(MainnetEVMs.london(EvmConfiguration.DEFAULT));
+    codeExecutor = new TestCodeExecutor(MainnetEVMs.london(EVM_V1));
   }
 
   @ParameterizedTest

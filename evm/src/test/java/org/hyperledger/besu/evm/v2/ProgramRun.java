@@ -34,6 +34,7 @@ import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
+import org.hyperledger.besu.evm.testutils.TestEvmConfigurations;
 import org.hyperledger.besu.evm.toy.ToyWorld;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.TracedStack;
@@ -73,13 +74,9 @@ final class ProgramRun {
       Bytes.fromHexString(
           "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728");
 
-  static final EvmConfiguration V1 = EvmConfiguration.DEFAULT;
-  static final EvmConfiguration V2 =
-      new EvmConfiguration(
-          EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
-          EvmConfiguration.DEFAULT.worldUpdaterMode(),
-          EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
-          true);
+  // Both set the EVM explicitly, so the tests keep comparing v1 with v2 whatever the default is
+  static final EvmConfiguration V1 = TestEvmConfigurations.EVM_V1;
+  static final EvmConfiguration V2 = TestEvmConfigurations.EVM_V2;
 
   record Fork(String name, Function<EvmConfiguration, EVM> factory) {
     @Override
@@ -171,7 +168,31 @@ final class ProgramRun {
       Set<String> accounts,
       Set<String> transientStorage,
       Set<String> accesses,
-      List<String> steps) {}
+      List<String> steps) {
+
+    /** The outcome without the recorded steps, as an untraced run of the program ends. */
+    Outcome withoutSteps() {
+      return new Outcome(
+          state,
+          haltReason,
+          remainingGas,
+          gasRefund,
+          stateGasUsed,
+          stack,
+          memory,
+          output,
+          returnData,
+          revertReason,
+          logs,
+          selfDestructs,
+          creates,
+          refunds,
+          accounts,
+          transientStorage,
+          accesses,
+          List.of());
+    }
+  }
 
   /** The outermost frame and the world it ran against, after a run, with its outcome. */
   record Execution(MessageFrame frame, WorldUpdater worldUpdater, Outcome outcome) {}
@@ -198,12 +219,13 @@ final class ProgramRun {
       final long gas,
       final boolean isStatic,
       final List<Bytes32> slots) {
-    return execute(evm, code, calleeCode, secondCalleeCode, gas, isStatic, slots, false).outcome();
+    return execute(evm, code, calleeCode, secondCalleeCode, gas, isStatic, slots).outcome();
   }
 
   /**
    * As {@link #run}, with a tracer that records what it sees before and after every operation: the
-   * operation, pc, depth, gas, refund, memory size, stack, gas cost and halt reason.
+   * operation, pc, depth, gas, refund, memory size, stack, gas cost, halt reason and the memory and
+   * storage updates recorded for tracers.
    *
    * @param evm the EVM to run it on
    * @param code the contract's code
@@ -222,7 +244,9 @@ final class ProgramRun {
       final long gas,
       final boolean isStatic,
       final List<Bytes32> slots) {
-    return execute(evm, code, calleeCode, secondCalleeCode, gas, isStatic, slots, true).outcome();
+    return execute(
+            evm, code, calleeCode, secondCalleeCode, gas, isStatic, slots, new StepRecorder())
+        .outcome();
   }
 
   /**
@@ -245,10 +269,24 @@ final class ProgramRun {
       final long gas,
       final boolean isStatic,
       final List<Bytes32> slots) {
-    return execute(evm, code, calleeCode, secondCalleeCode, gas, isStatic, slots, false);
+    return execute(
+        evm, code, calleeCode, secondCalleeCode, gas, isStatic, slots, OperationTracer.NO_TRACING);
   }
 
-  private static Execution execute(
+  /**
+   * As {@link #execute(EVM, Bytes, Bytes, Bytes, long, boolean, List)}, with the given tracer.
+   *
+   * @param evm the EVM to run it on
+   * @param code the contract's code
+   * @param calleeCode the code of CALLEE
+   * @param secondCalleeCode the code of SECOND_CALLEE
+   * @param gas the gas the contract is called with
+   * @param isStatic whether the contract is called in a static frame
+   * @param slots the storage and transient storage slots to compare
+   * @param tracer the tracer to run it with
+   * @return the execution
+   */
+  static Execution execute(
       final EVM evm,
       final Bytes code,
       final Bytes calleeCode,
@@ -256,9 +294,7 @@ final class ProgramRun {
       final long gas,
       final boolean isStatic,
       final List<Bytes32> slots,
-      final boolean traced) {
-    final StepRecorder recorder = new StepRecorder();
-    final OperationTracer tracer = traced ? recorder : OperationTracer.NO_TRACING;
+      final OperationTracer tracer) {
     final ToyWorld world = new ToyWorld();
     final WorldUpdater setup = world.updater();
     setup.getOrCreate(SENDER).setBalance(Wei.of(1_000_000));
@@ -327,7 +363,7 @@ final class ProgramRun {
             accounts(updater, slots),
             transientStorage(frame, slots),
             accesses.accesses,
-            recorder.steps);
+            tracer instanceof StepRecorder recorder ? recorder.steps : List.of());
     return new Execution(frame, updater, outcome);
   }
 
@@ -429,12 +465,30 @@ final class ProgramRun {
         final MessageFrame frame, final Operation.OperationResult result) {
       steps.add(
           String.format(
-              "%s -> cost %d halt %s gas %d stack %s",
+              "%s -> cost %d halt %s gas %d stack %s updated memory %s storage %s",
               before,
               result.getGasCost(),
               result.getHaltReason(),
               frame.getRemainingGas(),
-              tracedStack(frame)));
+              tracedStack(frame),
+              updatedMemory(frame),
+              updatedStorage(frame)));
+      // as the debug tracer does, so that each step shows only the updates it recorded itself
+      frame.reset();
+    }
+
+    private static String updatedMemory(final MessageFrame frame) {
+      return frame
+          .getMaybeUpdatedMemory()
+          .map(m -> m.getOffset() + " " + m.getValue().toHexString())
+          .orElse("none");
+    }
+
+    private static String updatedStorage(final MessageFrame frame) {
+      return frame
+          .getMaybeUpdatedStorage()
+          .map(s -> s.getOffset().toHexString() + " " + s.getValue().toHexString())
+          .orElse("none");
     }
 
     private static List<String> tracedStack(final MessageFrame frame) {

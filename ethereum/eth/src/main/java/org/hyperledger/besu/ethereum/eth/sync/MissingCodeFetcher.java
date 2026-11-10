@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.eth.sync;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -80,8 +80,8 @@ public class MissingCodeFetcher implements CodeFetcher {
   }
 
   private static boolean agreedOnSnap(final EthPeer peer) {
-    return peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1)
-        || peer.getAgreedCapabilities().contains(SnapProtocol.SNAP2);
+    return peer.getAgreedCapabilities().contains(SnapProtocolVersion.V1.getCapability())
+        || peer.getAgreedCapabilities().contains(SnapProtocolVersion.V2.getCapability());
   }
 
   private Optional<Bytes> fetchFrom(final EthPeer peer, final Hash codeHash) {

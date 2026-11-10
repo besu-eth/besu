@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
-import org.hyperledger.besu.ethereum.core.SyncBlock;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -61,13 +61,27 @@ import java.util.stream.Stream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.Weigher;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Streams;
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class DefaultBlockchain implements MutableBlockchain {
   private static final Logger LOG = LoggerFactory.getLogger(DefaultBlockchain.class);
+
+  /**
+   * The default number of last blocks to cache. It is the snap serving window: peers and the
+   * consensus client mostly ask for blocks within it.
+   */
+  public static final int DEFAULT_BLOCKS_TO_CACHE = 128;
+
+  /** The default number of bytes the cache of block access lists may hold. */
+  public static final long DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY = 128L * 1024 * 1024;
+
+  // cache node, hash key and Bytes wrapper; small lists would otherwise weigh a few bytes
+  static final int BLOCK_ACCESS_LIST_CACHE_ENTRY_OVERHEAD = 200;
 
   private final Comparator<BlockHeader> heaviestChainBlockChoiceRule =
       Comparator.comparing(this::calculateTotalDifficulty);
@@ -90,8 +104,9 @@ public class DefaultBlockchain implements MutableBlockchain {
   private Optional<Cache<Hash, BlockHeader>> blockHeadersCache;
   private Optional<Cache<Hash, BlockBody>> blockBodiesCache;
   private Optional<Cache<Hash, List<TransactionReceipt>>> transactionReceiptsCache;
-  private Optional<Cache<Hash, Difficulty>> totalDifficultyCache;
-  private Optional<Cache<Hash, BlockAccessList>> blockAccessListCache;
+  // RLP, bounded by size as well: one block access list can hold tens of thousands of accounts
+  private Optional<Cache<Hash, Bytes>> blockAccessListCache;
+  private Optional<Cache<Hash, InclusionListStatus>> inclusionListStatusCache;
 
   private Counter gasUsedCounter = NoOpMetricsSystem.NO_OP_COUNTER;
   private Counter numberOfTransactionsCounter = NoOpMetricsSystem.NO_OP_COUNTER;
@@ -103,7 +118,16 @@ public class DefaultBlockchain implements MutableBlockchain {
       final BlockchainStorage blockchainStorage,
       final MetricsSystem metricsSystem,
       final long reorgLoggingThreshold) {
-    this(genesisBlock, blockchainStorage, metricsSystem, reorgLoggingThreshold, null, 0, 0, false);
+    this(
+        genesisBlock,
+        blockchainStorage,
+        metricsSystem,
+        reorgLoggingThreshold,
+        null,
+        0,
+        DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY,
+        0,
+        false);
   }
 
   private DefaultBlockchain(
@@ -121,6 +145,7 @@ public class DefaultBlockchain implements MutableBlockchain {
         reorgLoggingThreshold,
         dataDirectory,
         numberOfBlocksToCache,
+        DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY,
         numberOfBlockHeadersToCache,
         false);
   }
@@ -132,6 +157,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       final long reorgLoggingThreshold,
       final String dataDirectory,
       final int numberOfBlocksToCache,
+      final long blockAccessListsCacheMaxCapacity,
       final int numberOfBlockHeadersToCache,
       final boolean senderNonceIndexingEnabled) {
     checkNotNull(genesisBlock);
@@ -155,13 +181,20 @@ public class DefaultBlockchain implements MutableBlockchain {
     this.blockChoiceRule = heaviestChainBlockChoiceRule;
     this.senderNonceIndexing = senderNonceIndexingEnabled;
 
-    initializeCaches(metricsSystem, numberOfBlockHeadersToCache, numberOfBlocksToCache);
+    initializeCaches(
+        metricsSystem,
+        numberOfBlockHeadersToCache,
+        numberOfBlocksToCache,
+        blockAccessListsCacheMaxCapacity);
     createCounters(metricsSystem);
     createGauges(metricsSystem);
   }
 
   private void initializeCaches(
-      final MetricsSystem metricsSystem, final int headersCacheSize, final int blocksCacheSize) {
+      final MetricsSystem metricsSystem,
+      final int headersCacheSize,
+      final int blocksCacheSize,
+      final long blockAccessListsCacheMaxCapacity) {
     if (headersCacheSize == 0 && blocksCacheSize == 0) {
       setAllCachesEmpty();
       return;
@@ -170,16 +203,19 @@ public class DefaultBlockchain implements MutableBlockchain {
     final int headersSize = Math.max(headersCacheSize, blocksCacheSize);
     blockHeadersCache =
         Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(headersSize).build());
+    inclusionListStatusCache =
+        Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(headersSize).build());
 
     if (blocksCacheSize != 0) {
       blockBodiesCache =
           Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
       transactionReceiptsCache =
           Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
-      totalDifficultyCache =
-          Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
       blockAccessListCache =
-          Optional.of(CacheBuilder.newBuilder().recordStats().maximumSize(blocksCacheSize).build());
+          blockAccessListsCacheMaxCapacity > 0
+              ? Optional.of(
+                  createBlockAccessListCache(blocksCacheSize, blockAccessListsCacheMaxCapacity))
+              : Optional.empty();
       registerCacheMetrics(metricsSystem);
     } else {
       // Only headers cache is created, rest are empty
@@ -188,15 +224,35 @@ public class DefaultBlockchain implements MutableBlockchain {
     }
   }
 
+  private static Cache<Hash, Bytes> createBlockAccessListCache(
+      final int blocksCacheSize, final long maxCapacity) {
+    // each list weighs at least an equal share of the capacity, so at most blocksCacheSize fit
+    final long minWeight = (maxCapacity + blocksCacheSize - 1) / blocksCacheSize;
+    final Weigher<Hash, Bytes> weigher =
+        (blockHash, rlp) ->
+            (int)
+                Math.min(
+                    Integer.MAX_VALUE,
+                    Math.max(
+                        (long) rlp.size() + BLOCK_ACCESS_LIST_CACHE_ENTRY_OVERHEAD, minWeight));
+    return CacheBuilder.newBuilder()
+        .recordStats()
+        // a single segment, as each segment only gets its share of the capacity
+        .concurrencyLevel(1)
+        .maximumWeight(maxCapacity)
+        .weigher(weigher)
+        .build();
+  }
+
   private void setAllCachesEmpty() {
     blockHeadersCache = Optional.empty();
+    inclusionListStatusCache = Optional.empty();
     setBlockCachesEmpty();
   }
 
   private void setBlockCachesEmpty() {
     blockBodiesCache = Optional.empty();
     transactionReceiptsCache = Optional.empty();
-    totalDifficultyCache = Optional.empty();
     blockAccessListCache = Optional.empty();
   }
 
@@ -205,12 +261,14 @@ public class DefaultBlockchain implements MutableBlockchain {
     metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "blockBodies", blockBodiesCache.get());
     metricsSystem.createGuavaCacheCollector(
         BLOCKCHAIN, "transactionReceipts", transactionReceiptsCache.get());
-    metricsSystem.createGuavaCacheCollector(
-        BLOCKCHAIN, "totalDifficulty", totalDifficultyCache.get());
+    blockAccessListCache.ifPresent(
+        cache -> metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "blockAccessLists", cache));
   }
 
   private void registerHeadersCacheMetrics(final MetricsSystem metricsSystem) {
     metricsSystem.createGuavaCacheCollector(BLOCKCHAIN, "blockHeaders", blockHeadersCache.get());
+    metricsSystem.createGuavaCacheCollector(
+        BLOCKCHAIN, "inclusionListStatus", inclusionListStatusCache.get());
   }
 
   private void createCounters(final MetricsSystem metricsSystem) {
@@ -324,6 +382,7 @@ public class DefaultBlockchain implements MutableBlockchain {
         reorgLoggingThreshold,
         dataDirectory,
         numberOfBlocksToCache,
+        DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY,
         numberOfBlockHeadersToCache,
         false);
   }
@@ -335,6 +394,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       final long reorgLoggingThreshold,
       final String dataDirectory,
       final int numberOfBlocksToCache,
+      final long blockAccessListsCacheMaxCapacity,
       final int numberOfBlockHeadersToCache,
       final boolean senderNonceIndexingEnabled) {
     checkNotNull(genesisBlock);
@@ -345,6 +405,7 @@ public class DefaultBlockchain implements MutableBlockchain {
         reorgLoggingThreshold,
         dataDirectory,
         numberOfBlocksToCache,
+        blockAccessListsCacheMaxCapacity,
         numberOfBlockHeadersToCache,
         senderNonceIndexingEnabled);
   }
@@ -397,12 +458,28 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<Long> getEarliestBlockNumber() {
+    // a sync stores bodies out of order below the block it records, so the search starts there,
+    // read again as the back-fill moves it down
+    final Optional<Long> bodiesFrom = getBodiesFrom();
+    if (bodiesFrom.isPresent()) {
+      return getFirstNonGenesisBlockNumber(bodiesFrom.get());
+    }
     if (earliestBlockNumber == null) {
-      Optional<Long> maybeEarliestBlockNumber = getFirstNonGenesisBlockNumber();
+      Optional<Long> maybeEarliestBlockNumber = getFirstNonGenesisBlockNumber(1);
       maybeEarliestBlockNumber.ifPresent(value -> earliestBlockNumber = value);
       return maybeEarliestBlockNumber;
     }
     return Optional.of(earliestBlockNumber);
+  }
+
+  @Override
+  public Optional<Long> getBodiesFrom() {
+    return blockchainStorage.getBodiesFrom();
+  }
+
+  @Override
+  public Optional<Long> getSyncFloor() {
+    return blockchainStorage.getSyncFloor();
   }
 
   @Override
@@ -483,6 +560,11 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public Optional<Bytes> getBlockBodyRlp(final Hash blockHeaderHash) {
+    return blockchainStorage.getBlockBodyRlp(blockHeaderHash);
+  }
+
+  @Override
   public synchronized Optional<BlockBody> getBlockBodySafe(final Hash blockHeaderHash) {
     return getBlockBody(blockHeaderHash);
   }
@@ -517,12 +599,19 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<BlockAccessList> getBlockAccessList(final Hash blockHash) {
-    return blockAccessListCache
-        .map(
-            cache ->
-                Optional.ofNullable(cache.getIfPresent(blockHash))
-                    .or(() -> blockchainStorage.getBlockAccessList(blockHash)))
-        .orElseGet(() -> blockchainStorage.getBlockAccessList(blockHash));
+    return getCachedBlockAccessListRlp(blockHash)
+        .map(blockchainStorage::decodeBlockAccessList)
+        .or(() -> blockchainStorage.getBlockAccessList(blockHash));
+  }
+
+  @Override
+  public Optional<Bytes> getBlockAccessListRlp(final Hash blockHash) {
+    return getCachedBlockAccessListRlp(blockHash)
+        .or(() -> blockchainStorage.getBlockAccessListRlp(blockHash));
+  }
+
+  private Optional<Bytes> getCachedBlockAccessListRlp(final Hash blockHash) {
+    return blockAccessListCache.map(cache -> cache.getIfPresent(blockHash));
   }
 
   @Override
@@ -532,12 +621,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<Difficulty> getTotalDifficultyByHash(final Hash blockHeaderHash) {
-    return totalDifficultyCache
-        .map(
-            cache ->
-                Optional.ofNullable(cache.getIfPresent(blockHeaderHash))
-                    .or(() -> blockchainStorage.getTotalDifficulty(blockHeaderHash)))
-        .orElseGet(() -> blockchainStorage.getTotalDifficulty(blockHeaderHash));
+    return blockchainStorage.getTotalDifficulty(blockHeaderHash);
   }
 
   @Override
@@ -576,7 +660,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       final Block block,
       final List<TransactionReceipt> receipts,
       final Optional<BlockAccessList> blockAccessList) {
-    cacheBlockData(block, receipts, blockAccessList);
+    cacheBlockData(block, receipts);
     appendBlockHelper(new BlockWithReceipts(block, receipts), blockAccessList, false, true);
   }
 
@@ -585,7 +669,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       final Block block,
       final List<TransactionReceipt> receipts,
       final Optional<BlockAccessList> blockAccessList) {
-    cacheBlockData(block, receipts, blockAccessList);
+    cacheBlockData(block, receipts);
     appendBlockHelper(new BlockWithReceipts(block, receipts), blockAccessList, false, false);
   }
 
@@ -594,20 +678,41 @@ public class DefaultBlockchain implements MutableBlockchain {
       final Block block,
       final List<TransactionReceipt> receipts,
       final Optional<BlockAccessList> blockAccessList) {
-    cacheBlockData(block, receipts, blockAccessList);
+    cacheBlockData(block, receipts);
     appendBlockHelper(new BlockWithReceipts(block, receipts), blockAccessList, true, true);
   }
 
   @Override
   public void storeBlockHeaders(final List<BlockHeader> blockHeaders) {
-    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
+    blockHeaders.forEach(header -> putCanonicalHeader(updater, header));
+    updater.commit();
+  }
+
+  @Override
+  public void storeBlockHeaders(
+      final List<BlockHeader> blockHeaders, final Difficulty totalDifficulty) {
+    // one total difficulty fits every header only when none adds to it
+    blockHeaders.forEach(
+        header ->
+            checkArgument(
+                header.getDifficulty().isZero(),
+                "block %s is not a proof-of-stake block",
+                header.getNumber()));
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
     blockHeaders.forEach(
         header -> {
-          final Hash hash = header.getHash();
-          updater.putBlockHeader(hash, header);
-          updater.putBlockHash(header.getNumber(), hash);
+          putCanonicalHeader(updater, header);
+          updater.putTotalDifficulty(header.getHash(), totalDifficulty);
         });
     updater.commit();
+  }
+
+  private static void putCanonicalHeader(
+      final BlockchainStorage.Updater updater, final BlockHeader header) {
+    final Hash hash = header.getHash();
+    updater.putBlockHeader(hash, header);
+    updater.putBlockHash(header.getNumber(), hash);
   }
 
   @Override
@@ -621,29 +726,23 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
-  public void unsafeStoreHeader(final BlockHeader blockHeader, final Difficulty totalDifficulty) {
+  public synchronized void unsafeStoreHeader(
+      final BlockHeader blockHeader, final Difficulty totalDifficulty) {
     // as this is used only to store premerge block headers, we don't cache the header in this case
+    final int transactionCount = transactionCount(blockHeader);
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     updater.putBlockHeader(blockHeader.getHash(), blockHeader);
     updater.putBlockHash(blockHeader.getNumber(), blockHeader.getBlockHash());
     updater.putTotalDifficulty(blockHeader.getHash(), totalDifficulty);
-    this.chainHeader = blockHeader;
-    this.totalDifficulty = totalDifficulty;
     updater.setChainHead(blockHeader.getBlockHash());
     updater.commit();
+    publishChainHead(blockHeader, totalDifficulty, transactionCount);
   }
 
-  private void cacheBlockData(
-      final Block block,
-      final List<TransactionReceipt> receipts,
-      final Optional<BlockAccessList> blockAccessList) {
+  private void cacheBlockData(final Block block, final List<TransactionReceipt> receipts) {
     cacheBlockHeader(block.getHeader());
     blockBodiesCache.ifPresent(cache -> cache.put(block.getHash(), block.getBody()));
     transactionReceiptsCache.ifPresent(cache -> cache.put(block.getHash(), receipts));
-    totalDifficultyCache.ifPresent(
-        cache -> cache.put(block.getHash(), block.getHeader().getDifficulty()));
-    blockAccessListCache.ifPresent(
-        cache -> blockAccessList.ifPresent(t -> cache.put(block.getHash(), t)));
   }
 
   private void cacheBlockHeader(final BlockHeader blockHeader) {
@@ -681,7 +780,8 @@ public class DefaultBlockchain implements MutableBlockchain {
 
     updater.putBlockHeader(hash, block.getHeader());
     updater.putBlockBody(hash, block.getBody());
-    blockAccessList.ifPresent(bal -> updater.putBlockAccessList(hash, bal));
+    final Optional<Bytes> blockAccessListRlp =
+        blockAccessList.map(bal -> updater.putBlockAccessList(hash, bal));
     updater.putTransactionReceipts(hash, receipts);
     updater.putTotalDifficulty(hash, td);
 
@@ -696,6 +796,8 @@ public class DefaultBlockchain implements MutableBlockchain {
     }
 
     updater.commit();
+    blockAccessListRlp.ifPresent(
+        rlp -> blockAccessListCache.ifPresent(cache -> cache.put(hash, rlp)));
     blockAddedObservers.forEach(observer -> observer.onBlockAdded(blockAddedEvent));
   }
 
@@ -704,7 +806,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       final Block block,
       final List<TransactionReceipt> transactionReceipts,
       final Optional<Difficulty> maybeTotalDifficulty) {
-    cacheBlockData(block, transactionReceipts, Optional.empty());
+    cacheBlockData(block, transactionReceipts);
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     final Hash blockHash = block.getHash();
     updater.putBlockHeader(blockHash, block.getHeader());
@@ -725,22 +827,14 @@ public class DefaultBlockchain implements MutableBlockchain {
     Difficulty lastImportedTotalDifficulty = totalDifficulty;
     int lastImportedTransactionCount = chainHeadTransactionCount;
     for (final SyncBlockWithReceipts blockAndReceipts : blocksAndReceipts) {
-      final SyncBlock block = blockAndReceipts.getBlock();
-      final BlockHeader header = block.getHeader();
+      final BlockHeader header = blockAndReceipts.getHeader();
       final Hash blockHash = header.getHash();
-      final SyncBlockBody body = block.getBody();
       updater.putBlockHash(header.getNumber(), blockHash);
-      updater.putSyncBlockBody(blockHash, body);
-      updater.putSyncTransactionReceipts(blockHash, blockAndReceipts.getReceipts());
+      putSyncBlock(updater, blockAndReceipts, indexTransactions);
       lastImportedTotalDifficulty = calculateTotalDifficultyForSyncing(header);
       updater.putTotalDifficulty(blockHash, lastImportedTotalDifficulty);
       lastImportedHeader = header;
-      lastImportedTransactionCount = body.getEncodedTransactions().size();
-      if (indexTransactions) {
-        final List<Hash> listOfTxHashes =
-            body.getEncodedTransactions().stream().map(Hash::hash).toList();
-        indexTransactionHashesForBlock(updater, blockHash, listOfTxHashes);
-      }
+      lastImportedTransactionCount = blockAndReceipts.getBlock().getBody().getTransactionCount();
     }
     updater.setChainHead(lastImportedHeader.getBlockHash());
     updater.commit();
@@ -750,13 +844,106 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public void unsafeStoreSyncBodiesAndReceipts(
+      final List<SyncBlockWithReceipts> blocksAndReceipts, final boolean indexTransactions) {
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
+    blocksAndReceipts.forEach(block -> putSyncBlock(updater, block, indexTransactions));
+    updater.commit();
+  }
+
+  private void putSyncBlock(
+      final BlockchainStorage.Updater updater,
+      final SyncBlockWithReceipts blockAndReceipts,
+      final boolean indexTransactions) {
+    final Hash blockHash = blockAndReceipts.getHash();
+    final SyncBlockBody body = blockAndReceipts.getBlock().getBody();
+    updater.putSyncBlockBody(blockHash, body);
+    updater.putSyncTransactionReceipts(blockHash, blockAndReceipts.getReceipts());
+    if (indexTransactions) {
+      indexTransactionHashesForBlock(
+          updater, blockHash, body.getEncodedTransactions().stream().map(Hash::hash).toList());
+    }
+  }
+
+  @Override
+  public void unsafeStoreSyncBlockAccessLists(final Map<Hash, SyncBlockAccessList> accessLists) {
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
+    accessLists.forEach(updater::putSyncBlockAccessList);
+    updater.commit();
+  }
+
+  @Override
+  public Difficulty unsafeStoreSyncTotalDifficulties(
+      final long parent, final Difficulty parentTotal, final long last) {
+    checkArgument(last > parent, "block %s is not above block %s", last, parent);
+    Hash parentHash = canonicalHeader(parent).getHash();
+    Difficulty total = parentTotal;
+    final BlockchainStorage.Updater updater = blockchainStorage.batchUpdater();
+    try {
+      for (long number = parent + 1; number <= last; number++) {
+        final BlockHeader header = canonicalHeader(number);
+        if (!header.getParentHash().equals(parentHash)) {
+          throw new IllegalStateException(
+              "block " + number + " does not follow the canonical chain");
+        }
+        total = total.add(header.getDifficulty());
+        updater.putTotalDifficulty(header.getHash(), total);
+        parentHash = header.getHash();
+      }
+    } catch (final RuntimeException e) {
+      updater.rollback();
+      throw e;
+    }
+    updater.commit();
+    return total;
+  }
+
+  // not through getBlockHeader, whose cache millions of sync headers would flush
+  private BlockHeader canonicalHeader(final long number) {
+    return blockchainStorage
+        .getBlockHash(number)
+        .flatMap(blockchainStorage::getBlockHeader)
+        .orElseThrow(() -> new IllegalStateException("no canonical header for block " + number));
+  }
+
+  @Override
+  public void unsafeSetBodiesFrom(final long blockNumber) {
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    updater.setBodiesFrom(blockNumber);
+    updater.commit();
+  }
+
+  @Override
+  public void unsafeSetSyncFloor(final long blockNumber) {
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    updater.setSyncFloor(blockNumber);
+    updater.commit();
+  }
+
+  @Override
   public synchronized void unsafeSetChainHead(
       final BlockHeader blockHeader, final Difficulty totalDifficulty) {
+    final int transactionCount = transactionCount(blockHeader);
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
-    this.chainHeader = blockHeader;
-    this.totalDifficulty = totalDifficulty;
     updater.setChainHead(blockHeader.getBlockHash());
     updater.commit();
+    publishChainHead(blockHeader, totalDifficulty, transactionCount);
+  }
+
+  // read before the commit, so that a body that cannot be read writes nothing
+  private int transactionCount(final BlockHeader blockHeader) {
+    return blockchainStorage
+        .getBlockBody(blockHeader.getBlockHash())
+        .map(body -> body.getTransactions().size())
+        .orElse(0);
+  }
+
+  // once committed, as a failed commit leaves the stored chain head where it was
+  private void publishChainHead(
+      final BlockHeader blockHeader, final Difficulty totalDifficulty, final int transactionCount) {
+    chainHeadTransactionCount = transactionCount;
+    this.totalDifficulty = totalDifficulty;
+    chainHeader = blockHeader;
   }
 
   @Override
@@ -1070,6 +1257,21 @@ public class DefaultBlockchain implements MutableBlockchain {
     return this.getSafeBlock().flatMap(this::getBlockHeader).map(BlockHeader::getNumber).orElse(0L);
   }
 
+  @Override
+  public void putInclusionListStatus(
+      final Hash blockHash, final InclusionListStatus inclusionListStatus) {
+    final var updater = blockchainStorage.updater();
+    updater.putInclusionListStatus(blockHash, inclusionListStatus);
+    updater.commit();
+    inclusionListStatusCache.ifPresent(cache -> cache.put(blockHash, inclusionListStatus));
+  }
+
+  @Override
+  public Optional<InclusionListStatus> getInclusionListStatus(final Hash blockHash) {
+    return getCached(
+        inclusionListStatusCache, blockHash, blockchainStorage::getInclusionListStatus);
+  }
+
   private void updateCacheForNewCanonicalHead(final Block block, final Difficulty uInt256) {
     chainHeader = block.getHeader();
     totalDifficulty = uInt256;
@@ -1179,13 +1381,11 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   private Optional<BlockWithReceipts> getBlockWithReceipts(final BlockHeader blockHeader) {
-    return blockchainStorage
-        .getBlockBody(blockHeader.getHash())
+    return getBlockBody(blockHeader.getHash())
         .map(body -> new Block(blockHeader, body))
         .flatMap(
             block ->
-                blockchainStorage
-                    .getTransactionReceipts(blockHeader.getHash())
+                getTxReceipts(blockHeader.getHash())
                     .map(receipts -> new BlockWithReceipts(block, receipts)));
   }
 
@@ -1244,29 +1444,31 @@ public class DefaultBlockchain implements MutableBlockchain {
     return transactionReceiptsCache;
   }
 
-  public Optional<Cache<Hash, BlockAccessList>> getBlockAccessListCache() {
+  public Optional<Cache<Hash, Bytes>> getBlockAccessListCache() {
     return blockAccessListCache;
-  }
-
-  public Optional<Cache<Hash, Difficulty>> getTotalDifficultyCache() {
-    return totalDifficultyCache;
   }
 
   /**
    * Performs a binary search to find the first existing block number in the blockchain. This method
-   * starts the search from block number 1, as the genesis block (block 0) is assumed to always
-   * exist. It uses the chain head block number as the upper limit for the search.
+   * starts the search from {@code lowest}, at least block number 1, as the genesis block (block 0)
+   * is assumed to always exist. It uses the chain head block number as the upper limit for the
+   * search.
    *
    * <p>The search involves checking the presence of blocks by their numbers, narrowing down the
    * range until the first existing block is identified. If a block is found, its number is returned
    * wrapped in an {@code Optional}. If no block is found, an empty {@code Optional} is returned.
    *
+   * @param lowest the block number to start the search from
    * @return an {@code Optional<Long>} containing the number of the first existing block, or {@code
    *     Optional.empty()} if no block is found.
    */
-  private Optional<Long> getFirstNonGenesisBlockNumber() {
-    long low = 1;
+  private Optional<Long> getFirstNonGenesisBlockNumber(final long lowest) {
+    long low = lowest;
     long high = getChainHeadBlockNumber();
+    // a sync records bodies above the chain head before it moves the head up to them
+    if (low > high) {
+      return Optional.empty();
+    }
     while (low < high) {
       long mid = (low + high) / 2;
       if (getBlockByNumber(mid).isPresent()) {
