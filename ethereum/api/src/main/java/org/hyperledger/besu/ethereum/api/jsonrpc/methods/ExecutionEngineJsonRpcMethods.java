@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.methods;
 
 import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
@@ -55,6 +56,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineN
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV5;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV6;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadWithWitnessV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineQosTimer;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
@@ -199,6 +201,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         .thenFrom(CANCUN, EngineNewPayloadV3::new)
         .thenFrom(PRAGUE, EngineNewPayloadV4::new)
         .thenFrom(AMSTERDAM, EngineNewPayloadV5::new)
+        .thenFrom(BOGOTA, EngineNewPayloadV6::new)
         .build(constructorArguments);
   }
 

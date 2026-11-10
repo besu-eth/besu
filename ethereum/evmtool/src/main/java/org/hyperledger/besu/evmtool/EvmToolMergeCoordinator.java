@@ -87,7 +87,7 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
   public BlockProcessingResult rememberBlock(
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final InclusionListTransactions inclusionListTransactions,
+      final Optional<InclusionListTransactions> inclusionListTransactions,
       final Executor blockWriter) {
     final var result =
         protocolSchedule
@@ -99,7 +99,7 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
-                inclusionListTransactions,
+                inclusionListTransactions.orElse(InclusionListTransactions.EMPTY),
                 false);
     result
         .getYield()
