@@ -313,12 +313,14 @@ public class LayeredPendingTransactions implements PendingTransactions {
     final var evaluationResults =
         selector.evaluatePendingTransactions(Collections.unmodifiableList(candidateTxsByScore));
 
-    // a result that is not complete yet, since the evaluation of its tx is still running after a
-    // timeout or a cancellation, is processed by the evaluating thread when it completes
+    // results are processed asynchronously, and the result of a tx whose evaluation is still
+    // running after a timeout or a cancellation, only once it completes
     evaluationResults.forEach(
         (evaluatedPendingTx, futureResult) ->
             futureResult
-                .thenAccept(result -> processSelectionResult(evaluatedPendingTx, result))
+                .thenAcceptAsync(
+                    result -> processSelectionResult(evaluatedPendingTx, result),
+                    ethScheduler::executeServiceTask)
                 .exceptionally(
                     throwable -> {
                       LOG.warn(
@@ -338,36 +340,30 @@ public class LayeredPendingTransactions implements PendingTransactions {
         .log();
 
     if (result.discard()) {
-      ethScheduler.scheduleServiceTask(
-          () -> {
-            synchronized (this) {
-              getPooledInstance(evaluatedPendingTx)
-                  .ifPresent(
-                      pooledTx -> {
-                        prioritizedTransactions.remove(pooledTx, INVALIDATED);
-                        logInvalidTransaction(pooledTx, result);
-                        LOG.atTrace()
-                            .setMessage("Transaction {} removed by block selection")
-                            .addArgument(pooledTx::toTraceLog)
-                            .log();
-                      });
-            }
-          });
+      synchronized (this) {
+        getPooledInstance(evaluatedPendingTx)
+            .ifPresent(
+                pooledTx -> {
+                  prioritizedTransactions.remove(pooledTx, INVALIDATED);
+                  logInvalidTransaction(pooledTx, result);
+                  LOG.atTrace()
+                      .setMessage("Transaction {} removed by block selection")
+                      .addArgument(pooledTx::toTraceLog)
+                      .log();
+                });
+      }
     } else if (result.penalize()) {
-      ethScheduler.scheduleServiceTask(
-          () -> {
-            synchronized (this) {
-              getPooledInstance(evaluatedPendingTx)
-                  .ifPresent(
-                      pooledTx -> {
-                        prioritizedTransactions.penalize(pooledTx, result);
-                        LOG.atTrace()
-                            .setMessage("Transaction {} penalized by block selection")
-                            .addArgument(pooledTx::toTraceLog)
-                            .log();
-                      });
-            }
-          });
+      synchronized (this) {
+        getPooledInstance(evaluatedPendingTx)
+            .ifPresent(
+                pooledTx -> {
+                  prioritizedTransactions.penalize(pooledTx, result);
+                  LOG.atTrace()
+                      .setMessage("Transaction {} penalized by block selection")
+                      .addArgument(pooledTx::toTraceLog)
+                      .log();
+                });
+      }
     }
   }
 
