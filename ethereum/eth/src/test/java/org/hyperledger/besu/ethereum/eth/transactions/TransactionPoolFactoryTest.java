@@ -102,6 +102,8 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class TransactionPoolFactoryTest {
+  private static final long LOCAL_HEIGHT = 100L;
+
   @Mock ProtocolSchedule schedule;
   @Mock ProtocolContext context;
   @Mock ProtocolSpec protocolSpec;
@@ -213,6 +215,7 @@ public class TransactionPoolFactoryTest {
     verify(blockchain, atLeastOnce()).observeBlockAdded(blockAddedListeners.capture());
 
     assertThat(blockAddedListeners.getAllValues()).contains(pool);
+    assertThat(pool.isEnabled()).isTrue();
   }
 
   @Test
@@ -300,14 +303,56 @@ public class TransactionPoolFactoryTest {
   }
 
   @Test
-  public void txPoolIsLeftForTheNodeToEnableWhenFullSyncConfigured() {
-    // when using FULL sync there is no initial sync to wait for, so the node enables the txpool
-    // itself once its plugins have started, rather than the factory enabling it at creation
+  public void txPoolStartsEnabledWhenFullSyncConfigured() {
+    // when using FULL sync, txpool starts enabled, because it could be
+    // that it is the first node on a new network and so, it is in sync with genesis
+    // and must accept txs. Otherwise, asap it find a sync target that is ahead, the txpool
+    // will be disabled, until in sync.
     setupInitialSyncPhase(false);
+    assertThat(pool.isEnabled()).isTrue();
+  }
+
+  @Test
+  public void txPoolIsNotEnabledBeforeTheNodeStartsTransactionHandling() {
+    // even with no initial sync to wait for the factory leaves the txpool disabled: the node
+    // enables it by starting transaction handling, which it does once its plugins have started
+    createPoolWithoutStartingTransactionHandling();
     assertThat(pool.isEnabled()).isFalse();
 
-    pool.setEnabled();
+    pool.startTransactionHandling();
     assertThat(pool.isEnabled()).isTrue();
+  }
+
+  @Test
+  public void newChainHeadDoesNotEnableTxPoolBeforeTheNodeStartsTransactionHandling() {
+    final ArgumentCaptor<BlockAddedObserver> syncStateObserver =
+        createPoolWithoutStartingTransactionHandling();
+
+    // with no peers the first new chain head makes the sync state report in sync
+    syncStateObserver
+        .getValue()
+        .onBlockAdded(
+            BlockAddedEvent.createForHeadAdvancement(
+                new BlockDataGenerator().block(), List.of(), List.of()));
+    assertThat(pool.isEnabled()).isFalse();
+  }
+
+  @Test
+  public void enginePayloadDoesNotEnableTxPoolBeforeTheNodeStartsTransactionHandling() {
+    createPoolWithoutStartingTransactionHandling();
+
+    // a payload at the local chain head makes the sync state report in sync
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(LOCAL_HEIGHT).buildHeader());
+    assertThat(pool.isEnabled()).isFalse();
+  }
+
+  @Test
+  public void startingTransactionHandlingAgainDoesNotEnableTxPool() {
+    setupInitialSyncPhase(false);
+    pool.setDisabled();
+
+    pool.startTransactionHandling();
+    assertThat(pool.isEnabled()).isFalse();
   }
 
   @Test
@@ -340,8 +385,6 @@ public class TransactionPoolFactoryTest {
         ArgumentCaptor.forClass(BlockAddedObserver.class);
     verify(blockchain).observeBlockAdded(syncStateObserver.capture());
     setupInitialSyncPhase(syncState);
-    // with no initial sync phase the node enables the pool once its plugins have started
-    pool.setEnabled();
     assertThat(pool.isEnabled()).isTrue();
 
     syncStateObserver
@@ -465,8 +508,31 @@ public class TransactionPoolFactoryTest {
     setupInitialSyncPhase(syncState);
   }
 
+  /**
+   * Creates the pool of a node with no initial sync phase and no peers, as it is while the node's
+   * plugins are starting.
+   *
+   * @return the captor holding the sync state's block added observer
+   */
+  private ArgumentCaptor<BlockAddedObserver> createPoolWithoutStartingTransactionHandling() {
+    when(blockchain.getChainHead())
+        .thenReturn(
+            new ChainHead(
+                new BlockHeaderTestFixture().number(LOCAL_HEIGHT).buildHeader(),
+                Difficulty.ONE,
+                LOCAL_HEIGHT));
+    syncState = new SyncState(blockchain, ethPeers, false, Optional.empty());
+    final ArgumentCaptor<BlockAddedObserver> syncStateObserver =
+        ArgumentCaptor.forClass(BlockAddedObserver.class);
+    verify(blockchain).observeBlockAdded(syncStateObserver.capture());
+    pool = createTransactionPool(LAYERED, syncState);
+    return syncStateObserver;
+  }
+
   private void setupInitialSyncPhase(final SyncState syncState) {
     pool = createTransactionPool(LAYERED, syncState);
+    // the node starts transaction handling once its plugins have started
+    pool.startTransactionHandling();
     SynchronizerConfiguration syncConfig = mock(SynchronizerConfiguration.class);
     when(syncConfig.getSyncMode()).thenReturn(SyncMode.FULL);
     ethProtocolManager =
