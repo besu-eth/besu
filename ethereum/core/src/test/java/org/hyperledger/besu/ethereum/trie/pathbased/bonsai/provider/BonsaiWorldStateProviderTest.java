@@ -16,11 +16,15 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withStateRootAndBlockHashAndUpdateNodeHead;
+import static org.mockito.AdditionalMatchers.aryEq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -58,6 +62,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -435,6 +440,49 @@ class BonsaiWorldStateProviderTest {
     when(worldStateCacheManager.getWorldState(genesis.getHash()))
         .thenThrow(new RuntimeException("Storage is marked to close or has already closed"));
 
+    final AtomicBoolean mapperCalled = new AtomicBoolean();
+    assertThat(
+            bonsaiWorldStateArchive.getAccountProof(
+                genesis,
+                Address.ZERO,
+                List.of(),
+                proof -> {
+                  mapperCalled.set(true);
+                  return Optional.of(proof);
+                }))
+        .isEmpty();
+    assertThat(mapperCalled).isFalse();
+  }
+
+  @Test
+  void getAccountProofReturnsEmptyWhenTrieIsDisabled() {
+    final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
+        new BonsaiWorldStateKeyValueStorage(
+            storageProvider, new NoOpMetricsSystem(), DEFAULT_CONFIG);
+    bonsaiWorldStateArchive = createBonsaiWorldStateProvider(worldStateKeyValueStorage);
+
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    // as disableWorldStateTrie leaves the storage: the root hash is kept, the trie nodes are not
+    final Hash rootHash = Hash.hash(Bytes.of(1));
+    when(segmentedKeyValueStorage.get(eq(TRIE_BRANCH_STORAGE), aryEq(WORLD_ROOT_HASH_KEY)))
+        .thenReturn(Optional.of(rootHash.getBytes().toArrayUnsafe()));
+    final BonsaiWorldState mockWorldState = createMockWorldState(genesis.getHash());
+    when(mockWorldState.getWorldStateStorage()).thenReturn(worldStateKeyValueStorage);
+    when(mockWorldState.getWorldStateRootHash()).thenReturn(rootHash);
+    when(mockWorldState.getWorldStateBlockHash()).thenReturn(genesis.getHash());
+    when(worldStateCacheManager.getWorldState(genesis.getHash()))
+        .thenReturn(Optional.of(mockWorldState));
+    when(blockchain.getChainHeadHeader()).thenReturn(genesis);
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(512L);
+
+    // the state counts as available, so building a proof on it fails on the missing root node
+    assertThatThrownBy(
+            () ->
+                bonsaiWorldStateArchive.getAccountProof(
+                    genesis, Address.ZERO, List.of(), proof -> Optional.of(proof)))
+        .isInstanceOf(MerkleTrieException.class);
+
+    when(mockWorldState.isTrieDisabled()).thenReturn(true);
     final AtomicBoolean mapperCalled = new AtomicBoolean();
     assertThat(
             bonsaiWorldStateArchive.getAccountProof(
