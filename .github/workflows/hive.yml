@@ -135,6 +135,7 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           df -h / | tail -1
       - name: Summarise results
+        id: summary
         if: always()
         working-directory: hive
         run: |
@@ -143,22 +144,49 @@ jobs:
           results=(workspace/logs/[0-9]*.json)
           if [ ${#results[@]} -eq 0 ]; then
             echo "No hive results were written." >> "$GITHUB_STEP_SUMMARY"
+            echo "failed=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           python3 - "${results[@]}" <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          import json, sys
+          import html, json, os, sys
+
+          # Failures listed by name, and the hive log of the first few, which holds the
+          # request, the response and how it differs from what the test expects.
+          MAX_NAMES, MAX_DETAILS, MAX_LINES, MAX_LINE_LENGTH = 200, 20, 40, 300
+
+          def details(suite_dir, suite, case):
+              log = case["summaryResult"].get("log")
+              path = os.path.join(suite_dir, suite.get("testDetailsLog") or "")
+              if not log or not os.path.isfile(path):
+                  return case["summaryResult"].get("details", "")
+              with open(path, "rb") as f:
+                  f.seek(log["begin"])
+                  return f.read(log["end"] - log["begin"]).decode(errors="replace")
+
+          total_failed = 0
           print("### Hive results\n")
           for path in sys.argv[1:]:
               with open(path) as f:
                   suite = json.load(f)
               cases = suite.get("testCases", {}).values()
-              failed = sorted(c["name"] for c in cases if not c["summaryResult"]["pass"])
+              failed = sorted((c for c in cases if not c["summaryResult"]["pass"]), key=lambda c: c["name"])
+              total_failed += len(failed)
               print(f"**{suite.get('name')}**: {len(cases) - len(failed)} passed, {len(failed)} failed\n")
-              for name in failed[:200]:
-                  print(f"- {name}")
-              if len(failed) > 200:
-                  print(f"- … and {len(failed) - 200} more, see the hive-results artifact")
+              for case in failed[:MAX_NAMES]:
+                  print(f"- {case['name']}")
+              if len(failed) > MAX_NAMES:
+                  print(f"- … and {len(failed) - MAX_NAMES} more, see the hive-results artifact")
               print()
+              for case in failed[:MAX_DETAILS]:
+                  lines = details(os.path.dirname(path), suite, case).strip().splitlines()
+                  shown = [l if len(l) <= MAX_LINE_LENGTH else l[:MAX_LINE_LENGTH] + " …" for l in lines[:MAX_LINES]]
+                  if len(lines) > MAX_LINES:
+                      shown.append(f"… {len(lines) - MAX_LINES} more lines in the hive-results artifact")
+                  print(f"<details><summary>{html.escape(case['name'])}</summary>\n\n````\n" + "\n".join(shown) + "\n````\n</details>\n")
+              if len(failed) > MAX_DETAILS:
+                  print(f"Details of the other {len(failed) - MAX_DETAILS} failures are in the hive-results artifact.\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              print(f"failed={total_failed}", file=out)
           EOF
       - name: Upload Hive results
         if: always()
@@ -167,10 +195,17 @@ jobs:
           name: hive-results
           path: hive/workspace/logs
           retention-days: 7
-      - name: Fail if any test failed
+      - name: Fail if hive failed
         if: steps.hive.outputs.status != '0'
         env:
           HIVE_STATUS: ${{ steps.hive.outputs.status }}
+          FAILED: ${{ steps.summary.outputs.failed }}
         run: |
-          echo "Hive exited with status $HIVE_STATUS: at least one test failed"
+          # hive also exits non-zero when it fails itself, such as on a build error or a
+          # client that does not start, often before it writes any results.
+          if [ "${FAILED:-0}" -gt 0 ]; then
+            echo "::error::$FAILED hive tests failed, see the job summary"
+          else
+            echo "::error::Hive exited with status $HIVE_STATUS without a failed test, see the Run Hive step"
+          fi
           exit 1
