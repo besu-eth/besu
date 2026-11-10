@@ -100,9 +100,9 @@ public interface BesuPlugin {
    * listening with discovery running when enabled, though the peer count may still be zero, and the
    * synchronizer has started, though sync may be in progress or already complete. This is the first
    * point at which the {@link RunningService} types ({@code P2PService}, {@code
-   * SynchronizationService}, {@code MiningService}) return meaningful answers, so work that needs a
-   * running network, the sync status or mining control belongs here rather than in {@link
-   * #start(StartContext)}.
+   * SynchronizationService}, {@code MiningService}, {@code TransactionPoolService}) return
+   * meaningful answers, so work that needs a running network, the sync status, mining control or
+   * control of the transaction pool belongs here rather than in {@link #start(StartContext)}.
    *
    * <p>The external services have been accepting requests since before the main loop started, so a
    * callback this plugin registered may already have run by the time this method is called.

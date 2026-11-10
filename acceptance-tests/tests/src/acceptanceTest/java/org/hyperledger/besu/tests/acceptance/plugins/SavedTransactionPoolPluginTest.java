@@ -21,6 +21,7 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.account.TransferTransaction;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.util.Base64;
 import java.util.List;
@@ -56,10 +57,14 @@ public class SavedTransactionPoolPluginTest extends AcceptanceTestBase {
             "TXPOOL");
 
     final Account recipient = accounts.createAccount("recipient");
-    final TransferTransaction accepted =
-        accountTransactions.createTransferWithGasLimit(recipient, 1, ACCEPTED_GAS_LIMIT);
+    // the rejected transfer takes the sender's next nonce, so once it is refused the accepted one
+    // is a future transaction that cannot be mined and stays in the pool until the check below
     final TransferTransaction rejected =
-        accountTransactions.createTransferWithGasLimit(recipient, 1, REJECTED_GAS_LIMIT);
+        accountTransactions.createTransferWithGasLimit(
+            recipient, 1, REJECTED_GAS_LIMIT, BigInteger.ZERO);
+    final TransferTransaction accepted =
+        accountTransactions.createTransferWithGasLimit(
+            recipient, 1, ACCEPTED_GAS_LIMIT, BigInteger.ONE);
     // one transaction per line: optional score, 'l' for local, then the Base64 of the RLP. The
     // rejected one goes first: lines are restored in order and the absence check below does not
     // wait, so the accepted one being in the pool means the rejected one has been decided

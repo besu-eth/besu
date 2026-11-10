@@ -26,6 +26,8 @@ import org.hyperledger.besu.plugin.services.p2p.PeerEventService;
 import org.hyperledger.besu.plugin.services.query.BftQueryService;
 import org.hyperledger.besu.plugin.services.sync.SyncEventService;
 import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
+import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
+import org.hyperledger.besu.plugin.services.transactionpool.TxPoolEventService;
 
 import java.io.File;
 import java.net.URI;
@@ -72,6 +74,8 @@ class PhaseContextBoundsTest {
       import org.hyperledger.besu.plugin.services.query.BftQueryService;
       import org.hyperledger.besu.plugin.services.sync.SyncEventService;
       import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
+      import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
+      import org.hyperledger.besu.plugin.services.transactionpool.TxPoolEventService;
       """;
 
   /** The jars and class directories holding the plugin API types the snippets refer to. */
@@ -87,6 +91,8 @@ class PhaseContextBoundsTest {
             PeerEventService.class,
             SyncEventService.class,
             SynchronizationService.class,
+            TransactionPoolService.class,
+            TxPoolEventService.class,
             BftQueryService.class)
         .map(Class::getProtectionDomain)
         .map(java.security.ProtectionDomain::getCodeSource)
@@ -173,6 +179,18 @@ class PhaseContextBoundsTest {
         """);
     assertRejected("registration.getBesuService(SyncEventService.class);");
     assertRejected("registration.getBesuService(PeerEventService.class);");
+  }
+
+  @Test
+  void eventHalfOfTheTransactionPoolIsAStartServiceWhileItsParentIsNot() {
+    // a subscription must be in place before the node enables the pool, which happens only after
+    // every plugin's start() has returned, so enabling, disabling and reading it wait for the
+    // running phase
+    assertAccepted("TxPoolEventService events = start.getBesuService(TxPoolEventService.class);");
+    assertAccepted(
+        "TransactionPoolService pool = running.getBesuService(TransactionPoolService.class);");
+    assertRejected("registration.getBesuService(TxPoolEventService.class);");
+    assertRejected("start.getBesuService(TransactionPoolService.class);");
   }
 
   @Test
