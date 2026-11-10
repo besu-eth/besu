@@ -99,6 +99,12 @@ public class ApiConfigurationOptions {
   private final Long maxTraceFilterRange = 1000L;
 
   @CommandLine.Option(
+      names = {"--rpc-trace-files-max-dir-size"},
+      description =
+          "Specifies the maximum total size in bytes of the trace files written by the debug_standardTraceBlockToFile and debug_standardTraceBadBlockToFile methods. Must be >=0. 0 specifies no limit  (default: ${DEFAULT-VALUE})")
+  private final Long traceFilesMaxDirSize = ApiConfiguration.DEFAULT_TRACE_FILES_MAX_DIR_SIZE;
+
+  @CommandLine.Option(
       names = {"--rpc-max-active-filters"},
       description =
           "Specifies the maximum number of concurrently-active RPC filters (eth_newFilter, "
@@ -141,6 +147,10 @@ public class ApiConfigurationOptions {
             "--api-gas-and-priority-fee-lower-bound-coefficient cannot be greater than the value of --api-gas-and-priority-fee-upper-bound-coefficient");
       }
     }
+    if (traceFilesMaxDirSize < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--rpc-trace-files-max-dir-size must be >= 0 (0 specifies no limit)");
+    }
     if (rpcMaxActiveFilters < 0) {
       throw new CommandLine.ParameterException(
           commandLine, "--rpc-max-active-filters must be >= 0 (0 specifies no limit)");
@@ -181,6 +191,7 @@ public class ApiConfigurationOptions {
             .estimateGasToleranceRatio(estimateGasToleranceRatio)
             .maxLogsRange(rpcMaxLogsRange)
             .gasCap(rpcGasCap)
+            .traceFilesMaxDirSize(traceFilesMaxDirSize)
             .isGasAndPriorityFeeLimitingEnabled(apiGasAndPriorityFeeLimitingEnabled)
             .maxTraceFilterRange(maxTraceFilterRange)
             .maxFilterCount(rpcMaxActiveFilters)

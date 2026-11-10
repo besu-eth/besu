@@ -22,6 +22,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TraceFileWriteException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TraceFilesDirSizeLimitExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -35,6 +37,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import com.google.common.base.Suppliers;
@@ -44,14 +47,24 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
   protected final Supplier<BlockchainQueries> blockchainQueries;
   private final Supplier<TransactionTracer> transactionTracerSupplier;
   private final Path dataDir;
+  private final long traceFilesMaxDirSize;
 
   public DebugStandardTraceBlockToFile(
       final Supplier<TransactionTracer> transactionTracerSupplier,
       final BlockchainQueries blockchainQueries,
       final Path dataDir) {
+    this(transactionTracerSupplier, blockchainQueries, dataDir, 0L);
+  }
+
+  public DebugStandardTraceBlockToFile(
+      final Supplier<TransactionTracer> transactionTracerSupplier,
+      final BlockchainQueries blockchainQueries,
+      final Path dataDir,
+      final long traceFilesMaxDirSize) {
     this.transactionTracerSupplier = transactionTracerSupplier;
     this.blockchainQueries = Suppliers.ofInstance(blockchainQueries);
     this.dataDir = dataDir;
+    this.traceFilesMaxDirSize = traceFilesMaxDirSize;
   }
 
   @Override
@@ -82,31 +95,60 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
         .get()
         .getBlockchain()
         .getBlockByHash(blockHash)
-        .map(
-            block ->
-                (JsonRpcResponse)
-                    new JsonRpcSuccessResponse(
-                        requestContext.getRequest().getId(),
-                        traceBlock(block, transactionTraceParams)))
+        .map(block -> traceBlockResponse(requestContext, block, transactionTraceParams))
         .orElse(
             new JsonRpcErrorResponse(
                 requestContext.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND));
   }
 
+  protected JsonRpcResponse traceBlockResponse(
+      final JsonRpcRequestContext requestContext,
+      final Block block,
+      final Optional<TransactionTraceParams> transactionTraceParams) {
+    try {
+      return new JsonRpcSuccessResponse(
+          requestContext.getRequest().getId(), traceBlock(block, transactionTraceParams));
+    } catch (final TraceFilesDirSizeLimitExceededException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.TRACE_FILES_DIR_SIZE_LIMIT_EXCEEDED);
+    } catch (final TraceFileWriteException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.TRACE_FILE_WRITE_FAILED);
+    }
+  }
+
   protected List<String> traceBlock(
       final Block block, final Optional<TransactionTraceParams> transactionTraceParams) {
-    return Tracer.processTracing(
-            blockchainQueries.get(),
-            Optional.of(block.getHeader()),
-            mutableWorldState ->
-                Optional.of(
-                    transactionTracerSupplier
-                        .get()
-                        .traceTransactionToFile(
-                            mutableWorldState,
-                            block.getHash(),
-                            transactionTraceParams,
-                            dataDir.resolve(TRACE_PATH))))
-        .orElse(new ArrayList<>());
+    // BlockchainQueries.getAndMapWorldState catches and logs any exception thrown by the mapper,
+    // so the size limit exception is captured here and rethrown once processTracing returns.
+    final AtomicReference<RuntimeException> traceFailure = new AtomicReference<>();
+    final List<String> result =
+        Tracer.processTracing(
+                blockchainQueries.get(),
+                Optional.of(block.getHeader()),
+                mutableWorldState -> {
+                  try {
+                    return Optional.of(
+                        transactionTracerSupplier
+                            .get()
+                            .traceTransactionToFile(
+                                mutableWorldState,
+                                block.getHash(),
+                                transactionTraceParams,
+                                dataDir.resolve(TRACE_PATH),
+                                traceFilesMaxDirSize));
+                  } catch (final TraceFilesDirSizeLimitExceededException e) {
+                    traceFailure.set(e);
+                    return Optional.empty();
+                  } catch (final TraceFileWriteException e) {
+                    traceFailure.set(e);
+                    return Optional.empty();
+                  }
+                })
+            .orElse(new ArrayList<>());
+    if (traceFailure.get() != null) {
+      throw traceFailure.get();
+    }
+    return result;
   }
 }

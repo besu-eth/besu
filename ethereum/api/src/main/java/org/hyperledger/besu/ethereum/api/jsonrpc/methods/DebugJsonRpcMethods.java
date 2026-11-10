@@ -120,9 +120,16 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
         new DebugBatchSendRawTransaction(transactionPool),
         new DebugGetBadBlocks(protocolContext, blockResult),
         new DebugStandardTraceBlockToFile(
-            () -> new TransactionTracer(blockReplay), blockchainQueries, dataDir),
+            () -> new TransactionTracer(blockReplay),
+            blockchainQueries,
+            dataDir,
+            apiConfiguration.getTraceFilesMaxDirSize()),
         new DebugStandardTraceBadBlockToFile(
-            () -> new TransactionTracer(blockReplay), blockchainQueries, protocolContext, dataDir),
+            () -> new TransactionTracer(blockReplay),
+            blockchainQueries,
+            protocolContext,
+            dataDir,
+            apiConfiguration.getTraceFilesMaxDirSize()),
         new DebugAccountAt(blockchainQueries, () -> new BlockTracer(blockReplay)),
         new DebugGetRawHeader(blockchainQueries),
         new DebugGetRawBlock(blockchainQueries),

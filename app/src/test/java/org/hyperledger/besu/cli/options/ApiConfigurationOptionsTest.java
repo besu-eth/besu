@@ -217,6 +217,32 @@ public class ApiConfigurationOptionsTest extends CommandTestAbstract {
   }
 
   @Test
+  public void rpcTraceFilesMaxDirSizeOptionMustBeUsed() {
+    final long traceFilesMaxDirSize = 1073741824L;
+    parseCommand("--rpc-trace-files-max-dir-size", Long.toString(traceFilesMaxDirSize));
+
+    verify(mockRunnerBuilder).apiConfiguration(apiConfigurationCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(apiConfigurationCaptor.getValue())
+        .isEqualTo(
+            ImmutableApiConfiguration.builder().traceFilesMaxDirSize(traceFilesMaxDirSize).build());
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcTraceFilesMaxDirSizeNegativeValueMustFail() {
+    parseCommand("--rpc-trace-files-max-dir-size", "-1");
+
+    Mockito.verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--rpc-trace-files-max-dir-size must be >= 0 (0 specifies no limit)");
+  }
+
+  @Test
   public void rpcFilterTimeoutMustBePositive() {
     parseCommand("--rpc-filter-timeout-seconds", "0");
 
