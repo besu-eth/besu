@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TraceFileWriteException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TraceFilesDirSizeLimitExceededException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
@@ -110,6 +111,9 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
     } catch (final TraceFilesDirSizeLimitExceededException e) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.TRACE_FILES_DIR_SIZE_LIMIT_EXCEEDED);
+    } catch (final TraceFileWriteException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.TRACE_FILE_WRITE_FAILED);
     }
   }
 
@@ -117,8 +121,7 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
       final Block block, final Optional<TransactionTraceParams> transactionTraceParams) {
     // BlockchainQueries.getAndMapWorldState catches and logs any exception thrown by the mapper,
     // so the size limit exception is captured here and rethrown once processTracing returns.
-    final AtomicReference<TraceFilesDirSizeLimitExceededException> limitExceeded =
-        new AtomicReference<>();
+    final AtomicReference<RuntimeException> traceFailure = new AtomicReference<>();
     final List<String> result =
         Tracer.processTracing(
                 blockchainQueries.get(),
@@ -135,13 +138,16 @@ public class DebugStandardTraceBlockToFile implements JsonRpcMethod {
                                 dataDir.resolve(TRACE_PATH),
                                 traceFilesMaxDirSize));
                   } catch (final TraceFilesDirSizeLimitExceededException e) {
-                    limitExceeded.set(e);
+                    traceFailure.set(e);
+                    return Optional.empty();
+                  } catch (final TraceFileWriteException e) {
+                    traceFailure.set(e);
                     return Optional.empty();
                   }
                 })
             .orElse(new ArrayList<>());
-    if (limitExceeded.get() != null) {
-      throw limitExceeded.get();
+    if (traceFailure.get() != null) {
+      throw traceFailure.get();
     }
     return result;
   }

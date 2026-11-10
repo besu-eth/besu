@@ -47,11 +47,14 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -377,5 +380,73 @@ public class TransactionTracerTest {
     mockSingleTransactionBlockForFileTracing();
 
     assertThat(traceToFile(1024 * 1024L)).hasSize(1);
+  }
+
+  @Test
+  public void traceTransactionToFileShouldDeleteAllCallFilesWhenLimitExceededMidBlock()
+      throws IOException {
+    mockTwoTransactionBlockForFileTracing();
+    final List<String> paths = traceToFile(0L);
+    assertThat(paths).hasSize(2);
+    final long oneFileSize = Files.size(Path.of(paths.get(0)));
+    for (final String path : paths) {
+      Files.deleteIfExists(Path.of(path));
+    }
+
+    assertThatThrownBy(() -> traceToFile(oneFileSize))
+        .isInstanceOf(TraceFilesDirSizeLimitExceededException.class);
+    try (var files = Files.list(traceDir)) {
+      assertThat(files.count()).isZero();
+    }
+  }
+
+  @Test
+  public void traceTransactionToFileShouldReportWriteFailureNotLimitOnReadOnlyDirectory()
+      throws IOException {
+    assumePosix();
+    mockSingleTransactionBlockForFileTracing();
+    final Set<PosixFilePermission> readOnly = PosixFilePermissions.fromString("r-xr-xr-x");
+    final Set<PosixFilePermission> readWrite = PosixFilePermissions.fromString("rwxr-xr-x");
+    Files.setPosixFilePermissions(traceDir, readOnly);
+    try {
+      assertThatThrownBy(() -> traceToFile(0L))
+          .isInstanceOf(TraceFileWriteException.class)
+          .isNotInstanceOf(TraceFilesDirSizeLimitExceededException.class);
+    } finally {
+      Files.setPosixFilePermissions(traceDir, readWrite);
+    }
+  }
+
+  private void mockTwoTransactionBlockForFileTracing() {
+    when(blockBody.getTransactions()).thenReturn(Arrays.asList(transaction, otherTransaction));
+    when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
+    when(blockchain.getBlockHeader(blockHash)).thenReturn(Optional.of(blockHeader));
+    when(blockchain.getBlockHeader(previousBlockHash)).thenReturn(Optional.of(previousBlockHeader));
+
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getOutput()).thenReturn(Bytes.of(0x01, 0x02));
+
+    final WorldUpdater updater = mock(WorldUpdater.class);
+    when(mutableWorldState.updater()).thenReturn(updater);
+    final WorldUpdater stackedUpdater = mock(StackedUpdater.class);
+    when(updater.updater()).thenReturn(stackedUpdater);
+    when(transactionProcessor.processTransaction(
+            eq(stackedUpdater),
+            eq(blockHeader),
+            any(Transaction.class),
+            eq(null),
+            any(StreamingOperationTracer.class),
+            any(),
+            any(),
+            eq(Wei.ZERO)))
+        .thenReturn(result);
+  }
+
+  private static void assumePosix() {
+    try {
+      Files.getPosixFilePermissions(Path.of("."));
+    } catch (final IOException | UnsupportedOperationException e) {
+      org.junit.jupiter.api.Assumptions.abort("POSIX file permissions not supported");
+    }
   }
 }

@@ -147,6 +147,10 @@ public class ApiConfigurationOptions {
             "--api-gas-and-priority-fee-lower-bound-coefficient cannot be greater than the value of --api-gas-and-priority-fee-upper-bound-coefficient");
       }
     }
+    if (traceFilesMaxDirSize < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--rpc-trace-files-max-dir-size must be >= 0 (0 specifies no limit)");
+    }
     if (rpcMaxActiveFilters < 0) {
       throw new CommandLine.ParameterException(
           commandLine, "--rpc-max-active-filters must be >= 0 (0 specifies no limit)");

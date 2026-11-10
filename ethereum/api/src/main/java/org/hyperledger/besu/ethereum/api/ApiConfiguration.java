@@ -44,8 +44,8 @@ public abstract class ApiConfiguration {
   /** The default gas cap used for transaction simulation */
   public static final long DEFAULT_GAS_CAP = 100_000_000L;
 
-  /** Default maximum total size, in bytes, of the trace files directory (10 GiB). */
-  public static final long DEFAULT_TRACE_FILES_MAX_DIR_SIZE = 10L * 1024 * 1024 * 1024;
+  /** Default maximum total size, in bytes, of the trace files directory (0 means no limit). */
+  public static final long DEFAULT_TRACE_FILES_MAX_DIR_SIZE = 0L;
 
   /** The default maximum number of concurrently active JSON-RPC filters. */
   public static final int DEFAULT_MAX_FILTER_COUNT = 1000;

@@ -145,10 +145,13 @@ public enum RpcErrorType implements RpcMethodError {
   DISCOVERY_DISABLED(-32000, "Discovery has been disabled. This functionality is not available"),
   P2P_NETWORK_NOT_RUNNING(-32000, "P2P network is not running"),
 
-  // Filter & Subscription Errors
+  // Trace file errors
   TRACE_FILES_DIR_SIZE_LIMIT_EXCEEDED(
       -32000,
       "Trace files directory size limit exceeded; remove old traces or raise --rpc-trace-files-max-dir-size"),
+  TRACE_FILE_WRITE_FAILED(-32000, "Failed to write trace file"),
+
+  // Filter & Subscription Errors
   FILTER_NOT_FOUND(-32000, "Filter not found"),
   LOGS_FILTER_NOT_FOUND(-32000, "Logs filter not found"),
   SUBSCRIPTION_NOT_FOUND(-32000, "Subscription not found"),
