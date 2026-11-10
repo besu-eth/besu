@@ -152,21 +152,13 @@ public class Runner implements AutoCloseable {
   }
 
   /**
-   * Enables the transaction pool when the node has no initial sync phase to wait for, on full sync
-   * or with peer-to-peer disabled; otherwise the pool is enabled once the initial sync completes.
-   * Called after the plugins have started, so a saved pool is restored through validators and
-   * permissioning that are in place, and before the external services open their ports, so no
-   * submission from outside the node is refused as pool disabled.
+   * Start external services. Called after the plugins have started; transaction handling is started
+   * first, so on a node with no initial sync to wait for a saved transaction pool is restored
+   * through validators and permissioning that are in place, and no submission from outside the node
+   * is refused as pool disabled.
    */
-  public void enableTransactionPool() {
-    if (besuController.getSyncState().isInitialSyncPhaseDone()) {
-      LOG.info("Enabling transaction pool");
-      besuController.getTransactionPool().setEnabled();
-    }
-  }
-
-  /** Start external services. */
   public void startExternalServices() {
+    besuController.getTransactionPool().startTransactionHandling();
     LOG.info("Starting external services ... ");
     metrics.ifPresent(service -> waitForServiceToStart("metrics", service.start()));
 
