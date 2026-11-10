@@ -1124,14 +1124,26 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   }
 
   /**
-   * Stops every registered plugin and rewinds to the options-defined state, so the Ephemery restart
-   * can register the same plugin instances again without re-parsing the command line. The services
-   * plugins published in the previous cycle are dropped, so the second registration pass starts
-   * from the same empty set the first one did. Unlike {@link #stopPlugins()} this keeps the plugin
-   * class loader open, since the same plugins run again.
+   * Stops every registered plugin, when the previous cycle started them, and rewinds to the
+   * options-defined state, so the Ephemery restart can register the same plugin instances again
+   * without re-parsing the command line. The services plugins published in the previous cycle are
+   * dropped, so the second registration pass starts from the same empty set the first one did.
+   * Unlike {@link #stopPlugins()} this keeps the plugin class loader open, since the same plugins
+   * run again.
+   *
+   * @throws IllegalStateException if the context is not in the REGISTERED or the
+   *     BEFORE_MAIN_LOOP_FINISHED state.
    */
   public void resetState() {
-    stopRegisteredPlugins();
+    checkState(
+        state == Lifecycle.REGISTERED || state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
+        "BesuContext should be in state %s or %s but it was in %s",
+        Lifecycle.REGISTERED,
+        Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
+        state);
+    if (state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED) {
+      stopRegisteredPlugins();
+    }
     pluginServices.clear();
     state = Lifecycle.OPTIONS_DEFINED;
   }

@@ -654,6 +654,35 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
+  void resetStateDoesNotStopPluginsThatNeverStarted() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onStop = () -> events.add("builtIn.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(builtIn));
+    register(context);
+
+    context.resetState();
+    register(context);
+
+    assertThat(events).isEmpty();
+    assertThat(context.getRegisteredPlugins()).containsExactly(builtIn);
+  }
+
+  @Test
+  void resetStateIsRejectedOnceThePluginsAreStopped() {
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(false, List.of(new RecordingPlugin("builtIn")));
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+    context.stopPlugins();
+
+    assertThatThrownBy(context::resetState)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("STOPPED");
+  }
+
+  @Test
   void builtInPluginsCannotBeAddedOnceTheOptionsAreDefined() {
     final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of());
 
