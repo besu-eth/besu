@@ -21,8 +21,7 @@
     "id": 10,
     "error": {
       "code": -32602,
-      "message": "Invalid params",
-      "data": "Missing suggestedFeeRecipient field"
+      "message": "Invalid params: Missing suggestedFeeRecipient field"
     }
   },
   "statusCode": 200

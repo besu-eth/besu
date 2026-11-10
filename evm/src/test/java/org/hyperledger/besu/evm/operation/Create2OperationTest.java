@@ -17,6 +17,7 @@ package org.hyperledger.besu.evm.operation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.MainnetEVMs.DEV_NET_CHAIN_ID;
 import static org.hyperledger.besu.evm.frame.ExceptionalHaltReason.CODE_TOO_LARGE;
+import static org.hyperledger.besu.evm.testutils.TestEvmConfigurations.EVM_V1;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -32,7 +33,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.ConstantinopleGasCalculator;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -53,7 +53,7 @@ public class Create2OperationTest {
   private MessageFrame messageFrame;
   private final WorldUpdater worldUpdater = mock(WorldUpdater.class);
   private final MutableAccount account = mock(MutableAccount.class);
-  private final EVM evm = MainnetEVMs.futureEips(EvmConfiguration.DEFAULT);
+  private final EVM evm = MainnetEVMs.futureEips(EVM_V1);
   private final MutableAccount newAccount = mock(MutableAccount.class);
 
   private final Create2Operation operation =
@@ -137,6 +137,7 @@ public class Create2OperationTest {
     final UInt256 memoryLength = UInt256.valueOf(codeBytes.size());
     messageFrame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)
@@ -209,7 +210,7 @@ public class Create2OperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     final MessageFrame createFrame = messageFrame.getMessageFrameStack().peek();
     final ContractCreationProcessor ccp = new ContractCreationProcessor(evm, false, List.of(), 0);
@@ -236,7 +237,7 @@ public class Create2OperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
   }
@@ -257,7 +258,7 @@ public class Create2OperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     assertThat(result.getHaltReason()).isNull();
   }
@@ -278,7 +279,7 @@ public class Create2OperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
   }
@@ -298,7 +299,7 @@ public class Create2OperationTest {
     when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
     when(worldUpdater.updater()).thenReturn(worldUpdater);
 
-    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.amsterdam(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
     assertThat(result.getHaltReason()).isNull();
   }
@@ -314,6 +315,7 @@ public class Create2OperationTest {
         UInt256.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
     final MessageFrame messageFrame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)
@@ -336,7 +338,7 @@ public class Create2OperationTest {
     messageFrame.pushStackItem(memoryOffset);
     messageFrame.pushStackItem(UInt256.ZERO);
 
-    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EVM_V1);
     var result = operation.execute(messageFrame, evm);
 
     assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
@@ -347,6 +349,7 @@ public class Create2OperationTest {
   private MessageFrame testMemoryFrame(final UInt256 memoryOffset, final UInt256 memoryLength) {
     final MessageFrame messageFrame =
         MessageFrame.builder()
+            .enableEvmV2(false)
             .type(MessageFrame.Type.CONTRACT_CREATION)
             .contract(Address.ZERO)
             .inputData(Bytes.EMPTY)

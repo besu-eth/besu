@@ -5,7 +5,7 @@ on:
   workflow_call:
     inputs:
       evm_v2:
-        description: 'Run the devnet tests on EVM v2 (-Dtest.evm.v2=true)'
+        description: 'Run the devnet tests on EVM v2 (-Dtest.evm.v2=true), otherwise on EVM v1'
         required: false
         type: boolean
         default: false
@@ -48,12 +48,15 @@ jobs:
           java-version: 25
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        env:
+          # Restore the build job's entry, not an older one saved by this job
+          GRADLE_BUILD_ACTION_CACHE_KEY_JOB: build
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: true # only the build job in ci.yml writes the Gradle cache
       - name: Run ${{ matrix.task }}
         run: |
           echo "${{ matrix.fixtures }}" > fixtureSubset.txt
-          ./gradlew :ethereum:evmtool:${{ matrix.task }} -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt ${{ inputs.evm_v2 && '-Dtest.evm.v2=true' || '' }}
+          ./gradlew :ethereum:evmtool:${{ matrix.task }} -Pbesu.referenceTests.fixtureSubset=$PWD/fixtureSubset.txt -Dtest.evm.v2=${{ inputs.evm_v2 }}
       - name: report disk usage
         if: always()
         run: |

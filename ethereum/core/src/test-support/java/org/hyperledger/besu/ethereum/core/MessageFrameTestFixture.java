@@ -163,6 +163,8 @@ public class MessageFrameTestFixture {
             .getByBlockHeader(localBlockHeader);
     final MessageFrame frame =
         MessageFrame.builder()
+            // the stack items are pushed onto the EVM v1 stack
+            .enableEvmV2(false)
             .parentMessageFrame(parentFrame)
             .type(type)
             .worldUpdater(worldUpdater.orElseGet(this::createDefaultWorldUpdater))
