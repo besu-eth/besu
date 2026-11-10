@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -321,7 +322,12 @@ public abstract class CommandTestAbstract {
 
     // the plugin context, a mock here and a spy in some subclasses, hands the built-in plugins
     // contexts backed by the mocked services; doReturn() keeps a spy from running the real method
-    lenient().doReturn(true).when(getBesuPluginContext()).isRegistering();
+    // a mock has no lifecycle, so it reports registration as open; a spy runs the real lifecycle
+    // and must report it truthfully, or Besu-owned registration services (the protocol-schedule
+    // customizers) would see registration as never closing and refuse to resolve
+    if (!mockingDetails(getBesuPluginContext()).isSpy()) {
+      lenient().doReturn(true).when(getBesuPluginContext()).isRegistering();
+    }
     lenient()
         .doReturn(fakePluginServices.registrationContext())
         .when(getBesuPluginContext())
