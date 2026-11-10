@@ -108,6 +108,8 @@ final class SyncAttempt {
   private volatile Stage stage = Stage.STATE;
   // guarded by this: the final build, once started
   private WorldStateTrieBuilder trieBuilder;
+  // guarded by this: the storage getting ready for the final build, once started
+  private CompletableFuture<Void> trieBuildPrepared;
 
   SyncAttempt(final Context context, final BlockHeader firstPivot) {
     this.context = context;
@@ -151,6 +153,7 @@ final class SyncAttempt {
             .exceptionallyCompose(this::stateFailed)
             .thenCompose(unused -> moves.settle())
             .thenCompose(unused -> moves.catchUp())
+            .thenCompose(unused -> prepareTrieBuild())
             .thenComposeAsync(unused -> buildTriesWithWindow(), context.executor())
             .thenApply(
                 pivot -> {
@@ -173,8 +176,13 @@ final class SyncAttempt {
     stateSync.stop();
     chain.cancel();
     final WorldStateTrieBuilder builder;
+    final CompletableFuture<Void> prepared;
     synchronized (this) {
       builder = trieBuilder;
+      prepared = trieBuildPrepared;
+    }
+    if (prepared != null) {
+      prepared.cancel(false);
     }
     if (builder == null) {
       // none starts once cancelled
@@ -393,6 +401,15 @@ final class SyncAttempt {
     } finally {
       buildEnded.countDown();
     }
+  }
+
+  // under the lock, so that a cancel either finds it or stops it from starting
+  private synchronized CompletableFuture<Void> prepareTrieBuild() {
+    if (cancelled) {
+      return CompletableFuture.failedFuture(new CancellationException("attempt abandoned"));
+    }
+    trieBuildPrepared = context.storage().prepareTrieBuild();
+    return trieBuildPrepared;
   }
 
   // under the lock, so that a cancel either finds it or stops it from starting

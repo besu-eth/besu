@@ -199,7 +199,7 @@ public final class WorldStateTrieBuilder {
     final byte[] to = RangeManager.MAX_RANGE.toArray();
     from[0] = (byte) prefix;
     to[0] = (byte) prefix;
-    final SyncStateStorage.TrieWriter writer = storage.trieWriter();
+    final SyncStateStorage.TrieWriter writer = storage.partitionTrieWriter();
     final PartitionVisitor visitor =
         new PartitionVisitor(writer, top.subtreeBuilder(writer::accountNode));
     try {

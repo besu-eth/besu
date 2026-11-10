@@ -16,8 +16,11 @@ package org.hyperledger.besu.ethereum.eth.sync.snap2.storage;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -70,6 +73,23 @@ public interface SyncStateStorage {
   /** Creates a writer of trie nodes, not shared between threads. */
   TrieWriter trieWriter();
 
+  /**
+   * Creates the trie node writer of one partition of the final build, whose accounts come in key
+   * order, so that it can write sorted files; not shared between threads.
+   */
+  default TrieWriter partitionTrieWriter() {
+    return trieWriter();
+  }
+
+  /**
+   * Gets the storage ready for the reads of the final build, once the state is downloaded.
+   *
+   * @return completes once it is ready; cancelling it only stops the wait
+   */
+  default CompletableFuture<Void> prepareTrieBuild() {
+    return CompletableFuture.completedFuture(null);
+  }
+
   /** Records the world state root and the block it belongs to, once every node is written. */
   void saveWorldState(BlockHeader header, Bytes rootNode);
 
@@ -78,6 +98,68 @@ public interface SyncStateStorage {
 
   /** Releases what the sync no longer needs once the world state is complete. */
   void completeSync();
+
+  /**
+   * Returns the writer of the downloaded accounts and slots as sorted files, when the storage takes
+   * them in that way. Without it they are written with {@link #batch()}.
+   */
+  default Optional<SortedWrites> sortedWrites() {
+    return Optional.empty();
+  }
+
+  /**
+   * Writes the downloaded accounts and slots as sorted runs that the storage takes in as files.
+   * What is handed over is only readable after {@link #flush()}, which has to come before anything
+   * reads or overwrites it.
+   */
+  interface SortedWrites {
+    /**
+     * Starts a download of the given account ranges.
+     *
+     * @param rangeLimits the last key of every account range, in key order
+     * @param storagePending whether the storage of an account is still to be downloaded
+     */
+    void start(List<Bytes32> rangeLimits, Predicate<Bytes32> storagePending);
+
+    /**
+     * Accounts of a range, in key order and after those handed over for the range before.
+     *
+     * @param rangeLimit the last key of the range
+     * @param hashes the account hashes
+     * @param accounts the full RLP of the accounts
+     * @param withStorage the hashes of those accounts whose storage is to be downloaded, in order
+     * @param rangeDone whether the range is complete
+     */
+    void accounts(
+        Bytes32 rangeLimit,
+        List<Bytes32> hashes,
+        List<Bytes> accounts,
+        List<Bytes32> withStorage,
+        boolean rangeDone);
+
+    /**
+     * Slots of an account in key order, after those handed over for the same stream.
+     *
+     * @param accountHash the account
+     * @param stream the requests the slots come from, which follow each other
+     * @param slotHashes the slot hashes
+     * @param values the slot values on 32 bytes
+     */
+    void storage(
+        Bytes32 accountHash, Object stream, List<Bytes32> slotHashes, List<Bytes32> values);
+
+    /** The storage of the account is downloaded. */
+    void storageComplete(Bytes32 accountHash);
+
+    /** The slots of the account are about to be removed: what is not stored yet is dropped. */
+    void storageRemoved(Bytes32 accountHash);
+
+    /** Stores what was handed over and returns once it is readable. */
+    void flush();
+
+    /** Drops what is not stored yet. */
+    void close();
+  }
 
   /** Batch of flat writes. */
   interface Batch {
