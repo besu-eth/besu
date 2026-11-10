@@ -255,6 +255,8 @@ Xbonsai-full-flat-db-enabled=true
 era1-import-prepipeline-enabled=true
 era1-data-uri="mainnet.era1.nimbus.team/"
 era1-import-prepipeline-concurrency=4
+erae-import-prepipeline-enabled=false
+erae-data-uri="/opt/besu/ere"
 
 #contracts
 Xevm-jumpdest-cache-weight-kb=32000

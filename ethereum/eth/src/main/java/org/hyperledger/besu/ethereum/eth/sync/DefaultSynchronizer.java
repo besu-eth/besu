@@ -72,6 +72,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   private final PivotBlockSelector pivotBlockSelector;
   private final boolean keepsPivotBlockSelector;
   private final SyncTerminationCondition terminationCondition;
+  private final boolean ereImportPrepipelineEnabled;
   private final BackgroundBackfill backgroundBackfill;
 
   public DefaultSynchronizer(
@@ -96,6 +97,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     this.keepsPivotBlockSelector = syncConfig.getSyncMode() == SyncMode.SNAP2;
     this.protocolContext = protocolContext;
     this.terminationCondition = terminationCondition;
+    this.ereImportPrepipelineEnabled = syncConfig.ereImportPrepipelineEnabled();
     this.backgroundBackfill =
         BackgroundBackfill.create(
             protocolContext.getBlockchain(),
@@ -135,7 +137,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     syncDurationMetrics = new SyncDurationMetrics(metricsSystem);
 
     this.fullSyncDownloader =
-        terminationCondition.shouldStopDownload()
+        terminationCondition.shouldStopDownload() && !ereImportPrepipelineEnabled
             ? Optional.empty()
             : Optional.of(
                 new FullSyncDownloader(
@@ -232,7 +234,9 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
         syncState.setSyncProgress(chainHead, chainHead);
         future = fastSyncDownloader.get().start().thenCompose(this::handleSyncResult);
       } else {
-        syncState.markInitialSyncPhaseAsDone();
+        if (!ereImportPrepipelineEnabled) {
+          syncState.markInitialSyncPhaseAsDone();
+        }
         future = startFullSync();
       }
       return future.thenApply(this::finalizeSync);
