@@ -47,9 +47,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
-import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
-import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -59,6 +57,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
 import org.jspecify.annotations.NonNull;
@@ -155,8 +154,11 @@ public sealed class EngineNewPayloadV1<
     // EIP-3675, extended with the corresponding section of EIP-4399. Client software MUST run this
     // validation in all cases even if this branch or any other branches of the block tree are in an
     // active sync process.
+    // the body memoizes its transactions root, which the body validation needs again
+    final BlockBody blockBody = createBlockBody(blockParam);
     final BlockHeaderBuilder blockHeaderBuilder = BlockHeaderBuilder.create();
     setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    blockHeaderBuilder.transactionsRoot(blockBody.getTransactionsRoot());
     final BlockHeader newBlockHeader = blockHeaderBuilder.buildBlockHeader();
 
     // ensure the block hash matches the blockParam hash
@@ -198,7 +200,7 @@ public sealed class EngineNewPayloadV1<
           maybeBadBlockError.get());
     }
 
-    final var unvalidatedBlock = new Block(newBlockHeader, createBlockBody(blockParam));
+    final var unvalidatedBlock = new Block(newBlockHeader, blockBody);
 
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
@@ -266,12 +268,20 @@ public sealed class EngineNewPayloadV1<
                     new IllegalStateException(
                         "Internal error: latestValidAncestor should always be present at this point"));
 
-    // async precompute sender to improve performance during transaction processing
-    asyncPrecomputeSenders(blockParam.getTransactions());
+    // recover senders in the background to speed up execution; the transactions are not validated
+    // yet, so the recovery is stopped as soon as execution ends, whatever its outcome
+    final SignatureRecoveryPrecomputation signatureRecovery =
+        SignatureRecoveryPrecomputation.start(
+            mergeCoordinator.getEthScheduler(), blockParam.getTransactions());
 
     // execute block and return result response
     final long startTimeNs = System.nanoTime();
-    final BlockProcessingResult executionResult = rememberBlock(block, blockParam);
+    final BlockProcessingResult executionResult;
+    try {
+      executionResult = rememberBlock(block, blockParam);
+    } finally {
+      signatureRecovery.cancel();
+    }
     if (executionResult.isSuccessful()) {
       final PayloadPostExecutionValidationResultV1 postExecutionResult =
           validatePostExecution(reqId, requestParameters, block, executionResult);
@@ -335,51 +345,6 @@ public sealed class EngineNewPayloadV1<
 
   protected Class<? extends ExecutionPayloadV1> getPayloadParameterClass() {
     return ExecutionPayloadV1.class;
-  }
-
-  private void asyncPrecomputeSenders(final List<Transaction> transactions) {
-    transactions.forEach(
-        transaction -> {
-          mergeCoordinator
-              .getEthScheduler()
-              .scheduleComputationTask(
-                  () -> {
-                    final var sender = transaction.getSender();
-                    logger()
-                        .atTrace()
-                        .setMessage("The sender for transaction {} is calculated : {}")
-                        .addArgument(transaction::getHash)
-                        .addArgument(sender)
-                        .log();
-                    return sender;
-                  });
-          if (transaction.getType().supportsDelegateCode()) {
-            asyncPrecomputeAuthorities(transaction);
-          }
-        });
-  }
-
-  private void asyncPrecomputeAuthorities(final Transaction transaction) {
-    final var codeDelegations = transaction.getCodeDelegationList().get();
-    int index = 0;
-    for (final var codeDelegation : codeDelegations) {
-      final var constIndex = index++;
-      mergeCoordinator
-          .getEthScheduler()
-          .scheduleComputationTask(
-              () -> {
-                final var authority = codeDelegation.authorizer();
-                logger()
-                    .atTrace()
-                    .setMessage(
-                        "The code delegation authority at index {} for transaction {} is calculated : {}")
-                    .addArgument(constIndex)
-                    .addArgument(transaction::getHash)
-                    .addArgument(authority)
-                    .log();
-                return authority;
-              });
-    }
   }
 
   /**
@@ -541,7 +506,6 @@ public sealed class EngineNewPayloadV1<
         .ommersHash(OMMERS_HASH_CONSTANT)
         .coinbase(blockParam.getFeeRecipient())
         .stateRoot(blockParam.getStateRoot())
-        .transactionsRoot(BodyValidation.transactionsRoot(blockParam.getTransactions()))
         .receiptsRoot(blockParam.getReceiptsRoot())
         .logsBloom(blockParam.getLogsBloom())
         .difficulty(Difficulty.ZERO)
@@ -561,7 +525,26 @@ public sealed class EngineNewPayloadV1<
   }
 
   protected BlockProcessingResult rememberBlock(final Block block, final EP executionPayload) {
-    return mergeCoordinator.rememberBlock(block, Optional.empty());
+    return mergeCoordinator.rememberBlock(block, Optional.empty(), writeAfterReply(block));
+  }
+
+  /**
+   * Stores a valid block once the reply is sent. The calls that need the block are only sent after
+   * the reply, and they run behind the writes.
+   *
+   * @param block the block being validated
+   * @return the writer of the block
+   */
+  protected Executor writeAfterReply(final Block block) {
+    return writes ->
+        queueOnOrderedThread(
+            () -> {
+              try {
+                writes.run();
+              } catch (final RuntimeException e) {
+                logger().error("Failed to store valid block {}", block.toLogString(), e);
+              }
+            });
   }
 
   protected void appendNewPayloadToSync(final Block block, final EP executionPayload) {

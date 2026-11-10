@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -163,6 +164,30 @@ public class IbftControllerTest {
     verify(blockHeightManager, never()).handleProposalPayload(proposal);
     verify(blockHeightManager).handlePreparePayload(prepare);
     verify(ibftGossip).send(prepareMessage);
+    verify(blockHeightManager).handleCommitPayload(commit);
+    verify(ibftGossip).send(commitMessage);
+    verify(blockHeightManager).handleRoundChangePayload(roundChange);
+    verify(ibftGossip).send(roundChangeMessage);
+  }
+
+  @Test
+  public void futureMessageThatFailsOnReplayDoesNotDropTheMessagesAfterIt() {
+    setupPrepare(futureRoundIdentifier, validator);
+    setupCommit(futureRoundIdentifier, validator);
+    setupRoundChange(futureRoundIdentifier, validator);
+    doThrow(new IllegalStateException("failed to handle buffered message"))
+        .when(blockHeightManager)
+        .handlePreparePayload(prepare);
+
+    when(blockHeightManager.getChainHeight()).thenReturn(5L);
+    when(futureMessageBuffer.retrieveMessagesForHeight(5L))
+        .thenReturn(newArrayList(prepareMessage, commitMessage, roundChangeMessage));
+
+    constructIbftController();
+    ibftController.start();
+
+    // the first buffered message throws, the real messages after it must still be handled
+    verify(blockHeightManager).handlePreparePayload(prepare);
     verify(blockHeightManager).handleCommitPayload(commit);
     verify(ibftGossip).send(commitMessage);
     verify(blockHeightManager).handleRoundChangePayload(roundChange);

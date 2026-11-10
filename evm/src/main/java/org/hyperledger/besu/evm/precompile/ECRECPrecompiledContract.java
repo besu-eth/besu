@@ -15,14 +15,12 @@
 package org.hyperledger.besu.evm.precompile;
 
 import org.hyperledger.besu.crypto.Hash;
-import org.hyperledger.besu.crypto.SECP256K1;
 import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1;
 import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1JNI;
 
 import java.math.BigInteger;
@@ -118,7 +116,7 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
     }
 
     Bytes resultBytes;
-    if (signatureAlgorithm.isNative() && isK1PrecompileSpecificNativeAvailable()) {
+    if (signatureAlgorithm.isNativeJniEnabled()) {
       resultBytes = computeK1Native(safeInput);
     } else {
       resultBytes = computeDefault(safeInput);
@@ -132,20 +130,6 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
       ecrecCache.put(cacheKey, res);
     }
     return res.cachedResult();
-  }
-
-  private boolean isK1PrecompileSpecificNativeAvailable() {
-    if (!SECP256K1.CURVE_NAME.equals(signatureAlgorithm.getCurveName())) {
-      return false;
-    }
-
-    try {
-      // LibSecp256k1 must load before LibSecp256k1JNI
-      return LibSecp256k1.CONTEXT != null && LibSecp256k1JNI.ENABLED;
-    } catch (UnsatisfiedLinkError | NoClassDefFoundError ule) {
-      LOG.info("ecrecover precompile-specific native lib not available: {}", ule.getMessage());
-      return false;
-    }
   }
 
   @NotNull

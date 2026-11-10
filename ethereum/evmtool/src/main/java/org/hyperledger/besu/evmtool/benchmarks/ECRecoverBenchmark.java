@@ -456,7 +456,9 @@ public class ECRecoverBenchmark extends BenchmarkExecutor {
       signatureAlgorithm.disableNative();
     }
     output.println(
-        signatureAlgorithm.isNative() ? "Native LibSecp256k1JNI EcRecover" : "Java EcRecover");
+        signatureAlgorithm.isNativeJniEnabled()
+            ? "Native LibSecp256k1JNI EcRecover"
+            : "Java EcRecover");
 
     final PrecompiledContract contract =
         EvmSpec.evmSpec(evmSpecVersion).getPrecompileContractRegistry().get(Address.ECREC);

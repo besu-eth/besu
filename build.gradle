@@ -1087,7 +1087,9 @@ def defaultJvmOpts25 = application.applicationDefaultJvmArgs + [
   "-XX:MaxGCPauseMillis=100",
   "-XX:+UseCompactObjectHeaders",
   "-XX:StartFlightRecording,settings=default.jfc",
-  "-Xlog:jfr*=off",
+  // Not "off": a JFR log tag set to off starts JFR's in-process event logging, which formats
+  // every recorded event as text.
+  "-Xlog:jfr*=error",
   // log4j-layout-template-json opportunistically uses a jctools queue (already on the classpath
   // via netty-all) to recycle buffers for structured logging formats, which triggers the JEP 471
   // terminally-deprecated sun.misc.Unsafe warning on first use.

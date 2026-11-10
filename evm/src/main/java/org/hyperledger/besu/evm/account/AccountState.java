@@ -97,13 +97,13 @@ public interface AccountState {
   /**
    * Whether the account has (non empty) EVM bytecode associated to it.
    *
-   * <p>This is functionally equivalent to {@code !code().isEmpty()}, though could be implemented
-   * more efficiently.
+   * <p>This is functionally equivalent to {@code !getCode().isEmpty()}, but only reads the code
+   * hash, so it does not load the code.
    *
    * @return Whether the account has EVM bytecode associated to it.
    */
   default boolean hasCode() {
-    return !getCode().isEmpty();
+    return !Hash.EMPTY.equals(getCodeHash());
   }
 
   /**

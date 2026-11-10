@@ -48,7 +48,7 @@ public class MStore8OperationV2 extends AbstractOperationV2 {
           frame, 2, new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS));
     }
 
-    frame.writeMemory(location, theByte, true);
+    frame.writeMemoryV2(location, theByte);
     frame.setTopV2(top - 2);
     return new OperationResult(cost, null);
   }

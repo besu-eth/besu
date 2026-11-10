@@ -333,7 +333,8 @@ public class EvmToolCommand implements Runnable {
     commandLine.setExecutionStrategy(
         parseResult -> {
           if (daggerOptions.isEvmV2Enabled()) {
-            out.println("EVM v2 (long[] stack) enabled");
+            // stdout carries the JSON results t8n, b11r and the test runners read
+            commandLine.getErr().println("EVM v2 (long[] stack) enabled");
           }
           return new CommandLine.RunLast().execute(parseResult);
         });

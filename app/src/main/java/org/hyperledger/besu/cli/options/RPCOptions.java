@@ -42,6 +42,14 @@ public class RPCOptions {
       description = "Web socket timeout in seconds (default: ${DEFAULT-VALUE})")
   private final Long wsTimeoutSec = TimeoutOptions.defaultOptions().getTimeoutSeconds();
 
+  @CommandLine.Option(
+      hidden = true,
+      names = {"--Xrpc-max-request-token-count"},
+      description =
+          "Maximum number of JSON tokens decoded from a single JSON-RPC, Engine API, WebSocket or"
+              + " GraphQL request, a non-positive value disables the limit (default: ${DEFAULT-VALUE})")
+  private final Long maxRequestTokenCount = JsonRpcConfiguration.DEFAULT_MAX_REQUEST_TOKEN_COUNT;
+
   /** Default Constructor. */
   RPCOptions() {}
 
@@ -79,5 +87,14 @@ public class RPCOptions {
    */
   public Long getWsTimeoutSec() {
     return wsTimeoutSec;
+  }
+
+  /**
+   * Gets the maximum number of JSON tokens decoded from a single request.
+   *
+   * @return the maximum request token count, non-positive if unlimited
+   */
+  public Long getMaxRequestTokenCount() {
+    return maxRequestTokenCount;
   }
 }

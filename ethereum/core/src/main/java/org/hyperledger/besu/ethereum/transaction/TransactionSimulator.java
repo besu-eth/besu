@@ -39,8 +39,10 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -169,6 +171,8 @@ public class TransactionSimulator {
           updater,
           pendingBlockHeader.getCoinbase(),
           Optional.empty());
+    } catch (final BlockStateCallException e) {
+      throw e;
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
@@ -281,6 +285,100 @@ public class TransactionSimulator {
       final OperationTracer operationTracer,
       final PreCloseStateHandler<U> preWorldStateCloseGuard,
       final BlockHeader header) {
+    return process(
+        header,
+        operationTracer,
+        preWorldStateCloseGuard,
+        (updater, miningBeneficiary) ->
+            processWithWorldUpdater(
+                callParams,
+                maybeStateOverrides,
+                transactionValidationParams,
+                operationTracer,
+                header,
+                updater,
+                miningBeneficiary,
+                Optional.empty()));
+  }
+
+  /**
+   * Simulates the original signed transaction without replacing its authenticated fields.
+   *
+   * @param transaction the signed transaction to validate and execute
+   * @param transactionValidationParams the selected validation policy
+   * @param operationTracer the tracer for capturing execution
+   * @param preWorldStateCloseGuard the handler invoked before the temporary state is closed
+   * @param header the selected block header
+   * @return the simulation result, or empty if the selected state is unavailable
+   */
+  public <U> Optional<U> process(
+      final Transaction transaction,
+      final TransactionValidationParams transactionValidationParams,
+      final OperationTracer operationTracer,
+      final PreCloseStateHandler<U> preWorldStateCloseGuard,
+      final BlockHeader header) {
+    return process(
+        header,
+        operationTracer,
+        preWorldStateCloseGuard,
+        (updater, miningBeneficiary) -> {
+          final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
+          final Wei blobGasPrice =
+              protocolSpec
+                  .getFeeMarket()
+                  .blobGasPricePerGas(
+                      blockchain
+                          .getBlockHeader(header.getParentHash())
+                          .map(parent -> calculateExcessBlobGasForParent(protocolSpec, parent))
+                          .orElse(BlobGas.ZERO));
+          if (rpcGasCap > 0 && Long.compareUnsigned(transaction.getGasLimit(), rpcGasCap) > 0) {
+            // The transaction's own validity, which does not depend on the selected state, comes
+            // before the server's gas cap, so a malformed transaction reports its own error.
+            // Within the cap, the transaction processor performs the same validation.
+            final ValidationResult<TransactionInvalidReason> validity =
+                protocolSpec
+                    .getTransactionValidatorFactory()
+                    .get()
+                    .validate(
+                        transaction,
+                        header.getBaseFee(),
+                        Optional.of(blobGasPrice),
+                        transactionValidationParams);
+            return Optional.of(
+                new TransactionSimulatorResult(
+                    transaction,
+                    TransactionProcessingResult.invalid(
+                        validity.isValid()
+                            ? ValidationResult.invalid(
+                                TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT,
+                                "Signed transaction gas limit exceeds the RPC gas cap of "
+                                    + rpcGasCap)
+                            : validity)));
+          }
+          final TransactionProcessingResult result =
+              protocolSpec
+                  .getTransactionProcessor()
+                  .processTransaction(
+                      updater,
+                      header,
+                      transaction,
+                      miningBeneficiary,
+                      operationTracer,
+                      protocolSpec
+                          .getPreExecutionProcessor()
+                          .createBlockHashLookup(blockchain, header),
+                      transactionValidationParams,
+                      blobGasPrice,
+                      Optional.empty());
+          return Optional.of(new TransactionSimulatorResult(transaction, result));
+        });
+  }
+
+  private <U> Optional<U> process(
+      final BlockHeader header,
+      final OperationTracer operationTracer,
+      final PreCloseStateHandler<U> preWorldStateCloseGuard,
+      final BiFunction<WorldUpdater, Address, Optional<TransactionSimulatorResult>> processor) {
     if (header == null) {
       return Optional.empty();
     }
@@ -303,18 +401,10 @@ public class TransactionSimulator {
               .getMiningBeneficiaryCalculator()
               .calculateBeneficiary(header);
 
-      return preWorldStateCloseGuard.apply(
-          ws,
-          processWithWorldUpdater(
-              callParams,
-              maybeStateOverrides,
-              transactionValidationParams,
-              operationTracer,
-              header,
-              updater,
-              miningBeneficiary,
-              Optional.empty()));
+      return preWorldStateCloseGuard.apply(ws, processor.apply(updater, miningBeneficiary));
 
+    } catch (final BlockStateCallException e) {
+      throw e;
     } catch (final Exception e) {
       LOG.atDebug()
           .setMessage("Transaction simulation failed for block {}: {}")
@@ -657,6 +747,11 @@ public class TransactionSimulator {
               () ->
                   // needed to make some transactions valid
                   transactionBuilder.chainId(protocolSchedule.getChainId().orElse(BigInteger.ONE)));
+    } else if (callParams.getChainId().isPresent()
+        && !callParams.getChainId().equals(protocolSchedule.getChainId())) {
+      // a legacy call keeps a chainId for another chain, so that the transaction validator rejects
+      // it, as it rejects a typed call for another chain
+      transactionBuilder.chainId(callParams.getChainId().get());
     }
 
     final Transaction transaction = transactionBuilder.build();

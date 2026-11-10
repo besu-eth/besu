@@ -34,6 +34,21 @@ public class BftHelpers {
   private BftHelpers() {}
 
   /**
+   * Same header, hashed as on-chain: without commit seals and round. The proposal of any round and
+   * the committed block have this hash.
+   *
+   * @param bftExtraDataCodec the bft extra data codec
+   * @param header the header
+   * @return the header with the on-chain hash
+   */
+  public static BlockHeader toOnchainHeader(
+      final BftExtraDataCodec bftExtraDataCodec, final BlockHeader header) {
+    return BlockHeaderBuilder.fromHeader(header)
+        .blockHeaderFunctions(BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec))
+        .buildBlockHeader();
+  }
+
+  /**
    * Calculate required validator quorum int.
    *
    * @param validatorCount the validator count
