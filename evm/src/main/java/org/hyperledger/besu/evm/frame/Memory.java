@@ -445,7 +445,6 @@ public class Memory {
    */
   void writeWordV2(final long location, final long[] stack, final int limbOffset) {
     final int start = asByteIndex(location);
-    Math.addExact(start, Bytes32.SIZE);
     ensureCapacityForBytes(start, Bytes32.SIZE);
     LONG_BE.set(memBytes, start, stack[limbOffset]);
     LONG_BE.set(memBytes, start + 8, stack[limbOffset + 1]);
