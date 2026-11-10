@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
 import org.hyperledger.besu.ethereum.chain.pluginadapter.RlpConverterServiceImpl;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TransactionPoolServiceImpl;
+import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TxPoolEventServiceImpl;
 import org.hyperledger.besu.ethereum.transaction.pluginadapter.BlockSimulatorServiceImpl;
 import org.hyperledger.besu.ethereum.transaction.pluginadapter.TransactionSimulationServiceImpl;
 import org.hyperledger.besu.ethereum.worldstate.pluginadapter.WorldStateServiceImpl;
@@ -198,8 +199,7 @@ public final class BesuPluginServiceRegistrar {
     pluginContext.addService(
         PeerEventService.class, new PeerEventServiceImpl(runner.getP2PNetwork()));
     pluginContext.addService(
-        TxPoolEventService.class,
-        new TransactionPoolServiceImpl(besuController.getTransactionPool()));
+        TxPoolEventService.class, new TxPoolEventServiceImpl(besuController.getTransactionPool()));
 
     pluginContext.addService(
         BlockSimulationService.class,
