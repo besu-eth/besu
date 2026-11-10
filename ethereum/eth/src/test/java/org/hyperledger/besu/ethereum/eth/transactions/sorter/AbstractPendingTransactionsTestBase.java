@@ -66,6 +66,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -457,23 +458,24 @@ public abstract class AbstractPendingTransactionsTestBase {
         .isEqualTo(ADDED);
 
     transactionsLarge.selectTransactions(
-        pendingTxs -> {
-          // The order should be:
-          // sender 2, nonce 1
-          // sender 1, nonce 1
-          // sender 1, nonce 2
-          // sender 1, nonce 3
-          // sender 2, nonce 2
-          // sender 2, nonce 3
-          assertThat(pendingTxs.get(0).getTransaction()).isEqualTo(zeroGasPriceTX1Sdr2);
-          assertThat(pendingTxs.get(1).getTransaction()).isEqualTo(zeroGasPriceTX1Sdr1);
-          assertThat(pendingTxs.get(2).getTransaction()).isEqualTo(zeroGasPriceTX2Sdr1);
-          assertThat(pendingTxs.get(3).getTransaction()).isEqualTo(zeroGasPriceTX3Sdr1);
-          assertThat(pendingTxs.get(4).getTransaction()).isEqualTo(zeroGasPriceTX2Sdr2);
-          assertThat(pendingTxs.get(5).getTransaction()).isEqualTo(zeroGasPriceTX3Sdr2);
+        completedResults(
+            pendingTxs -> {
+              // The order should be:
+              // sender 2, nonce 1
+              // sender 1, nonce 1
+              // sender 1, nonce 2
+              // sender 1, nonce 3
+              // sender 2, nonce 2
+              // sender 2, nonce 3
+              assertThat(pendingTxs.get(0).getTransaction()).isEqualTo(zeroGasPriceTX1Sdr2);
+              assertThat(pendingTxs.get(1).getTransaction()).isEqualTo(zeroGasPriceTX1Sdr1);
+              assertThat(pendingTxs.get(2).getTransaction()).isEqualTo(zeroGasPriceTX2Sdr1);
+              assertThat(pendingTxs.get(3).getTransaction()).isEqualTo(zeroGasPriceTX3Sdr1);
+              assertThat(pendingTxs.get(4).getTransaction()).isEqualTo(zeroGasPriceTX2Sdr2);
+              assertThat(pendingTxs.get(5).getTransaction()).isEqualTo(zeroGasPriceTX3Sdr2);
 
-          return Collections.emptyMap();
-        });
+              return Collections.emptyMap();
+            }));
   }
 
   @Test
@@ -485,12 +487,13 @@ public abstract class AbstractPendingTransactionsTestBase {
     transactions.addTransaction(createRemotePendingTransaction(transaction2), Optional.empty());
 
     transactions.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs)
-              .map(PendingTransaction::getTransaction)
-              .containsExactly(transaction2);
-          return Map.of(pendingTxs.get(0), SELECTED);
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs)
+                  .map(PendingTransaction::getTransaction)
+                  .containsExactly(transaction2);
+              return Map.of(pendingTxs.get(0), SELECTED);
+            }));
   }
 
   @Test
@@ -499,15 +502,16 @@ public abstract class AbstractPendingTransactionsTestBase {
     transactions.addTransaction(createRemotePendingTransaction(transaction2), Optional.empty());
 
     transactions.selectTransactions(
-        pendingTxs ->
-            pendingTxs.stream()
-                .collect(
-                    Collectors.toMap(
-                        Function.identity(),
-                        pt ->
-                            TransactionSelectionResult.invalid(
-                                TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE
-                                    .name()))));
+        completedResults(
+            pendingTxs ->
+                pendingTxs.stream()
+                    .collect(
+                        Collectors.toMap(
+                            Function.identity(),
+                            pt ->
+                                TransactionSelectionResult.invalid(
+                                    TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE
+                                        .name())))));
 
     assertThat(transactions.size()).isZero();
   }
@@ -704,15 +708,18 @@ public abstract class AbstractPendingTransactionsTestBase {
     transactions.addTransaction(createLocalPendingTransaction(transaction1), Optional.empty());
 
     transactions.selectTransactions(
-        pendingTxs -> {
-          // Ignoring nonces, the order would be 3, 4, 2, 1 but we have to delay 3 and 2 until after
-          // 1.
-          assertThat(pendingTxs)
-              .map(PendingTransaction::getTransaction)
-              .containsExactly(transaction4, transaction1, transaction2, transaction3);
+        completedResults(
+            pendingTxs -> {
+              // Ignoring nonces, the order would be 3, 4, 2, 1 but we have to delay 3 and 2 until
+              // after
+              // 1.
+              assertThat(pendingTxs)
+                  .map(PendingTransaction::getTransaction)
+                  .containsExactly(transaction4, transaction1, transaction2, transaction3);
 
-          return pendingTxs.stream().collect(Collectors.toMap(Function.identity(), pt -> SELECTED));
-        });
+              return pendingTxs.stream()
+                  .collect(Collectors.toMap(Function.identity(), pt -> SELECTED));
+            }));
   }
 
   @Test
@@ -839,6 +846,26 @@ public abstract class AbstractPendingTransactionsTestBase {
         .createTransaction(KEYS2);
   }
 
+  private static PendingTransactions.PendingTransactionsSelector completedResults(
+      final Function<List<PendingTransaction>, Map<PendingTransaction, TransactionSelectionResult>>
+          selector) {
+    return candidateTxs ->
+        selector.apply(candidateTxs).entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    entry -> CompletableFuture.completedFuture(entry.getValue())));
+  }
+
+  private static byte getScore(
+      final PendingTransactions pendingTransactions, final Transaction transaction) {
+    return pendingTransactions.getPendingTransactions().stream()
+        .filter(pt -> pt.getHash().equals(transaction.getHash()))
+        .findFirst()
+        .orElseThrow()
+        .getScore();
+  }
+
   private PendingTransaction createRemotePendingTransaction(
       final Transaction transaction, final long addedAt) {
     return PendingTransaction.newPendingTransaction(transaction, false, false, MAX_SCORE, addedAt);
@@ -861,27 +888,23 @@ public abstract class AbstractPendingTransactionsTestBase {
 
     // the first tx is not selected because the block is full, that is not its fault
     transactionsLarge.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
-              .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
-          return Map.of(pendingTxs.get(0), BLOCK_FULL);
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+              return Map.of(pendingTxs.get(0), BLOCK_FULL);
+            }));
 
     // so its score and its position in the selection order are unchanged
     assertThat(transactionsLarge.size()).isEqualTo(2);
-    assertThat(
-            transactionsLarge.getPendingTransactions().stream()
-                .filter(pt -> pt.getHash().equals(zeroGasPriceTX1Sdr2.getHash()))
-                .findFirst()
-                .orElseThrow()
-                .getScore())
-        .isEqualTo(MAX_SCORE);
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo(MAX_SCORE);
     transactionsLarge.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
-              .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
-          return Map.of();
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+              return Map.of();
+            }));
   }
 
   @Test
@@ -896,41 +919,57 @@ public abstract class AbstractPendingTransactionsTestBase {
 
     // first selection: sender 2 nonce 1 takes too long and is not included in the block
     transactionsLarge.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
-              .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX2Sdr2, zeroGasPriceTX1Sdr1);
-          return Map.of(pendingTxs.get(0), TX_EVALUATION_TOO_LONG);
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX2Sdr2, zeroGasPriceTX1Sdr1);
+              return Map.of(pendingTxs.get(0), TX_EVALUATION_TOO_LONG);
+            }));
 
     // the penalized tx is still in the pool, with a lower score
     assertThat(transactionsLarge.size()).isEqualTo(3);
     assertThat(transactionsLarge.getTransactionByHash(zeroGasPriceTX1Sdr2.getHash())).isPresent();
-    assertThat(
-            transactionsLarge.getPendingTransactions().stream()
-                .filter(pt -> pt.getHash().equals(zeroGasPriceTX1Sdr2.getHash()))
-                .findFirst()
-                .orElseThrow()
-                .getScore())
-        .isEqualTo((byte) (MAX_SCORE - 1));
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo((byte) (MAX_SCORE - 1));
 
     // second selection: sender 1 goes first, the penalized tx is moved after it and sender 2
     // nonce 2 is still deferred behind sender 2 nonce 1
     transactionsLarge.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
-              .containsExactly(zeroGasPriceTX1Sdr1, zeroGasPriceTX1Sdr2, zeroGasPriceTX2Sdr2);
-          return Map.of(pendingTxs.get(1), TX_EVALUATION_TOO_LONG);
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr1, zeroGasPriceTX1Sdr2, zeroGasPriceTX2Sdr2);
+              return Map.of(pendingTxs.get(1), TX_EVALUATION_TOO_LONG);
+            }));
 
     // penalized again, nothing is removed from the pool
     assertThat(transactionsLarge.size()).isEqualTo(3);
-    assertThat(
-            transactionsLarge.getPendingTransactions().stream()
-                .filter(pt -> pt.getHash().equals(zeroGasPriceTX1Sdr2.getHash()))
-                .findFirst()
-                .orElseThrow()
-                .getScore())
-        .isEqualTo((byte) (MAX_SCORE - 2));
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo((byte) (MAX_SCORE - 2));
+  }
+
+  @Test
+  public void shouldPenalizeTransactionWhenItsLateSelectionResultCompletes() {
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+
+    // the evaluation of the first tx is still running when the selection returns
+    final var lateResult = new CompletableFuture<TransactionSelectionResult>();
+    transactionsLarge.selectTransactions(pendingTxs -> Map.of(pendingTxs.get(0), lateResult));
+
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo(MAX_SCORE);
+
+    // the tx is penalized only once its evaluation completes
+    lateResult.complete(TX_EVALUATION_TOO_LONG);
+
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo((byte) (MAX_SCORE - 1));
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr1, zeroGasPriceTX1Sdr2);
+              return Map.of();
+            }));
   }
 
   @Test
@@ -941,16 +980,18 @@ public abstract class AbstractPendingTransactionsTestBase {
         createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
 
     transactionsLarge.selectTransactions(
-        pendingTxs -> Map.of(pendingTxs.get(0), SELECTED, pendingTxs.get(1), SELECTED));
+        completedResults(
+            pendingTxs -> Map.of(pendingTxs.get(0), SELECTED, pendingTxs.get(1), SELECTED)));
 
     assertThat(transactionsLarge.getPendingTransactions())
         .allSatisfy(pt -> assertThat(pt.getScore()).isEqualTo(MAX_SCORE));
     transactionsLarge.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
-              .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
-          return Collections.emptyMap();
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+              return Collections.emptyMap();
+            }));
   }
 
   @Test

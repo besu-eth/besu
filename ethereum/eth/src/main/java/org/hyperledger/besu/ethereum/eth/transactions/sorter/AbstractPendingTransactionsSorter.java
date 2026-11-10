@@ -256,18 +256,31 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
     final var selectionResults = selector.evaluatePendingTransactions(candidateTxs);
 
-    for (final var selectionResult : selectionResults.entrySet()) {
-      final var pendingTransaction = selectionResult.getKey();
-      final var result = selectionResult.getValue();
+    // a result that is not complete yet, since the evaluation of its tx is still running after a
+    // timeout or a cancellation, is processed by the evaluating thread when it completes
+    selectionResults.forEach(
+        (pendingTransaction, futureResult) ->
+            futureResult
+                .thenAccept(result -> processSelectionResult(pendingTransaction, result))
+                .exceptionally(
+                    throwable -> {
+                      LOG.warn(
+                          "Selection result of transaction {} not processed",
+                          pendingTransaction.getHash(),
+                          throwable);
+                      return null;
+                    }));
+  }
 
-      if (result.discard()) {
-        synchronized (lock) {
-          removeTransaction(pendingTransaction, INVALID);
-        }
-        logDiscardedTransaction(pendingTransaction, result);
-      } else if (result.penalize()) {
-        penalizeTransaction(pendingTransaction, result);
+  private void processSelectionResult(
+      final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
+    if (result.discard()) {
+      synchronized (lock) {
+        removeTransaction(pendingTransaction, INVALID);
       }
+      logDiscardedTransaction(pendingTransaction, result);
+    } else if (result.penalize()) {
+      penalizeTransaction(pendingTransaction, result);
     }
   }
 

@@ -51,7 +51,7 @@
 - RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
 - The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` keeps the fees of up to 1024 recent blocks between chain heads, and precomputes new heads only while it is called. [#11825](https://github.com/besu-eth/besu/pull/11825)
 - Parallel transaction execution keeps the result of a reverted or halted transaction when nothing it read changed, instead of executing it again. [#11806](https://github.com/besu-eth/besu/pull/11806)
-- The sequenced transaction pool penalises transactions whose selection result asks for it, as the layered pool does, and a transaction still executing when the block selection time runs out is penalised, so it is re-selected after the others instead of monopolising the selection time of every block (https://github.com/besu-eth/besu/pull/11681)
+- The sequenced transaction pool penalises transactions whose selection result asks for it, as the layered pool does. Both pools now also process the result of a transaction that is still executing when the block selection time runs out, once its execution completes, so a transaction that takes too long is penalised, or removed if invalid, instead of monopolising the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)
 
 ## 26.11.0
 

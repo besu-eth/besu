@@ -358,8 +358,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     }
   }
 
-  private Map<PendingTransaction, TransactionSelectionResult> timeLimitedSelection(
-      final List<PendingTransaction> candidatePendingTransactions) {
+  private Map<PendingTransaction, CompletableFuture<TransactionSelectionResult>>
+      timeLimitedSelection(final List<PendingTransaction> candidatePendingTransactions) {
     final long startTime = System.nanoTime();
 
     selectorsStateManager.blockSelectionStarted();
@@ -384,8 +384,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     return internalTimeLimitedSelection(candidatePendingTransactions, remainingSelectionTime);
   }
 
-  private Map<PendingTransaction, TransactionSelectionResult> internalTimeLimitedSelection(
-      final List<PendingTransaction> candidateTransactions, final long remainingSelectionTime) {
+  private Map<PendingTransaction, CompletableFuture<TransactionSelectionResult>>
+      internalTimeLimitedSelection(
+          final List<PendingTransaction> candidateTransactions, final long remainingSelectionTime) {
     final long startTimeNanos = System.nanoTime();
 
     validTxSelectionTimeoutResult = BLOCK_SELECTION_TIMEOUT;
@@ -394,7 +395,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     final CountDownLatch internalSelectionDone = new CountDownLatch(1);
 
     final var selectionResults =
-        new ConcurrentHashMap<PendingTransaction, TransactionSelectionResult>(
+        new ConcurrentHashMap<PendingTransaction, CompletableFuture<TransactionSelectionResult>>(
             candidateTransactions.size());
 
     currTxSelectionTask =
@@ -409,8 +410,19 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
                     .log();
 
                 for (PendingTransaction candidateTx : candidateTransactions) {
-                  final var selectionResult = evaluateTransaction(candidateTx);
-                  selectionResults.put(candidateTx, selectionResult);
+                  // the result is returned before the evaluation starts, since in case of a
+                  // timeout or a cancellation the evaluation could still be running when the
+                  // selection returns, and the txpool needs to process the result when it is ready
+                  final var futureResult = new CompletableFuture<TransactionSelectionResult>();
+                  selectionResults.put(candidateTx, futureResult);
+                  final TransactionSelectionResult selectionResult;
+                  try {
+                    selectionResult = evaluateTransaction(candidateTx);
+                  } catch (final Throwable t) {
+                    futureResult.completeExceptionally(t);
+                    throw t;
+                  }
+                  futureResult.complete(selectionResult);
                   if (selectionResult.stop()) {
                     break;
                   }
@@ -461,47 +473,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       final long elapsedSelectionTime = System.nanoTime() - startTimeNanos;
       final long maxWaitTime = remainingSelectionTime - elapsedSelectionTime;
       waitForCancellationToBeProcessed("Internal", internalSelectionDone, maxWaitTime);
-      if (internalSelectionDone.getCount() != 0) {
-        recordInFlightTransactionResult(selectionResults);
-      }
     }
 
     return selectionResults;
-  }
-
-  /**
-   * For cases where TX selection didn't complete, the thread evaluating the current tx is still
-   * running when the selection results are being evaluated by the pool, so by the time it tries to
-   * record a timeout result (e.g. TX_EVALUATION_TOO_LONG) the pool has finished processing the
-   * results. This method sets a result, ignoring the fact that the evaluation thread is still
-   * finishing, and determines whether the TX itself took too long (and should hence be penalised)
-   * or the block just ran out of time (in which case it should not be penalised).
-   *
-   * @param selectionResults the results of the selection, returned to the txpool
-   */
-  private void recordInFlightTransactionResult(
-      final Map<PendingTransaction, TransactionSelectionResult> selectionResults) {
-    final var evaluationContext = currTxEvaluationContext;
-    if (evaluationContext == null
-        || !(evaluationContext.getPendingTransaction() instanceof PendingTransaction inFlightTx)) {
-      return;
-    }
-
-    // The evaluation has not completed, so a result that discards the tx is never used here, but
-    // on a timeout the tx is penalized since it is still running after the whole remaining
-    // selection time was given to it.
-    final TransactionSelectionResult inFlightResult =
-        isCancelled.get() ? SELECTION_CANCELLED : TX_EVALUATION_TOO_LONG;
-
-    if (selectionResults.putIfAbsent(inFlightTx, inFlightResult) == null) {
-      LOG.atDebug()
-          .setMessage(
-              "Transaction {} is still being evaluated after {} at the end of the block selection, recording result {} for the txpool")
-          .addArgument(inFlightTx::getHash)
-          .addArgument(evaluationContext.getEvaluationTimer())
-          .addArgument(inFlightResult)
-          .log();
-    }
   }
 
   private void pluginTimeLimitedSelection(

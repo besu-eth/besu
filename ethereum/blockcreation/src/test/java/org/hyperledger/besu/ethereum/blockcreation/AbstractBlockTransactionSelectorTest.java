@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransacti
 import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransactionSelectorTest.Sender.SENDER3;
 import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransactionSelectorTest.Sender.SENDER5;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MAX_SCORE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXECUTION_INTERRUPTED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_LOW;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_SELECTION_TIMEOUT;
@@ -1663,25 +1664,28 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getReceipts().get(0).getCumulativeGasUsed()).isEqualTo(100_000);
     assertThat(results.getReceipts().get(1).getCumulativeGasUsed()).isEqualTo(200_000);
 
-    if (!isLongProcessingTxDropped) {
-      // the evaluation of the late tx was still running when the selection returned, but the
-      // txpool must have been given a result that penalizes it, so it is not retried
-      // first next block, preventing it from monopolising the selection time of every block
-      assertThat(
-              transactionPool.getPendingTransactions().stream()
-                  .filter(pt -> pt.getHash().equals(lateTx.getHash()))
-                  .findFirst()
-                  .orElseThrow()
-                  .getScore())
-          .isLessThan(org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MAX_SCORE);
-    }
-
     // given enough time we can check the not selected tx
     await().until(() -> !results.getNotSelectedTransactions().isEmpty());
     assertThat(results.getNotSelectedTransactions())
         .containsOnly(entry(lateTx, longProcessingTxResult));
     assertThat(transactionPool.getTransactionByHash(lateTx.getHash()).isEmpty())
         .isEqualTo(isLongProcessingTxDropped);
+
+    // the evaluation of the late tx was still running when the selection returned, and the txpool
+    // processes its result when it completes, so the tx is penalized only if it took too long
+    // itself, and not when it was just the one running when the block ran out of time
+    final byte expectedScore =
+        longProcessingTxResult.penalize() ? (byte) (MAX_SCORE - 1) : MAX_SCORE;
+    await()
+        .untilAsserted(
+            () ->
+                assertThat(
+                        transactionPool.getPendingTransactions().stream()
+                            .filter(pt -> pt.getHash().equals(lateTx.getHash()))
+                            .findFirst()
+                            .orElseThrow()
+                            .getScore())
+                    .isEqualTo(expectedScore));
   }
 
   @Disabled("flaky #7150")
