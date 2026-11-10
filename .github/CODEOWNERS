@@ -2,4 +2,4 @@
 /.github/ @besu-eth/besu-maintainers
 
 # performance critical classes must be reviewed by performance team
-/evm/src/main/java/org/hyperledger/besu/evm/ @ahamlat @lu-pinto @matkt @siladu
+/evm/src/main/java/org/hyperledger/besu/evm/ @ahamlat @daniellehrner @lu-pinto @matkt @siladu

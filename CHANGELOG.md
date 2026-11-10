@@ -3,9 +3,89 @@
 ## Unreleased
 
 ### Breaking Changes
+- `eth_createAccessList` now returns an error for a transaction that is not valid at the target block, as `eth_estimateGas` does. This includes a block before Berlin, where an access list transaction is not valid, and fee fields before London. Previously the method returned an empty access list, or an `execution reverted` result with the gas cap as `gasUsed`. [#11631](https://github.com/besu-eth/besu/pull/11631)
+- `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
+- `trace_block`, `trace_replayBlockTransactions`, `trace_call` and `trace_callMany` no longer evaluate `pending` as `latest`, and reject it with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
+- The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
+- `trace_rawTransaction` returns the validation error for a signed transaction that fails validation, such as a nonce ahead of the sender's or a sender who cannot pay the up-front gas cost, instead of a successful response. It also applies the EIP-7825 transaction gas limit cap, the intrinsic gas limit cap and the EIP-3607 check against senders with deployed code, which it skipped, and rejects a gas limit above the RPC gas cap instead of clamping it. [#11395](https://github.com/besu-eth/besu/pull/11395)
+
+### Upcoming Breaking Changes
+- Plugin API
+  - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+  - `MiningService` is deprecated for removal and will be removed in a future release, with no replacement. It has no known usage
+  - `BesuEvents` is deprecated and will be removed at the breaking release. Its event families are available on `BlockchainService`, `TransactionPoolService` and `SynchronizationService` through `subscribe*` methods returning a `Subscription` handle; `TTDReachedListener` has no replacement, since it never had an add method. [#11283](https://github.com/besu-eth/besu/pull/11283)
+  - The plugin API is being reorganized into per-feature modules ([#10820](https://github.com/besu-eth/besu/issues/10820)). Nothing has changed for plugin authors yet: `besu-plugin-api` re-exports every module, so existing plugins compile and run unmodified. A future release will apply the breaking changes, batched into a single break with a migration guide:
+    - packages are renamed to match their module, for example `org.hyperledger.besu.plugin.services.storage` becomes `org.hyperledger.besu.plugin.storage`, with contracts plugins implement moving under an `spi` sub-package
+    - contracts that serve several unrelated audiences are split apart, and contracts that overlap are merged into one
+    - types and methods whose names no longer describe what they do are renamed, and a number of signatures change
+    - contracts and methods that are deprecated, superseded, or have no known usage are removed
+  - The plugin lifecycle is being redesigned. The phases a plugin goes through, the services available in each of them, and the way a plugin obtains those services are all expected to change, and the changes will not be source compatible.
+  - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
+- `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated (since 26.8.1) and will be removed in a future release; the flag is now a silent no-op.
+- `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
+
+### Bug fixes
+- `admin_logsRemoveCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when `startBlock` or `stopBlock` is not known, including an unknown block number and an unknown `safe` or `finalized` tag. [#11892](https://github.com/besu-eth/besu/issues/11892)
+- `eth_getStorageValues`, `testing_buildBlockV1` and `testing_commitBlockV1` now return the error detail in `message`, not in `data`, as [execution-apis#967](https://github.com/ethereum/execution-apis/pull/967) specifies. [#11861](https://github.com/besu-eth/besu/pull/11861)
+- Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
+- `eth_simulateV1` now rejects precompiles moved to their own address with error `-38022`. [#11793](https://github.com/besu-eth/besu/issues/11793)
+- `eth_simulateV1` now returns `maxUsedGas` after Amsterdam as the gas used before refunds raised to the calldata floor, `max(executionGas + stateGas, floor)`, as Geth does. Previously Besu returned `max(executionGas, floor) + stateGas`, which is larger when the execution gas is below the floor. `eth_estimateGas` uses the same value as its lower bound. [#11580](https://github.com/besu-eth/besu/pull/11580)
+- `eth_simulateV1` now accepts `withdrawals` in `blockOverrides`, as execution-apis specifies. [#11632](https://github.com/besu-eth/besu/pull/11632)
+- Block access lists of the last blocks are now cached as RLP, at most 128 MiB by default (`--cache-last-blocks-max-capacity`), and `--cache-last-blocks` now defaults to 128. [#11455](https://github.com/besu-eth/besu/pull/11455)
+- Snap sync no longer stalls on an account with large, frequently changing storage, or on an account whose storage was cleared while snap sync was downloading it. [#11654](https://github.com/besu-eth/besu/pull/11654)
+- `miner_getExtraData` no longer drops leading zero bytes from the extra data, so the value it returns can be passed back to `miner_setExtraData`. [#11843](https://github.com/besu-eth/besu/pull/11843)
+- `admin_logsRemoveCache` now resolves the `safe` and `finalized` block tags to the safe and finalized blocks instead of the chain head. [#11844](https://github.com/besu-eth/besu/pull/11844)
+- `eth_feeHistory` resolves `finalized` and `safe` as `newestBlock` to those blocks, and answers `-39001 Unknown block` when they are not known, as `eth_getBlockByNumber` and `eth_getBalance` do. It returned the history ending at the chain head instead. [#11857](https://github.com/besu-eth/besu/pull/11857)
+- `trace_block`, `trace_filter` and `trace_replayBlockTransactions` replay a mined transaction whose sender is no longer on the node's local account allowlist, instead of tracing it as a call that ran no code and changed no state. [#11406](https://github.com/besu-eth/besu/pull/11406)
+- A block that fails the receipts root or gas used check is now rejected before its world state is persisted, so processing it on the head world state, as backward sync does, no longer leaves the head world state on that block. A later `engine_forkchoiceUpdated` to a block other than the rejected block's parent failed with `Failed to set new head`. [#11858](https://github.com/besu-eth/besu/pull/11858)
+- A transaction whose parallel execution failed with an error is executed again in order, instead of failing the block import. [#11806](https://github.com/besu-eth/besu/pull/11806)
+- `trace_filter` resolves `safe` and `finalized` bounds to their blocks instead of failing with `Internal error` (`-32603`). It rejects them when the chain has none, and rejects `pending`, which is not a `trace_filter` bound, with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
+- Keep Parity trace errors local to the failed call instead of marking successful siblings or callers of failed precompiles as reverted, or failing a caller whose child halts in `RETURN` or `REVERT`. [#11345](https://github.com/besu-eth/besu/pull/11345)
+- Struct logs from `debug_traceTransaction` and `debug_traceCall`, and from `debug_traceBlock*` in JSON-RPC batch requests, report a failed code deposit's `error` on the creation's last operation, usually its `RETURN`, instead of the last operation that was not a `RETURN`. [#11345](https://github.com/besu-eth/besu/pull/11345)
+- `trace_rawTransaction` validates and executes the original signed transaction. Invalid signatures and empty EIP-7702 authorization lists are rejected. `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_sendRawTransaction`, `trace_call` and `trace_callMany` return `-32602` instead of `Internal error` (`-32603`) when they reject a transaction for an init code above the size limit or an up-front cost above 2^256, and `eth_sendRawTransaction` also does for an empty EIP-7702 authorization list. [#11395](https://github.com/besu-eth/besu/pull/11395)
+- A node stopped while importing a block no longer gets stuck after a restart, failing to process the next block because the parent world state is not available. [#11882](https://github.com/besu-eth/besu/pull/11882)
+
+### Additions and Improvements
+- Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
+- Upgrade Guava from 33.7.2-jre to 33.8.0-jre, resolving CVE-2026-118042 [#11860](https://github.com/besu-eth/besu/pull/11860)
+- Upgrade opentelemetry from 1.62.0 to 1.67.0, resolving CVE-2026-118259, along with the OpenTelemetry OkHttp instrumentation (2.25.0-alpha to 2.33.1-alpha) and semantic conventions (1.40.0 to 1.44.0) that match it. Plugins that use OpenTelemetry directly should align with these versions. Since 1.67.0, an `SdkTracerProvider` with no span processor creates no spans, so with `OTEL_TRACES_EXPORTER=none` Besu no longer creates spans. [#11859](https://github.com/besu-eth/besu/pull/11859)
+- RLPx frames are encrypted and decrypted with the JDK's AES cipher, which uses the processor's AES instructions. [#11823](https://github.com/besu-eth/besu/pull/11823)
+- Transaction announcements no longer allocate a batch for a full message for every peer when there is nothing to announce. [#11827](https://github.com/besu-eth/besu/pull/11827)
+- The default JVM options no longer start JFR's in-process event logging, which formatted every recorded event as text. [#11824](https://github.com/besu-eth/besu/pull/11824)
+- Add `trace_replayTransaction` to the `TRACE` API. It replays one mined transaction on top of the transactions before it in its block and returns the same result as `trace_replayBlockTransactions` for that transaction. [#11406](https://github.com/besu-eth/besu/pull/11406)
+- Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
+- EVM v2 runs untraced execution, such as block import, in a faster loop of its own. [#11687](https://github.com/besu-eth/besu/pull/11687)
+- RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
+- The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` keeps the fees of up to 1024 recent blocks between chain heads, and precomputes new heads only while it is called. [#11825](https://github.com/besu-eth/besu/pull/11825)
+- Parallel transaction execution keeps the result of a reverted or halted transaction when nothing it read changed, instead of executing it again. [#11806](https://github.com/besu-eth/besu/pull/11806)
+- Add QBFT genesis config option `goquorumcompatibilitymode` (default false) which relaxes the per-block gas-limit delta validation (keeping the min/max range check), allowing chains produced by GoQuorum's QBFT (where proposers may change the gas limit by an arbitrary amount per block) to be imported. [#10723](https://github.com/besu-eth/besu/issues/10723)
+- Support sub-hour TX pool retention for the sequenced transaction pool via `--tx-pool-retention-seconds` [#11588](https://github.com/besu-eth/besu/pull/11588)
+- Block import computes logs blooms on the transaction workers and the transactions root only once. [#11529](https://github.com/besu-eth/besu/pull/11529)
+- Faster lookups of which peers have seen a transaction, reducing CPU use and lock contention in transaction gossip. [#11886](https://github.com/besu-eth/besu/pull/11886)
+
+## 26.11.0
+
+### Breaking Changes
 - `eth_getProof` now follows the execution-apis rules, regarding leading zeros and error codes. [#11668](https://github.com/besu-eth/besu/pull/11668)
 - `engine_getPayload` no longer waits for the in-progress block build when only the empty block has been built, as [execution-apis#958](https://github.com/ethereum/execution-apis/pull/958) requires. The default of `--Xpos-block-finalization-timeout-ms` changes from 800 to 0 and the option now accepts 0; set it to a positive value to restore the previous wait. [#11774](https://github.com/besu-eth/besu/pull/11774)
 - `eth_simulateV1` now rejects unknown account overrides [#11695](https://github.com/besu-eth/besu/pull/11695)
+
+### Upcoming Breaking Changes
+- Plugin API
+  - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+  - `MiningService` is deprecated for removal and will be removed in a future release, with no replacement. It has no known usage
+  - `BesuEvents` is deprecated and will be removed at the breaking release. Its event families are available on `BlockchainService`, `TransactionPoolService` and `SynchronizationService` through `subscribe*` methods returning a `Subscription` handle; `TTDReachedListener` has no replacement, since it never had an add method. [#11283](https://github.com/besu-eth/besu/pull/11283)
+  - The plugin API is being reorganized into per-feature modules ([#10820](https://github.com/besu-eth/besu/issues/10820)). Nothing has changed for plugin authors yet: `besu-plugin-api` re-exports every module, so existing plugins compile and run unmodified. A future release will apply the breaking changes, batched into a single break with a migration guide:
+    - packages are renamed to match their module, for example `org.hyperledger.besu.plugin.services.storage` becomes `org.hyperledger.besu.plugin.storage`, with contracts plugins implement moving under an `spi` sub-package
+    - contracts that serve several unrelated audiences are split apart, and contracts that overlap are merged into one
+    - types and methods whose names no longer describe what they do are renamed, and a number of signatures change
+    - contracts and methods that are deprecated, superseded, or have no known usage are removed
+  - The plugin lifecycle is being redesigned. The phases a plugin goes through, the services available in each of them, and the way a plugin obtains those services are all expected to change, and the changes will not be source compatible.
+  - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
+- `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated (since 26.8.1) and will be removed in a future release; the flag is now a silent no-op.
+- `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
 - Block propagation now retries a block that peers do not serve with a delay that grows from 250 ms to 30 s and stops after 10 retries, releasing the block number for a later announcement. Previously it rescheduled the retrieval immediately and without a limit for as long as the number stayed in the propagation range. Block propagation stops once a finalized forkchoice is received, so this only affects networks that do not send one (Clique/PoA) and tests, not mainnet. [#11674](https://github.com/besu-eth/besu/pull/11674)
@@ -25,6 +105,7 @@
 - Support Amsterdam hardfork at genesis on Ephemery, aligning with Ephemery iteration 165 and removing dynamic in-cycle BPO offsets. [#11728](https://github.com/besu-eth/besu/pull/11728)
 - `engine_newPayload` replies before it stores a valid block and its trie log. [#11682](https://github.com/besu-eth/besu/pull/11682)
 - Block import preloads and commits only the state a block changes, and builds trie keys without streams. [#11758](https://github.com/besu-eth/besu/pull/11758)
+- New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, including after a round change, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469) [#11817](https://github.com/besu-eth/besu/pull/11817)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
 - QBFT validators no longer import a block announced by peers (`NewBlock`) while their current round is validating or committing it, avoiding a second execution under the block import lock. The block is still validated and relayed, and is imported from the network if the round changes or the consensus import fails. [#11583](https://github.com/besu-eth/besu/pull/11583)
@@ -35,6 +116,22 @@
 - `eth_getProof` now rejects a request with more than 1024 storage keys with `Invalid storage keys params` (`-32602`), the same limit as geth, Nethermind and Erigon. [#11697](https://github.com/besu-eth/besu/pull/11697)
 - `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `trace_call` and `trace_callMany` now reject a call that sets `maxFeePerBlobGas` without blob versioned hashes, or that sets an empty `blobVersionedHashes` list, with `Invalid blob count` (`-32602`) at every fork. Previously a `maxFeePerBlobGas` without hashes was accepted and the call ran without blobs, and a `maxFeePerBlobGas` of 0 also set the blob base fee the call saw to 0. An empty list failed with `Internal error` (`-32603`). Each call in a `trace_callMany` bundle gets the same rule. `debug_traceCall` and `eth_simulateV1` reject only an empty `blobVersionedHashes` list, and still accept a `maxFeePerBlobGas` without hashes. [#11556](https://github.com/besu-eth/besu/pull/11556)
 - `trace_filter` now matches a block reward's author against `toAddress` in range queries, as it already did for a single block, so a filter on an author's address returns its reward traces. [#11436](https://github.com/besu-eth/besu/pull/11436)
+
+### Upcoming Breaking Changes
+- Plugin API
+  - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+  - `MiningService` is deprecated for removal and will be removed in a future release, with no replacement. It has no known usage
+  - `BesuEvents` is deprecated and will be removed at the breaking release. Its event families are available on `BlockchainService`, `TransactionPoolService` and `SynchronizationService` through `subscribe*` methods returning a `Subscription` handle; `TTDReachedListener` has no replacement, since it never had an add method. [#11283](https://github.com/besu-eth/besu/pull/11283)
+  - The plugin API is being reorganized into per-feature modules ([#10820](https://github.com/besu-eth/besu/issues/10820)). Nothing has changed for plugin authors yet: `besu-plugin-api` re-exports every module, so existing plugins compile and run unmodified. A future release will apply the breaking changes, batched into a single break with a migration guide:
+    - packages are renamed to match their module, for example `org.hyperledger.besu.plugin.services.storage` becomes `org.hyperledger.besu.plugin.storage`, with contracts plugins implement moving under an `spi` sub-package
+    - contracts that serve several unrelated audiences are split apart, and contracts that overlap are merged into one
+    - types and methods whose names no longer describe what they do are renamed, and a number of signatures change
+    - contracts and methods that are deprecated, superseded, or have no known usage are removed
+  - The plugin lifecycle is being redesigned. The phases a plugin goes through, the services available in each of them, and the way a plugin obtains those services are all expected to change, and the changes will not be source compatible.
+  - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
+- `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated (since 26.8.1) and will be removed in a future release; the flag is now a silent no-op.
+- `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
 - Docker images no longer trust the eMudhra roots listed in [OpenJDK's guidance](https://openjdk.org/emudhra) after the October 2026 CA compromise — emSign ECC Root CA - G3 (related to the compromised intermediate certificate authorities) and emSign Root CA - G1 (a precaution), along with emSign Root CA - G2 and AAA Certificate Services, which are listed but not present in the Eclipse Temurin base image. The Temurin base image does not include this fix yet. This removal applies only to the Docker images; if you run the Besu archive (tar/zip) on your own distribution or vendor JDK, that JDK may still trust these roots — see the [eMudhra incident report](https://github.com/besu-eth/besu/wiki/Incident-Report-2026-10-26-eMudhra-CA-Compromise) to check and remediate it. [#11756](https://github.com/besu-eth/besu/pull/11756)

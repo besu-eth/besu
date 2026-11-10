@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -227,6 +228,37 @@ class OptimisticTransactionProcessorUnitTest {
 
       verify(transactionProcessor, times(3))
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("The worker computes the logs bloom of its result")
+    void workerComputesTheLogsBloom() {
+      final Transaction transaction = mockTransaction();
+      final TransactionProcessingResult result =
+          spy(
+              TransactionProcessingResult.successful(
+                  Collections.emptyList(),
+                  0,
+                  0,
+                  Bytes.EMPTY,
+                  Optional.empty(),
+                  ValidationResult.valid()));
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(result);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      verify(result).getLogsBloom();
     }
   }
 
@@ -569,6 +601,79 @@ class OptimisticTransactionProcessorUnitTest {
       assertTrue(result.isPresent(), "Expected result when no collision");
       assertTrue(result.get().isSuccessful(), "Expected successful result");
       assertNull(processor.futures[0], "Expected consumed future reference to be cleared");
+    }
+
+    @Test
+    @DisplayName("Returns a reverted result when no collision detected")
+    void returnsRevertedResultWhenNoCollision() {
+      final Transaction transaction = mockTransaction();
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.failed(
+                  0,
+                  0,
+                  ValidationResult.valid(),
+                  Optional.of(Bytes.EMPTY),
+                  Optional.empty(),
+                  Optional.empty()));
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected the reverted result when no collision");
+      assertTrue(result.get().isFailed(), "Expected a failed result");
+    }
+
+    @Test
+    @DisplayName("Returns empty when the worker failed with an error")
+    void returnsEmptyWhenWorkerFailedWithError() {
+      final Transaction transaction = mockTransaction();
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenThrow(new StackOverflowError());
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      assertThat(processor.futures[0]).isCompletedExceptionally();
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isEmpty(), "Expected the transaction to be executed sequentially");
     }
 
     @Test

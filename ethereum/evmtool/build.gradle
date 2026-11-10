@@ -124,8 +124,8 @@ application {
 // Because the properties are shared, one command covers both simulators:
 //   ./gradlew consumeEngineTestsStable consumeRlpTestsStable -PsimLimit='.*(7928|8282).*'
 //
-// -Dtest.evm.v2=true runs the fixtures on EVM v2 (evmtool --Xevm-v2), as it does for the reference
-// test tasks.
+// -Dtest.evm.v2=true runs the fixtures on EVM v2 and -Dtest.evm.v2=false on EVM v1 (evmtool
+// --Xevm-v2), as it does for the reference test tasks. Without it, evmtool's default EVM runs them.
 
 // stateTestsDevnet used to take -PstateTestFilter / -PstateTestPath / -PstateTestWorkers. Gradle
 // ignores unknown -P properties, so without this an old invocation would run the whole state_tests
@@ -176,7 +176,9 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
     def subPath = project.findProperty('simPath')?.toString()
     // Not ?:, which would treat an empty -PsimLimit= as unset and apply the default filter
     def simLimit = project.hasProperty('simLimit') ? project.property('simLimit').toString() : defaultSimLimit
-    def evmV2 = Boolean.getBoolean('test.evm.v2')
+    // null without -Dtest.evm.v2, so that evmtool's default EVM runs the fixtures
+    def evmV2Property = System.getProperty('test.evm.v2')
+    def evmV2 = evmV2Property == null ? null : Boolean.parseBoolean(evmV2Property)
 
     doFirst {
       failOnRenamedProperties(project)
@@ -192,7 +194,7 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
         throw new GradleException("Fixtures path not found: ${runDir} (from -PsimPath=${subPath})")
       }
       // --Xevm-v2 belongs to evmtool itself, so it goes ahead of the subcommand
-      def cmd = (evmV2 ? ['--Xevm-v2=true'] : []) + [subcommand] + extraArgs
+      def cmd = (evmV2 != null ? ['--Xevm-v2=' + evmV2] : []) + [subcommand] + extraArgs
       if (parallelism != null) {
         cmd += ['--workers', parallelism]
       }
@@ -203,7 +205,7 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
       args = cmd
       logger.lifecycle("${taskName}: ${subcommand} over ${runDir}" +
         (simLimit != null ? " matching --sim.limit '${simLimit}'" : " (all tests)") +
-        (evmV2 ? " on EVM v2" : ""))
+        (evmV2 != null ? (evmV2 ? " on EVM v2" : " on EVM v1") : ""))
     }
   }
 }

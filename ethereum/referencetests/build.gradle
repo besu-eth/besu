@@ -545,7 +545,7 @@ tasks.withType(Test).configureEach {
   maxHeapSize = '2g'
 }
 
-// -Dtest.evm.v2=true runs the reference tests on EVM v2 (--Xevm-v2).
+// -Dtest.evm.v2=true runs the reference tests on EVM v2 (--Xevm-v2), -Dtest.evm.v2=false on EVM v1.
 tasks.withType(Test).configureEach {
   def evmV2 = System.getProperty('test.evm.v2')
   if (evmV2 != null) {

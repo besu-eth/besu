@@ -34,6 +34,7 @@ import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
+import org.hyperledger.besu.evm.testutils.TestEvmConfigurations;
 import org.hyperledger.besu.evm.toy.ToyWorld;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.TracedStack;
@@ -73,13 +74,9 @@ final class ProgramRun {
       Bytes.fromHexString(
           "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728");
 
-  static final EvmConfiguration V1 = EvmConfiguration.DEFAULT;
-  static final EvmConfiguration V2 =
-      new EvmConfiguration(
-          EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
-          EvmConfiguration.DEFAULT.worldUpdaterMode(),
-          EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
-          true);
+  // Both set the EVM explicitly, so the tests keep comparing v1 with v2 whatever the default is
+  static final EvmConfiguration V1 = TestEvmConfigurations.EVM_V1;
+  static final EvmConfiguration V2 = TestEvmConfigurations.EVM_V2;
 
   record Fork(String name, Function<EvmConfiguration, EVM> factory) {
     @Override
@@ -171,7 +168,31 @@ final class ProgramRun {
       Set<String> accounts,
       Set<String> transientStorage,
       Set<String> accesses,
-      List<String> steps) {}
+      List<String> steps) {
+
+    /** The outcome without the recorded steps, as an untraced run of the program ends. */
+    Outcome withoutSteps() {
+      return new Outcome(
+          state,
+          haltReason,
+          remainingGas,
+          gasRefund,
+          stateGasUsed,
+          stack,
+          memory,
+          output,
+          returnData,
+          revertReason,
+          logs,
+          selfDestructs,
+          creates,
+          refunds,
+          accounts,
+          transientStorage,
+          accesses,
+          List.of());
+    }
+  }
 
   /** The outermost frame and the world it ran against, after a run, with its outcome. */
   record Execution(MessageFrame frame, WorldUpdater worldUpdater, Outcome outcome) {}
