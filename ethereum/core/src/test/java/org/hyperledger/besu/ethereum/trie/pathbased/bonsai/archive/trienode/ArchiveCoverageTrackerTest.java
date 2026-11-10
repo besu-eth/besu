@@ -18,14 +18,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker.Coverage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class ArchiveCoverageTrackerTest {
 
@@ -44,9 +49,13 @@ class ArchiveCoverageTrackerTest {
     assertThat(progress.hasArchiveBlock(10)).isFalse();
   }
 
+  private static Hash blockHash(final long block) {
+    return Hash.hash(Bytes.ofUnsignedLong(block));
+  }
+
   private void commitRecord(final long block) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    progress.record(tx, block);
+    progress.record(tx, block, blockHash(block));
     tx.commit();
   }
 
@@ -82,16 +91,18 @@ class ArchiveCoverageTrackerTest {
   @Test
   void uncommittedRecordNotVisible() {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    progress.record(tx, 0L);
+    progress.record(tx, 0L, blockHash(0L));
     // NOT committed
 
     assertThat(progress.hasArchiveBlock(0L)).isFalse();
   }
 
-  @Test
-  void malformedCoverageTreatedAsNone() {
+  // 16 bytes is the legacy hash-less format.
+  @ParameterizedTest
+  @ValueSource(ints = {4, 16})
+  void malformedCoverageTreatedAsNone(final int size) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    tx.put(TRIE_BRANCH_STORAGE_ARCHIVE, ArchiveCoverageTracker.COVERAGE_KEY, new byte[4]);
+    tx.put(TRIE_BRANCH_STORAGE_ARCHIVE, ArchiveCoverageTracker.COVERAGE_KEY, new byte[size]);
     tx.commit();
 
     assertThat(progress.getCoverage()).isEmpty();
@@ -113,6 +124,17 @@ class ArchiveCoverageTrackerTest {
   void coverageReportsWindow() {
     commitRecord(0L);
     commitRecord(1L);
-    assertThat(progress.getCoverage()).contains(new ArchiveCoverageTracker.Coverage(0L, 1L));
+    assertThat(progress.getCoverage()).contains(new Coverage(0L, 1L, blockHash(1L)));
+  }
+
+  @Test
+  void recordStoresStartLastAndHash() {
+    commitRecord(0L);
+
+    final byte[] raw =
+        storage.get(TRIE_BRANCH_STORAGE_ARCHIVE, ArchiveCoverageTracker.COVERAGE_KEY).orElseThrow();
+    assertThat(raw).hasSize(48);
+    assertThat(new ArchiveCoverageTracker(storage).getCoverage())
+        .contains(new Coverage(0L, 0L, blockHash(0L)));
   }
 }

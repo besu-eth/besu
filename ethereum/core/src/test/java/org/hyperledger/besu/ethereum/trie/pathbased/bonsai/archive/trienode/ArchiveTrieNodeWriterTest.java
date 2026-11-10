@@ -24,6 +24,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
@@ -62,6 +64,10 @@ class ArchiveTrieNodeWriterTest {
     return out.encoded();
   }
 
+  private static BlockHeader header(final long block) {
+    return new BlockHeaderTestFixture().number(block).buildHeader();
+  }
+
   private SegmentedKeyValueStorage storage;
   private ArchiveNodeHistoryStore historyStore;
   private ArchiveCoverageTracker coverageTracker;
@@ -90,7 +96,7 @@ class ArchiveTrieNodeWriterTest {
       final Bytes newNode,
       final Bytes priorNode) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    trieNodeWriter.beginBlock(tx, block);
+    trieNodeWriter.beginBlock(tx, header(block));
     trieNodeWriter.capture(naturalKey, location, block, newNode, priorNode, tx);
     trieNodeWriter.onBeforeCommit(tx);
     tx.commit();
@@ -137,11 +143,12 @@ class ArchiveTrieNodeWriterTest {
     enqueueAndCommit(0L, ArchiveNodeKey.account(LOCATION), LOCATION, branchNode(0), null);
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    trieNodeWriter.beginBlock(tx, 1L);
+    trieNodeWriter.beginBlock(tx, header(1L));
     trieNodeWriter.onBeforeCommit(tx);
     tx.commit();
 
-    assertThat(coverageTracker.getCoverage()).contains(new ArchiveCoverageTracker.Coverage(0L, 1L));
+    assertThat(coverageTracker.getCoverage())
+        .contains(new ArchiveCoverageTracker.Coverage(0L, 1L, header(1L).getBlockHash()));
   }
 
   @Test
@@ -158,7 +165,7 @@ class ArchiveTrieNodeWriterTest {
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    restarted.beginBlock(tx, 1L);
+    restarted.beginBlock(tx, header(1L));
     restarted.capture(nk, LOCATION, 1L, branchNode(1), branchNode(0), tx);
     restarted.onBeforeCommit(tx);
     tx.commit();
@@ -207,7 +214,7 @@ class ArchiveTrieNodeWriterTest {
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    writer.beginBlock(tx, block);
+    writer.beginBlock(tx, header(block));
     writer.capture(nk, LOCATION, block, branchNode((int) block), prior, tx);
     assertThatThrownBy(() -> writer.onBeforeCommit(tx)).isInstanceOf(IllegalStateException.class);
 
@@ -221,8 +228,8 @@ class ArchiveTrieNodeWriterTest {
   @Test
   void beginBlockTwiceOnSameTransactionThrows() {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    trieNodeWriter.beginBlock(tx, 0L);
-    assertThatThrownBy(() -> trieNodeWriter.beginBlock(tx, 0L))
+    trieNodeWriter.beginBlock(tx, header(0L));
+    assertThatThrownBy(() -> trieNodeWriter.beginBlock(tx, header(0L)))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -296,7 +303,7 @@ class ArchiveTrieNodeWriterTest {
   void rollbackDiscardsCaptureBuffer() {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    trieNodeWriter.beginBlock(tx, 0L);
+    trieNodeWriter.beginBlock(tx, header(0L));
     trieNodeWriter.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
     trieNodeWriter.onRollback(tx);
     tx.rollback();
@@ -310,7 +317,7 @@ class ArchiveTrieNodeWriterTest {
     // the owning updater's buffer is still live. The buffer must not be discarded.
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    trieNodeWriter.beginBlock(tx, 0L);
+    trieNodeWriter.beginBlock(tx, header(0L));
     trieNodeWriter.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
 
     final SegmentedKeyValueStorageTransaction foreignTx = storage.startTransaction();
@@ -335,8 +342,8 @@ class ArchiveTrieNodeWriterTest {
 
     final SegmentedKeyValueStorageTransaction txA = storage.startTransaction();
     final SegmentedKeyValueStorageTransaction txB = storage.startTransaction();
-    trieNodeWriter.beginBlock(txA, 0L);
-    trieNodeWriter.beginBlock(txB, 1L);
+    trieNodeWriter.beginBlock(txA, header(0L));
+    trieNodeWriter.beginBlock(txB, header(1L));
     trieNodeWriter.capture(nkA, locA, 0L, branchNode(0), null, txA);
     trieNodeWriter.capture(nkB, locB, 1L, branchNode(1), null, txB);
 
@@ -385,7 +392,7 @@ class ArchiveTrieNodeWriterTest {
     for (int block = 0; block <= shallowInterval; block++) {
       final Bytes node = branchNode(block);
       final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-      writer.beginBlock(tx, block);
+      writer.beginBlock(tx, header(block));
       writer.capture(nk, LOCATION, block, node, prior, tx);
       writer.onBeforeCommit(tx);
       tx.commit();
@@ -460,7 +467,7 @@ class ArchiveTrieNodeWriterTest {
     for (int block = 0; block < blocks; block++) {
       final Bytes node = nodeAt.apply(block);
       final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-      localCapture.beginBlock(tx, block);
+      localCapture.beginBlock(tx, header(block));
       localCapture.capture(nk, location, block, node, prior, tx);
       localCapture.onBeforeCommit(tx);
       tx.commit();
@@ -521,7 +528,7 @@ class ArchiveTrieNodeWriterTest {
     // 65 creations in one block: the first 64 are auto-submitted as a chunk during enqueue, the
     // 65th is submitted in onBeforeCommit. All 65 must appear in the archive.
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    trieNodeWriter.beginBlock(tx, 0L);
+    trieNodeWriter.beginBlock(tx, header(0L));
     for (int i = 0; i < 65; i++) {
       final Bytes loc = Bytes.of((byte) (i + 2)); // +2 avoids ROOT_LOCATION and LOCATION
       trieNodeWriter.capture(ArchiveNodeKey.account(loc), loc, 0L, branchNode(i), null, tx);

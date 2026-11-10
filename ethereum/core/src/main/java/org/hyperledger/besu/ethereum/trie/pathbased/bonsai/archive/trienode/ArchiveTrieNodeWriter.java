@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static com.google.common.base.Preconditions.checkState;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.io.Closeable;
@@ -45,12 +47,14 @@ public class ArchiveTrieNodeWriter implements Closeable {
 
   private static class CaptureBuffer {
     final long block;
+    final Hash blockHash;
     final boolean chainContiguous;
     final List<CaptureRequest> pendingRequests = new ArrayList<>();
     final List<Future<List<EncodedEntry>>> inFlight = new ArrayList<>();
 
-    CaptureBuffer(final long block, final boolean chainContiguous) {
+    CaptureBuffer(final long block, final Hash blockHash, final boolean chainContiguous) {
       this.block = block;
+      this.blockHash = blockHash;
       this.chainContiguous = chainContiguous;
     }
   }
@@ -87,18 +91,23 @@ public class ArchiveTrieNodeWriter implements Closeable {
   }
 
   /**
-   * Opens {@code transaction}'s capture buffer for {@code block}. Entries diff against prior
-   * history only when coverage ends at {@code block - 1}; otherwise every entry is written FULL.
+   * Opens {@code transaction}'s capture buffer for {@code blockHeader}'s block. Entries diff
+   * against prior history only when coverage ends at {@code block - 1}; otherwise every entry is
+   * written FULL.
    *
    * @param transaction the open transaction that will commit this block's writes
-   * @param block the block number being imported
+   * @param blockHeader the header of the block being imported
    * @throws IllegalStateException if {@code transaction} already has a begun block
    */
-  public void beginBlock(final SegmentedKeyValueStorageTransaction transaction, final long block) {
+  public void beginBlock(
+      final SegmentedKeyValueStorageTransaction transaction, final BlockHeader blockHeader) {
+    final long block = blockHeader.getNumber();
     final boolean chainContiguous =
         coverageTracker.getCoverage().map(c -> c.lastBlock() == block - 1).orElse(false);
     checkState(
-        buffers.putIfAbsent(transaction, new CaptureBuffer(block, chainContiguous)) == null,
+        buffers.putIfAbsent(
+                transaction, new CaptureBuffer(block, blockHeader.getBlockHash(), chainContiguous))
+            == null,
         "Block already begun on this transaction");
   }
 
@@ -201,7 +210,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
       } catch (final ExecutionException e) {
         throw new RuntimeException("trie-node capture failed", e.getCause());
       }
-      coverageTracker.record(transaction, buf.block);
+      coverageTracker.record(transaction, buf.block, buf.blockHash);
     }
   }
 
