@@ -24,6 +24,7 @@ import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.SortedWriter;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBWriteBatchTransaction;
@@ -68,6 +69,7 @@ import org.rocksdb.CompressionType;
 import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
+import org.rocksdb.IngestExternalFileOptions;
 import org.rocksdb.LRUCache;
 import org.rocksdb.LiveFileMetaData;
 import org.rocksdb.Options;
@@ -423,6 +425,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                     }));
     try {
       RocksDBSegmentRewrite.completeInterrupted(this);
+      RocksDBSortedWriter.deleteLeftovers(configuration.getDatabaseDir());
     } catch (final RuntimeException e) {
       // the constructor fails with this, which leaves nobody to release the database
       close();
@@ -430,6 +433,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     }
   }
 
+  // a new native handle, which the caller has to close
+  Options segmentOptions(final SegmentIdentifier segment) {
+    return new Options(options, columnFamilyOptions(segment));
+  }
+
+  // the options the column family of the segment was opened with
   ColumnFamilyOptions columnFamilyOptions(final SegmentIdentifier segment) {
     return columnDescriptors.stream()
         .filter(descriptor -> Arrays.equals(descriptor.getName(), segment.getId()))
@@ -439,6 +448,17 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                 new RuntimeException(
                     "Column descriptor not found for segment " + segment.getName()))
         .getOptions();
+  }
+
+  // adds SST files to the segment, moving them in when they may be
+  void ingest(final SegmentIdentifier segment, final List<String> files, final boolean move)
+      throws RocksDBException {
+    // RocksJava does not check its handles, so a closed database would crash the JVM
+    throwIfClosed();
+    try (final IngestExternalFileOptions ingest =
+        new IngestExternalFileOptions().setMoveFiles(move)) {
+      getDB().ingestExternalFile(safeColumnHandle(segment), files, ingest);
+    }
   }
 
   /** Runs the configured startup warm-ups when enabled. */
@@ -730,6 +750,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         new RocksDBWriteBatchTransaction(
             this::safeColumnHandle, getDB(), writeOptions, getMetrics()),
         this.closed::get);
+  }
+
+  @Override
+  public SortedWriter startSortedWriter(final SegmentIdentifier segment) throws StorageException {
+    throwIfClosed();
+    return new RocksDBSortedWriter(
+        this, segment, RocksDBSortedWriter.directory(configuration.getDatabaseDir()));
   }
 
   void throwIfClosed() {

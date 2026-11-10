@@ -92,16 +92,17 @@ public abstract class ParallelBlockTransactionProcessor {
           CompletableFuture.supplyAsync(
               () -> {
                 started.set(txIndex, 1);
-                return runTransaction(
-                    protocolContext,
-                    blockHeader,
-                    txIndex,
-                    transaction,
-                    miningBeneficiary,
-                    blockHashLookup,
-                    blobGasPrice,
-                    blockAccessListBuilder,
-                    maybeParentHeader);
+                return precomputeLogsBloom(
+                    runTransaction(
+                        protocolContext,
+                        blockHeader,
+                        txIndex,
+                        transaction,
+                        miningBeneficiary,
+                        blockHashLookup,
+                        blobGasPrice,
+                        blockAccessListBuilder,
+                        maybeParentHeader));
               },
               executor);
     }
@@ -123,6 +124,15 @@ public abstract class ParallelBlockTransactionProcessor {
     }
     System.arraycopy(light, 0, order, heavyCount, lightCount);
     return order;
+  }
+
+  // the receipt's bloom depends on this transaction alone, so it is hashed on the worker
+  private static ParallelizedTransactionContext precomputeLogsBloom(
+      final ParallelizedTransactionContext context) {
+    if (context != null && context.transactionProcessingResult() != null) {
+      context.transactionProcessingResult().getLogsBloom();
+    }
+    return context;
   }
 
   /**
