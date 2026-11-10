@@ -26,6 +26,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Snap sync now sends a receipts request to the next peer when a peer fails to serve it, for example by sending back no receipts, instead of retrying the same peer up to five more times. [#11615](https://github.com/besu-eth/besu/issues/11615)
 - `admin_logsRemoveCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when `startBlock` or `stopBlock` is not known, including an unknown block number and an unknown `safe` or `finalized` tag. [#11892](https://github.com/besu-eth/besu/issues/11892)
 - `eth_getStorageValues`, `testing_buildBlockV1` and `testing_commitBlockV1` now return the error detail in `message`, not in `data`, as [execution-apis#967](https://github.com/ethereum/execution-apis/pull/967) specifies. [#11861](https://github.com/besu-eth/besu/pull/11861)
 - Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
