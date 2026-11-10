@@ -2488,12 +2488,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       dataStorageConfiguration = dataStorageOptions.toDomainObject();
     }
 
-    // BAL prefetch warms VersionedFlatDbCacheManager; enable the cross-block cache when prefetch is
-    // on so those reads are not discarded by the no-op cache. Only Bonsai (non-archive) benefits:
-    // Forest ignores the flag, and archive getMultipleFlat is a no-op, so auto-enabling there would
-    // only change default memory behaviour.
+    // BAL prefetch and mempool prewarming warm VersionedFlatDbCacheManager; enable the cross-block
+    // cache when either is on so those reads are not discarded by the no-op cache. Only Bonsai
+    // (non-archive) benefits: Forest ignores the flag, and archive getMultipleFlat is a no-op, so
+    // auto-enabling there would only change default memory behaviour.
+    final boolean balPrefetch =
+        balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled();
     if (DataStorageFormat.BONSAI.equals(dataStorageConfiguration.getDataStorageFormat())
-        && balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled()
+        && (balPrefetch || miningOptions.isMempoolPrewarmEnabled())
         && !dataStorageConfiguration
             .getExtraStorageConfiguration()
             .getUnstable()
@@ -2509,7 +2511,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                                       .getExtraStorageConfiguration()
                                       .getUnstable())
                               .withBonsaiCrossBlockCacheEnabled(true)));
-      logger.info("Bonsai cross-block cache enabled for BAL prefetch reading");
+      logger.info(
+          "Bonsai cross-block cache enabled for {}",
+          balPrefetch ? "BAL prefetch reading" : "mempool prewarming");
     }
 
     if (SyncMode.FULL.equals(getDefaultSyncModeIfNotSet())
