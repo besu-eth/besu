@@ -334,7 +334,12 @@ public abstract class CommandTestAbstract {
 
     // the plugin context, a mock here and a spy in some subclasses, hands the built-in plugins
     // contexts backed by the mocked services; doReturn() keeps a spy from running the real method
-    lenient().doReturn(true).when(getBesuPluginContext()).isRegistering();
+    // a mock has no lifecycle, so it reports registration as open; a spy runs the real lifecycle
+    // and must report it truthfully, or Besu-owned registration services (the protocol-schedule
+    // customizers) would see registration as never closing and refuse to resolve
+    if (!mockingDetails(getBesuPluginContext()).isSpy()) {
+      lenient().doReturn(true).when(getBesuPluginContext()).isRegistering();
+    }
     // a mock still defines the options of the built-in plugins the command hands over, as the
     // real context does, so the tests can parse the RocksDB options; a spy runs the real methods
     final boolean realContext = mockingDetails(getBesuPluginContext()).isSpy();
