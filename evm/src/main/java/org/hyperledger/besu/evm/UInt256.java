@@ -619,6 +619,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     if (isZero() || other.isZero()) return ZERO;
     if (other.isOne()) return this;
     if (this.isOne()) return other;
+    if ((other.u3 | other.u2 | other.u1) == 0) return other.mul64(this);
     if (u3 != 0) return mul256(other).UInt256Value();
     if (u2 != 0) return mul192(other).UInt256Value();
     if (u1 != 0) return mul128(other);

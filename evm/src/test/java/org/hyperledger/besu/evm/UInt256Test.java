@@ -482,6 +482,59 @@ public class UInt256Test {
     }
   }
 
+  @Test
+  public void mulRandomizedOperandWidthsAgainstBigInteger() {
+    final Random random = new Random(11717);
+    final int[] sizes = {1, 8, 9, 16, 17, 24, 25, 32};
+
+    for (int i = 0; i < SAMPLE_SIZE * 4; i++) {
+      final byte[] leftBytes = new byte[sizes[i % sizes.length]];
+      final byte[] rightBytes = new byte[sizes[(i / sizes.length) % sizes.length]];
+      random.nextBytes(leftBytes);
+      random.nextBytes(rightBytes);
+      // Exercise the exact limb-width boundaries instead of relying on random leading bits.
+      leftBytes[0] |= (byte) 0x80;
+      rightBytes[0] |= (byte) 0x80;
+
+      assertMulMatchesBigInteger(new BigInteger(1, leftBytes), new BigInteger(1, rightBytes));
+    }
+  }
+
+  @Test
+  public void mulBoundaryValuesAgainstBigInteger() {
+    final BigInteger[] values = {
+      BigInteger.ZERO,
+      BigInteger.ONE,
+      BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE),
+      BigInteger.ONE.shiftLeft(64),
+      BigInteger.ONE.shiftLeft(128).subtract(BigInteger.ONE),
+      BigInteger.ONE.shiftLeft(128),
+      BigInteger.ONE.shiftLeft(192).subtract(BigInteger.ONE),
+      BigInteger.ONE.shiftLeft(192),
+      BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE)
+    };
+
+    for (final BigInteger left : values) {
+      for (final BigInteger right : values) {
+        assertMulMatchesBigInteger(left, right);
+      }
+    }
+  }
+
+  private void assertMulMatchesBigInteger(final BigInteger left, final BigInteger right) {
+    final UInt256 a = UInt256.fromBytesBE(bigIntTo32B(left).toArray());
+    final UInt256 b = UInt256.fromBytesBE(bigIntTo32B(right).toArray());
+    final BigInteger wrapped = left.multiply(right).mod(BigInteger.ONE.shiftLeft(256));
+    final UInt256 expected = UInt256.fromBytesBE(bigIntTo32B(wrapped).toArray());
+
+    assertThat(a.mul(b))
+        .as("left %s multiplied by right %s", left.toString(16), right.toString(16))
+        .isEqualTo(expected);
+    assertThat(b.mul(a))
+        .as("right %s multiplied by left %s", right.toString(16), left.toString(16))
+        .isEqualTo(expected);
+  }
+
   @ParameterizedTest
   @MethodSource("mulModTestCases")
   public void mulMod(final String a, final String b, final String modulus) {
