@@ -29,6 +29,8 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.cache.TransactionLogBloomCacher;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -112,6 +114,38 @@ public class AdminLogsRemoveCacheTest {
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
     assertThat(fromBlock.getValue()).isEqualTo(expectedFromBlock);
     assertThat(toBlock.getValue()).isEqualTo(expectedToBlock);
+  }
+
+  @Test
+  public void safeAndFinalizedTagsResolveToTheirBlockNumbers() {
+    final BlockHeader safeHeader = new BlockHeaderTestFixture().number(900L).buildHeader();
+    final BlockHeader finalizedHeader = new BlockHeaderTestFixture().number(800L).buildHeader();
+    when(blockchainQueries.safeBlockHeader()).thenReturn(Optional.of(safeHeader));
+    when(blockchainQueries.finalizedBlockHeader()).thenReturn(Optional.of(finalizedHeader));
+    when(blockchainQueries.getTransactionLogBloomCacher())
+        .thenReturn(Optional.of(transactionLogBloomCacher));
+    when(transactionLogBloomCacher.removeSegments(fromBlock.capture(), toBlock.capture()))
+        .thenReturn(true);
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {"finalized", "safe"}));
+    adminLogsRemoveCache.response(request);
+
+    assertThat(fromBlock.getValue()).isEqualTo(800L);
+    assertThat(toBlock.getValue()).isEqualTo(900L);
+  }
+
+  @Test
+  public void safeTagWithoutSafeBlockFails() {
+    when(blockchainQueries.safeBlockHeader()).thenReturn(Optional.empty());
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {"safe"}));
+
+    assertThatThrownBy(() -> adminLogsRemoveCache.response(request))
+        .isInstanceOf(IllegalStateException.class);
   }
 
   @Test

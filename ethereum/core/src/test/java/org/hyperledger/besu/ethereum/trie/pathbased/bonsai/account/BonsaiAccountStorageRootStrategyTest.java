@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -93,7 +95,23 @@ class BonsaiAccountStorageRootStrategyTest {
         .isNotSameAs(account.getStorageRootStrategy());
   }
 
+  @Test
+  void trieValueEqualsComparesTheStrategyThatWritesTheStorageRoot() {
+    final Hash storageRoot = Hash.hash(Bytes.of(7, 8, 9));
+    final StorageRootStrategy otherFormat = mock(StorageRootStrategy.class);
+    when(otherFormat.getStorageRoot()).thenReturn(storageRoot);
+
+    final BonsaiAccount account = mptAccountWithRoot(storageRoot);
+
+    assertThat(BonsaiAccount.trieValueEquals(account, mptAccountWithRoot(storageRoot))).isTrue();
+    assertThat(BonsaiAccount.trieValueEquals(account, accountWith(otherFormat))).isFalse();
+  }
+
   private static BonsaiAccount mptAccountWithRoot(final Hash storageRoot) {
+    return accountWith(new MptStorageRootStrategy(storageRoot));
+  }
+
+  private static BonsaiAccount accountWith(final StorageRootStrategy storageRootStrategy) {
     final Address address = Address.fromHexString("0x00000000000000000000000000000000000000dd");
     return new BonsaiAccount(
         null,
@@ -101,7 +119,7 @@ class BonsaiAccountStorageRootStrategyTest {
         address.addressHash(),
         1L,
         Wei.ONE,
-        new MptStorageRootStrategy(storageRoot),
+        storageRootStrategy,
         Hash.EMPTY,
         true,
         new BonsaiCodeCache());

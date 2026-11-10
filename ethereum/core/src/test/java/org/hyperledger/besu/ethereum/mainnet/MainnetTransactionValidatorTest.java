@@ -1014,6 +1014,48 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     }
   }
 
+  @Test
+  public void shouldCapIntrinsicGasInStrictButNotInNonStrictBlockSimulation_EIP_8037() {
+    final var feeMarket = FeeMarket.london(0L);
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            new AmsterdamTargetingGasLimitCalculator(
+                0L, feeMarket, gasCalculator, 6, 3, OptionalInt.of(6), OptionalInt.empty()),
+            feeMarket,
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
+            Integer.MAX_VALUE);
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .maxPriorityFeePerGas(Optional.of(Wei.of(1)))
+            .maxFeePerGas(Optional.of(Wei.of(150000L)))
+            .type(TransactionType.EIP1559)
+            .chainId(Optional.of(BigInteger.ONE))
+            .gasLimit(30_000_000L)
+            .createTransaction(senderKeys);
+    final Optional<Wei> basefee = Optional.of(Wei.of(150000L));
+    when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(16_777_217L);
+
+    assertThat(
+            validator
+                .validate(
+                    transaction,
+                    basefee,
+                    Optional.empty(),
+                    TransactionValidationParams.blockSimulatorStrict())
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT);
+    assertThat(
+            validator.validate(
+                transaction,
+                basefee,
+                Optional.empty(),
+                TransactionValidationParams.blockSimulatorNonStrict()))
+        .isEqualTo(ValidationResult.valid());
+  }
+
   private enum ValidationParamsVariant {
     PROCESSING,
     SIMULATING

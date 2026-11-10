@@ -45,7 +45,6 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
-import org.hyperledger.besu.util.OrderStatistics;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -57,6 +56,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -82,6 +82,7 @@ public class BlockchainQueries {
   private final Optional<EthScheduler> ethScheduler;
   private final ApiConfiguration apiConfig;
   private final MiningConfiguration miningConfiguration;
+  private final FeeOracleWindow feeOracleWindow;
 
   public BlockchainQueries(
       final ProtocolSchedule protocolSchedule,
@@ -149,54 +150,49 @@ public class BlockchainQueries {
             : Optional.empty();
     this.apiConfig = apiConfig;
     this.miningConfiguration = miningConfiguration;
-    // Warm the fee oracle off the block-import thread when a scheduler is available; the
-    // request-time path still self-heals on cold miss.
-    ethScheduler.ifPresent(ignored -> blockchain.observeBlockAdded(this::refreshFeeOracleSnapshot));
+    this.feeOracleWindow =
+        new FeeOracleWindow(
+            blockchain, apiConfig.getGasPriceBlocks(), apiConfig.getGasPriceFraction());
+    // Warm the fee oracle off the block-import thread when a scheduler is available and the
+    // window has blocks; the request-time path still self-heals on cold miss.
+    if (ethScheduler.isPresent() && apiConfig.getGasPriceBlocks() > 0) {
+      blockchain.observeBlockAdded(this::refreshFeeOracleSnapshot);
+    }
   }
 
-  // Per-head raw percentile samples for eth_gasPrice / eth_maxPriorityFeePerGas, keyed on the
+  // Per-head raw percentiles for eth_gasPrice / eth_maxPriorityFeePerGas, keyed on the
   // head hash so a stale read (e.g. mid-reorg) falls through to a live recompute. Bounds are
   // re-applied per read from the current mining config, preserving the race-free behaviour of
   // miner_setMinGasPrice / miner_setMinPriorityFee.
   private record FeeOracleSnapshot(
-      Hash headHash, Optional<Wei> rawGasPriceSample, Optional<Wei> rawPrioritySample) {}
+      Hash headHash, Optional<Wei> rawGasPricePercentile, Optional<Wei> rawPriorityFeePercentile) {}
 
   private final AtomicReference<FeeOracleSnapshot> feeOracleRef = new AtomicReference<>();
 
+  // Set when the fee oracle is called, so only nodes that serve it precompute it for new heads.
+  // Calls after a pause compute it on request, reading only the blocks added since the last
+  // snapshot.
+  private final AtomicBoolean feeOracleCalled = new AtomicBoolean();
+
   private void refreshFeeOracleSnapshot(final BlockAddedEvent event) {
-    if (!event.isNewCanonicalHead()) {
+    if (!event.isNewCanonicalHead() || !feeOracleCalled.getAndSet(false)) {
       return;
     }
-    ethScheduler.ifPresent(
-        scheduler ->
-            scheduler.scheduleServiceTask(() -> computeAndPublishSnapshot(event.getHeader())));
+    ethScheduler.ifPresent(scheduler -> scheduler.scheduleServiceTask(this::precomputeSnapshot));
   }
 
-  private void computeAndPublishSnapshot(final BlockHeader chainHeadHeader) {
+  // Computes the chain head's snapshot when the task runs rather than the event's head: heads that
+  // arrive before it runs see the flag cleared and schedule nothing.
+  private void precomputeSnapshot() {
+    final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
     try {
-      final Hash headHash = chainHeadHeader.getBlockHash();
-      if (!blockchain.getChainHeadHash().equals(headHash)) {
-        return;
+      final FeeOracleSnapshot snap = feeOracleRef.get();
+      if (snap == null || !snap.headHash().equals(chainHeadHeader.getBlockHash())) {
+        computeAndCacheSnapshot(chainHeadHeader);
       }
-      final Optional<FeeOracleSnapshot> maybeSnapshot = computeSnapshot(chainHeadHeader);
-      if (blockchain.getChainHeadHash().equals(headHash)) {
-        maybeSnapshot.ifPresent(feeOracleRef::set);
-      }
-      // A stale write is safe: the snapshot is head-hash-keyed and dropped on read if stale.
     } catch (RuntimeException e) {
       LOG.warn("Failed to precompute fee oracle for new head {}", chainHeadHeader.toLogString(), e);
     }
-  }
-
-  private Optional<Wei> pickPercentileSample(final Wei[] samples) {
-    if (samples.length == 0) {
-      return Optional.empty();
-    }
-    return Optional.of(
-        OrderStatistics.selectKthInPlace(
-            samples,
-            Math.min(
-                samples.length - 1, (int) (samples.length * apiConfig.getGasPriceFraction()))));
   }
 
   public Blockchain getBlockchain() {
@@ -1141,14 +1137,14 @@ public class BlockchainQueries {
             .getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp())
             .getFeeMarket();
 
-    final Optional<Wei> rawSample = getOrComputeGasPriceSample(chainHeadHeader);
+    final Optional<Wei> rawPercentile = getOrComputeGasPricePercentile(chainHeadHeader);
 
-    if (rawSample.isEmpty()) {
+    if (rawPercentile.isEmpty()) {
       return gasPriceLowerBound(chainHeadHeader, nextBlockFeeMarket);
     }
     return UInt256s.max(
         gasPriceLowerBound(chainHeadHeader, nextBlockFeeMarket),
-        UInt256s.min(apiConfig.getGasPriceMax(), rawSample.get()));
+        UInt256s.min(apiConfig.getGasPriceMax(), rawPercentile.get()));
   }
 
   /**
@@ -1184,68 +1180,60 @@ public class BlockchainQueries {
     }
 
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
-    final Optional<Wei> rawSample = getOrComputePrioritySample(chainHeadHeader);
+    final Optional<Wei> rawPercentile = getOrComputePriorityFeePercentile(chainHeadHeader);
 
-    if (rawSample.isEmpty()) {
+    if (rawPercentile.isEmpty()) {
       return miningConfiguration.getMinPriorityFeePerGas();
     }
-    return UInt256s.max(miningConfiguration.getMinPriorityFeePerGas(), rawSample.get());
+    return UInt256s.max(miningConfiguration.getMinPriorityFeePerGas(), rawPercentile.get());
   }
 
-  private Optional<Wei> getOrComputeGasPriceSample(final BlockHeader chainHeadHeader) {
-    return getOrComputeFeeOracleSample(chainHeadHeader, FeeOracleSnapshot::rawGasPriceSample);
+  private Optional<Wei> getOrComputeGasPricePercentile(final BlockHeader chainHeadHeader) {
+    return getOrComputeFeeOraclePercentile(
+        chainHeadHeader, FeeOracleSnapshot::rawGasPricePercentile);
   }
 
-  private Optional<Wei> getOrComputePrioritySample(final BlockHeader chainHeadHeader) {
-    return getOrComputeFeeOracleSample(chainHeadHeader, FeeOracleSnapshot::rawPrioritySample);
+  private Optional<Wei> getOrComputePriorityFeePercentile(final BlockHeader chainHeadHeader) {
+    return getOrComputeFeeOraclePercentile(
+        chainHeadHeader, FeeOracleSnapshot::rawPriorityFeePercentile);
   }
 
-  private Optional<Wei> getOrComputeFeeOracleSample(
+  private Optional<Wei> getOrComputeFeeOraclePercentile(
       final BlockHeader chainHeadHeader,
-      final Function<FeeOracleSnapshot, Optional<Wei>> sampleSelector) {
+      final Function<FeeOracleSnapshot, Optional<Wei>> percentileSelector) {
+    // Reading first leaves the cache line shared while calls keep coming between heads.
+    if (!feeOracleCalled.get()) {
+      feeOracleCalled.set(true);
+    }
     final FeeOracleSnapshot snap = feeOracleRef.get();
     final Hash headHash = chainHeadHeader.getBlockHash();
     if (snap != null && snap.headHash().equals(headHash)) {
-      return sampleSelector.apply(snap);
+      return percentileSelector.apply(snap);
     }
-    return computeAndCacheSnapshot(chainHeadHeader).flatMap(sampleSelector);
+    return computeAndCacheSnapshot(chainHeadHeader).flatMap(percentileSelector);
   }
 
-  // Computes both samples in one body scan and publishes them. Concurrent cold-miss callers only
-  // waste duplicate scans (last writer wins); they don't race, as each result is a function of the
-  // immutable head hash.
+  // Computes both percentiles in one pass over the window. The snapshot is published only while its
+  // head is the chain head, so a computation that finishes after the chain moved on doesn't
+  // replace the newer head's snapshot. Concurrent cold-miss callers at the same head compute the
+  // same snapshot.
   private Optional<FeeOracleSnapshot> computeAndCacheSnapshot(final BlockHeader chainHeadHeader) {
     final Optional<FeeOracleSnapshot> snap = computeSnapshot(chainHeadHeader);
-    snap.ifPresent(feeOracleRef::set);
+    if (chainHeadHeader.getBlockHash().equals(blockchain.getChainHeadHash())) {
+      snap.ifPresent(feeOracleRef::set);
+    }
     return snap;
   }
 
   private Optional<FeeOracleSnapshot> computeSnapshot(final BlockHeader chainHeadHeader) {
-    final long chainHeadNumber = chainHeadHeader.getNumber();
-    final long startBlock = Math.max(0, chainHeadNumber - apiConfig.getGasPriceBlocks() + 1);
-    final int blockCount = (int) (chainHeadNumber - startBlock + 1);
-    final List<BlockHeader> headers = blockchain.getBlockHeaders(startBlock, blockCount);
-    final ArrayList<Wei> gasPriceSamples = new ArrayList<>();
-    final ArrayList<Wei> prioritySamples = new ArrayList<>();
-    for (final BlockHeader header : headers) {
-      final Optional<BlockBody> maybeBody = blockchain.getBlockBody(header.getBlockHash());
-      if (maybeBody.isEmpty()) {
-        // A partial window would bias the percentile; return no snapshot so callers fall back to
-        // the configured lower bound.
-        return Optional.empty();
-      }
-      final BlockBody body = maybeBody.get();
-      for (final Transaction tx : body.getTransactions()) {
-        tx.getGasPrice().ifPresent(gasPriceSamples::add);
-        tx.getMaxPriorityFeePerGas().ifPresent(prioritySamples::add);
-      }
-    }
-
-    return Optional.of(
-        new FeeOracleSnapshot(
-            chainHeadHeader.getBlockHash(),
-            pickPercentileSample(gasPriceSamples.toArray(Wei[]::new)),
-            pickPercentileSample(prioritySamples.toArray(Wei[]::new))));
+    return feeOracleWindow
+        .percentilesAt(chainHeadHeader)
+        .map(
+            percentiles ->
+                new FeeOracleSnapshot(
+                    chainHeadHeader.getBlockHash(),
+                    percentiles.gasPrice(),
+                    percentiles.priorityFee()));
   }
 
   /**

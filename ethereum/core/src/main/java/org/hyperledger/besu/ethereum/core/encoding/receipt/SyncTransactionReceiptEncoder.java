@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.core.encoding.receipt;
 
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 
 import java.util.ArrayList;
@@ -33,10 +34,7 @@ public class SyncTransactionReceiptEncoder {
 
   public Bytes encodeForRootCalculation(final SyncTransactionReceipt receipt) {
     final Bytes typeCode = receipt.getTransactionTypeCode();
-    final boolean isFrontier =
-        typeCode.isEmpty()
-            || typeCode.get(0) == TransactionType.FRONTIER.getEthSerializedType()
-            || typeCode.get(0) == TransactionType.FRONTIER.getSerializedType();
+    final boolean isFrontier = isFrontier(typeCode);
 
     List<Bytes> encodedLogs =
         receipt.getLogs().stream()
@@ -67,5 +65,54 @@ public class SyncTransactionReceiptEncoder {
         ? Bytes.concatenate(
             rlpEncoder.encode(receipt.getTransactionTypeCode()), rlpEncoder.encodeList(mainList))
         : rlpEncoder.encodeList(mainList);
+  }
+
+  /**
+   * Encodes a receipt without its bloom, in the eth/69 shape {@code [type, statusOrStateRoot,
+   * cumulativeGasUsed, logs]}, from the same field values {@link #encodeForRootCalculation} hashes.
+   *
+   * <p>This is what a compacted receipt from a peer is stored as. Storing these bytes rather than
+   * the ones the peer sent means storage only ever holds what the receipts root covered: the bloom
+   * left out here is a function of the logs. For a canonically encoded receipt the result equals
+   * {@code TransactionReceiptEncoder}'s eth/69 encoding. The type field is written as an RLP
+   * scalar, so a legacy receipt's type is the empty string.
+   *
+   * @param transactionTypeCode the type byte, or {@code 0x00} for a legacy receipt
+   * @param statusOrStateRoot the status or post-state root, as hashed for the receipts root
+   * @param cumulativeGasUsed the cumulative gas used, as hashed for the receipts root
+   * @param logs the logs, each as address, topics, then data
+   * @return the RLP list
+   */
+  public static Bytes encodeCompacted(
+      final Bytes transactionTypeCode,
+      final Bytes statusOrStateRoot,
+      final Bytes cumulativeGasUsed,
+      final List<List<Bytes>> logs) {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeBytes(isFrontier(transactionTypeCode) ? Bytes.EMPTY : transactionTypeCode);
+    out.writeBytes(statusOrStateRoot);
+    out.writeBytes(cumulativeGasUsed);
+    out.startList();
+    for (final List<Bytes> log : logs) {
+      out.startList();
+      out.writeBytes(log.getFirst());
+      out.startList();
+      for (int i = 1; i < log.size() - 1; i++) {
+        out.writeBytes(log.get(i));
+      }
+      out.endList();
+      out.writeBytes(log.getLast());
+      out.endList();
+    }
+    out.endList();
+    out.endList();
+    return out.encoded();
+  }
+
+  private static boolean isFrontier(final Bytes typeCode) {
+    return typeCode.isEmpty()
+        || typeCode.get(0) == TransactionType.FRONTIER.getEthSerializedType()
+        || typeCode.get(0) == TransactionType.FRONTIER.getSerializedType();
   }
 }

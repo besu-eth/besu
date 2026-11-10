@@ -127,12 +127,31 @@ public class BlockRangeBroadcasterTest {
         .broadcastBlockRange(expectedEarliestBlock, expectedLatestBlockNumber, expectedBlockHash);
   }
 
+  @Test
+  public void shouldSendTheGenesisRangeWhenTheEarliestBlockIsAboveTheChainHead() {
+    setupPeers(ethPeerWithoutSupport, ethPeerWithSupport);
+    final BlockHeader chainHead = mock(BlockHeader.class);
+    when(chainHead.getNumber()).thenReturn(20L);
+    when(blockchain.getChainHeadHeader()).thenReturn(chainHead);
+    // a sync moved the chain head up to the bodies it recorded after the head was read
+    when(blockchain.getEarliestBlockNumber(20L)).thenCallRealMethod();
+    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.of(30L));
+    final BlockHeader genesis = mock(BlockHeader.class);
+    when(genesis.getHash()).thenReturn(Hash.ZERO);
+    when(blockchain.getGenesisBlockHeader()).thenReturn(genesis);
+
+    blockRangeBroadcaster.broadcastBlockRange();
+
+    verify(blockRangeBroadcaster).broadcastBlockRange(0L, 0L, Hash.ZERO);
+  }
+
   private void setupBlockchain(
       final long earliestBlockNumber, final long latestBlockNumber, final Hash expectedBlockHash) {
     final BlockHeader latestBlockHeader = mock(BlockHeader.class);
     when(latestBlockHeader.getNumber()).thenReturn(latestBlockNumber);
     when(latestBlockHeader.getHash()).thenReturn(expectedBlockHash);
-    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.of(earliestBlockNumber));
+    when(blockchain.getEarliestBlockNumber(latestBlockNumber))
+        .thenReturn(Optional.of(earliestBlockNumber));
     when(blockchain.getChainHeadHeader()).thenReturn(latestBlockHeader);
   }
 

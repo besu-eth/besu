@@ -77,7 +77,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
 
   // Regular (stable) flag
   private static final String SNAP_SERVER_ENABLED_FLAG = "--snapsync-server-enabled";
-  private static final String SNAP2_ENABLED_FLAG = "--Xsnap2-enabled";
 
   private static final String SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG =
       "--Xsnapsync-synchronizer-pivot-block-window-validity";
@@ -91,6 +90,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       "--Xsnapsync-synchronizer-trienode-count-per-request";
   private static final String SNAP_TRANSACTION_INDEXING_ENABLED_FLAG =
       "--snapsync-synchronizer-transaction-indexing-enabled";
+  private static final String SNAP2_BACKFILL_ENABLED_FLAG = "--Xsnap2-backfill-enabled";
 
   private static final String SNAP_FLAT_ACCOUNT_HEALED_COUNT_PER_REQUEST_FLAG =
       "--Xsnapsync-synchronizer-flat-account-healed-count-per-request";
@@ -370,16 +370,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private Boolean snapsyncServerEnabled = SnapSyncConfiguration.DEFAULT_SNAP_SERVER_ENABLED;
 
   @CommandLine.Option(
-      names = {SNAP2_ENABLED_FLAG},
-      hidden = true,
-      paramLabel = "<Boolean>",
-      arity = "0..1",
-      fallbackValue = "true",
-      description =
-          "Enable advertising the snap/2 protocol capability. (default: ${DEFAULT-VALUE})")
-  private Boolean snap2Enabled = SnapSyncConfiguration.DEFAULT_SNAP2_ENABLED;
-
-  @CommandLine.Option(
       names = SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG,
       hidden = true,
       paramLabel = "<INTEGER>",
@@ -420,6 +410,16 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
           "Enable transaction indexing during SNAP sync. Enabling will increase syncing time and disk usage. However, to support RPCs that use transaction hash for historical queries, you'll need to enable this. (default: ${DEFAULT-VALUE})")
   private Boolean snapTransactionIndexingEnabled =
       SnapSyncConfiguration.DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED;
+
+  @CommandLine.Option(
+      names = {SNAP2_BACKFILL_ENABLED_FLAG},
+      hidden = true,
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      fallbackValue = "true",
+      description =
+          "From the lowest block whose body a SNAP2 sync stored, download in the background the bodies and receipts of the blocks below it, down to the block above the checkpoint, or above genesis without one, and never below the blocks the chain pruner keeps. Turned off, the node only stores those of the blocks the sync downloaded and of the blocks it imports. (default: ${DEFAULT-VALUE})")
+  private Boolean snap2BackfillEnabled = SnapSyncConfiguration.DEFAULT_SNAP2_BACKFILL_ENABLED;
 
   /**
    * @deprecated No longer used. Accepted for backwards compatibility. The flag will be removed in a
@@ -546,13 +546,13 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.snapsyncFlatStorageHealedCountPerRequest =
         config.getSnapSyncConfiguration().getLocalFlatStorageCountToHealPerRequest();
     options.snapsyncServerEnabled = config.getSnapSyncConfiguration().isSnapServerEnabled();
-    options.snap2Enabled = config.getSnapSyncConfiguration().isSnap2Enabled();
     options.snapsyncServerMaxConcurrentRequestsPerPeer =
         config.getSnapSyncConfiguration().getMaxConcurrentSnapRequestsPerPeer();
     options.snapsyncServerMaxConcurrentRequests =
         config.getSnapSyncConfiguration().getMaxConcurrentSnapRequestsGlobal();
     options.snapTransactionIndexingEnabled =
         config.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled();
+    options.snap2BackfillEnabled = config.getSnapSyncConfiguration().isSnap2BackfillEnabled();
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
@@ -595,10 +595,10 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             .localFlatAccountCountToHealPerRequest(snapsyncFlatAccountHealedCountPerRequest)
             .localFlatStorageCountToHealPerRequest(snapsyncFlatStorageHealedCountPerRequest)
             .isSnapServerEnabled(snapsyncServerEnabled)
-            .isSnap2Enabled(snap2Enabled)
             .maxConcurrentSnapRequestsPerPeer(snapsyncServerMaxConcurrentRequestsPerPeer)
             .maxConcurrentSnapRequestsGlobal(snapsyncServerMaxConcurrentRequests)
             .isSnapSyncTransactionIndexingEnabled(snapTransactionIndexingEnabled)
+            .isSnap2BackfillEnabled(snap2BackfillEnabled)
             .build());
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);
     builder.backwardHeadersDownloadStepTimeoutMillis(backwardHeadersDownloadStepTimeoutMillis);
@@ -670,14 +670,14 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(snapsyncFlatStorageHealedCountPerRequest),
             SNAP_SERVER_ENABLED_FLAG,
             OptionParser.format(snapsyncServerEnabled),
-            SNAP2_ENABLED_FLAG,
-            OptionParser.format(snap2Enabled),
             SNAP_SERVER_MAX_CONCURRENT_REQUESTS_PER_PEER_FLAG,
             OptionParser.format(snapsyncServerMaxConcurrentRequestsPerPeer),
             SNAP_SERVER_MAX_CONCURRENT_REQUESTS_FLAG,
             OptionParser.format(snapsyncServerMaxConcurrentRequests),
             SNAP_TRANSACTION_INDEXING_ENABLED_FLAG,
             OptionParser.format(snapTransactionIndexingEnabled),
+            SNAP2_BACKFILL_ENABLED_FLAG,
+            OptionParser.format(snap2BackfillEnabled),
             ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
             OptionParser.format(era1ImportPrepipelineEnabled),
             ERA1_DATA_URI_FLAG,

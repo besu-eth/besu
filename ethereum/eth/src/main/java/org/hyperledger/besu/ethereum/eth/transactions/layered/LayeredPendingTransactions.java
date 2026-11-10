@@ -33,8 +33,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
@@ -49,6 +47,7 @@ import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
 import java.util.ArrayDeque;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -79,6 +78,17 @@ public class LayeredPendingTransactions implements PendingTransactions {
     this.poolConfig = poolConfig;
     this.prioritizedTransactions = prioritizedTransactions;
     this.ethScheduler = ethScheduler;
+  }
+
+  @Override
+  public boolean requiresDelegationLimits() {
+    return true;
+  }
+
+  @Override
+  public synchronized void removeInvalidated(
+      final Collection<PendingTransaction> invalidatedTransactions) {
+    invalidatedTransactions.forEach(ptx -> prioritizedTransactions.remove(ptx, INVALIDATED));
   }
 
   @Override
@@ -402,26 +412,6 @@ public class LayeredPendingTransactions implements PendingTransactions {
                         e.getKey(),
                         prioritizedTransactions.getCurrentNonceFor(e.getKey()).orElse(0),
                         e.getValue())));
-  }
-
-  @Override
-  public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
-    return prioritizedTransactions.subscribeToAdded(listener);
-  }
-
-  @Override
-  public void unsubscribePendingTransactions(final long id) {
-    prioritizedTransactions.unsubscribeFromAdded(id);
-  }
-
-  @Override
-  public long subscribeDroppedTransactions(final PendingTransactionDroppedListener listener) {
-    return prioritizedTransactions.subscribeToDropped(listener);
-  }
-
-  @Override
-  public void unsubscribeDroppedTransactions(final long id) {
-    prioritizedTransactions.unsubscribeFromDropped(id);
   }
 
   @Override
