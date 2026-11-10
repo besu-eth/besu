@@ -163,15 +163,6 @@ public class ArchiveTrieNodeStrategy
         : persisted.isPresent() && persisted.get().equals(blockHeader.getParentHash().getBytes());
   }
 
-  /**
-   * Returns the last block whose trie nodes are archived; proof history covers {@code [0, block]}.
-   *
-   * @return the last archived block, or {@code -1} if none
-   */
-  public long getArchivedBlockNumber() {
-    return historyStore.getArchivedBlockNumber();
-  }
-
   private boolean extendsCoverage(final BlockHeader blockHeader) {
     final Optional<ArchivedBlock> current = historyStore.getArchivedBlock();
     if (current.isEmpty()) {

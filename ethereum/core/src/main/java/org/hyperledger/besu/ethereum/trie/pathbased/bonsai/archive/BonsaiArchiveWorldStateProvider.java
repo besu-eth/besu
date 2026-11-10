@@ -57,7 +57,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final WorldStateConfig archiveWorldStateConfig;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
 
-  private volatile LongSupplier archiveProofProgressSupplier = () -> -1L;
+  private final ArchiveNodeHistoryStore archiveHistoryStore;
   private final ArchiveHistoryReader archiveHistoryReader;
 
   public BonsaiArchiveWorldStateProvider(
@@ -115,7 +115,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             worldStateKeyValueStorage.getCurrentVersion());
     final SegmentedKeyValueStorage liveStorage =
         worldStateKeyValueStorage.getComposedWorldStateStorage();
-    final ArchiveNodeHistoryStore archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
+    this.archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
     this.archiveHistoryReader = new ArchiveHistoryReader(archiveHistoryStore);
   }
 
@@ -152,16 +152,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     this.archiveMigrationProgressSupplier = supplier;
   }
 
-  /**
-   * Sets the supplier of the last block whose trie nodes are archived. Until this is called, no
-   * block is served from archived trie nodes.
-   *
-   * @param supplier returns the last archived block, or {@code -1} if none
-   */
-  public void setArchiveProofProgressSupplier(final LongSupplier supplier) {
-    this.archiveProofProgressSupplier = supplier;
-  }
-
   private boolean isHistoricalQuery(final WorldStateQueryParams queryParams) {
     final long queryBlock = queryParams.getBlockHeader().getNumber();
     return worldStateKeyValueStorage.getFlatDbMode().equals(FlatDbMode.ARCHIVE)
@@ -178,7 +168,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
     final long blockNumber = blockHeader.getNumber();
-    if (blockNumber > archiveProofProgressSupplier.getAsLong()) {
+    if (blockNumber > archiveHistoryStore.getArchivedBlockNumber()) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
     try {
