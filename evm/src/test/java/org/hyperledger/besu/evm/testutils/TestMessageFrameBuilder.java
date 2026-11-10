@@ -144,6 +144,8 @@ public class TestMessageFrameBuilder {
   public MessageFrame build() {
     final MessageFrame frame =
         MessageFrame.builder()
+            // the stack items are pushed onto the EVM v1 stack
+            .enableEvmV2(false)
             .type(MessageFrame.Type.MESSAGE_CALL)
             .worldUpdater(worldUpdater.orElseGet(this::createDefaultWorldUpdater))
             .initialGas(initialGas)

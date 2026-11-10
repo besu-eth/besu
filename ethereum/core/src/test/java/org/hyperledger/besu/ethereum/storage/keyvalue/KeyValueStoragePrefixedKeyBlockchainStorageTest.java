@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.storage.keyvalue;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.CHAIN_HEAD_HASH;
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.FINALIZED_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.SAFE_BLOCK_HASH;
@@ -25,12 +26,16 @@ import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.getSampl
 import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.populateBlockchainStorage;
 import static org.hyperledger.besu.ethereum.core.VariablesStorageHelper.populateVariablesStorage;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.chain.BlockchainStorage.Updater;
+import org.hyperledger.besu.ethereum.chain.InclusionListStatus;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage;
 import org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
@@ -38,15 +43,18 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Assertions;
@@ -262,7 +270,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorageTest {
     final BlockAccessList bal = generator.blockAccessList();
 
     final Updater updater = blockchainStorage.updater();
-    updater.putBlockAccessList(blockHash, bal);
+    final Bytes storedRlp = updater.putBlockAccessList(blockHash, bal);
     updater.commit();
 
     final BlockAccessList loaded = blockchainStorage.getBlockAccessList(blockHash).get();
@@ -270,5 +278,90 @@ public class KeyValueStoragePrefixedKeyBlockchainStorageTest {
         loaded.rawRlp().isPresent(), "rawRlp must be present on BAL read from storage");
     Assertions.assertEquals(
         bal, loaded, "BAL round-trip through storage must preserve accountChanges");
+    Assertions.assertEquals(bal.encode(), storedRlp, "updater must return the stored BAL RLP");
+    Assertions.assertEquals(
+        Optional.of(storedRlp),
+        blockchainStorage.getBlockAccessListRlp(blockHash),
+        "BAL RLP must be returned as stored");
+    Assertions.assertEquals(
+        bal, blockchainStorage.decodeBlockAccessList(storedRlp), "stored BAL RLP must decode");
+    Assertions.assertEquals(
+        Optional.empty(),
+        blockchainStorage.getBlockAccessListRlp(generator.hash()),
+        "BAL RLP of an unknown block must be empty");
+  }
+
+  @Test
+  public void testGetBlockBodyRlpReturnsStoredRlp() {
+    populateBlockchainStorage(kvBlockchain, variableValues);
+
+    final var blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            kvBlockchain, variablesStorage, new MainnetBlockHeaderFunctions(), false);
+
+    final BlockDataGenerator generator = new BlockDataGenerator();
+    final Block block = generator.block();
+
+    final Updater updater = blockchainStorage.updater();
+    updater.putBlockBody(block.getHash(), block.getBody());
+    updater.commit();
+
+    Assertions.assertEquals(
+        Optional.of(RLP.encode(block.getBody()::writeWrappedBodyTo)),
+        blockchainStorage.getBlockBodyRlp(block.getHash()));
+    Assertions.assertEquals(Optional.empty(), blockchainStorage.getBlockBodyRlp(generator.hash()));
+  }
+
+  @Test
+  public void testUpdaterPutGetAndRemoveInclusionListStatus() {
+    final var blockchainStorage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            kvBlockchain, variablesStorage, blockHeaderFunctions, false);
+
+    final BlockDataGenerator generator = new BlockDataGenerator();
+    final Hash satisfiedBlockHash = generator.hash();
+    final Hash unsatisfiedBlockHash = generator.hash();
+    Assertions.assertTrue(blockchainStorage.getInclusionListStatus(satisfiedBlockHash).isEmpty());
+
+    final InclusionListStatus satisfied = new InclusionListStatus(generator.bytes32(), true);
+    final InclusionListStatus unsatisfied = new InclusionListStatus(generator.bytes32(), false);
+    Updater updater = blockchainStorage.updater();
+    updater.putInclusionListStatus(satisfiedBlockHash, satisfied);
+    updater.putInclusionListStatus(unsatisfiedBlockHash, unsatisfied);
+    updater.commit();
+
+    Assertions.assertEquals(
+        Optional.of(satisfied), blockchainStorage.getInclusionListStatus(satisfiedBlockHash));
+    Assertions.assertEquals(
+        Optional.of(unsatisfied), blockchainStorage.getInclusionListStatus(unsatisfiedBlockHash));
+
+    // a new status replaces the previous one
+    final InclusionListStatus satisfiedForAnotherList =
+        new InclusionListStatus(generator.bytes32(), true);
+    updater = blockchainStorage.updater();
+    updater.putInclusionListStatus(unsatisfiedBlockHash, satisfiedForAnotherList);
+    updater.removeInclusionListStatus(satisfiedBlockHash);
+    updater.commit();
+
+    Assertions.assertEquals(
+        Optional.of(satisfiedForAnotherList),
+        blockchainStorage.getInclusionListStatus(unsatisfiedBlockHash));
+    Assertions.assertTrue(blockchainStorage.getInclusionListStatus(satisfiedBlockHash).isEmpty());
+  }
+
+  @Test
+  public void batchUpdaterWritesTheBlockDataInABatch() {
+    final KeyValueStorage blockchainKv = spy(new InMemoryKeyValueStorage());
+    final var storage =
+        new KeyValueStoragePrefixedKeyBlockchainStorage(
+            blockchainKv, variablesStorage, blockHeaderFunctions, false);
+    final Hash hash = Hash.hash(Bytes.of(1));
+
+    final Updater updater = storage.batchUpdater();
+    updater.putBlockHash(1, hash);
+    updater.commit();
+
+    verify(blockchainKv).startBatchTransaction();
+    assertThat(storage.getBlockHash(1)).contains(hash);
   }
 }

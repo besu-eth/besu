@@ -32,6 +32,35 @@ public interface PendingTransactions {
 
   void reset();
 
+  /**
+   * Whether the pool relies on the transaction pool to limit the pending transactions of accounts
+   * that are delegated, or are going to be (EIP-7702), see {@link DelegationLimits}.
+   *
+   * <p>A pool that admits transactions from unrelated, untrusted senders, and relies on the
+   * fundability of the transactions queued behind the first one of a sender, must return true,
+   * since a delegated account can have its balance moved by a third party without consuming its
+   * nonce. A pool that does not, as a gas-free FIFO one, keeps the default, and is not affected by
+   * the limits in any way.
+   *
+   * @return true if the delegation limits must be enforced for this pool
+   */
+  default boolean requiresDelegationLimits() {
+    return false;
+  }
+
+  /**
+   * Removes pending transactions that have become invalid, because they could not be executed, or
+   * would not be allowed in the pool anymore. It is only called for pools that require the
+   * delegation limits.
+   *
+   * @param invalidatedTransactions the transactions to remove, if a sender has more than one, they
+   *     are ordered by nonce descending, so no gaps are created
+   */
+  default void removeInvalidated(final Collection<PendingTransaction> invalidatedTransactions) {
+    throw new UnsupportedOperationException(
+        "Removing invalidated transactions is not supported by this pool");
+  }
+
   void evictOldTransactions();
 
   List<Transaction> getLocalTransactions();

@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -145,6 +146,46 @@ class BonsaiClearStorageTest {
     archive.getWorldState().persist(null);
 
     assertThat(archive.getWorldState().get(CONTRACT).getStorageValue(slot)).isEqualTo(value);
+  }
+
+  /**
+   * A contract selfdestructed and re-created in the same block with the nonce, balance and slot it
+   * had leaves the state root as it was, but its storage trie is still rebuilt from empty, so the
+   * account must not be skipped as unchanged.
+   */
+  @Test
+  void stateIsKeptWhenSelfdestructedContractRecreatedWithIdenticalAccountInSameBlock() {
+    final Blockchain blockchain = mock(Blockchain.class);
+    final BonsaiWorldStateProvider archive =
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive(blockchain);
+
+    final UInt256 slot = UInt256.ONE;
+    final UInt256 value = UInt256.valueOf(42);
+
+    final WorldUpdater setup = archive.getWorldState().updater();
+    setup.createAccount(CONTRACT, 1, Wei.of(1)).setStorageValue(slot, value);
+    setup.commit();
+    archive.getWorldState().persist(null);
+    final Hash rootBefore = archive.getWorldState().rootHash();
+
+    final WorldUpdater blockUpdater = archive.getWorldState().updater();
+    final WorldUpdater tx1 = blockUpdater.updater();
+    tx1.deleteAccount(CONTRACT);
+    tx1.commit();
+    blockUpdater.commit();
+
+    final WorldUpdater tx2 = blockUpdater.updater();
+    tx2.createAccount(CONTRACT, 1, Wei.of(1)).setStorageValue(slot, value);
+    tx2.commit();
+    blockUpdater.commit();
+
+    archive.getWorldState().persist(null);
+
+    final BonsaiWorldState worldState = (BonsaiWorldState) archive.getWorldState();
+    assertThat(worldState.rootHash()).isEqualTo(rootBefore);
+    assertThat(worldState.get(CONTRACT).getStorageValue(slot)).isEqualTo(value);
+    final Hash storageRoot = ((BonsaiAccount) worldState.get(CONTRACT)).getStorageRoot();
+    assertThat(worldState.getAllAccountStorage(CONTRACT, storageRoot)).hasSize(1);
   }
 
   private void populateStorage(final BonsaiWorldStateProvider archive, final int slots) {

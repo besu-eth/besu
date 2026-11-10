@@ -165,17 +165,16 @@ public class TransactionBroadcaster
   private void sendTransactionHashes(
       final List<Transaction> transactions, final List<EthPeer> transactionHashPeers) {
     if (!transactions.isEmpty()) {
-      transactionHashPeers.stream()
-          .forEach(
-              peer -> {
-                transactionTracker.addToPeerAnnouncementsSendQueue(peer, transactions);
-                ethContext
-                    .getScheduler()
-                    .scheduleSyncWorkerTask(
-                        () ->
-                            newPooledTransactionHashesMessageSender
-                                .sendTransactionAnnouncementsToPeer(peer));
-              });
+      transactionHashPeers.forEach(
+          peer -> {
+            transactionTracker.addToPeerAnnouncementsSendQueue(peer, transactions);
+            ethContext
+                .getScheduler()
+                .scheduleSyncWorkerTask(
+                    () ->
+                        newPooledTransactionHashesMessageSender.sendTransactionAnnouncementsToPeer(
+                            peer));
+          });
     }
   }
 

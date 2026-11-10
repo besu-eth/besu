@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth;
 
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
@@ -43,7 +44,9 @@ public class EthProtocol implements SubProtocol {
             EthProtocolMessages.GET_RECEIPTS,
             EthProtocolMessages.RECEIPTS,
             EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
-            EthProtocolMessages.BLOCK_ACCESS_LISTS);
+            EthProtocolMessages.BLOCK_ACCESS_LISTS,
+            EthProtocolMessages.GET_CELLS,
+            EthProtocolMessages.CELLS);
     REQUEST_ID_MESSAGES =
         new BitSet(requestIdMessages.stream().mapToInt(i -> i).max().getAsInt() + 1);
     requestIdMessages.forEach(REQUEST_ID_MESSAGES::set);
@@ -92,6 +95,8 @@ public class EthProtocol implements SubProtocol {
       case EthProtocolMessages.BLOCK_RANGE_UPDATE -> "BlockRangeUpdate";
       case EthProtocolMessages.GET_BLOCK_ACCESS_LISTS -> "GetBlockAccessLists";
       case EthProtocolMessages.BLOCK_ACCESS_LISTS -> "BlockAccessLists";
+      case EthProtocolMessages.GET_CELLS -> "GetCells";
+      case EthProtocolMessages.CELLS -> "Cells";
       default -> INVALID_MESSAGE_NAME;
     };
   }
@@ -113,5 +118,22 @@ public class EthProtocol implements SubProtocol {
   public static boolean isEth71Compatible(final Capability capability) {
     return NAME.equals(capability.getName())
         && capability.getVersion() >= EthProtocolVersion.V71.getVersion();
+  }
+
+  public static boolean isEth72Compatible(final Capability capability) {
+    return NAME.equals(capability.getName())
+        && capability.getVersion() >= EthProtocolVersion.V72.getVersion();
+  }
+
+  /**
+   * The context to encode or decode a pooled transaction in, for a peer speaking this capability.
+   *
+   * @param capability the capability negotiated with the peer
+   * @return the eth/72 context for an eth/72 peer, otherwise the pre-eth/72 one
+   */
+  public static EncodingContext pooledTransactionContext(final Capability capability) {
+    return isEth72Compatible(capability)
+        ? EncodingContext.POOLED_TRANSACTION_ETH_72
+        : EncodingContext.POOLED_TRANSACTION;
   }
 }

@@ -96,12 +96,13 @@ public class EngineGetPayloadBodiesByRangeV2Test extends EngineGetPayloadBodiesB
     when(blockchain.getChainHeadBlockNumber()).thenReturn(2L);
     stubBlock(1L, block1);
     stubBlock(2L, block2);
-    when(blockchain.getBlockAccessList(block1.getHash())).thenReturn(Optional.of(blockAccessList));
-    when(blockchain.getBlockAccessList(block2.getHash())).thenReturn(Optional.empty());
+    when(blockchain.getBlockAccessListRlp(block1.getHash()))
+        .thenReturn(Optional.of(blockAccessList.encode()));
+    when(blockchain.getBlockAccessListRlp(block2.getHash())).thenReturn(Optional.empty());
 
     final List<ExecutionPayloadBodiesV2> result = fromSuccessRespV2(resp("0x1", "0x2"));
     assertThat(result.size()).isEqualTo(2);
-    assertThat(result.get(0).getBlockAccessList()).isEqualTo(blockAccessList);
+    assertThat(result.get(0).getBlockAccessList()).isEqualTo(blockAccessList.encode());
     assertThat(result.get(1).getBlockAccessList()).isNull();
   }
 
@@ -117,7 +118,7 @@ public class EngineGetPayloadBodiesByRangeV2Test extends EngineGetPayloadBodiesB
 
     when(blockchain.getChainHeadBlockNumber()).thenReturn(1L);
     stubBlock(1L, block);
-    // blockchain.getBlockAccessList returns Optional.empty() by default
+    // blockchain.getBlockAccessListRlp returns Optional.empty() by default
 
     final List<ExecutionPayloadBodiesV2> result = fromSuccessRespV2(resp("0x1", "0x1"));
     assertThat(result.size()).isEqualTo(1);

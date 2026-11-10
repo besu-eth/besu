@@ -285,6 +285,24 @@ public class GetSyncReceiptsFromPeerTaskTest {
     assertThat(response.completeReceiptsByBlock().get(block.block)).hasSize(3);
   }
 
+  // a receipt larger than the page of the peer: none of the rest of the block comes
+  @Test
+  public void validateResultFailsWhenTheRestOfACutBlockBringsNoReceipt()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    final MockedBlock block = mockBlock(1, 3);
+    final GetSyncReceiptsFromPeerTask task =
+        createTask(
+            new Request(
+                List.of(block.block), List.of(toResponseReceipt(block.receipts.getFirst()))),
+            protocolSchedule);
+
+    final Response response =
+        task.processResponse(
+            buildEth70ReceiptsMessage(List.of(List.of()), true), AGREED_CAPABILITIES_LATEST);
+
+    assertEquals(PeerTaskValidationResponse.NO_RESULTS_RETURNED, task.validateResult(response));
+  }
+
   @Test
   public void testParseResponseWithEth70LastBlockIncompleteTrueAndEmptyListThrows() {
     final MockedBlock block = mockBlock(1, 2);

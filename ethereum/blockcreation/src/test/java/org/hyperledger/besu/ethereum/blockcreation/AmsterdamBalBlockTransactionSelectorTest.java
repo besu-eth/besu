@@ -100,6 +100,7 @@ import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -286,7 +287,8 @@ class AmsterdamBalBlockTransactionSelectorTest {
             blockHeader, selectorsStateManager),
         ethScheduler,
         selectorsStateManager,
-        maybeBalBuilder);
+        maybeBalBuilder,
+        Set.of());
   }
 
   private Transaction createTransaction(
@@ -340,13 +342,16 @@ class AmsterdamBalBlockTransactionSelectorTest {
         .thenAnswer(
             inv -> {
               final int txIndex = evaluationOrder.getAndIncrement();
-              return TransactionProcessingResult.successful(
-                  List.of(),
-                  50_000L,
-                  50_000L,
-                  Bytes.EMPTY,
-                  Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
-                  ValidationResult.valid());
+              final TransactionProcessingResult result =
+                  TransactionProcessingResult.successful(
+                      List.of(),
+                      50_000L,
+                      50_000L,
+                      Bytes.EMPTY,
+                      Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
+                      ValidationResult.valid());
+              result.setExecutionGasUsedForBlock(50_000L);
+              return result;
             });
 
     transactionPool.addRemoteTransactions(List.of(tx1, tx2));
@@ -405,13 +410,16 @@ class AmsterdamBalBlockTransactionSelectorTest {
         .thenAnswer(
             inv -> {
               final int txIndex = evaluationOrder.getAndIncrement();
-              return TransactionProcessingResult.successful(
-                  List.of(),
-                  50_000L,
-                  50_000L,
-                  Bytes.EMPTY,
-                  Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
-                  ValidationResult.valid());
+              final TransactionProcessingResult result =
+                  TransactionProcessingResult.successful(
+                      List.of(),
+                      50_000L,
+                      50_000L,
+                      Bytes.EMPTY,
+                      Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
+                      ValidationResult.valid());
+              result.setExecutionGasUsedForBlock(50_000L);
+              return result;
             });
 
     transactionPool.addRemoteTransactions(List.of(tx1, tx2));

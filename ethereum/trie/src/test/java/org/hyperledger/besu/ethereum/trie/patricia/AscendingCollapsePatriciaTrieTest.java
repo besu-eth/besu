@@ -184,6 +184,52 @@ class AscendingCollapsePatriciaTrieTest {
     }
   }
 
+  // each group goes key by key to its own sink, as the partitions of a state trie build
+  @Test
+  void buildsPrefixGroupsKeyByKeyIntoTheirOwnSinks() {
+    final List<Bytes> keys = hashedKeys(3000);
+    final Map<Bytes, Bytes> handed = new HashMap<>();
+    final AscendingCollapsePatriciaTrie trie = new AscendingCollapsePatriciaTrie(onceEach(handed));
+    final List<Map<Bytes, Bytes>> handedByGroups = new ArrayList<>();
+    for (final List<Bytes> group : prefixGroups(keys, 2)) {
+      final Map<Bytes, Bytes> groupHanded = new HashMap<>();
+      handedByGroups.add(groupHanded);
+      final AscendingCollapsePatriciaTrie.SubtreeBuilder subtree =
+          trie.subtreeBuilder(onceEach(groupHanded));
+      group.forEach(key -> subtree.insert(key, value(key)));
+      trie.insert(subtree.build());
+    }
+
+    assertThat(trie.insertCount()).isEqualTo(keys.size());
+    assertThat(trie.rootHash()).isEqualTo(plainRoot(keys));
+    // the groups hand the nodes below their top, most of them, and the trie the others, each once
+    assertThat(handedByGroups.stream().mapToInt(Map::size).sum()).isGreaterThan(handed.size());
+    handedByGroups.forEach(
+        groupHanded ->
+            groupHanded.forEach(
+                (location, node) ->
+                    assertThat(handed.put(location, node))
+                        .as("handed twice at %s", location)
+                        .isNull()));
+    assertThat(handed).isEqualTo(storedNodes(keys));
+  }
+
+  @Test
+  void aBuiltSubtreeNeedsAKeyAndIsBuiltOnce() {
+    final Bytes key = hashedKeys(1).getFirst();
+    final AscendingCollapsePatriciaTrie.SubtreeBuilder subtree =
+        new AscendingCollapsePatriciaTrie().subtreeBuilder((location, hash, node) -> {});
+    assertThat(subtree.isEmpty()).isTrue();
+    assertThatThrownBy(subtree::build).isInstanceOf(IllegalStateException.class);
+
+    subtree.insert(key, value(key));
+    subtree.build();
+
+    assertThatThrownBy(() -> subtree.insert(key, value(key)))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(subtree::build).isInstanceOf(IllegalStateException.class);
+  }
+
   @Test
   void aPreparedSubtreeAloneIsTheWholeTrie() {
     final List<Bytes> keys = hashedKeys(40);

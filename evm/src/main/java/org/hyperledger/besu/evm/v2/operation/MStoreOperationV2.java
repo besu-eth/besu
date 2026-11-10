@@ -47,7 +47,7 @@ public class MStoreOperationV2 extends AbstractOperationV2 {
           frame, 2, new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS));
     }
 
-    frame.writeMemoryRightAligned(location, 32, readBytes32At(stack, top, 1), true);
+    frame.writeMemoryRightAlignedV2(location, 32, readBytes32At(stack, top, 1));
     frame.setTopV2(top - 2);
     return new OperationResult(cost, null);
   }

@@ -30,13 +30,11 @@ import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.Random;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Function;
 
@@ -270,7 +268,8 @@ class RangeProofTest {
       Collections.shuffle(ranges, random);
 
       for (final Map.Entry<Bytes32, NavigableMap<Bytes32, Bytes>> range : ranges) {
-        final List<Bytes> proof = proof(other, range.getKey(), range.getValue().lastKey());
+        final List<Bytes> proof =
+            RangeProofs.proof(other, range.getKey(), range.getValue().lastKey());
         assertThat(
                 RangeProof.verify(
                         other.getRootHash(),
@@ -390,17 +389,7 @@ class RangeProofTest {
   }
 
   private List<Bytes> proof(final Bytes32 origin, final Bytes32 last) {
-    return proof(trie, origin, last);
-  }
-
-  private static List<Bytes> proof(
-      final SimpleMerklePatriciaTrie<Bytes32, Bytes> trie,
-      final Bytes32 origin,
-      final Bytes32 last) {
-    final Set<Bytes> nodes = new LinkedHashSet<>();
-    nodes.addAll(trie.getValueWithProof(origin).getProofRelatedNodes());
-    nodes.addAll(trie.getValueWithProof(last).getProofRelatedNodes());
-    return new ArrayList<>(nodes);
+    return RangeProofs.proof(trie, origin, last);
   }
 
   private NavigableMap<Bytes32, Bytes> firstEntriesFrom(final Bytes32 origin, final int count) {
