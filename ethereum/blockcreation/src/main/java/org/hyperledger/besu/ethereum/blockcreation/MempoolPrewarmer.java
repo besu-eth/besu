@@ -538,7 +538,7 @@ public class MempoolPrewarmer implements AutoCloseable {
     if (additions == passes.copiedAdditions && now - passes.copiedAt < POOL_COPY_INTERVAL_MILLIS) {
       return List.of();
     }
-    // copying holds the pool's lock, and a busy pool takes a while to group by sender
+    // a busy pool takes a while to copy and group by sender
     try (OperationTimer.TimingContext ignored = poolCopyTimer.startTimer()) {
       return copySendersToWarm(passes, additions, now);
     }
