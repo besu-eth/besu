@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.ethereum.core.ChainId;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -29,7 +30,7 @@ public class CodeDelegationResult {
   private final String s;
 
   public CodeDelegationResult(final CodeDelegation codeDelegation) {
-    chainId = codeDelegation.chainIdentifier().toHexString();
+    chainId = ChainId.fromCodeDelegation(codeDelegation).toHexString();
     address = codeDelegation.address().getBytes().toHexString();
     nonce = Quantity.create(codeDelegation.nonce());
     yParity = Quantity.create(codeDelegation.v());

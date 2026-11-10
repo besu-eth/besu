@@ -38,10 +38,10 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobType;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
@@ -235,8 +235,8 @@ public class PendingTransactionEstimatedMemorySizeTest extends BaseTransactionPo
       // instance of the network chain id, so it is not counted in their memory size
       assertThat(pendingTx.getChainIdentifier()).isSameAs(networkChainId);
       final var codeDelegations = pendingTx.getCodeDelegationList().orElseThrow();
-      assertThat(codeDelegations.get(0).chainIdentifier()).isSameAs(networkChainId);
-      assertThat(codeDelegations.get(1).chainIdentifier()).isSameAs(ChainId.of(0));
+      assertThat(ChainId.fromCodeDelegation(codeDelegations.get(0))).isSameAs(networkChainId);
+      assertThat(ChainId.fromCodeDelegation(codeDelegations.get(1))).isSameAs(ChainId.of(0));
     } finally {
       ChainId.resetNetworkChainId();
     }
@@ -260,7 +260,8 @@ public class PendingTransactionEstimatedMemorySizeTest extends BaseTransactionPo
       // a chain id that fits in a long
       final Transaction longChainIdTx = decodedCodeDelegationTx(chainId, BigInteger.valueOf(42));
       final ChainId longChainId =
-          longChainIdTx.getCodeDelegationList().orElseThrow().getFirst().chainIdentifier();
+          ChainId.fromCodeDelegation(
+              longChainIdTx.getCodeDelegationList().orElseThrow().getFirst());
       assertThat(GraphLayout.parseInstance(longChainId).totalSize())
           .isEqualTo(CHAIN_ID_SHALLOW_SIZE);
       assertThat(new PendingTransaction.Remote(longChainIdTx).memorySize())
@@ -271,18 +272,19 @@ public class PendingTransactionEstimatedMemorySizeTest extends BaseTransactionPo
           List.of(BigInteger.ONE.shiftLeft(64).add(BigInteger.ONE), twoPow256MinusOne)) {
         final Transaction bigChainIdTx = decodedCodeDelegationTx(chainId, bigValue);
         final ChainId bigChainId =
-            bigChainIdTx.getCodeDelegationList().orElseThrow().getFirst().chainIdentifier();
+            ChainId.fromCodeDelegation(
+                bigChainIdTx.getCodeDelegationList().orElseThrow().getFirst());
         assertThat(GraphLayout.parseInstance(bigChainId).totalSize())
             .isLessThanOrEqualTo(BIG_CHAIN_ID_MAX_SIZE);
         assertThat(new PendingTransaction.Remote(bigChainIdTx).memorySize())
             .isEqualTo(sharedChainId.memorySize() + BIG_CHAIN_ID_MAX_SIZE);
       }
       final ChainId largestChainId =
-          decodedCodeDelegationTx(chainId, twoPow256MinusOne)
-              .getCodeDelegationList()
-              .orElseThrow()
-              .getFirst()
-              .chainIdentifier();
+          ChainId.fromCodeDelegation(
+              decodedCodeDelegationTx(chainId, twoPow256MinusOne)
+                  .getCodeDelegationList()
+                  .orElseThrow()
+                  .getFirst());
       assertThat(GraphLayout.parseInstance(largestChainId).totalSize())
           .isEqualTo(BIG_CHAIN_ID_MAX_SIZE);
     } finally {

@@ -18,7 +18,6 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
@@ -153,18 +152,6 @@ public interface Transaction {
    * @return The chainId for transaction.
    */
   Optional<BigInteger> getChainId();
-
-  /**
-   * The chainId as a {@link ChainId}, that is absent if replay protection is not enabled. Prefer
-   * this to {@link #getChainId()} since, for the chain id of the running network, it does not
-   * allocate.
-   *
-   * @return The chainId for transaction.
-   */
-  @JsonIgnore
-  default ChainId getChainIdentifier() {
-    return ChainId.fromOptional(getChainId());
-  }
 
   /**
    * An unlimited size byte array specifying the EVM-code for the account // initialisation

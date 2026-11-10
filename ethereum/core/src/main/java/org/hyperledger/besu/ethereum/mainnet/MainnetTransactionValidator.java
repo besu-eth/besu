@@ -21,12 +21,12 @@ import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDe
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.BlobType;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
@@ -170,7 +170,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
     }
 
     for (CodeDelegation codeDelegation : transaction.getCodeDelegationList().orElseThrow()) {
-      final ChainId codeDelegationChainId = codeDelegation.chainIdentifier();
+      final ChainId codeDelegationChainId = ChainId.fromCodeDelegation(codeDelegation);
       if (!codeDelegationChainId.fitsLong()
           && codeDelegationChainId.toBigInteger().compareTo(TWO_POW_256) >= 0) {
         return ValidationResult.invalid(

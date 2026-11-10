@@ -14,8 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.eth.core;
 
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;

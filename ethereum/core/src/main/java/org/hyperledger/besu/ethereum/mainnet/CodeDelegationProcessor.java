@@ -18,8 +18,8 @@ import static org.hyperledger.besu.evm.account.Account.MAX_NONCE;
 import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDelegation;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -167,7 +167,7 @@ public class CodeDelegationProcessor {
   }
 
   private boolean isCodeDelegationValid(final CodeDelegation codeDelegation) {
-    final ChainId codeDelegationChainId = codeDelegation.chainIdentifier();
+    final ChainId codeDelegationChainId = ChainId.fromCodeDelegation(codeDelegation);
     if (chainId.isPresent()
         && !codeDelegationChainId.isZero()
         && !chainId.equals(codeDelegationChainId)) {

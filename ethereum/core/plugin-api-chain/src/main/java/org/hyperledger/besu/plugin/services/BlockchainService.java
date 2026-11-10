@@ -15,7 +15,6 @@
 package org.hyperledger.besu.plugin.services;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Transaction;
@@ -163,15 +162,6 @@ public interface BlockchainService extends BesuService {
    * @return the chain id
    */
   Optional<BigInteger> getChainId();
-
-  /**
-   * Get the chain id as a {@link ChainId}
-   *
-   * @return the chain id, that is absent if the network has no chain id
-   */
-  default ChainId getChainIdentifier() {
-    return ChainId.fromOptional(getChainId());
-  }
 
   /**
    * Get the hardfork identifier for the given block header

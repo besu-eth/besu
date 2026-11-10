@@ -19,7 +19,7 @@ import static org.hyperledger.besu.cli.subcommands.TxParseSubCommand.COMMAND_NAM
 
 import org.hyperledger.besu.cli.util.VersionProvider;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.datatypes.ChainId;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 

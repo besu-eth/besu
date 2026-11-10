@@ -28,7 +28,6 @@ import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.BytesHolder;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -481,7 +480,6 @@ public class Transaction
    *
    * @return the transaction chain id
    */
-  @Override
   @JsonIgnore
   public ChainId getChainIdentifier() {
     return chainId;
@@ -1376,7 +1374,7 @@ public class Transaction
   private CodeDelegation codeDelegationDetachedCopy(final CodeDelegation codeDelegation) {
     final Address detachedAddress = Address.wrap(codeDelegation.address().getBytes().copy());
     return new org.hyperledger.besu.ethereum.core.CodeDelegation(
-        codeDelegation.chainIdentifier(),
+        ChainId.fromCodeDelegation(codeDelegation),
         detachedAddress,
         codeDelegation.nonce(),
         codeDelegation.signature());

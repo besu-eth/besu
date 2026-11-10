@@ -18,7 +18,6 @@ import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.json.ChainIdJson;
 
@@ -72,7 +71,11 @@ public class SimulationCodeDelegation implements CodeDelegation {
     return chainId.toBigInteger();
   }
 
-  @Override
+  /**
+   * Return the chain id, that is zero if the authorization is valid on any chain.
+   *
+   * @return chain id
+   */
   @JsonIgnore
   public ChainId chainIdentifier() {
     return chainId;

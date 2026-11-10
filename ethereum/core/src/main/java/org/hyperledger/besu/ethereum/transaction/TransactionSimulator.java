@@ -24,7 +24,6 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.CallParameter;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverride;
@@ -33,6 +32,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -754,7 +754,7 @@ public class TransactionSimulator {
 
     transactionBuilder.guessType();
 
-    final ChainId callChainId = callParams.getChainIdentifier();
+    final ChainId callChainId = ChainId.fromOptional(callParams.getChainId());
     final ChainId scheduleChainId = protocolSchedule.getChainId();
     if (transactionBuilder.getTransactionType().requiresChainId()) {
       if (callChainId.isPresent()) {

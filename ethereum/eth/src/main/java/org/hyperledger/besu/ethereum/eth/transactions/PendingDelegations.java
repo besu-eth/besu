@@ -15,8 +15,8 @@
 package org.hyperledger.besu.ethereum.eth.transactions;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 
 import java.util.Comparator;
@@ -247,7 +247,7 @@ class PendingDelegations {
                             codeDelegation.nonce() >= 0
                                 && codeDelegation.nonce() != Long.MAX_VALUE
                                 && isChainIdApplicable(
-                                    codeDelegation.chainIdentifier(), transaction))
+                                    ChainId.fromCodeDelegation(codeDelegation), transaction))
                     .forEach(
                         codeDelegation ->
                             codeDelegation

@@ -37,10 +37,10 @@ import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 
 import java.util.Collection;
@@ -267,7 +267,7 @@ public abstract class PendingTransaction
    */
   private static int computeOwnChainIdMemorySize(
       final CodeDelegation codeDelegation, final ChainId networkChainId) {
-    final ChainId chainId = codeDelegation.chainIdentifier();
+    final ChainId chainId = ChainId.fromCodeDelegation(codeDelegation);
     if (chainId.isZero() || chainId.equals(networkChainId)) {
       return 0;
     }
@@ -451,7 +451,7 @@ public abstract class PendingTransaction
    *
    * <p>The chain id of transactions, and of code delegations valid on the network chain or on any
    * chain, is not counted, since it is the instance shared by all the chain ids with that value,
-   * see {@link org.hyperledger.besu.datatypes.ChainId}. Only code delegations for another chain
+   * see {@link org.hyperledger.besu.ethereum.core.ChainId}. Only code delegations for another chain
    * have a chain id of their own.
    */
   public interface MemorySize {

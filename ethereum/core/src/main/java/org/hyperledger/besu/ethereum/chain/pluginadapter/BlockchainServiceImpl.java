@@ -20,7 +20,6 @@ import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalcu
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogTopic;
@@ -407,15 +406,10 @@ public class BlockchainServiceImpl implements BlockchainService {
 
   @Override
   public Optional<BigInteger> getChainId() {
-    return getChainIdentifier().toOptionalBigInteger();
-  }
-
-  @Override
-  public ChainId getChainIdentifier() {
     if (protocolSchedule == null) {
-      return ChainId.absent();
+      return Optional.empty();
     }
-    return protocolSchedule.getChainId();
+    return protocolSchedule.getChainId().toOptionalBigInteger();
   }
 
   @Override
