@@ -58,7 +58,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reports a nested precompile's exact entry gas, not an approximation")
   void precompileCallReportsExactEntryGas() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address rootContract = Address.fromHexString("0x01");
     final MessageFrame root = frame(sender, rootContract);
@@ -87,7 +87,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reports a reverting precompile as failed")
   void precompileRevertReportsFailure() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final Transaction tx = mockTransaction();
     tracer.traceStartTransaction(null, tx);
@@ -145,7 +145,7 @@ class CallTracerTest {
   @Test
   @DisplayName("clamps a failed CALL's input read to already-expanded memory instead of throwing")
   void doesNotReadBeyondExpandedMemory() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address contract = Address.fromHexString("0x01");
     final MessageFrame parent = frame(sender, contract);
@@ -190,7 +190,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reads a memory range clamped to what is actually expanded, not the raw stack value")
   void clampsToAvailableMemoryWhenPartiallyExpanded() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address contract = Address.fromHexString("0x01");
     final MessageFrame parent = frame(sender, contract);
@@ -224,7 +224,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reports the delegating account, not the code address, as `from` for nested calls")
   void nestedCallInsideDelegateCallReportsRecipientAddress() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address rootContract = Address.fromHexString("0x01");
     final MessageFrame root = frame(sender, rootContract);
@@ -291,7 +291,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reports the parent frame's inherited value for DELEGATECALL, not 0x0")
   void delegateCallReportsInheritedValue() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address rootContract = Address.fromHexString("0x01");
     final MessageFrame root = frame(sender, rootContract);
@@ -337,7 +337,7 @@ class CallTracerTest {
   @Test
   @DisplayName("synthesizes a root call from the transaction when it never entered the EVM")
   void buildResultSynthesizesRootForUnexecutedTransaction() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address to = Address.fromHexString("0x02");
 
@@ -422,7 +422,7 @@ class CallTracerTest {
   @Test
   @DisplayName("omits a CALL that halts before it makes the call")
   void omitsHaltedCall() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final CallTracerResult result =
         traceFailedOp(
             tracer, "CALL", 7, new OperationResult(0L, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
@@ -629,7 +629,7 @@ class CallTracerTest {
   @Test
   @DisplayName("omits logs when withLog is not set")
   void omitsLogsWithoutWithLog() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final Transaction tx = mockTransaction();
     tracer.traceStartTransaction(null, tx);
