@@ -1,0 +1,63 @@
+{
+  "comment" : "Two child creations execute REVERT and RETURN with an empty stack; each halt stays on its child and the parent succeeds",
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "trace_call",
+    "params" : [ {
+      "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+      "gas" : "0xfffff2",
+      "gasPrice" : "0xef",
+      "value" : "0x0",
+      "data" : "0x60fd600053600160006000f05060f3600053600160006000f000"
+    }, [ "trace" ], "latest" ],
+    "id" : 56
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "result" : {
+      "output" : "0x",
+      "stateDiff" : null,
+      "trace" : [ {
+        "action" : {
+          "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas" : "0xff2f9e",
+          "init" : "0x60fd600053600160006000f05060f3600053600160006000f000",
+          "value" : "0x0"
+        },
+        "result" : {
+          "address" : "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+          "code" : "0x",
+          "gasUsed" : "0xff21a8"
+        },
+        "subtraces" : 2,
+        "traceAddress" : [ ],
+        "type" : "create"
+      }, {
+        "action" : {
+          "from" : "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+          "gas" : "0xfab7bf",
+          "init" : "0xfd",
+          "value" : "0x0"
+        },
+        "error" : "stack underflow",
+        "subtraces" : 0,
+        "traceAddress" : [ 0 ],
+        "type" : "create"
+      }, {
+        "action" : {
+          "from" : "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
+          "gas" : "0x36fc0",
+          "init" : "0xf3",
+          "value" : "0x0"
+        },
+        "error" : "stack underflow",
+        "subtraces" : 0,
+        "traceAddress" : [ 1 ],
+        "type" : "create"
+      } ],
+      "vmTrace" : null
+    },
+    "id" : 56
+  },
+  "statusCode" : 200
+}
