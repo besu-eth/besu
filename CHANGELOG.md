@@ -64,6 +64,7 @@
 - Block import computes logs blooms on the transaction workers and the transactions root only once. [#11529](https://github.com/besu-eth/besu/pull/11529)
 - Faster lookups of which peers have seen a transaction, reducing CPU use and lock contention in transaction gossip. [#11886](https://github.com/besu-eth/besu/pull/11886)
 - `--Xmempool-prewarm-enabled` prewarms the state for the next block from the transaction pool. [#11759](https://github.com/besu-eth/besu/pull/11759)
+- `engine_newPayload` decodes the transactions of a large payload in parallel. [#11924](https://github.com/besu-eth/besu/pull/11924)
 
 ## 26.11.0
 
