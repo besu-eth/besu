@@ -856,7 +856,8 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
       }
     }
 
-    // a declared plugin the loader did not hand over is one whose class cannot be loaded
+    // find out why the loader skipped each declared plugin; one whose class loads fine means a
+    // malformed service file
     final Set<String> loadableIds =
         loadable.stream().map(provider -> pluginId(provider.type())).collect(Collectors.toSet());
     final List<UnloadablePlugin> unloadable = new ArrayList<>();
