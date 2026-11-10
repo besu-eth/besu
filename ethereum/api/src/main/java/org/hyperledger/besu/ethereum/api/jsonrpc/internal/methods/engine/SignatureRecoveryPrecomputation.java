@@ -41,11 +41,12 @@ final class SignatureRecoveryPrecomputation {
   static final int MAX_WORKERS = 2;
 
   private final List<Transaction> transactions;
-  private final AtomicInteger nextTransaction = new AtomicInteger();
+  private final AtomicInteger unclaimedTransactions;
   private volatile boolean cancelled;
 
   private SignatureRecoveryPrecomputation(final List<Transaction> transactions) {
     this.transactions = transactions;
+    this.unclaimedTransactions = new AtomicInteger(transactions.size());
   }
 
   /**
@@ -74,9 +75,11 @@ final class SignatureRecoveryPrecomputation {
     cancelled = true;
   }
 
+  // Execution recovers senders from the first transaction on, so starting from the last keeps the
+  // two from waiting on each other's lock on the same transaction.
   private Void recoverUntilDoneOrCancelled() {
     int index;
-    while (!cancelled && (index = nextTransaction.getAndIncrement()) < transactions.size()) {
+    while (!cancelled && (index = unclaimedTransactions.decrementAndGet()) >= 0) {
       recover(transactions.get(index));
     }
     return null;
