@@ -17,13 +17,9 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
-import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 
-import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -39,18 +35,6 @@ public class BodyIdentifier {
     this.withdrawalsRoot = withdrawalsRoot;
   }
 
-  public BodyIdentifier(
-      final List<Transaction> transactions,
-      final List<BlockHeader> ommers,
-      final Optional<List<Withdrawal>> withdrawals) {
-    this(
-        Bytes32.wrap(BodyValidation.transactionsRoot(transactions).getBytes()),
-        Bytes32.wrap(BodyValidation.ommersHash(ommers).getBytes()),
-        withdrawals
-            .map(w -> Bytes32.wrap(BodyValidation.withdrawalsRoot(w).getBytes()))
-            .orElse(null));
-  }
-
   public BodyIdentifier(final BlockHeader header) {
     this(
         header.getTransactionsRoot() == null
@@ -61,7 +45,13 @@ public class BodyIdentifier {
   }
 
   public BodyIdentifier(final BlockBody body) {
-    this(body.getTransactions(), body.getOmmers(), body.getWithdrawals());
+    this(
+        // the body keeps this root, so importing the block doesn't compute it again
+        Bytes32.wrap(body.getTransactionsRoot().getBytes()),
+        Bytes32.wrap(BodyValidation.ommersHash(body.getOmmers()).getBytes()),
+        body.getWithdrawals()
+            .map(w -> Bytes32.wrap(BodyValidation.withdrawalsRoot(w).getBytes()))
+            .orElse(null));
   }
 
   public BodyIdentifier(final SyncBlockBody syncBody) {
