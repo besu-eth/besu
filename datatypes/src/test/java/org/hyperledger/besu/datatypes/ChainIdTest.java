@@ -108,6 +108,19 @@ class ChainIdTest {
   }
 
   @Test
+  void readFromRejectsShortValuesLargerThanTheMaxSize() {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.writeLongScalar(0x01_0000_0000_0000L);
+
+    assertThat(ChainId.readFrom(new BytesValueRLPInput(out.encoded(), false), 7))
+        .isEqualTo(ChainId.of(0x01_0000_0000_0000L));
+    assertThatThrownBy(() -> ChainId.readFrom(new BytesValueRLPInput(out.encoded(), false), 6))
+        .isInstanceOf(RLPException.class);
+    assertThatThrownBy(() -> ChainId.readFrom(new BytesValueRLPInput(out.encoded(), false), 1))
+        .isInstanceOf(RLPException.class);
+  }
+
+  @Test
   void readFromRejectsLeadingZeros() {
     final Bytes encodedWithLeadingZero = Bytes.fromHexString("0x820001");
 

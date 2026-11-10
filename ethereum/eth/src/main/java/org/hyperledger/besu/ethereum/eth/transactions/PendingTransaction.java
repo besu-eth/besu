@@ -17,9 +17,11 @@ package org.hyperledger.besu.ethereum.eth.transactions;
 import static org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper.CELL_PROOFS_PER_BLOB;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.ACCESS_LIST_ENTRY_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.ACCESS_LIST_STORAGE_KEY_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BIG_CHAIN_ID_MAX_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BLOBS_WITH_COMMITMENTS_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BLOB_PROOF_BUNDLE_SIZE_V0;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BLOB_PROOF_BUNDLE_SIZE_V1;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.CHAIN_ID_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.CODE_DELEGATION_ENTRY_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.EIP1559_AND_EIP4844_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE;
@@ -35,6 +37,8 @@ import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.ChainId;
+import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -248,9 +252,26 @@ public abstract class PendingTransaction
             cd -> {
               int totalSize = OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE;
               totalSize += cd.size() * CODE_DELEGATION_ENTRY_SIZE;
+              final ChainId networkChainId = transaction.getChainIdentifier();
+              for (final CodeDelegation codeDelegation : cd) {
+                totalSize += computeOwnChainIdMemorySize(codeDelegation, networkChainId);
+              }
               return totalSize;
             })
         .orElse(0);
+  }
+
+  /**
+   * An authorization valid on any chain or on the network chain shares the chain id instance, while
+   * one for another chain, that is accepted and only skipped at execution, has its own.
+   */
+  private static int computeOwnChainIdMemorySize(
+      final CodeDelegation codeDelegation, final ChainId networkChainId) {
+    final ChainId chainId = codeDelegation.chainIdentifier();
+    if (chainId.isZero() || chainId.equals(networkChainId)) {
+      return 0;
+    }
+    return chainId.fitsLong() ? CHAIN_ID_SHALLOW_SIZE : BIG_CHAIN_ID_MAX_SIZE;
   }
 
   public static List<Transaction> toTransactionList(
@@ -428,9 +449,10 @@ public abstract class PendingTransaction
    * look there for the details of the calculation and to adapt the code when any of the related
    * class changes its structure.
    *
-   * <p>The chain id of transactions and code delegations is not counted, since it is always the
-   * instance shared by all the chain ids of the running network, see {@link
-   * org.hyperledger.besu.datatypes.ChainId}.
+   * <p>The chain id of transactions, and of code delegations valid on the network chain or on any
+   * chain, is not counted, since it is the instance shared by all the chain ids with that value,
+   * see {@link org.hyperledger.besu.datatypes.ChainId}. Only code delegations for another chain
+   * have a chain id of their own.
    */
   public interface MemorySize {
     int FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE = 904;
@@ -442,6 +464,9 @@ public abstract class PendingTransaction
     int OPTIONAL_ACCESS_LIST_SHALLOW_SIZE = 40;
     int OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE = 40;
     int CODE_DELEGATION_ENTRY_SIZE = 448;
+    int CHAIN_ID_SHALLOW_SIZE = 24;
+    // a chain id larger than a long, of at most 32 bytes, backed by a BigInteger
+    int BIG_CHAIN_ID_MAX_SIZE = 112;
     int OPTIONAL_SHALLOW_SIZE = 16;
     int KZG_PROOF_CONTAINER_SHALLOW_SIZE = 24;
     int KZG_PROOF_SIZE = 112;

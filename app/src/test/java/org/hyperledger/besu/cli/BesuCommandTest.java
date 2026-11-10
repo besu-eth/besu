@@ -53,6 +53,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
 import org.hyperledger.besu.cli.config.NativeRequirement;
@@ -61,6 +62,7 @@ import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.ChainId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
@@ -284,6 +286,22 @@ public class BesuCommandTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void nodeDoesNotStartIfTheNetworkChainIdIsAlreadyRegistered() {
+    // like a plugin registering it before the node does
+    when(mockControllerBuilder.build())
+        .thenAnswer(
+            invocation -> {
+              ChainId.initNetworkChainId(ChainId.of(1));
+              return mockController;
+            });
+
+    parseCommand();
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Network chain id already initialized to 1");
   }
 
   @Test

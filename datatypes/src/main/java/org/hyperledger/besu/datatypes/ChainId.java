@@ -87,6 +87,9 @@ public final class ChainId {
    * before the chain id is used by other threads, unless the registration is cleared first with
    * {@link #resetNetworkChainId()}.
    *
+   * <p>It is internal to Besu, that registers the chain id of the network when it builds the node:
+   * plugins must not call it, since the node then fails to start.
+   *
    * @param chainId the chain id of the running network, absent if the network has none
    * @return the given chain id
    * @throws IllegalStateException if the network chain id has already been registered
@@ -231,7 +234,8 @@ public final class ChainId {
    * @return the chain id
    */
   public static ChainId readFrom(final RLPInput input, final int maxSizeBytes) {
-    if (input.nextSize() < Long.BYTES) {
+    final int size = input.nextSize();
+    if (size < Long.BYTES && size <= maxSizeBytes) {
       return of(input.readLongScalar());
     }
     return of(input.readBigIntegerScalar(maxSizeBytes));
