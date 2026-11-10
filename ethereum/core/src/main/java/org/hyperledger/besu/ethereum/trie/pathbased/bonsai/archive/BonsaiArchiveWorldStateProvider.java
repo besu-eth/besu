@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
@@ -58,7 +57,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final WorldStateConfig archiveWorldStateConfig;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
 
-  private final ArchiveCoverageTracker archiveCoverageTracker;
+  private volatile LongSupplier archiveProofProgressSupplier = () -> -1L;
   private final ArchiveHistoryReader archiveHistoryReader;
 
   public BonsaiArchiveWorldStateProvider(
@@ -117,7 +116,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     final SegmentedKeyValueStorage liveStorage =
         worldStateKeyValueStorage.getComposedWorldStateStorage();
     final ArchiveNodeHistoryStore archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
-    this.archiveCoverageTracker = new ArchiveCoverageTracker(liveStorage);
     this.archiveHistoryReader = new ArchiveHistoryReader(archiveHistoryStore);
   }
 
@@ -154,6 +152,16 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     this.archiveMigrationProgressSupplier = supplier;
   }
 
+  /**
+   * Sets the supplier of the last block whose trie nodes are archived. Until this is called, no
+   * block is served from archived trie nodes.
+   *
+   * @param supplier returns the last archived block, or {@code -1} if none
+   */
+  public void setArchiveProofProgressSupplier(final LongSupplier supplier) {
+    this.archiveProofProgressSupplier = supplier;
+  }
+
   private boolean isHistoricalQuery(final WorldStateQueryParams queryParams) {
     final long queryBlock = queryParams.getBlockHeader().getNumber();
     return worldStateKeyValueStorage.getFlatDbMode().equals(FlatDbMode.ARCHIVE)
@@ -170,7 +178,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
     final long blockNumber = blockHeader.getNumber();
-    if (!archiveCoverageTracker.hasArchiveBlock(blockNumber)) {
+    if (blockNumber > archiveProofProgressSupplier.getAsLong()) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
     try {

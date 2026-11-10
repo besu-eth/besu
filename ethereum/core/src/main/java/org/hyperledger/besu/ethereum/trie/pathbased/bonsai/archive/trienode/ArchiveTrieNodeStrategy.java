@@ -18,7 +18,6 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 
 import org.hyperledger.besu.ethereum.core.Synchronizer;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker.Coverage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
@@ -57,7 +56,7 @@ public class ArchiveTrieNodeStrategy
 
   private final TrieNodeStrategy base;
   private final ArchiveTrieNodeWriter trieNodeWriter;
-  private final ArchiveCoverageTracker coverage;
+  private final ArchiveNodeHistoryStore historyStore;
   private final Predicate<SegmentedKeyValueStorage> isCaptureStorage;
   private final AtomicBoolean reorgLogged = new AtomicBoolean(false);
 
@@ -87,16 +86,12 @@ public class ArchiveTrieNodeStrategy
       final ExecutorService trieCapturePool,
       final int shallowCheckpointInterval,
       final int deepCheckpointInterval) {
-    final ArchiveCoverageTracker coverage = new ArchiveCoverageTracker(liveStorage);
+    final ArchiveNodeHistoryStore historyStore = new ArchiveNodeHistoryStore(liveStorage);
     return new ArchiveTrieNodeStrategy(
         new BonsaiTrieNodeStrategy(),
         new ArchiveTrieNodeWriter(
-            new ArchiveNodeHistoryStore(liveStorage),
-            coverage,
-            trieCapturePool,
-            shallowCheckpointInterval,
-            deepCheckpointInterval),
-        coverage,
+            historyStore, trieCapturePool, shallowCheckpointInterval, deepCheckpointInterval),
+        historyStore,
         storage -> storage == liveStorage,
         () -> false);
   }
@@ -113,7 +108,7 @@ public class ArchiveTrieNodeStrategy
   /**
    * @param base the delegate strategy for the live trie
    * @param trieNodeWriter the writer that persists archived history entries
-   * @param coverage the archive coverage that captured blocks must extend
+   * @param historyStore the archive store whose recorded progress captured blocks must extend
    * @param isCaptureStorage whether writes to a storage are archived
    * @param hasChainEstimate supplies whether an external chain estimate exists (see field)
    */
@@ -121,12 +116,12 @@ public class ArchiveTrieNodeStrategy
   public ArchiveTrieNodeStrategy(
       final TrieNodeStrategy base,
       final ArchiveTrieNodeWriter trieNodeWriter,
-      final ArchiveCoverageTracker coverage,
+      final ArchiveNodeHistoryStore historyStore,
       final Predicate<SegmentedKeyValueStorage> isCaptureStorage,
       final BooleanSupplier hasChainEstimate) {
     this.base = Objects.requireNonNull(base);
     this.trieNodeWriter = Objects.requireNonNull(trieNodeWriter);
-    this.coverage = Objects.requireNonNull(coverage);
+    this.historyStore = Objects.requireNonNull(historyStore);
     this.isCaptureStorage = Objects.requireNonNull(isCaptureStorage);
     this.hasChainEstimate =
         Objects.requireNonNull(hasChainEstimate, "hasChainEstimate must not be null");
@@ -167,22 +162,33 @@ public class ArchiveTrieNodeStrategy
         : persisted.isPresent() && persisted.get().equals(blockHeader.getParentHash().getBytes());
   }
 
+  /**
+   * Returns the last block whose trie nodes are archived; proof history covers {@code [0, block]}.
+   *
+   * @return the last archived block, or {@code -1} if none
+   */
+  public long getArchivedBlockNumber() {
+    return historyStore.getArchivedBlockNumber();
+  }
+
   private boolean extendsCoverage(final BlockHeader blockHeader) {
-    final Optional<Coverage> current = coverage.getCoverage();
-    if (current.isEmpty()) {
-      return blockHeader.getNumber() == 0L;
-    }
-    final Coverage lastArchived = current.get();
-    if (blockHeader.getNumber() != lastArchived.lastBlock() + 1) {
+    final long lastArchived = historyStore.getArchivedBlockNumber();
+    if (blockHeader.getNumber() != lastArchived + 1) {
       return false;
     }
+    if (lastArchived < 0) {
+      return true;
+    }
     final boolean buildsOnLastArchived =
-        lastArchived.lastBlockHash().equals(blockHeader.getParentHash());
+        historyStore
+            .getArchivedBlockHash()
+            .map(hash -> hash.equals(blockHeader.getParentHash()))
+            .orElse(false);
     if (!buildsOnLastArchived && reorgLogged.compareAndSet(false, true)) {
       LOG.error(
           "Trie-node capture stopped at block {}: the chain reorged past archived history. "
               + "Proof history needs a resync.",
-          lastArchived.lastBlock());
+          lastArchived);
     }
     return buildsOnLastArchived;
   }

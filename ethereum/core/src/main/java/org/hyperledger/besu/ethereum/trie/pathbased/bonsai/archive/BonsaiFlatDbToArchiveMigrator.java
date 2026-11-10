@@ -62,8 +62,8 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private static final int LOG_INTERVAL_SECONDS = 60;
   private static final long CATCHUP_LOG_THRESHOLD = 32;
 
-  private static final byte[] MIGRATION_PROGRESS_KEY =
-      "ARCHIVE_MIGRATION_PROGRESS".getBytes(StandardCharsets.UTF_8);
+  private static final byte[] ARCHIVE_FLATDB_PROGRESS_KEY =
+      "ARCHIVE_FLATDB_PROGRESS".getBytes(StandardCharsets.UTF_8);
 
   private final BonsaiWorldStateKeyValueStorage worldStateStorage;
   private final TrieLogManager trieLogManager;
@@ -376,7 +376,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   protected Optional<Long> getMigrationProgress() {
     return worldStateStorage
         .getComposedWorldStateStorage()
-        .get(ACCOUNT_INFO_STATE_ARCHIVE, MIGRATION_PROGRESS_KEY)
+        .get(ACCOUNT_INFO_STATE_ARCHIVE, ARCHIVE_FLATDB_PROGRESS_KEY)
         .map(Bytes::wrap)
         .map(Bytes::toLong);
   }
@@ -384,7 +384,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private void saveProgress(final long blockNumber, final SegmentedKeyValueStorageTransaction tx) {
     tx.put(
         ACCOUNT_INFO_STATE_ARCHIVE,
-        MIGRATION_PROGRESS_KEY,
+            ARCHIVE_FLATDB_PROGRESS_KEY,
         Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
   }
 }

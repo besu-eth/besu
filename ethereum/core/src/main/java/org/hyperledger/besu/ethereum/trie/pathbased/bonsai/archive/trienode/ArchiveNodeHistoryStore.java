@@ -16,14 +16,17 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage.NearestKeyValue;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +45,10 @@ public final class ArchiveNodeHistoryStore {
   // The diff-chain counter is stored as a single unsigned byte, so its maximum value is 255
   public static final int MAX_COUNTER = 0xFF;
 
+  // Last archived block number (8 bytes) and hash (32 bytes); coverage always starts at block 0.
+  static final byte[] ARCHIVE_TRIE_PROGRESS_KEY =
+      "ARCHIVE_TRIE_PROGRESS".getBytes(StandardCharsets.UTF_8);
+
   private final SegmentedKeyValueStorage storage;
 
   /**
@@ -51,6 +58,46 @@ public final class ArchiveNodeHistoryStore {
    */
   public ArchiveNodeHistoryStore(final SegmentedKeyValueStorage storage) {
     this.storage = Objects.requireNonNull(storage, "storage must not be null");
+  }
+
+  /**
+   * Returns the last block whose trie nodes are archived; history covers {@code [0, block]}.
+   *
+   * @return the last archived block, or {@code -1} if none
+   */
+  public long getArchivedBlockNumber() {
+    return getArchiveProgress().map(b -> b.getLong(0)).orElse(-1L);
+  }
+
+  /**
+   * Returns the hash of the last archived block.
+   *
+   * @return the hash, or empty if no block is archived
+   */
+  public Optional<Hash> getArchivedBlockHash() {
+    return getArchiveProgress().map(b -> Hash.wrap(Bytes32.wrap(b.slice(8, 32))));
+  }
+
+  /**
+   * Records {@code block} as the last archived block, atomically with the block's history entries.
+   *
+   * @param tx the transaction committing the block's history entries
+   * @param block the archived block number
+   * @param blockHash the archived block's hash
+   */
+  public void saveArchiveProgress(
+      final SegmentedKeyValueStorageTransaction tx, final long block, final Hash blockHash) {
+    tx.put(
+        TRIE_BRANCH_STORAGE_ARCHIVE,
+            ARCHIVE_TRIE_PROGRESS_KEY,
+        Bytes.concatenate(Bytes.ofUnsignedLong(block), blockHash.getBytes()).toArrayUnsafe());
+  }
+
+  private Optional<Bytes> getArchiveProgress() {
+    return storage
+        .get(TRIE_BRANCH_STORAGE_ARCHIVE, ARCHIVE_TRIE_PROGRESS_KEY)
+        .filter(raw -> raw.length == 40)
+        .map(Bytes::wrap);
   }
 
   /**

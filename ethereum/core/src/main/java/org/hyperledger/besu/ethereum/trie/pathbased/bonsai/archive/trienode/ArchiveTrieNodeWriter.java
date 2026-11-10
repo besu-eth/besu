@@ -62,7 +62,6 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private static final int BATCH_SIZE = 64;
 
   private final ArchiveNodeHistoryStore historyStore;
-  private final ArchiveCoverageTracker coverageTracker;
   private final ExecutorService capturePool;
   private final int shallowCheckpointInterval;
   private final int deepCheckpointInterval;
@@ -73,13 +72,10 @@ public class ArchiveTrieNodeWriter implements Closeable {
 
   public ArchiveTrieNodeWriter(
       final ArchiveNodeHistoryStore historyStore,
-      final ArchiveCoverageTracker coverageTracker,
       final ExecutorService capturePool,
       final int shallowCheckpointInterval,
       final int deepCheckpointInterval) {
     this.historyStore = Objects.requireNonNull(historyStore, "historyStore must not be null");
-    this.coverageTracker =
-        Objects.requireNonNull(coverageTracker, "coverageTracker must not be null");
     this.capturePool = Objects.requireNonNull(capturePool, "capturePool must not be null");
     this.shallowCheckpointInterval = shallowCheckpointInterval;
     this.deepCheckpointInterval = deepCheckpointInterval;
@@ -102,8 +98,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
   public void beginBlock(
       final SegmentedKeyValueStorageTransaction transaction, final BlockHeader blockHeader) {
     final long block = blockHeader.getNumber();
-    final boolean chainContiguous =
-        coverageTracker.getCoverage().map(c -> c.lastBlock() == block - 1).orElse(false);
+    final boolean chainContiguous = historyStore.getArchivedBlockNumber() == block - 1;
     checkState(
         buffers.putIfAbsent(
                 transaction, new CaptureBuffer(block, blockHeader.getBlockHash(), chainContiguous))
@@ -210,7 +205,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
       } catch (final ExecutionException e) {
         throw new RuntimeException("trie-node capture failed", e.getCause());
       }
-      coverageTracker.record(transaction, buf.block, buf.blockHash);
+      historyStore.saveArchiveProgress(transaction, buf.block, buf.blockHash);
     }
   }
 

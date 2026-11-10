@@ -761,6 +761,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
               archiveUnstable.getBonsaiArchiveShallowCheckpointInterval(),
               archiveUnstable.getBonsaiArchiveDeepCheckpointInterval());
       keyValueStorage.setTrieNodeStrategy(archiveTrieNodeStrategy);
+      ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+          .setArchiveProofProgressSupplier(archiveTrieNodeStrategy::getArchivedBlockNumber);
       closeables.add(archiveTrieNodeStrategy);
       LOG.info("Bonsai archive proofs enabled (--Xbonsai-archive-state-proofs-enabled)");
     }

@@ -24,7 +24,6 @@ import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker.Coverage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
@@ -47,7 +46,6 @@ class ArchiveTrieNodeStrategyTest {
 
   private SegmentedKeyValueStorage storage;
   private ArchiveNodeHistoryStore historyStore;
-  private ArchiveCoverageTracker coverageTracker;
   private ArchiveTrieNodeWriter capture;
   private List<BlockHeader> chain;
 
@@ -60,11 +58,9 @@ class ArchiveTrieNodeStrategyTest {
   void setUp() {
     storage = newStorage();
     historyStore = new ArchiveNodeHistoryStore(storage);
-    coverageTracker = new ArchiveCoverageTracker(storage);
     capture =
         new ArchiveTrieNodeWriter(
             historyStore,
-            coverageTracker,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
@@ -94,11 +90,7 @@ class ArchiveTrieNodeStrategyTest {
 
   private ArchiveTrieNodeStrategy strategy(final BooleanSupplier hasChainEstimate) {
     return new ArchiveTrieNodeStrategy(
-        new BonsaiTrieNodeStrategy(),
-        capture,
-        coverageTracker,
-        s -> s == storage,
-        hasChainEstimate);
+        new BonsaiTrieNodeStrategy(), capture, historyStore, s -> s == storage, hasChainEstimate);
   }
 
   private static Bytes32 hash(final Bytes value) {
@@ -139,12 +131,16 @@ class ArchiveTrieNodeStrategyTest {
     tx.commit();
   }
 
-  private Optional<Coverage> coverage() {
-    return coverageTracker.getCoverage();
+  private record Archived(long block, Hash hash) {}
+
+  private Optional<Archived> coverage() {
+    return historyStore
+        .getArchivedBlockHash()
+        .map(hash -> new Archived(historyStore.getArchivedBlockNumber(), hash));
   }
 
-  private Coverage coverageThrough(final int last) {
-    return new Coverage(0, last, chain.get(last).getHash());
+  private Archived coverageThrough(final int last) {
+    return new Archived(last, chain.get(last).getHash());
   }
 
   @Test
@@ -434,7 +430,7 @@ class ArchiveTrieNodeStrategyTest {
         .as("entry at block 1 must be a deletion tombstone")
         .isTrue();
     assertThat(tombstone.get().block()).isEqualTo(1L);
-    assertThat(coverageTracker.hasArchiveBlock(1L)).isTrue();
+    assertThat(historyStore.getArchivedBlockNumber()).isEqualTo(1L);
   }
 
   @Test

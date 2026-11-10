@@ -25,7 +25,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeKey;
@@ -52,8 +51,8 @@ import org.junit.jupiter.api.Test;
  * End-to-end integration test for the bonsai archive trie-node write and proof-read pipeline.
  *
  * <p>Covers the full chain: ArchiveTrieNodeStrategy → ArchiveNodeHistoryStore →
- * ArchiveCoverageTracker → ArchiveReadTrieNodeStrategy (as would be used by
- * BonsaiArchiveReadWorldStateStorageCoordinator). Does NOT require a real block-processing stack.
+ * ArchiveReadTrieNodeStrategy (as would be used by BonsaiArchiveReadWorldStateStorageCoordinator).
+ * Does NOT require a real block-processing stack.
  */
 class BonsaiArchiveStateProofIntegrationTest {
 
@@ -67,20 +66,18 @@ class BonsaiArchiveStateProofIntegrationTest {
     storage =
         new SegmentedInMemoryKeyValueStorage(
             List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
-    final ArchiveCoverageTracker coverageTracker = new ArchiveCoverageTracker(storage);
     final ArchiveNodeHistoryStore historyStore = new ArchiveNodeHistoryStore(storage);
     final BonsaiTrieNodeStrategy baseStrategy = new BonsaiTrieNodeStrategy();
     historyReader = new ArchiveHistoryReader(historyStore);
     final ArchiveTrieNodeWriter capture =
         new ArchiveTrieNodeWriter(
             historyStore,
-            coverageTracker,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
     archiveStrategy =
         new ArchiveTrieNodeStrategy(
-            baseStrategy, capture, coverageTracker, s -> s == storage, () -> false);
+            baseStrategy, capture, historyStore, s -> s == storage, () -> false);
   }
 
   private BlockHeader header(final long block) {
@@ -216,9 +213,7 @@ class BonsaiArchiveStateProofIntegrationTest {
 
     writeAccountBlock(0L, location, node);
 
-    final ArchiveCoverageTracker loaded = new ArchiveCoverageTracker(storage);
-    assertThat(loaded.hasArchiveBlock(0L)).isTrue();
-    assertThat(loaded.hasArchiveBlock(1L)).isFalse(); // only block 0 was archived
+    assertThat(new ArchiveNodeHistoryStore(storage).getArchivedBlockNumber()).isZero();
   }
 
   @Test
