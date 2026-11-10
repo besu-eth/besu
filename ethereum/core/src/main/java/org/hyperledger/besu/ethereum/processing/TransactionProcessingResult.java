@@ -15,10 +15,10 @@
 package org.hyperledger.besu.ethereum.processing;
 
 import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 
 import java.util.List;
@@ -57,6 +57,8 @@ public class TransactionProcessingResult
 
   private final List<Log> logs;
 
+  private LogsBloomFilter logsBloom;
+
   private final Bytes output;
 
   private Optional<Boolean> isProcessedInParallel = Optional.empty();
@@ -64,7 +66,6 @@ public class TransactionProcessingResult
   private final ValidationResult<TransactionInvalidReason> validationResult;
   private final Optional<Bytes> revertReason;
 
-  public PathBasedWorldStateUpdateAccumulator<?> accumulator;
   private final Optional<ExceptionalHaltReason> exceptionalHaltReason;
   private final Optional<PartialBlockAccessView> partialBlockAccessView;
 
@@ -296,6 +297,21 @@ public class TransactionProcessingResult
   @Override
   public List<Log> getLogs() {
     return logs;
+  }
+
+  /**
+   * The bloom filter of the logs, computed on first use. Parallel block processing calls this on
+   * the thread that executed the transaction, so building the receipt does not hash the logs.
+   *
+   * @return the logs bloom filter
+   */
+  public LogsBloomFilter getLogsBloom() {
+    LogsBloomFilter bloom = logsBloom;
+    if (bloom == null) {
+      bloom = LogsBloomFilter.builder().insertLogs(logs).build();
+      logsBloom = bloom;
+    }
+    return bloom;
   }
 
   /**

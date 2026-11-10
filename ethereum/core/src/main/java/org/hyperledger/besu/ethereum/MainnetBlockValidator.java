@@ -334,7 +334,21 @@ public class MainnetBlockValidator implements BlockValidator {
       }
 
       var result =
-          processBlock(context, worldState, block, blockAccessList, inclusionListTransactions);
+          processBlock(
+              context,
+              worldState,
+              block,
+              blockAccessList,
+              inclusionListTransactions,
+              (receipts, cumulativeBlockGasUsed) ->
+                  blockBodyValidator.validateBody(
+                      context,
+                      block,
+                      receipts,
+                      block.getHeader().getStateRoot(),
+                      ommerValidationMode,
+                      BodyValidationMode.EXCEPT_STATE_ROOT,
+                      OptionalLong.of(cumulativeBlockGasUsed)));
       if (result.isFailed()) {
         handleFailedBlockProcessing(block, blockAccessList, result, shouldRecordBadBlock, context);
         return result;
@@ -355,7 +369,7 @@ public class MainnetBlockValidator implements BlockValidator {
             receipts,
             worldState.rootHash(),
             ommerValidationMode,
-            BodyValidationMode.FULL,
+            BodyValidationMode.STATE_ROOT_ONLY,
             OptionalLong.of(cumulativeBlockGasUsed))) {
           result = new BlockProcessingResult("failed to validate output of imported block");
           handleFailedBlockProcessing(
@@ -471,6 +485,7 @@ public class MainnetBlockValidator implements BlockValidator {
    * @param block the block to be processed
    * @param blockAccessList optional block access list
    * @param inclusionListTransactions inclusion list transactions
+   * @param outputValidator the check to run on the block's output before it is persisted
    * @return the result of processing the block
    */
   protected BlockProcessingResult processBlock(
@@ -478,7 +493,8 @@ public class MainnetBlockValidator implements BlockValidator {
       final MutableWorldState worldState,
       final Block block,
       final Optional<BlockAccessList> blockAccessList,
-      final InclusionListTransactions inclusionListTransactions) {
+      final InclusionListTransactions inclusionListTransactions,
+      final BlockExecutionContext.OutputValidator outputValidator) {
 
     return blockProcessor.processBlock(
         BlockExecutionContext.builder()
@@ -487,6 +503,7 @@ public class MainnetBlockValidator implements BlockValidator {
             .block(block)
             .blockAccessList(blockAccessList)
             .inclusionListTransactions(inclusionListTransactions)
+            .outputValidator(outputValidator)
             .build());
   }
 
