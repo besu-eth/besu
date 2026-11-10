@@ -25,20 +25,28 @@ import org.hyperledger.besu.config.ImmutableCliqueConfigOptions;
 import org.hyperledger.besu.config.JsonBftConfigOptions;
 import org.hyperledger.besu.config.JsonQbftConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.LogTopic;
+import org.hyperledger.besu.datatypes.LogsBloomFilter;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,6 +55,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class MainnetProtocolSpecsTest {
+
+  private static final List<Log> LOGS =
+      List.of(
+          new Log(
+              Address.fromHexString("0x1234"),
+              Bytes.of(1, 2, 3),
+              List.of(LogTopic.of(Bytes32.fromHexStringLenient("0x5678")))));
 
   @Mock(lenient = true)
   private GenesisConfigOptions genesisConfigOptions;
@@ -293,5 +308,25 @@ public class MainnetProtocolSpecsTest {
 
     assertThat(protocolSpec.getSlotDuration())
         .hasSeconds(miningConfiguration.getUnstable().getPosSlotDuration());
+  }
+
+  @Test
+  void receiptsCarryTheBloomOfTheResultsLogs() {
+    final TransactionProcessingResult result =
+        TransactionProcessingResult.successful(
+            LOGS, 0, 0, Bytes.EMPTY, Optional.empty(), ValidationResult.valid());
+    final LogsBloomFilter expectedBloom = LogsBloomFilter.builder().insertLogs(LOGS).build();
+
+    // TransactionReceipt.equals does not compare the bloom
+    assertThat(
+            new MainnetProtocolSpecs.ByzantiumTransactionReceiptFactory(false)
+                .create(TransactionType.FRONTIER, result, 21_000)
+                .getBloomFilter())
+        .isEqualTo(expectedBloom);
+    assertThat(
+            new MainnetProtocolSpecs.BerlinTransactionReceiptFactory(false)
+                .create(TransactionType.EIP1559, result, 21_000)
+                .getBloomFilter())
+        .isEqualTo(expectedBloom);
   }
 }
