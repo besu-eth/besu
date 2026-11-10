@@ -34,7 +34,6 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.precompile.PrecompiledContract;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
-import org.hyperledger.besu.evm.processor.SimulationMessageCallProcessor;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -116,8 +115,8 @@ public class SimulationTransactionProcessorFactoryTest {
   @Test
   void shouldPreserveOriginalPrecompilesWhenNoOverridesProvided() {
     HashMap<Address, Address> precompileOverrides = new HashMap<>();
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(processor.getPrecompileAddresses())
@@ -131,8 +130,8 @@ public class SimulationTransactionProcessorFactoryTest {
     Map<Address, Address> precompileOverrides = new HashMap<>();
     precompileOverrides.put(ORIGINAL_ADDRESS_1, OVERRIDE_ADDRESS);
 
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(
@@ -150,8 +149,8 @@ public class SimulationTransactionProcessorFactoryTest {
     Map<Address, Address> precompileOverrides = new HashMap<>();
     precompileOverrides.put(ORIGINAL_ADDRESS_1, NON_EXISTENT_ADDRESS);
 
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(
@@ -171,9 +170,7 @@ public class SimulationTransactionProcessorFactoryTest {
     BlockStateCallException exception =
         assertThrows(
             BlockStateCallException.class,
-            () ->
-                new SimulationMessageCallProcessor(
-                    originalProcessor, createSupplier(precompileOverrides)));
+            () -> originalProcessor.withPrecompiles(createSupplier(precompileOverrides)));
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
     Assertions.assertThat(exception.getMessage())
@@ -189,8 +186,8 @@ public class SimulationTransactionProcessorFactoryTest {
     precompileOverrides.put(ORIGINAL_ADDRESS_1, OVERRIDE_ADDRESS);
     precompileOverrides.put(ORIGINAL_ADDRESS_2, OVERRIDE_ADDRESS); // Duplicate target allowed
 
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(processor.getPrecompiles().getPrecompileAddresses())
@@ -202,8 +199,8 @@ public class SimulationTransactionProcessorFactoryTest {
     Map<Address, Address> precompileOverrides = new HashMap<>();
     precompileOverrides.put(ORIGINAL_ADDRESS_1, ORIGINAL_ADDRESS_2);
 
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(processor.getPrecompiles().getPrecompileAddresses())

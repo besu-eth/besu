@@ -39,11 +39,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Verifies that the simulation processor behaves as the processor it wraps, apart from the
- * precompile registry it is given.
+ * Verifies that {@link MessageCallProcessor#withPrecompiles} returns a processor that behaves as
+ * the original, apart from the precompile registry it is given.
  */
 @ExtendWith(MockitoExtension.class)
-class SimulationMessageCallProcessorTest {
+class MessageCallProcessorWithPrecompilesTest {
 
   private static final Address SENDER = Address.fromHexString("0xc100");
   private static final Address RECIPIENT = Address.fromHexString("0xc200");
@@ -55,12 +55,11 @@ class SimulationMessageCallProcessorTest {
   @Mock OperationTracer operationTracer;
 
   @Test
-  void emitsTransferLogsAsTheWrappedProcessorDoes() {
+  void emitsTransferLogsAsTheOriginalProcessorDoes() {
     final MessageCallProcessor original =
         new MessageCallProcessor(
             evm, new PrecompileContractRegistry(), Set.of(), transferLogEmitter);
-    final SimulationMessageCallProcessor simulation =
-        new SimulationMessageCallProcessor(original, Function.identity());
+    final MessageCallProcessor simulation = original.withPrecompiles(Function.identity());
 
     final ToyWorld world = new ToyWorld();
     world.createAccount(SENDER).setBalance(Wei.of(10));
@@ -78,15 +77,14 @@ class SimulationMessageCallProcessorTest {
   }
 
   @Test
-  void forceDeletesTouchedEmptyAccountsAsTheWrappedProcessorDoes() {
+  void forceDeletesTouchedEmptyAccountsAsTheOriginalProcessorDoes() {
     // A failed call to RIPEMD-160 still deletes the touched empty account, as on mainnet
     final PrecompileContractRegistry registry = new PrecompileContractRegistry();
     registry.put(RIPEMD160, precompile);
     when(precompile.gasRequirement(any())).thenReturn(100L);
     final MessageCallProcessor original =
         new MessageCallProcessor(evm, registry, Set.of(RIPEMD160), TransferLogEmitter.NOOP);
-    final SimulationMessageCallProcessor simulation =
-        new SimulationMessageCallProcessor(original, Function.identity());
+    final MessageCallProcessor simulation = original.withPrecompiles(Function.identity());
 
     final ToyWorld world = new ToyWorld();
     world.createAccount(SENDER);
