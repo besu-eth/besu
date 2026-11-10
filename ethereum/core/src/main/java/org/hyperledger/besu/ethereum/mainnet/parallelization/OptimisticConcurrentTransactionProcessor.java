@@ -38,7 +38,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -60,6 +60,12 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   private final MainnetTransactionProcessor transactionProcessor;
 
   private final TransactionCollisionDetector transactionCollisionDetector;
+
+  /**
+   * Set once the parallel result of a heavy transaction could not be used: the next heavy ones
+   * likely touch the same state, so waiting for them would only delay executing them again.
+   */
+  private boolean heavyTransactionReplayed;
 
   /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
@@ -224,13 +230,17 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     if (state == Future.State.SUCCESS) {
       parallelizedTransactionContext = future.resultNow();
     } else if (state == Future.State.RUNNING
-        && transaction.getGasLimit() > HEAVY_TRANSACTION_GAS_THRESHOLD
+        && isHeavy(transaction)
+        && !heavyTransactionReplayed
         && isInFlight(transactionLocation)) {
       // A worker is already executing this heavy transaction: waiting for it to finish is faster
       // than cancelling it and executing the whole transaction again from scratch.
       try {
-        parallelizedTransactionContext = future.join();
-      } catch (final CompletionException | CancellationException e) {
+        parallelizedTransactionContext = future.get();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return Optional.empty();
+      } catch (final ExecutionException | CancellationException e) {
         LOG.debug(
             "Parallel execution of transaction {} failed, executing it sequentially",
             transaction.getHash(),
@@ -295,6 +305,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       return Optional.of(transactionProcessingResult);
     } else {
       blockAccumulator.importPriorStateFromSource(transactionAccumulator);
+      heavyTransactionReplayed |= isHeavy(transaction);
       if (conflictingButCachedTransactionCounter.isPresent())
         conflictingButCachedTransactionCounter.get().inc();
       // If there is a conflict, we return an empty result to signal the block processor to

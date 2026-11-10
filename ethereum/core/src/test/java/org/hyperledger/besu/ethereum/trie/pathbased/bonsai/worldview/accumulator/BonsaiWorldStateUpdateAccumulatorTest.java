@@ -345,6 +345,29 @@ class BonsaiWorldStateUpdateAccumulatorTest {
     }
   }
 
+  @Test
+  void importPriorStateFromSource_addsOnlyPriorsAndKeepsTheBlockValues() {
+    try (BonsaiWorldState worldState = newEmptyWorldState()) {
+      final BonsaiWorldStateUpdateAccumulator accumulator = persistAccountWithSlot(worldState);
+
+      // a conflicting transaction caches what it read, without its changes
+      accumulator.importPriorStateFromSource(transactionWritingSlot(worldState, V2));
+      final BonsaiValue<UInt256> cached = accumulator.getStorageToUpdate().get(ACCOUNT).get(SLOT);
+      assertThat(cached.getPrior()).isEqualTo(V0);
+      assertThat(cached.getUpdated()).isEqualTo(V0);
+
+      // once the block changed the slot, another conflicting transaction leaves it untouched
+      accumulator.importStateChangesFromSource(transactionWritingSlot(worldState, V1));
+      final BonsaiValue<BonsaiAccount> account = accumulator.getAccountsToUpdate().get(ACCOUNT);
+      accumulator.importPriorStateFromSource(transactionWritingSlot(worldState, V2));
+
+      assertThat(accumulator.getAccountsToUpdate().get(ACCOUNT)).isSameAs(account);
+      final BonsaiValue<UInt256> kept = accumulator.getStorageToUpdate().get(ACCOUNT).get(SLOT);
+      assertThat(kept.getPrior()).isEqualTo(V0);
+      assertThat(kept.getUpdated()).isEqualTo(V1);
+    }
+  }
+
   /**
    * Runs a transaction that writes the slot on a world state of its own, as parallel transactions
    * do, and returns its accumulator.

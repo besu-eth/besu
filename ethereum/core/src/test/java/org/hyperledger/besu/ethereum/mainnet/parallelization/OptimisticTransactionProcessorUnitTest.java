@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -61,6 +62,7 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -916,9 +918,19 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     private Optional<TransactionProcessingResult> getProcessingResult(
-        final Transaction transaction) {
+        final Transaction transaction, final int location) {
       return processor.getProcessingResult(
-          env.worldState(), MINING_BENEFICIARY, transaction, 0, Optional.empty(), Optional.empty());
+          env.worldState(),
+          MINING_BENEFICIARY,
+          transaction,
+          location,
+          Optional.empty(),
+          Optional.empty());
+    }
+
+    private static TransactionProcessingResult successfulResult() {
+      return TransactionProcessingResult.successful(
+          Collections.emptyList(), 0, 0, Bytes.EMPTY, Optional.empty(), ValidationResult.valid());
     }
 
     /** A stubbed transaction execution that a test releases once the worker has started it. */
@@ -944,15 +956,7 @@ class OptimisticTransactionProcessorUnitTest {
     void waitsForHeavyTransactionInFlight() throws Exception {
       final Transaction heavy = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
       final HeldExecution execution =
-          stubExecutionHeldUntilReleased(
-              () ->
-                  TransactionProcessingResult.successful(
-                      Collections.emptyList(),
-                      0,
-                      0,
-                      Bytes.EMPTY,
-                      Optional.empty(),
-                      ValidationResult.valid()));
+          stubExecutionHeldUntilReleased(HeavyTransactionSchedulingTests::successfulResult);
       when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(false);
       final ExecutorService worker = Executors.newSingleThreadExecutor();
       try {
@@ -960,7 +964,7 @@ class OptimisticTransactionProcessorUnitTest {
         assertTrue(execution.started().await(10, TimeUnit.SECONDS), "Expected the worker to start");
 
         final CompletableFuture<Optional<TransactionProcessingResult>> result =
-            ParallelBlockProcessorTestSupport.callUntilWaiting(() -> getProcessingResult(heavy));
+            ParallelBlockProcessorTestSupport.callUntilWaiting(() -> getProcessingResult(heavy, 0));
         execution.release().countDown();
 
         assertThat(result.get(10, TimeUnit.SECONDS)).isPresent();
@@ -986,7 +990,7 @@ class OptimisticTransactionProcessorUnitTest {
         assertTrue(execution.started().await(10, TimeUnit.SECONDS), "Expected the worker to start");
 
         final CompletableFuture<Optional<TransactionProcessingResult>> result =
-            ParallelBlockProcessorTestSupport.callUntilWaiting(() -> getProcessingResult(heavy));
+            ParallelBlockProcessorTestSupport.callUntilWaiting(() -> getProcessingResult(heavy, 0));
         execution.release().countDown();
 
         assertThat(result.get(10, TimeUnit.SECONDS)).isEmpty();
@@ -996,9 +1000,56 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
-    @DisplayName(
-        "computeExecutionOrder hoists transactions above threshold in descending gas order")
-    void computeExecutionOrderHoistsHeavyTransactions() {
+    @DisplayName("Stops waiting for heavy transactions once a heavy one had to be executed again")
+    void stopsWaitingForHeavyTransactionsAfterOneCollided() throws Exception {
+      final Transaction heavy0 = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
+      final Transaction heavy1 = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
+      final CountDownLatch bothStarted = new CountDownLatch(2);
+      final CountDownLatch release0 = new CountDownLatch(1);
+      final CountDownLatch release1 = new CountDownLatch(1);
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenAnswer(
+              invocation -> {
+                bothStarted.countDown();
+                (heavy0.equals(invocation.getArgument(2)) ? release0 : release1).await();
+                return successfulResult();
+              });
+      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(true);
+      final ExecutorService workers = Executors.newFixedThreadPool(2);
+      try {
+        processor.runAsyncBlock(
+            env.protocolContext(),
+            env.blockHeader(),
+            List.of(heavy0, heavy1),
+            MINING_BENEFICIARY,
+            EMPTY_BLOCK_HASH_LOOKUP,
+            BLOB_GAS_PRICE,
+            workers,
+            Optional.empty(),
+            env.maybeParentHeader());
+        assertTrue(bothStarted.await(10, TimeUnit.SECONDS), "Expected both workers to start");
+
+        final CompletableFuture<Optional<TransactionProcessingResult>> result0 =
+            ParallelBlockProcessorTestSupport.callUntilWaiting(
+                () -> getProcessingResult(heavy0, 0));
+        release0.countDown();
+        assertThat(result0.get(10, TimeUnit.SECONDS)).isEmpty();
+
+        // heavy 1 is still executing, but heavy 0 collided, so the import loop does not wait.
+        assertThat(
+                assertTimeoutPreemptively(
+                    Duration.ofSeconds(10), () -> getProcessingResult(heavy1, 1)))
+            .isEmpty();
+      } finally {
+        release1.countDown();
+        workers.shutdownNow();
+      }
+    }
+
+    @Test
+    @DisplayName("computeExecutionOrder starts heavy transactions first, each group in block order")
+    void computeExecutionOrderStartsHeavyTransactionsFirst() {
       final Transaction light0 = mockTransactionWithGasLimit(100_000L);
       final Transaction light1 = mockTransactionWithGasLimit(4_000_000L);
       final Transaction heavy2 = mockTransactionWithGasLimit(7_500_000L);
@@ -1010,15 +1061,14 @@ class OptimisticTransactionProcessorUnitTest {
           ParallelBlockTransactionProcessor.computeExecutionOrder(
               List.of(light0, light1, heavy2, light3, heavy4, heavy5));
 
-      // Heavy txs (> 4M gas) come first in descending gas order (tie-broken by block index: 4, 2,
-      // 5), followed by light txs in original block order (0, 1, 3).
-      assertThat(order).containsExactly(4, 2, 5, 0, 1, 3);
+      // Heavy txs (> 4M gas) come first (2, 4, 5), then the others (0, 1, 3), both in block order.
+      assertThat(order).containsExactly(2, 4, 5, 0, 1, 3);
     }
 
     @Test
     @DisplayName("Does not execute a queued transaction the block import loop has already reached")
     void doesNotExecuteQueuedTransactionReachedByImportLoop() {
-      final Transaction tx0 = mockTransactionWithGasLimit(100_000L);
+      final Transaction tx0 = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
       final Transaction tx1 = mockTransactionWithGasLimit(100_000L);
       final List<Runnable> queuedTasks = new ArrayList<>();
       final Executor deferredExecutor = queuedTasks::add;
@@ -1034,11 +1084,10 @@ class OptimisticTransactionProcessorUnitTest {
           Optional.empty(),
           env.maybeParentHeader());
 
-      // The import loop reaches tx 0 before a worker starts it, so tx 0 is cancelled and executed
-      // sequentially.
+      // The import loop reaches heavy tx 0 before a worker starts it, so it does not wait for it:
+      // tx 0 is cancelled and executed sequentially.
       final Optional<TransactionProcessingResult> res0 =
-          processor.getProcessingResult(
-              env.worldState(), MINING_BENEFICIARY, tx0, 0, Optional.empty(), Optional.empty());
+          assertTimeoutPreemptively(Duration.ofSeconds(10), () -> getProcessingResult(tx0, 0));
       assertThat(res0).isEmpty();
 
       // A worker then picks up both tasks: the cancelled task 0 does not execute its transaction,

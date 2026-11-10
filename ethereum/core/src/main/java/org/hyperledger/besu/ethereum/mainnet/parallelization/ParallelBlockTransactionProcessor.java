@@ -27,7 +27,6 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -37,10 +36,15 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
 public abstract class ParallelBlockTransactionProcessor {
 
   /**
-   * Gas limit threshold above which a transaction is hoisted to the front of the parallel execution
-   * queue so long-running transactions start warming and executing immediately.
+   * Gas limit above which a transaction is heavy: heavy transactions start first, and the
+   * optimistic processor waits for one that a worker is already executing instead of executing it
+   * again.
    */
   static final long HEAVY_TRANSACTION_GAS_THRESHOLD = 4_000_000L;
+
+  static boolean isHeavy(final Transaction transaction) {
+    return transaction.getGasLimit() > HEAVY_TRANSACTION_GAS_THRESHOLD;
+  }
 
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
@@ -103,45 +107,21 @@ public abstract class ParallelBlockTransactionProcessor {
     }
   }
 
-  /**
-   * Orders transactions so that heavy transactions (gas limit &gt; {@link
-   * #HEAVY_TRANSACTION_GAS_THRESHOLD}) are scheduled first (in descending gas limit order,
-   * tie-broken by block index), followed by all remaining transactions in original block order.
-   */
+  /** Orders the heavy transactions first, then the others, each group in block order. */
   static int[] computeExecutionOrder(final List<Transaction> transactions) {
     final int size = transactions.size();
     final int[] order = new int[size];
+    final int[] light = new int[size];
     int heavyCount = 0;
+    int lightCount = 0;
     for (int i = 0; i < size; i++) {
-      if (transactions.get(i).getGasLimit() > HEAVY_TRANSACTION_GAS_THRESHOLD) {
-        heavyCount++;
-      }
-    }
-    if (heavyCount == 0) {
-      for (int i = 0; i < size; i++) {
-        order[i] = i;
-      }
-      return order;
-    }
-
-    final long[] heavyPacked = new long[heavyCount];
-    int h = 0;
-    int l = heavyCount;
-    for (int i = 0; i < size; i++) {
-      final long gasLimit = transactions.get(i).getGasLimit();
-      if (gasLimit > HEAVY_TRANSACTION_GAS_THRESHOLD) {
-        // Pack inverted gasLimit in high 42 bits and index in low 22 bits so ascending sort
-        // orders by gasLimit DESC, then txIndex ASC.
-        final long clampedGas = Math.min(gasLimit, (1L << 41) - 1L);
-        heavyPacked[h++] = ((~clampedGas & ((1L << 42) - 1L)) << 22) | (i & 0x3FFFFFL);
+      if (isHeavy(transactions.get(i))) {
+        order[heavyCount++] = i;
       } else {
-        order[l++] = i;
+        light[lightCount++] = i;
       }
     }
-    Arrays.sort(heavyPacked);
-    for (int i = 0; i < heavyCount; i++) {
-      order[i] = (int) (heavyPacked[i] & 0x3FFFFFL);
-    }
+    System.arraycopy(light, 0, order, heavyCount, lightCount);
     return order;
   }
 
