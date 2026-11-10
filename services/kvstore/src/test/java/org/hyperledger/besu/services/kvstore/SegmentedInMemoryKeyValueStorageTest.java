@@ -17,8 +17,10 @@ package org.hyperledger.besu.services.kvstore;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.SortedWriter;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -173,6 +175,22 @@ public class SegmentedInMemoryKeyValueStorageTest {
         .isInstanceOf(IllegalStateException.class);
 
     assertThat(ended).containsExactly("rollback");
+  }
+
+  @Test
+  public void sortedWriterFallsBackToATransactionInKeyOrder() {
+    final SegmentedInMemoryKeyValueStorage storage = new SegmentedInMemoryKeyValueStorage();
+    final SortedWriter writer = storage.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesOf(1), bytesOf(10));
+    writer.put(bytesOf(2), bytesOf(20));
+
+    assertThatThrownBy(() -> writer.put(bytesOf(2), bytesOf(30)))
+        .isInstanceOf(StorageException.class);
+    assertThat(storage.get(TestSegment.FOO, bytesOf(1))).isEmpty();
+    writer.commit();
+
+    assertValue(storage.get(TestSegment.FOO, bytesOf(1)), bytesOf(10));
+    assertValue(storage.get(TestSegment.FOO, bytesOf(2)), bytesOf(20));
   }
 
   private record RecordingTransaction(
