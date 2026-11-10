@@ -26,6 +26,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -35,7 +36,13 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
+import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.io.ByteArrayOutputStream;
@@ -47,6 +54,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -54,6 +62,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class DebugTraceBlockStreamerHexEncodingTest {
 
@@ -567,7 +577,149 @@ public class DebugTraceBlockStreamerHexEncodingTest {
     assertThat(lastSload.get("storage").get(slot2).asText()).isEqualTo(one);
   }
 
+  /**
+   * The SSTORE that earns a refund shows the refund from before it, and the next step shows the new
+   * refund. Both paths must agree.
+   */
+  @Test
+  public void streamingAndAccumulatingPathsMatchForRefundBeforeOpcode() throws Exception {
+    // SSTORE(0, 1) SSTORE(0, 0) STOP
+    final JsonNode structLogs =
+        traceBothPaths(
+            fixture,
+            blockchainQueries,
+            contractCreation("0x60016000556000600055" + "00"),
+            TraceOptions.DEFAULT);
+
+    final JsonNode clearingSstore = structLogs.get(structLogs.size() - 2);
+    final JsonNode stop = structLogs.get(structLogs.size() - 1);
+    assertThat(clearingSstore.get("op").asText()).isEqualTo("SSTORE");
+    assertThat(clearingSstore.has("refund")).isFalse();
+    assertThat(stop.get("op").asText()).isEqualTo("STOP");
+    assertThat(stop.get("refund").asLong()).isEqualTo(19_900L);
+  }
+
+  /**
+   * A CALL step shows the return data from before the call, and the next step shows the output of
+   * the call. Both paths must agree.
+   */
+  @Test
+  public void streamingAndAccumulatingPathsMatchForReturnDataBeforeOpcode() throws Exception {
+    final TraceOptions withReturnData =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceReturnData(true)
+                .build(),
+            java.util.Map.of());
+    // MSTORE(0, 5) STATICCALL(gas, IDENTITY, 0, 32, 0, 0) POP
+    // MSTORE(0, 7) STATICCALL(gas, IDENTITY, 0, 32, 0, 0) POP STOP
+    final String identityCall = "60006000602060006004" + "5afa50";
+    final JsonNode structLogs =
+        traceBothPaths(
+            fixture,
+            blockchainQueries,
+            contractCreation("0x6005600052" + identityCall + "6007600052" + identityCall + "00"),
+            withReturnData);
+
+    final String five = "0x" + "00".repeat(31) + "05";
+    final String seven = "0x" + "00".repeat(31) + "07";
+    final JsonNode secondCall = structLogs.get(structLogs.size() - 3);
+    final JsonNode pop = structLogs.get(structLogs.size() - 2);
+    assertThat(secondCall.get("op").asText()).isEqualTo("STATICCALL");
+    assertThat(secondCall.get("returnData").asText()).isEqualTo(five);
+    assertThat(pop.get("op").asText()).isEqualTo("POP");
+    assertThat(pop.get("returnData").asText()).isEqualTo(seven);
+  }
+
+  /**
+   * A precompile call writes its output into the caller's memory without running any opcode and
+   * without growing memory. The next step must show the new memory, not a reused snapshot. Both
+   * paths must agree, on EVM v1 and EVM v2.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void streamingAndAccumulatingPathsMatchAfterPrecompileWritesMemory(
+      final boolean enableEvmV2) throws Exception {
+    final ExecutionContextTestFixture evmFixture =
+        ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
+            .dataStorageFormat(DataStorageFormat.BONSAI)
+            .protocolSchedule(
+                new ProtocolScheduleBuilder(
+                        GenesisConfig.fromResource(GENESIS_RESOURCE).getConfigOptions(),
+                        Optional.of(BigInteger.valueOf(42)),
+                        ProtocolSpecAdapters.create(0, Function.identity()),
+                        false,
+                        new EvmConfiguration(32_000L, WorldUpdaterMode.STACKED, true, enableEvmV2),
+                        MiningConfiguration.MINING_DISABLED,
+                        new BadBlockManager(),
+                        false,
+                        ImmutableBalConfiguration.builder().build(),
+                        new NoOpMetricsSystem())
+                    .createProtocolSchedule())
+            .build();
+    final BlockchainQueries evmQueries =
+        new BlockchainQueries(
+            evmFixture.getProtocolSchedule(),
+            evmFixture.getBlockchain(),
+            evmFixture.getStateArchive(),
+            MiningConfiguration.MINING_DISABLED);
+    final TraceOptions withMemory =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceMemory(true)
+                .build(),
+            java.util.Map.of());
+    // MSTORE(0, 5) MSTORE(32, 7) STATICCALL(gas, IDENTITY, 32, 32, 0, 32) POP STOP
+    final JsonNode structLogs =
+        traceBothPaths(
+            evmFixture,
+            evmQueries,
+            contractCreation("0x6005600052600760205260206000602060206004" + "5afa5000"),
+            withMemory);
+
+    final String seven = "0x" + "00".repeat(31) + "07";
+    final JsonNode call = structLogs.get(structLogs.size() - 3);
+    final JsonNode pop = structLogs.get(structLogs.size() - 2);
+    assertThat(call.get("op").asText()).isEqualTo("STATICCALL");
+    assertThat(call.get("memory").get(0).asText()).isEqualTo("0x" + "00".repeat(31) + "05");
+    assertThat(pop.get("op").asText()).isEqualTo("POP");
+    assertThat(pop.get("memory").size()).isEqualTo(2);
+    assertThat(pop.get("memory").get(0).asText()).isEqualTo(seven);
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
+
+  private Transaction contractCreation(final String initCode) {
+    return Transaction.builder()
+        .type(TransactionType.EIP1559)
+        .nonce(0)
+        .maxPriorityFeePerGas(Wei.of(5))
+        .maxFeePerGas(Wei.of(7))
+        .gasLimit(200_000L)
+        .value(Wei.ZERO)
+        .payload(Bytes.fromHexString(initCode))
+        .chainId(BigInteger.valueOf(42))
+        .signAndBuild(KEY_PAIR);
+  }
+
+  private JsonNode traceBothPaths(
+      final ExecutionContextTestFixture traceFixture,
+      final BlockchainQueries traceQueries,
+      final Transaction tx,
+      final TraceOptions options)
+      throws Exception {
+    final DebugTraceBlockStreamer streamer =
+        new DebugTraceBlockStreamer(
+            buildBlock(tx), options, traceFixture.getProtocolSchedule(), traceQueries);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer.streamTo(out, mapper, () -> true);
+    final JsonNode accRoot =
+        mapper.readTree(mapper.writeValueAsBytes(streamer.accumulateAll(() -> true)));
+    assertThat(mapper.readTree(out.toByteArray())).isEqualTo(accRoot);
+    return getStructLogs(out);
+  }
 
   private Block buildBlockWithCalldata(final Bytes calldata, final int nonce) {
     final Transaction tx =

@@ -34,9 +34,8 @@ import org.apache.tuweni.units.bigints.UInt256;
 public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer {
 
   /**
-   * Functional interface for zero-allocation streaming of trace data directly from a MessageFrame.
-   * The {@code storage} map is the tracer's live map and is valid only during the call; copy it to
-   * retain it.
+   * Functional interface for streaming the trace data of one operation. The {@code storage} map is
+   * the tracer's live map and is valid only during the call; copy it to retain it.
    */
   @FunctionalInterface
   public interface FrameWriter {
@@ -48,8 +47,9 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         int depth,
         Bytes[] preExecutionStack,
         Bytes preExecutionMemory,
+        long preExecutionGasRefund,
+        Bytes preExecutionReturnData,
         Map<UInt256, UInt256> storage,
-        MessageFrame frame,
         ExceptionalHaltReason haltReason,
         Bytes revertReason);
   }
@@ -58,6 +58,8 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
   private boolean hasEmittedFrame = false;
   private int stepCount = 0;
   private Bytes preExecutionMemory;
+  private long preExecutionGasRefund;
+  private Bytes preExecutionReturnData;
 
   /**
    * Creates a streaming operation tracer.
@@ -82,14 +84,29 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
       return;
     }
     stepCount++;
-    preExecutionMemory =
-        options.traceMemory() && frame.memoryWordSize() > 0
-            ? frame.readMemory(0, frame.memoryWordSize() * 32L)
-            : null;
+    preExecutionMemory = options.traceMemory() ? snapshotMemory(frame) : null;
+    preExecutionGasRefund = frame.getGasRefund();
+    preExecutionReturnData = options.traceReturnData() ? frame.getReturnData() : null;
+  }
+
+  private Bytes snapshotMemory(final MessageFrame frame) {
+    final long size = frame.memoryWordSize() * 32L;
+    if (size == 0) {
+      return null;
+    }
+    if (memoryUnchangedSinceSnapshot(frame)
+        && preExecutionMemory != null
+        && preExecutionMemory.size() == size) {
+      return preExecutionMemory;
+    }
+    memorySnapshotFrame = frame;
+    memoryDirty = false;
+    return frame.readMemory(0, size);
   }
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
+    memoryDirty |= frame.getMaybeUpdatedMemory().isPresent();
     final Operation currentOperation = frame.getCurrentOperation();
     final Map<UInt256, UInt256> storage =
         recordStorage(frame, currentOperation, operationResult).orElse(null);
@@ -118,8 +135,9 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         depth,
         preExecutionStack.orElse(null),
         preExecutionMemory,
+        preExecutionGasRefund,
+        preExecutionReturnData,
         storage,
-        frame,
         haltReason,
         revertReason);
 
@@ -139,8 +157,9 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
           frame.getDepth(),
           null,
           null,
+          frame.getGasRefund(),
+          frame.getReturnData(),
           null,
-          frame,
           null,
           frame.getRevertReason().orElse(null));
       hasEmittedFrame = true;

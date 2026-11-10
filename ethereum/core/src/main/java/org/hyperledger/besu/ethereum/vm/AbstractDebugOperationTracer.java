@@ -74,6 +74,15 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
    */
   protected boolean traceOpcode;
 
+  /** The frame the current memory snapshot was taken on, set by subclasses when they snapshot. */
+  protected MessageFrame memorySnapshotFrame;
+
+  /**
+   * Whether memory has been written since the current snapshot was taken. Subclasses set it at the
+   * start of {@link #tracePostExecution} for every operation, traced or not.
+   */
+  protected boolean memoryDirty;
+
   private Operation previousOpcode = null;
 
   private Optional<UInt256> preExecutionStorageKey = Optional.empty();
@@ -186,6 +195,10 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
         accessedStorage.computeIfAbsent(frame.getRecipientAddress(), a -> new TreeMap<>());
     storage.put(key, value);
     return Optional.of(storage);
+  }
+
+  protected boolean memoryUnchangedSinceSnapshot(final MessageFrame frame) {
+    return memorySnapshotFrame == frame && !memoryDirty && frame.getMaybeUpdatedMemory().isEmpty();
   }
 
   protected void resetStorage() {

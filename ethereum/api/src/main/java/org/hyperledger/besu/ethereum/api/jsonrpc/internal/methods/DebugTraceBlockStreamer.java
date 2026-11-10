@@ -35,7 +35,6 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.StreamingDebugOperationTracer;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
-import org.hyperledger.besu.evm.frame.MessageFrame;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -386,8 +385,9 @@ public class DebugTraceBlockStreamer {
       final int depth,
       final Bytes[] stack,
       final Bytes memory,
+      final long refund,
+      final Bytes returnData,
       final Map<UInt256, UInt256> storage,
-      final MessageFrame frame,
       final ExceptionalHaltReason haltReason,
       final Bytes revertReason) {
     try {
@@ -409,7 +409,6 @@ public class DebugTraceBlockStreamer {
       writeBytes(SL_DEPTH);
       writeInt(depth + 1);
 
-      final long refund = frame.getGasRefund();
       if (refund > 0) {
         writeBytes(SL_REFUND);
         writeLong(refund);
@@ -439,7 +438,6 @@ public class DebugTraceBlockStreamer {
       }
 
       if (traceOptions.opCodeTracerConfig().traceReturnData()) {
-        final Bytes returnData = frame.getReturnData();
         if (returnData != null && !returnData.isEmpty()) {
           writeBytes(SL_RETURN_DATA);
           writeHex(returnData.toArrayUnsafe(), false);

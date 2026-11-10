@@ -569,6 +569,71 @@ class DebugOperationTracerTest {
   }
 
   @Test
+  void shouldTakeNewMemorySnapshotForSiblingFrameAtSameDepth() {
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+    final MessageFrame firstCall = validMessageFrameWithInitiatedMemory(WORD_1);
+    final MessageFrame secondCall = validMessageFrameWithInitiatedMemory(WORD_2);
+
+    traceFrame(firstCall, tracer, anOperation);
+    traceFrame(secondCall, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    assertThat(frames.get(0).getMemory().get()).containsExactly(WORD_1);
+    assertThat(frames.get(1).getMemory().get()).containsExactly(WORD_2);
+  }
+
+  @Test
+  void shouldRecordGasRefundBeforeOperationExecutes() {
+    final Operation refundingSstore =
+        new AbstractOperation(0x55, "SSTORE", 0, 0, null) {
+          @Override
+          public OperationResult execute(final MessageFrame frame, final EVM evm) {
+            frame.incrementGasRefund(4800L);
+            return new OperationResult(5000L, null);
+          }
+        };
+    final DebugOperationTracer tracer = new DebugOperationTracer(OpCodeTracerConfig.DEFAULT, false);
+    final MessageFrame frame = validMessageFrame();
+
+    traceFrame(frame, tracer, refundingSstore);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames.get(0).getGasRefund()).isZero();
+    assertThat(frames.get(1).getGasRefund()).isEqualTo(4800L);
+  }
+
+  @Test
+  void shouldRecordReturnDataBeforeOperationExecutes() {
+    final Bytes previousReturnData = Bytes.fromHexString("0xdeadbeef");
+    final Bytes callOutput = Bytes.fromHexString("0xcafe");
+    final Operation call =
+        new AbstractOperation(0xf1, "CALL", 0, 0, null) {
+          @Override
+          public OperationResult execute(final MessageFrame frame, final EVM evm) {
+            frame.setReturnData(callOutput);
+            return new OperationResult(100L, null);
+          }
+        };
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceReturnData(true)
+                .build(),
+            false);
+    final MessageFrame frame = validMessageFrame();
+    frame.setReturnData(previousReturnData);
+
+    traceFrame(frame, tracer, call);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames.get(0).getReturnData()).contains(previousReturnData);
+    assertThat(frames.get(1).getReturnData()).contains(callOutput);
+  }
+
+  @Test
   void shouldCaptureMemoryDirectlyWhenLastFrameIsNull() {
     final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
     final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();

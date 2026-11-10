@@ -41,7 +41,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   private TraceFrame lastFrame;
 
   private Optional<Bytes[]> preExecutionMemory = Optional.empty();
-  private boolean lastOpUpdatedMemory;
+  private Optional<Bytes> preExecutionReturnData = Optional.empty();
+  private long preExecutionGasRefund;
   private Bytes inputData;
   private int stepCount;
   private boolean limitReached;
@@ -76,10 +77,13 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       inputData = frame.getInputData().copy();
     else inputData = frame.getInputData();
     preExecutionMemory = captureMemory(frame);
+    preExecutionReturnData = captureReturnData(frame);
+    preExecutionGasRefund = frame.getGasRefund();
   }
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
+    memoryDirty |= frame.getMaybeUpdatedMemory().isPresent();
     final Operation currentOperation = frame.getCurrentOperation();
     final String opcode = currentOperation.getName();
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
@@ -98,7 +102,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     if (!traceOpcode) {
       return;
     }
-    final Optional<Bytes> returnData = captureReturnData(frame);
+    final Optional<Bytes> returnData = preExecutionReturnData;
     final Optional<Bytes[]> stackPostExecution = captureStack(frame);
 
     final Optional<Map<UInt256, UInt256>> storage =
@@ -120,7 +124,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .setOpcodeNumber(opcodeNumber)
             .setGasRemaining(gasRemaining)
             .setGasCost(thisGasCost == 0 ? OptionalLong.empty() : OptionalLong.of(thisGasCost))
-            .setGasRefund(frame.getGasRefund())
+            .setGasRefund(preExecutionGasRefund)
             .setDepth(depth)
             .setExceptionalHaltReason(haltReason)
             .setRecipient(frame.getRecipientAddress())
@@ -145,7 +149,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .build();
 
     traceFrames.add(lastFrame);
-    lastOpUpdatedMemory = frame.getMaybeUpdatedMemory().isPresent();
     lastFrameNeedsGasPostExecution = true;
     frame.reset();
   }
@@ -246,16 +249,14 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   private Optional<Bytes[]> captureMemory(final MessageFrame frame) {
     if (!options.traceMemory() || frame.memoryWordSize() == 0) {
       return Optional.empty();
-    } else if (!lastOpUpdatedMemory
-        && frame.getMaybeUpdatedMemory().isEmpty()
-        && lastFrame != null) {
-      final Optional<Bytes[]> lastMemory = lastFrame.getMemory();
-      if (lastFrame.getDepth() == frame.getDepth()
-          && lastMemory.isPresent()
-          && lastMemory.get().length == frame.memoryWordSize()) {
-        return lastMemory;
-      }
     }
+    if (memoryUnchangedSinceSnapshot(frame)
+        && preExecutionMemory.isPresent()
+        && preExecutionMemory.get().length == frame.memoryWordSize()) {
+      return preExecutionMemory;
+    }
+    memorySnapshotFrame = frame;
+    memoryDirty = false;
     return forceCaptureMem(frame);
   }
 
@@ -285,7 +286,10 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     stepCount = 0;
     limitReached = false;
     preExecutionMemory = Optional.empty();
-    lastOpUpdatedMemory = false;
+    preExecutionReturnData = Optional.empty();
+    preExecutionGasRefund = 0;
+    memorySnapshotFrame = null;
+    memoryDirty = false;
     resetStorage();
     lastFrameNeedsGasPostExecution = false;
   }
