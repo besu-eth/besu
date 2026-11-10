@@ -1032,54 +1032,6 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
-    @DisplayName("Stops waiting for heavy transactions once a heavy one had to be executed again")
-    void stopsWaitingForHeavyTransactionsAfterOneCollided() throws Exception {
-      final Transaction heavy0 = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
-      final Transaction heavy1 = mockTransactionWithGasLimit(HEAVY_GAS_LIMIT);
-      final CountDownLatch bothStarted = new CountDownLatch(2);
-      final CountDownLatch release0 = new CountDownLatch(1);
-      final CountDownLatch release1 = new CountDownLatch(1);
-      when(transactionProcessor.processTransaction(
-              any(), any(), any(), any(), any(), any(), any(), any(), any()))
-          .thenAnswer(
-              invocation -> {
-                bothStarted.countDown();
-                (heavy0.equals(invocation.getArgument(2)) ? release0 : release1).await();
-                return successfulResult();
-              });
-      when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(true);
-      final ExecutorService workers = Executors.newFixedThreadPool(2);
-      try {
-        processor.runAsyncBlock(
-            env.protocolContext(),
-            env.blockHeader(),
-            List.of(heavy0, heavy1),
-            MINING_BENEFICIARY,
-            EMPTY_BLOCK_HASH_LOOKUP,
-            BLOB_GAS_PRICE,
-            workers,
-            Optional.empty(),
-            env.maybeParentHeader());
-        assertTrue(bothStarted.await(10, TimeUnit.SECONDS), "Expected both workers to start");
-
-        final CompletableFuture<Optional<TransactionProcessingResult>> result0 =
-            ParallelBlockProcessorTestSupport.callUntilWaiting(
-                () -> getProcessingResult(heavy0, 0));
-        release0.countDown();
-        assertThat(result0.get(10, TimeUnit.SECONDS)).isEmpty();
-
-        // heavy 1 is still executing, but heavy 0 collided, so the import loop does not wait.
-        assertThat(
-                assertTimeoutPreemptively(
-                    Duration.ofSeconds(10), () -> getProcessingResult(heavy1, 1)))
-            .isEmpty();
-      } finally {
-        release1.countDown();
-        workers.shutdownNow();
-      }
-    }
-
-    @Test
     @DisplayName("computeExecutionOrder starts heavy transactions first, each group in block order")
     void computeExecutionOrderStartsHeavyTransactionsFirst() {
       final Transaction light0 = mockTransactionWithGasLimit(100_000L);

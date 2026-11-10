@@ -62,12 +62,6 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   private final TransactionCollisionDetector transactionCollisionDetector;
 
   /**
-   * Set once the parallel result of a heavy transaction could not be used: the next heavy ones
-   * likely touch the same state, so waiting for them would only delay executing them again.
-   */
-  private boolean heavyTransactionReplayed;
-
-  /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
    * processor is responsible for the individual processing of transactions.
    *
@@ -231,7 +225,6 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       parallelizedTransactionContext = future.resultNow();
     } else if (state == Future.State.RUNNING
         && isHeavy(transaction)
-        && !heavyTransactionReplayed
         && isInFlight(transactionLocation)) {
       // A worker is already executing this heavy transaction: waiting for it to finish is faster
       // than cancelling it and executing the whole transaction again from scratch.
@@ -305,7 +298,6 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       return Optional.of(transactionProcessingResult);
     } else {
       blockAccumulator.importPriorStateFromSource(transactionAccumulator);
-      heavyTransactionReplayed |= isHeavy(transaction);
       if (conflictingButCachedTransactionCounter.isPresent())
         conflictingButCachedTransactionCounter.get().inc();
       // If there is a conflict, we return an empty result to signal the block processor to
