@@ -16,13 +16,20 @@ package org.hyperledger.besu.evm.precompile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.fluent.EvmSpec;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.BerlinGasCalculator;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -35,6 +42,15 @@ class MODEXPPrecompiledContractTest {
       EvmSpec.evmSpec(EvmSpecVersion.BYZANTIUM).getPrecompileContractRegistry().get(Address.MODEXP);
   private final PrecompiledContract berlinContract =
       EvmSpec.evmSpec(EvmSpecVersion.BERLIN).getPrecompileContractRegistry().get(Address.MODEXP);
+
+  // 2^10 mod 1000 = 24: base length 1, exponent length 1, modulus length 2, even base 0x02
+  private static final Bytes EVEN_BASE_INPUT =
+      Bytes.fromHexString(
+          "0000000000000000000000000000000000000000000000000000000000000001"
+              + "0000000000000000000000000000000000000000000000000000000000000001"
+              + "0000000000000000000000000000000000000000000000000000000000000002"
+              + "020a03e8");
+  private static final Bytes EVEN_BASE_RESULT = Bytes.fromHexString("0x0018");
 
   MODEXPPrecompiledContractTest() {}
 
@@ -173,6 +189,32 @@ class MODEXPPrecompiledContractTest {
       final Long eip2565Gas) {
     BigIntegerModularExponentiationPrecompiledContract.disableNative();
     testComputation(inputString, precompiledResult);
+  }
+
+  @Test
+  void evenBaseUsesJavaImplementationWhenNativeDisabled() {
+    BigIntegerModularExponentiationPrecompiledContract.disableNative();
+    final BigIntegerModularExponentiationPrecompiledContract contract =
+        spy(
+            new BigIntegerModularExponentiationPrecompiledContract(
+                new BerlinGasCalculator(), Long.MAX_VALUE));
+
+    assertThat(contract.computePrecompile(EVEN_BASE_INPUT, messageFrame).output())
+        .isEqualTo(EVEN_BASE_RESULT);
+    verify(contract, never()).computeNative(any(), anyInt());
+  }
+
+  @Test
+  void evenBaseUsesNativeImplementationWhenNativeEnabled() {
+    assumeThat(BigIntegerModularExponentiationPrecompiledContract.maybeEnableNative()).isTrue();
+    final BigIntegerModularExponentiationPrecompiledContract contract =
+        spy(
+            new BigIntegerModularExponentiationPrecompiledContract(
+                new BerlinGasCalculator(), Long.MAX_VALUE));
+
+    assertThat(contract.computePrecompile(EVEN_BASE_INPUT, messageFrame).output())
+        .isEqualTo(EVEN_BASE_RESULT);
+    verify(contract).computeNative(any(), anyInt());
   }
 
   private void testComputation(final String inputString, final String precompiledResult) {
