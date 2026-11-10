@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.eth.manager.task;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
@@ -79,5 +81,14 @@ public class GetBodiesFromPeerTaskTest extends PeerMessageTaskTest<List<Block>> 
     assertThat(
             new BodyIdentifier(emptyBodyBlock).equals(new BodyIdentifier(bodyBlockWithWithdrawal)))
         .isFalse();
+  }
+
+  @Test
+  public void bodyIdentifierTakesTheTransactionsRootTheBodyKeeps() {
+    final BlockHeader header = blockchain.getBlockHeader(10).get();
+    final BlockBody body = spy(blockchain.getBlockBody(header.getHash()).get());
+
+    assertThat(new BodyIdentifier(body)).isEqualTo(new BodyIdentifier(header));
+    verify(body).getTransactionsRoot();
   }
 }
