@@ -23,13 +23,9 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The Max code size rule. */
 public class MaxCodeSizeRule implements ContractValidationRule {
-
-  private static final Logger LOG = LoggerFactory.getLogger(MaxCodeSizeRule.class);
 
   private final int maxCodeSize;
 
@@ -49,10 +45,6 @@ public class MaxCodeSizeRule implements ContractValidationRule {
     if (contractCodeSize <= maxCodeSize) {
       return Optional.empty();
     } else {
-      LOG.trace(
-          "Contract creation error: code size {} exceeds code size limit {}",
-          contractCodeSize,
-          maxCodeSize);
       return Optional.of(ExceptionalHaltReason.CODE_TOO_LARGE);
     }
   }

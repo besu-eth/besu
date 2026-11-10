@@ -35,13 +35,9 @@ import java.util.concurrent.TimeUnit;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The AltBN128Pairing precompiled contract. */
 public class AltBN128PairingPrecompiledContract extends AbstractAltBnPrecompiledContract {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(AltBN128PairingPrecompiledContract.class);
   private static final int FIELD_LENGTH = 32;
   private static final int PARAMETER_LENGTH = 192;
   private static final String PRECOMPILE_NAME = "BN254_PAIRING";
@@ -112,14 +108,6 @@ public class AltBN128PairingPrecompiledContract extends AbstractAltBnPrecompiled
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug(
-                "false positive altbn128Pairing {}, cache key {}, cached input: {}, input: {}",
-                input.getClass().getSimpleName(),
-                cacheKey,
-                res.cachedInput().toHexString(),
-                input.toHexString());
-          }
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {

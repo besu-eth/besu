@@ -31,13 +31,9 @@ import java.util.Optional;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** A contract creation message processor. */
 public class ContractCreationProcessor extends AbstractMessageProcessor {
-
-  private static final Logger LOG = LoggerFactory.getLogger(ContractCreationProcessor.class);
 
   private final boolean requireCodeDepositToSucceed;
 
@@ -125,9 +121,6 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
 
   @Override
   public void start(final MessageFrame frame, final OperationTracer operationTracer) {
-    if (LOG.isTraceEnabled()) {
-      LOG.trace("Executing contract-creation");
-    }
     try {
 
       final MutableAccount sender = frame.getWorldUpdater().getSenderAccount(frame);
@@ -137,20 +130,12 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
       final MutableAccount contract = frame.getWorldUpdater().getOrCreate(contractAddress);
       frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(contractAddress));
       if (accountExists(contract)) {
-        LOG.trace(
-            "Contract creation error: account has already been created for address {}",
-            contractAddress);
         frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
         frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
         operationTracer.traceAccountCreationResult(
             frame, Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
       } else {
         frame.addCreate(contractAddress);
-        LOG.atTrace()
-            .setMessage("EIP-8037 REC_ACCT_CREATED depth={} addr={}")
-            .addArgument(frame.getDepth())
-            .addArgument(contractAddress::toHexString)
-            .log();
         contract.incrementBalance(frame.getValue());
 
         // Emit transfer log for nonzero value contract creation (no-op before Amsterdam)
@@ -162,7 +147,6 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
         frame.setState(MessageFrame.State.CODE_EXECUTING);
       }
     } catch (final ModificationNotAllowedException ex) {
-      LOG.trace("Contract creation error: attempt to mutate an immutable account");
       frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
       frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
     }
@@ -194,14 +178,7 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
     // Check and charge code deposit gas (execution gas) before state gas
     final long depositFee = evm.getGasCalculator().codeDepositGasCost(contractCode.size());
     if (frame.getRemainingGas() < depositFee) {
-      LOG.trace(
-          "Not enough gas to pay the code deposit fee for {}: "
-              + "remaining gas = {} < {} = deposit fee",
-          frame.getContractAddress(),
-          frame.getRemainingGas(),
-          depositFee);
       if (requireCodeDepositToSucceed) {
-        LOG.trace("Contract creation error: insufficient funds for code deposit");
         frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
         frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
         operationTracer.traceAccountCreationResult(
@@ -216,7 +193,6 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
     // Only now charge state gas for code deposit (cpsb * codeSize).
     if (!frame.consumeStateGas(
         evm.getGasCalculator().stateGasCostCalculator().codeDepositStateGas(contractCode.size()))) {
-      LOG.trace("Contract creation error: insufficient state gas for code deposit");
       // EIP-8037: code deposit OOG is an exceptional halt. handleStateGasHalt refunds the
       // execution-time state gas (including any spillover) to the reservoir; the transaction's
       // top-frame preparation charges are preserved, since MainnetTransactionProcessor put them
@@ -230,17 +206,6 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
 
     final MutableAccount contract = frame.getWorldUpdater().getOrCreate(frame.getContractAddress());
     contract.setCode(contractCode);
-    LOG.atTrace()
-        .setMessage("EIP-8037 REC_CODE_DEPOSIT depth={} addr={} len={}")
-        .addArgument(frame.getDepth())
-        .addArgument(() -> frame.getContractAddress().toHexString())
-        .addArgument(contractCode.size())
-        .log();
-    LOG.trace(
-        "Successful creation of contract {} with code of size {} (Gas remaining: {})",
-        frame.getContractAddress(),
-        contractCode.size(),
-        frame.getRemainingGas());
     frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
     if (operationTracer.isExtendedTracing()) {
       operationTracer.traceAccountCreationResult(frame, Optional.empty());

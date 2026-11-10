@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
@@ -36,11 +35,8 @@ import java.util.Deque;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class SystemCallProcessor {
-  private static final Logger LOG = LoggerFactory.getLogger(SystemCallProcessor.class);
 
   /**
    * The gas limit as defined in <a
@@ -91,12 +87,6 @@ public class SystemCallProcessor {
       return frame.getOutputData();
     }
 
-    // The call must execute to completion
-    LOG.error(
-        "System call did not execute to completion - haltReason: {}, address: {}, frame state: {}",
-        frame.getExceptionalHaltReason().orElse(ExceptionalHaltReason.NONE),
-        callAddress,
-        frame.getState());
     String errorMessage =
         frame
             .getExceptionalHaltReason()
@@ -106,39 +96,11 @@ public class SystemCallProcessor {
   }
 
   /**
-   * Processes a system call whose outcome does not affect block validity, such as the EIP-4788
-   * beacon roots and EIP-2935 history storage calls. A failed call leaves no state changes, but its
-   * accesses are still recorded in the block access list.
-   *
-   * @param callAddress The address to call.
-   * @param context The system call context.
-   * @param inputData The input data to the system call.
-   * @param accessLocationTracker The EIP-7928 access tracker, if any.
-   */
-  public void processUnchecked(
-      final Address callAddress,
-      final BlockProcessingContext context,
-      final Bytes inputData,
-      final Optional<AccessLocationTracker> accessLocationTracker) {
-    execute(callAddress, context, inputData, accessLocationTracker)
-        .ifPresentOrElse(
-            frame -> {
-              if (frame.getState() != MessageFrame.State.COMPLETED_SUCCESS) {
-                LOG.warn(
-                    "System call failed - haltReason: {}, address: {}",
-                    frame.getExceptionalHaltReason().orElse(ExceptionalHaltReason.NONE),
-                    callAddress);
-              }
-            },
-            () -> LOG.warn("Invalid system call, no code at address {}", callAddress));
-  }
-
-  /**
    * Runs the system call, committing its state changes only if it succeeds.
    *
    * @return the completed frame, or empty if there is no code at the call address
    */
-  private Optional<MessageFrame> execute(
+  public Optional<MessageFrame> execute(
       final Address callAddress,
       final BlockProcessingContext context,
       final Bytes inputData,

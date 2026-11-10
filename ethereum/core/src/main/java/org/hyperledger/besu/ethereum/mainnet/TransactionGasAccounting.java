@@ -15,8 +15,6 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import org.immutables.value.Value;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Encapsulates the gas accounting logic for transaction processing, including EIP-8037
@@ -31,8 +29,6 @@ import org.slf4j.LoggerFactory;
  */
 @Value.Immutable
 public abstract class TransactionGasAccounting {
-
-  private static final Logger LOG = LoggerFactory.getLogger(TransactionGasAccounting.class);
 
   /**
    * Result of the gas accounting calculation.
@@ -90,13 +86,14 @@ public abstract class TransactionGasAccounting {
     final long consumedGas = txGasLimit() - remainingGas() - stateGasReservoir();
     final long stateGas = stateGasUsed();
     final long executionGas = consumedGas - stateGas;
-    if (executionGas < 0) {
-      LOG.error(
-          "Negative executionGas={} (consumedGas={}, stateGas={})",
-          executionGas,
-          consumedGas,
-          stateGas);
-    }
+    assert executionGas >= 0
+        : "negative executionGas="
+            + executionGas
+            + " (consumedGas="
+            + consumedGas
+            + ", stateGas="
+            + stateGas
+            + ")";
     // EIP-8037: the floor binds the execution-gas dimension, and state gas is out of executionGas
     // before the max is taken, so state spending cannot discount the floor.
     final long flooredExecutionGas = Math.max(executionGas, floorCost());

@@ -132,13 +132,9 @@ import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.NonNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The Evm. */
 public class EVM {
-  private static final Logger LOG = LoggerFactory.getLogger(EVM.class);
-
   /** The constant OVERFLOW_RESPONSE. */
   protected static final OperationResult OVERFLOW_RESPONSE =
       new OperationResult(0L, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
@@ -523,7 +519,6 @@ public class EVM {
       }
       final ExceptionalHaltReason haltReason = result.getHaltReason();
       if (haltReason != null) {
-        LOG.trace("MessageFrame evaluation halted because of {}", haltReason);
         frame.setExceptionalHaltReason(Optional.of(haltReason));
         frame.setState(State.EXCEPTIONAL_HALT);
       } else if (frame.decrementRemainingGas(result.getGasCost()) < 0) {
@@ -946,7 +941,6 @@ public class EVM {
   private static void completeOperation(final MessageFrame frame, final OperationResult result) {
     final ExceptionalHaltReason haltReason = result.getHaltReason();
     if (haltReason != null) {
-      LOG.trace("MessageFrame evaluation halted because of {}", haltReason);
       frame.setExceptionalHaltReason(Optional.of(haltReason));
       frame.setState(State.EXCEPTIONAL_HALT);
     } else if (frame.decrementRemainingGas(result.getGasCost()) < 0) {

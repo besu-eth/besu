@@ -33,12 +33,9 @@ import java.util.Set;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The Message call processor. */
 public class MessageCallProcessor extends AbstractMessageProcessor {
-  private static final Logger LOG = LoggerFactory.getLogger(MessageCallProcessor.class);
 
   /** The precompiles. */
   protected final PrecompileContractRegistry precompiles;
@@ -90,7 +87,6 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
 
   @Override
   public void start(final MessageFrame frame, final OperationTracer operationTracer) {
-    LOG.trace("Executing message-call");
     try {
       transferValue(frame);
 
@@ -102,7 +98,6 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
         frame.setState(MessageFrame.State.CODE_EXECUTING);
       }
     } catch (final ModificationNotAllowedException ex) {
-      LOG.trace("Message call error: attempt to mutate an immutable account");
       frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
       frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
     }
@@ -110,11 +105,6 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
 
   @Override
   protected void codeSuccess(final MessageFrame frame, final OperationTracer operationTracer) {
-    LOG.trace(
-        "Successful message call of {} to {} (Gas remaining: {})",
-        frame.getSenderAddress(),
-        frame.getRecipientAddress(),
-        frame.getRemainingGas());
     frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
   }
 
@@ -138,33 +128,18 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
       // which isn't possible from a private address and an error would be thrown.
       // If you are attempting to transfer value from a private address
       // to public address an error will be thrown.
-      LOG.trace(
-          "Message call from {} to {} has zero value: no fund transferred",
-          frame.getSenderAddress(),
-          frame.getRecipientAddress());
       return;
     }
 
     if (frame.getRecipientAddress().equals(frame.getSenderAddress())) {
-      LOG.trace("Message call of {} to itself: no fund transferred", frame.getSenderAddress());
     } else {
       frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(senderAccount.getAddress()));
       frame
           .getEip7928AccessList()
           .ifPresent(t -> t.addTouchedAccount(recipientAccount.getAddress()));
 
-      final Wei prevSenderBalance = senderAccount.decrementBalance(frame.getValue());
-      final Wei prevRecipientBalance = recipientAccount.incrementBalance(frame.getValue());
-
-      LOG.trace(
-          "Transferred value {} for message call from {} ({} -> {}) to {} ({} -> {})",
-          frame.getValue(),
-          frame.getSenderAddress(),
-          prevSenderBalance,
-          senderAccount.getBalance(),
-          frame.getRecipientAddress(),
-          prevRecipientBalance,
-          recipientAccount.getBalance());
+      senderAccount.decrementBalance(frame.getValue());
+      recipientAccount.incrementBalance(frame.getValue());
     }
 
     // Emit transfer log for nonzero value transfers (no-op before Amsterdam, EIP-7708 after)

@@ -61,7 +61,7 @@ public class PraguePreExecutionProcessor extends CancunPreExecutionProcessor {
 
     Bytes inputData = context.getBlockHeader().getParentHash().getBytes();
     // EIP-2935: a missing or failing history storage contract does not invalidate the block
-    processor.processUnchecked(historyStorageAddress, context, inputData, accessLocationTracker);
+    processor.execute(historyStorageAddress, context, inputData, accessLocationTracker);
     return null;
   }
 

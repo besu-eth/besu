@@ -20,14 +20,10 @@ import java.util.function.Consumer;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** Skeleton class for {@link PrecompiledContract} implementations. */
 @SuppressWarnings("unused")
 public abstract class AbstractPrecompiledContract implements PrecompiledContract {
-
-  private static final Logger LOG = LoggerFactory.getLogger(AbstractPrecompiledContract.class);
 
   private final GasCalculator gasCalculator;
 

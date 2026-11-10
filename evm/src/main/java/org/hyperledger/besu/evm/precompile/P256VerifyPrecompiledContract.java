@@ -124,10 +124,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
   public PrecompileContractResult computePrecompile(
       final Bytes input, final MessageFrame messageFrame) {
     if (input.size() != SECP256R1_INPUT_LENGTH) {
-      LOG.debug(
-          "Invalid input length for P256VERIFY precompile: expected {} bytes but got {}",
-          SECP256R1_INPUT_LENGTH,
-          input.size());
       return PrecompileContractResult.success(INVALID);
     }
     PrecompileInputResultTuple res = null;
@@ -141,14 +137,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug(
-                "false positive p256verify {}, cache key {}, cached input: {}, input: {}",
-                input.getClass().getSimpleName(),
-                cacheKey,
-                res.cachedInput().toHexString(),
-                input.toHexString());
-          }
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {
@@ -169,7 +157,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
       return res.cachedResult();
 
     } catch (Exception e) {
-      LOG.warn("P256VERIFY verification failed: {}", e.getMessage());
       return PrecompileContractResult.success(INVALID);
     }
   }
@@ -180,9 +167,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
     BoringSSLPrecompiles.P256VerifyResult result =
         BoringSSLPrecompiles.p256Verify(input.toArrayUnsafe(), input.size());
 
-    if (result.status != 0) {
-      LOG.atTrace().setMessage("Verify failed: {}").addArgument(result.error).log();
-    }
     res =
         new PrecompileInputResultTuple(
             enableResultCaching ? input.copy() : input,
@@ -206,21 +190,18 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
 
     // Check r, s in (0, n)
     if (r.signum() <= 0 || r.compareTo(N) >= 0 || s.signum() <= 0 || s.compareTo(N) >= 0) {
-      LOG.trace("Invalid r or s: must satisfy 0 < r,s < n");
       return new PrecompileInputResultTuple(
           enableResultCaching ? input.copy() : input, PrecompileContractResult.success(INVALID));
     }
 
     // Check qx, qy in [0, p)
     if (qx.signum() < 0 || qx.compareTo(P) >= 0 || qy.signum() < 0 || qy.compareTo(P) >= 0) {
-      LOG.trace("Invalid qx or qy: must satisfy 0 <= qx,qy < p");
       return new PrecompileInputResultTuple(
           enableResultCaching ? input.copy() : input, PrecompileContractResult.success(INVALID));
     }
 
     // Check point not at infinity (qx, qy ≠ 0,0), and non-trivial infinity encoding
     if ((qx.signum() == 0 && qy.signum() == 0)) {
-      LOG.trace("Invalid public key: point at infinity");
       return new PrecompileInputResultTuple(
           enableResultCaching ? input.copy() : input, PrecompileContractResult.success(INVALID));
     }
@@ -228,7 +209,6 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
       final org.bouncycastle.math.ec.ECPoint ecPoint = R1_PARAMS.getCurve().createPoint(qx, qy);
       signatureAlgorithm.getCurve().validatePublicPoint(ecPoint);
     } catch (IllegalArgumentException e) {
-      LOG.trace("Public key not on curve: {}", e.getMessage());
       return new PrecompileInputResultTuple(
           enableResultCaching ? input.copy() : input, PrecompileContractResult.success(INVALID));
     }

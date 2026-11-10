@@ -120,7 +120,6 @@ public abstract class AbstractAltBnPrecompiledContract extends AbstractPrecompil
       return PrecompileContractResult.success(Bytes.wrap(result, 0, outputLength));
     } else {
       messageFrame.setRevertReason(Bytes.wrap("error".getBytes(UTF_8)));
-      LOG.debug("Error executing precompiled contract {}: '{}'", getName(), errorNo);
       return PrecompileContractResult.halt(
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }

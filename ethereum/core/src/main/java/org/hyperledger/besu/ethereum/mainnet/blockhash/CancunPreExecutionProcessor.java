@@ -47,8 +47,7 @@ public class CancunPreExecutionProcessor extends FrontierPreExecutionProcessor {
     SystemCallProcessor processor =
         new SystemCallProcessor(context.getProtocolSpec().getTransactionProcessor());
     // EIP-4788: a missing or failing beacon roots contract does not invalidate the block
-    processor.processUnchecked(
-        BEACON_ROOTS_ADDRESS, context, beaconRootsAddress, accessLocationTracker);
+    processor.execute(BEACON_ROOTS_ADDRESS, context, beaconRootsAddress, accessLocationTracker);
   }
 
   @Override

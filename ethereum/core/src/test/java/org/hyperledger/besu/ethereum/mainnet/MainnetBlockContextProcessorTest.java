@@ -269,7 +269,7 @@ public class MainnetBlockContextProcessorTest {
             BlockAwareOperationTracer.NO_TRACING,
             Optional.of(balBuilder));
     new SystemCallProcessor(mockTransactionProcessor)
-        .processUnchecked(
+        .execute(
             CALL_ADDRESS,
             blockProcessingContext,
             Bytes.EMPTY,

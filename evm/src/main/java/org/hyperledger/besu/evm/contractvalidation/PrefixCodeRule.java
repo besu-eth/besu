@@ -21,13 +21,9 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The Prefix code rule. */
 public class PrefixCodeRule implements ContractValidationRule {
-
-  private static final Logger LOG = LoggerFactory.getLogger(PrefixCodeRule.class);
 
   private static final byte FORMAT_RESERVED = (byte) 0xEF;
 
@@ -41,7 +37,6 @@ public class PrefixCodeRule implements ContractValidationRule {
   public Optional<ExceptionalHaltReason> validate(
       final Bytes contractCode, final MessageFrame frame, final EVM evm) {
     if (!contractCode.isEmpty() && contractCode.get(0) == FORMAT_RESERVED) {
-      LOG.trace("Contract creation error: code cannot start with {}", FORMAT_RESERVED);
       return Optional.of(ExceptionalHaltReason.INVALID_CODE);
     } else {
       return Optional.empty();
