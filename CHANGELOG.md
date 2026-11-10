@@ -6,6 +6,7 @@
 - `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
 - `trace_block`, `trace_replayBlockTransactions`, `trace_call` and `trace_callMany` no longer evaluate `pending` as `latest`, and reject it with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
 - The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
+- JSON-RPC address parameters now need the `0x` (or `0X`) prefix and exactly 40 hex digits. This includes the address of `eth_getBalance`, the `from` and `to` of `eth_call`, and the account keys of state overrides in `eth_call`, `eth_estimateGas` and `eth_simulateV1`. A truncated or unprefixed address is now rejected with `-32602` instead of being left-padded to a different account. [#11888](https://github.com/besu-eth/besu/pull/11888)
 
 ### Upcoming Breaking Changes
 - Plugin API
@@ -35,7 +36,6 @@
 - `trace_block`, `trace_filter` and `trace_replayBlockTransactions` replay a mined transaction whose sender is no longer on the node's local account allowlist, instead of tracing it as a call that ran no code and changed no state. [#11406](https://github.com/besu-eth/besu/pull/11406)
 - A block that fails the receipts root or gas used check is now rejected before its world state is persisted, so processing it on the head world state, as backward sync does, no longer leaves the head world state on that block. A later `engine_forkchoiceUpdated` to a block other than the rejected block's parent failed with `Failed to set new head`. [#11858](https://github.com/besu-eth/besu/pull/11858)
 - A transaction whose parallel execution failed with an error is executed again in order, instead of failing the block import. [#11806](https://github.com/besu-eth/besu/pull/11806)
-- JSON-RPC address parameters, such as the address of `eth_getBalance` or the `from` and `to` of `eth_call`, must be `0x` followed by exactly 40 hex digits. A truncated address is now rejected with `-32602` instead of being left-padded to a different account. [#11847](https://github.com/besu-eth/besu/issues/11847)
 - `trace_filter` resolves `safe` and `finalized` bounds to their blocks instead of failing with `Internal error` (`-32603`). It rejects them when the chain has none, and rejects `pending`, which is not a `trace_filter` bound, with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
 
 ### Additions and Improvements

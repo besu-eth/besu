@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -25,7 +25,9 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.BaseJsonRpcProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -58,6 +60,7 @@ import org.mockito.ArgumentCaptor;
 class JsonRpcAddressParameterTest {
 
   private static final String ADDRESS = "0x6295eE1B4F6dD65047762F924Ecd367c17eaBf8f";
+  private static final Map<String, String> BALANCE_OVERRIDE = Map.of("balance", "0x1");
 
   private final BlockchainQueries blockchainQueries = mock(BlockchainQueries.class);
   private final TransactionSimulator transactionSimulator = mock(TransactionSimulator.class);
@@ -84,7 +87,9 @@ class JsonRpcAddressParameterTest {
             "eth_getStorageAt",
             "eth_getProof",
             "eth_call.from",
-            "eth_call.to")
+            "eth_call.to",
+            "eth_call.stateOverride",
+            "eth_estimateGas.stateOverride")
         .flatMap(
             position ->
                 Stream.of(
@@ -100,7 +105,7 @@ class JsonRpcAddressParameterTest {
                         "0x" + "1".repeat(42),
                         "0x" + "g".repeat(40),
                         "1".repeat(40),
-                        "0X" + "1".repeat(40),
+                        "x" + "1".repeat(40),
                         " " + ADDRESS,
                         1,
                         true)
@@ -115,7 +120,8 @@ class JsonRpcAddressParameterTest {
 
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) response).getError().getCode()).isEqualTo(-32602);
-    verify(blockchainQueries, atLeastOnce()).getBlockchain();
+    // eth_estimateGas on the pending block reads the parameters before the chain head
+    verify(blockchainQueries, atLeast(0)).getBlockchain();
     verifyNoMoreInteractions(blockchainQueries);
     verifyNoInteractions(transactionSimulator, transactionPool);
   }
@@ -130,6 +136,40 @@ class JsonRpcAddressParameterTest {
     assertThat(response)
         .usingRecursiveComparison()
         .isEqualTo(new JsonRpcSuccessResponse(null, "0x1"));
+  }
+
+  @Test
+  void shouldQueryStateForFullAddressWithUpperCasePrefix() {
+    when(blockchainQueries.accountBalance(Address.fromHexString(ADDRESS), Hash.ZERO))
+        .thenReturn(Optional.of(Wei.of(1)));
+
+    final JsonRpcResponse response = process("eth_getBalance", "0X" + ADDRESS.substring(2));
+
+    assertThat(response)
+        .usingRecursiveComparison()
+        .isEqualTo(new JsonRpcSuccessResponse(null, "0x1"));
+  }
+
+  @ParameterizedTest
+  @MethodSource("fullAddresses")
+  @SuppressWarnings("unchecked")
+  void shouldCallWithFullStateOverrideAccountKey(final String address) {
+    final JsonRpcResponse expected = new JsonRpcSuccessResponse(null, "0x");
+    when(transactionSimulator.process(any(), any(), any(), any(), any(), any()))
+        .thenReturn(Optional.of(expected));
+
+    final JsonRpcResponse response = process("eth_call.stateOverride", address);
+
+    assertThat(response).isSameAs(expected);
+    final ArgumentCaptor<Optional<StateOverrideMap>> overrides =
+        ArgumentCaptor.forClass(Optional.class);
+    verify(transactionSimulator).process(any(), overrides.capture(), any(), any(), any(), any());
+    assertThat(overrides.getValue()).isPresent();
+    assertThat(overrides.getValue().get()).containsOnlyKeys(Address.fromHexString(ADDRESS));
+  }
+
+  static Stream<String> fullAddresses() {
+    return Stream.of(ADDRESS, "0X" + ADDRESS.substring(2));
   }
 
   @Test
@@ -158,6 +198,11 @@ class JsonRpcAddressParameterTest {
               new EthGetTransactionCount(blockchainQueries, transactionPool);
           case "eth_getStorageAt" -> new EthGetStorageAt(blockchainQueries);
           case "eth_getProof" -> new EthGetProof(blockchainQueries);
+          case "eth_estimateGas.stateOverride" ->
+              new EthEstimateGas(
+                  blockchainQueries,
+                  transactionSimulator,
+                  ImmutableApiConfiguration.builder().build());
           default -> new EthCall(blockchainQueries, transactionSimulator, new NoOpMetricsSystem());
         };
     return processor.process(
@@ -172,9 +217,18 @@ class JsonRpcAddressParameterTest {
           case "eth_getStorageAt" -> new Object[] {address, "0x0", "latest"};
           case "eth_getProof" -> new Object[] {address, List.of(), "latest"};
           case "eth_call.from" -> new Object[] {Map.of("from", address, "to", ADDRESS), "latest"};
+          case "eth_call.stateOverride" ->
+              new Object[] {
+                Map.of("from", ADDRESS, "to", ADDRESS), "latest", Map.of(address, BALANCE_OVERRIDE)
+              };
+          case "eth_estimateGas.stateOverride" ->
+              new Object[] {
+                Map.of("from", ADDRESS, "to", ADDRESS), "pending", Map.of(address, BALANCE_OVERRIDE)
+              };
           default -> new Object[] {Map.of("from", ADDRESS, "to", address), "latest"};
         };
-    final String method = position.startsWith("eth_call") ? "eth_call" : position;
+    final int dot = position.indexOf('.');
+    final String method = dot < 0 ? position : position.substring(0, dot);
     return new JsonRpcRequestContext(new JsonRpcRequest("2.0", method, params));
   }
 }

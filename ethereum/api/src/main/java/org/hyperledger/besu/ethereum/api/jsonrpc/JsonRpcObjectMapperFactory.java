@@ -25,6 +25,7 @@ import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.KeyDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
@@ -53,7 +54,8 @@ public final class JsonRpcObjectMapperFactory {
         .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
         .registerModule(
             new SimpleModule("json-rpc-parameters")
-                .addDeserializer(Address.class, new StrictAddressDeserializer()));
+                .addDeserializer(Address.class, new StrictAddressDeserializer())
+                .addKeyDeserializer(Address.class, new StrictAddressKeyDeserializer()));
   }
 
   private static ObjectMapper createParameterMapperIgnoringUnknownNulls() {
@@ -90,12 +92,28 @@ public final class JsonRpcObjectMapperFactory {
   }
 
   /**
-   * Accepts only the execution-apis address form, {@code 0x} followed by exactly 40 hex digits, so
-   * a truncated address is rejected instead of being left-padded to a different account.
+   * Accepts only the execution-apis address form, {@code 0x} (or {@code 0X}) followed by exactly 40
+   * hex digits, as geth's {@code hexutil.UnmarshalFixedText} does, so a truncated address is
+   * rejected instead of being left-padded to a different account.
    */
-  private static class StrictAddressDeserializer extends StdDeserializer<Address> {
-    private static final Pattern ADDRESS = Pattern.compile("0x[0-9a-fA-F]{40}");
+  private static final Pattern STRICT_ADDRESS = Pattern.compile("0[xX][0-9a-fA-F]{40}");
 
+  private static final String STRICT_ADDRESS_MESSAGE =
+      "expected 0x followed by 40 hexadecimal digits";
+
+  /**
+   * Parses a strict address.
+   *
+   * @return the address, or {@code null} if {@code value} is not a strict address
+   */
+  private static Address parseStrictAddress(final String value) {
+    if (!STRICT_ADDRESS.matcher(value).matches()) {
+      return null;
+    }
+    return Address.fromHexStringStrict("0x" + value.substring(2));
+  }
+
+  private static class StrictAddressDeserializer extends StdDeserializer<Address> {
     private StrictAddressDeserializer() {
       super(Address.class);
     }
@@ -107,12 +125,27 @@ public final class JsonRpcObjectMapperFactory {
         return (Address) ctxt.handleUnexpectedToken(Address.class, p);
       }
       final String value = p.getText();
-      if (!ADDRESS.matcher(value).matches()) {
-        return (Address)
-            ctxt.handleWeirdStringValue(
-                Address.class, value, "expected 0x followed by 40 hexadecimal digits");
+      final Address address = parseStrictAddress(value);
+      if (address == null) {
+        return (Address) ctxt.handleWeirdStringValue(Address.class, value, STRICT_ADDRESS_MESSAGE);
       }
-      return Address.fromHexStringStrict(value);
+      return address;
+    }
+  }
+
+  /**
+   * Applies the same rule to address map keys, such as the accounts of a state override, which
+   * Jackson would otherwise build through the lenient {@link Address#fromHexString(String)}.
+   */
+  private static class StrictAddressKeyDeserializer extends KeyDeserializer {
+    @Override
+    public Object deserializeKey(final String key, final DeserializationContext ctxt)
+        throws IOException {
+      final Address address = parseStrictAddress(key);
+      if (address == null) {
+        return ctxt.handleWeirdKey(Address.class, key, STRICT_ADDRESS_MESSAGE);
+      }
+      return address;
     }
   }
 
