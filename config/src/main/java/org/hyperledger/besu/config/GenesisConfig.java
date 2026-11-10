@@ -42,8 +42,6 @@ public class GenesisConfig {
   private final GenesisReader loader;
   private final ObjectNode genesisRoot;
   private @Nullable Map<String, String> overrides;
-  private ContributedForkActivations contributedForkActivations =
-      ContributedForkActivations.empty();
 
   private GenesisConfig(final GenesisReader loader) {
     this.loader = loader;
@@ -118,7 +116,7 @@ public class GenesisConfig {
     final ObjectNode config = loader.getConfig();
     // are there any overrides to apply?
     if (this.overrides == null) {
-      return JsonGenesisConfigOptions.fromJsonObject(config, contributedForkActivations);
+      return JsonGenesisConfigOptions.fromJsonObject(config);
     }
     // otherwise apply overrides
     Map<String, String> overridesRef = this.overrides;
@@ -131,8 +129,7 @@ public class GenesisConfig {
       overridesRef.put("baseFeePerGas", optBaseFee.get().toShortHexString());
     }
 
-    return JsonGenesisConfigOptions.fromJsonObjectWithOverrides(
-        config, overridesRef, contributedForkActivations);
+    return JsonGenesisConfigOptions.fromJsonObjectWithOverrides(config, overridesRef);
   }
 
   /**
@@ -145,38 +142,6 @@ public class GenesisConfig {
 
     this.overrides = overrides;
     return this;
-  }
-
-  /**
-   * Returns a copy of this config whose {@link
-   * GenesisConfigOptions#getForkBlockNumbersWithContributed()} and {@link
-   * GenesisConfigOptions#getForkBlockTimestampsWithContributed()} also include the given
-   * activations, on top of those declared by the genesis config keys. Intended for activations an
-   * embedder knows out of band -- for example a {@code ProtocolScheduleCustomizer}'s fork
-   * activations -- which the genesis config cannot express as standard keys.
-   *
-   * <p>Unlike {@link #withOverrides}, this does not modify this config: whoever else holds it, such
-   * as the CLI that read the genesis file, keeps seeing only the forks the genesis declares.
-   *
-   * @param activations the contributed fork activations
-   * @return a new config carrying this config's overrides and activations plus the given ones
-   */
-  public GenesisConfig withContributedForkActivations(
-      final ContributedForkActivations activations) {
-    final ContributedForkActivations additions = Objects.requireNonNull(activations);
-    final GenesisConfig copy = new GenesisConfig(loader);
-    copy.overrides = overrides;
-    copy.contributedForkActivations =
-        new ContributedForkActivations(
-            Stream.concat(
-                    contributedForkActivations.blockNumbers().stream(),
-                    additions.blockNumbers().stream())
-                .toList(),
-            Stream.concat(
-                    contributedForkActivations.timestamps().stream(),
-                    additions.timestamps().stream())
-                .toList());
-    return copy;
   }
 
   /**

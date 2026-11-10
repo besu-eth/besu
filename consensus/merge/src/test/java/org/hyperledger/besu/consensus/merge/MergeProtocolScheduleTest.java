@@ -135,9 +135,9 @@ public class MergeProtocolScheduleTest {
 
   @Test
   public void aContributedTimestampDoesNotDisplaceTheParisCutoff() {
-    // The cutoff that reinstates the mainnet definitions has to come from the forks the config
-    // declares, not from the activations the node advertises: the customization's own timestamp is
-    // folded into the advertised set exactly as the controller folds it, and Paris must survive.
+    // The cutoff that reinstates the mainnet definitions comes from the forks the config declares.
+    // The customization's own timestamp is advertised in the fork ID, but never enters the config,
+    // so it cannot move the cutoff, and Paris must survive up to Shanghai.
     final String jsonInput =
         "{\"config\": {\"chainId\":1, \"homesteadBlock\":1, \"shanghaiTime\":1000}}";
     final long contributedTimestamp = 500L;
@@ -147,10 +147,7 @@ public class MergeProtocolScheduleTest {
             List.of(
                 new ProtocolSpecModification(
                     timestamp(contributedTimestamp), UnaryOperator.identity())));
-    final GenesisConfigOptions config =
-        GenesisConfig.fromConfig(jsonInput)
-            .withContributedForkActivations(customization.toContributedForkActivations())
-            .getConfigOptions();
+    final GenesisConfigOptions config = GenesisConfig.fromConfig(jsonInput).getConfigOptions();
 
     final ProtocolSchedule protocolSchedule =
         MergeProtocolSchedule.create(
@@ -171,7 +168,9 @@ public class MergeProtocolScheduleTest {
                 .getEvm()
                 .getOperationsUnsafe()[0x44])
         .isInstanceOf(PrevRanDaoOperation.class);
-    assertThat(config.getForkBlockTimestampsWithContributed()).contains(contributedTimestamp);
+    assertThat(customization.toContributedForkActivations().timestamps())
+        .contains(contributedTimestamp);
+    assertThat(config.getForkBlockTimestamps()).doesNotContain(contributedTimestamp);
   }
 
   @Test

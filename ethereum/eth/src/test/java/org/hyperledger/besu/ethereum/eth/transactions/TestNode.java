@@ -255,9 +255,8 @@ public class TestNode implements Closeable {
             .peerPermissions(PeerPermissions.noop())
             .metricsSystem(new NoOpMetricsSystem())
             .storageProvider(new InMemoryKeyValueStorageProvider())
-            .blockchain(blockchain)
-            .blockNumberForks(Collections.emptyList())
-            .timestampForks(Collections.emptyList())
+            .forkIdManager(
+                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()))
             .build();
 
     final RlpxAgentFactory defaultRlpxFactory =

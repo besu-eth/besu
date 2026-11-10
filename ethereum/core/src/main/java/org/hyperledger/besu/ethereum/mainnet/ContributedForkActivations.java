@@ -12,18 +12,19 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.config;
+package org.hyperledger.besu.ethereum.mainnet;
 
 import java.util.List;
 import java.util.Objects;
 
 /**
- * Fork activations contributed from outside the genesis config keys, such as those of a plugin's
- * protocol-schedule customization. They are the block numbers and timestamps of consensus changes
- * that peers must agree on, so they are merged into the fork list the EIP-2124 fork ID is computed
- * from (see {@link GenesisConfigOptions#getForkBlockNumbersWithContributed()}). Block-number and
- * timestamp activations are kept as two type-partitioned lists, as EIP-2124 / EIP-6122 require; the
- * two kinds are never compared against each other.
+ * The fork activations a {@link ProtocolScheduleCustomization} contributes on top of the forks the
+ * genesis config declares: the block numbers and timestamps of consensus changes that peers must
+ * agree on. The node's single {@code ForkIdManager} computes the EIP-2124 fork ID from the declared
+ * forks plus these, so the Status handshake, the ENR and {@code eth_config} all advertise them. The
+ * genesis config itself never carries them. Block-number and timestamp activations are kept as two
+ * type-partitioned lists, as EIP-2124 / EIP-6122 require; the two kinds are never compared against
+ * each other.
  *
  * @param blockNumbers the block-number fork activations
  * @param timestamps the timestamp fork activations

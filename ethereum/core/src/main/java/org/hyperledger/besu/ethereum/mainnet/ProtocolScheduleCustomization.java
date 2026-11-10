@@ -14,8 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import org.hyperledger.besu.config.ContributedForkActivations;
 import org.hyperledger.besu.config.GenesisConfigOptions;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.plugin.Unstable;
 
 import java.util.ArrayList;
@@ -25,6 +26,7 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.LongStream;
+import java.util.stream.Stream;
 
 /**
  * The immutable, fully resolved contribution of one protocol-schedule customizer.
@@ -172,8 +174,30 @@ public record ProtocolScheduleCustomization(
   }
 
   /**
-   * Converts this customization's activations to the fork activations it contributes to the genesis
-   * config, from which the EIP-2124 fork ID is computed.
+   * Creates the fork-ID manager of a node running this customization on the given genesis. Its
+   * forks are those the genesis config declares plus the activations this customization
+   * contributes, so the EIP-2124 fork ID changes wherever the rules do. A node creates one and
+   * shares it, so that the Status handshake, the discovery record and {@code eth_config} cannot
+   * disagree.
+   *
+   * @param blockchain the blockchain, for the genesis hash and the chain head
+   * @param config the genesis configuration, which declares the forks Besu itself defines
+   * @return the fork-ID manager
+   */
+  public ForkIdManager forkIdManager(
+      final Blockchain blockchain, final GenesisConfigOptions config) {
+    final ContributedForkActivations contributed = toContributedForkActivations();
+    return new ForkIdManager(
+        blockchain,
+        Stream.concat(config.getForkBlockNumbers().stream(), contributed.blockNumbers().stream())
+            .toList(),
+        Stream.concat(config.getForkBlockTimestamps().stream(), contributed.timestamps().stream())
+            .toList());
+  }
+
+  /**
+   * Converts this customization's activations to the fork activations it contributes to the
+   * EIP-2124 fork ID, on top of the forks the genesis config declares.
    *
    * <p>Every activation reaches one of the two lists: the switch is over a sealed type, so a domain
    * added later fails to compile here rather than dropping out of the advertised fork ID.

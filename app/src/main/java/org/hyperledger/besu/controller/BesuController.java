@@ -376,19 +376,9 @@ public class BesuController implements java.io.Closeable {
      */
     public BesuControllerBuilder fromGenesisFile(
         final GenesisConfig genesisConfig, final SyncMode syncMode) {
-      // Contribute the activations before the builder reads the config: the builder's copy of the
-      // options, taken in genesisConfig(GenesisConfig), is what the advertised fork ID is built
-      // from. They go into a copy, so the caller's config keeps only the forks the genesis
-      // declares. Selecting the builder below is unaffected either way -- it reads the consensus
-      // keys and the forks the config declares, and a customization moves neither.
-      final GenesisConfig effectiveGenesisConfig =
-          protocolScheduleCustomization.modifications().isEmpty()
-              ? genesisConfig
-              : genesisConfig.withContributedForkActivations(
-                  protocolScheduleCustomization.toContributedForkActivations());
-      final GenesisConfigOptions configOptions = effectiveGenesisConfig.getConfigOptions();
+      final GenesisConfigOptions configOptions = genesisConfig.getConfigOptions();
       final BesuControllerBuilder builder =
-          createControllerBuilder(effectiveGenesisConfig, configOptions, syncMode)
+          createControllerBuilder(genesisConfig, configOptions, syncMode)
               .protocolScheduleCustomization(protocolScheduleCustomization);
       // refuse as soon as the consensus mechanism is known, rather than when the node is built
       builder.verifyProtocolScheduleCustomizationIsSupported();
