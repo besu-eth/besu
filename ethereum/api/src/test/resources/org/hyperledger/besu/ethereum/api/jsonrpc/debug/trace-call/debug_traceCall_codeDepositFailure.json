@@ -1,0 +1,64 @@
+{
+  "comment": "The constructor returns 512 bytes of code it lacks the gas to deposit; the failed code deposit is reported on its RETURN, the creation's last operation",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "gas": "0x1d4c0",
+        "gasPrice": "0xef",
+        "value": "0x0",
+        "data": "0x6102006000f3"
+      },
+      "latest",
+      {
+        "disableMemory": true,
+        "disableStorage": true
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "gas": 120000,
+      "failed": true,
+      "returnValue": "0x",
+      "structLogs": [
+        {
+          "pc": 0,
+          "op": "PUSH2",
+          "gas": 66928,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": []
+        },
+        {
+          "pc": 3,
+          "op": "PUSH1",
+          "gas": 66925,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x200"
+          ]
+        },
+        {
+          "pc": 5,
+          "op": "RETURN",
+          "gas": 66922,
+          "gasCost": 48,
+          "depth": 1,
+          "stack": [
+            "0x200",
+            "0x0"
+          ],
+          "error": "INSUFFICIENT_GAS"
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}
