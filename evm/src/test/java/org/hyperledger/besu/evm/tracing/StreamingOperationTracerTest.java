@@ -151,6 +151,26 @@ class StreamingOperationTracerTest {
     executor.execute(codeBytes, Bytes.EMPTY, Wei.ZERO, Address.ZERO);
 
     assertThat(baos.toString(StandardCharsets.UTF_8).lines()).hasSize(3);
+    assertThat(tracer.isLimitReached()).isTrue();
+  }
+
+  @Test
+  void limitIsNotReachedWhenTraceFitsUnderTheLimit() {
+    var executor = new EVMExecutor(EvmSpec.evmSpec(EvmSpecVersion.ISTANBUL));
+    StreamingOperationTracer tracer =
+        new StreamingOperationTracer(
+            new PrintStream(new ByteArrayOutputStream()),
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT).limit(1000).build());
+    executor.tracer(tracer);
+    executor.gas(10_000_000_000L);
+
+    executor.execute(
+        Bytes.fromHexString("0x604080536040604055604060006040600060025afa6040f3"),
+        Bytes.EMPTY,
+        Wei.ZERO,
+        Address.ZERO);
+
+    assertThat(tracer.isLimitReached()).isFalse();
   }
 
   @Test

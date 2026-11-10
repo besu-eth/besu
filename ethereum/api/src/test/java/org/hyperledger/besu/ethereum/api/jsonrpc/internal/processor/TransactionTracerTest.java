@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
@@ -53,7 +54,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -351,5 +359,79 @@ public class TransactionTracerTest {
         transactionTracer.traceTransactionToFile(
             mutableWorldState, blockHash, Optional.of(params), traceDir);
     return Files.readString(Path.of(transactionTraces.get(0)));
+  }
+
+  @Test
+  public void traceTransactionToFileShouldWarnWhenStepLimitCutsTheTrace() {
+    final List<LogEvent> warnings = traceWithSteps(3, 2);
+
+    assertThat(warnings).hasSize(1);
+    assertThat(warnings.get(0).getMessage().getFormattedMessage())
+        .contains(transactionHash.toString(), blockHash.toString(), "2-step limit")
+        .contains("--rpc-max-trace-steps");
+  }
+
+  @Test
+  public void traceTransactionToFileShouldNotWarnWhenTraceFitsUnderStepLimit() {
+    assertThat(traceWithSteps(2, 2)).isEmpty();
+  }
+
+  @SuppressWarnings("BannedMethod")
+  private List<LogEvent> traceWithSteps(final int steps, final long stepLimit) {
+    when(blockBody.getTransactions()).thenReturn(Collections.singletonList(transaction));
+    when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
+    when(blockchain.getBlockHeader(blockHash)).thenReturn(Optional.of(blockHeader));
+    when(blockchain.getBlockHeader(previousBlockHash)).thenReturn(Optional.of(previousBlockHeader));
+    final WorldUpdater updater = mock(WorldUpdater.class);
+    when(mutableWorldState.updater()).thenReturn(updater);
+    final WorldUpdater stackedUpdater = mock(StackedUpdater.class);
+    when(updater.updater()).thenReturn(stackedUpdater);
+    final MessageFrame frame = mock(MessageFrame.class);
+    when(frame.getCurrentOperation()).thenReturn(mock(Operation.class));
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getOutput()).thenReturn(Bytes.EMPTY);
+    when(transactionProcessor.processTransaction(
+            eq(stackedUpdater),
+            eq(blockHeader),
+            eq(transaction),
+            eq(null),
+            any(StreamingOperationTracer.class),
+            any(),
+            any(),
+            eq(Wei.ZERO)))
+        .thenAnswer(
+            invocation -> {
+              final OperationTracer opTracer = invocation.getArgument(4);
+              for (int i = 0; i < steps; i++) {
+                opTracer.tracePreExecution(frame);
+              }
+              return result;
+            });
+
+    final Logger logger = (Logger) LogManager.getLogger(TransactionTracer.class);
+    final List<LogEvent> events = new CopyOnWriteArrayList<>();
+    final AbstractAppender appender =
+        new AbstractAppender("test-capture", null, null, false, Property.EMPTY_ARRAY) {
+          @Override
+          public void append(final LogEvent event) {
+            if (event.getLevel().equals(Level.WARN)) {
+              events.add(event.toImmutable());
+            }
+          }
+        };
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      transactionTracer.traceTransactionToFile(
+          mutableWorldState,
+          blockHash,
+          Optional.of(ImmutableTransactionTraceParams.builder().build()),
+          traceDir,
+          stepLimit);
+    } finally {
+      logger.removeAppender(appender);
+      appender.stop();
+    }
+    return events;
   }
 }

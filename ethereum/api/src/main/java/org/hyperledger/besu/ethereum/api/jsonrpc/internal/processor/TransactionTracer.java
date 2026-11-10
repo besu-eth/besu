@@ -51,9 +51,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Used to produce debug traces of transactions */
 public class TransactionTracer {
+
+  private static final Logger LOG = LoggerFactory.getLogger(TransactionTracer.class);
 
   public static final String TRACE_PATH = "traces";
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -166,6 +170,8 @@ public class TransactionTracer {
                   final File traceFile = generateTraceFile(traceDir, blockHash, i, transaction);
                   try (PrintStream out = new PrintStream(new FileOutputStream(traceFile))) {
                     final Stopwatch timer = Stopwatch.createStarted();
+                    final StreamingOperationTracer tracer =
+                        new StreamingOperationTracer(out, opCodeTracerConfig);
                     final TransactionProcessingResult result =
                         processTransaction(
                             header,
@@ -173,8 +179,15 @@ public class TransactionTracer {
                             stackedUpdater,
                             transaction,
                             transactionProcessor,
-                            new StreamingOperationTracer(out, opCodeTracerConfig),
+                            tracer,
                             blobGasPrice);
+                    if (tracer.isLimitReached()) {
+                      LOG.warn(
+                          "Standard trace of transaction {} in block {} stopped at the {}-step limit; raise --rpc-max-trace-steps to trace it fully",
+                          transaction.getHash(),
+                          blockHash,
+                          opCodeTracerConfig.limit());
+                    }
                     out.println(
                         summaryTrace(
                             transaction, timer.stop().elapsed(TimeUnit.NANOSECONDS), result));

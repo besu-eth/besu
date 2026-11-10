@@ -53,6 +53,7 @@ public class StreamingOperationTracer implements OperationTracer {
   private boolean traceOpcode;
   private Operation previousOpcode = null;
   private int stepCount;
+  private boolean limitReached;
 
   /**
    * Instantiates a new StreamingOperationTracer
@@ -75,6 +76,15 @@ public class StreamingOperationTracer implements OperationTracer {
       final PrintWriter out, final OpCodeTracerConfig opCodeTracerConfig) {
     this.out = out;
     this.opCodeTracerConfig = opCodeTracerConfig;
+  }
+
+  /**
+   * Whether tracing stopped because the configured step limit was reached.
+   *
+   * @return true if at least one step was dropped because of the limit
+   */
+  public boolean isLimitReached() {
+    return limitReached;
   }
 
   /**
@@ -108,6 +118,7 @@ public class StreamingOperationTracer implements OperationTracer {
       return;
     }
     if (opCodeTracerConfig.limit() > 0 && stepCount >= opCodeTracerConfig.limit()) {
+      limitReached = true;
       traceOpcode = false;
       return;
     }
