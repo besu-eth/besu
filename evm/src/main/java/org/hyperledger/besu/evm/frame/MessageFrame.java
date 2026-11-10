@@ -618,6 +618,36 @@ public class MessageFrame {
   }
 
   /**
+   * Reads one 256-bit word directly into a v2 stack slot, recording the memory read for operation
+   * tracers only when required.
+   *
+   * @param location the memory byte offset
+   * @param stack the v2 operand stack
+   * @param slot the destination 256-bit stack slot index
+   */
+  public void readMemoryWordV2(final long location, final long[] stack, final int slot) {
+    memory.readWordV2(location, stack, slot << 2);
+    if (recordsUpdatesForTracerV2) {
+      setUpdatedMemory(location, memory.getBytes(location, Bytes32.SIZE));
+    }
+  }
+
+  /**
+   * Writes one 256-bit v2 stack slot directly to memory, recording the stored bytes for tracers
+   * only when required.
+   *
+   * @param location the memory byte offset
+   * @param stack the v2 operand stack
+   * @param slot the source 256-bit stack slot index
+   */
+  public void writeMemoryWordV2(final long location, final long[] stack, final int slot) {
+    memory.writeWordV2(location, stack, slot << 2);
+    if (recordsUpdatesForTracerV2) {
+      setUpdatedMemory(location, memory.getBytes(location, Bytes32.SIZE));
+    }
+  }
+
+  /**
    * As {@link #readMutableMemory(long, long, boolean)} for a memory opcode, recording the read only
    * for a tracer that traces operations.
    *

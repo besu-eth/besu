@@ -34,7 +34,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import javax.inject.Named;
 
 import picocli.CommandLine;
@@ -73,7 +72,7 @@ class MainnetGenesisFileModule extends GenesisFileModule {
       var schedules = createSchedules(configOptions.getChainId().orElse(BigInteger.valueOf(1337)));
       var schedule = schedules.get(fork.get().toLowerCase(Locale.getDefault()));
       if (schedule != null) {
-        return schedule.get();
+        return schedule.apply(evmConfiguration);
       }
     }
 
@@ -87,7 +86,15 @@ class MainnetGenesisFileModule extends GenesisFileModule {
         new NoOpMetricsSystem());
   }
 
-  public static Map<String, Supplier<ProtocolSchedule>> createSchedules(final BigInteger chainId) {
+  /**
+   * The protocol schedules of the forks evmtool's --fork names, each built for the EVM
+   * configuration it is given.
+   *
+   * @param chainId the chain id of the schedules that have one
+   * @return the schedules by lower-case fork name
+   */
+  public static Map<String, Function<EvmConfiguration, ProtocolSchedule>> createSchedules(
+      final BigInteger chainId) {
     return Map.ofEntries(
         Map.entry("frontier", createSchedule(new StubGenesisConfigOptions().chainId(chainId))),
         Map.entry("homestead", createSchedule(new StubGenesisConfigOptions().homesteadBlock(0))),
@@ -203,14 +210,15 @@ class MainnetGenesisFileModule extends GenesisFileModule {
                     .chainId(chainId))));
   }
 
-  private static Supplier<ProtocolSchedule> createSchedule(final GenesisConfigOptions options) {
-    return () ->
+  private static Function<EvmConfiguration, ProtocolSchedule> createSchedule(
+      final GenesisConfigOptions options) {
+    return evmConfiguration ->
         new ProtocolScheduleBuilder(
                 options,
                 options.getChainId(),
                 ProtocolSpecAdapters.create(0, Function.identity()),
                 false,
-                EvmConfiguration.DEFAULT,
+                evmConfiguration,
                 MiningConfiguration.MINING_DISABLED,
                 new BadBlockManager(),
                 false,

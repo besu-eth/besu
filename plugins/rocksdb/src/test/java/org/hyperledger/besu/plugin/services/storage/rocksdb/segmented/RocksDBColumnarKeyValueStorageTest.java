@@ -36,6 +36,7 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.SortedWriter;
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter;
 
 import java.io.IOException;
@@ -57,6 +58,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.rocksdb.ColumnFamilyHandle;
 
 public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValueStorageTest {
 
@@ -497,6 +499,141 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
             () -> tx.put(TestSegment.FOO, bytesFromHexString("0001"), bytesFromHexString("0FFF")))
         .isInstanceOf(IllegalStateException.class);
     store.close();
+  }
+
+  @Test
+  public void sortedWriterAddsItsEntriesAtOnceAsAFile() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesFromHexString("0001"), bytesFromHexString("0A"));
+    writer.put(bytesFromHexString("0002"), bytesFromHexString("0B"));
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0001"))).isEmpty();
+
+    writer.commit();
+
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0001")))
+        .contains(bytesFromHexString("0A"));
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0002")))
+        .contains(bytesFromHexString("0B"));
+    // added as a file, not through the memtable
+    final ColumnFamilyHandle foo = store.safeColumnHandle(TestSegment.FOO);
+    assertThat(store.getDB().getProperty(foo, "rocksdb.num-entries-active-mem-table"))
+        .isEqualTo("0");
+    store.close();
+  }
+
+  @Test
+  public void sortedWriterRefusesAKeyBelowThePreviousOne() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesFromHexString("0002"), bytesFromHexString("0B"));
+
+    assertThatThrownBy(() -> writer.put(bytesFromHexString("0001"), bytesFromHexString("0A")))
+        .isInstanceOf(StorageException.class);
+    writer.rollback();
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0002"))).isEmpty();
+    store.close();
+  }
+
+  @Test
+  public void sortedWriterOverridesOlderValuesOfItsKeys() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytesFromHexString("0001"), bytesFromHexString("0A"));
+    tx.commit();
+    final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesFromHexString("0001"), bytesFromHexString("0B"));
+
+    writer.commit();
+
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0001")))
+        .contains(bytesFromHexString("0B"));
+    store.close();
+  }
+
+  @Test
+  public void sortedWriterDeletesItsFileOnceCommittedOrRolledBack(@TempDir final Path tempDir)
+      throws Exception {
+    final Path databaseDir = tempDir.resolve("db");
+    final SegmentedKeyValueStorage store =
+        createSegmentedStore(
+            databaseDir,
+            Arrays.asList(TestSegment.DEFAULT, TestSegment.FOO, TestSegment.BAR),
+            List.of());
+    final Path sorted = RocksDBSortedWriter.directory(databaseDir);
+
+    final SortedWriter committed = store.startSortedWriter(TestSegment.FOO);
+    committed.put(bytesFromHexString("0001"), bytesFromHexString("0A"));
+    assertThat(filesIn(sorted)).hasSize(1);
+    committed.commit();
+    assertThat(filesIn(sorted)).isEmpty();
+
+    final SortedWriter rolledBack = store.startSortedWriter(TestSegment.FOO);
+    rolledBack.put(bytesFromHexString("0002"), bytesFromHexString("0B"));
+    rolledBack.rollback();
+    assertThat(filesIn(sorted)).isEmpty();
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0002"))).isEmpty();
+
+    store.startSortedWriter(TestSegment.FOO).commit();
+    assertThat(filesIn(sorted)).isEmpty();
+    store.close();
+  }
+
+  @Test
+  public void sortedWriterCannotBeUsedOnceCommitted() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+    final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesFromHexString("0001"), bytesFromHexString("0A"));
+    writer.commit();
+
+    assertThatThrownBy(() -> writer.put(bytesFromHexString("0002"), bytesFromHexString("0B")))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(writer::commit).isInstanceOf(IllegalStateException.class);
+    writer.rollback();
+    assertThat(store.get(TestSegment.FOO, bytesFromHexString("0001")))
+        .contains(bytesFromHexString("0A"));
+    store.close();
+  }
+
+  @Test
+  public void sortedWriterCannotCommitOnceTheStorageIsClosed(@TempDir final Path tempDir)
+      throws Exception {
+    final Path databaseDir = tempDir.resolve("db");
+    final SegmentedKeyValueStorage store =
+        createSegmentedStore(
+            databaseDir,
+            Arrays.asList(TestSegment.DEFAULT, TestSegment.FOO, TestSegment.BAR),
+            List.of());
+    final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+    writer.put(bytesFromHexString("0001"), bytesFromHexString("0A"));
+    store.close();
+
+    assertThatThrownBy(writer::commit).isInstanceOf(IllegalStateException.class);
+    assertThat(filesIn(RocksDBSortedWriter.directory(databaseDir))).isEmpty();
+  }
+
+  @Test
+  public void openingTheDatabaseDeletesSortedFilesLeftBehind(@TempDir final Path tempDir)
+      throws Exception {
+    final Path databaseDir = tempDir.resolve("db");
+    final List<SegmentIdentifier> segments =
+        Arrays.asList(TestSegment.DEFAULT, TestSegment.FOO, TestSegment.BAR);
+    createSegmentedStore(databaseDir, segments, List.of()).close();
+    final Path sorted = RocksDBSortedWriter.directory(databaseDir);
+    Files.createDirectories(sorted.resolve("nested"));
+    Files.write(sorted.resolve("left.sst"), new byte[] {1});
+    Files.write(sorted.resolve("nested").resolve("left.sst"), new byte[] {1});
+
+    createSegmentedStore(databaseDir, segments, List.of()).close();
+
+    assertThat(sorted).doesNotExist();
+  }
+
+  private static List<Path> filesIn(final Path directory) throws IOException {
+    try (final Stream<Path> files = Files.list(directory)) {
+      return files.toList();
+    }
   }
 
   public enum TestSegment implements SegmentIdentifier {
