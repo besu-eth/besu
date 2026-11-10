@@ -433,8 +433,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     }
   }
 
-  // the ingestion only accepts files written with the comparator and compression of the segment
-  Options sstFileOptions(final SegmentIdentifier segment) {
+  // a new native handle, which the caller has to close
+  Options segmentOptions(final SegmentIdentifier segment) {
     return new Options(options, columnFamilyOptions(segment));
   }
 

@@ -267,12 +267,14 @@ final class RocksDBSegmentRewrite {
     private final ExecutorService executor = Executors.newFixedThreadPool(writerThreads);
     private final Semaphore inFlight = new Semaphore(writerThreads + 2);
     private final List<Future<?>> files = new ArrayList<>();
+    // the ingestion only accepts files written with the column family's own comparator and
+    // compression, which the column family options carry
     private final Options sstOptions;
     private final EnvOptions envOptions = new EnvOptions();
 
     FileWriters(final BiFunction<byte[], byte[], byte[]> transform) {
       this.transform = transform;
-      this.sstOptions = storage.sstFileOptions(segment);
+      this.sstOptions = storage.segmentOptions(segment);
     }
 
     /**

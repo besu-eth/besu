@@ -17,6 +17,7 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SortedWriter;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBTransaction;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -42,6 +43,7 @@ final class RocksDBSortedWriter implements SortedWriter {
   private final RocksDBColumnarKeyValueStorage storage;
   private final SegmentIdentifier segment;
   private final Path file;
+  // the ingestion only accepts files written with the comparator and compression of the segment
   private final Options options;
   private final EnvOptions envOptions;
   private final SstFileWriter writer;
@@ -57,26 +59,33 @@ final class RocksDBSortedWriter implements SortedWriter {
     this.segment = segment;
     this.file = directory.resolve(UUID.randomUUID() + ".sst");
     // first, as it throws for a segment that is not open, before anything needs releasing
-    this.options = storage.sstFileOptions(segment);
+    this.options = storage.segmentOptions(segment);
     this.envOptions = new EnvOptions();
     this.writer = new SstFileWriter(envOptions, options);
     try {
       Files.createDirectories(directory);
       writer.open(file.toString());
-    } catch (final IOException | RocksDBException e) {
+    } catch (final IOException e) {
       close();
       throw new StorageException(e);
+    } catch (final RocksDBException e) {
+      close();
+      throw RocksDBTransaction.storageException(e);
     }
   }
 
   /**
    * The files are written beside the database, on the same file system, so that adding them is a
-   * rename; those of a writer stopped by a crash are deleted when the database opens.
+   * rename.
    */
   static Path directory(final Path databaseDir) {
     return databaseDir.resolveSibling(databaseDir.getFileName() + "-sorted");
   }
 
+  /**
+   * Deletes the files of writers that were never committed or rolled back, which a crash leaves
+   * behind. Called while the database opens, before a writer can be using the directory.
+   */
   static void deleteLeftovers(final Path databaseDir) {
     final Path directory = directory(databaseDir);
     try {
@@ -94,7 +103,7 @@ final class RocksDBSortedWriter implements SortedWriter {
       writer.put(key, value);
       empty = false;
     } catch (final RocksDBException e) {
-      throw new StorageException(e);
+      throw RocksDBTransaction.storageException(e);
     }
   }
 
@@ -108,7 +117,7 @@ final class RocksDBSortedWriter implements SortedWriter {
         storage.ingest(segment, List.of(file.toString()), true);
       }
     } catch (final RocksDBException e) {
-      throw new StorageException(e);
+      throw RocksDBTransaction.storageException(e);
     } finally {
       close();
     }
