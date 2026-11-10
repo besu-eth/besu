@@ -17,10 +17,12 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.BonsaiWorldStateCacheManager;
@@ -135,6 +137,12 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
       if (worldStateKeyValueStorage.getTrieLog(unstoredBlockHash).isEmpty()) {
         return Optional.empty();
       }
+      // the state root check in persist is what rejects a parent that is not canonical, and it is
+      // skipped without the trie
+      if (headWorldState.isTrieDisabled()) {
+        warnUnstoredBlockNotRolledBack(unstoredBlockHash, null);
+        return Optional.empty();
+      }
       // only the block number is known, a parent that is not canonical is left to block import,
       // which rolls back to it when it imports the block again
       final Optional<BlockHeader> parent =
@@ -143,7 +151,7 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
               .flatMap(number -> blockchain.getBlockHeader(number - 1))
               .map(BlockHeader.class::cast);
       if (parent.isEmpty()
-          || rollFullWorldStateToBlockHash(headWorldState, parent.get().getBlockHash(), Level.DEBUG)
+          || rollFullWorldStateToBlockHash(headWorldState, parent.get().getBlockHash(), Level.WARN)
               .isEmpty()) {
         warnUnstoredBlockNotRolledBack(unstoredBlockHash, null);
         return Optional.empty();
@@ -154,6 +162,10 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
           parent.get().getNumber(),
           parent.get().getBlockHash());
       return parent;
+    } catch (final MerkleTrieException | MissingCodeException e) {
+      // the rolling has already logged it with its stack trace
+      warnUnstoredBlockNotRolledBack(unstoredBlockHash, null);
+      return Optional.empty();
     } catch (final RuntimeException e) {
       warnUnstoredBlockNotRolledBack(unstoredBlockHash, e);
       return Optional.empty();
