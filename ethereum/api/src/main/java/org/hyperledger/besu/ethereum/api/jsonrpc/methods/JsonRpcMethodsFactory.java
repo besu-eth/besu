@@ -135,7 +135,7 @@ public class JsonRpcMethodsFactory {
                   miningConfiguration,
                   supportedCapabilities,
                   apiConfiguration,
-                  genesisConfigOptions,
+                  ethPeers.getForkIdManager(),
                   transactionSimulator,
                   protocolContext.getPluginProvidedServices(),
                   metricsSystem),

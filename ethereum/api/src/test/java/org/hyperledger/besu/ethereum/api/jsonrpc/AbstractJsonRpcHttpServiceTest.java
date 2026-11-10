@@ -48,6 +48,7 @@ import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
@@ -65,6 +66,7 @@ import java.net.URL;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -207,6 +209,15 @@ public abstract class AbstractJsonRpcHttpServiceTest {
             miningConfiguration,
             apiConfiguration.getGasCap());
 
+    // eth_config reports the fork IDs of the node's one fork-ID manager, which EthPeers holds
+    final EthPeers ethPeers = mock(EthPeers.class);
+    when(ethPeers.getForkIdManager())
+        .thenReturn(
+            new ForkIdManager(
+                blockchainSetupUtil.getBlockchain(),
+                Collections.emptyList(),
+                Collections.emptyList()));
+
     return new JsonRpcMethodsFactory()
         .methods(
             CLIENT_NODE_NAME,
@@ -235,7 +246,7 @@ public abstract class AbstractJsonRpcHttpServiceTest {
             natService,
             new HashMap<>(),
             folder,
-            mock(EthPeers.class),
+            ethPeers,
             syncVertx,
             ImmutableApiConfiguration.builder().build(),
             Optional.empty(),

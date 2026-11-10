@@ -43,7 +43,7 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
               new ProtocolSpecModification(timestamp(1_000), builder -> builder)));
 
   @Test
-  void contributedActivationsReachTheAdvertisedForkIdButNotScheduleConstruction() {
+  void contributedActivationsStayOutOfTheGenesisConfig() {
     final GenesisConfig genesisConfig = GenesisConfig.fromConfig(POW_GENESIS);
 
     final BesuControllerBuilder builder =
@@ -51,20 +51,12 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
             .protocolScheduleCustomization(CUSTOMIZATION)
             .fromGenesisFile(genesisConfig, SyncMode.FULL);
 
-    // the fork ID a node advertises carries what the plugin contributed: a node enforcing rules it
-    // does not announce is rejected by every peer running another client
-    assertThat(builder.genesisConfigOptions.getForkBlockNumbersWithContributed())
-        .containsExactly(10L, 11L);
-    assertThat(builder.genesisConfigOptions.getForkBlockTimestampsWithContributed())
-        .containsExactly(1_000L);
-    // the forks the config declares are unchanged, so schedule construction is unaffected
+    // the builder carries the customization, from which it builds the node's one fork-ID manager
+    assertThat(builder.protocolScheduleCustomization).isSameAs(CUSTOMIZATION);
+    // the config keeps describing the genesis file alone: schedule construction, and anyone else
+    // holding the config, sees only the forks the genesis declares
     assertThat(builder.genesisConfigOptions.getForkBlockNumbers()).containsExactly(10L);
     assertThat(builder.genesisConfigOptions.getForkBlockTimestamps()).isEmpty();
-    assertThat(builder.protocolScheduleCustomization).isSameAs(CUSTOMIZATION);
-    // the caller's config is left as it was: the activations went into the builder's copy
-    assertThat(genesisConfig.getConfigOptions().getForkBlockNumbersWithContributed())
-        .containsExactly(10L);
-    assertThat(genesisConfig.getConfigOptions().getForkBlockTimestampsWithContributed()).isEmpty();
   }
 
   @Test
@@ -77,7 +69,6 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("example-chain")
         .hasMessageContaining("QbftBesuControllerBuilder");
-    assertThat(genesisConfig.getConfigOptions().getForkBlockNumbersWithContributed()).isEmpty();
   }
 
   @Test
@@ -93,8 +84,7 @@ class BesuControllerBuilderProtocolScheduleCustomizationTest {
         new BesuController.Builder()
             .fromGenesisFile(GenesisConfig.fromConfig(POW_GENESIS), SyncMode.FULL);
 
-    assertThat(builder.genesisConfigOptions.getForkBlockNumbersWithContributed())
-        .containsExactly(10L);
+    assertThat(builder.genesisConfigOptions.getForkBlockNumbers()).containsExactly(10L);
     assertThat(builder.protocolScheduleCustomization.modifications()).isEmpty();
   }
 

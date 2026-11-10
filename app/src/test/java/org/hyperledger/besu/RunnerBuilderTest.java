@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.VARIABLES;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -45,6 +46,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointRegistryImpl;
 import org.hyperledger.besu.ethereum.blockcreation.NoopMiningCoordinator;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -57,6 +59,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -95,6 +98,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public final class RunnerBuilderTest {
+
+  // what the node's fork-ID manager is built from; tests that exercise the ENR set these
+  private Blockchain forkIdBlockchain;
+  private List<Long> blockNumberForks = List.of();
+  private List<Long> timestampForks = List.of();
 
   @TempDir private Path dataDir;
 
@@ -138,12 +146,14 @@ public final class RunnerBuilderTest {
     when(besuController.getSynchronizer()).thenReturn(mock(Synchronizer.class));
     when(besuController.getMiningCoordinator()).thenReturn(new NoopMiningCoordinator());
     when(besuController.getMiningCoordinator()).thenReturn(mock(MergeMiningCoordinator.class));
-    when(besuController.getEthPeers()).thenReturn(mock(EthPeers.class));
-    when(genesisConfigOptions.getForkBlockNumbersWithContributed())
-        .thenReturn(Collections.emptyList());
-    when(genesisConfigOptions.getForkBlockTimestampsWithContributed())
-        .thenReturn(Collections.emptyList());
-    when(besuController.getGenesisConfigOptions()).thenReturn(genesisConfigOptions);
+    final EthPeers ethPeers = mock(EthPeers.class);
+    when(besuController.getEthPeers()).thenReturn(ethPeers);
+    // the node's one fork-ID manager, built from what each test configures, as the controller does
+    when(ethPeers.getForkIdManager())
+        .thenAnswer(
+            invocation -> new ForkIdManager(forkIdBlockchain, blockNumberForks, timestampForks));
+    // only read by some paths, such as PoA discovery and the RPC methods
+    lenient().when(besuController.getGenesisConfigOptions()).thenReturn(genesisConfigOptions);
   }
 
   @Test
@@ -199,11 +209,12 @@ public final class RunnerBuilderTest {
     final MutableBlockchain inMemoryBlockchain =
         createInMemoryBlockchain(genesisBlock, new MainnetBlockHeaderFunctions());
     when(protocolContext.getBlockchain()).thenReturn(inMemoryBlockchain);
+    forkIdBlockchain = inMemoryBlockchain;
     // Configure forks at blocks 1 and 2 so each appended block actually changes the
     // forkId returned by ForkIdManager.getForkIdForChainHead(). Without this the
     // NodeRecordManager equality check (compressed pubkey + wrapped forkId + endpoint)
     // would correctly reuse the existing ENR and seqno would stay at 1.
-    when(genesisConfigOptions.getForkBlockNumbersWithContributed()).thenReturn(List.of(1L, 2L));
+    blockNumberForks = List.of(1L, 2L);
     final Runner runner =
         new RunnerBuilder()
             .discoveryEnabled(true)
@@ -283,8 +294,8 @@ public final class RunnerBuilderTest {
     final MutableBlockchain inMemoryBlockchain =
         createInMemoryBlockchain(genesisBlock, new MainnetBlockHeaderFunctions());
     when(protocolContext.getBlockchain()).thenReturn(inMemoryBlockchain);
-    when(genesisConfigOptions.getForkBlockTimestampsWithContributed())
-        .thenReturn(List.of(forkTimestamp));
+    forkIdBlockchain = inMemoryBlockchain;
+    timestampForks = List.of(forkTimestamp);
 
     final Runner runner =
         new RunnerBuilder()
@@ -543,6 +554,7 @@ public final class RunnerBuilderTest {
   private void setupBlockchainAndBlock() {
     final DefaultBlockchain blockchain = mock(DefaultBlockchain.class);
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    forkIdBlockchain = blockchain;
     final Block block = mock(Block.class);
     when(blockchain.getGenesisBlock()).thenReturn(block);
     when(block.getHash()).thenReturn(Hash.ZERO);

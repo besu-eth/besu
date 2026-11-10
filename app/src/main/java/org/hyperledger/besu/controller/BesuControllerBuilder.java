@@ -796,13 +796,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final int maxMessageSize = ethereumWireProtocolConfiguration.getMaxMessageSize();
     final Supplier<ProtocolSpec> currentProtocolSpecSupplier =
         () -> protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader());
-    // The advertised fork ID, which carries activations contributed from outside the genesis
-    // config, so the Status handshake and the ENR describe the same schedule.
+    // The node's one fork-ID manager, carrying the customization's activations. The Status
+    // handshake, the discovery record and eth_config all reach this instance through EthPeers, so
+    // they cannot advertise different fork IDs.
     final ForkIdManager forkIdManager =
-        new ForkIdManager(
-            blockchain,
-            genesisConfigOptions.getForkBlockNumbersWithContributed(),
-            genesisConfigOptions.getForkBlockTimestampsWithContributed());
+        protocolScheduleCustomization.forkIdManager(blockchain, genesisConfigOptions);
     final EthPeers ethPeers =
         new EthPeers(
             currentProtocolSpecSupplier,

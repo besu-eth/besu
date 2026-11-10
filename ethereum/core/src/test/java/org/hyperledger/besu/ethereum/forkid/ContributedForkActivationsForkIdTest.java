@@ -17,20 +17,23 @@ package org.hyperledger.besu.ethereum.forkid;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.forkid.ForkIdTestUtil.mockBlockchain;
 
-import org.hyperledger.besu.config.ContributedForkActivations;
 import org.hyperledger.besu.config.GenesisConfig;
-import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.forkid.ForkIdTestUtil.GenesisHash;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecModification;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.function.UnaryOperator;
 
 import org.junit.jupiter.api.Test;
 
 /**
- * Proves the fork activations carried by {@link GenesisConfig#withContributedForkActivations} reach
- * the EIP-2124 fork ID a {@link ForkIdManager} computes, exactly as the genesis-declared forks do.
+ * Proves the activations a {@link ProtocolScheduleCustomization} contributes reach the EIP-2124
+ * fork ID of the node's {@link ForkIdManager}, exactly as the genesis-declared forks do.
  */
-public class GenesisConfigContributedForkActivationsTest {
+public class ContributedForkActivationsForkIdTest {
 
   // beyond mainnet's last block fork (Gray Glacier, 15_050_000) but ordered before its
   // timestamp forks, as EIP-6122 requires of any block-number activation
@@ -40,14 +43,12 @@ public class GenesisConfigContributedForkActivationsTest {
 
   @Test
   public void additionalActivationsBecomeForkIdBoundaries() {
-    final List<ForkId> stock = allForkIds(GenesisConfig.mainnet().getConfigOptions());
+    final List<ForkId> stock = allForkIds(ProtocolScheduleCustomization.none());
     final List<ForkId> extended =
         allForkIds(
-            GenesisConfig.mainnet()
-                .withContributedForkActivations(
-                    new ContributedForkActivations(
-                        List.of(EXTRA_BLOCK_FORK), List.of(EXTRA_TIMESTAMP_FORK)))
-                .getConfigOptions());
+            customization(
+                ProtocolScheduleActivation.blockNumber(EXTRA_BLOCK_FORK),
+                ProtocolScheduleActivation.timestamp(EXTRA_TIMESTAMP_FORK)));
 
     assertThat(stock).noneMatch(forkId -> forkId.getNext() == EXTRA_BLOCK_FORK);
     assertThat(stock).noneMatch(forkId -> forkId.getNext() == EXTRA_TIMESTAMP_FORK);
@@ -63,14 +64,11 @@ public class GenesisConfigContributedForkActivationsTest {
     final long headTimestamp = 0L;
 
     final ForkId stock =
-        forkIdManager(GenesisConfig.mainnet().getConfigOptions(), head, headTimestamp)
+        forkIdManager(ProtocolScheduleCustomization.none(), head, headTimestamp)
             .getForkIdForChainHead();
     final ForkId extended =
         forkIdManager(
-                GenesisConfig.mainnet()
-                    .withContributedForkActivations(
-                        new ContributedForkActivations(List.of(EXTRA_BLOCK_FORK), List.of()))
-                    .getConfigOptions(),
+                customization(ProtocolScheduleActivation.blockNumber(EXTRA_BLOCK_FORK)),
                 head,
                 headTimestamp)
             .getForkIdForChainHead();
@@ -82,15 +80,25 @@ public class GenesisConfigContributedForkActivationsTest {
     assertThat(extended.getHash()).isEqualTo(stock.getHash());
   }
 
-  private static List<ForkId> allForkIds(final GenesisConfigOptions options) {
-    return forkIdManager(options, 0L, 0L).getAllForkIds();
+  private static List<ForkId> allForkIds(final ProtocolScheduleCustomization customization) {
+    return forkIdManager(customization, 0L, 0L).getAllForkIds();
   }
 
   private static ForkIdManager forkIdManager(
-      final GenesisConfigOptions options, final long chainHeight, final long timestamp) {
-    return new ForkIdManager(
+      final ProtocolScheduleCustomization customization,
+      final long chainHeight,
+      final long timestamp) {
+    return customization.forkIdManager(
         mockBlockchain(GenesisHash.MAINNET, chainHeight, timestamp),
-        options.getForkBlockNumbersWithContributed(),
-        options.getForkBlockTimestampsWithContributed());
+        GenesisConfig.mainnet().getConfigOptions());
+  }
+
+  private static ProtocolScheduleCustomization customization(
+      final ProtocolScheduleActivation... activations) {
+    return new ProtocolScheduleCustomization(
+        "example-chain",
+        Arrays.stream(activations)
+            .map(activation -> new ProtocolSpecModification(activation, UnaryOperator.identity()))
+            .toList());
   }
 }

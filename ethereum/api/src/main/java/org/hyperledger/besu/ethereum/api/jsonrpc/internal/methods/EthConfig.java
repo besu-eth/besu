@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
-import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -50,15 +49,12 @@ public class EthConfig implements JsonRpcMethod {
   public EthConfig(
       final BlockchainQueries blockchain,
       final ProtocolSchedule protocolSchedule,
-      final GenesisConfigOptions genesisConfigOptions) {
+      final ForkIdManager forkIdManager) {
 
     this.blockchain = blockchain;
     this.protocolSchedule = protocolSchedule;
-    forkIdManager =
-        new ForkIdManager(
-            blockchain.getBlockchain(),
-            genesisConfigOptions.getForkBlockNumbersWithContributed(),
-            genesisConfigOptions.getForkBlockTimestampsWithContributed());
+    // the node's own instance, so eth_config reports the fork IDs the node advertises to peers
+    this.forkIdManager = forkIdManager;
   }
 
   @Override
