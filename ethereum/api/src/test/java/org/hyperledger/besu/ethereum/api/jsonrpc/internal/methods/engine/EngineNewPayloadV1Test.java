@@ -336,6 +336,8 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getStatus()).isEqualTo(getExpectedInvalidBlockHashStatus());
     verify(engineCallListener, times(1)).executionEngineCalled();
+    // fired before the payload is checked
+    verify(mergeContext).fireNewUnverifiedPayloadEvent();
   }
 
   @Test

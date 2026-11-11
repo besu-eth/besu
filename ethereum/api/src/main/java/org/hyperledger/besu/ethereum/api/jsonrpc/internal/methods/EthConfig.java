@@ -115,7 +115,10 @@ public class EthConfig implements JsonRpcMethod {
     blobs.put("target", spec.getGasLimitCalculator().getTargetBlobGasPerBlock() / (128 * 1024));
 
     result.put(
-        "chainId", protocolSchedule.getChainId().map(c -> "0x" + c.toString(16)).orElse(null));
+        "chainId",
+        protocolSchedule.getChainId().isPresent()
+            ? protocolSchedule.getChainId().toHexString()
+            : null);
 
     result.put("forkId", getForkIdAsHexString(forkId.milestone()));
 

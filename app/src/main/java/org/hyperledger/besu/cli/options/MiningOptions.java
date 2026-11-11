@@ -22,6 +22,9 @@ import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.MutableInitValues.DEFAULT_EXTRA_DATA;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.MutableInitValues.DEFAULT_MIN_PRIORITY_FEE_PER_GAS;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.MutableInitValues.DEFAULT_MIN_TRANSACTION_GAS_PRICE;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_MEMPOOL_PREWARM_ENABLED;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_MEMPOOL_PREWARM_THREADS;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_CREATION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_CREATION_REPETITION_MIN_DURATION;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS;
@@ -156,6 +159,28 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
 
     @CommandLine.Option(
         hidden = true,
+        names = {"--Xmempool-prewarm-enabled"},
+        description =
+            "Execute pending transactions against the head state between blocks, so the state the next block is likely to read is cached when it arrives (default: ${DEFAULT-VALUE})",
+        arity = "1")
+    private Boolean mempoolPrewarmEnabled = DEFAULT_MEMPOOL_PREWARM_ENABLED;
+
+    @CommandLine.Option(
+        hidden = true,
+        names = {"--Xmempool-prewarm-threads"},
+        description =
+            "Number of threads that execute pending transactions to prewarm the state (default: ${DEFAULT-VALUE})")
+    Integer mempoolPrewarmThreads = DEFAULT_MEMPOOL_PREWARM_THREADS;
+
+    @CommandLine.Option(
+        hidden = true,
+        names = {"--Xmempool-prewarm-gas-limit-multiplier"},
+        description =
+            "Gas the prewarming executes for each head, as a multiple of the block gas limit (default: ${DEFAULT-VALUE})")
+    Integer mempoolPrewarmGasLimitMultiplier = DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER;
+
+    @CommandLine.Option(
+        hidden = true,
         names = {"--Xpos-validated-block-cache-size"},
         description =
             "Number of blocks built by this node whose validation results are cached, so that importing them does not execute them again. 0 disables the cache, so that every imported block is executed (default: ${DEFAULT-VALUE})")
@@ -183,6 +208,15 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
   public void setTransactionSelectionService(
       final TransactionSelectionService transactionSelectionService) {
     this.transactionSelectionService = transactionSelectionService;
+  }
+
+  /**
+   * Whether mempool prewarming is enabled.
+   *
+   * @return true if {@code --Xmempool-prewarm-enabled} is set
+   */
+  public boolean isMempoolPrewarmEnabled() {
+    return unstableOptions.mempoolPrewarmEnabled;
   }
 
   /**
@@ -221,6 +255,15 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
         || unstableOptions.posBlockFinalizationTimeoutMs > 12000) {
       throw new ParameterException(
           commandLine, "--Xpos-block-finalization-timeout-ms must be non-negative and ≤ 12000");
+    }
+
+    if (unstableOptions.mempoolPrewarmThreads <= 0) {
+      throw new ParameterException(commandLine, "--Xmempool-prewarm-threads must be positive");
+    }
+
+    if (unstableOptions.mempoolPrewarmGasLimitMultiplier <= 0) {
+      throw new ParameterException(
+          commandLine, "--Xmempool-prewarm-gas-limit-multiplier must be positive");
     }
 
     if (unstableOptions.posValidatedBlockCacheSize < 0) {
@@ -300,6 +343,12 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
         miningConfiguration.getUnstable().getPosSlotDuration();
     miningOptions.unstableOptions.posBlockFinalizationTimeoutMs =
         miningConfiguration.getUnstable().getPosBlockFinalizationTimeoutMs();
+    miningOptions.unstableOptions.mempoolPrewarmEnabled =
+        miningConfiguration.getUnstable().isMempoolPrewarmEnabled();
+    miningOptions.unstableOptions.mempoolPrewarmThreads =
+        miningConfiguration.getUnstable().getMempoolPrewarmThreads();
+    miningOptions.unstableOptions.mempoolPrewarmGasLimitMultiplier =
+        miningConfiguration.getUnstable().getMempoolPrewarmGasLimitMultiplier();
     miningOptions.unstableOptions.posValidatedBlockCacheSize =
         miningConfiguration.getUnstable().getPosValidatedBlockCacheSize();
 
@@ -342,6 +391,9 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
                     unstableOptions.posBlockCreationRepetitionMinDuration)
                 .posSlotDuration(unstableOptions.posSlotDuration)
                 .posBlockFinalizationTimeoutMs(unstableOptions.posBlockFinalizationTimeoutMs)
+                .isMempoolPrewarmEnabled(unstableOptions.mempoolPrewarmEnabled)
+                .mempoolPrewarmThreads(unstableOptions.mempoolPrewarmThreads)
+                .mempoolPrewarmGasLimitMultiplier(unstableOptions.mempoolPrewarmGasLimitMultiplier)
                 .posValidatedBlockCacheSize(unstableOptions.posValidatedBlockCacheSize)
                 .build())
         .build();

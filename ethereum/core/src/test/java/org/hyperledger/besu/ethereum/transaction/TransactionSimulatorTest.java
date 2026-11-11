@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -1252,7 +1253,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
     final BlockHeader blockHeader = header.buildHeader();
     mockBlockchainAndWorldState(callParameter, blockHeader);
     mockProtocolSpecForProcessWithWorldUpdater();
-    when(protocolSchedule.getChainId()).thenReturn(scheduleChainId);
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.fromOptional(scheduleChainId));
     when(transactionProcessor.processTransaction(
             any(), any(), any(), any(), any(), any(), any(), any(Wei.class), any()))
         .thenReturn(mock(TransactionProcessingResult.class));
@@ -1416,7 +1417,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
   private void mockProtocolSpecForProcessWithWorldUpdater(final long txGasLimitCap) {
     final BlockHeaderFunctions blockHeaderFunctions = mock(BlockHeaderFunctions.class);
     final PreExecutionProcessor preExecutionProcessor = mock(PreExecutionProcessor.class);
-    when(protocolSchedule.getChainId()).thenReturn(Optional.of(BigInteger.ONE));
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.of(1));
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(protocolSpec.getTransactionProcessor()).thenReturn(transactionProcessor);
