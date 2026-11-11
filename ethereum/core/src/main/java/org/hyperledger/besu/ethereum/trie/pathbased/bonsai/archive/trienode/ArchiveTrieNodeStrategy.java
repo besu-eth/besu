@@ -63,11 +63,14 @@ public class ArchiveTrieNodeStrategy
 
   private static final Logger LOG = LoggerFactory.getLogger(ArchiveTrieNodeStrategy.class);
   private static final int LOG_MISSING_COVERAGE_INTERVAL_SECONDS = 60;
+  // Well above a large block's loads; a load past it is only written FULL.
+  static final int MAX_LOADED_NODES = 1_000_000;
 
   private final TrieNodeStrategy base;
   private final ArchiveTrieNodeWriter trieNodeWriter;
   private final ArchiveNodeHistoryStore historyStore;
   private final SegmentedKeyValueStorage captureStorage;
+  private final int maxLoadedNodes;
   private final AtomicBoolean logMissingCoverage = new AtomicBoolean(true);
 
   // Starts true (archive everything) until the first in-sync event. Safe default for initial sync
@@ -79,13 +82,17 @@ public class ArchiveTrieNodeStrategy
 
   // Nodes read from one state, by key. They're the same whichever storage they were read from.
   private record LoadedNodes(Hash root, Map<Bytes, Bytes> nodes) {
+    static LoadedNodes none() {
+      return new LoadedNodes(Hash.ZERO, new ConcurrentHashMap<>());
+    }
+
     LoadedNodes at(final Hash stateRoot) {
       return root.equals(stateRoot) ? this : new LoadedNodes(stateRoot, new ConcurrentHashMap<>());
     }
   }
 
   private final AtomicReference<LoadedNodes> loadedNodes =
-      new AtomicReference<>(new LoadedNodes(Hash.ZERO, Map.of()));
+      new AtomicReference<>(LoadedNodes.none());
 
   // Transactions persisting a captured block, mapped to the nodes that block replaces.
   private final Cache<SegmentedKeyValueStorageTransaction, Map<Bytes, Bytes>> capturedBlocks =
@@ -139,12 +146,24 @@ public class ArchiveTrieNodeStrategy
       final ArchiveNodeHistoryStore historyStore,
       final SegmentedKeyValueStorage captureStorage,
       final BooleanSupplier hasChainEstimate) {
+    this(base, trieNodeWriter, historyStore, captureStorage, hasChainEstimate, MAX_LOADED_NODES);
+  }
+
+  @VisibleForTesting
+  ArchiveTrieNodeStrategy(
+      final TrieNodeStrategy base,
+      final ArchiveTrieNodeWriter trieNodeWriter,
+      final ArchiveNodeHistoryStore historyStore,
+      final SegmentedKeyValueStorage captureStorage,
+      final BooleanSupplier hasChainEstimate,
+      final int maxLoadedNodes) {
     this.base = Objects.requireNonNull(base);
     this.trieNodeWriter = Objects.requireNonNull(trieNodeWriter);
     this.historyStore = Objects.requireNonNull(historyStore);
     this.captureStorage = Objects.requireNonNull(captureStorage);
     this.hasChainEstimate =
         Objects.requireNonNull(hasChainEstimate, "hasChainEstimate must not be null");
+    this.maxLoadedNodes = maxLoadedNodes;
   }
 
   @Override
@@ -170,7 +189,7 @@ public class ArchiveTrieNodeStrategy
     return (location, hash) -> {
       final Optional<Bytes> node = loader.getNode(location, hash);
       // the empty trie node is never stored, so it is never a prior
-      if (!hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      if (!hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH) && loaded.size() < maxLoadedNodes) {
         node.ifPresent(n -> loaded.put(keyOf.apply(location), n));
       }
       return node;
@@ -308,6 +327,10 @@ public class ArchiveTrieNodeStrategy
   public void onBeforeCommit(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction) {
+    if (storage == captureStorage) {
+      // the next block's tries load again, so don't hold this block's nodes past its commit
+      loadedNodes.set(LoadedNodes.none());
+    }
     if (capturedBlocks.asMap().remove(transaction) != null) {
       trieNodeWriter.onBeforeCommit(transaction);
     }

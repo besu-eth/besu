@@ -554,6 +554,49 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
+  void commitDropsLoadedNodesEvenWhenTheRootIsUnchanged() {
+    final ArchiveTrieNodeStrategy strategy = strategy();
+    final Bytes location = Bytes.of(0x07);
+    final Bytes node = Bytes.fromHexString("0xfeed");
+    persistBlock(strategy, 0, put(location, node));
+    final BlockHeader emptyBlock =
+        new BlockHeaderTestFixture()
+            .number(1)
+            .parentHash(chain.get(0).getHash())
+            .stateRoot(rootOf(0))
+            .buildHeader();
+    final BlockHeader next =
+        new BlockHeaderTestFixture().number(2).parentHash(emptyBlock.getHash()).buildHeader();
+
+    load(strategy, rootOf(0), location, hash(node), node);
+    persist(strategy, emptyBlock);
+    persist(strategy, next, put(location, node));
+
+    // without a prior the unchanged node isn't skipped as a re-commit
+    assertThat(latest(location, 2L).orElseThrow().block()).isEqualTo(2L);
+  }
+
+  @Test
+  void loadsPastTheCapAreNotPriors() {
+    final ArchiveTrieNodeStrategy strategy =
+        new ArchiveTrieNodeStrategy(
+            new BonsaiTrieNodeStrategy(), capture, historyStore, storage, () -> false, 1);
+    final Bytes first = Bytes.of(0x07);
+    final Bytes second = Bytes.of(0x08);
+    final Bytes node = Bytes.fromHexString("0xfeed");
+    persistBlock(strategy, 0, put(first, node), put(second, node));
+
+    load(strategy, rootOf(0), first, hash(node), node);
+    load(strategy, rootOf(0), second, hash(node), node);
+    persistBlock(strategy, 1, put(first, node), put(second, node));
+
+    assertThat(latest(first, 1L).orElseThrow().block()).isZero();
+    final var uncapped = latest(second, 1L).orElseThrow();
+    assertThat(uncapped.block()).isEqualTo(1L);
+    assertThat(uncapped.codecEntry().isFull()).isTrue();
+  }
+
+  @Test
   void loaderRootedAtAnotherStateIsNotDecorated() {
     final ArchiveTrieNodeStrategy strategy = strategy();
     final NodeLoader loader = (location, hash) -> Optional.empty();
