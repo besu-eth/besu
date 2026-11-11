@@ -291,6 +291,7 @@ public class TransactionPoolFactory {
     } else {
       return createPendingTransactionSorter(
           protocolContext,
+          ethScheduler,
           clock,
           metrics.getMetricsSystem(),
           transactionPoolConfiguration,
@@ -301,6 +302,7 @@ public class TransactionPoolFactory {
 
   private static AbstractPendingTransactionsSorter createPendingTransactionSorter(
       final ProtocolContext protocolContext,
+      final EthScheduler ethScheduler,
       final Clock clock,
       final MetricsSystem metricsSystem,
       final TransactionPoolConfiguration transactionPoolConfiguration,
@@ -312,14 +314,16 @@ public class TransactionPoolFactory {
           clock,
           metricsSystem,
           protocolContext.getBlockchain()::getChainHeadHeader,
-          eventEmitter);
+          eventEmitter,
+          ethScheduler);
     } else {
       return new GasPricePendingTransactionsSorter(
           transactionPoolConfiguration,
           clock,
           metricsSystem,
           protocolContext.getBlockchain()::getChainHeadHeader,
-          eventEmitter);
+          eventEmitter,
+          ethScheduler);
     }
   }
 
