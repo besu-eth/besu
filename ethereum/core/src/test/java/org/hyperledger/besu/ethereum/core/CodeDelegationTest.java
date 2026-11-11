@@ -191,4 +191,30 @@ class CodeDelegationTest {
     assertThat(delegation).isNotNull();
     assertThat(delegation.signature()).isNotNull();
   }
+
+  @Test
+  void detachedCopyKeepsTheRecoveredAuthority() {
+    final CodeDelegation delegation = new CodeDelegation(chainId, address, nonce, signature);
+    final Optional<Address> authority = delegation.authorizer();
+
+    // the same instance, so the copy did not recover the authority a second time
+    assertThat(delegation.detachedCopy().authorizer()).isSameAs(authority);
+  }
+
+  @Test
+  void detachedCopyRecoversTheAuthorityWhenNotYetRecovered() {
+    final KeyPair keyPair = signatureAlgorithm.generateKeyPair();
+    final CodeDelegation delegation =
+        (CodeDelegation)
+            CodeDelegation.builder()
+                .chainId(chainId)
+                .address(address)
+                .nonce(nonce)
+                .signAndBuild(keyPair);
+
+    final CodeDelegation copy = delegation.detachedCopy();
+
+    assertThat(copy.authorizer()).contains(Address.extract(keyPair.getPublicKey()));
+    assertThat(copy.address()).isEqualTo(address);
+  }
 }
