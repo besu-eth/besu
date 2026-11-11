@@ -16,14 +16,14 @@
 apply plugin: 'java-library'
 
 jar {
-  archiveBaseName = calculateArtifactId(project)
+  archiveBaseName = rootProject.calculateArtifactId(project)
   manifest {
     attributes(
       'Specification-Title': archiveBaseName,
       'Specification-Version': project.version,
       'Implementation-Title': archiveBaseName,
-      'Implementation-Version': calculateVersion(),
-      'Commit-Hash': getGitCommitDetails(40).hash
+      'Implementation-Version': rootProject.calculateVersion(),
+      'Commit-Hash': rootProject.getGitCommitDetails(40).hash
       )
   }
 }
@@ -514,16 +514,13 @@ dependencies {
   referenceTestImplementation project(path: ':util')
   // the following will be resolved via custom ivy repository declared in root build.gradle
   referenceTestImplementation(
-    group: 'ethereum', name: 'execution-specs',
-    version: 'tests@v21.0.1', classifier: 'fixtures', ext: 'tar.gz'
+    'ethereum:execution-specs:tests@v21.0.1:fixtures@tar.gz'
     )
   devnetTarConfig(
-    group: 'ethereum', name: 'execution-specs',
-    version: 'tests-glamsterdam-devnet@v8.1.4', classifier: 'fixtures_glamsterdam-devnet', ext: 'tar.gz'
+    'ethereum:execution-specs:tests-glamsterdam-devnet@v8.1.4:fixtures_glamsterdam-devnet@tar.gz'
     )
   zkevmTarConfig(
-    group: 'ethereum', name: 'execution-specs-zkevm',
-    version: 'tests-zkevm@v21.0.6', classifier: 'fixtures_zkevm', ext: 'tar.gz'
+    'ethereum:execution-specs-zkevm:tests-zkevm@v21.0.6:fixtures_zkevm@tar.gz'
     )
   referenceTestImplementation 'com.fasterxml.jackson.core:jackson-databind'
   referenceTestImplementation 'com.google.guava:guava'
@@ -598,11 +595,12 @@ tasks.register('validateReferenceTestSubmodule') {
     def expectedHash = '9201075490807f58811078e9bb5ec895b4ac01a5'
     def submodulePath = java.nio.file.Path.of("${rootProject.projectDir}", "ethereum/referencetests/src/reference-test/external-resources").toAbsolutePath()
     try {
-      exec {
+      def gitStatus = providers.exec {
         commandLine 'git', 'submodule', 'status', submodulePath
-        standardOutput = result
-        errorOutput = result
+        ignoreExitValue = true
       }
+      result.write(gitStatus.standardOutput.asText.get().getBytes('UTF-8'))
+      result.write(gitStatus.standardError.asText.get().getBytes('UTF-8'))
     } catch (Exception ignore) {
       // Ignore it.  We want to fail in a friendly fashion if they don't have git installed.
       // The CI servers have git and that is the only critical place for this failure

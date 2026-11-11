@@ -35,14 +35,14 @@ tasks.named('compileJmhJava', JavaCompile).configure {
 }
 
 jar {
-  archiveBaseName = calculateArtifactId(project)
+  archiveBaseName = rootProject.calculateArtifactId(project)
   manifest {
     attributes(
       'Specification-Title': archiveBaseName,
       'Specification-Version': project.version,
       'Implementation-Title': archiveBaseName,
-      'Implementation-Version': calculateVersion(),
-      'Commit-Hash': getGitCommitDetails(40).hash
+      'Implementation-Version': rootProject.calculateVersion(),
+      'Commit-Hash': rootProject.getGitCommitDetails(40).hash
       )
   }
 }

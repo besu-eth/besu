@@ -22,7 +22,7 @@ solidity {
   resolvePackages = false
   version = '0.8.25'
   executable = rootProject.solcExecutable('0.8.25').absolutePath
-  evmVersion = 'shanghai'
+  evmVersion = org.web3j.solidity.gradle.plugin.EVMVersion.SHANGHAI
 }
 
 tasks.named('compileSolidity').configure { dependsOn solcDownload }

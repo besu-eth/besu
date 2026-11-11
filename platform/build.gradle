@@ -226,7 +226,7 @@ publishing {
       from components.javaPlatform
       groupId = "org.hyperledger.besu"
       artifactId = 'bom'
-      version = calculateVersion()
+      version = rootProject.calculateVersion()
 
       pom {
         name = "Besu BOM"
@@ -248,7 +248,7 @@ publishing {
 
           Node pomNode = asNode()
           Node dependencies = pomNode.dependencyManagement.dependencies.get(0)
-          addDependency(dependencies, "org.hyperledger.besu.internal", "besu-ethereum-core", "test-support", calculateVersion())
+          addDependency(dependencies, "org.hyperledger.besu.internal", "besu-ethereum-core", "test-support", rootProject.calculateVersion())
         }
       }
     }
