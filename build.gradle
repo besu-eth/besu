@@ -139,7 +139,7 @@ configure(allprojects - project(':platform')) {
   apply plugin: 'jacoco'
   apply plugin: 'net.ltgt.errorprone'
 
-  version = calculateVersion()
+  version = rootProject.calculateVersion()
 
   jacoco {
     toolVersion = '0.8.14'
@@ -839,7 +839,7 @@ subprojects {
     dependencies { testImplementation sourceSets.testSupport.output }
 
     task testSupportJar(type: Jar) {
-      archiveBaseName = calculateArtifactId(project) + '-support-test'
+      archiveBaseName = rootProject.calculateArtifactId(project) + '-support-test'
       archiveClassifier = 'test-support'
       from sourceSets.testSupport.output
     }
@@ -879,8 +879,9 @@ subprojects {
   }
 
   def sourceSetIsPopulated = { sourceSetName ->
-    def result = project.sourceSets.names.contains(sourceSetName) && !project.sourceSets.getAt(sourceSetName).allSource.empty
-    logger.info("Project = " + project.name + " Has Source Set (" + sourceSetName + ") = " + result + "(" + project.sourceSets.names + ")")
+    def sourceSets = project.extensions.findByName('sourceSets')
+    def result = sourceSets != null && sourceSets.names.contains(sourceSetName) && !sourceSets.getAt(sourceSetName).allSource.empty
+    logger.info("Project = " + project.name + " Has Source Set (" + sourceSetName + ") = " + result + "(" + (sourceSets?.names ?: []) + ")")
     return result
   }
 
@@ -893,7 +894,7 @@ subprojects {
       publications {
         mavenJava(MavenPublication) {
           groupId = "org.hyperledger.besu.internal"
-          artifactId = calculateArtifactId(project)
+          artifactId = rootProject.calculateArtifactId(project)
           version = "${project.version}"
           if (sourceSetIsPopulated("main")) {
             from components.java
@@ -994,17 +995,17 @@ subprojects {
       jmhVersion = '1.37'
       fork = 5
       resultFormat = 'JSON'
-      var inc = _strListCmdArg('includes', [''])
+      var inc = rootProject._strListCmdArg('includes', [''])
       includes = inc.size() > 1 ? [".*(${inc.join('|')}).*"] : inc
-      excludes = _strListCmdArg('excludes', [])
-      var cases = _strListCmdArg('cases', [])
+      excludes = rootProject._strListCmdArg('excludes', [])
+      var cases = rootProject._strListCmdArg('cases', [])
       if (!cases.isEmpty()) {
         def casesListProp = project.objects.listProperty(String)
         casesListProp.addAll(cases)
         benchmarkParameters = ['caseName': casesListProp]
       }
-      var asyncProfiler = _strCmdArg('asyncProfiler')
-      var asyncProfilerOptions = _strCmdArg('asyncProfilerOptions', 'output=flamegraph')
+      var asyncProfiler = rootProject._strCmdArg('asyncProfiler')
+      var asyncProfilerOptions = rootProject._strCmdArg('asyncProfilerOptions', 'output=flamegraph')
       jvmArgs = [
         '-XX:+EnableDynamicAgentLoading'
       ]
@@ -1014,13 +1015,13 @@ subprojects {
         // Force debug symbols of stack traces to the profiler
         jvmArgs.addAll("-XX:+UnlockDiagnosticVMOptions", "-XX:+DebugNonSafepoints")
       }
-      var gcProfiler = _strCmdArg('gcProfiler')
+      var gcProfiler = rootProject._strCmdArg('gcProfiler')
       if (gcProfiler != null && gcProfiler.toBoolean()) {
         profilers.add('gc')
       }
-      var gasProfiler = _strCmdArg('gasProfiler')
+      var gasProfiler = rootProject._strCmdArg('gasProfiler')
       if (gasProfiler != null && gasProfiler.toBoolean()) {
-        var gasProfilerFork = _strCmdArg('gasProfilerFork')
+        var gasProfilerFork = rootProject._strCmdArg('gasProfilerFork')
         profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler' + (gasProfilerFork != null ? ':' + gasProfilerFork : ''))
       }
     }

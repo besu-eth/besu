@@ -25,8 +25,8 @@ jar {
       'Specification-Title': archiveBaseName,
       'Specification-Version': project.version,
       'Implementation-Title': archiveBaseName,
-      'Implementation-Version': calculateVersion(),
-      'Commit-Hash': getGitCommitDetails(40).hash,
+      'Implementation-Version': rootProject.calculateVersion(),
+      'Commit-Hash': rootProject.getGitCommitDetails(40).hash,
       'Automatic-Module-Name': 'org.hyperledger.besu.plugin.api.storage'
       )
   }
