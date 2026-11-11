@@ -23,6 +23,7 @@ import java.nio.ByteOrder;
 import java.security.SecureRandom;
 import java.util.Arrays;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
@@ -34,7 +35,7 @@ import org.apache.tuweni.bytes.Bytes32;
  * non-deterministic off chain so collisions can only be found out while executing EVM payloads
  * which costs gas.
  *
- * <p>{@link #hashCode()} is the multilinear family over {@code Z_2^64}: {@code h = LANES +
+ * <p>{@link #hashCode()} is the multilinear family over {@code Z_2^64}: {@code h = seed_base +
  * SUM(lane_i * seed_i)} accumulated modulo {@code 2^64}, returning the top 32 bits. Each {@code
  * lane_i} is a 32-bit chunk of the key and each {@code seed_i} a uniformly random 64-bit seed. The
  * family is <em>exactly strongly universal</em> on its 32-bit output: for any two distinct keys and
@@ -132,5 +133,23 @@ public class AddressStorageSlotKey implements Comparable<AddressStorageSlotKey> 
     }
     int compare = Arrays.compare(address, other.address);
     return compare != 0 ? compare : Arrays.compare(slot, other.slot);
+  }
+
+  /**
+   * Return the address part of this key.
+   *
+   * @return the address
+   */
+  public Address address() {
+    return Address.wrap(Bytes.wrap(address));
+  }
+
+  /**
+   * Return the slot part of this key.
+   *
+   * @return the slot
+   */
+  public Bytes32 slot() {
+    return Bytes32.wrap(slot);
   }
 }
