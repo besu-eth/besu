@@ -26,13 +26,11 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.math.BigInteger;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -48,8 +46,8 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
   private final Address address;
   private final long nonce;
   private final SECPSignature signature;
-  private final Supplier<Optional<Address>> authorizerSupplier =
-      Suppliers.memoize(this::computeAuthority);
+  // null until recovered; empty when the signature recovers no authority
+  private volatile Optional<Address> authorizer;
 
   /**
    * An access list entry as defined in EIP-7702
@@ -151,7 +149,31 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
       return Optional.empty();
     }
 
-    return authorizerSupplier.get();
+    Optional<Address> recovered = authorizer;
+    if (recovered == null) {
+      // Per-instance lock: stops duplicate signature recovery on this authorization.
+      synchronized (this) {
+        recovered = authorizer;
+        if (recovered == null) {
+          recovered = computeAuthority();
+          authorizer = recovered;
+        }
+      }
+    }
+    return recovered;
+  }
+
+  /**
+   * Creates a copy of this authorization that does not share the address's byte array, and keeps
+   * its authority if that is already recovered.
+   *
+   * @return a copy of the authorization
+   */
+  CodeDelegation detachedCopy() {
+    final CodeDelegation copy =
+        new CodeDelegation(chainId, Address.wrap(address.getBytes().copy()), nonce, signature);
+    copy.authorizer = authorizer;
+    return copy;
   }
 
   @Override
@@ -316,8 +338,8 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
         + nonce
         + ", signature="
         + signature
-        + ", authorizerSupplier="
-        + authorizerSupplier
+        + ", authorizer="
+        + authorizer
         + '}';
   }
 }

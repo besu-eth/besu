@@ -25,8 +25,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Recovers the senders and EIP-7702 authorities of a payload's transactions in the background, so
- * that executing the payload finds them already cached.
+ * Recovers the senders and EIP-7702 authorities of a payload's transactions in the background, from
+ * the last transaction backwards. Execution recovers the signatures of the transactions it reaches
+ * first itself, so the two split the block between them, and execution finds the rest already
+ * recovered.
  *
  * <p>The payload has not been validated when this starts, so the work must not outlive its
  * execution. A fixed number of tasks share the transactions, recover one signature at a time, and
@@ -75,8 +77,9 @@ final class SignatureRecoveryPrecomputation {
     cancelled = true;
   }
 
-  // Execution recovers senders from the first transaction on, so starting from the last keeps the
-  // two from waiting on each other's lock on the same transaction.
+  // Execution recovers signatures from the first transaction on. Starting from the last, the
+  // recovery works on transactions execution has not reached, rather than waiting for the ones it
+  // is recovering.
   private Void recoverUntilDoneOrCancelled() {
     int index;
     while (!cancelled && (index = unclaimedTransactions.decrementAndGet()) >= 0) {

@@ -114,16 +114,24 @@ public abstract class ParallelBlockTransactionProcessor {
   }
 
   /**
-   * Copies the transaction for a worker after recovering its sender on the block's own transaction,
-   * which newPayload's sender precompute also uses, so each sender is recovered once.
+   * Copies the transaction for a worker after recovering its sender and EIP-7702 authorities on the
+   * block's own transaction, which newPayload's signature precompute also uses, so each signature
+   * is recovered once.
    */
-  protected static Transaction detachedCopyWithSender(final Transaction transaction) {
-    try {
-      transaction.getSender();
-    } catch (final IllegalArgumentException | IllegalStateException e) {
-      // The copy's validation reports a signature that does not recover a sender
-    }
+  protected static Transaction detachedCopyWithSigners(final Transaction transaction) {
+    recover(transaction::getSender);
+    transaction
+        .getCodeDelegationList()
+        .ifPresent(list -> list.forEach(codeDelegation -> recover(codeDelegation::authorizer)));
     return transaction.detachedCopy();
+  }
+
+  private static void recover(final Runnable recovery) {
+    try {
+      recovery.run();
+    } catch (final RuntimeException e) {
+      // Processing the copy reports a signature that does not recover a signer
+    }
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(

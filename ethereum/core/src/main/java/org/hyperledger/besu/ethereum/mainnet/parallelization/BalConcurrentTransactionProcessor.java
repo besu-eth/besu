@@ -186,7 +186,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           transactionProcessor.processTransaction(
               txUpdater,
               blockHeader,
-              detachedCopyWithSender(transaction),
+              detachedCopyWithSigners(transaction),
               miningBeneficiary,
               OperationTracer.NO_TRACING,
               blockHashLookup.forkForParallelWorker(),
