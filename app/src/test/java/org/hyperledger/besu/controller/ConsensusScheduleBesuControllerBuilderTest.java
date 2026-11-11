@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -65,8 +66,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class ConsensusScheduleBesuControllerBuilderTest {
-  private @Mock BiFunction<
-          NavigableSet<ForkSpec<ProtocolSchedule>>, Optional<BigInteger>, ProtocolSchedule>
+  private @Mock BiFunction<NavigableSet<ForkSpec<ProtocolSchedule>>, ChainId, ProtocolSchedule>
       combinedProtocolScheduleFactory;
   private @Mock GenesisConfig genesisConfig;
   private @Mock BesuControllerBuilder besuControllerBuilder1;
@@ -121,7 +121,7 @@ public class ConsensusScheduleBesuControllerBuilderTest {
     expectedProtocolSchedulesSpecs.add(new ForkSpec<>(10L, protocolSchedule2));
     expectedProtocolSchedulesSpecs.add(new ForkSpec<>(30L, protocolSchedule3));
     Mockito.verify(combinedProtocolScheduleFactory)
-        .apply(expectedProtocolSchedulesSpecs, Optional.of(BigInteger.TEN));
+        .apply(expectedProtocolSchedulesSpecs, ChainId.of(10));
   }
 
   @Test

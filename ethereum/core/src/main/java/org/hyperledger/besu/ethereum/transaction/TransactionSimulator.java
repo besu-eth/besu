@@ -32,6 +32,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -39,6 +40,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
@@ -52,7 +54,6 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -186,23 +187,38 @@ public class TransactionSimulator {
             .plusSeconds(chainHeadHeader.getTimestamp())
             .toSeconds();
 
-    final ProtocolSpec protocolSpec =
-        protocolSchedule.getForNextBlockHeader(chainHeadHeader, timestamp);
-
     final var simulatedBlockHeader =
-        BlockHeaderBuilder.createPending(
-                protocolSpec,
-                chainHeadHeader,
-                miningConfiguration,
-                timestamp,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty())
-            .buildProcessableBlockHeader();
+        simulatePendingBlockHeader(
+            protocolSchedule, miningConfiguration, chainHeadHeader, timestamp);
 
     LOG.trace("Simulated block header: {}", simulatedBlockHeader);
 
     return simulatedBlockHeader;
+  }
+
+  /**
+   * The header of a pending block on a parent, as block building creates it.
+   *
+   * @param protocolSchedule the protocol schedule
+   * @param miningConfiguration the mining configuration
+   * @param parent the parent of the pending block
+   * @param timestamp the timestamp of the pending block
+   * @return the pending block header
+   */
+  public static ProcessableBlockHeader simulatePendingBlockHeader(
+      final ProtocolSchedule protocolSchedule,
+      final MiningConfiguration miningConfiguration,
+      final BlockHeader parent,
+      final long timestamp) {
+    return BlockHeaderBuilder.createPending(
+            protocolSchedule.getForNextBlockHeader(parent, timestamp),
+            parent,
+            miningConfiguration,
+            timestamp,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty())
+        .buildProcessableBlockHeader();
   }
 
   private MutableWorldState duplicateWorldStateAtParent(final Hash parentHash) {
@@ -284,6 +300,100 @@ public class TransactionSimulator {
       final OperationTracer operationTracer,
       final PreCloseStateHandler<U> preWorldStateCloseGuard,
       final BlockHeader header) {
+    return process(
+        header,
+        operationTracer,
+        preWorldStateCloseGuard,
+        (updater, miningBeneficiary) ->
+            processWithWorldUpdater(
+                callParams,
+                maybeStateOverrides,
+                transactionValidationParams,
+                operationTracer,
+                header,
+                updater,
+                miningBeneficiary,
+                Optional.empty()));
+  }
+
+  /**
+   * Simulates the original signed transaction without replacing its authenticated fields.
+   *
+   * @param transaction the signed transaction to validate and execute
+   * @param transactionValidationParams the selected validation policy
+   * @param operationTracer the tracer for capturing execution
+   * @param preWorldStateCloseGuard the handler invoked before the temporary state is closed
+   * @param header the selected block header
+   * @return the simulation result, or empty if the selected state is unavailable
+   */
+  public <U> Optional<U> process(
+      final Transaction transaction,
+      final TransactionValidationParams transactionValidationParams,
+      final OperationTracer operationTracer,
+      final PreCloseStateHandler<U> preWorldStateCloseGuard,
+      final BlockHeader header) {
+    return process(
+        header,
+        operationTracer,
+        preWorldStateCloseGuard,
+        (updater, miningBeneficiary) -> {
+          final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
+          final Wei blobGasPrice =
+              protocolSpec
+                  .getFeeMarket()
+                  .blobGasPricePerGas(
+                      blockchain
+                          .getBlockHeader(header.getParentHash())
+                          .map(parent -> calculateExcessBlobGasForParent(protocolSpec, parent))
+                          .orElse(BlobGas.ZERO));
+          if (rpcGasCap > 0 && Long.compareUnsigned(transaction.getGasLimit(), rpcGasCap) > 0) {
+            // The transaction's own validity, which does not depend on the selected state, comes
+            // before the server's gas cap, so a malformed transaction reports its own error.
+            // Within the cap, the transaction processor performs the same validation.
+            final ValidationResult<TransactionInvalidReason> validity =
+                protocolSpec
+                    .getTransactionValidatorFactory()
+                    .get()
+                    .validate(
+                        transaction,
+                        header.getBaseFee(),
+                        Optional.of(blobGasPrice),
+                        transactionValidationParams);
+            return Optional.of(
+                new TransactionSimulatorResult(
+                    transaction,
+                    TransactionProcessingResult.invalid(
+                        validity.isValid()
+                            ? ValidationResult.invalid(
+                                TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT,
+                                "Signed transaction gas limit exceeds the RPC gas cap of "
+                                    + rpcGasCap)
+                            : validity)));
+          }
+          final TransactionProcessingResult result =
+              protocolSpec
+                  .getTransactionProcessor()
+                  .processTransaction(
+                      updater,
+                      header,
+                      transaction,
+                      miningBeneficiary,
+                      operationTracer,
+                      protocolSpec
+                          .getPreExecutionProcessor()
+                          .createBlockHashLookup(blockchain, header),
+                      transactionValidationParams,
+                      blobGasPrice,
+                      Optional.empty());
+          return Optional.of(new TransactionSimulatorResult(transaction, result));
+        });
+  }
+
+  private <U> Optional<U> process(
+      final BlockHeader header,
+      final OperationTracer operationTracer,
+      final PreCloseStateHandler<U> preWorldStateCloseGuard,
+      final BiFunction<WorldUpdater, Address, Optional<TransactionSimulatorResult>> processor) {
     if (header == null) {
       return Optional.empty();
     }
@@ -306,17 +416,7 @@ public class TransactionSimulator {
               .getMiningBeneficiaryCalculator()
               .calculateBeneficiary(header);
 
-      return preWorldStateCloseGuard.apply(
-          ws,
-          processWithWorldUpdater(
-              callParams,
-              maybeStateOverrides,
-              transactionValidationParams,
-              operationTracer,
-              header,
-              updater,
-              miningBeneficiary,
-              Optional.empty()));
+      return preWorldStateCloseGuard.apply(ws, processor.apply(updater, miningBeneficiary));
 
     } catch (final BlockStateCallException e) {
       throw e;
@@ -654,19 +754,19 @@ public class TransactionSimulator {
 
     transactionBuilder.guessType();
 
+    final ChainId callChainId = ChainId.fromOptional(callParams.getChainId());
+    final ChainId scheduleChainId = protocolSchedule.getChainId();
     if (transactionBuilder.getTransactionType().requiresChainId()) {
-      callParams
-          .getChainId()
-          .ifPresentOrElse(
-              transactionBuilder::chainId,
-              () ->
-                  // needed to make some transactions valid
-                  transactionBuilder.chainId(protocolSchedule.getChainId().orElse(BigInteger.ONE)));
-    } else if (callParams.getChainId().isPresent()
-        && !callParams.getChainId().equals(protocolSchedule.getChainId())) {
+      if (callChainId.isPresent()) {
+        transactionBuilder.chainId(callChainId);
+      } else {
+        // needed to make some transactions valid
+        transactionBuilder.chainId(scheduleChainId.isPresent() ? scheduleChainId : ChainId.of(1));
+      }
+    } else if (callChainId.isPresent() && !callChainId.equals(scheduleChainId)) {
       // a legacy call keeps a chainId for another chain, so that the transaction validator rejects
       // it, as it rejects a typed call for another chain
-      transactionBuilder.chainId(callParams.getChainId().get());
+      transactionBuilder.chainId(callChainId);
     }
 
     final Transaction transaction = transactionBuilder.build();
@@ -754,7 +854,7 @@ public class TransactionSimulator {
   }
 
   private boolean shouldSetBlobGasPrice(final CallParameter callParams) {
-    if (protocolSchedule.getChainId().isEmpty()) {
+    if (protocolSchedule.getChainId().isAbsent()) {
       return false;
     }
     return callParams.getBlobVersionedHashes().isPresent();
