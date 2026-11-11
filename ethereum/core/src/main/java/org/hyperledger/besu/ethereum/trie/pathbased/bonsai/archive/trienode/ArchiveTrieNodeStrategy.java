@@ -65,7 +65,7 @@ public class ArchiveTrieNodeStrategy
   private final ArchiveTrieNodeWriter trieNodeWriter;
   private final ArchiveNodeHistoryStore historyStore;
   private final Predicate<SegmentedKeyValueStorage> isCaptureStorage;
-  private final AtomicBoolean reorgLogged = new AtomicBoolean(false);
+  private final AtomicBoolean stopLogged = new AtomicBoolean(false);
 
   // Starts true (archive everything) until the first in-sync event. Safe default for initial sync
   // and no-peers startup
@@ -196,22 +196,26 @@ public class ArchiveTrieNodeStrategy
   }
 
   private boolean extendsCoverage(final BlockHeader blockHeader) {
+    final long block = blockHeader.getNumber();
     final Optional<ArchivedBlock> current = historyStore.getArchivedBlock();
     if (current.isEmpty()) {
-      return blockHeader.getNumber() == 0L;
+      return block == 0L;
     }
-    final ArchivedBlock lastArchived = current.get();
-    if (blockHeader.getNumber() != lastArchived.number() + 1) {
-      return false;
+    final ArchivedBlock last = current.get();
+    if (block == last.number() + 1 && last.hash().equals(blockHeader.getParentHash())) {
+      return true;
     }
-    final boolean buildsOnLastArchived = lastArchived.hash().equals(blockHeader.getParentHash());
-    if (!buildsOnLastArchived && reorgLogged.compareAndSet(false, true)) {
+    // Lower blocks are re-imports or siblings; capture never resumes, so log the first stop only.
+    if (block > last.number() && stopLogged.compareAndSet(false, true)) {
       LOG.error(
-          "Trie-node capture stopped at block {}: the chain reorged past archived history. "
+          "Trie-node capture stopped: block {} ({}) does not extend archived block {} ({}). "
               + "Proof history needs a resync.",
-          lastArchived.number());
+          block,
+          blockHeader.getBlockHash(),
+          last.number(),
+          last.hash());
     }
-    return buildsOnLastArchived;
+    return false;
   }
 
   // Bonsai re-commits unchanged nodes along a touched path; skip archiving them to avoid
