@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -16,14 +16,16 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -45,9 +47,9 @@ class DebugTraceCallTest {
   private final ProtocolSchedule protocolSchedule =
       mock(ProtocolSchedule.class, Answers.RETURNS_DEEP_STUBS);
   private final BlockHeader blockHeader = mock(BlockHeader.class, Answers.RETURNS_DEEP_STUBS);
-  // An unstubbed simulator returns Optional.empty(), reported by DebugTraceCall as INTERNAL_ERROR.
+  private final TransactionSimulator transactionSimulator = mock(TransactionSimulator.class);
   private final DebugTraceCall method =
-      new DebugTraceCall(blockchainQueries, protocolSchedule, mock(TransactionSimulator.class));
+      new DebugTraceCall(blockchainQueries, protocolSchedule, transactionSimulator);
 
   @BeforeEach
   void setUp() {
@@ -69,16 +71,14 @@ class DebugTraceCallTest {
               assertThat(e.getRpcErrorType().getCode()).isEqualTo(-32602);
               assertThat(e).hasMessageContaining("Block overrides are not supported");
             });
+    verifyNoInteractions(transactionSimulator);
   }
 
   @Test
   void doesNotRejectTraceConfigWithoutBlockOverrides() {
-    final JsonRpcResponse response = method.response(request(Map.of("enableMemory", true)));
+    method.response(request(Map.of("enableMemory", true)));
 
-    // Reaching the (unstubbed) simulator means the trace config passed validation.
-    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) response).getErrorType())
-        .isEqualTo(RpcErrorType.INTERNAL_ERROR);
+    verify(transactionSimulator).process(any(), any(), any(), any(), any(), eq(blockHeader));
   }
 
   private static JsonRpcRequestContext request(final Map<String, Object> traceConfig) {
