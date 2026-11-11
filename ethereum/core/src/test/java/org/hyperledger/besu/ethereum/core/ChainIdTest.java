@@ -69,9 +69,6 @@ class ChainIdTest {
     assertThat(chainId.toString()).isEqualTo(value.toString());
     assertThat(chainId.toHexString()).isEqualTo("0x" + value.toString(16));
 
-    assertThat(ChainId.fromBytes(Bytes.wrap(value.toByteArray()))).isEqualTo(chainId);
-    assertThat(ChainId.fromString(value.toString())).isEqualTo(chainId);
-    assertThat(ChainId.fromString(chainId.toHexString())).isEqualTo(chainId);
     assertThat(ChainId.fromOptional(Optional.of(value))).isEqualTo(chainId);
     if (chainId.fitsLong()) {
       assertThat(ChainId.of(value.longValueExact())).isEqualTo(chainId);
@@ -131,11 +128,10 @@ class ChainIdTest {
 
   @Test
   void valuesThatFitInLongAreNeverBackedByBigInteger() {
-    final ChainId fromBytes = ChainId.fromBytes(Bytes.fromHexString("0x00000000000000000005"));
+    final ChainId fromBigInteger = ChainId.of(BigInteger.valueOf(Long.MAX_VALUE));
 
-    assertThat(fromBytes).isEqualTo(ChainId.of(5)).isEqualTo(ChainId.of(BigInteger.valueOf(5)));
-    assertThat(fromBytes.fitsLong()).isTrue();
-    assertThat(ChainId.fromBytes(Bytes.EMPTY)).isEqualTo(ChainId.of(0));
+    assertThat(fromBigInteger.fitsLong()).isTrue();
+    assertThat(fromBigInteger).isEqualTo(ChainId.of(Long.MAX_VALUE));
   }
 
   @Test
@@ -146,7 +142,6 @@ class ChainIdTest {
     assertThat(zero.isPresent()).isTrue();
     assertThat(ChainId.of(1).isZero()).isFalse();
     assertThat(ChainId.of(BigInteger.ZERO)).isSameAs(zero);
-    assertThat(ChainId.fromBytes(Bytes.of(0))).isSameAs(zero);
   }
 
   @Test
@@ -173,7 +168,6 @@ class ChainIdTest {
     assertThatThrownBy(() -> ChainId.of(-1)).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> ChainId.of(BigInteger.valueOf(-1)))
         .isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> ChainId.fromString("-1")).isInstanceOf(IllegalArgumentException.class);
   }
 
   @Test
@@ -191,9 +185,6 @@ class ChainIdTest {
 
     assertThat(ChainId.of(560048)).isSameAs(network);
     assertThat(ChainId.of(BigInteger.valueOf(560048))).isSameAs(network);
-    assertThat(ChainId.fromBytes(Bytes.ofUnsignedInt(560048))).isSameAs(network);
-    assertThat(ChainId.fromString("560048")).isSameAs(network);
-    assertThat(ChainId.fromString("0x88bb0")).isSameAs(network);
     assertThat(ChainId.readFrom(new BytesValueRLPInput(out.encoded(), false))).isSameAs(network);
     assertThat(ChainId.of(560049)).isNotSameAs(network).isNotEqualTo(network);
   }
@@ -212,7 +203,6 @@ class ChainIdTest {
     final ChainId network = ChainId.initNetworkChainId(ChainId.of(TWO_POW_256_MINUS_1));
 
     assertThat(ChainId.of(TWO_POW_256_MINUS_1)).isSameAs(network);
-    assertThat(ChainId.fromBytes(Bytes.wrap(TWO_POW_256_MINUS_1.toByteArray()))).isSameAs(network);
     assertThat(network.toOptionalBigInteger()).isSameAs(network.toOptionalBigInteger());
   }
 

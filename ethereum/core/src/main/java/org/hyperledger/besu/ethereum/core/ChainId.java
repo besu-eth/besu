@@ -23,7 +23,6 @@ import java.math.BigInteger;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -198,35 +197,6 @@ public final class ChainId implements org.hyperledger.besu.datatypes.ChainId {
       return simulationCodeDelegation.chainIdentifier();
     }
     return of(codeDelegation.chainId());
-  }
-
-  /**
-   * Returns the chain id whose value is the given bytes, read as an unsigned big-endian integer.
-   *
-   * @param bytes the value bytes
-   * @return the chain id
-   */
-  public static ChainId fromBytes(final Bytes bytes) {
-    final Bytes trimmed = bytes.trimLeadingZeros();
-    if (trimmed.size() < Long.BYTES || (trimmed.size() == Long.BYTES && trimmed.get(0) >= 0)) {
-      return of(trimmed.toLong());
-    }
-    return of(trimmed.toUnsignedBigInteger());
-  }
-
-  /**
-   * Returns the chain id represented by the given string, either a decimal or a {@code 0x} prefixed
-   * hexadecimal number.
-   *
-   * @param value the string representation of the chain id
-   * @return the chain id
-   */
-  public static ChainId fromString(final String value) {
-    requireNonNull(value);
-    if (value.startsWith("0x") || value.startsWith("0X")) {
-      return fromBytes(Bytes.fromHexStringLenient(value));
-    }
-    return of(new BigInteger(value));
   }
 
   /**
