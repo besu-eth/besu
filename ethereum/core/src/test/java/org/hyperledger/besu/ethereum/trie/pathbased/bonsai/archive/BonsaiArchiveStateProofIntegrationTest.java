@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
 import static org.mockito.Mockito.mock;
@@ -29,6 +31,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
@@ -37,16 +40,20 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.Arch
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveReadTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeWriter;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.ArrayList;
@@ -60,6 +67,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * End-to-end integration test for the bonsai archive trie-node write and proof-read pipeline.
@@ -91,15 +100,20 @@ class BonsaiArchiveStateProofIntegrationTest {
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
     archiveStrategy =
-        new ArchiveTrieNodeStrategy(
-            baseStrategy, capture, historyStore, s -> s == storage, () -> false);
+        new ArchiveTrieNodeStrategy(baseStrategy, capture, historyStore, storage, () -> false);
   }
 
   private BlockHeader header(final long block) {
     while (chain.size() <= block) {
       final Hash parentHash = chain.isEmpty() ? Hash.EMPTY : chain.getLast().getHash();
       chain.add(
-          new BlockHeaderTestFixture().number(chain.size()).parentHash(parentHash).buildHeader());
+          new BlockHeaderTestFixture()
+              .number(chain.size())
+              .parentHash(parentHash)
+              .stateRoot(
+                  Hash.hash(
+                      Bytes.concatenate(Bytes.ofUnsignedInt(chain.size()), parentHash.getBytes())))
+              .buildHeader());
     }
     return chain.get((int) block);
   }
@@ -110,12 +124,16 @@ class BonsaiArchiveStateProofIntegrationTest {
     return tx;
   }
 
-  // Advances the stored world block hash exactly as a real block commit would.
+  // Advances the stored world block hash and root exactly as a real block commit would.
   private void commitBlock(final long block, final SegmentedKeyValueStorageTransaction tx) {
     tx.put(
         TRIE_BRANCH_STORAGE,
         WORLD_BLOCK_HASH_KEY,
         header(block).getHash().getBytes().toArrayUnsafe());
+    tx.put(
+        TRIE_BRANCH_STORAGE,
+        WORLD_ROOT_HASH_KEY,
+        header(block).getStateRoot().getBytes().toArrayUnsafe());
     archiveStrategy.onBeforeCommit(storage, tx);
     tx.commit();
   }
@@ -185,22 +203,27 @@ class BonsaiArchiveStateProofIntegrationTest {
     return out.encoded();
   }
 
-  /** Archives {@code node} at {@code location} as block {@code block}. */
   // Loads the stored node at key, as the state-root trie does before replacing it.
   private void loadStored(final Bytes key) {
+    final Hash headRoot =
+        storage
+            .get(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY)
+            .map(b -> Hash.wrap(Bytes32.wrap(b)))
+            .orElse(Hash.ZERO);
     storage
         .get(TRIE_BRANCH_STORAGE, key.toArrayUnsafe())
         .map(Bytes::wrap)
         .ifPresent(
             node ->
                 archiveStrategy
-                    .wrapNodeLoader(storage, (l, h) -> Optional.of(node), l -> key)
+                    .wrapNodeLoader(headRoot, (l, h) -> Optional.of(node), l -> key)
                     .getNode(key, hash(node)));
   }
 
+  /** Archives {@code node} at {@code location} as block {@code block}. */
   private void writeAccountBlock(final long block, final Bytes location, final Bytes node) {
-    final SegmentedKeyValueStorageTransaction tx = startBlock(block);
     loadStored(location);
+    final SegmentedKeyValueStorageTransaction tx = startBlock(block);
     archiveStrategy.putTrieNode(storage, tx, location, hash(node), node);
     commitBlock(block, tx);
   }
@@ -383,9 +406,9 @@ class BonsaiArchiveStateProofIntegrationTest {
     final Bytes bV0 = branchNode(20);
 
     for (long block = 0; block <= 1; block++) {
+      loadStored(TrieNodeKey.of(accountA, location));
       final SegmentedKeyValueStorageTransaction tx = startBlock(block);
       final Bytes aNode = block == 0 ? aV0 : aV1;
-      loadStored(TrieNodeKey.of(accountA, location));
       archiveStrategy.putTrieNode(
           storage, tx, TrieNodeKey.of(accountA, location), hash(aNode), aNode);
       if (block == 0) {
@@ -421,8 +444,10 @@ class BonsaiArchiveStateProofIntegrationTest {
     assertThat(readAccountNode(2L, location, hash(written))).contains(written);
   }
 
-  @Test
-  void worldStatePersistsMatchArchivedTries() {
+  // BAL blocks compute the state root on a separate world state over the persisted parent.
+  @ParameterizedTest(name = "state root computed on a separate world state: {0}")
+  @ValueSource(booleans = {false, true})
+  void worldStatePersistsMatchArchivedTries(final boolean separateStateRootWorldState) {
     final Address account = Address.fromHexString("0x1111111111111111111111111111111111111111");
     final Function<Bytes, Bytes> storageKey =
         location -> TrieNodeKey.of(account.addressHash(), location);
@@ -456,7 +481,11 @@ class BonsaiArchiveStateProofIntegrationTest {
       final WorldUpdater updater = worldState.updater();
       updater.getAccount(account).setStorageValue(UInt256.ZERO, UInt256.valueOf(100));
       updater.commit();
-      final BlockHeader block1 = persist(worldState, 1L, block0.getHash());
+      final StateRootCommitter committer =
+          separateStateRootWorldState
+              ? onSeparateWorldState(provider, worldStateStorage)
+              : new DefaultStateRootCommitter();
+      final BlockHeader block1 = persist(worldState, 1L, block0.getHash(), committer);
       final Hash storageRoot1 = ((BonsaiAccount) worldState.get(account)).getStorageRoot();
 
       assertArchivedTrie(liveHistory, 0L, block0.getStateRoot(), Function.identity());
@@ -474,14 +503,35 @@ class BonsaiArchiveStateProofIntegrationTest {
 
   private static BlockHeader persist(
       final BonsaiWorldState worldState, final long number, final Hash parentHash) {
+    return persist(worldState, number, parentHash, new DefaultStateRootCommitter());
+  }
+
+  private static BlockHeader persist(
+      final BonsaiWorldState worldState,
+      final long number,
+      final Hash parentHash,
+      final StateRootCommitter committer) {
     final BlockHeader header =
         new BlockHeaderTestFixture()
             .number(number)
             .parentHash(parentHash)
             .stateRoot(worldState.frontierRootHash())
             .buildHeader();
-    worldState.persist(header);
+    worldState.persist(header, committer);
     return header;
+  }
+
+  private static StateRootCommitter onSeparateWorldState(
+      final BonsaiWorldStateProvider provider, final BonsaiWorldStateKeyValueStorage storage) {
+    final BonsaiWorldState parent =
+        new BonsaiWorldState(
+            provider,
+            new BonsaiWorldStateLayerStorage(storage),
+            EvmConfiguration.DEFAULT,
+            createStatefulConfigWithTrie(),
+            new BonsaiCodeCache());
+    return (worldState, header, updater) ->
+        new DefaultStateRootCommitter().compute(parent, header, updater);
   }
 
   // Walks the trie at block from the archive alone; every node must match its parent's hash.

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
@@ -46,9 +47,7 @@ public interface TrieNodeStrategy {
       SegmentedKeyValueStorage storage, SegmentedKeyValueStorageTransaction transaction, Bytes key);
 
   default NodeLoader wrapNodeLoader(
-      final SegmentedKeyValueStorage storage,
-      final NodeLoader loader,
-      final Function<Bytes, Bytes> keyOf) {
+      final Hash stateRoot, final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
     return loader;
   }
 

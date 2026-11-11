@@ -16,7 +16,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
@@ -39,7 +41,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
-import java.util.function.Predicate;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -66,7 +67,7 @@ public class ArchiveTrieNodeStrategy
   private final TrieNodeStrategy base;
   private final ArchiveTrieNodeWriter trieNodeWriter;
   private final ArchiveNodeHistoryStore historyStore;
-  private final Predicate<SegmentedKeyValueStorage> isCaptureStorage;
+  private final SegmentedKeyValueStorage captureStorage;
   private final AtomicBoolean logMissingCoverage = new AtomicBoolean(true);
 
   // Starts true (archive everything) until the first in-sync event. Safe default for initial sync
@@ -76,10 +77,15 @@ public class ArchiveTrieNodeStrategy
   // True when an external chain estimate exists (e.g. a peer or CL that knows the chain head)
   private volatile BooleanSupplier hasChainEstimate;
 
-  // Nodes loaded from the capture storage since its last commit, by trie-node key. They are what
-  // storage holds until that commit, so a captured block uses them as the nodes it replaces.
-  private final AtomicReference<Map<Bytes, Bytes>> loadedNodes =
-      new AtomicReference<>(new ConcurrentHashMap<>());
+  // Nodes read from one state, by key. They're the same whichever storage they were read from.
+  private record LoadedNodes(Hash root, Map<Bytes, Bytes> nodes) {
+    LoadedNodes at(final Hash stateRoot) {
+      return root.equals(stateRoot) ? this : new LoadedNodes(stateRoot, new ConcurrentHashMap<>());
+    }
+  }
+
+  private final AtomicReference<LoadedNodes> loadedNodes =
+      new AtomicReference<>(new LoadedNodes(Hash.ZERO, Map.of()));
 
   // Transactions persisting a captured block, mapped to the nodes that block replaces.
   private final Cache<SegmentedKeyValueStorageTransaction, Map<Bytes, Bytes>> capturedBlocks =
@@ -106,7 +112,7 @@ public class ArchiveTrieNodeStrategy
         new ArchiveTrieNodeWriter(
             historyStore, trieCapturePool, shallowCheckpointInterval, deepCheckpointInterval),
         historyStore,
-        storage -> storage == liveStorage,
+        liveStorage,
         () -> false);
   }
 
@@ -123,7 +129,7 @@ public class ArchiveTrieNodeStrategy
    * @param base the delegate strategy for the live trie
    * @param trieNodeWriter the writer that persists archived history entries
    * @param historyStore the archive store whose recorded progress captured blocks must extend
-   * @param isCaptureStorage whether writes to a storage are archived
+   * @param captureStorage the storage whose block persists are archived
    * @param hasChainEstimate supplies whether an external chain estimate exists (see field)
    */
   @VisibleForTesting
@@ -131,12 +137,12 @@ public class ArchiveTrieNodeStrategy
       final TrieNodeStrategy base,
       final ArchiveTrieNodeWriter trieNodeWriter,
       final ArchiveNodeHistoryStore historyStore,
-      final Predicate<SegmentedKeyValueStorage> isCaptureStorage,
+      final SegmentedKeyValueStorage captureStorage,
       final BooleanSupplier hasChainEstimate) {
     this.base = Objects.requireNonNull(base);
     this.trieNodeWriter = Objects.requireNonNull(trieNodeWriter);
     this.historyStore = Objects.requireNonNull(historyStore);
-    this.isCaptureStorage = Objects.requireNonNull(isCaptureStorage);
+    this.captureStorage = Objects.requireNonNull(captureStorage);
     this.hasChainEstimate =
         Objects.requireNonNull(hasChainEstimate, "hasChainEstimate must not be null");
   }
@@ -154,21 +160,34 @@ public class ArchiveTrieNodeStrategy
 
   @Override
   public NodeLoader wrapNodeLoader(
-      final SegmentedKeyValueStorage storage,
-      final NodeLoader loader,
-      final Function<Bytes, Bytes> keyOf) {
-    if (!isCaptureStorage.test(storage) || !archiving.get()) {
+      final Hash stateRoot, final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
+    // Only nodes from the current head are useful, so skip others. Check memory before disk.
+    if (!archiving.get()
+        || !(loadedNodes.get().root().equals(stateRoot) || isPersistedRoot(stateRoot))) {
       return loader;
     }
+    final Map<Bytes, Bytes> loaded = loadedNodes.updateAndGet(c -> c.at(stateRoot)).nodes();
     return (location, hash) -> {
-      // taken before the load, so a load racing a commit can't reach the next commit's map
-      final Map<Bytes, Bytes> loaded = loadedNodes.get();
       final Optional<Bytes> node = loader.getNode(location, hash);
       // the empty trie node is never stored, so it is never a prior
-      node.filter(n -> !hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH))
-          .ifPresent(n -> loaded.put(keyOf.apply(location), n));
+      if (!hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+        node.ifPresent(n -> loaded.put(keyOf.apply(location), n));
+      }
       return node;
     };
+  }
+
+  private boolean isPersistedRoot(final Hash stateRoot) {
+    return captureStorage
+        .get(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY)
+        .filter(root -> stateRoot.equals(Hash.wrap(Bytes32.wrap(root))))
+        .isPresent();
+  }
+
+  // Loads are priors only if their root is the state this block replaces; genesis has none.
+  private Map<Bytes, Bytes> priorNodes() {
+    final LoadedNodes loaded = loadedNodes.get();
+    return isPersistedRoot(loaded.root()) ? loaded.nodes() : Map.of();
   }
 
   @Override
@@ -177,12 +196,12 @@ public class ArchiveTrieNodeStrategy
       final SegmentedKeyValueStorageTransaction transaction,
       final BlockHeader blockHeader) {
     final long block = blockHeader.getNumber();
-    if (isCaptureStorage.test(storage)
+    if (storage == captureStorage
         && (block == 0L || archiving.get())
         && isSingleBlockPersist(storage, blockHeader)
         && extendsCoverage(blockHeader)) {
       trieNodeWriter.beginBlock(transaction, blockHeader);
-      capturedBlocks.put(transaction, block == 0L ? Map.of() : loadedNodes.get());
+      capturedBlocks.put(transaction, priorNodes());
     }
   }
 
@@ -289,10 +308,6 @@ public class ArchiveTrieNodeStrategy
   public void onBeforeCommit(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction) {
-    if (isCaptureStorage.test(storage)) {
-      // the commit may change any loaded node, so nothing loaded before it is a prior after it
-      loadedNodes.set(new ConcurrentHashMap<>());
-    }
     if (capturedBlocks.asMap().remove(transaction) != null) {
       trieNodeWriter.onBeforeCommit(transaction);
     }

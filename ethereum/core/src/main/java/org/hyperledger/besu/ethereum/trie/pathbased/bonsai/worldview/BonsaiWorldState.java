@@ -287,10 +287,9 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   private NodeLoader wrapNodeLoader(final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
-    final BonsaiWorldStateKeyValueStorage storage = getWorldStateStorage();
-    return storage
+    return getWorldStateStorage()
         .getTrieNodeStrategy()
-        .wrapNodeLoader(storage.getComposedWorldStateStorage(), loader, keyOf);
+        .wrapNodeLoader(worldStateRootHash, loader, keyOf);
   }
 
   private MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
