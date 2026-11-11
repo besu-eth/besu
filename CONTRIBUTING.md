@@ -105,7 +105,7 @@ Look at your PR through the eyes of a reviewer. Human review is without doubt th
 
 ### Pitch your PR
 - The PR title should be short and descriptive.
-- The PR description should link to the related issue and succinctly describe the changes. Use a GitHub keyword such as `fixes #1234` so the issue closes when the PR is merged, or `refs #1234` if it doesn't fully resolve it.
+- The PR description should succinctly describe the changes. If there is a related issue, link to it with a GitHub keyword such as `fixes #1234` so the issue closes when the PR is merged, or `refs #1234` if it doesn't fully resolve it. If there is no issue, for example for a test-only change or a small refactor, the pitch below should explain the motivation instead.
 - A short one sentence "pitch" at the top of the PR description, explaining why reviewers should prioritize your PR is helpful. What's the impact, what's the problem you're solving?
 - Then also include evidence to justify your PR
   - evidence that the problem exists - logs, errors, metrics - this adds weight to your PR.
