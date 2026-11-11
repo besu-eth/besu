@@ -397,6 +397,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     final var selectionResults =
         new ConcurrentHashMap<PendingTransaction, CompletableFuture<TransactionSelectionResult>>(
             candidateTransactions.size());
+    // guarded by selectionResults
+    final var selectionReturned = new AtomicBoolean(false);
 
     currTxSelectionTask =
         new FutureTask<>(
@@ -414,7 +416,14 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
                   // timeout or a cancellation the evaluation could still be running when the
                   // selection returns, and the txpool needs to process the result when it is ready
                   final var futureResult = new CompletableFuture<TransactionSelectionResult>();
-                  selectionResults.put(candidateTx, futureResult);
+                  synchronized (selectionResults) {
+                    // the txpool reads the results once the selection returns, so it would never
+                    // see the result of an evaluation started after that
+                    if (selectionReturned.get()) {
+                      break;
+                    }
+                    selectionResults.put(candidateTx, futureResult);
+                  }
                   final TransactionSelectionResult selectionResult;
                   try {
                     selectionResult = evaluateTransaction(candidateTx);
@@ -475,6 +484,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       waitForCancellationToBeProcessed("Internal", internalSelectionDone, maxWaitTime);
     }
 
+    synchronized (selectionResults) {
+      selectionReturned.set(true);
+    }
     return selectionResults;
   }
 
