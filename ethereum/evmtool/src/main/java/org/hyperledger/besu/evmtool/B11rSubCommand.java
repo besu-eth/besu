@@ -219,11 +219,10 @@ public class B11rSubCommand implements Runnable {
     var testHeader = this.readHeader(config.get("header"), objectMapper);
     Bytes txsBytes = null;
 
-    if (config.has("txs")) {
-      String txsString = config.get("txs").textValue();
-      if (!txsString.isEmpty()) {
-        txsBytes = Bytes.fromHexString(txsString);
-      }
+    // textValue() is null for a missing key, "txs": null, or an empty txs file
+    String txsString = config.path("txs").textValue();
+    if (txsString != null && !txsString.isEmpty()) {
+      txsBytes = Bytes.fromHexString(txsString);
     }
 
     var newHeader =
