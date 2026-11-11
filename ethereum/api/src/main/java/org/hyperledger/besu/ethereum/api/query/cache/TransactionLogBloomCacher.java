@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -63,6 +64,9 @@ public class TransactionLogBloomCacher {
   private final Map<Long, Boolean> cachedSegments;
 
   private final Lock submissionLock = new ReentrantLock();
+
+  // set when a block event arrives while another caching job holds the cacher
+  private final AtomicBoolean blockEventDropped = new AtomicBoolean(false);
 
   private final EthScheduler scheduler;
   private final Blockchain blockchain;
@@ -123,12 +127,6 @@ public class TransactionLogBloomCacher {
         for (long blockNum = start; blockNum < clampedStop; blockNum += BLOCKS_PER_BLOOM_CACHE) {
           LOG.trace("Caching segment at {}", blockNum);
           final File cacheFile = calculateCacheFileName(blockNum, cacheDir);
-          blockchain
-              .getBlockHeader(blockNum)
-              .ifPresent(
-                  blockHeader ->
-                      cacheLogsBloomForBlockHeader(
-                          blockHeader, Optional.empty(), Optional.of(cacheFile)));
           fillCacheFile(blockNum, blockNum + BLOCKS_PER_BLOOM_CACHE, cacheFile);
         }
       } catch (final InterruptedIOException e) {
@@ -176,6 +174,8 @@ public class TransactionLogBloomCacher {
       final Optional<File> reusedCacheFile) {
     try {
       if (cachingStatus.cachingCount.incrementAndGet() != 1) {
+        // the dropped block can replace a block that is already in the cache file
+        blockEventDropped.set(true);
         return;
       }
       final long blockNumber = blockHeader.getNumber();
@@ -184,7 +184,8 @@ public class TransactionLogBloomCacher {
           .addArgument(() -> "0x" + Long.toHexString(blockNumber))
           .log();
       final File cacheFile = reusedCacheFile.orElse(calculateCacheFileName(blockNumber, cacheDir));
-      if (cacheFile.exists()) {
+      final boolean rebuild = blockEventDropped.getAndSet(false);
+      if (cacheFile.exists() && !rebuild) {
         try {
           final Optional<Long> ancestorBlockNumber =
               commonAncestorBlockHeader.map(ProcessableBlockHeader::getNumber);
@@ -204,8 +205,9 @@ public class TransactionLogBloomCacher {
         } catch (final InvalidCacheException e) {
           populateLatestSegment(blockNumber);
         }
-      } else {
-        populateLatestSegment(blockNumber);
+      } else if (!populateLatestSegment(blockNumber) && rebuild) {
+        // the file still holds the blocks of the dropped events, so retry with the next block
+        blockEventDropped.set(true);
       }
     } catch (final IOException e) {
       if (isDiskFull(e)) {
