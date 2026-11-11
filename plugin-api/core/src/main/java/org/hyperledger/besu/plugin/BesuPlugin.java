@@ -25,18 +25,13 @@ import java.util.concurrent.CompletableFuture;
  * <p>Plugins are discovered and loaded using {@link java.util.ServiceLoader} from jar files within
  * Besu's plugin directory. See the {@link java.util.ServiceLoader} documentation for how to
  * register plugins.
+ *
+ * <p>The jars are loaded in file name order, and the plugins of one jar in the order its service
+ * file lists them; the plugins register, start and stop in that order. A plugin is identified by
+ * its fully qualified class name: that id is what {@code --plugins} selects, what {@code --version}
+ * prints and what {@code plugins_reloadPluginConfig} takes.
  */
 public interface BesuPlugin {
-
-  /**
-   * Returns the name of the plugin. This name is used to trigger specific actions on individual
-   * plugins.
-   *
-   * @return the name of the plugin.
-   */
-  default String getName() {
-    return this.getClass().getName();
-  }
 
   /**
    * Called before the command line is parsed, so that the plugin can declare its CLI options
