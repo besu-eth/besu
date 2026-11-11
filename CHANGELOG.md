@@ -26,7 +26,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
-- `evmtool t8n` no longer fails with a `NullPointerException` when the input has no `txs`; it runs the block with no transactions.
+- `evmtool t8n` no longer fails with a `NullPointerException` when the input has no `txs`; it runs the block with no transactions. [#11930](https://github.com/besu-eth/besu/pull/11930)
 - `callTracer` and `flatCallTracer` no longer report a frame for a CALL or CREATE opcode that halts before it makes the call, such as a CALL with value in a static context or out of gas for the opcode. Since Amsterdam, a CREATE that fails the depth, balance or nonce check also gets no frame, because EIP-8037 makes the check fail in the parent opcode. [#11637](https://github.com/besu-eth/besu/pull/11637)
 - `admin_logsRemoveCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when `startBlock` or `stopBlock` is not known, including an unknown block number and an unknown `safe` or `finalized` tag. [#11892](https://github.com/besu-eth/besu/issues/11892)
 - `eth_getStorageValues`, `testing_buildBlockV1` and `testing_commitBlockV1` now return the error detail in `message`, not in `data`, as [execution-apis#967](https://github.com/ethereum/execution-apis/pull/967) specifies. [#11861](https://github.com/besu-eth/besu/pull/11861)
