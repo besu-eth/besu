@@ -186,6 +186,8 @@ public class BesuEventsImplTest {
             EthProtocolConfiguration.DEFAULT,
             new BlobCache(),
             MiningConfiguration.newDefault());
+    // the node starts transaction handling once its plugins have started
+    transactionPool.startTransactionHandling();
 
     serviceImpl =
         new BesuEventsImpl(
