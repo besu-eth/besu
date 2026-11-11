@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.precompile;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hyperledger.besu.evm.precompile.AbstractPrecompiledContract.cacheEventConsumer;
 
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
@@ -129,16 +128,6 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
                   name, AbstractPrecompiledContract.CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug(
-                "false positive {} {}, cache key {}, cached input: {}, input: {}",
-                name,
-                input.getClass().getSimpleName(),
-                cacheKey,
-                res.cachedInput().toHexString(),
-                cachedInput.toHexString());
-          }
-
           cacheEventConsumer.accept(
               new AbstractPrecompiledContract.CacheEvent(
                   name, AbstractPrecompiledContract.CacheMetric.FALSE_POSITIVE));
@@ -175,9 +164,7 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
               enableResultCaching ? cachedInput.copy() : input,
               PrecompileContractResult.success(Bytes.wrap(result, 0, o_len.getValue())));
     } else {
-      final String errorMessage = new String(error, 0, err_len.getValue(), UTF_8);
       messageFrame.setRevertReason(Bytes.wrap(error, 0, err_len.getValue()));
-      LOG.trace("Error executing precompiled contract {}: '{}'", name, errorMessage);
       res =
           new PrecompileInputResultTuple(
               enableResultCaching ? cachedInput.copy() : input,

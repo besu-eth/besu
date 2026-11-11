@@ -285,7 +285,6 @@ public class BigIntegerModularExponentiationPrecompiledContract
     if (errorNo == 0) {
       return PrecompileContractResult.success(Bytes.wrap(result, 0, o_len.getValue()));
     } else {
-      LOG.trace("Error executing precompiled contract {}: {}", getName(), errorNo);
       return PrecompileContractResult.halt(
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }

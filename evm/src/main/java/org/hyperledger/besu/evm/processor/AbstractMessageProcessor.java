@@ -27,8 +27,6 @@ import java.util.ArrayList;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A skeletal class for instantiating message processors.
@@ -66,8 +64,6 @@ import org.slf4j.LoggerFactory;
  * </table>
  */
 public abstract class AbstractMessageProcessor {
-
-  private static final Logger LOG = LoggerFactory.getLogger(AbstractMessageProcessor.class);
 
   // List of addresses to force delete when they are touched but empty
   // when the state changes in the message are were not meant to be committed.
@@ -165,7 +161,6 @@ public abstract class AbstractMessageProcessor {
     handleStateGasOnFrameFailure(frame);
 
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
-    traceFrameExit(frame, "HALT");
     frame.clearGasRemaining();
     frame.clearOutputData();
   }
@@ -179,7 +174,6 @@ public abstract class AbstractMessageProcessor {
     handleStateGasOnFrameFailure(frame);
 
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
-    traceFrameExit(frame, "REVERT");
   }
 
   /**
@@ -189,24 +183,9 @@ public abstract class AbstractMessageProcessor {
    */
   private void completedSuccess(final MessageFrame frame) {
     frame.getWorldUpdater().commit();
-    traceFrameExit(frame, "SUCCESS");
     frame.getMessageFrameStack().removeFirst();
     frame.notifyCompletion();
     frame.releaseStackV2();
-  }
-
-  private static void traceFrameExit(final MessageFrame frame, final String status) {
-    if (LOG.isTraceEnabled()) {
-      final var contractAddress = frame.getContractAddress();
-      LOG.trace(
-          "EIP-8037 FRAME_EXIT depth={} contractAddress={} status={} gasLeft={} reservoir={} stateGasUsed={}",
-          frame.getDepth(),
-          contractAddress == null ? "" : contractAddress.toHexString(),
-          status,
-          frame.getRemainingGas(),
-          frame.getStateGasReservoir(),
-          frame.getStateGasUsed());
-    }
   }
 
   /**
@@ -241,16 +220,6 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer the operation tracer
    */
   public void process(final MessageFrame frame, final OperationTracer operationTracer) {
-    if (LOG.isTraceEnabled() && frame.getState() == MessageFrame.State.NOT_STARTED) {
-      final var contractAddress = frame.getContractAddress();
-      LOG.trace(
-          "EIP-8037 FRAME_ENTER depth={} contractAddress={} gasLimit={} reservoir={} stateGasUsed={}",
-          frame.getDepth(),
-          contractAddress == null ? "" : contractAddress.toHexString(),
-          frame.getRemainingGas(),
-          frame.getStateGasReservoir(),
-          frame.getStateGasUsed());
-    }
     if (operationTracer != null) {
       if (frame.getState() == MessageFrame.State.NOT_STARTED) {
         operationTracer.traceContextEnter(frame);

@@ -36,9 +36,6 @@ import java.math.BigInteger;
 import java.util.Optional;
 import java.util.Set;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
  * Validates a transaction based on Frontier protocol runtime requirements.
  *
@@ -46,7 +43,6 @@ import org.slf4j.LoggerFactory;
  * {@link Transaction}.
  */
 public class MainnetTransactionValidator implements TransactionValidator {
-  private static final Logger LOG = LoggerFactory.getLogger(MainnetTransactionValidator.class);
 
   public static final BigInteger TWO_POW_256 = BigInteger.TWO.pow(256);
 
@@ -125,12 +121,6 @@ public class MainnetTransactionValidator implements TransactionValidator {
       final ValidationResult<TransactionInvalidReason> blobTransactionResult =
           blobsValidator.validate(transaction, transactionValidationParams);
       if (!blobTransactionResult.isValid()) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug(
-              "Blob transaction {} validation failed: {}",
-              transaction.getHash().getBytes().toHexString(),
-              blobTransactionResult.getErrorMessage());
-        }
         return blobTransactionResult;
       }
     }

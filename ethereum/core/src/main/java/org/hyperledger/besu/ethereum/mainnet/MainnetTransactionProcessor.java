@@ -57,12 +57,8 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class MainnetTransactionProcessor {
-
-  private static final Logger LOG = LoggerFactory.getLogger(MainnetTransactionProcessor.class);
 
   private static final Set<Address> EMPTY_ADDRESS_SET = Set.of();
 
@@ -213,7 +209,6 @@ public class MainnetTransactionProcessor {
       final Optional<AccessLocationTracker> accessLocationTracker) {
     try {
       final var transactionValidator = transactionValidatorFactory.get();
-      LOG.trace("Starting execution of {}", transaction);
       ValidationResult<TransactionInvalidReason> validationResult =
           transactionValidator.validate(
               transaction,
@@ -224,7 +219,6 @@ public class MainnetTransactionProcessor {
       // compare against a sender account (because the transaction may not
       // be signed correctly to extract the sender).
       if (!validationResult.isValid()) {
-        LOG.debug("Invalid transaction: {}", validationResult.getErrorMessage());
         return TransactionProcessingResult.invalid(validationResult);
       }
 
@@ -235,7 +229,6 @@ public class MainnetTransactionProcessor {
       validationResult =
           transactionValidator.validateForSender(transaction, sender, transactionValidationParams);
       if (!validationResult.isValid()) {
-        LOG.debug("Invalid transaction: {}", validationResult.getErrorMessage());
         return TransactionProcessingResult.invalid(validationResult);
       }
 
@@ -243,12 +236,7 @@ public class MainnetTransactionProcessor {
 
       final Set<Address> eip2930WarmAddressList = new HashSet<>(Address.SIZE);
 
-      final long previousNonce = sender.incrementNonce();
-      LOG.trace(
-          "Incremented sender {} nonce ({} -> {})",
-          senderAddress,
-          previousNonce,
-          sender.getNonce());
+      sender.incrementNonce();
 
       final Wei transactionGasPrice =
           feeMarket.getTransactionPriceCalculator().price(transaction, blockHeader.getBaseFee());
@@ -258,17 +246,10 @@ public class MainnetTransactionProcessor {
       final Wei upfrontGasCost =
           transaction.getUpfrontGasCost(transactionGasPrice, blobGasPrice, blobGas);
       try {
-        final Wei previousBalance = sender.decrementBalance(upfrontGasCost);
-        LOG.trace(
-            "Deducted sender {} upfront gas cost {} ({} -> {})",
-            senderAddress,
-            upfrontGasCost,
-            previousBalance,
-            sender.getBalance());
+        sender.decrementBalance(upfrontGasCost);
       } catch (final BalanceUnderflowException bue) {
-        if (transactionValidationParams.allowUnderpricedGas()) {
-          LOG.trace("Allowing account balance underflow as requested", bue);
-        } else {
+        // Simulations may deliberately run a sender that cannot cover the upfront cost.
+        if (!transactionValidationParams.allowUnderpricedGas()) {
           throw bue;
         }
       }
@@ -296,10 +277,6 @@ public class MainnetTransactionProcessor {
       // entirely execution gas and an unaffordable charge halts the frame rather than invalidating
       // the transaction. Checked before frame construction to reject at the intrinsic level.
       if (transaction.getGasLimit() < intrinsicExecutionGas) {
-        LOG.trace(
-            "Insufficient gas for intrinsic cost: gasLimit={}, intrinsic={}",
-            transaction.getGasLimit(),
-            intrinsicExecutionGas);
         return TransactionProcessingResult.invalid(
             ValidationResult.invalid(
                 TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
@@ -355,11 +332,6 @@ public class MainnetTransactionProcessor {
           deferredDelegationUpdater != null ? deferredDelegationUpdater : worldState;
 
       final long gasAvailable = transaction.getGasLimit() - intrinsicExecutionGas;
-      LOG.trace(
-          "Gas available for execution {} = {} - {} (limit - intrinsic)",
-          gasAvailable,
-          transaction.getGasLimit(),
-          intrinsicExecutionGas);
 
       // EIP-8037: execution gas is capped at TX_MAX_GAS_LIMIT, so anything bought above that cap
       // can only ever be spent as state gas and starts in the reservoir. Pre-Amsterdam, and in
@@ -481,13 +453,6 @@ public class MainnetTransactionProcessor {
       final long totalConsumed = transaction.getGasLimit() - totalRemaining;
       final long executionConsumed = totalConsumed - initialFrame.getStateGasUsed();
       final boolean executionGasLimitExceeded = executionConsumed > executionGasLimit;
-      if (executionGasLimitExceeded) {
-        LOG.debug(
-            "Transaction {} execution gas {} exceeds TX_MAX_GAS_LIMIT {}, reverting",
-            transaction.getHash(),
-            executionConsumed,
-            executionGasLimit);
-      }
 
       final boolean txSucceeded =
           initialFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS
@@ -534,14 +499,6 @@ public class MainnetTransactionProcessor {
         }
       }
 
-      // TODO SLD are the log correct following EIP-7623?
-      if (LOG.isTraceEnabled()) {
-        LOG.trace(
-            "Gas used by transaction: {}, by message call/contract creation: {}",
-            transaction.getGasLimit() - initialFrame.getRemainingGas(),
-            gasAvailable - initialFrame.getRemainingGas());
-      }
-
       // Refund the sender by what we should and pay the miner fee (note that we're doing them one
       // after the other so that if it is the same account somehow, we end up with the right result)
       final long refundedGas =
@@ -549,15 +506,7 @@ public class MainnetTransactionProcessor {
               ? 0L
               : gasCalculator.calculateGasRefund(transaction, initialFrame, codeDelegationRefund);
       final Wei refundedWei = transactionGasPrice.multiply(refundedGas);
-      final Wei balancePriorToRefund = sender.getBalance();
       sender.incrementBalance(refundedWei);
-      LOG.atTrace()
-          .setMessage("refunded sender {}  {} wei ({} -> {})")
-          .addArgument(senderAddress)
-          .addArgument(refundedWei)
-          .addArgument(balancePriorToRefund)
-          .addArgument(sender.getBalance())
-          .log();
       // Calculate gas used: max of execution gas and transaction floor cost (EIP-7623)
       // For pre-Prague forks, floor cost is 0, so this returns just execution gas
       // For Prague+ forks with EIP-7778, this ensures block gas accounts for data floor
@@ -577,11 +526,6 @@ public class MainnetTransactionProcessor {
       final long stateGasUsed = gasResult.effectiveStateGas();
       final long totalGasBudget = gasResult.totalGasBudget();
       final long usedGas = gasResult.usedGas();
-      LOG.trace(
-          "EIP-8037 TX_END totalGasBudget={} stateGasUsed={} reservoir={}",
-          totalGasBudget,
-          stateGasUsed,
-          initialFrame.getStateGasReservoir());
       final Optional<CoinbaseFeePriceCalculator> coinbaseCalculator =
           topLevelSupport.coinbaseCalculator(
               blockHeader, transactionGasPrice, transactionValidationParams);
@@ -659,18 +603,6 @@ public class MainnetTransactionProcessor {
         successResult.setExecutionGasUsedForBlock(gasResult.executionGas());
         return successResult;
       } else {
-        if (initialFrame.getExceptionalHaltReason().isPresent()) {
-          LOG.debug(
-              "Transaction {} processing halted: {}",
-              transaction.getHash(),
-              initialFrame.getExceptionalHaltReason().get());
-        }
-        if (initialFrame.getRevertReason().isPresent()) {
-          LOG.debug(
-              "Transaction {} reverted: {}",
-              transaction.getHash(),
-              initialFrame.getRevertReason().get());
-        }
         final TransactionProcessingResult failedResult =
             TransactionProcessingResult.failed(
                 totalGasBudget,
@@ -702,10 +634,6 @@ public class MainnetTransactionProcessor {
       final var cause = re.getCause();
       // in case of an interruption then just return without calling any other tracing method
       if (cause != null && cause instanceof InterruptedException) {
-        LOG.atDebug()
-            .setMessage("Interrupted while processing the transaction with hash {}")
-            .addArgument(transaction::getHash)
-            .log();
         return TransactionProcessingResult.invalid(
             ValidationResult.invalid(TransactionInvalidReason.EXECUTION_INTERRUPTED));
       }
@@ -729,7 +657,6 @@ public class MainnetTransactionProcessor {
                 TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER, re.getMessage()));
       }
 
-      LOG.error("Critical Exception Processing Transaction", re);
       return TransactionProcessingResult.invalid(
           ValidationResult.invalid(
               TransactionInvalidReason.INTERNAL_ERROR,

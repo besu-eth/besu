@@ -29,12 +29,9 @@ import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.MutableBytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The AltBN128Add precompiled contract. */
 public class AltBN128AddPrecompiledContract extends AbstractAltBnPrecompiledContract {
-  private static final Logger LOG = LoggerFactory.getLogger(AltBN128AddPrecompiledContract.class);
   private static final int PARAMETER_LENGTH = 128;
   private static final String PRECOMPILE_NAME = "BN254_ADD";
 
@@ -75,15 +72,6 @@ public class AltBN128AddPrecompiledContract extends AbstractAltBnPrecompiledCont
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug(
-                "false positive altbn128Add {}, cache key {}, cached input: {}, input: {}",
-                input.getClass().getSimpleName(),
-                cacheKey,
-                res.cachedInput().toHexString(),
-                cachedInput.toHexString());
-          }
-
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {

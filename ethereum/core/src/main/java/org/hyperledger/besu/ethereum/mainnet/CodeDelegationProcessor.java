@@ -30,11 +30,7 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class CodeDelegationProcessor {
-  private static final Logger LOG = LoggerFactory.getLogger(CodeDelegationProcessor.class);
 
   private final Optional<BigInteger> maybeChainId;
   private final BigInteger halfCurveOrder;
@@ -102,20 +98,16 @@ public class CodeDelegationProcessor {
       final CodeDelegationResult result,
       final Set<Address> writtenAccounts,
       final Set<Address> authBaseSettled) {
-    LOG.trace("Processing code delegation: {}", codeDelegation);
-
     if (!isCodeDelegationValid(codeDelegation)) {
       return;
     }
 
     final Optional<Address> maybeAuthorizer = codeDelegation.authorizer();
     if (maybeAuthorizer.isEmpty()) {
-      LOG.trace("Invalid signature for code delegation");
       return;
     }
 
     final Address authorizer = maybeAuthorizer.get();
-    LOG.trace("Set code delegation for authority: {}", authorizer);
 
     // Use read-only get() to avoid marking the account as touched during validation.
     // getAccount() would mark it as touched, causing empty accounts to be incorrectly
@@ -169,21 +161,14 @@ public class CodeDelegationProcessor {
     if (maybeChainId.isPresent()
         && !codeDelegation.chainId().equals(BigInteger.ZERO)
         && !maybeChainId.get().equals(codeDelegation.chainId())) {
-      LOG.trace(
-          "Invalid chain id for code delegation. Expected: {}, Actual: {}",
-          maybeChainId.get(),
-          codeDelegation.chainId());
       return false;
     }
 
     if (codeDelegation.nonce() == MAX_NONCE) {
-      LOG.trace("Nonce of code delegation must be less than 2^64-1");
       return false;
     }
 
     if (codeDelegation.signature().getS().compareTo(halfCurveOrder) > 0) {
-      LOG.trace(
-          "Invalid signature for code delegation. S value must be less or equal than the half curve order.");
       return false;
     }
 
@@ -204,10 +189,6 @@ public class CodeDelegationProcessor {
     }
 
     if (codeDelegation.nonce() != existingAccount.getNonce()) {
-      LOG.trace(
-          "Invalid nonce for code delegation. Expected: {}, Actual: {}",
-          existingAccount.getNonce(),
-          codeDelegation.nonce());
       return false;
     }
 

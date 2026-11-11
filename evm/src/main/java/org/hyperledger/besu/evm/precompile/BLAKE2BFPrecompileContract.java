@@ -28,14 +28,11 @@ import java.util.Optional;
 import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The BLAKE2BF precompile contract. */
 // https://github.com/keep-network/go-ethereum/pull/4
 public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
 
-  private static final Logger LOG = LoggerFactory.getLogger(BLAKE2BFPrecompileContract.class);
   private static final String PRECOMPILE_NAME = "BLAKE2F";
 
   private static final Cache<Bytes, PrecompileInputResultTuple> blakeCache =
@@ -72,13 +69,10 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
   public PrecompileContractResult computePrecompile(
       final Bytes input, @NotNull final MessageFrame messageFrame) {
     if (input.size() != MESSAGE_LENGTH_BYTES) {
-      LOG.trace(
-          "Incorrect input length.  Expected {} and got {}", MESSAGE_LENGTH_BYTES, input.size());
       return PrecompileContractResult.halt(
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }
     if ((input.get(212) & 0xFE) != 0) {
-      LOG.trace("Incorrect finalization flag, expected 0 or 1 and got {}", input.get(212));
       return PrecompileContractResult.halt(
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }
@@ -92,15 +86,6 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug(
-                "false positive blake2bf {}, cache key {}, cached input: {}, input: {}",
-                input.getClass().getSimpleName(),
-                cacheKey,
-                res.cachedInput().toHexString(),
-                input.toHexString());
-          }
-
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {

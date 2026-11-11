@@ -51,8 +51,6 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
 import org.apache.tuweni.units.bigints.UInt256;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A container object for all the states associated with a message.
@@ -77,8 +75,6 @@ import org.slf4j.LoggerFactory;
  * code and a value are supplied to initialize the contract account code and balance, respectively.
  */
 public class MessageFrame {
-
-  private static final Logger LOG = LoggerFactory.getLogger(MessageFrame.class);
 
   /**
    * Message Frame State.
@@ -1102,14 +1098,6 @@ public class MessageFrame {
     final long before = txValues.stateGasReservoir().get();
     final long after = clampedAdd(before, amount);
     txValues.stateGasReservoir().set(after);
-    if (LOG.isTraceEnabled()) {
-      LOG.trace(
-          "EIP-8037 CREDIT_RESERVOIR depth={} amount={} reservoirBefore={} reservoirAfter={}",
-          getDepth(),
-          amount,
-          before,
-          after);
-    }
   }
 
   // ---- stateGasSpilled ----
@@ -1148,12 +1136,9 @@ public class MessageFrame {
    */
   public boolean consumeStateGas(final long amount) {
     final long reservoirBefore = txValues.stateGasReservoir().get();
-    final long gasLeftBefore = gasRemaining;
     final long fromReservoir = Math.min(reservoirBefore, amount);
     final long fromGas = amount - fromReservoir;
     if (gasRemaining < fromGas) {
-      traceConsumeState(
-          amount, reservoirBefore, gasLeftBefore, false, reservoirBefore, gasLeftBefore);
       return false;
     }
     txValues.stateGasReservoir().set(reservoirBefore - fromReservoir);
@@ -1161,35 +1146,7 @@ public class MessageFrame {
     // Track the spill so refunds can unwind it back to gasRemaining first (LIFO).
     stateGasSpilled += fromGas;
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-    traceConsumeState(
-        amount,
-        reservoirBefore,
-        gasLeftBefore,
-        true,
-        txValues.stateGasReservoir().get(),
-        gasRemaining);
     return true;
-  }
-
-  private void traceConsumeState(
-      final long amount,
-      final long reservoirBefore,
-      final long gasLeftBefore,
-      final boolean ok,
-      final long reservoirAfter,
-      final long gasLeftAfter) {
-    if (LOG.isTraceEnabled()) {
-      LOG.trace(
-          "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok={} reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
-          getDepth(),
-          amount,
-          reservoirBefore,
-          gasLeftBefore,
-          ok,
-          reservoirAfter,
-          gasLeftAfter,
-          txValues.stateGasUsed().get());
-    }
   }
 
   /**

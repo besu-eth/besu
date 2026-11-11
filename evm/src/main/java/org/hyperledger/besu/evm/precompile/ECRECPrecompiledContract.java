@@ -32,13 +32,10 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
 import org.apache.tuweni.bytes.MutableBytes32;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** The ECREC precompiled contract. */
 public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
 
-  private static final Logger LOG = LoggerFactory.getLogger(ECRECPrecompiledContract.class);
   private static final int V_BASE = 27;
   private static final int SEMANTIC_INPUT_LENGTH = 128;
   final SignatureAlgorithm signatureAlgorithm;
@@ -100,14 +97,6 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug(
-                "false positive ecrecover {}, cache key {}, cached input: {}, input: {}",
-                input.getClass().getSimpleName(),
-                cacheKey,
-                res.cachedInput().toHexString(),
-                cachedInput.toHexString());
-          }
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {
