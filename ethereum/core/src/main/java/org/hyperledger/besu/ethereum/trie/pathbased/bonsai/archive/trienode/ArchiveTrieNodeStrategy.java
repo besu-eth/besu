@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.Trie
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.util.log.LogUtil;
 
 import java.io.Closeable;
 import java.util.Map;
@@ -65,7 +66,8 @@ public class ArchiveTrieNodeStrategy
   private final ArchiveTrieNodeWriter trieNodeWriter;
   private final ArchiveNodeHistoryStore historyStore;
   private final Predicate<SegmentedKeyValueStorage> isCaptureStorage;
-  private final AtomicBoolean stopLogged = new AtomicBoolean(false);
+  private static final int LOG_MISSING_COVERAGE_INTERVAL = 60;
+  private final AtomicBoolean logMissingCoverage = new AtomicBoolean(true);
 
   // Starts true (archive everything) until the first in-sync event. Safe default for initial sync
   // and no-peers startup
@@ -205,15 +207,18 @@ public class ArchiveTrieNodeStrategy
     if (block == last.number() + 1 && last.hash().equals(blockHeader.getParentHash())) {
       return true;
     }
-    // Lower blocks are re-imports or siblings; capture never resumes, so log the first stop only.
-    if (block > last.number() && stopLogged.compareAndSet(false, true)) {
-      LOG.error(
-          "Trie-node capture stopped: block {} ({}) does not extend archived block {} ({}). "
-              + "Proof history needs a resync.",
-          block,
-          blockHeader.getBlockHash(),
-          last.number(),
-          last.hash());
+    if (block > last.number()) {
+      LogUtil.throttledLog(
+          () ->
+              LOG.warn(
+                  "Not capturing trie nodes for block {} ({}): "
+                      + "it does not extend archived block {} ({})",
+                  block,
+                  blockHeader.getBlockHash(),
+                  last.number(),
+                  last.hash()),
+          logMissingCoverage,
+          LOG_MISSING_COVERAGE_INTERVAL);
     }
     return false;
   }
