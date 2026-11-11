@@ -180,6 +180,9 @@ public record ProtocolScheduleCustomization(
    * shares it, so that the Status handshake, the discovery record and {@code eth_config} cannot
    * disagree.
    *
+   * <p>The two lists are sorted and de-duplicated before they are handed over, because the manager
+   * derives its highest known fork from the order it receives them in.
+   *
    * @param blockchain the blockchain, for the genesis hash and the chain head
    * @param config the genesis configuration, which declares the forks Besu itself defines
    * @return the fork-ID manager
@@ -190,8 +193,12 @@ public record ProtocolScheduleCustomization(
     return new ForkIdManager(
         blockchain,
         Stream.concat(config.getForkBlockNumbers().stream(), contributed.blockNumbers().stream())
+            .distinct()
+            .sorted()
             .toList(),
         Stream.concat(config.getForkBlockTimestamps().stream(), contributed.timestamps().stream())
+            .distinct()
+            .sorted()
             .toList());
   }
 

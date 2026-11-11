@@ -80,6 +80,22 @@ public class ContributedForkActivationsForkIdTest {
     assertThat(extended.getHash()).isEqualTo(stock.getHash());
   }
 
+  @Test
+  public void rejectsAPeerWhoseNextForkIsAlreadyPassedLocally() {
+    // the genesis declares a block fork at 100; the customization contributes an earlier one
+    final GenesisConfig genesis =
+        GenesisConfig.fromConfig("{\"config\":{\"chainId\":1,\"homesteadBlock\":100}}");
+    final ForkIdManager manager =
+        customization(ProtocolScheduleActivation.blockNumber(50L))
+            .forkIdManager(
+                mockBlockchain(GenesisHash.MAINNET, 200L, 0L), genesis.getConfigOptions());
+    final ForkId latest = manager.getForkIdForChainHead();
+    assertThat(latest.getNext()).isZero();
+
+    // EIP-2124 rule 1a: same FORK_HASH, but FORK_NEXT (75) is already passed locally
+    assertThat(manager.peerCheck(new ForkId(latest.getHash(), 75L))).isFalse();
+  }
+
   private static List<ForkId> allForkIds(final ProtocolScheduleCustomization customization) {
     return forkIdManager(customization, 0L, 0L).getAllForkIds();
   }
