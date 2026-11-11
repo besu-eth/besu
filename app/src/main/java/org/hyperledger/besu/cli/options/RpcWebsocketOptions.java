@@ -102,13 +102,13 @@ public class RpcWebsocketOptions {
       names = {"--rpc-ws-max-active-connections"},
       description =
           "Maximum number of WebSocket connections allowed for JSON-RPC. Must be >= 0. 0 specifies no limit (default: ${DEFAULT-VALUE}). Once this limit is reached, incoming connections will be rejected.")
-  private final Integer rpcWsMaxConnections = DefaultCommandValues.DEFAULT_WS_MAX_CONNECTIONS;
+  private Integer rpcWsMaxConnections = DefaultCommandValues.DEFAULT_WS_MAX_CONNECTIONS;
 
   @CommandLine.Option(
       names = {"--rpc-ws-max-active-subscriptions"},
       description =
           "Maximum number of global active WebSocket subscriptions allowed for JSON-RPC (eth_subscribe). Must be >= 0. 0 specifies no limit (default: ${DEFAULT-VALUE}). Once this limit is reached, incoming subscriptions will return an error.")
-  private final Integer rpcWsMaxActiveSubscriptions =
+  private Integer rpcWsMaxActiveSubscriptions =
       DefaultCommandValues.DEFAULT_WS_MAX_ACTIVE_SUBSCRIPTIONS;
 
   @CommandLine.Option(
