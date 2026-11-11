@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.plugin.BesuPlugin;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -38,6 +39,11 @@ public class PluginsReloadConfiguration implements JsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(PluginsReloadConfiguration.class);
   private final Map<String, BesuPlugin> namedPlugins;
 
+  /**
+   * Creates the method.
+   *
+   * @param namedPlugins the registered plugins by id (the fully qualified class name)
+   */
   public PluginsReloadConfiguration(final Map<String, BesuPlugin> namedPlugins) {
     this.namedPlugins = namedPlugins;
   }
@@ -55,14 +61,31 @@ public class PluginsReloadConfiguration implements JsonRpcMethod {
       final Map<String, BesuPlugin> reloadPluginsByName;
       if (maybePluginName.isPresent()) {
         final var pluginName = maybePluginName.get();
-        if (!namedPlugins.containsKey(pluginName)) {
+        final List<String> matchingIds = resolve(pluginName);
+        if (matchingIds.size() > 1) {
+          LOG.error(
+              "Plugin cannot be reloaded because the name {} matches several plugins: {}",
+              pluginName,
+              matchingIds);
+          return new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(),
+              new JsonRpcError(
+                  RpcErrorType.INVALID_PLUGIN_NAME_PARAMS.getCode(),
+                  "Plugin name "
+                      + pluginName
+                      + " matches several plugins, select one by its id: "
+                      + String.join(", ", matchingIds),
+                  null));
+        }
+        if (matchingIds.isEmpty()) {
           LOG.error(
               "Plugin cannot be reloaded because no plugin has been registered with specified name: {}",
               pluginName);
           return new JsonRpcErrorResponse(
               requestContext.getRequest().getId(), RpcErrorType.PLUGIN_NOT_FOUND);
         }
-        reloadPluginsByName = Collections.singletonMap(pluginName, namedPlugins.get(pluginName));
+        final String pluginId = matchingIds.getFirst();
+        reloadPluginsByName = Collections.singletonMap(pluginId, namedPlugins.get(pluginId));
       } else {
         reloadPluginsByName = namedPlugins;
       }
@@ -95,6 +118,21 @@ public class PluginsReloadConfiguration implements JsonRpcMethod {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INVALID_PLUGIN_NAME_PARAMS);
     }
+  }
+
+  /**
+   * The ids of the registered plugins the given name identifies: the plugin with that id, or every
+   * plugin whose simple class name it is.
+   */
+  private List<String> resolve(final String pluginName) {
+    if (namedPlugins.containsKey(pluginName)) {
+      return List.of(pluginName);
+    }
+    return namedPlugins.entrySet().stream()
+        .filter(entry -> entry.getValue().getClass().getSimpleName().equals(pluginName))
+        .map(Map.Entry::getKey)
+        .sorted()
+        .toList();
   }
 
   private CompletableFuture<Void> asyncReloadPluginConfig(

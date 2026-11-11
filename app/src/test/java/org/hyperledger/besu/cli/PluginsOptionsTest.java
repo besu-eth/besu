@@ -21,6 +21,9 @@ import static org.mockito.Mockito.verify;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginsVerificationMode;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -114,7 +117,7 @@ public class PluginsOptionsTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
-            "-plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
+            "--plugins-dir, --plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
   }
 
   @Test
@@ -147,7 +150,7 @@ public class PluginsOptionsTest extends CommandTestAbstract {
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
-            "-plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
+            "--plugins-dir, --plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
   }
 
   @Test
@@ -170,5 +173,111 @@ public class PluginsOptionsTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldFailWhenPluginsIsDisabledAndPluginsDirExplicitlySet() {
+    parseCommand("--Xplugins-external-enabled=false", "--plugins-dir", "/some/plugins");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "--plugins-dir, --plugins, --plugin-continue-on-error and --plugins-verification-mode options can only be used when --Xplugins-external-enabled is true");
+  }
+
+  @Test
+  public void shouldDefaultThePluginsDirToThePluginsDirectoryUnderBesuHome() throws IOException {
+    // besu.home is also the default data path, which the command creates, so it must be writable
+    final Path home = Files.createTempDirectory("besu-home-");
+    home.toFile().deleteOnExit();
+    final String previousPluginsDir = System.clearProperty("besu.plugins.dir");
+    final String previousHome = System.setProperty("besu.home", home.toString());
+    try {
+      parseCommand();
+      verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+      assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+          .isEqualTo(home.resolve("plugins"));
+    } finally {
+      restoreSystemProperty("besu.plugins.dir", previousPluginsDir);
+      restoreSystemProperty("besu.home", previousHome);
+    }
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldDefaultThePluginsDirToTheSystemPropertyWhenSet() {
+    final String previous = System.setProperty("besu.plugins.dir", "/prop/plugins");
+    try {
+      parseCommand();
+      verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+      assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+          .isEqualTo(Path.of("/prop/plugins"));
+    } finally {
+      restoreSystemProperty("besu.plugins.dir", previous);
+    }
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldPreferThePluginsDirOptionOverTheSystemProperty() {
+    final String previous = System.setProperty("besu.plugins.dir", "/prop/plugins");
+    try {
+      parseCommand("--plugins-dir", "/some/plugins");
+      verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+      assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+          .isEqualTo(Path.of("/some/plugins"));
+    } finally {
+      restoreSystemProperty("besu.plugins.dir", previous);
+    }
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldReadThePluginsDirFromTheCommandLine() {
+    parseCommand("--plugins-dir", "/some/plugins");
+    verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+    assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+        .isEqualTo(Path.of("/some/plugins"));
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldReadThePluginsDirFromTheEnvironment() {
+    setEnvironmentVariable("BESU_PLUGINS_DIR", "/env/plugins");
+    parseCommand();
+    verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+    assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+        .isEqualTo(Path.of("/env/plugins"));
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void shouldReadThePluginsDirFromTheConfigFile() throws IOException {
+    final Path toml = createTempFile("toml", "plugins-dir=\"/toml/plugins\"\n");
+    parseCommand("--config-file", toml.toString());
+    verify(getBesuPluginContext()).initialize(pluginConfigurationArgumentCaptor.capture());
+    assertThat(pluginConfigurationArgumentCaptor.getValue().getPluginsDir())
+        .isEqualTo(Path.of("/toml/plugins"));
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  private static void restoreSystemProperty(final String name, final String previous) {
+    if (previous == null) {
+      System.clearProperty(name);
+    } else {
+      System.setProperty(name, previous);
+    }
   }
 }

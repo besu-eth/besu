@@ -236,6 +236,8 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
             } catch (final IllegalArgumentException jarException) {
               // JAR not found, try ZIP
               try {
+                // the failed copy leaves an empty file behind, which Besu would refuse as a jar
+                Files.deleteIfExists(homeDirectory.resolve("plugins/" + pluginName + ".jar"));
                 unzipPlugin(pluginName + ".zip", homeDirectory.resolve("plugins"));
                 BesuNode.this.plugins.add(pluginName);
               } catch (final IOException zipException) {
