@@ -15,10 +15,10 @@
 package org.hyperledger.besu.ethereum.processing;
 
 import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 
 import java.util.List;
@@ -57,6 +57,8 @@ public class TransactionProcessingResult
 
   private final List<Log> logs;
 
+  private LogsBloomFilter logsBloom;
+
   private final Bytes output;
 
   private Optional<Boolean> isProcessedInParallel = Optional.empty();
@@ -64,24 +66,27 @@ public class TransactionProcessingResult
   private final ValidationResult<TransactionInvalidReason> validationResult;
   private final Optional<Bytes> revertReason;
 
-  public PathBasedWorldStateUpdateAccumulator<?> accumulator;
   private final Optional<ExceptionalHaltReason> exceptionalHaltReason;
   private final Optional<PartialBlockAccessView> partialBlockAccessView;
 
   public static TransactionProcessingResult invalid(
       final ValidationResult<TransactionInvalidReason> validationResult) {
-    return new TransactionProcessingResult(
-        Status.INVALID,
-        List.of(),
-        -1,
-        -1,
-        -1,
-        0,
-        Bytes.EMPTY,
-        validationResult,
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty());
+    final TransactionProcessingResult result =
+        new TransactionProcessingResult(
+            Status.INVALID,
+            List.of(),
+            -1,
+            -1,
+            -1,
+            0,
+            Bytes.EMPTY,
+            validationResult,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty());
+    // block selection measures a candidate before it rejects an invalid result
+    result.setExecutionGasUsedForBlock(0);
+    return result;
   }
 
   public static TransactionProcessingResult failed(
@@ -295,6 +300,21 @@ public class TransactionProcessingResult
   }
 
   /**
+   * The bloom filter of the logs, computed on first use. Parallel block processing calls this on
+   * the thread that executed the transaction, so building the receipt does not hash the logs.
+   *
+   * @return the logs bloom filter
+   */
+  public LogsBloomFilter getLogsBloom() {
+    LogsBloomFilter bloom = logsBloom;
+    if (bloom == null) {
+      bloom = LogsBloomFilter.builder().insertLogs(logs).build();
+      logsBloom = bloom;
+    }
+    return bloom;
+  }
+
+  /**
    * Returns the gas remaining after the transaction was processed.
    *
    * <p>This is only valid when {@code TransactionProcessor#isSuccessful} returns {@code true}.
@@ -364,14 +384,18 @@ public class TransactionProcessingResult
   /**
    * Returns the execution gas dimension for EIP-8037 block accounting: {@code max(consumed - state,
    * calldata floor)}. State gas is out of the execution figure before the max is taken, so state
-   * spending cannot discount the floor. The fallback is equivalent while the floor is not binding.
+   * spending cannot discount the floor. The value cannot be derived from the other fields, so the
+   * transaction processor must set it with {@link #setExecutionGasUsedForBlock(long)}. An invalid
+   * result has 0.
    *
    * @return the execution gas used for block accounting
+   * @throws IllegalStateException if the execution gas used for block accounting is not set
    */
   public long getExecutionGasUsedForBlock() {
-    return executionGasUsedForBlock == Long.MIN_VALUE
-        ? estimateGasUsedByTransaction - stateGasUsed
-        : executionGasUsedForBlock;
+    if (executionGasUsedForBlock == Long.MIN_VALUE) {
+      throw new IllegalStateException("execution gas used for block accounting is not set");
+    }
+    return executionGasUsedForBlock;
   }
 
   /**

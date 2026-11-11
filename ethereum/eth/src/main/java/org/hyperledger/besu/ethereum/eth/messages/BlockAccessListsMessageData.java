@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.function.BiConsumer;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -32,20 +33,37 @@ public final class BlockAccessListsMessageData {
 
   public static Bytes encodeEthResponse(
       final Iterable<Optional<BlockAccessList>> blockAccessLists) {
-    final BytesValueRLPOutput output = new BytesValueRLPOutput();
-    output.startList();
-    blockAccessLists.forEach(
-        maybeBlockAccessList -> writeBlockAccessList(output, maybeBlockAccessList));
-    output.endList();
-    return output.encoded();
+    return encodeEntries(blockAccessLists, BlockAccessListsMessageData::writeBlockAccessList);
+  }
+
+  public static Bytes encodeEthResponseFromRlp(final Iterable<Optional<Bytes>> blockAccessLists) {
+    return encodeEntries(blockAccessLists, BlockAccessListsMessageData::writeBlockAccessListRlp);
   }
 
   public static Bytes encodeSnapResponse(
       final Iterable<Optional<BlockAccessList>> blockAccessLists) {
+    return wrapForSnap(encodeEthResponse(blockAccessLists));
+  }
+
+  public static Bytes encodeSnapResponseFromRlp(final Iterable<Optional<Bytes>> blockAccessLists) {
+    return wrapForSnap(encodeEthResponseFromRlp(blockAccessLists));
+  }
+
+  private static <T> Bytes encodeEntries(
+      final Iterable<Optional<T>> entries,
+      final BiConsumer<BytesValueRLPOutput, Optional<T>> entryWriter) {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    output.startList();
+    entries.forEach(entry -> entryWriter.accept(output, entry));
+    output.endList();
+    return output.encoded();
+  }
+
+  private static Bytes wrapForSnap(final Bytes ethResponse) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
     // Snap splices request-id into this body: [[access-lists]].
-    output.writeRaw(encodeEthResponse(blockAccessLists));
+    output.writeRaw(ethResponse);
     output.endList();
     return output.encoded();
   }
@@ -104,6 +122,11 @@ public final class BlockAccessListsMessageData {
     } else {
       output.writeBytes(Bytes.EMPTY);
     }
+  }
+
+  private static void writeBlockAccessListRlp(
+      final BytesValueRLPOutput output, final Optional<Bytes> maybeBlockAccessListRlp) {
+    maybeBlockAccessListRlp.ifPresentOrElse(output::writeRaw, () -> output.writeBytes(Bytes.EMPTY));
   }
 
   private static <T> Iterable<T> decodeEntries(

@@ -188,6 +188,11 @@ public enum RpcErrorType implements RpcMethodError {
       -32000, "Max priority fee per gas exceeds max fee per gas"),
   NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER(
       -32000, "Transaction nonce is too distant from current sender nonce"),
+  DELEGATION_AUTHORITY_HAS_PENDING_TRANSACTIONS(
+      -32000, "Code delegation authority has pending transactions beyond its next nonce"),
+  NONCE_ALREADY_CONSUMED_FOR_SENDER(
+      -32000,
+      "Transaction nonce is consumed by a pending code delegation of the sender, so it can never be executed"),
   LOWER_NONCE_INVALID_TRANSACTION_EXISTS(
       -32000, "An invalid transaction with a lower nonce exists"),
   TOTAL_BLOB_GAS_TOO_HIGH(-32000, "Total blob gas too high"),

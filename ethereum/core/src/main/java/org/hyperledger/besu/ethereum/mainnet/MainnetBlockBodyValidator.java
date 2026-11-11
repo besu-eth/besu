@@ -59,6 +59,7 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
     }
 
     if (bodyValidationMode == BodyValidationMode.LIGHT
+        || bodyValidationMode == BodyValidationMode.EXCEPT_STATE_ROOT
         || bodyValidationMode == BodyValidationMode.FULL) {
       if (!validateBodyLight(
           context, block, receipts, ommerValidationMode, cumulativeBlockGasUsed)) {
@@ -66,21 +67,27 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
       }
     }
 
-    if (bodyValidationMode == BodyValidationMode.ROOT_ONLY
-        || bodyValidationMode == BodyValidationMode.FULL) {
-      return validateBodyRoots(block, receipts, worldStateRootHash);
-    }
-    return true;
+    return switch (bodyValidationMode) {
+      case ROOT_ONLY, FULL -> validateBodyRoots(block, receipts, worldStateRootHash);
+      case EXCEPT_STATE_ROOT -> validateTransactionsAndReceiptsRoots(block, receipts);
+      case STATE_ROOT_ONLY -> validateStateRoot(block, receipts, worldStateRootHash);
+      case NONE, LIGHT -> true;
+    };
   }
 
   @VisibleForTesting
   protected boolean validateBodyRoots(
       final Block block, final List<TransactionReceipt> receipts, final Hash worldStateRootHash) {
+    return validateTransactionsAndReceiptsRoots(block, receipts)
+        && validateStateRoot(block, receipts, worldStateRootHash);
+  }
+
+  private boolean validateTransactionsAndReceiptsRoots(
+      final Block block, final List<TransactionReceipt> receipts) {
     final BlockHeader header = block.getHeader();
     final BlockBody body = block.getBody();
 
-    final Bytes32 transactionsRoot =
-        Bytes32.wrap(BodyValidation.transactionsRoot(body.getTransactions()).getBytes());
+    final Bytes32 transactionsRoot = Bytes32.wrap(body.getTransactionsRoot().getBytes());
     if (!validateTransactionsRoot(
         header, Bytes32.wrap(header.getTransactionsRoot().getBytes()), transactionsRoot)) {
       return false;
@@ -91,7 +98,11 @@ public class MainnetBlockBodyValidator implements BlockBodyValidator {
         header, Bytes32.wrap(header.getReceiptsRoot().getBytes()), receiptsRoot)) {
       return false;
     }
+    return true;
+  }
 
+  private boolean validateStateRoot(
+      final Block block, final List<TransactionReceipt> receipts, final Hash worldStateRootHash) {
     if (!validateStateRoot(
         block.getHeader(),
         Bytes32.wrap(block.getHeader().getStateRoot().getBytes()),

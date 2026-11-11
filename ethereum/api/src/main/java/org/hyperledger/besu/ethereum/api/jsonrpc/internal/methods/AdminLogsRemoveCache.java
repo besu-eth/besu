@@ -66,11 +66,14 @@ public class AdminLogsRemoveCache implements JsonRpcMethod {
     } else if (startBlockParameter.get().getNumber().isPresent()) {
       startBlock = startBlockParameter.get().getNumber().get();
       if (blockchainQueries.getBlockchain().getBlockByNumber(startBlock).isEmpty()) {
-        throw new IllegalStateException("Block not found, " + startBlock);
+        return unknownBlock(requestContext);
       }
     } else {
-      // latest, pending
-      startBlock = blockchainQueries.headBlockNumber();
+      final Optional<Long> resolvedStartBlock = resolveBlockTag(startBlockParameter.get());
+      if (resolvedStartBlock.isEmpty()) {
+        return unknownBlock(requestContext);
+      }
+      startBlock = resolvedStartBlock.get();
     }
 
     final long stopBlock;
@@ -85,11 +88,14 @@ public class AdminLogsRemoveCache implements JsonRpcMethod {
     } else if (stopBlockParameter.get().getNumber().isPresent()) {
       stopBlock = stopBlockParameter.get().getNumber().get();
       if (blockchainQueries.getBlockchain().getBlockByNumber(stopBlock).isEmpty()) {
-        throw new IllegalStateException("Block not found, " + stopBlock);
+        return unknownBlock(requestContext);
       }
     } else {
-      // latest, pending
-      stopBlock = blockchainQueries.headBlockNumber();
+      final Optional<Long> resolvedStopBlock = resolveBlockTag(stopBlockParameter.get());
+      if (resolvedStopBlock.isEmpty()) {
+        return unknownBlock(requestContext);
+      }
+      stopBlock = resolvedStopBlock.get();
     }
 
     if (stopBlock < startBlock) {
@@ -117,5 +123,15 @@ public class AdminLogsRemoveCache implements JsonRpcMethod {
 
     return new JsonRpcSuccessResponse(
         requestContext.getRequest().getId(), Map.of("Status", "Cache Removed"));
+  }
+
+  private Optional<Long> resolveBlockTag(final BlockParameter blockParameter) {
+    // latest, pending, safe, finalized
+    return blockParameter.getBlockNumber(blockchainQueries);
+  }
+
+  private JsonRpcErrorResponse unknownBlock(final JsonRpcRequestContext requestContext) {
+    return new JsonRpcErrorResponse(
+        requestContext.getRequest().getId(), RpcErrorType.UNKNOWN_BLOCK);
   }
 }
