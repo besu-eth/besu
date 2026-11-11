@@ -106,8 +106,8 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    memoryDirty |= frame.getMaybeUpdatedMemory().isPresent();
     final Operation currentOperation = frame.getCurrentOperation();
+    markMemoryDirty(frame, currentOperation);
     final Map<UInt256, UInt256> storage =
         recordStorage(frame, currentOperation, operationResult).orElse(null);
     if (!traceOpcode) {

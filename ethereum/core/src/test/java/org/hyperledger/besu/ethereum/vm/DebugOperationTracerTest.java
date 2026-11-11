@@ -83,6 +83,15 @@ class DebugOperationTracerTest {
         }
       };
 
+  private final Operation MLOAD_OPERATION =
+      new AbstractOperation(0x51, "MLOAD", 1, 1, null) {
+        @Override
+        public OperationResult execute(final MessageFrame frame, final EVM evm) {
+          frame.readMutableMemory(0L, 32, true);
+          return new OperationResult(3L, null);
+        }
+      };
+
   private final CallOperation callOperation = new CallOperation(new CancunGasCalculator());
 
   private static final UInt256 SLOAD_RETURNED_VALUE =
@@ -486,6 +495,19 @@ class DebugOperationTracerTest {
     assertThat(frame1Memory)
         .as("For a non-memory-writing opcode, the last snapshot must be reused")
         .isSameAs(frame0Memory);
+  }
+
+  @Test
+  void shouldUseLastSnapshotAfterMload() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    traceFrame(frame, tracer, MLOAD_OPERATION);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    assertThat(frames.get(1).getMemory().get()).isSameAs(frames.get(0).getMemory().get());
   }
 
   @Test

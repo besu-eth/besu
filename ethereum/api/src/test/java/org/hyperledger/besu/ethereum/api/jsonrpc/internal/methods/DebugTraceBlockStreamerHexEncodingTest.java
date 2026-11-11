@@ -641,29 +641,8 @@ public class DebugTraceBlockStreamerHexEncodingTest {
   @ValueSource(booleans = {false, true})
   public void streamingAndAccumulatingPathsMatchAfterPrecompileWritesMemory(
       final boolean enableEvmV2) throws Exception {
-    final ExecutionContextTestFixture evmFixture =
-        ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
-            .dataStorageFormat(DataStorageFormat.BONSAI)
-            .protocolSchedule(
-                new ProtocolScheduleBuilder(
-                        GenesisConfig.fromResource(GENESIS_RESOURCE).getConfigOptions(),
-                        Optional.of(BigInteger.valueOf(42)),
-                        ProtocolSpecAdapters.create(0, Function.identity()),
-                        false,
-                        new EvmConfiguration(32_000L, WorldUpdaterMode.STACKED, true, enableEvmV2),
-                        MiningConfiguration.MINING_DISABLED,
-                        new BadBlockManager(),
-                        false,
-                        ImmutableBalConfiguration.builder().build(),
-                        new NoOpMetricsSystem())
-                    .createProtocolSchedule())
-            .build();
-    final BlockchainQueries evmQueries =
-        new BlockchainQueries(
-            evmFixture.getProtocolSchedule(),
-            evmFixture.getBlockchain(),
-            evmFixture.getStateArchive(),
-            MiningConfiguration.MINING_DISABLED);
+    final ExecutionContextTestFixture evmFixture = evmFixture(enableEvmV2);
+    final BlockchainQueries evmQueries = blockchainQueries(evmFixture);
     final TraceOptions withMemory =
         new TraceOptions(
             TracerType.OPCODE_TRACER,
@@ -689,7 +668,65 @@ public class DebugTraceBlockStreamerHexEncodingTest {
     assertThat(pop.get("memory").get(0).asText()).isEqualTo(seven);
   }
 
+  /**
+   * A copy whose source offset is past the end of the code clears memory without growing it. The
+   * next step must show the cleared memory, not a reused snapshot. Both paths must agree, on EVM v1
+   * and EVM v2.
+   */
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void streamingAndAccumulatingPathsMatchAfterCodeCopyPastEndOfCode(
+      final boolean enableEvmV2) throws Exception {
+    final ExecutionContextTestFixture evmFixture = evmFixture(enableEvmV2);
+    final TraceOptions withMemory =
+        new TraceOptions(
+            TracerType.OPCODE_TRACER,
+            OpCodeTracerConfigBuilder.createFrom(TraceOptions.DEFAULT.opCodeTracerConfig())
+                .traceMemory(true)
+                .build(),
+            java.util.Map.of());
+    // MSTORE(0, 5) CODECOPY(0, 2^256-1, 32) STOP
+    final JsonNode structLogs =
+        traceBothPaths(
+            evmFixture,
+            blockchainQueries(evmFixture),
+            contractCreation("0x600560005260207f" + "ff".repeat(32) + "60003900"),
+            withMemory);
+
+    final JsonNode stop = structLogs.get(structLogs.size() - 1);
+    assertThat(stop.get("op").asText()).isEqualTo("STOP");
+    assertThat(stop.get("memory").size()).isEqualTo(1);
+    assertThat(stop.get("memory").get(0).asText()).isEqualTo("0x" + "00".repeat(32));
+  }
+
   // ── helpers ──────────────────────────────────────────────────────────────
+
+  private static ExecutionContextTestFixture evmFixture(final boolean enableEvmV2) {
+    return ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
+        .dataStorageFormat(DataStorageFormat.BONSAI)
+        .protocolSchedule(
+            new ProtocolScheduleBuilder(
+                    GenesisConfig.fromResource(GENESIS_RESOURCE).getConfigOptions(),
+                    Optional.of(BigInteger.valueOf(42)),
+                    ProtocolSpecAdapters.create(0, Function.identity()),
+                    false,
+                    new EvmConfiguration(32_000L, WorldUpdaterMode.STACKED, true, enableEvmV2),
+                    MiningConfiguration.MINING_DISABLED,
+                    new BadBlockManager(),
+                    false,
+                    ImmutableBalConfiguration.builder().build(),
+                    new NoOpMetricsSystem())
+                .createProtocolSchedule())
+        .build();
+  }
+
+  private static BlockchainQueries blockchainQueries(final ExecutionContextTestFixture evmFixture) {
+    return new BlockchainQueries(
+        evmFixture.getProtocolSchedule(),
+        evmFixture.getBlockchain(),
+        evmFixture.getStateArchive(),
+        MiningConfiguration.MINING_DISABLED);
+  }
 
   private Transaction contractCreation(final String initCode) {
     return Transaction.builder()

@@ -78,8 +78,9 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   protected MessageFrame memorySnapshotFrame;
 
   /**
-   * Whether memory has been written since the current snapshot was taken. Subclasses set it at the
-   * start of {@link #tracePostExecution} for every operation, traced or not.
+   * Whether memory has been written since the current snapshot was taken. Subclasses set it through
+   * {@link #markMemoryDirty} at the start of {@link #tracePostExecution} for every operation,
+   * traced or not.
    */
   protected boolean memoryDirty;
 
@@ -195,6 +196,13 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
         accessedStorage.computeIfAbsent(frame.getRecipientAddress(), a -> new TreeMap<>());
     storage.put(key, value);
     return Optional.of(storage);
+  }
+
+  protected void markMemoryDirty(final MessageFrame frame, final Operation operation) {
+    // MLOAD records the word it reads, which does not change memory
+    if (frame.getMaybeUpdatedMemory().isPresent() && !"MLOAD".equals(operation.getName())) {
+      memoryDirty = true;
+    }
   }
 
   protected boolean memoryUnchangedSinceSnapshot(final MessageFrame frame) {

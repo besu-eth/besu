@@ -83,8 +83,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    memoryDirty |= frame.getMaybeUpdatedMemory().isPresent();
     final Operation currentOperation = frame.getCurrentOperation();
+    markMemoryDirty(frame, currentOperation);
     final String opcode = currentOperation.getName();
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
     final WorldUpdater worldUpdater = frame.getWorldUpdater();
