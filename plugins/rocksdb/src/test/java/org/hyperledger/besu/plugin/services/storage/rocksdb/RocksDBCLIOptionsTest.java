@@ -42,12 +42,12 @@ import picocli.CommandLine;
 public class RocksDBCLIOptionsTest {
 
   private static final long MIB = 1024L * 1024L;
-  private static final long RESERVED_MEMORY = 9L * GIB;
+  private static final long RESERVED_MEMORY = 12L * GIB;
   // the four column families whose block caches fill up
   private static final long DEFAULT_BLOCK_CACHES = 4 * DEFAULT_CACHE_CAPACITY;
-  private static final int MAX_OPEN_FILES_4GB = 2048;
-  private static final int MAX_OPEN_FILES_8GB = 4096;
-  private static final int MAX_OPEN_FILES_16GB = 8192;
+  private static final int MAX_OPEN_FILES_4GB = 3200;
+  private static final int MAX_OPEN_FILES_8GB = 6400;
+  private static final int MAX_OPEN_FILES_16GB = 12800;
   private static final int MAX_OPEN_FILES_32GB = 16384;
 
   @Test
@@ -144,7 +144,7 @@ public class RocksDBCLIOptionsTest {
 
   @Test
   public void autoMaxOpenFilesUsesMemoryTiers() {
-    assertMaxOpenFilesDerivedFromAvailableMemory(2L * GIB, DEFAULT_MAX_OPEN_FILES);
+    assertMaxOpenFilesDerivedFromAvailableMemory(GIB, DEFAULT_MAX_OPEN_FILES);
     assertMaxOpenFilesDerivedFromAvailableMemory(4L * GIB, MAX_OPEN_FILES_4GB);
     assertMaxOpenFilesDerivedFromAvailableMemory(8L * GIB, MAX_OPEN_FILES_8GB);
     assertMaxOpenFilesDerivedFromAvailableMemory(16L * GIB, MAX_OPEN_FILES_16GB);
@@ -153,12 +153,12 @@ public class RocksDBCLIOptionsTest {
 
   @Test
   public void autoMaxOpenFilesAroundSixteenGibBoundary() {
-    // Continuous scale: 512 files per GiB, so values near 16 GiB are not snapped to 8192.
+    // Continuous scale: 800 files per GiB, so values near 16 GiB are not snapped to 12800.
     final long fifteenPointNineGib = (159L * GIB) / 10;
     final long sixteenPointOneGib = (161L * GIB) / 10;
 
-    assertMaxOpenFilesDerivedFromAvailableMemory(fifteenPointNineGib, 8140);
-    assertMaxOpenFilesDerivedFromAvailableMemory(sixteenPointOneGib, 8243);
+    assertMaxOpenFilesDerivedFromAvailableMemory(fifteenPointNineGib, 12719);
+    assertMaxOpenFilesDerivedFromAvailableMemory(sixteenPointOneGib, 12879);
   }
 
   @Test
@@ -178,19 +178,19 @@ public class RocksDBCLIOptionsTest {
 
   @Test
   public void autoMaxOpenFilesLeavesOutBlockCachesAndReserve() {
-    // 16 GiB minus a 4 GiB heap, 512 MiB of block caches and the reserve leave 2.5 GiB
-    final RocksDBCLIOptions options = toOptionsWithMemory(16L * GIB, heapWithMax(4L * GIB));
+    // 24 GiB minus a 6 GiB heap, 512 MiB of block caches and the reserve leave 5.5 GiB
+    final RocksDBCLIOptions options = toOptionsWithMemory(24L * GIB, heapWithMax(6L * GIB));
 
-    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(1280);
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(4400);
   }
 
   @Test
   public void autoMaxOpenFilesLeavesOutHighSpecBlockCaches() {
-    // 32 GiB minus an 8 GiB heap, four 1 GiB block caches and the reserve leave 11 GiB
+    // 32 GiB minus an 8 GiB heap, four 1 GiB block caches and the reserve leave 8 GiB
     final RocksDBCLIOptions options =
         toOptionsWithMemory(32L * GIB, heapWithMax(8L * GIB), IS_HIGH_SPEC);
 
-    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(5632);
+    assertThat(options.getResolvedMaxOpenFiles()).isEqualTo(MAX_OPEN_FILES_8GB);
   }
 
   @Test

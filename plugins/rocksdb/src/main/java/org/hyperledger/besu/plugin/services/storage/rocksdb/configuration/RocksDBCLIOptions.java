@@ -39,16 +39,19 @@ public class RocksDBCLIOptions {
   private static final int MAX_MAX_OPEN_FILES = 16384;
 
   /**
-   * Scale factor used to derive max open files from available memory ({@code 512} files per GiB).
+   * Scale factor used to derive max open files from available memory ({@code 800} files per GiB).
+   * An open mainnet SST holds about 1.2 MiB of index and filter blocks, a little less than the 1.28
+   * MiB budgeted here.
    */
-  private static final int OPEN_FILES_PER_GIB = 512;
+  private static final int OPEN_FILES_PER_GIB = 800;
 
   /**
    * Memory left out when deriving max open files for what the derivation does not count: a
    * consensus client on the same host, the JVM's native memory, the memtables, allocator overhead
-   * and the OS. A mainnet node next to Nimbus used about 9 GiB for these.
+   * and the OS. A mainnet node next to Nimbus used about 9 GiB for these; the other 3 GiB are a
+   * margin for consensus clients that use more memory than Nimbus.
    */
-  private static final long RESERVED_MEMORY_BYTES = 9 * GIB;
+  private static final long RESERVED_MEMORY_BYTES = 12 * GIB;
 
   /**
    * Column families whose block caches fill up: the chain and the Bonsai state, which are also the
@@ -287,7 +290,7 @@ public class RocksDBCLIOptions {
   }
 
   /**
-   * Calculates max open files for the given available memory using a continuous scale of 512 files
+   * Calculates max open files for the given available memory using a continuous scale of 800 files
    * per GiB, clamped between 1024 and 16384.
    *
    * @param availableMemoryBytes the available memory in bytes
