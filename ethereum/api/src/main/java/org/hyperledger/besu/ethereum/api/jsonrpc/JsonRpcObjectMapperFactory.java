@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.json.BesuJsonModule;
 
 import java.io.IOException;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonParser;
@@ -98,19 +99,22 @@ public final class JsonRpcObjectMapperFactory {
    */
   private static final Pattern STRICT_ADDRESS = Pattern.compile("0[xX][0-9a-fA-F]{40}");
 
-  private static final String STRICT_ADDRESS_MESSAGE =
-      "expected 0x followed by 40 hexadecimal digits";
+  /** Describes the address form {@link #parseStrictAddress(String)} accepts. */
+  public static final String STRICT_ADDRESS_MESSAGE =
+      "expected 0x or 0X followed by 40 hexadecimal digits";
 
   /**
-   * Parses a strict address.
+   * Parses a strict address, for address inputs that are read as strings rather than through the
+   * parameter mappers.
    *
-   * @return the address, or {@code null} if {@code value} is not a strict address
+   * @param value the address string
+   * @return the address, or empty if {@code value} is null or not a strict address
    */
-  private static Address parseStrictAddress(final String value) {
-    if (!STRICT_ADDRESS.matcher(value).matches()) {
-      return null;
+  public static Optional<Address> parseStrictAddress(final String value) {
+    if (value == null || !STRICT_ADDRESS.matcher(value).matches()) {
+      return Optional.empty();
     }
-    return Address.fromHexStringStrict("0x" + value.substring(2));
+    return Optional.of(Address.fromHexStringStrict("0x" + value.substring(2)));
   }
 
   private static class StrictAddressDeserializer extends StdDeserializer<Address> {
@@ -125,11 +129,11 @@ public final class JsonRpcObjectMapperFactory {
         return (Address) ctxt.handleUnexpectedToken(Address.class, p);
       }
       final String value = p.getText();
-      final Address address = parseStrictAddress(value);
-      if (address == null) {
+      final Optional<Address> address = parseStrictAddress(value);
+      if (address.isEmpty()) {
         return (Address) ctxt.handleWeirdStringValue(Address.class, value, STRICT_ADDRESS_MESSAGE);
       }
-      return address;
+      return address.get();
     }
   }
 
@@ -141,11 +145,11 @@ public final class JsonRpcObjectMapperFactory {
     @Override
     public Object deserializeKey(final String key, final DeserializationContext ctxt)
         throws IOException {
-      final Address address = parseStrictAddress(key);
-      if (address == null) {
+      final Optional<Address> address = parseStrictAddress(key);
+      if (address.isEmpty()) {
         return ctxt.handleWeirdKey(Address.class, key, STRICT_ADDRESS_MESSAGE);
       }
-      return address;
+      return address.get();
     }
   }
 

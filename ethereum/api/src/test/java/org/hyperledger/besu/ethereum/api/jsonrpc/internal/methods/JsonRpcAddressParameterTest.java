@@ -16,8 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -120,8 +120,10 @@ class JsonRpcAddressParameterTest {
 
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) response).getError().getCode()).isEqualTo(-32602);
-    // eth_estimateGas on the pending block reads the parameters before the chain head
-    verify(blockchainQueries, atLeast(0)).getBlockchain();
+    // the methods on the latest block resolve the chain head before reading the parameters, the
+    // pending one does not; none reaches the world state, the simulator or the pool
+    final int chainHeadLookups = position.equals("eth_estimateGas.stateOverride") ? 0 : 1;
+    verify(blockchainQueries, times(chainHeadLookups)).getBlockchain();
     verifyNoMoreInteractions(blockchainQueries);
     verifyNoInteractions(transactionSimulator, transactionPool);
   }
