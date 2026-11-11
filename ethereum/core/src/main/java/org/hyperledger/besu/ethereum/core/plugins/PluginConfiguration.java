@@ -43,6 +43,16 @@ public interface PluginConfiguration {
 
   @Value.Default
   default Path getPluginsDir() {
+    return defaultPluginsDir();
+  }
+
+  /**
+   * The plugins directory used when none is configured: the {@code besu.plugins.dir} system
+   * property when set, otherwise the {@code plugins} directory under Besu's home.
+   *
+   * @return the default plugins directory
+   */
+  static Path defaultPluginsDir() {
     String pluginsDirProperty = System.getProperty("besu.plugins.dir");
     return pluginsDirProperty == null
         ? Paths.get(System.getProperty("besu.home", "."), "plugins")
