@@ -264,7 +264,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   /** Account state trie rooted at the current world state root. */
   public MerkleTrie<Bytes, Bytes> createAccountStateTrie() {
     return createTrie(
-        overrideNodeLoader(
+        wrapNodeLoader(
             (location, hash) ->
                 bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
                     getWorldStateStorage(), location, hash),
@@ -277,7 +277,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   public MerkleTrie<Bytes, Bytes> createStorageTrie(
       final Hash accountHash, final Hash storageRoot) {
     return createTrie(
-        overrideNodeLoader(
+        wrapNodeLoader(
             (location, key) ->
                 bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
                     getWorldStateStorage(), accountHash, location, key),
@@ -286,12 +286,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
         BlockProcessingExecutors.storageTrieForkJoinPool());
   }
 
-  private NodeLoader overrideNodeLoader(
-      final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
+  private NodeLoader wrapNodeLoader(final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
     final BonsaiWorldStateKeyValueStorage storage = getWorldStateStorage();
     return storage
         .getTrieNodeStrategy()
-        .overrideNodeLoader(storage.getComposedWorldStateStorage(), loader, keyOf);
+        .wrapNodeLoader(storage.getComposedWorldStateStorage(), loader, keyOf);
   }
 
   private MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {

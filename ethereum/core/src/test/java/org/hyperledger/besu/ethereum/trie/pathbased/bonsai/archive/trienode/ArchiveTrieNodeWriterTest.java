@@ -90,7 +90,7 @@ class ArchiveTrieNodeWriterTest {
       final Bytes priorNode) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     trieNodeWriter.beginBlock(tx, header(block));
-    trieNodeWriter.capture(naturalKey, location, block, newNode, priorNode, tx);
+    trieNodeWriter.capture(naturalKey, location, newNode, priorNode, tx);
     trieNodeWriter.onBeforeCommit(tx);
     tx.commit();
   }
@@ -134,7 +134,7 @@ class ArchiveTrieNodeWriterTest {
   }
 
   @Test
-  void zeroNodeBlockStillRecordsCoverage() {
+  void emptyBlockStillRecordsProgress() {
     enqueueAndCommit(0L, ArchiveNodeKey.account(LOCATION), LOCATION, branchNode(0), null);
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
@@ -147,7 +147,7 @@ class ArchiveTrieNodeWriterTest {
   }
 
   @Test
-  void freshWriterDiffsWhenCoverageIsContiguous() {
+  void restartedWriterDiffsAgainstArchivedHistory() {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     enqueueAndCommit(0L, nk, LOCATION, branchNode(0), null);
 
@@ -160,7 +160,7 @@ class ArchiveTrieNodeWriterTest {
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     restarted.beginBlock(tx, header(1L));
-    restarted.capture(nk, LOCATION, 1L, branchNode(1), branchNode(0), tx);
+    restarted.capture(nk, LOCATION, branchNode(1), branchNode(0), tx);
     restarted.onBeforeCommit(tx);
     tx.commit();
 
@@ -184,7 +184,7 @@ class ArchiveTrieNodeWriterTest {
     assertThatThrownBy(
             () ->
                 trieNodeWriter.capture(
-                    nk, LOCATION, 1L, branchNode(1), branchNode(0), storage.startTransaction()))
+                    nk, LOCATION, branchNode(1), branchNode(0), storage.startTransaction()))
         .isInstanceOf(IllegalStateException.class);
   }
 
@@ -249,7 +249,7 @@ class ArchiveTrieNodeWriterTest {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     trieNodeWriter.beginBlock(tx, header(0L));
-    trieNodeWriter.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
+    trieNodeWriter.capture(nk, LOCATION, branchNode(0), null, tx);
     trieNodeWriter.onRollback(tx);
     tx.rollback();
 
@@ -263,7 +263,7 @@ class ArchiveTrieNodeWriterTest {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     trieNodeWriter.beginBlock(tx, header(0L));
-    trieNodeWriter.capture(nk, LOCATION, 0L, branchNode(0), null, tx);
+    trieNodeWriter.capture(nk, LOCATION, branchNode(0), null, tx);
 
     final SegmentedKeyValueStorageTransaction foreignTx = storage.startTransaction();
     trieNodeWriter.onRollback(foreignTx); // must be ignored
@@ -289,8 +289,8 @@ class ArchiveTrieNodeWriterTest {
     final SegmentedKeyValueStorageTransaction txB = storage.startTransaction();
     trieNodeWriter.beginBlock(txA, header(0L));
     trieNodeWriter.beginBlock(txB, header(1L));
-    trieNodeWriter.capture(nkA, locA, 0L, branchNode(0), null, txA);
-    trieNodeWriter.capture(nkB, locB, 1L, branchNode(1), null, txB);
+    trieNodeWriter.capture(nkA, locA, branchNode(0), null, txA);
+    trieNodeWriter.capture(nkB, locB, branchNode(1), null, txB);
 
     trieNodeWriter.onBeforeCommit(txA);
     txA.commit();
@@ -333,7 +333,7 @@ class ArchiveTrieNodeWriterTest {
       final Bytes node = branchNode(block);
       final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
       writer.beginBlock(tx, header(block));
-      writer.capture(nk, LOCATION, block, node, prior, tx);
+      writer.capture(nk, LOCATION, node, prior, tx);
       writer.onBeforeCommit(tx);
       tx.commit();
       prior = node;
@@ -390,11 +390,6 @@ class ArchiveTrieNodeWriterTest {
   private long replayAndSumStoredBytes(
       final Bytes location, final int blocks, final IntFunction<Bytes> nodeAt) {
     final Bytes nk = ArchiveNodeKey.account(location);
-    // Fresh storage per replay so progress restarts contiguously from block 0.
-    final SegmentedKeyValueStorage storage =
-        new SegmentedInMemoryKeyValueStorage(
-            List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
-    final ArchiveNodeHistoryStore historyStore = new ArchiveNodeHistoryStore(storage);
     final ExecutorService pool = Executors.newFixedThreadPool(2);
     final ArchiveTrieNodeWriter localCapture =
         new ArchiveTrieNodeWriter(
@@ -407,7 +402,7 @@ class ArchiveTrieNodeWriterTest {
       final Bytes node = nodeAt.apply(block);
       final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
       localCapture.beginBlock(tx, header(block));
-      localCapture.capture(nk, location, block, node, prior, tx);
+      localCapture.capture(nk, location, node, prior, tx);
       localCapture.onBeforeCommit(tx);
       tx.commit();
       prior = node;
@@ -470,7 +465,7 @@ class ArchiveTrieNodeWriterTest {
     trieNodeWriter.beginBlock(tx, header(0L));
     for (int i = 0; i < 65; i++) {
       final Bytes loc = Bytes.of((byte) (i + 2)); // +2 avoids ROOT_LOCATION and LOCATION
-      trieNodeWriter.capture(ArchiveNodeKey.account(loc), loc, 0L, branchNode(i), null, tx);
+      trieNodeWriter.capture(ArchiveNodeKey.account(loc), loc, branchNode(i), null, tx);
     }
     trieNodeWriter.onBeforeCommit(tx);
     tx.commit();

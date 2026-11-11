@@ -133,10 +133,16 @@ class BonsaiArchiveStateProofIntegrationTest {
    * ref out of sixteen.
    */
   private static Bytes fullBranchNode(final int seed) {
+    return fullBranchNode(seed, 1);
+  }
+
+  /** As {@link #fullBranchNode(int)}, with slot 1 also set from a seed. */
+  private static Bytes fullBranchNode(final int slot0, final int slot1) {
     final BytesValueRLPOutput out = new BytesValueRLPOutput();
     out.startList();
-    out.writeRaw(childRef(seed));
-    for (int i = 1; i < 16; i++) {
+    out.writeRaw(childRef(slot0));
+    out.writeRaw(childRef(slot1));
+    for (int i = 2; i < 16; i++) {
       out.writeRaw(childRef(i));
     }
     out.writeBytes(Bytes.EMPTY);
@@ -173,7 +179,7 @@ class BonsaiArchiveStateProofIntegrationTest {
         .ifPresent(
             node ->
                 archiveStrategy
-                    .overrideNodeLoader(storage, (l, h) -> Optional.of(node), l -> key)
+                    .wrapNodeLoader(storage, (l, h) -> Optional.of(node), l -> key)
                     .getNode(key, hash(node)));
   }
 
@@ -377,5 +383,26 @@ class BonsaiArchiveStateProofIntegrationTest {
     // A's diff at block 1 must not disturb B, whose last write was at block 0.
     assertThat(readStorageNode(accountA, 1L, location, hash(aV1))).contains(aV1);
     assertThat(readStorageNode(accountB, 1L, location, hash(bV0))).contains(bV0);
+  }
+
+  @Test
+  void nodeLeftByUncapturedWriteIsNotADiffBase() {
+    final Bytes location = Bytes.of(0x0e);
+    final Bytes stale = fullBranchNode(1, 50);
+    final Bytes written = fullBranchNode(3, 50);
+    writeAccountBlock(0L, location, fullBranchNode(1, 1));
+    writeAccountBlock(1L, Bytes.of(0x0f), fullBranchNode(9, 9));
+
+    // An abandoned sibling of block 2 leaves a node at the location, unreachable at block 1.
+    final SegmentedKeyValueStorageTransaction sibling = storage.startTransaction();
+    archiveStrategy.putTrieNode(storage, sibling, location, hash(stale), stale);
+    commitBlock(1L, sibling);
+
+    // Block 2's state-root trie never loads the unreachable node.
+    final SegmentedKeyValueStorageTransaction tx = startBlock(2L);
+    archiveStrategy.putTrieNode(storage, tx, location, hash(written), written);
+    commitBlock(2L, tx);
+
+    assertThat(readAccountNode(2L, location, hash(written))).contains(written);
   }
 }

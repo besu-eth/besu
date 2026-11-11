@@ -92,12 +92,10 @@ public class ArchiveTrieNodeWriter implements Closeable {
    */
   public void beginBlock(
       final SegmentedKeyValueStorageTransaction transaction, final BlockHeader blockHeader) {
+    final CaptureBuffer buffer =
+        new CaptureBuffer(new ArchivedBlock(blockHeader.getNumber(), blockHeader.getBlockHash()));
     checkState(
-        buffers.putIfAbsent(
-                transaction,
-                new CaptureBuffer(
-                    new ArchivedBlock(blockHeader.getNumber(), blockHeader.getBlockHash())))
-            == null,
+        buffers.putIfAbsent(transaction, buffer) == null,
         "Block already begun on this transaction");
   }
 
@@ -106,7 +104,6 @@ public class ArchiveTrieNodeWriter implements Closeable {
    *
    * @param naturalKey the archive key for this node (account or storage form)
    * @param location the nibble-path location in bytes, used to select the checkpoint interval
-   * @param block the block number being imported
    * @param newNode the new RLP-encoded node value, or {@code null} if the node is being deleted
    * @param priorNode the previous RLP-encoded node value, or {@code null} if this is a creation
    * @param transaction the open transaction that will commit this block's writes
@@ -115,24 +112,14 @@ public class ArchiveTrieNodeWriter implements Closeable {
   void capture(
       final Bytes naturalKey,
       final Bytes location,
-      final long block,
       final Bytes newNode,
       final Bytes priorNode,
       final SegmentedKeyValueStorageTransaction transaction) {
     final CaptureBuffer buf = buffers.get(transaction);
-    if (buf == null) {
-      throw new IllegalStateException(
-          "trie-node capture for block " + block + " on a transaction with no begun block");
-    }
+    checkState(buf != null, "Trie-node capture on a transaction with no begun block");
     synchronized (buf) {
-      if (buf.block.number() != block) {
-        throw new IllegalStateException(
-            "trie-node capture buffer holds block "
-                + buf.block.number()
-                + " but its transaction received a write for block "
-                + block);
-      }
-      buf.pendingRequests.add(new CaptureRequest(naturalKey, location, block, newNode, priorNode));
+      buf.pendingRequests.add(
+          new CaptureRequest(naturalKey, location, buf.block.number(), newNode, priorNode));
       if (buf.pendingRequests.size() >= BATCH_SIZE) {
         dispatchBatch(buf);
       }
@@ -154,17 +141,16 @@ public class ArchiveTrieNodeWriter implements Closeable {
       return createEncodedEntry(request, 0, ArchiveTrieNodeCodec.encodeDiff(priorNode, newNode));
     }
 
-    if (request.block() != 0L) {
-      final Optional<ArchiveNodeHistoryStore.HistoryEntry> priorEntry =
-          historyStore.getLatestBefore(request.naturalKey(), request.block() - 1L);
-      if (priorEntry.isPresent() && !priorEntry.get().codecEntry().isDeletion()) {
-        final int counter = priorEntry.get().counter() + 1;
-        if (counter < checkpointIntervalForDepth(request.location().size())) {
-          final Bytes codecEntry = ArchiveTrieNodeCodec.encodeDiff(priorNode, newNode);
-          // encodeDiff may fall back to FULL when the patch is no smaller than the node
-          final int effectiveCounter = ArchiveTrieNodeEntry.isFullEncoded(codecEntry) ? 0 : counter;
-          return createEncodedEntry(request, effectiveCounter, codecEntry);
-        }
+    // Genesis never has a prior, so request.block() - 1 is at least 0 here.
+    final Optional<ArchiveNodeHistoryStore.HistoryEntry> priorEntry =
+        historyStore.getLatestBefore(request.naturalKey(), request.block() - 1L);
+    if (priorEntry.isPresent() && !priorEntry.get().codecEntry().isDeletion()) {
+      final int counter = priorEntry.get().counter() + 1;
+      if (counter < checkpointIntervalForDepth(request.location().size())) {
+        final Bytes codecEntry = ArchiveTrieNodeCodec.encodeDiff(priorNode, newNode);
+        // encodeDiff may fall back to FULL when the patch is no smaller than the node
+        final int effectiveCounter = ArchiveTrieNodeEntry.isFullEncoded(codecEntry) ? 0 : counter;
+        return createEncodedEntry(request, effectiveCounter, codecEntry);
       }
     }
     return createEncodedEntry(request, 0, ArchiveTrieNodeCodec.encodeFull(newNode));

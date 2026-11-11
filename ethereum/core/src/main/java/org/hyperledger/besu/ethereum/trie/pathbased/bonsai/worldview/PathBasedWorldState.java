@@ -245,8 +245,7 @@ public abstract class PathBasedWorldState
     try {
       final StateRootComputation computation = committer.compute(this, blockHeader, accumulator);
       if (!isStorageFrozen()) {
-        // A trie-disabled persist writes no trie nodes, so it doesn't notify the trie-node
-        // strategy.
+        // Trie-disabled persists write no trie nodes, so skip the trie-node strategy hook.
         if (blockHeader != null && !isTrieDisabled()) {
           stateUpdater.beginBlockPersist(blockHeader);
         }

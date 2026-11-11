@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
  * <p>Wire format per stored value: {@code [counter: 1 unsigned byte] ‖ [ArchiveTrieNodeCodec
  * entry]}.
  *
- * <p>Also records the last archived block, which history covers up to.
+ * <p>Also records the last archived block; history covers every block up to it.
  */
 public final class ArchiveNodeHistoryStore {
 
@@ -57,7 +57,7 @@ public final class ArchiveNodeHistoryStore {
   private final SegmentedKeyValueStorage storage;
 
   /**
-   * Creates a store backed by the given segmented key-value storage. do
+   * Creates a store backed by the given segmented key-value storage.
    *
    * @param storage the storage to read and write archive trie-node history through
    */
@@ -84,7 +84,7 @@ public final class ArchiveNodeHistoryStore {
     return storage
         .get(TRIE_BRANCH_STORAGE_ARCHIVE, ARCHIVE_PROGRESS_KEY)
         .map(Bytes::wrap)
-        .map(b -> new ArchivedBlock(b.getLong(0), Hash.wrap(Bytes32.wrap(b.slice(8, 32)))));
+        .map(b -> new ArchivedBlock(b.getLong(0), Hash.wrap(Bytes32.wrap(b.slice(Long.BYTES)))));
   }
 
   /**

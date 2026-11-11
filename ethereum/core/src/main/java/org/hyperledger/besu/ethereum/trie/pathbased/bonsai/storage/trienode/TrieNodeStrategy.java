@@ -45,16 +45,7 @@ public interface TrieNodeStrategy {
   void removeTrieNode(
       SegmentedKeyValueStorage storage, SegmentedKeyValueStorageTransaction transaction, Bytes key);
 
-  /**
-   * Returns the node loader a state-root trie over {@code storage} should use in place of {@code
-   * loader}.
-   *
-   * @param storage the storage the trie's nodes are read from
-   * @param loader the trie's node loader
-   * @param keyOf maps a node location to its {@link TrieNodeKey}
-   * @return the loader to use
-   */
-  default NodeLoader overrideNodeLoader(
+  default NodeLoader wrapNodeLoader(
       final SegmentedKeyValueStorage storage,
       final NodeLoader loader,
       final Function<Bytes, Bytes> keyOf) {

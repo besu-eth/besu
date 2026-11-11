@@ -61,12 +61,12 @@ public class ArchiveTrieNodeStrategy
     implements TrieNodeStrategy, Synchronizer.InSyncListener, Closeable {
 
   private static final Logger LOG = LoggerFactory.getLogger(ArchiveTrieNodeStrategy.class);
+  private static final int LOG_MISSING_COVERAGE_INTERVAL_SECONDS = 60;
 
   private final TrieNodeStrategy base;
   private final ArchiveTrieNodeWriter trieNodeWriter;
   private final ArchiveNodeHistoryStore historyStore;
   private final Predicate<SegmentedKeyValueStorage> isCaptureStorage;
-  private static final int LOG_MISSING_COVERAGE_INTERVAL = 60;
   private final AtomicBoolean logMissingCoverage = new AtomicBoolean(true);
 
   // Starts true (archive everything) until the first in-sync event. Safe default for initial sync
@@ -155,11 +155,11 @@ public class ArchiveTrieNodeStrategy
   }
 
   @Override
-  public NodeLoader overrideNodeLoader(
+  public NodeLoader wrapNodeLoader(
       final SegmentedKeyValueStorage storage,
       final NodeLoader loader,
       final Function<Bytes, Bytes> keyOf) {
-    if (!isCaptureStorage.test(storage)) {
+    if (!isCaptureStorage.test(storage) || !archiving.get()) {
       return loader;
     }
     return (location, hash) -> {
@@ -180,11 +180,12 @@ public class ArchiveTrieNodeStrategy
       final BlockHeader blockHeader) {
     final long block = blockHeader.getNumber();
     if (isCaptureStorage.test(storage)
-        && isSingleBlockPersist(storage, blockHeader)
         && (block == 0L || archiving.get())
+        && isSingleBlockPersist(storage, blockHeader)
         && extendsCoverage(blockHeader)) {
       trieNodeWriter.beginBlock(transaction, blockHeader);
-      capturedBlocks.put(transaction, new CapturedBlock(block, loadedNodes.get()));
+      capturedBlocks.put(
+          transaction, new CapturedBlock(block, block == 0L ? Map.of() : loadedNodes.get()));
     }
   }
 
@@ -208,25 +209,23 @@ public class ArchiveTrieNodeStrategy
       return true;
     }
     if (block > last.number()) {
-      LogUtil.throttledLog(
-          () ->
-              LOG.warn(
-                  "Not capturing trie nodes for block {} ({}): "
-                      + "it does not extend archived block {} ({})",
-                  block,
-                  blockHeader.getBlockHash(),
-                  last.number(),
-                  last.hash()),
-          logMissingCoverage,
-          LOG_MISSING_COVERAGE_INTERVAL);
+      logSkippedBlock(blockHeader, last);
     }
     return false;
   }
 
-  // Bonsai re-commits unchanged nodes along a touched path; skip archiving them to avoid
-  // inflating the diff-chain counter. Creations (prior == null) are never no-ops.
-  private boolean isNoOpRewrite(final Bytes prior, final Bytes node) {
-    return prior != null && prior.equals(node);
+  private void logSkippedBlock(final BlockHeader blockHeader, final ArchivedBlock last) {
+    LogUtil.throttledLog(
+        () ->
+            LOG.warn(
+                "Not capturing trie nodes for block {} ({}): "
+                    + "it does not extend archived block {} ({})",
+                blockHeader.getNumber(),
+                blockHeader.getBlockHash(),
+                last.number(),
+                last.hash()),
+        logMissingCoverage,
+        LOG_MISSING_COVERAGE_INTERVAL_SECONDS);
   }
 
   @Override
@@ -244,13 +243,16 @@ public class ArchiveTrieNodeStrategy
       final Bytes node) {
     base.putTrieNode(storage, transaction, key, nodeHash, node);
     final CapturedBlock block = capturedBlocks.getIfPresent(transaction);
-    if (block != null) {
-      final Bytes prior = loadedPriorNode(key, block);
-      if (isNoOpRewrite(prior, node)) {
-        return;
-      }
-      capture(key, block.number(), node, prior, transaction);
+    if (block == null) {
+      return;
     }
+    // A node whose prior wasn't loaded is written FULL.
+    final Bytes prior = block.priorNodes().get(key);
+    // Skip Bonsai's unchanged re-commits.
+    if (node.equals(prior)) {
+      return;
+    }
+    capture(key, node, prior, transaction);
   }
 
   @Override
@@ -260,38 +262,30 @@ public class ArchiveTrieNodeStrategy
       final Bytes key) {
     base.removeTrieNode(storage, transaction, key);
     final CapturedBlock block = capturedBlocks.getIfPresent(transaction);
-    if (block != null) {
-      final Bytes prior = priorNode(storage, key, block);
-      // Removing a node that doesn't exist is a no-op for the archive.
-      if (prior != null) {
-        capture(key, block.number(), null, prior, transaction);
-      }
+    if (block == null) {
+      return;
+    }
+    final Bytes prior = priorNode(storage, key, block);
+    // Nothing to archive if the node didn't exist.
+    if (prior != null) {
+      capture(key, null, prior, transaction);
     }
   }
 
-  // Live nodes are always loaded before being replaced; anything else is written FULL.
-  private Bytes loadedPriorNode(final Bytes key, final CapturedBlock block) {
-    return block.number() == 0L ? null : block.priorNodes().get(key);
-  }
-
-  // A removal reads storage when the node wasn't loaded, to know whether it existed.
+  // Falls back to storage to tell whether the node existed.
   private Bytes priorNode(
       final SegmentedKeyValueStorage storage, final Bytes key, final CapturedBlock block) {
-    final Bytes loaded = loadedPriorNode(key, block);
-    if (loaded != null || block.number() == 0L) {
-      return loaded;
-    }
-    return base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
+    final Bytes loaded = block.priorNodes().get(key);
+    return loaded != null ? loaded : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
   }
 
   private void capture(
       final Bytes key,
-      final long block,
       final Bytes node,
       final Bytes prior,
       final SegmentedKeyValueStorageTransaction transaction) {
     trieNodeWriter.capture(
-        ArchiveNodeKey.of(key), TrieNodeKey.location(key), block, node, prior, transaction);
+        ArchiveNodeKey.of(key), TrieNodeKey.location(key), node, prior, transaction);
   }
 
   @Override
