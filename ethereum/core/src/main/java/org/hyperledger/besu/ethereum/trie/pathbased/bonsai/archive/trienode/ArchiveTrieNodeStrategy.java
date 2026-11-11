@@ -76,15 +76,13 @@ public class ArchiveTrieNodeStrategy
   // True when an external chain estimate exists (e.g. a peer or CL that knows the chain head)
   private volatile BooleanSupplier hasChainEstimate;
 
-  private record CapturedBlock(long number, Map<Bytes, Bytes> priorNodes) {}
-
   // Nodes loaded from the capture storage since its last commit, by trie-node key. They are what
   // storage holds until that commit, so a captured block uses them as the nodes it replaces.
   private final AtomicReference<Map<Bytes, Bytes>> loadedNodes =
       new AtomicReference<>(new ConcurrentHashMap<>());
 
-  // Transactions persisting a captured block, mapped to that block.
-  private final Cache<SegmentedKeyValueStorageTransaction, CapturedBlock> capturedBlocks =
+  // Transactions persisting a captured block, mapped to the nodes that block replaces.
+  private final Cache<SegmentedKeyValueStorageTransaction, Map<Bytes, Bytes>> capturedBlocks =
       Caffeine.newBuilder().weakKeys().build();
 
   /**
@@ -184,8 +182,7 @@ public class ArchiveTrieNodeStrategy
         && isSingleBlockPersist(storage, blockHeader)
         && extendsCoverage(blockHeader)) {
       trieNodeWriter.beginBlock(transaction, blockHeader);
-      capturedBlocks.put(
-          transaction, new CapturedBlock(block, block == 0L ? Map.of() : loadedNodes.get()));
+      capturedBlocks.put(transaction, block == 0L ? Map.of() : loadedNodes.get());
     }
   }
 
@@ -242,12 +239,12 @@ public class ArchiveTrieNodeStrategy
       final Bytes32 nodeHash,
       final Bytes node) {
     base.putTrieNode(storage, transaction, key, nodeHash, node);
-    final CapturedBlock block = capturedBlocks.getIfPresent(transaction);
-    if (block == null) {
+    final Map<Bytes, Bytes> priorNodes = capturedBlocks.getIfPresent(transaction);
+    if (priorNodes == null) {
       return;
     }
     // A node whose prior wasn't loaded is written FULL.
-    final Bytes prior = block.priorNodes().get(key);
+    final Bytes prior = priorNodes.get(key);
     // Skip Bonsai's unchanged re-commits.
     if (node.equals(prior)) {
       return;
@@ -261,11 +258,11 @@ public class ArchiveTrieNodeStrategy
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes key) {
     base.removeTrieNode(storage, transaction, key);
-    final CapturedBlock block = capturedBlocks.getIfPresent(transaction);
-    if (block == null) {
+    final Map<Bytes, Bytes> priorNodes = capturedBlocks.getIfPresent(transaction);
+    if (priorNodes == null) {
       return;
     }
-    final Bytes prior = priorNode(storage, key, block);
+    final Bytes prior = priorNode(storage, key, priorNodes);
     // Nothing to archive if the node didn't exist.
     if (prior != null) {
       capture(key, null, prior, transaction);
@@ -274,8 +271,8 @@ public class ArchiveTrieNodeStrategy
 
   // Falls back to storage to tell whether the node existed.
   private Bytes priorNode(
-      final SegmentedKeyValueStorage storage, final Bytes key, final CapturedBlock block) {
-    final Bytes loaded = block.priorNodes().get(key);
+      final SegmentedKeyValueStorage storage, final Bytes key, final Map<Bytes, Bytes> priorNodes) {
+    final Bytes loaded = priorNodes.get(key);
     return loaded != null ? loaded : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
   }
 
