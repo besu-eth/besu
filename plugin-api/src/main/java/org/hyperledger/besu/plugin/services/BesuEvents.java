@@ -53,7 +53,7 @@ import org.apache.tuweni.bytes.Bytes32;
  *     feature service and returns a {@code Subscription} handle that is closed to unsubscribe,
  *     instead of a {@code long} id: block propagated, block added, block reorg, log and bad block
  *     on {@code BlockchainService}; transaction added and transaction dropped on {@code
- *     TransactionPoolService}; sync status and initial sync completion on {@code SyncEventService}.
+ *     TxPoolEventService}; sync status and initial sync completion on {@code SyncEventService}.
  *     {@code TTDReachedListener} has no replacement: it has no add method here, so no plugin has
  *     ever been able to register one.
  */

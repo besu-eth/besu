@@ -170,11 +170,33 @@ public class TransactionPoolFactory {
         transactionsMessageHandler,
         pooledTransactionsMessageHandler);
 
+    // nothing is enabled and no sync listener is registered here: the node starts transaction
+    // handling once its plugins have started
+    transactionPool.setTransactionHandlingStarter(
+        () ->
+            startTransactionHandling(
+                syncState,
+                transactionTracker,
+                transactionPool,
+                transactionsMessageHandler,
+                pooledTransactionsMessageHandler));
+
+    return transactionPool;
+  }
+
+  private static void startTransactionHandling(
+      final SyncState syncState,
+      final PeerTransactionTracker transactionTracker,
+      final TransactionPool transactionPool,
+      final TransactionsMessageHandler transactionsMessageHandler,
+      final NewPooledTransactionHashesMessageHandler pooledTransactionsMessageHandler) {
     if (syncState.isInitialSyncPhaseDone()) {
       LOG.info("Enabling transaction pool");
-      pooledTransactionsMessageHandler.setEnabled();
-      transactionsMessageHandler.setEnabled();
-      transactionPool.setEnabled();
+      enableTransactionHandling(
+          transactionTracker,
+          transactionPool,
+          transactionsMessageHandler,
+          pooledTransactionsMessageHandler);
     } else {
       LOG.info("Transaction pool disabled while initial sync in progress");
     }
@@ -218,8 +240,6 @@ public class TransactionPoolFactory {
             }
           }
         });
-
-    return transactionPool;
   }
 
   private static void enableTransactionHandling(
