@@ -253,6 +253,9 @@ public abstract class CommandTestAbstract {
   /** The built-in plugins the command under test handed to the mocked plugin context. */
   private final List<BesuPlugin> builtInPlugins = new ArrayList<>();
 
+  /** The events service the built-in readiness check subscribes to in start(). */
+  protected final BesuEvents besuEvents = mock(BesuEvents.class);
+
   @Mock protected KeyValueStorageFactory rocksDBStorageFactory;
   @Mock protected NodeKey nodeKey;
   @Mock private BesuPluginContextImpl mockBesuPluginContext;
@@ -370,7 +373,7 @@ public abstract class CommandTestAbstract {
     fakePluginServices.add(StorageConfiguration.class, commonPluginConfiguration);
     // what the built-in health check plugins look up in each phase
     fakePluginServices.add(HealthCheckService.class, new HealthCheckServiceImpl());
-    fakePluginServices.add(BesuEvents.class, mock(BesuEvents.class));
+    fakePluginServices.add(BesuEvents.class, besuEvents);
     fakePluginServices.add(P2PService.class, mock(P2PService.class));
     fakePluginServices.add(SynchronizationService.class, mock(SynchronizationService.class));
   }

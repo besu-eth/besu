@@ -20,16 +20,27 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.RegistrationContext;
+import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.StorageService;
+import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.segmented.RocksDBColumnarKeyValueStorageTest.TestSegment;
 import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
 import picocli.CommandLine;
 import picocli.CommandLine.Model.CommandSpec;
 
@@ -46,8 +57,14 @@ class RocksDBPluginTest {
   }
 
   private static RegistrationContext registrationContext(final StorageService storageService) {
+    return registrationContext(storageService, List.of());
+  }
+
+  /** A registration context whose storage configuration lists the given ignorable segments. */
+  private static RegistrationContext registrationContext(
+      final StorageService storageService, final List<SegmentIdentifier> ignorableSegments) {
     final StorageConfiguration storageConfiguration = mock(StorageConfiguration.class);
-    when(storageConfiguration.getIgnorableSegments()).thenReturn(List.of());
+    when(storageConfiguration.getIgnorableSegments()).thenReturn(ignorableSegments);
     final RegistrationContext context = mock(RegistrationContext.class);
     when(context.getBesuService(StorageService.class)).thenReturn(storageService);
     when(context.getBesuService(StorageConfiguration.class)).thenReturn(storageConfiguration);
@@ -83,12 +100,53 @@ class RocksDBPluginTest {
   }
 
   @Test
-  void stopLetsGoOfTheFactoryAndRegisterCreatesAFreshOne() {
+  void registerHandsTheConfiguredIgnorableSegmentsToTheFactory(@TempDir final Path tempDir)
+      throws Exception {
+    final StorageService storageService = mock(StorageService.class);
+    when(storageService.getAllSegmentIdentifiers())
+        .thenReturn(List.of(TestSegment.DEFAULT, TestSegment.FOO, TestSegment.EXPERIMENTAL));
+    pluginWithOptions()
+        .register(registrationContext(storageService, List.of(TestSegment.EXPERIMENTAL)));
+    final ArgumentCaptor<KeyValueStorageFactory> factory =
+        ArgumentCaptor.forClass(KeyValueStorageFactory.class);
+    verify(storageService).registerKeyValueStorage(factory.capture());
+
+    // open a fresh database through the registered factory, then look at its column families
+    final Path databaseDir = tempDir.resolve("db");
+    final BesuConfiguration configuration = mock(BesuConfiguration.class);
+    final DataStorageConfiguration dataStorageConfiguration = mock(DataStorageConfiguration.class);
+    when(configuration.getStoragePath()).thenReturn(databaseDir);
+    when(configuration.getDataPath()).thenReturn(tempDir);
+    when(configuration.getDataStorageConfiguration()).thenReturn(dataStorageConfiguration);
+    when(dataStorageConfiguration.getDatabaseFormat()).thenReturn(DataStorageFormat.FOREST);
+    try (SegmentedKeyValueStorage storage =
+        factory
+            .getValue()
+            .create(
+                List.of(TestSegment.DEFAULT, TestSegment.FOO),
+                configuration,
+                new NoOpMetricsSystem())) {
+      assertThat(storage).isNotNull();
+    }
+
+    try (Options options = new Options()) {
+      final List<byte[]> columnFamilies =
+          RocksDB.listColumnFamilies(options, databaseDir.toString());
+      assertThat(columnFamilies)
+          .anySatisfy(id -> assertThat(id).isEqualTo(TestSegment.FOO.getId()));
+      assertThat(columnFamilies)
+          .noneSatisfy(id -> assertThat(id).isEqualTo(TestSegment.EXPERIMENTAL.getId()));
+    }
+  }
+
+  @Test
+  void registerAfterStopCreatesAFreshFactory() {
     final StorageService storageService = mock(StorageService.class);
     when(storageService.getAllSegmentIdentifiers()).thenReturn(List.of());
     final RegistrationContext context = registrationContext(storageService);
     final RocksDBPlugin plugin = pluginWithOptions();
 
+    // the Ephemery restart sequence: stop() lets go of the factory, register() creates a new one
     plugin.register(context);
     plugin.stop();
     plugin.register(context);

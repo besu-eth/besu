@@ -19,7 +19,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.config.NetworkDefinition.EPHEMERY;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.calls;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -96,6 +100,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.Logger;
@@ -268,6 +273,20 @@ public class EphemeryTest extends CommandTestAbstract {
     assertThat(initialCycleId)
         .isEqualTo(besuCommand.getGenesisConfigOptions().getChainId().get().add(BigInteger.ONE));
     assertThat(runner.getP2PNetwork().isP2pEnabled()).isTrue();
+  }
+
+  @Test
+  public void testRestartStopsThePluginsBeforeStartingThemAgain() throws Exception {
+    runner.stopEphemery(besuCommand);
+    runner.startEphemery(besuCommand);
+
+    // the built-in readiness check subscribes its sync listener in start() and removes it in
+    // stop(): the first cycle's subscription is removed before the second cycle subscribes
+    final InOrder inOrder = inOrder(besuEvents);
+    inOrder.verify(besuEvents, calls(1)).addSyncStatusListener(any());
+    inOrder.verify(besuEvents).removeSyncStatusListener(anyLong());
+    inOrder.verify(besuEvents).addSyncStatusListener(any());
+    verify(besuEvents, times(2)).addSyncStatusListener(any());
   }
 
   @Test
