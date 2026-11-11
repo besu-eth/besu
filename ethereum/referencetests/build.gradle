@@ -601,6 +601,10 @@ tasks.register('validateReferenceTestSubmodule') {
       }
       result.write(gitStatus.standardOutput.asText.get().getBytes('UTF-8'))
       result.write(gitStatus.standardError.asText.get().getBytes('UTF-8'))
+      if (gitStatus.result.get().exitValue != 0) {
+        // not a git checkout, such as a source archive: nothing to validate
+        expectedHash = ''
+      }
     } catch (Exception ignore) {
       // Ignore it.  We want to fail in a friendly fashion if they don't have git installed.
       // The CI servers have git and that is the only critical place for this failure
