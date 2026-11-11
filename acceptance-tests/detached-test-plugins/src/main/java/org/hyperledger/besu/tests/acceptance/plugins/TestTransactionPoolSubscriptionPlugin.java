@@ -19,7 +19,7 @@ import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationContext;
 import org.hyperledger.besu.plugin.StartContext;
 import org.hyperledger.besu.plugin.services.Subscription;
-import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
+import org.hyperledger.besu.plugin.services.transactionpool.TxPoolEventService;
 
 import java.io.File;
 import java.util.List;
@@ -30,7 +30,7 @@ import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Subscribes to transaction-added events through {@link TransactionPoolService}. */
+/** Subscribes to transaction-added events through {@link TxPoolEventService}. */
 @AutoService(BesuPlugin.class)
 public class TestTransactionPoolSubscriptionPlugin implements BesuPlugin {
   private static final Logger LOG =
@@ -50,7 +50,7 @@ public class TestTransactionPoolSubscriptionPlugin implements BesuPlugin {
     transactionAdded =
         Optional.of(
             context
-                .getBesuService(TransactionPoolService.class)
+                .getBesuService(TxPoolEventService.class)
                 .subscribeTransactionAdded(this::onTransactionAdded));
     LOG.info("Subscribed to transaction added: {}", transactionAdded.isPresent());
   }

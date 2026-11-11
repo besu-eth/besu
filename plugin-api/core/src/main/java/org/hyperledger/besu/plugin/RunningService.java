@@ -22,7 +22,8 @@ import org.hyperledger.besu.plugin.services.BesuService;
  *
  * <p>This is the widest tier: {@link StartService} extends it, so every start-phase service is also
  * usable here. A service that has only this marker ({@code P2PService}, {@code
- * SynchronizationService}, {@code MiningService}) depends on components that start with the main
- * loop, so it is not offered any earlier.
+ * SynchronizationService}, {@code MiningService}, {@code TransactionPoolService}) depends on
+ * components that start with the main loop, or on state the node settles only after every plugin's
+ * {@code start()}, so it is not offered any earlier.
  */
 public interface RunningService extends BesuService {}
