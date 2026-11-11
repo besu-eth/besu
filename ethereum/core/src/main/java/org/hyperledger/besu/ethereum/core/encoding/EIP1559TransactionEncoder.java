@@ -27,7 +27,7 @@ public class EIP1559TransactionEncoder {
 
   public static void encode(final Transaction transaction, final RLPOutput out) {
     out.startList();
-    out.writeBigIntegerScalar(transaction.getChainId().orElseThrow());
+    transaction.getChainIdentifier().writeTo(out);
     out.writeLongScalar(transaction.getNonce());
     out.writeUInt256Scalar(transaction.getMaxPriorityFeePerGas().orElseThrow());
     out.writeUInt256Scalar(transaction.getMaxFeePerGas().orElseThrow());
