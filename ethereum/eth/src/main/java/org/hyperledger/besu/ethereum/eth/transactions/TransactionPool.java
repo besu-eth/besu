@@ -122,6 +122,8 @@ public class TransactionPool implements BlockAddedObserver {
   private final TransactionPoolConfiguration configuration;
   private final AtomicBoolean isPoolEnabled = new AtomicBoolean(false);
   private final Object enableDisableLock = new Object();
+  // run once by startTransactionHandling(); set by the factory, which owns the message handlers
+  private final AtomicReference<Runnable> transactionHandlingStarter = new AtomicReference<>();
   private final TransactionEventNotifier eventNotifier;
   private volatile OptionalLong subscribeConnectId = OptionalLong.empty();
   private final SaveRestoreManager saveRestoreManager = new SaveRestoreManager();
@@ -775,6 +777,24 @@ public class TransactionPool implements BlockAddedObserver {
 
     static ValidationResultAndAccount invalid(final TransactionInvalidReason reason) {
       return new ValidationResultAndAccount(ValidationResult.invalid(reason));
+    }
+  }
+
+  void setTransactionHandlingStarter(final Runnable transactionHandlingStarter) {
+    this.transactionHandlingStarter.set(transactionHandlingStarter);
+  }
+
+  /**
+   * Starts transaction handling: enables the pool and its message handlers when there is no initial
+   * sync to wait for, and from then on lets them follow the sync state. The node calls this once
+   * its plugins have started, so that a saved pool is restored through validators and permissioning
+   * that are in place; until then the pool stays disabled whatever the sync state reports. Only the
+   * first call has an effect.
+   */
+  public void startTransactionHandling() {
+    final Runnable starter = transactionHandlingStarter.getAndSet(null);
+    if (starter != null) {
+      starter.run();
     }
   }
 

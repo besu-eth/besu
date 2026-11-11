@@ -80,10 +80,11 @@ public interface BesuPlugin {
    * external services open their ports only after that, and the peer-to-peer network starts with
    * the main loop. Not covered: storage factories and security modules, which Besu uses while it
    * builds the node; in-process work another plugin does from its own {@code start()}, since
-   * plugins start in discovery order; the saved transaction pool, which a node running full sync or
-   * with peer-to-peer disabled reloads with {@code --tx-pool-enable-save-restore} while the node is
-   * built; and a plugin dropped under {@code --plugin-continue-on-error} after failing in {@code
-   * start()}, whose callbacks stay wired.
+   * plugins start in discovery order; the transaction pool, which on a node with no initial sync to
+   * wait for is enabled only after every plugin's {@code start()} has returned, so a transaction
+   * submitted in-process from {@code start()} is refused as pool disabled; and a plugin dropped
+   * under {@code --plugin-continue-on-error} after failing in {@code start()}, whose callbacks stay
+   * wired.
    *
    * <p>The context offers every {@link StartService}, and those services keep working for the rest
    * of the node's life, so the context and the services obtained from it may be kept and used from
@@ -99,9 +100,9 @@ public interface BesuPlugin {
    * listening with discovery running when enabled, though the peer count may still be zero, and the
    * synchronizer has started, though sync may be in progress or already complete. This is the first
    * point at which the {@link RunningService} types ({@code P2PService}, {@code
-   * SynchronizationService}, {@code MiningService}) return meaningful answers, so work that needs a
-   * running network, the sync status or mining control belongs here rather than in {@link
-   * #start(StartContext)}.
+   * SynchronizationService}, {@code MiningService}, {@code TransactionPoolService}) return
+   * meaningful answers, so work that needs a running network, the sync status, mining control or
+   * control of the transaction pool belongs here rather than in {@link #start(StartContext)}.
    *
    * <p>The external services have been accepting requests since before the main loop started, so a
    * callback this plugin registered may already have run by the time this method is called.

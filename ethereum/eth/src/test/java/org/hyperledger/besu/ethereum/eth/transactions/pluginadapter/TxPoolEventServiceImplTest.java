@@ -41,14 +41,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-class TransactionPoolServiceImplTest {
+class TxPoolEventServiceImplTest {
 
   @Mock private TransactionPool transactionPool;
-  private TransactionPoolServiceImpl service;
+  private TxPoolEventServiceImpl service;
 
   @BeforeEach
   void setUp() {
-    service = new TransactionPoolServiceImpl(transactionPool);
+    service = new TxPoolEventServiceImpl(transactionPool);
   }
 
   @Test

@@ -1344,7 +1344,7 @@ public final class EthProtocolManagerTest {
               ethProtocolConfiguration,
               new BlobCache(),
               MiningConfiguration.newDefault())
-          .setEnabled();
+          .startTransactionHandling();
 
       // Send just a transaction message.
       final PeerConnection peer = setupPeer(ethManager, (cap, msg, connection) -> {});

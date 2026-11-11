@@ -89,6 +89,14 @@ public class AccountTransactions {
         .build();
   }
 
+  public TransferTransaction createTransferWithGasLimit(
+      final Account recipient, final int amount, final long gasLimit, final BigInteger nonce) {
+    return createFrontierBuilder(accounts.getPrimaryBenefactor(), recipient, Amount.ether(amount))
+        .gasLimit(gasLimit)
+        .nonce(nonce)
+        .build();
+  }
+
   public TransferTransaction createTransfer(
       final Account sender, final Account recipient, final Amount amount, final BigInteger nonce) {
     return createFrontierBuilder(sender, recipient, amount).nonce(nonce).build();

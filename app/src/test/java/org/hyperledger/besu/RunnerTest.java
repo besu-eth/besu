@@ -223,7 +223,11 @@ public final class RunnerTest {
             .rpcEndpointRegistry(new RpcEndpointRegistryImpl())
             .build();
     try {
+      // the blocks imported above made the sync state report in sync, which must not have started
+      // transaction handling on its own: the node starts it with the external services
+      assertThat(controllerAhead.getTransactionPool().isEnabled()).isFalse();
       runnerAhead.startExternalServices();
+      assertThat(controllerAhead.getTransactionPool().isEnabled()).isTrue();
       runnerAhead.startEthereumMainLoop();
       assertThat(pidPath.toFile()).exists();
 

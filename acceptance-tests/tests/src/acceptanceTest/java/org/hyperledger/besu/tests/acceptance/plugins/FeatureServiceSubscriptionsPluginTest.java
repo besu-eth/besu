@@ -29,8 +29,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Covers the subscriptions added to the feature services, delivered through the test plugins that
- * subscribe via {@code BlockchainService}, {@code TransactionPoolService} and {@code
- * SyncEventService} instead of {@code BesuEvents}.
+ * subscribe via {@code BlockchainService}, {@code TxPoolEventService} and {@code SyncEventService}
+ * instead of {@code BesuEvents}.
  */
 public class FeatureServiceSubscriptionsPluginTest extends AcceptanceTestBase {
   private BesuNode pluginNode;
@@ -64,7 +64,7 @@ public class FeatureServiceSubscriptionsPluginTest extends AcceptanceTestBase {
   }
 
   @Test
-  public void transactionAddedIsDeliveredThroughTransactionPoolService() {
+  public void transactionAddedIsDeliveredThroughTxPoolEventService() {
     final Account recipient = accounts.createAccount("recipient");
     pluginNode.execute(accountTransactions.createTransfer(recipient, Amount.wei(BigInteger.ONE)));
 
