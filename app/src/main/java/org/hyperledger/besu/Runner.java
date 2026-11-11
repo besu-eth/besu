@@ -152,8 +152,14 @@ public class Runner implements AutoCloseable {
             besuController.getTransactionPool().getConfiguration().getPendingTxEvictionInterval());
   }
 
-  /** Start external services. */
+  /**
+   * Start external services. Called after the plugins have started; transaction handling is started
+   * first, so on a node with no initial sync to wait for a saved transaction pool is restored
+   * through validators and permissioning that are in place, and no submission from outside the node
+   * is refused as pool disabled.
+   */
   public void startExternalServices() {
+    besuController.getTransactionPool().startTransactionHandling();
     LOG.info("Starting external services ... ");
     metrics.ifPresent(service -> waitForServiceToStart("metrics", service.start()));
 
