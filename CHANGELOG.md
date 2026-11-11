@@ -32,6 +32,7 @@
 - Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
 - `eth_simulateV1` now rejects precompiles moved to their own address with error `-38022`. [#11793](https://github.com/besu-eth/besu/issues/11793)
 - `eth_simulateV1` now returns `maxUsedGas` after Amsterdam as the gas used before refunds raised to the calldata floor, `max(executionGas + stateGas, floor)`, as Geth does. Previously Besu returned `max(executionGas, floor) + stateGas`, which is larger when the execution gas is below the floor. `eth_estimateGas` uses the same value as its lower bound. [#11580](https://github.com/besu-eth/besu/pull/11580)
+- Setting `code` on a precompile address in a state override (without `movePrecompileToAddress`) now removes that precompile from the simulation registry, so the overriding code runs instead of the built-in precompile on `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_simulateV1`, and `debug_traceCall`. [#11604](https://github.com/besu-eth/besu/pull/11604)
 - `eth_simulateV1` now accepts `withdrawals` in `blockOverrides`, as execution-apis specifies. [#11632](https://github.com/besu-eth/besu/pull/11632)
 - Block access lists of the last blocks are now cached as RLP, at most 128 MiB by default (`--cache-last-blocks-max-capacity`), and `--cache-last-blocks` now defaults to 128. [#11455](https://github.com/besu-eth/besu/pull/11455)
 - Snap sync no longer stalls on an account with large, frequently changing storage, or on an account whose storage was cleared while snap sync was downloading it. [#11654](https://github.com/besu-eth/besu/pull/11654)
@@ -64,6 +65,7 @@
 - Support sub-hour TX pool retention for the sequenced transaction pool via `--tx-pool-retention-seconds` [#11588](https://github.com/besu-eth/besu/pull/11588)
 - Block import computes logs blooms on the transaction workers and the transactions root only once. [#11529](https://github.com/besu-eth/besu/pull/11529)
 - Faster lookups of which peers have seen a transaction, reducing CPU use and lock contention in transaction gossip. [#11886](https://github.com/besu-eth/besu/pull/11886)
+- `--Xmempool-prewarm-enabled` prewarms the state for the next block from the transaction pool. [#11759](https://github.com/besu-eth/besu/pull/11759)
 
 ## 26.11.0
 
