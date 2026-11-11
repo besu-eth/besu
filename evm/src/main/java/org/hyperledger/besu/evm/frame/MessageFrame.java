@@ -44,9 +44,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Table;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
@@ -1350,7 +1347,16 @@ public class MessageFrame {
    * @return true if the storage slot was already warmed up
    */
   public boolean warmUpStorage(final Address address, final Bytes32 slot) {
-    return txValues.warmedUpStorage().put(address, slot, Boolean.TRUE) != null;
+    return !txValues.warmedUpStorage().add(new AddressStorageSlotKey(address, slot));
+  }
+
+  /**
+   * "Warms up" the storage slots as per EIP-2929
+   *
+   * @param addressToSlotKeys the set of joint address/slot keys that are being warmed up
+   */
+  public void warmUpStorage(final Set<AddressStorageSlotKey> addressToSlotKeys) {
+    txValues.warmedUpStorage().addAll(addressToSlotKeys);
   }
 
   /**
@@ -1624,7 +1630,7 @@ public class MessageFrame {
    *
    * @return the warmed up storage
    */
-  public Table<Address, Bytes32, Boolean> getWarmedUpStorage() {
+  public UndoSet<AddressStorageSlotKey> getWarmedUpStorage() {
     return txValues.warmedUpStorage();
   }
 
@@ -1737,7 +1743,7 @@ public class MessageFrame {
     private Map<String, Object> contextVariables;
     private Optional<Bytes> reason = Optional.empty();
     private Set<Address> eip2930AccessListWarmAddresses = emptySet();
-    private Multimap<Address, Bytes32> eip2930AccessListWarmStorage = HashMultimap.create();
+    private Set<AddressStorageSlotKey> eip2930AccessListWarmStorage = emptySet();
     private Optional<Eip7928AccessList> eip7928AccessList = Optional.empty();
 
     private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
@@ -2012,7 +2018,7 @@ public class MessageFrame {
      * @return the builder
      */
     public Builder eip2930AccessListWarmStorage(
-        final Multimap<Address, Bytes32> accessListWarmStorage) {
+        final Set<AddressStorageSlotKey> accessListWarmStorage) {
       this.eip2930AccessListWarmStorage = accessListWarmStorage;
       return this;
     }
@@ -2146,9 +2152,7 @@ public class MessageFrame {
       for (Address a : eip2930AccessListWarmAddresses) {
         messageFrame.warmUpAddress(a);
       }
-      for (var e : eip2930AccessListWarmStorage.entries()) {
-        messageFrame.warmUpStorage(e.getKey(), e.getValue());
-      }
+      messageFrame.warmUpStorage(eip2930AccessListWarmStorage);
       return messageFrame;
     }
   }
