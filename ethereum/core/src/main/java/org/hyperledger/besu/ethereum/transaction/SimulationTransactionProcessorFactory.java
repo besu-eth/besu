@@ -59,7 +59,12 @@ public class SimulationTransactionProcessorFactory {
     Map<Address, Address> precompileOverrides =
         maybeStateOverrides.map(this::extractPrecompileAddressOverrides).orElse(Map.of());
 
-    return createProcessor(baseProcessor, precompileOverrides);
+    Set<Address> precompileCodeOverrides =
+        maybeStateOverrides
+            .map(overrides -> extractPrecompileCodeOverrides(overrides, baseProcessor))
+            .orElse(Set.of());
+
+    return createProcessor(baseProcessor, precompileOverrides, precompileCodeOverrides);
   }
 
   private Map<Address, Address> extractPrecompileAddressOverrides(
@@ -71,11 +76,36 @@ public class SimulationTransactionProcessorFactory {
                 Map.Entry::getKey, entry -> entry.getValue().getMovePrecompileToAddress().get()));
   }
 
+  /**
+   * Returns the precompile addresses that set {@code code} without {@code movePrecompileToAddress}.
+   * These precompiles must be removed from the simulation registry so that the overriding code in
+   * the world state runs instead. Code overrides on other addresses are left out, so they keep the
+   * unmodified transaction processor.
+   */
+  private Set<Address> extractPrecompileCodeOverrides(
+      final StateOverrideMap stateOverrides, final MainnetTransactionProcessor baseProcessor) {
+    final Set<Address> codeOverrides =
+        stateOverrides.entrySet().stream()
+            .filter(
+                entry ->
+                    entry.getValue().getCode().isPresent()
+                        && entry.getValue().getMovePrecompileToAddress().isEmpty())
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toSet());
+    if (codeOverrides.isEmpty()) {
+      return Set.of();
+    }
+    final Set<Address> precompileAddresses =
+        baseProcessor.getMessageCallProcessor().getPrecompileAddresses();
+    return codeOverrides.stream().filter(precompileAddresses::contains).collect(Collectors.toSet());
+  }
+
   private MainnetTransactionProcessor createProcessor(
       final MainnetTransactionProcessor baseProcessor,
-      final Map<Address, Address> precompileAddressOverrides) {
+      final Map<Address, Address> precompileAddressOverrides,
+      final Set<Address> precompileCodeOverrides) {
 
-    if (precompileAddressOverrides.isEmpty()) {
+    if (precompileAddressOverrides.isEmpty() && precompileCodeOverrides.isEmpty()) {
       return baseProcessor;
     }
 
@@ -86,7 +116,9 @@ public class SimulationTransactionProcessorFactory {
                 baseProcessor.getMessageCallProcessor(),
                 originalPrecompileRegistry ->
                     overridePrecompileAddresses(
-                        originalPrecompileRegistry, precompileAddressOverrides)))
+                        originalPrecompileRegistry,
+                        precompileAddressOverrides,
+                        precompileCodeOverrides)))
         .build();
   }
 
@@ -101,6 +133,26 @@ public class SimulationTransactionProcessorFactory {
   public static PrecompileContractRegistry overridePrecompileAddresses(
       final PrecompileContractRegistry originalRegistry,
       final Map<Address, Address> precompileOverrides) {
+    return overridePrecompileAddresses(originalRegistry, precompileOverrides, Set.of());
+  }
+
+  /**
+   * Creates a new PrecompileContractRegistry with the specified address overrides and removals.
+   *
+   * <p>Addresses in {@code precompileOverrides} are moved to their mapped addresses. Addresses in
+   * {@code precompilesToRemove} are dropped from the registry entirely, allowing the overriding
+   * code set in the world state to execute in their place.
+   *
+   * @param originalRegistry the original precompile contract registry
+   * @param precompileOverrides the address overrides (old address → new address)
+   * @param precompilesToRemove addresses whose precompile should be removed from the registry
+   * @return a new PrecompileContractRegistry with the overrides applied
+   * @throws BlockStateCallException if a moved address does not exist in the original registry
+   */
+  public static PrecompileContractRegistry overridePrecompileAddresses(
+      final PrecompileContractRegistry originalRegistry,
+      final Map<Address, Address> precompileOverrides,
+      final Set<Address> precompilesToRemove) {
 
     PrecompileContractRegistry newRegistry = new PrecompileContractRegistry();
     Set<Address> originalAddresses = originalRegistry.getPrecompileAddresses();
@@ -117,6 +169,7 @@ public class SimulationTransactionProcessorFactory {
 
     originalAddresses.stream()
         .filter(originalAddress -> !precompileOverrides.containsKey(originalAddress))
+        .filter(originalAddress -> !precompilesToRemove.contains(originalAddress))
         .forEach(
             originalAddress ->
                 newRegistry.put(originalAddress, originalRegistry.get(originalAddress)));
