@@ -100,7 +100,7 @@ The basics:
 3. Follow the coding conventions in the [Developing and Conventions](https://github.com/besu-eth/besu/wiki/Developing-and-Conventions) wiki page.
 
 ### What makes a good pull request?
-There's a lot more to a PR than just the code: starting with a clear description of the change, and including testing, verification, evidence that there was an issue and the PR is addressing it. Writing the code is often the quickest part of the PR to produce.
+There's a lot more to a PR than just the code: starting with a clear description of the change, and including testing, verification, evidence that there was a problem and the PR is addressing it. Writing the code is often the quickest part of the PR to produce.
 Look at your PR through the eyes of a reviewer. Human review is without doubt the bottleneck in this process right now. If you make life easier for reviewers, this will expedite review of your PR.
 
 ### Pitch your PR
