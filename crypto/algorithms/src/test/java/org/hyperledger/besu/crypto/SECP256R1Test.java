@@ -18,6 +18,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.crypto.Hash.keccak256;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.File;
 import java.math.BigInteger;
@@ -26,12 +27,14 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class SECP256R1Test {
 
@@ -232,79 +235,68 @@ public class SECP256R1Test {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
-  @Test
-  void verifyRejectsSignatureWithTamperedR() {
-    final SignTestVector vector = signTestVectors.get(0);
-    final KeyPair keyPair =
-        secp256R1.createKeyPair(
-            secp256R1.createPrivateKey(new BigInteger(vector.privateKey(), 16)));
-    final SECPPublicKey publicKey =
-        secp256R1.createPublicKey(new BigInteger(vector.publicKey(), 16));
-    final Bytes32 dataHash = keccak256(Bytes.wrap(vector.data().getBytes(UTF_8)));
+  @AfterEach
+  public void reEnableNative() {
+    secp256R1.maybeEnableNative();
+  }
 
-    final SECPSignature signature = secp256R1.sign(dataHash, keyPair);
-    assertThat(secp256R1.verify(dataHash, signature, publicKey)).isTrue();
+  @ParameterizedTest(name = "native={0}")
+  @ValueSource(booleans = {true, false})
+  void verifyRejectsSignatureWithTamperedR(final boolean nativeImpl) {
+    useImplementation(nativeImpl);
+    final VerifyFixture fixture = verifyFixture(signTestVectors.get(0));
+
+    final SECPSignature signature = secp256R1.sign(fixture.dataHash(), fixture.keyPair());
+    assertThat(secp256R1.verify(fixture.dataHash(), signature, fixture.publicKey())).isTrue();
 
     final SECPSignature tampered =
         secp256R1.createSignature(
             signature.getR().add(BigInteger.ONE), signature.getS(), signature.getRecId());
-    assertThat(secp256R1.verify(dataHash, tampered, publicKey)).isFalse();
+    assertThat(secp256R1.verify(fixture.dataHash(), tampered, fixture.publicKey())).isFalse();
   }
 
-  @Test
-  void verifyRejectsSignatureWithTamperedS() {
-    final SignTestVector vector = signTestVectors.get(0);
-    final KeyPair keyPair =
-        secp256R1.createKeyPair(
-            secp256R1.createPrivateKey(new BigInteger(vector.privateKey(), 16)));
-    final SECPPublicKey publicKey =
-        secp256R1.createPublicKey(new BigInteger(vector.publicKey(), 16));
-    final Bytes32 dataHash = keccak256(Bytes.wrap(vector.data().getBytes(UTF_8)));
+  @ParameterizedTest(name = "native={0}")
+  @ValueSource(booleans = {true, false})
+  void verifyRejectsSignatureWithTamperedS(final boolean nativeImpl) {
+    useImplementation(nativeImpl);
+    final VerifyFixture fixture = verifyFixture(signTestVectors.get(0));
 
-    final SECPSignature signature = secp256R1.sign(dataHash, keyPair);
+    final SECPSignature signature = secp256R1.sign(fixture.dataHash(), fixture.keyPair());
 
     final SECPSignature tampered =
         secp256R1.createSignature(
             signature.getR(), signature.getS().add(BigInteger.ONE), signature.getRecId());
-    assertThat(secp256R1.verify(dataHash, tampered, publicKey)).isFalse();
+    assertThat(secp256R1.verify(fixture.dataHash(), tampered, fixture.publicKey())).isFalse();
   }
 
-  @Test
-  void verifyRejectsSignatureFromDifferentKeyPair() {
-    final SignTestVector signer = signTestVectors.get(0);
-    final SignTestVector other = signTestVectors.get(1);
-
-    final KeyPair signerKeyPair =
-        secp256R1.createKeyPair(
-            secp256R1.createPrivateKey(new BigInteger(signer.privateKey(), 16)));
+  @ParameterizedTest(name = "native={0}")
+  @ValueSource(booleans = {true, false})
+  void verifyRejectsSignatureFromDifferentKeyPair(final boolean nativeImpl) {
+    useImplementation(nativeImpl);
+    final VerifyFixture signer = verifyFixture(signTestVectors.get(0));
     final SECPPublicKey otherPublicKey =
-        secp256R1.createPublicKey(new BigInteger(other.publicKey(), 16));
-    final Bytes32 dataHash = keccak256(Bytes.wrap(signer.data().getBytes(UTF_8)));
+        secp256R1.createPublicKey(new BigInteger(signTestVectors.get(1).publicKey(), 16));
 
-    final SECPSignature signature = secp256R1.sign(dataHash, signerKeyPair);
-    assertThat(secp256R1.verify(dataHash, signature, otherPublicKey)).isFalse();
+    final SECPSignature signature = secp256R1.sign(signer.dataHash(), signer.keyPair());
+    assertThat(secp256R1.verify(signer.dataHash(), signature, otherPublicKey)).isFalse();
   }
 
-  @Test
-  void verifyRejectsTamperedMessageHash() {
+  @ParameterizedTest(name = "native={0}")
+  @ValueSource(booleans = {true, false})
+  void verifyRejectsTamperedMessageHash(final boolean nativeImpl) {
+    useImplementation(nativeImpl);
     final SignTestVector vector = signTestVectors.get(0);
-    final KeyPair keyPair =
-        secp256R1.createKeyPair(
-            secp256R1.createPrivateKey(new BigInteger(vector.privateKey(), 16)));
-    final SECPPublicKey publicKey =
-        secp256R1.createPublicKey(new BigInteger(vector.publicKey(), 16));
+    final VerifyFixture fixture = verifyFixture(vector);
 
-    final Bytes32 dataHash = keccak256(Bytes.wrap(vector.data().getBytes(UTF_8)));
-    final SECPSignature signature = secp256R1.sign(dataHash, keyPair);
+    final SECPSignature signature = secp256R1.sign(fixture.dataHash(), fixture.keyPair());
 
     final Bytes32 otherHash = keccak256(Bytes.wrap((vector.data() + "x").getBytes(UTF_8)));
-    assertThat(secp256R1.verify(otherHash, signature, publicKey)).isFalse();
+    assertThat(secp256R1.verify(otherHash, signature, fixture.publicKey())).isFalse();
   }
 
   @Test
   void createSignatureRejectsZeroS() {
-    final BigInteger validR = BigInteger.ONE;
-    assertThatThrownBy(() -> secp256R1.createSignature(validR, BigInteger.ZERO, (byte) 0))
+    assertThatThrownBy(() -> secp256R1.createSignature(BigInteger.ONE, BigInteger.ZERO, (byte) 0))
         .isInstanceOf(IllegalArgumentException.class);
   }
 
@@ -314,6 +306,26 @@ public class SECP256R1Test {
     assertThatThrownBy(() -> secp256R1.createSignature(curveOrder, BigInteger.ONE, (byte) 0))
         .isInstanceOf(IllegalArgumentException.class);
   }
+
+  private void useImplementation(final boolean nativeImpl) {
+    if (nativeImpl) {
+      assumeTrue(secp256R1.maybeEnableNative(), "Native secp256r1 not available on this platform");
+    } else {
+      secp256R1.disableNative();
+    }
+  }
+
+  private VerifyFixture verifyFixture(final SignTestVector vector) {
+    final KeyPair keyPair =
+        secp256R1.createKeyPair(
+            secp256R1.createPrivateKey(new BigInteger(vector.privateKey(), 16)));
+    final SECPPublicKey publicKey =
+        secp256R1.createPublicKey(new BigInteger(vector.publicKey(), 16));
+    final Bytes32 dataHash = keccak256(Bytes.wrap(vector.data().getBytes(UTF_8)));
+    return new VerifyFixture(keyPair, publicKey, dataHash);
+  }
+
+  private record VerifyFixture(KeyPair keyPair, SECPPublicKey publicKey, Bytes32 dataHash) {}
 
   private record SignTestVector(String privateKey, String publicKey, String data) {}
 }
