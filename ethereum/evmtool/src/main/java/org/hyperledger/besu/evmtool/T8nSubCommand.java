@@ -234,10 +234,10 @@ public class T8nSubCommand implements Runnable {
       initialWorldState.persist(null);
       var node = config.get("txs");
       Iterator<JsonNode> it;
-      if (node.isArray()) {
-        it = config.get("txs").elements();
-      } else if (node == null || node.isNull()) {
+      if (node == null || node.isNull() || node.isMissingNode()) {
         it = Collections.emptyIterator();
+      } else if (node.isArray()) {
+        it = node.elements();
       } else {
         it = List.of(node).iterator();
       }
