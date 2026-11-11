@@ -409,7 +409,7 @@ public class BlockchainServiceImpl implements BlockchainService {
     if (protocolSchedule == null) {
       return Optional.empty();
     }
-    return protocolSchedule.getChainId();
+    return protocolSchedule.getChainId().toOptionalBigInteger();
   }
 
   @Override

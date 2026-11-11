@@ -1227,6 +1227,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   private Optional<Long> getDefaultGasLimit(final ProtocolSchedule protocolSchedule) {
     return protocolSchedule
         .getChainId()
+        .toOptionalBigInteger()
         .flatMap(NetworkDefinition::fromChainId)
         .map(NetworkDefinition::getTargetGasLimit);
   }
