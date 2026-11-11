@@ -226,7 +226,9 @@ class BonsaiArchiveStateProofIntegrationTest {
 
     writeAccountBlock(0L, location, node);
 
-    assertThat(new ArchiveNodeHistoryStore(storage).getArchivedBlockNumber()).isZero();
+    assertThat(new ArchiveNodeHistoryStore(storage).getArchivedBlock())
+        .map(ArchiveNodeHistoryStore.ArchivedBlock::number)
+        .contains(0L);
   }
 
   @Test

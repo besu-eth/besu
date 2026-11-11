@@ -145,7 +145,9 @@ class BonsaiArchiveStalePriorTest {
 
     // Canonical block 2 writes `written`. The trie never loads the unreachable `stale` node.
     capturedBlock(2, location, written);
-    assertThat(historyStore.getArchivedBlockNumber()).isEqualTo(2L);
+    assertThat(historyStore.getArchivedBlock())
+        .map(ArchiveNodeHistoryStore.ArchivedBlock::number)
+        .contains(2L);
 
     assertThat(
             new ArchiveReadTrieNodeStrategy(2L, historyReader)

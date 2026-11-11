@@ -20,9 +20,6 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -40,7 +37,6 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 class ArchiveTrieNodeWriterTest {
 
@@ -108,7 +104,9 @@ class ArchiveTrieNodeWriterTest {
     final var entry = historyStore.getLatestBefore(nk, 0L).orElseThrow();
     assertThat(entry.codecEntry().isFull()).isTrue();
     assertThat(entry.counter()).isZero();
-    assertThat(historyStore.getArchivedBlockNumber()).isZero();
+    assertThat(historyStore.getArchivedBlock())
+        .map(ArchiveNodeHistoryStore.ArchivedBlock::number)
+        .contains(0L);
   }
 
   @Test
@@ -153,7 +151,7 @@ class ArchiveTrieNodeWriterTest {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     enqueueAndCommit(0L, nk, LOCATION, branchNode(0), null);
 
-    // A restarted writer has no in-memory history; contiguity comes from persisted coverage.
+    // A restarted writer has no in-memory state and still diffs against archived history.
     final ArchiveTrieNodeWriter restarted =
         new ArchiveTrieNodeWriter(
             historyStore,
@@ -170,54 +168,6 @@ class ArchiveTrieNodeWriterTest {
     assertThat(entry.block()).isEqualTo(1L);
     assertThat(entry.codecEntry().isFull()).isFalse();
     assertThat(entry.counter()).isEqualTo(1);
-  }
-
-  @Test
-  void blockWithoutCoverageWritesFull() {
-    // A history entry exists at block 0 but coverage was never recorded.
-    final Bytes nk = ArchiveNodeKey.account(LOCATION);
-    final SegmentedKeyValueStorageTransaction seedTx = storage.startTransaction();
-    historyStore.putEncoded(
-        seedTx,
-        ArchiveNodeKey.historyKey(nk, 0L),
-        ArchiveNodeHistoryStore.encodeStoredValue(
-            0, ArchiveTrieNodeCodec.encodeFull(branchNode(0))));
-    seedTx.commit();
-
-    assertNonContiguousBlockWritesFull(nk, 1L, branchNode(0));
-  }
-
-  @Test
-  void blockAfterCoverageGapWritesFull() {
-    final Bytes nk = ArchiveNodeKey.account(LOCATION);
-    enqueueAndCommit(0L, nk, LOCATION, branchNode(0), null);
-    final Bytes otherLocation = Bytes.of(0x02);
-    enqueueAndCommit(1L, ArchiveNodeKey.account(otherLocation), otherLocation, branchNode(1), null);
-
-    assertNonContiguousBlockWritesFull(nk, 3L, branchNode(0));
-  }
-
-  // The entry staged for the non-contiguous block is inspected as it is handed to the history
-  // store.
-  private void assertNonContiguousBlockWritesFull(
-      final Bytes nk, final long block, final Bytes prior) {
-    final ArchiveNodeHistoryStore spiedStore = spy(historyStore);
-    final ArchiveTrieNodeWriter writer =
-        new ArchiveTrieNodeWriter(
-            spiedStore,
-            Executors.newFixedThreadPool(2),
-            DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
-    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    writer.beginBlock(tx, header(block));
-    writer.capture(nk, LOCATION, block, branchNode((int) block), prior, tx);
-    writer.onBeforeCommit(tx);
-
-    final ArgumentCaptor<Bytes> storedValue = ArgumentCaptor.forClass(Bytes.class);
-    verify(spiedStore)
-        .putEncoded(eq(tx), eq(ArchiveNodeKey.historyKey(nk, block)), storedValue.capture());
-    assertThat(storedValue.getValue().get(0)).as("counter").isZero();
-    assertThat(ArchiveTrieNodeEntry.isFullEncoded(storedValue.getValue().slice(1))).isTrue();
   }
 
   @Test

@@ -452,7 +452,9 @@ class ArchiveTrieNodeStrategyTest {
         .as("entry at block 1 must be a deletion tombstone")
         .isTrue();
     assertThat(tombstone.get().block()).isEqualTo(1L);
-    assertThat(historyStore.getArchivedBlockNumber()).isEqualTo(1L);
+    assertThat(historyStore.getArchivedBlock())
+        .map(ArchiveNodeHistoryStore.ArchivedBlock::number)
+        .contains(1L);
   }
 
   @Test
