@@ -25,7 +25,7 @@ import java.util.Map;
 @Deprecated(forRemoval = true)
 public interface PluginVersionsProvider {
   /**
-   * Gets plugin versions by name.
+   * Gets plugin versions by plugin id.
    *
    * @return the plugin versions
    */

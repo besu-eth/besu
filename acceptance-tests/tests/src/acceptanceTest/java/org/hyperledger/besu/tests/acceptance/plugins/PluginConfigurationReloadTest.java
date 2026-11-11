@@ -59,6 +59,18 @@ public class PluginConfigurationReloadTest extends AcceptanceTestBase {
   }
 
   @Test
+  public void reloadSinglePluginConfigurationBySimpleClassName() throws IOException {
+    setupNode();
+
+    final var reloadConfTx = plugins.reloadConfiguration("TestReloadConfigurationPlugin1");
+
+    final var response = pluginNode.execute(reloadConfTx);
+
+    assertThat(response).isEqualTo("Success");
+    assertConfigReloadCalledForPlugins(1);
+  }
+
+  @Test
   public void reloadSinglePluginConfigurationFailure() throws IOException {
     setupNode(1);
 
