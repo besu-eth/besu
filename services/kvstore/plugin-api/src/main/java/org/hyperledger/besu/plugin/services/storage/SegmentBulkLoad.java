@@ -27,9 +27,10 @@ public interface SegmentBulkLoad extends AutoCloseable {
    * of a segment that took in much through regular writes during the load are slow until the
    * storage has caught up on it. The default implementation does nothing.
    *
-   * @param segment the segment
+   * @param segment the segment, one of those the load was started with
    * @return completes once the storage has caught up on the segment; cancelling it only stops the
-   *     wait
+   *     wait of the caller
+   * @throws IllegalArgumentException if the load was not started with the segment
    */
   default CompletableFuture<Void> end(final SegmentIdentifier segment) {
     return CompletableFuture.completedFuture(null);

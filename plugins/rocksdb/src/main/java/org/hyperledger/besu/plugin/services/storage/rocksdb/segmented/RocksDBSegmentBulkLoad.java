@@ -23,7 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.MutableColumnFamilyOptions;
@@ -62,8 +62,7 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
   private final List<SegmentIdentifier> segments;
   // the segments whose values go to blob files during the load
   private final List<SegmentIdentifier> separateValues;
-  private boolean closed;
-  // the segments let go before the load was closed
+  // the segments whose load has ended, under columnFamilyWork
   private final Set<SegmentIdentifier> ended = new HashSet<>();
 
   RocksDBSegmentBulkLoad(
@@ -80,9 +79,16 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
     try {
       storage.throwIfClosed();
       // all of them before any is changed
-      this.segments.forEach(storage::safeColumnHandle);
-      this.separateValues.forEach(storage::safeColumnHandle);
+      for (final SegmentIdentifier segment : allSegments()) {
+        storage.safeColumnHandle(segment);
+        // the load that ends first would switch compaction on while the other still needs it off
+        if (storage.segmentsInBulkLoad.contains(segment)) {
+          throw new IllegalStateException(
+              "The " + segment.getName() + " segment is already in a bulk load");
+        }
+      }
       start();
+      storage.segmentsInBulkLoad.addAll(allSegments());
     } finally {
       storage.columnFamilyWork.unlock();
     }
@@ -124,32 +130,20 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
   }
 
   @Override
-  public synchronized void close() {
-    if (closed) {
-      return;
-    }
-    closed = true;
+  public void close() {
     storage.columnFamilyWork.lock();
     try {
       if (storage.isClosed()) {
         // the column families come back as configured when the database is opened
         return;
       }
-      for (final SegmentIdentifier segment : separateValues) {
-        if (!ended.contains(segment)) {
-          restoreValues(segment);
-        }
-      }
-      for (final SegmentIdentifier segment : segments) {
-        if (ended.contains(segment)) {
-          continue;
-        }
+      for (final SegmentIdentifier segment : allSegments()) {
         try {
-          resumeCompaction(segment);
+          endSegment(segment);
         } catch (final RuntimeException e) {
-          // the other segments still have to get theirs back
+          // the other segments still have to be ended
           LOG.warn(
-              "Automatic compaction of the {} segment could not be switched back on after its bulk load, it stays off until the database is opened again",
+              "The bulk load of the {} segment could not be ended, it keeps the options of the load until the database is opened again",
               segment.getName(),
               e);
         }
@@ -166,28 +160,17 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
    * the limits it lifted are put back once it is done whatever happened to the future.
    */
   @Override
-  public synchronized CompletableFuture<Void> end(final SegmentIdentifier segment) {
+  public CompletableFuture<Void> end(final SegmentIdentifier segment) {
+    if (!segments.contains(segment) && !separateValues.contains(segment)) {
+      throw new IllegalArgumentException(
+          "The " + segment.getName() + " segment is not part of this bulk load");
+    }
     storage.columnFamilyWork.lock();
     try {
       if (storage.isClosed()) {
         return CompletableFuture.failedFuture(new StorageException("Storage closed"));
       }
-      if (separateValues.contains(segment)) {
-        if (!closed && ended.add(segment)) {
-          restoreValues(segment);
-        }
-        return CompletableFuture.completedFuture(null);
-      }
-      if (!segments.contains(segment)) {
-        return CompletableFuture.completedFuture(null);
-      }
-      if (closed || ended.contains(segment)) {
-        return storage.level0Drain.whenDrained(segment);
-      }
-      final CompletableFuture<Void> drained = resumeCompaction(segment);
-      // not before: close() switches its compaction on if this failed
-      ended.add(segment);
-      return drained;
+      return endSegment(segment);
     } catch (final RuntimeException e) {
       return CompletableFuture.failedFuture(e);
     } finally {
@@ -195,40 +178,38 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
     }
   }
 
+  private CompletableFuture<Void> endSegment(final SegmentIdentifier segment) {
+    if (ended.contains(segment)) {
+      return storage.level0Drain.whenDrained(segment);
+    }
+    final CompletableFuture<Void> drained;
+    if (separateValues.contains(segment)) {
+      restoreValues(segment);
+      drained = CompletableFuture.completedFuture(null);
+    } else {
+      LOG.info(
+          "Bulk load of the {} segment ended with {} files in level 0",
+          segment.getName(),
+          storage.level0Drain.level0Files(segment));
+      drained = storage.level0Drain.resume(segment);
+    }
+    // not before: closing the load tries again if this failed
+    ended.add(segment);
+    storage.segmentsInBulkLoad.remove(segment);
+    return drained;
+  }
+
+  private List<SegmentIdentifier> allSegments() {
+    return Stream.concat(segments.stream(), separateValues.stream()).toList();
+  }
+
   // the values written so far stay in their blob files, which reads find as they find the others
   private void restoreValues(final SegmentIdentifier segment) {
     final ColumnFamilyOptions configured = storage.columnFamilyOptions(segment);
-    try {
-      storage.setOptions(
-          segment,
-          MutableColumnFamilyOptions.builder()
-              .setEnableBlobFiles(configured.enableBlobFiles())
-              .setMinBlobSize(configured.minBlobSize()));
-    } catch (final RuntimeException e) {
-      LOG.warn(
-          "The {} segment keeps writing its values to blob files after its bulk load, until the database is opened again",
-          segment.getName(),
-          e);
-    }
-  }
-
-  private CompletableFuture<Void> resumeCompaction(final SegmentIdentifier segment) {
-    LOG.info("Bulk load of the {} segment ended with {}", segment.getName(), levels(segment));
-    return storage.level0Drain.resume(segment);
-  }
-
-  private String levels(final SegmentIdentifier segment) {
-    return storage
-        .getDB()
-        .getColumnFamilyMetaData(storage.safeColumnHandle(segment))
-        .levels()
-        .stream()
-        .filter(level -> !level.files().isEmpty())
-        .map(
-            level ->
-                String.format(
-                    "%d files (%d MB) in level %d",
-                    level.files().size(), level.size() >> 20, level.level()))
-        .collect(Collectors.joining(", "));
+    storage.setOptions(
+        segment,
+        MutableColumnFamilyOptions.builder()
+            .setEnableBlobFiles(configured.enableBlobFiles())
+            .setMinBlobSize(configured.minBlobSize()));
   }
 }

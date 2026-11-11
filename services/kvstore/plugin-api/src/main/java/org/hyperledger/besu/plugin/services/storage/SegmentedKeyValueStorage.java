@@ -151,11 +151,13 @@ public interface SegmentedKeyValueStorage extends Closeable {
    * the background work that reorganises the segments: during the load that work rewrites entries
    * over and over that are about to be put where they belong anyway.
    *
-   * <p>Reads and regular writes keep working during the load, but may be slower than usual. The
-   * default implementation does nothing.
+   * <p>Reads and regular writes keep working during the load, but may be slower than usual. A
+   * segment is in one bulk load at a time, until that load has ended for it. The default
+   * implementation does nothing.
    *
    * @param segmentIdentifiers the segments that are loaded
    * @return the bulk load, which has to be closed when the data is in
+   * @throws IllegalStateException if one of the segments is already in a bulk load
    */
   default SegmentBulkLoad startBulkLoad(final List<SegmentIdentifier> segmentIdentifiers) {
     return () -> {};

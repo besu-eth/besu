@@ -17,16 +17,25 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.MutableColumnFamilyOptions;
 import org.rocksdb.MutableDBOptions;
+import org.rocksdb.OptionsUtil;
 import org.rocksdb.RocksDBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,16 +47,17 @@ import org.slf4j.LoggerFactory;
  * <p>RocksDB does not hold back writes for the files in level 0 while automatic compaction is off,
  * but does so the moment it is switched on: with thousands of files, or that many bytes waiting to
  * be compacted, it would slow down or stop every write to the database, not only the ones to that
- * column family, and every flush, until it has merged them down. Nothing waits for the merge.
+ * column family, until it has merged them down. Nothing blocks on the merge.
  *
  * <p>While level 0 is merged down the compactions read ahead less: such a merge reads every file of
- * level 0 at once, each with a buffer of its own. They also get more threads, as the merge holds
- * one for as long as it runs. Both are options of the whole database, so they stay until the last
- * column family has been merged down.
+ * level 0 at once, each with a buffer of its own. RocksDB also runs more background jobs at once,
+ * as the merge is one job that runs for as long as it takes. Both are options of the whole
+ * database, so they stay until the last column family has been merged down.
  *
- * <p>RocksDB keeps the options set at runtime in its options file, and the database opens with the
- * configured ones. A column family saved with its compaction off or its limits lifted had its bulk
- * load or its merge cut short, and goes through the merge again when the database opens.
+ * <p>RocksDB saves the options it opens with, and those set at runtime, in its options file. A
+ * column family saved with its compaction off or its limits lifted had its bulk load or its merge
+ * interrupted. It opens with its limits lifted and goes through the merge again, and a start that
+ * fails before the merge is done still finds it interrupted.
  *
  * <p>All of it runs under the lock of the storage on its column families.
  */
@@ -55,7 +65,7 @@ final class RocksDBLevel0Drain {
 
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBLevel0Drain.class);
 
-  static final int NO_LEVEL0_LIMIT = Integer.MAX_VALUE;
+  private static final int NO_LEVEL0_LIMIT = Integer.MAX_VALUE;
   private static final long NO_PENDING_COMPACTION_LIMIT = 0;
   private static final String LEVEL0_FILES_PROPERTY = "rocksdb.num-files-at-level0";
   private static final String PENDING_COMPACTION_BYTES_PROPERTY =
@@ -63,9 +73,9 @@ final class RocksDBLevel0Drain {
   private static final long POLL_MILLIS = 500;
   // the buffers of a thousand files in level 0 then take 256 MB, against 2 GB at RocksDB's default
   private static final long DRAIN_READAHEAD_BYTES = 256 * 1024;
-  // the merge of a level 0 is one compaction that keeps its thread until it is done, which can take
-  // most of an hour; without more threads the other column families stop compacting meanwhile and
-  // their writes slow down once their own level 0 fills up
+  // the merge of a level 0 is one compaction job that runs until it is done, which can take most of
+  // an hour; without more jobs the other column families stop compacting meanwhile and their writes
+  // slow down once their own level 0 fills up
   private static final int DRAIN_EXTRA_BACKGROUND_JOBS = 2;
 
   private final RocksDBColumnarKeyValueStorage storage;
@@ -83,16 +93,49 @@ final class RocksDBLevel0Drain {
     this.storage = storage;
   }
 
+  /** The segments whose bulk load or merge was interrupted, from the options RocksDB saved last. */
+  static Set<SegmentIdentifier> interruptedBulkLoads(
+      final Path databaseDir, final Collection<SegmentIdentifier> segments) {
+    final List<ColumnFamilyDescriptor> saved = new ArrayList<>();
+    try (final ConfigOptions configOptions = new ConfigOptions();
+        final DBOptions dbOptions = new DBOptions()) {
+      OptionsUtil.loadLatestOptions(configOptions, databaseDir.toString(), dbOptions, saved);
+      return segments.stream()
+          .filter(
+              segment ->
+                  saved.stream()
+                      .anyMatch(
+                          descriptor ->
+                              Arrays.equals(descriptor.getName(), segment.getId())
+                                  && isInterrupted(descriptor.getOptions())))
+          .collect(Collectors.toSet());
+    } catch (final RocksDBException e) {
+      // a new database has no saved options
+      return Set.of();
+    } finally {
+      saved.forEach(descriptor -> descriptor.getOptions().close());
+    }
+  }
+
+  // a bulk load leaves its compaction off, a merge its limits lifted
+  private static boolean isInterrupted(final ColumnFamilyOptions saved) {
+    return saved.disableAutoCompactions() || saved.level0StopWritesTrigger() == NO_LEVEL0_LIMIT;
+  }
+
+  /** A copy of the options of a column family, which the caller has to close, without limits. */
+  static ColumnFamilyOptions withLimitsLifted(final ColumnFamilyOptions configured) {
+    return new ColumnFamilyOptions(configured)
+        .setLevel0SlowdownWritesTrigger(NO_LEVEL0_LIMIT)
+        .setLevel0StopWritesTrigger(NO_LEVEL0_LIMIT)
+        .setSoftPendingCompactionBytesLimit(NO_PENDING_COMPACTION_LIMIT)
+        .setHardPendingCompactionBytesLimit(NO_PENDING_COMPACTION_LIMIT);
+  }
+
   /** Sets the options of a merge on a database about to be opened, which starts merging at once. */
   static void useDrainOptions(final DBOptions options) {
     options
         .setCompactionReadaheadSize(DRAIN_READAHEAD_BYTES)
         .setMaxBackgroundJobs(options.maxBackgroundJobs() + DRAIN_EXTRA_BACKGROUND_JOBS);
-  }
-
-  /** Whether the saved options of a column family show a bulk load or its merge cut short. */
-  static boolean isCutShort(final ColumnFamilyOptions saved) {
-    return saved.disableAutoCompactions() || saved.level0StopWritesTrigger() == NO_LEVEL0_LIMIT;
   }
 
   /**
@@ -116,31 +159,16 @@ final class RocksDBLevel0Drain {
     }
   }
 
-  /** Merges level 0 of the column families whose bulk load or merge was cut short. */
-  void resumeCutShort(final Collection<SegmentIdentifier> segments) {
-    if (segments.isEmpty()) {
-      return;
-    }
+  /** Merges level 0 of the column families whose bulk load or merge was interrupted. */
+  void resumeInterrupted(final Collection<SegmentIdentifier> segments) {
     storage.columnFamilyWork.lock();
     try {
       for (final SegmentIdentifier segment : segments) {
-        try {
-          if (!isDrained(segment)) {
-            LOG.info(
-                "The bulk load of the {} segment, or the merge after it, was cut short: merging level 0 down again",
-                segment.getName());
-            lift(segment);
-          }
-        } catch (final RuntimeException e) {
-          LOG.warn(
-              "Could not lift the limits of the {} segment, writes slow down or stop until its level 0 is merged down",
-              segment.getName(),
-              e);
-        }
-      }
-      if (draining.isEmpty()) {
-        // the database was opened for a merge
-        setDrainOptions(false);
+        LOG.info(
+            "The bulk load of the {} segment, or the merge after it, was interrupted: merging level 0 down again",
+            segment.getName());
+        // opened with its limits lifted
+        track(segment);
       }
     } finally {
       storage.columnFamilyWork.unlock();
@@ -152,7 +180,7 @@ final class RocksDBLevel0Drain {
     storage.columnFamilyWork.lock();
     try {
       final Draining entry = draining.get(segment);
-      return entry == null ? CompletableFuture.completedFuture(null) : entry.drained;
+      return entry == null ? CompletableFuture.completedFuture(null) : entry.drained.copy();
     } finally {
       storage.columnFamilyWork.unlock();
     }
@@ -160,15 +188,25 @@ final class RocksDBLevel0Drain {
 
   /** Stops watching, as the storage closes. */
   void close() {
+    final List<Draining> stopped;
     storage.columnFamilyWork.lock();
     try {
-      draining
-          .values()
-          .forEach(
-              entry -> entry.drained.completeExceptionally(new StorageException("Storage closed")));
+      stopped = List.copyOf(draining.values());
       draining.clear();
     } finally {
       storage.columnFamilyWork.unlock();
+    }
+    stopped.forEach(
+        entry -> entry.drained.completeExceptionally(new StorageException("Storage closed")));
+  }
+
+  // under columnFamilyWork
+  long level0Files(final SegmentIdentifier segment) {
+    try {
+      return Long.parseLong(
+          storage.getDB().getProperty(storage.safeColumnHandle(segment), LEVEL0_FILES_PROPERTY));
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
     }
   }
 
@@ -193,30 +231,51 @@ final class RocksDBLevel0Drain {
       }
       throw e;
     }
+    return track(segment);
+  }
+
+  private CompletableFuture<Void> track(final SegmentIdentifier segment) {
     final Draining entry = draining.computeIfAbsent(segment, unused -> new Draining());
     if (!watching) {
       watching = true;
       Thread.ofPlatform().daemon().name("rocksdb-level0-drain").start(this::watch);
     }
-    return entry.drained;
+    // cancelling it stops only the wait of the caller
+    return entry.drained.copy();
   }
 
   private void watch() {
     while (true) {
+      final List<Draining> drained = new ArrayList<>();
+      final boolean done;
       storage.columnFamilyWork.lock();
       try {
         if (storage.isClosed()) {
           watching = false;
           return;
         }
-        draining.entrySet().removeIf(entry -> restoreIfDrained(entry.getKey(), entry.getValue()));
-        if (draining.isEmpty()) {
+        draining
+            .entrySet()
+            .removeIf(
+                entry -> {
+                  final boolean restored = restoreIfDrained(entry.getKey(), entry.getValue());
+                  if (restored) {
+                    drained.add(entry.getValue());
+                  }
+                  return restored;
+                });
+        done = draining.isEmpty();
+        if (done) {
           setDrainOptions(false);
           watching = false;
-          return;
         }
       } finally {
         storage.columnFamilyWork.unlock();
+      }
+      // what runs on them can start or end a bulk load, which takes the lock and changes draining
+      drained.forEach(entry -> entry.drained.complete(null));
+      if (done) {
+        return;
       }
       try {
         Thread.sleep(POLL_MILLIS);
@@ -261,11 +320,10 @@ final class RocksDBLevel0Drain {
         "Level 0 of the {} segment was merged down {} s after its bulk load",
         segment.getName(),
         TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - entry.startNanos));
-    entry.drained.complete(null);
     return true;
   }
 
-  // best effort: the merge works with any readahead and any number of threads
+  // best effort: the merge works with any readahead and any number of background jobs
   private void setDrainOptions(final boolean merging) {
     final long readaheadBytes =
         merging ? DRAIN_READAHEAD_BYTES : storage.configuredCompactionReadahead;
@@ -294,15 +352,6 @@ final class RocksDBLevel0Drain {
     return level0Files(segment) < configured.level0SlowdownWritesTrigger()
         && (softPendingLimit == NO_PENDING_COMPACTION_LIMIT
             || pendingCompactionBytes(segment) < softPendingLimit);
-  }
-
-  private long level0Files(final SegmentIdentifier segment) {
-    try {
-      return Long.parseLong(
-          storage.getDB().getProperty(storage.safeColumnHandle(segment), LEVEL0_FILES_PROPERTY));
-    } catch (final RocksDBException e) {
-      throw new StorageException(e);
-    }
   }
 
   private long pendingCompactionBytes(final SegmentIdentifier segment) {
