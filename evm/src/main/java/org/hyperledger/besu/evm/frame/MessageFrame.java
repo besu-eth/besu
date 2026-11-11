@@ -648,18 +648,6 @@ public class MessageFrame {
   }
 
   /**
-   * As {@link #readMutableMemory(long, long, boolean)} for a memory opcode, recording the read only
-   * for a tracer that traces operations.
-   *
-   * @param offset The offset in memory
-   * @param length The length of the bytes to read
-   * @return The bytes in the specified range
-   */
-  public MutableBytes readMutableMemoryV2(final long offset, final long length) {
-    return readMutableMemory(offset, length, recordsUpdatesForTracerV2);
-  }
-
-  /**
    * As {@link #writeMemory(long, byte, boolean)} for a memory opcode, recording the update only for
    * a tracer that traces operations.
    *
@@ -680,18 +668,6 @@ public class MessageFrame {
    */
   public void writeMemoryV2(final long offset, final long length, final Bytes value) {
     writeMemory(offset, length, value, recordsUpdatesForTracerV2);
-  }
-
-  /**
-   * As {@link #writeMemoryRightAligned(long, long, Bytes, boolean)} for a memory opcode, recording
-   * the update only for a tracer that traces operations.
-   *
-   * @param offset The offset in memory
-   * @param length The length of the bytes to write
-   * @param value The value to write
-   */
-  public void writeMemoryRightAlignedV2(final long offset, final long length, final Bytes value) {
-    writeMemoryRightAligned(offset, length, value, recordsUpdatesForTracerV2);
   }
 
   /**

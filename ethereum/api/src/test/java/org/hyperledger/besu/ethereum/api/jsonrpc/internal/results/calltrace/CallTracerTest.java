@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.calltrace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -31,9 +32,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResu
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.debug.TracerType;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.frame.SoftFailureReason;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 
@@ -53,7 +58,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reports a nested precompile's exact entry gas, not an approximation")
   void precompileCallReportsExactEntryGas() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address rootContract = Address.fromHexString("0x01");
     final MessageFrame root = frame(sender, rootContract);
@@ -82,7 +87,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reports a reverting precompile as failed")
   void precompileRevertReportsFailure() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final Transaction tx = mockTransaction();
     tracer.traceStartTransaction(null, tx);
@@ -140,7 +145,7 @@ class CallTracerTest {
   @Test
   @DisplayName("clamps a failed CALL's input read to already-expanded memory instead of throwing")
   void doesNotReadBeyondExpandedMemory() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address contract = Address.fromHexString("0x01");
     final MessageFrame parent = frame(sender, contract);
@@ -152,8 +157,8 @@ class CallTracerTest {
     // A CALL whose stack declares an astronomically large argsOffset/argsLength - exactly what
     // Words.clampedToLong produces for a crafted stack value, and exactly the shape that used to
     // reach frame.readMemory(offset, length) unclamped and blow up once length >= 2^31. The call
-    // never spawns a child frame (state stays COMPLETED_SUCCESS, not CODE_SUSPENDED), mirroring an
-    // INSUFFICIENT_GAS halt that fires before memory is ever expanded.
+    // never spawns a child frame (state stays COMPLETED_SUCCESS, not CODE_SUSPENDED), mirroring a
+    // failed balance check with no memory expanded.
     final Operation call = mock(Operation.class);
     when(call.getName()).thenReturn("CALL");
     when(call.getStackItemsConsumed()).thenReturn(7);
@@ -165,13 +170,13 @@ class CallTracerTest {
     when(parent.getStackItem(4)).thenReturn(Bytes.repeat((byte) 0xff, 32));
     when(parent.memoryByteSize()).thenReturn(0L);
 
-    final OperationResult haltResult =
-        new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    final OperationResult softFailure =
+        new OperationResult(0L, 1, SoftFailureReason.LEGACY_INSUFFICIENT_BALANCE, 0L);
 
     assertThatCode(
             () -> {
               tracer.tracePreExecution(parent);
-              tracer.tracePostExecution(parent, haltResult);
+              tracer.tracePostExecution(parent, softFailure);
             })
         .doesNotThrowAnyException();
     verify(parent, never()).readMemory(anyLong(), anyLong());
@@ -185,7 +190,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reads a memory range clamped to what is actually expanded, not the raw stack value")
   void clampsToAvailableMemoryWhenPartiallyExpanded() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address contract = Address.fromHexString("0x01");
     final MessageFrame parent = frame(sender, contract);
@@ -208,7 +213,7 @@ class CallTracerTest {
 
     tracer.tracePreExecution(parent);
     tracer.tracePostExecution(
-        parent, new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_GAS));
+        parent, new OperationResult(0L, 1, SoftFailureReason.LEGACY_INSUFFICIENT_BALANCE, 0L));
 
     verify(parent).readMemory(32L, 32L);
     tracer.traceContextExit(parent);
@@ -219,7 +224,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reports the delegating account, not the code address, as `from` for nested calls")
   void nestedCallInsideDelegateCallReportsRecipientAddress() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address rootContract = Address.fromHexString("0x01");
     final MessageFrame root = frame(sender, rootContract);
@@ -270,7 +275,8 @@ class CallTracerTest {
     when(delegateFrame.memoryByteSize()).thenReturn(0L);
     tracer.tracePreExecution(delegateFrame);
     tracer.tracePostExecution(
-        delegateFrame, new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_GAS));
+        delegateFrame,
+        new OperationResult(0L, 1, SoftFailureReason.LEGACY_INSUFFICIENT_BALANCE, 0L));
 
     tracer.traceContextExit(delegateFrame);
     tracer.traceContextExit(root);
@@ -285,7 +291,7 @@ class CallTracerTest {
   @Test
   @DisplayName("reports the parent frame's inherited value for DELEGATECALL, not 0x0")
   void delegateCallReportsInheritedValue() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address rootContract = Address.fromHexString("0x01");
     final MessageFrame root = frame(sender, rootContract);
@@ -331,7 +337,7 @@ class CallTracerTest {
   @Test
   @DisplayName("synthesizes a root call from the transaction when it never entered the EVM")
   void buildResultSynthesizesRootForUnexecutedTransaction() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final Address sender = Address.fromHexString("0x00");
     final Address to = Address.fromHexString("0x02");
 
@@ -363,6 +369,101 @@ class CallTracerTest {
         .isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS.getDescription());
   }
 
+  @Test
+  @DisplayName("omits a CREATE that fails the balance check once EIP-8037 is active")
+  void omitsFailedPrecheckCreateWithStateGas() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), stateGasSpec(true), 0);
+    final CallTracerResult result =
+        traceFailedOp(
+            tracer,
+            "CREATE",
+            3,
+            new OperationResult(32_000L, 1, SoftFailureReason.LEGACY_INSUFFICIENT_BALANCE));
+    assertThat(result.getCalls()).isNullOrEmpty();
+  }
+
+  @Test
+  @DisplayName("reports a CREATE that fails the balance check before EIP-8037")
+  void reportsFailedPrecheckCreateWithoutStateGas() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), stateGasSpec(false), 0);
+    final CallTracerResult result =
+        traceFailedOp(
+            tracer,
+            "CREATE",
+            3,
+            new OperationResult(32_000L, 1, SoftFailureReason.LEGACY_INSUFFICIENT_BALANCE));
+    assertThat(result.getCalls()).hasSize(1);
+    final CallTracerResult create = result.getCalls().get(0);
+    assertThat(create.getType()).isEqualTo("CREATE");
+    assertThat(create.getTo()).isNull();
+    assertThat(create.getGasUsed()).isEqualTo("0x0");
+    assertThat(create.getError())
+        .isEqualTo(SoftFailureReason.LEGACY_INSUFFICIENT_BALANCE.getDescription());
+  }
+
+  @Test
+  @DisplayName("reports a CALL that fails the depth check with zero gas used")
+  void reportsFailedPrecheckCall() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), stateGasSpec(true), 0);
+    final CallTracerResult result =
+        traceFailedOp(
+            tracer,
+            "CALL",
+            7,
+            new OperationResult(100L, 1, SoftFailureReason.LEGACY_MAX_CALL_DEPTH, 5_000L));
+    assertThat(result.getCalls()).hasSize(1);
+    final CallTracerResult call = result.getCalls().get(0);
+    assertThat(call.getType()).isEqualTo("CALL");
+    assertThat(call.getGas()).isEqualTo("0x1388");
+    assertThat(call.getGasUsed()).isEqualTo("0x0");
+    assertThat(call.getError()).isEqualTo(SoftFailureReason.LEGACY_MAX_CALL_DEPTH.getDescription());
+  }
+
+  @Test
+  @DisplayName("omits a CALL that halts before it makes the call")
+  void omitsHaltedCall() {
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
+    final CallTracerResult result =
+        traceFailedOp(
+            tracer, "CALL", 7, new OperationResult(0L, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
+    assertThat(result.getCalls()).isNullOrEmpty();
+  }
+
+  private static CallTracerResult traceFailedOp(
+      final CallTracer tracer,
+      final String opName,
+      final int stackItems,
+      final OperationResult opResult) {
+    final MessageFrame parent = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
+    final Transaction tx = mockTransaction();
+    tracer.traceStartTransaction(null, tx);
+    tracer.traceContextEnter(parent);
+
+    final Operation op = mock(Operation.class);
+    when(op.getName()).thenReturn(opName);
+    when(op.getStackItemsConsumed()).thenReturn(stackItems);
+    when(parent.getCurrentOperation()).thenReturn(op);
+    when(parent.stackSize()).thenReturn(stackItems);
+    when(parent.getStackItem(anyInt())).thenReturn(Bytes.repeat((byte) 0, 32));
+    when(parent.getStackItem(1)).thenReturn(bytes32Address(Address.fromHexString("0x02")));
+    when(parent.memoryByteSize()).thenReturn(0L);
+
+    tracer.tracePreExecution(parent);
+    tracer.tracePostExecution(parent, opResult);
+    tracer.traceContextExit(parent);
+    return tracer.buildResult(tx, mockResult(21_000L, true));
+  }
+
+  private static ProtocolSpec stateGasSpec(final boolean active) {
+    final StateGasCostCalculator stateGas = mock(StateGasCostCalculator.class);
+    when(stateGas.isActive()).thenReturn(active);
+    final GasCalculator gasCalculator = mock(GasCalculator.class);
+    when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGas);
+    final ProtocolSpec spec = mock(ProtocolSpec.class);
+    when(spec.getGasCalculator()).thenReturn(gasCalculator);
+    return spec;
+  }
+
   private static TransactionProcessingResult mockResult(
       final long gasRemaining, final boolean successful) {
     final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
@@ -385,7 +486,7 @@ class CallTracerTest {
   @Test
   @DisplayName("withLog reports each frame's own logs with the receipt logIndex and call position")
   void withLogReportsBlockIndexAndPosition() {
-    final CallTracer tracer = new CallTracer(withLogOptions(false), 3);
+    final CallTracer tracer = new CallTracer(withLogOptions(false), null, 3);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
     when(child.getDepth()).thenReturn(1);
@@ -420,7 +521,7 @@ class CallTracerTest {
   @Test
   @DisplayName("withLog drops the logs of a reverted frame and does not give them an index")
   void withLogDropsRevertedFrameLogs() {
-    final CallTracer tracer = new CallTracer(withLogOptions(false), 0);
+    final CallTracer tracer = new CallTracer(withLogOptions(false), null, 0);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
     when(child.getDepth()).thenReturn(1);
@@ -447,7 +548,7 @@ class CallTracerTest {
   @Test
   @DisplayName("onlyTopCall with withLog keeps the receipt logIndex and reports position 0")
   void onlyTopCallWithLogKeepsReceiptIndex() {
-    final CallTracer tracer = new CallTracer(withLogOptions(true), 0);
+    final CallTracer tracer = new CallTracer(withLogOptions(true), null, 0);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
     when(child.getDepth()).thenReturn(1);
@@ -474,7 +575,7 @@ class CallTracerTest {
   @Test
   @DisplayName("withLog attributes logs added after the root frame exits to the root frame")
   void withLogAttributesClosureLogsToRoot() {
-    final CallTracer tracer = new CallTracer(withLogOptions(false), 2);
+    final CallTracer tracer = new CallTracer(withLogOptions(false), null, 2);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
     when(child.getDepth()).thenReturn(1);
@@ -501,7 +602,7 @@ class CallTracerTest {
   @Test
   @DisplayName("onlyTopCall with withLog attributes closure logs to the root at position 0")
   void onlyTopCallWithLogAttributesClosureLogsToRoot() {
-    final CallTracer tracer = new CallTracer(withLogOptions(true), 0);
+    final CallTracer tracer = new CallTracer(withLogOptions(true), null, 0);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final MessageFrame child = frame(Address.fromHexString("0x01"), Address.fromHexString("0x02"));
     when(child.getDepth()).thenReturn(1);
@@ -528,7 +629,7 @@ class CallTracerTest {
   @Test
   @DisplayName("omits logs when withLog is not set")
   void omitsLogsWithoutWithLog() {
-    final CallTracer tracer = new CallTracer(callTracerOptions(false));
+    final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);
     final MessageFrame root = frame(Address.fromHexString("0x00"), Address.fromHexString("0x01"));
     final Transaction tx = mockTransaction();
     tracer.traceStartTransaction(null, tx);

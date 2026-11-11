@@ -115,6 +115,8 @@ public sealed class EngineNewPayloadV1<
   @Override
   public JsonRpcResponse syncResponse(final JsonRpcRequestContext requestContext) {
     engineCallListener.executionEngineCalled();
+    // work competing with the block's execution can stop before the checks below
+    mergeContext.get().fireNewUnverifiedPayloadEvent();
 
     final Object reqId = requestContext.getRequest().getId();
 

@@ -139,7 +139,7 @@ class CodeDelegationDecoderTest {
 
     assertThatThrownBy(() -> CodeDelegationTransactionDecoder.decodeInnerPayload(input))
         .isInstanceOf(RLPException.class)
-        .hasMessageContaining("32-bytes scalar");
+        .hasMessageContaining("maximum of 32 bytes");
   }
 
   private Bytes encodedCodeDelegation(final BigInteger chainId) {
