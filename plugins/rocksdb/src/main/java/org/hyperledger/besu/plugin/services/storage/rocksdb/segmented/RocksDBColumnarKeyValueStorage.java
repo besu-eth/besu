@@ -147,8 +147,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   final int configuredBackgroundJobs;
 
   // how long close() waits for operations that are still inside RocksDB
-  private static final Duration CLOSE_WAIT = Duration.ofSeconds(5);
-  private final InFlightOperations inFlight = new InFlightOperations();
+  private static final Duration CLOSE_TIMEOUT = Duration.ofSeconds(5);
+  private final ActiveOperationCounter activeOperations = new ActiveOperationCounter();
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
@@ -630,13 +630,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   @Override
   public Optional<byte[]> get(final SegmentIdentifier segment, final byte[] key)
       throws StorageException {
-    final int slot = enterOperation();
+    startOperation();
     try (final OperationTimer.TimingContext ignored = getMetrics().getReadLatency().startTimer()) {
       return Optional.ofNullable(getDB().get(safeColumnHandle(segment), readOptions, key));
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     } finally {
-      inFlight.exit(slot);
+      activeOperations.decrement();
     }
   }
 
@@ -647,7 +647,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       throwIfClosed();
       return List.of();
     }
-    final int slot = enterOperation();
+    startOperation();
     try (final OperationTimer.TimingContext ignored =
         getMetrics().getMultiReadLatency().startTimer()) {
       final ColumnFamilyHandle columnHandle = safeColumnHandle(segment);
@@ -664,14 +664,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     } finally {
-      inFlight.exit(slot);
+      activeOperations.decrement();
     }
   }
 
   @Override
   public Optional<NearestKeyValue> getNearestBefore(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
-    final int slot = enterOperation();
+    startOperation();
     try (final RocksIterator rocksIterator =
         getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
       rocksIterator.seekForPrev(key.toArrayUnsafe());
@@ -679,14 +679,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
           .filter(AbstractRocksIterator::isValid)
           .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
     } finally {
-      inFlight.exit(slot);
+      activeOperations.decrement();
     }
   }
 
   @Override
   public Optional<NearestKeyValue> getNearestAfter(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
-    final int slot = enterOperation();
+    startOperation();
     try (final RocksIterator rocksIterator =
         getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
       rocksIterator.seek(key.toArrayUnsafe());
@@ -694,7 +694,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
           .filter(AbstractRocksIterator::isValid)
           .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
     } finally {
-      inFlight.exit(slot);
+      activeOperations.decrement();
     }
   }
 
@@ -733,7 +733,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   @Override
   public boolean tryDelete(final SegmentIdentifier segmentIdentifier, final byte[] key) {
-    final int slot = enterOperation();
+    startOperation();
     try {
       getDB().delete(safeColumnHandle(segmentIdentifier), tryDeleteOptions, key);
       return true;
@@ -744,7 +744,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         throw new StorageException(e);
       }
     } finally {
-      inFlight.exit(slot);
+      activeOperations.decrement();
     }
   }
 
@@ -793,10 +793,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       // waits for the work on the column families, which finds the storage closed from now on
       level0Drain.close();
       // operations that passed the closed check before it was set may still be inside RocksDB
-      if (!inFlight.awaitNone(CLOSE_WAIT)) {
+      if (!activeOperations.awaitZero(CLOSE_TIMEOUT)) {
         LOG.warn(
             "Not closing RocksDB: an operation is still using it {} ms after close",
-            CLOSE_WAIT.toMillis());
+            CLOSE_TIMEOUT.toMillis());
         return;
       }
       txOptions.close();
@@ -870,14 +870,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     }
   }
 
-  // counts the operation before checking closed, so that close() either sees it or it sees close()
-  private int enterOperation() {
-    final int slot = inFlight.enter();
+  // counting before the closed check means that either close() waits for this operation or the
+  // operation sees that the storage is closed
+  private void startOperation() {
+    activeOperations.increment();
     if (closed.get()) {
-      inFlight.exit(slot);
+      activeOperations.decrement();
       throwIfClosed();
     }
-    return slot;
   }
 
   abstract RocksDB getDB();
