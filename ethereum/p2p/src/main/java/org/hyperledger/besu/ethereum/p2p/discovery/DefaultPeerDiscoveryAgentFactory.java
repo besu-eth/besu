@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.p2p.discovery;
 
 import org.hyperledger.besu.cryptoservices.NodeKey;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv5.CompositePeerDiscoveryAgentFactory;
@@ -25,7 +24,6 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -40,12 +38,7 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
       final NatService natService,
       final MetricsSystem metricsSystem,
       final StorageProvider storageProvider,
-      final Blockchain blockchain,
-      final List<Long> blockNumberForks,
-      final List<Long> timestampForks) {
-
-    final ForkIdManager forkIdManager =
-        new ForkIdManager(blockchain, blockNumberForks, timestampForks);
+      final ForkIdManager forkIdManager) {
 
     this.delegate =
         createPeerDiscoveryAgentFactory(
@@ -93,9 +86,7 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
     private NatService natService = new NatService(Optional.empty());
     private MetricsSystem metricsSystem;
     private StorageProvider storageProvider;
-    private Blockchain blockchain;
-    private List<Long> blockNumberForks;
-    private List<Long> timestampForks;
+    private ForkIdManager forkIdManager;
 
     private Builder() {}
 
@@ -129,18 +120,15 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
       return this;
     }
 
-    public Builder blockchain(final Blockchain blockchain) {
-      this.blockchain = blockchain;
-      return this;
-    }
-
-    public Builder blockNumberForks(final List<Long> blockNumberForks) {
-      this.blockNumberForks = blockNumberForks;
-      return this;
-    }
-
-    public Builder timestampForks(final List<Long> timestampForks) {
-      this.timestampForks = timestampForks;
+    /**
+     * Sets the fork-ID manager the discovery record (ENR) and peer filtering use. Pass the node's
+     * own instance, so that discovery advertises the same fork ID as the Status handshake.
+     *
+     * @param forkIdManager the node's fork-ID manager
+     * @return this builder
+     */
+    public Builder forkIdManager(final ForkIdManager forkIdManager) {
+      this.forkIdManager = forkIdManager;
       return this;
     }
 
@@ -153,9 +141,7 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
           natService,
           metricsSystem,
           storageProvider,
-          blockchain,
-          blockNumberForks,
-          timestampForks);
+          forkIdManager);
     }
 
     private void validate() {
@@ -165,9 +151,7 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
       Objects.requireNonNull(natService, "natService must be set");
       Objects.requireNonNull(metricsSystem, "metricsSystem must be set");
       Objects.requireNonNull(storageProvider, "storageProvider must be set");
-      Objects.requireNonNull(blockchain, "blockchain must be set");
-      Objects.requireNonNull(blockNumberForks, "blockNumberForks must be set");
-      Objects.requireNonNull(timestampForks, "timestampForks must be set");
+      Objects.requireNonNull(forkIdManager, "forkIdManager must be set");
     }
   }
 }

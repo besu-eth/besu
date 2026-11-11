@@ -60,6 +60,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolCo
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TransactionPoolValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
@@ -506,12 +507,14 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final EthNetworkConfig ethNetworkConfig,
         final SynchronizerConfiguration synchronizerConfiguration,
         final TransactionPoolConfiguration transactionPoolConfiguration,
-        final DataStorageConfiguration dataStorageConfiguration) {
+        final DataStorageConfiguration dataStorageConfiguration,
+        final ProtocolScheduleCustomization protocolScheduleCustomization) {
 
       final Optional<Checkpoint> checkpoint = getCheckpoint(ethNetworkConfig);
       final BesuControllerBuilder builder =
           new BesuController.Builder()
               .checkpoint(checkpoint)
+              .protocolScheduleCustomization(protocolScheduleCustomization)
               .fromEthNetworkConfig(ethNetworkConfig, synchronizerConfiguration.getSyncMode());
       builder.transactionPoolConfiguration(transactionPoolConfiguration);
       builder.dataStorageConfiguration(dataStorageConfiguration);
@@ -546,20 +549,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final KeyValueStorageProvider storageProvider,
         final MiningConfiguration miningConfiguration,
         final ApiConfiguration apiConfiguration,
-        final StorageServiceImpl storageService,
-        final SecurityModuleServiceImpl securityModuleService,
-        final RpcEndpointRegistryImpl rpcEndpointRegistry,
-        final HealthCheckServiceImpl healthCheckService,
-        final BesuConfigurationImpl commonPluginConfiguration,
-        final PermissioningServiceImpl permissioningService,
-        final TransactionSelectionServiceImpl transactionSelectionServiceImpl,
-        final TransactionPoolValidatorServiceImpl transactionPoolValidatorServiceImpl,
-        final TransactionValidatorServiceImpl transactionValidatorServiceImpl,
-        final MetricsConfiguration metricsConfiguration,
-        final MetricCategoryRegistryImpl metricCategoryRegistry,
-        final @Named("ExtraCLIOptions") List<String> extraCLIOptions,
-        final @Named("RequestedPlugins") List<String> requestedPlugins,
-        final BesuPluginContextImpl besuPluginContext,
         final DataStorageConfiguration dataStorageConfiguration) {
 
       builder
@@ -575,6 +564,32 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           .miningParameters(miningConfiguration)
           .randomPeerPriority(false)
           .apiConfiguration(apiConfiguration);
+      return builder.build();
+    }
+
+    /**
+     * Registers the plugins and resolves the customization they contribute for the node's genesis.
+     * As in {@code BesuCommand}, this happens before the controller builder is selected, which the
+     * customization's fork-ID activations and supported consensus mechanisms depend on.
+     */
+    @Provides
+    @Singleton
+    public ProtocolScheduleCustomization provideProtocolScheduleCustomization(
+        final EthNetworkConfig ethNetworkConfig,
+        final StorageServiceImpl storageService,
+        final SecurityModuleServiceImpl securityModuleService,
+        final RpcEndpointRegistryImpl rpcEndpointRegistry,
+        final HealthCheckServiceImpl healthCheckService,
+        final BesuConfigurationImpl commonPluginConfiguration,
+        final PermissioningServiceImpl permissioningService,
+        final TransactionSelectionServiceImpl transactionSelectionServiceImpl,
+        final TransactionPoolValidatorServiceImpl transactionPoolValidatorServiceImpl,
+        final TransactionValidatorServiceImpl transactionValidatorServiceImpl,
+        final MetricsConfiguration metricsConfiguration,
+        final MetricCategoryRegistryImpl metricCategoryRegistry,
+        final @Named("ExtraCLIOptions") List<String> extraCLIOptions,
+        final @Named("RequestedPlugins") List<String> requestedPlugins,
+        final BesuPluginContextImpl besuPluginContext) {
       loadPluginContext(
           storageService,
           securityModuleService,
@@ -590,7 +605,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           extraCLIOptions,
           requestedPlugins,
           besuPluginContext);
-      return builder.build();
+      return besuPluginContext.resolveProtocolScheduleCustomization(
+          ethNetworkConfig.genesisConfig().getConfigOptions());
     }
 
     @Provides

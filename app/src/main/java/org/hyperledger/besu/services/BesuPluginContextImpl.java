@@ -17,8 +17,11 @@ package org.hyperledger.besu.services;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleService;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.RegistrationContext;
@@ -122,6 +125,8 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private volatile Lifecycle state = Lifecycle.UNINITIALIZED;
   private final Map<Class<?>, BesuService> besuServices = new ConcurrentHashMap<>();
   private final Map<Class<?>, ServiceWithProvider> pluginServices = new ConcurrentHashMap<>();
+  private final ProtocolScheduleServiceImpl protocolScheduleService =
+      new ProtocolScheduleServiceImpl(this::isRegistering);
 
   /** The ids of every plugin found in the plugins directory, in load order, unloadable last. */
   private List<String> detectedPluginIds = List.of();
@@ -146,8 +151,10 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private PluginConfiguration config;
   private URLClassLoader pluginClassLoader;
 
-  /** Instantiates a new Besu plugin context. */
-  public BesuPluginContextImpl() {}
+  /** Instantiates a new Besu plugin context with services required during plugin registration. */
+  public BesuPluginContextImpl() {
+    besuServices.put(ProtocolScheduleService.class, protocolScheduleService);
+  }
 
   /**
    * Adds a Besu-provided service. Called by Besu when the service's dependencies exist, before the
@@ -162,6 +169,9 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     checkArgument(
         serviceType.isInstance(service),
         "The service registered with a type must implement that type");
+    checkArgument(
+        !ProtocolScheduleService.class.equals(serviceType),
+        "ProtocolScheduleService is Besu-owned and cannot be replaced");
     besuServices.put(serviceType, service);
   }
 
@@ -317,6 +327,24 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         return pluginService(type);
       }
     };
+  }
+
+  /**
+   * Resolves the protocol-schedule customizers that plugins registered, once registration has
+   * closed.
+   *
+   * <p>The result is memoized for the registration cycle: a node runs one genesis, so later calls
+   * return the first resolution whatever config they pass. {@link #resetState()} starts a new
+   * cycle.
+   *
+   * @param config the uncustomized genesis configuration
+   * @return the single matching customization, or the empty one
+   * @throws IllegalStateException if registration is still open, if a customizer throws, or if more
+   *     than one customizer supports the chain
+   */
+  public ProtocolScheduleCustomization resolveProtocolScheduleCustomization(
+      final GenesisConfigOptions config) {
+    return protocolScheduleService.resolve(config);
   }
 
   /**
@@ -640,11 +668,16 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         && !e.getMessage().startsWith("Could not initialize class");
   }
 
-  private boolean registerPlugin(final BesuPlugin plugin) {
+  @VisibleForTesting
+  boolean registerPlugin(final BesuPlugin plugin) {
+    final int customizerMark = protocolScheduleService.registrationMark();
     try {
       plugin.register(registrationContextFor(plugin));
       LOG.info("Registered plugin of type {}.", pluginId(plugin));
     } catch (final Exception | LinkageError e) {
+      // a plugin that failed to register is never started, so it must not change the chain's
+      // rules either
+      protocolScheduleService.discardRegistrationsSince(customizerMark);
       final Optional<Throwable> unrecoverable = unrecoverableCause(e);
       if (unrecoverable.isPresent()) {
         throw new RuntimeException(
@@ -652,7 +685,11 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
       }
       final String failure = failureMessage("registering", pluginId(plugin), e);
       if (config.isContinueOnPluginError()) {
-        LOG.error("{}, start and stop will not be called.", failure, e);
+        LOG.error(
+            "{}, start and stop will not be called and its protocol-schedule customizers are"
+                + " discarded.",
+            failure,
+            e);
         // recorded when its options were defined; a plugin that is not registered is not listed
         pluginVersions.remove(pluginId(plugin));
         // nothing can have looked up what it published yet, so retract it: a later plugin may
@@ -1037,6 +1074,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
    * first one did.
    */
   public void resetState() {
+    protocolScheduleService.reset();
     pluginServices.clear();
     state = Lifecycle.OPTIONS_DEFINED;
   }

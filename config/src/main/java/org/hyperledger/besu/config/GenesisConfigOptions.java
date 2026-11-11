@@ -371,6 +371,21 @@ public interface GenesisConfigOptions {
   List<Long> getForkBlockNumbers();
 
   /**
+   * Reads a numeric config value that Besu itself does not define.
+   *
+   * <p>Chains whose rules come from a protocol-schedule customizer keep their activation keys in
+   * the same genesis config section as the built-in forks. Besu does not interpret those keys; this
+   * accessor lets the customizer that owns them read them from the config the node was started
+   * with.
+   *
+   * @param key the config key, case insensitive
+   * @return the value, or empty when the key is absent
+   */
+  default OptionalLong getCustomConfigLong(final String key) {
+    return OptionalLong.empty();
+  }
+
+  /**
    * Gets fork block timestamps.
    *
    * @return the fork block timestamps

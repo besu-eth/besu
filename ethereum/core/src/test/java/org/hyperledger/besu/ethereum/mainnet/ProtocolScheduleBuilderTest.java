@@ -35,6 +35,8 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
+import static org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation.blockNumber;
+import static org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation.timestamp;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -47,6 +49,7 @@ import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.QbftConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.MainnetBlockValidator;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -62,10 +65,12 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.lang.reflect.Field;
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.Level;
@@ -210,6 +215,52 @@ class ProtocolScheduleBuilderTest {
                 .getByBlockHeader(blockHeader(63, PRE_SHANGHAI_TIMESTAMP + 21))
                 .getHardforkId())
         .isEqualTo(BOGOTA);
+  }
+
+  @Test
+  void aBlockModificationDoesNotCarryIntoTheTimestampEra() {
+    when(configOptions.getShanghaiTime()).thenReturn(OptionalLong.of(PRE_SHANGHAI_TIMESTAMP));
+    final ProtocolSpecModification blockModification =
+        new ProtocolSpecModification(
+            blockNumber(5), spec -> spec.blockRewardProcessor(BlockRewardProcessor.of(Wei.of(11))));
+    final ProtocolSpecModification timestampModification =
+        new ProtocolSpecModification(
+            timestamp(PRE_SHANGHAI_TIMESTAMP + 10),
+            spec -> spec.blockRewardProcessor(BlockRewardProcessor.of(Wei.of(22))));
+    final ProtocolScheduleCustomization customization =
+        new ProtocolScheduleCustomization(
+            "typed", List.of(blockModification, timestampModification));
+    final ProtocolScheduleBuilder customizedBuilder =
+        new ProtocolScheduleBuilder(
+            configOptions,
+            Optional.of(CHAIN_ID),
+            ProtocolSpecAdapters.compose(java.util.Map.of(0L, Function.identity()), customization),
+            false,
+            EvmConfiguration.DEFAULT,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem());
+
+    final ProtocolSchedule protocolSchedule = customizedBuilder.createProtocolSchedule();
+
+    final ProtocolSpec stockShanghai =
+        builder.createProtocolSchedule().getByBlockHeader(blockHeader(6, PRE_SHANGHAI_TIMESTAMP));
+
+    final ProtocolSpec inBlockEra = protocolSchedule.getByBlockHeader(blockHeader(5, 4));
+    final ProtocolSpec betweenModifications =
+        protocolSchedule.getByBlockHeader(blockHeader(6, PRE_SHANGHAI_TIMESTAMP));
+    final ProtocolSpec inTimestampEra =
+        protocolSchedule.getByBlockHeader(blockHeader(7, PRE_SHANGHAI_TIMESTAMP + 10));
+
+    assertThat(inBlockEra.getHardforkId()).isEqualTo(FRONTIER);
+    assertThat(inBlockEra.getBlockRewardProcessor().getBlockReward()).isEqualTo(Wei.of(11));
+    assertThat(betweenModifications.getHardforkId()).isEqualTo(SHANGHAI);
+    assertThat(betweenModifications.getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(stockShanghai.getBlockRewardProcessor().getBlockReward());
+    assertThat(inTimestampEra.getHardforkId()).isEqualTo(SHANGHAI);
+    assertThat(inTimestampEra.getBlockRewardProcessor().getBlockReward()).isEqualTo(Wei.of(22));
   }
 
   @Test
@@ -382,6 +433,150 @@ class ProtocolScheduleBuilderTest {
     assertThat(schedule.getByBlockHeader(blockHeader(0)).getHardforkId()).isEqualTo(FRONTIER);
     assertThat(schedule.getByBlockHeader(blockHeader(5)).getHardforkId()).isEqualTo(HOMESTEAD);
     verify(modifier, times(1)).apply(any());
+  }
+
+  @Test
+  void aLaterModificationReplacesAnEarlierOneRatherThanInheritingIt() {
+    when(configOptions.getChainId()).thenReturn(Optional.of(CHAIN_ID));
+    final Wei overriddenReward = Wei.of(42);
+
+    final ProtocolScheduleCustomization customization =
+        new ProtocolScheduleCustomization(
+            "test",
+            List.of(
+                new ProtocolSpecModification(
+                    ProtocolScheduleActivation.blockNumber(10),
+                    specBuilder ->
+                        specBuilder.blockRewardProcessor(
+                            BlockRewardProcessor.of(overriddenReward))),
+                new ProtocolSpecModification(
+                    ProtocolScheduleActivation.blockNumber(20), UnaryOperator.identity())));
+
+    final ProtocolSchedule schedule =
+        new ProtocolScheduleBuilder(
+                configOptions,
+                Optional.of(CHAIN_ID),
+                ProtocolSpecAdapters.compose(Map.of(), customization),
+                false,
+                EvmConfiguration.DEFAULT,
+                MiningConfiguration.MINING_DISABLED,
+                new BadBlockManager(),
+                false,
+                BalConfiguration.DEFAULT,
+                new NoOpMetricsSystem())
+            .createProtocolSchedule();
+
+    final Wei frontierReward =
+        schedule.getByBlockHeader(blockHeader(0)).getBlockRewardProcessor().getBlockReward();
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(10)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(overriddenReward);
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(20)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(frontierReward);
+  }
+
+  @Test
+  void aStructuralModifierOffADeclaredMilestoneIsRefusedAlongsideACustomization() {
+    when(configOptions.getChainId()).thenReturn(Optional.of(CHAIN_ID));
+    when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(16L));
+
+    // A structural modifier that lands between milestones shares the instance of the milestone
+    // below it, which the contributed overlay in force there has already mutated. A later
+    // modification that replaces that overlay would not reach the shared instance, so the replaced
+    // overlay would come back at the structural activation.
+    assertThatThrownBy(
+            () -> scheduleWith(Map.of(0L, Function.identity(), 20L, Function.identity())))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("example-chain")
+        .hasMessageContaining("20");
+  }
+
+  @Test
+  void aStructuralModifierOnADeclaredMilestoneDoesNotCarryAReplacedOverlay() {
+    when(configOptions.getChainId()).thenReturn(Optional.of(CHAIN_ID));
+    when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(16L));
+
+    // On a milestone the structural entry replaces that milestone's own entry rather than
+    // borrowing another one's instance, so the modification at 18 stays replaced.
+    final ProtocolSchedule schedule =
+        scheduleWith(Map.of(0L, Function.identity(), 16L, Function.identity()));
+
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(10)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(Wei.of(42));
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(16)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(Wei.of(42));
+    final Wei byzantiumBase =
+        schedule.getByBlockHeader(blockHeader(18)).getBlockRewardProcessor().getBlockReward();
+    assertThat(byzantiumBase).isNotEqualTo(Wei.of(42));
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(25)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(byzantiumBase);
+  }
+
+  private ProtocolSchedule scheduleWith(
+      final Map<Long, Function<ProtocolSpecBuilder, ProtocolSpecBuilder>> structuralModifiers) {
+    final ProtocolScheduleCustomization customization =
+        new ProtocolScheduleCustomization(
+            "example-chain",
+            List.of(
+                new ProtocolSpecModification(
+                    ProtocolScheduleActivation.blockNumber(10),
+                    specBuilder ->
+                        specBuilder.blockRewardProcessor(BlockRewardProcessor.of(Wei.of(42)))),
+                new ProtocolSpecModification(
+                    ProtocolScheduleActivation.blockNumber(18), UnaryOperator.identity())));
+    return new ProtocolScheduleBuilder(
+            configOptions,
+            Optional.of(CHAIN_ID),
+            ProtocolSpecAdapters.compose(structuralModifiers, customization),
+            false,
+            EvmConfiguration.DEFAULT,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem())
+        .createProtocolSchedule();
+  }
+
+  @Test
+  void theDaoRestorationKeepsWhatStructuralModifiersAccumulated() {
+    when(configOptions.getChainId()).thenReturn(Optional.of(CHAIN_ID));
+    when(configOptions.getDaoForkBlock()).thenReturn(OptionalLong.of(100L));
+    final Wei reward = Wei.of(42);
+
+    // structural modifiers mutate the builder they are handed, so the one at 20 that sets nothing
+    // still runs on an instance carrying what the one at 0 set. Reinstating the pre-DAO spec must
+    // come back to that, not to a bare definition.
+    final ProtocolSchedule schedule =
+        new ProtocolScheduleBuilder(
+                configOptions,
+                Optional.of(CHAIN_ID),
+                new ProtocolSpecAdapters(
+                    Map.of(
+                        0L,
+                        specBuilder ->
+                            specBuilder.blockRewardProcessor(BlockRewardProcessor.of(reward)),
+                        20L,
+                        Function.identity())),
+                false,
+                EvmConfiguration.DEFAULT,
+                MiningConfiguration.MINING_DISABLED,
+                new BadBlockManager(),
+                false,
+                BalConfiguration.DEFAULT,
+                new NoOpMetricsSystem())
+            .createProtocolSchedule();
+
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(110)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(reward);
+    assertThat(
+            schedule.getByBlockHeader(blockHeader(111)).getBlockRewardProcessor().getBlockReward())
+        .isEqualTo(reward);
   }
 
   private MilestoneStreamingProtocolSchedule createScheduleModifiedAt(final int blockNumber) {

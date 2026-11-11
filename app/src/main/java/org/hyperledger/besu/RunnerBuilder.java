@@ -826,9 +826,8 @@ public class RunnerBuilder {
             .natService(natService)
             .metricsSystem(metricsSystem)
             .storageProvider(storageProvider)
-            .blockchain(context.getBlockchain())
-            .blockNumberForks(besuController.getGenesisConfigOptions().getForkBlockNumbers())
-            .timestampForks(besuController.getGenesisConfigOptions().getForkBlockTimestamps())
+            // the node's one fork-ID manager, so the ENR matches the Status handshake
+            .forkIdManager(besuController.getEthPeers().getForkIdManager())
             .build();
 
     RlpxAgentFactory rlpxAgentFactory =
