@@ -40,7 +40,7 @@ public interface HealthCheckService extends RegistrationService {
   void registerHealthCheck(String endpoint, HealthCheckProvider provider);
 
   /**
-   * Unregisters a health check provider for a specific endpoint.
+   * Unregisters the health check provider of an endpoint, leaving it to Besu's core check.
    *
    * <p>Like registration, this is only accepted during {@link
    * org.hyperledger.besu.plugin.BesuPlugin#register}, so an override cannot be removed once
