@@ -82,4 +82,12 @@ public interface CodeDelegation {
    * @return s value
    */
   BigInteger s();
+
+  /**
+   * Creates a copy of this authorization that does not share any underlying byte array, and keeps
+   * its authority if that is already recovered.
+   *
+   * @return a copy of the authorization
+   */
+  CodeDelegation detachedCopy();
 }

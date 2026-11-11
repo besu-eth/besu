@@ -59,9 +59,14 @@ public class SimulationCodeDelegation implements CodeDelegation {
       @JsonProperty("address") final Address address,
       @JsonProperty("nonce") final String nonce,
       @JsonProperty("authority") final Address authority) {
-    this.chainId = ChainId.of(chainId);
+    this(ChainId.of(chainId), address, Bytes.fromHexStringLenient(nonce).toLong(), authority);
+  }
+
+  private SimulationCodeDelegation(
+      final ChainId chainId, final Address address, final long nonce, final Address authority) {
+    this.chainId = chainId;
     this.address = address;
-    this.nonce = Bytes.fromHexStringLenient(nonce).toLong();
+    this.nonce = nonce;
     this.authority = authority;
   }
 
@@ -120,5 +125,14 @@ public class SimulationCodeDelegation implements CodeDelegation {
   @JsonIgnore
   public BigInteger s() {
     return DUMMY_SIGNATURE.getS();
+  }
+
+  @Override
+  public SimulationCodeDelegation detachedCopy() {
+    return new SimulationCodeDelegation(
+        chainId,
+        Address.wrap(address.getBytes().copy()),
+        nonce,
+        Address.wrap(authority.getBytes().copy()));
   }
 }
