@@ -32,6 +32,8 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -58,13 +60,20 @@ class MessageCallProcessorWithPrecompilesTest {
 
   @Test
   void copiesEveryFieldButThePrecompiles() throws IllegalAccessException {
+    final PrecompileContractRegistry originalRegistry = new PrecompileContractRegistry();
     final MessageCallProcessor original =
-        new MessageCallProcessor(
-            evm, new PrecompileContractRegistry(), Set.of(RIPEMD160), transferLogEmitter);
+        new MessageCallProcessor(evm, originalRegistry, Set.of(RIPEMD160), transferLogEmitter);
     final PrecompileContractRegistry adapted = new PrecompileContractRegistry();
+    final List<PrecompileContractRegistry> adapterInputs = new ArrayList<>();
 
-    final MessageCallProcessor copy = original.withPrecompiles(registry -> adapted);
+    final MessageCallProcessor copy =
+        original.withPrecompiles(
+            registry -> {
+              adapterInputs.add(registry);
+              return adapted;
+            });
 
+    assertThat(adapterInputs).containsExactly(originalRegistry);
     assertThat(copy.getPrecompiles()).isSameAs(adapted);
     // Goes over the fields by reflection, so a field added to the processor and not copied fails
     // here. Compares by identity: a recursive comparison would take a mock and the NOOP emitter,
