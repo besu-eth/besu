@@ -375,6 +375,17 @@ public class BesuCommandTest extends CommandTestAbstract {
     inOrder.verify(getBesuPluginContext()).beginRegistration();
     inOrder.verify(getBesuPluginContext()).registerPlugins();
     inOrder.verify(getBesuPluginContext()).endRegistration();
+    // the previous cycle's plugins were stopped by stopEphemery(), not here
+    verify(getBesuPluginContext(), never()).stopPluginsForRestart();
+  }
+
+  @Test
+  public void stopPluginsForRestartHandsOverToTheContext() {
+    final TestBesuCommand command = parseCommand();
+
+    command.stopPluginsForRestart();
+
+    verify(getBesuPluginContext()).stopPluginsForRestart();
   }
 
   @Test

@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.calls;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -87,6 +88,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -287,6 +289,26 @@ public class EphemeryTest extends CommandTestAbstract {
     inOrder.verify(besuEvents).removeSyncStatusListener(anyLong());
     inOrder.verify(besuEvents).addSyncStatusListener(any());
     verify(besuEvents, times(2)).addSyncStatusListener(any());
+  }
+
+  @Test
+  public void testRestartStopsThePluginsBeforeTheServices() throws Exception {
+    // the built-in readiness check removes its sync listener in stop(): the network is still up
+    // at that moment, as on a shutdown, where the plugins stop before the runner closes
+    final AtomicBoolean networkUpWhenPluginsStopped = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              networkUpWhenPluginsStopped.set(!runner.getP2PNetwork().isStopped());
+              return null;
+            })
+        .when(besuEvents)
+        .removeSyncStatusListener(anyLong());
+
+    runner.stopEphemery(besuCommand);
+
+    verify(besuEvents).removeSyncStatusListener(anyLong());
+    assertThat(networkUpWhenPluginsStopped).isTrue();
+    assertThat(runner.getP2PNetwork().isStopped()).isTrue();
   }
 
   @Test

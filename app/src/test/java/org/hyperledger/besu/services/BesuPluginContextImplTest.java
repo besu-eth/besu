@@ -630,7 +630,7 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
-  void resetStateStopsThePluginsAndRegistersTheSameInstancesAgain() {
+  void restartStopsThePluginsAndRegistersTheSameInstancesAgain() {
     final List<String> events = new ArrayList<>();
     final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
     builtIn.onRegister = context -> events.add("builtIn.register");
@@ -644,6 +644,7 @@ public class BesuPluginContextImplTest {
     context.afterMainLoop();
     events.clear();
 
+    context.stopPluginsForRestart();
     context.resetState();
     register(context);
     context.startPlugins();
@@ -654,13 +655,14 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
-  void resetStateDoesNotStopPluginsThatNeverStarted() {
+  void restartStopsNothingWhenThePluginsNeverStarted() {
     final List<String> events = new ArrayList<>();
     final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
     builtIn.onStop = () -> events.add("builtIn.stop");
     final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(builtIn));
     register(context);
 
+    context.stopPluginsForRestart();
     context.resetState();
     register(context);
 
@@ -669,7 +671,59 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
-  void resetStateIsRejectedOnceThePluginsAreStopped() {
+  void restartAfterAFailedStartStopsOnlyThePluginsThatStartedAndRunsTheNextCycle() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin started = new RecordingPlugin("started");
+    started.onStart = context -> events.add("started.start");
+    started.onStop = () -> events.add("started.stop");
+    final BuiltInRecordingPlugin failing = new BuiltInRecordingPlugin("failing");
+    failing.onStart =
+        context -> {
+          throw new RuntimeException("start failed");
+        };
+    failing.onStop = () -> events.add("failing.stop");
+    final RecordingPlugin external = new RecordingPlugin("external");
+    external.onStart = context -> events.add("external.start");
+    external.onStop = () -> events.add("external.stop");
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(false, List.of(started, failing), external);
+    register(context);
+    assertThatThrownBy(context::startPlugins).hasMessageContaining("start failed");
+    events.clear();
+
+    // the next cycle: only the plugin whose start() returned is stopped, then the cycle proceeds
+    context.stopPluginsForRestart();
+    assertThat(events).containsExactly("started.stop");
+    failing.onStart = startContext -> events.add("failing.start");
+    context.resetState();
+    register(context);
+    context.startPlugins();
+
+    assertThat(events)
+        .containsExactly("started.stop", "started.start", "failing.start", "external.start");
+  }
+
+  @Test
+  void restartDoesNotStopAPluginDroppedAfterTheMainLoop() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin dropped = new RecordingPlugin("dropped");
+    dropped.onAfterMainLoop =
+        context -> {
+          throw new RuntimeException("afterMainLoop failed");
+        };
+    dropped.onStop = () -> events.add("dropped.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(true, List.of(), dropped);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+
+    context.stopPluginsForRestart();
+
+    assertThat(events).isEmpty();
+  }
+
+  @Test
+  void restartIsRejectedOnceThePluginsAreStopped() {
     final BesuPluginContextImpl context =
         contextWithBuiltIns(false, List.of(new RecordingPlugin("builtIn")));
     register(context);
@@ -677,9 +731,176 @@ public class BesuPluginContextImplTest {
     context.afterMainLoop();
     context.stopPlugins();
 
-    assertThatThrownBy(context::resetState)
+    assertThatThrownBy(context::stopPluginsForRestart)
         .isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("STOPPED");
+  }
+
+  @Test
+  void resetStateIsRejectedWhileThePluginsRun() {
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(false, List.of(new RecordingPlugin("builtIn")));
+    register(context);
+    context.startPlugins();
+
+    assertThatThrownBy(context::resetState)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("stop the plugins of the previous cycle first");
+  }
+
+  @Test
+  void resetStateIsRejectedAfterAFailedStartUntilThePluginsAreStopped() {
+    final BuiltInRecordingPlugin failing = new BuiltInRecordingPlugin("failing");
+    failing.onStart =
+        context -> {
+          throw new RuntimeException("start failed");
+        };
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(false, List.of(new RecordingPlugin("started"), failing));
+    register(context);
+    assertThatThrownBy(context::startPlugins).hasMessageContaining("start failed");
+
+    assertThatThrownBy(context::resetState)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("BEFORE_MAIN_LOOP_STARTED");
+
+    context.stopPluginsForRestart();
+    context.resetState();
+    register(context);
+    assertThat(context.getRegisteredPlugins()).hasSize(2);
+  }
+
+  @Test
+  void restartAfterAFatalAfterMainLoopFailureStopsEveryStartedPlugin() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onStop = () -> events.add("builtIn.stop");
+    final RecordingPlugin failing = new RecordingPlugin("failing");
+    failing.onAfterMainLoop =
+        context -> {
+          throw new RuntimeException("afterMainLoop failed");
+        };
+    failing.onStop = () -> events.add("failing.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(builtIn), failing);
+    register(context);
+    context.startPlugins();
+    assertThatThrownBy(context::afterMainLoop).hasMessageContaining("afterMainLoop failed");
+
+    // both started, so both are stopped: the failure came after their start() returned
+    context.stopPluginsForRestart();
+
+    assertThat(events).containsExactly("builtIn.stop", "failing.stop");
+  }
+
+  @Test
+  void restartDoesNotStopAPluginDroppedWhileStarting() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onStop = () -> events.add("builtIn.stop");
+    final RecordingPlugin dropped = new RecordingPlugin("dropped");
+    dropped.onStart =
+        context -> {
+          throw new RuntimeException("start failed");
+        };
+    dropped.onStop = () -> events.add("dropped.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(true, List.of(builtIn), dropped);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+
+    context.stopPluginsForRestart();
+
+    assertThat(events).containsExactly("builtIn.stop");
+  }
+
+  @Test
+  void shutdownDoesNotStopAPluginDroppedWhileStarting() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onStop = () -> events.add("builtIn.stop");
+    final RecordingPlugin dropped = new RecordingPlugin("dropped");
+    dropped.onStart =
+        context -> {
+          throw new RuntimeException("start failed");
+        };
+    dropped.onStop = () -> events.add("dropped.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(true, List.of(builtIn), dropped);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+
+    context.stopPlugins();
+
+    assertThat(events).containsExactly("builtIn.stop");
+  }
+
+  @Test
+  void restartKeepsStoppingWhenAPluginFailsToStop() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin failing = new RecordingPlugin("failing");
+    failing.onStop =
+        () -> {
+          throw new RuntimeException("stop failed");
+        };
+    final RecordingPlugin other = new RecordingPlugin("other");
+    other.onStop = () -> events.add("other.stop");
+    other.onRegister = context -> events.add("other.register");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(failing), other);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+    events.clear();
+
+    context.stopPluginsForRestart();
+    context.resetState();
+    register(context);
+
+    assertThat(events).containsExactly("other.stop", "other.register");
+  }
+
+  @Test
+  void restartStopsEachPluginOncePerCycle() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin builtIn = new RecordingPlugin("builtIn");
+    builtIn.onStop = () -> events.add("builtIn.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(false, List.of(builtIn));
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+
+    // a second stop before the next cycle starts finds nothing left to stop
+    context.stopPluginsForRestart();
+    context.stopPluginsForRestart();
+    assertThat(events).containsExactly("builtIn.stop");
+
+    // the next cycle's stop stops what that cycle started
+    context.resetState();
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+    context.stopPluginsForRestart();
+    assertThat(events).containsExactly("builtIn.stop", "builtIn.stop");
+  }
+
+  @Test
+  void restartIsRejectedBeforeThePluginsRegister() {
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(false, List.of(new RecordingPlugin("builtIn")));
+
+    assertThatThrownBy(context::stopPluginsForRestart)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("OPTIONS_DEFINED");
+  }
+
+  @Test
+  void restartIsRejectedWhileRegistrationIsOpen() {
+    final BesuPluginContextImpl context =
+        contextWithBuiltIns(false, List.of(new RecordingPlugin("builtIn")));
+    context.beginRegistration();
+
+    assertThatThrownBy(context::stopPluginsForRestart)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("REGISTERING");
   }
 
   @Test

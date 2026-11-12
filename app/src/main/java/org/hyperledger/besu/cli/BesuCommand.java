@@ -981,9 +981,18 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   /**
-   * Stops the plugins the previous cycle started, refreshes the configuration views for the current
-   * data path and registers the same plugin instances again, for an Ephemery restart. The storage
-   * provider is built again from the factory the storage plugin registers for the new cycle.
+   * Stops the plugins the current Ephemery cycle started, before the node's services stop, as a
+   * shutdown does.
+   */
+  public void stopPluginsForRestart() {
+    besuPluginContext.stopPluginsForRestart();
+  }
+
+  /**
+   * Rewinds the plugin context after {@link #stopPluginsForRestart()}, refreshes the configuration
+   * views for the current data path and registers the same plugin instances again, for an Ephemery
+   * restart. The storage provider is built again from the factory the storage plugin registers for
+   * the new cycle.
    */
   public void reRegisterPlugins() {
     besuPluginContext.resetState();

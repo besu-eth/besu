@@ -145,6 +145,9 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
 
   private final List<BesuPlugin> registeredPlugins = new ArrayList<>();
 
+  /** Plugins whose {@code start()} returned in the current cycle: the ones a stop reaches. */
+  private final List<BesuPlugin> startedPlugins = new ArrayList<>();
+
   private final Map<String, String> pluginVersions = new LinkedHashMap<>();
   private PluginConfiguration config;
   private URLClassLoader pluginClassLoader;
@@ -720,6 +723,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         Lifecycle.REGISTERED,
         state);
     state = Lifecycle.BEFORE_MAIN_LOOP_STARTED;
+    startedPlugins.clear();
     final Iterator<BesuPlugin> pluginsIterator = registeredPlugins.iterator();
 
     while (pluginsIterator.hasNext()) {
@@ -727,6 +731,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
 
       try {
         plugin.start(startContextFor(plugin));
+        startedPlugins.add(plugin);
         if (LOG.isDebugEnabled()) {
           LOG.debug("Started plugin of type {}.", pluginId(plugin));
         }
@@ -776,6 +781,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         if (continuesOnFailureOf(plugin)) {
           LOG.error("{}, stop will not be called.", failure, e);
           pluginsIterator.remove();
+          startedPlugins.remove(plugin);
         } else {
           throw new RuntimeException(fatalFailure(failure, plugin), e);
         }
@@ -791,7 +797,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
         state);
     state = Lifecycle.STOPPING;
-    stopRegisteredPlugins();
+    stopStartedPlugins();
 
     // Close the plugin classloader to release file handles
     if (pluginClassLoader != null) {
@@ -807,8 +813,38 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     state = Lifecycle.STOPPED;
   }
 
-  private void stopRegisteredPlugins() {
-    for (final BesuPlugin plugin : registeredPlugins) {
+  /**
+   * Stops the plugins the current cycle started, for an Ephemery restart, before the node's
+   * services stop, in the order of a shutdown. Accepted after registration whether the start phase
+   * ran to the end, failed part way or never ran, so a cycle that failed to start does not block
+   * the next one: only the plugins whose {@code start()} returned are stopped. Unlike {@link
+   * #stopPlugins()} this keeps the plugin class loader open and returns to the registered state,
+   * since the same plugins register and run again.
+   *
+   * @throws IllegalStateException if the context is not in the REGISTERED, the
+   *     BEFORE_MAIN_LOOP_STARTED or the BEFORE_MAIN_LOOP_FINISHED state.
+   */
+  public void stopPluginsForRestart() {
+    checkState(
+        state == Lifecycle.REGISTERED
+            || state == Lifecycle.BEFORE_MAIN_LOOP_STARTED
+            || state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
+        "BesuContext should be in state %s, %s or %s but it was in %s",
+        Lifecycle.REGISTERED,
+        Lifecycle.BEFORE_MAIN_LOOP_STARTED,
+        Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
+        state);
+    if (state == Lifecycle.BEFORE_MAIN_LOOP_STARTED) {
+      LOG.warn(
+          "The previous cycle failed while starting its plugins; stopping the {} it had started",
+          startedPlugins.size());
+    }
+    stopStartedPlugins();
+    state = Lifecycle.REGISTERED;
+  }
+
+  private void stopStartedPlugins() {
+    for (final BesuPlugin plugin : startedPlugins) {
       try {
         plugin.stop();
         if (LOG.isDebugEnabled()) {
@@ -818,6 +854,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         LOG.error("Error stopping plugin of type " + pluginId(plugin), e);
       }
     }
+    startedPlugins.clear();
   }
 
   private static URL pathToURIOrNull(final Path p) {
@@ -1124,26 +1161,21 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   }
 
   /**
-   * Stops every registered plugin, when the previous cycle started them, and rewinds to the
-   * options-defined state, so the Ephemery restart can register the same plugin instances again
-   * without re-parsing the command line. The services plugins published in the previous cycle are
-   * dropped, so the second registration pass starts from the same empty set the first one did.
-   * Unlike {@link #stopPlugins()} this keeps the plugin class loader open, since the same plugins
-   * run again.
+   * Rewinds to the options-defined state, once {@link #stopPluginsForRestart()} has stopped the
+   * previous cycle, so the Ephemery restart can register the same plugin instances again without
+   * re-parsing the command line. The services plugins published in the previous cycle are dropped,
+   * so the second registration pass starts from the same empty set the first one did.
    *
-   * @throws IllegalStateException if the context is not in the REGISTERED or the
-   *     BEFORE_MAIN_LOOP_FINISHED state.
+   * @throws IllegalStateException if the context is not in the REGISTERED state, that is if the
+   *     plugins of the previous cycle were not stopped first.
    */
   public void resetState() {
     checkState(
-        state == Lifecycle.REGISTERED || state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
-        "BesuContext should be in state %s or %s but it was in %s",
+        state == Lifecycle.REGISTERED,
+        "BesuContext should be in state %s but it was in %s; stop the plugins of the previous cycle"
+            + " first",
         Lifecycle.REGISTERED,
-        Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
         state);
-    if (state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED) {
-      stopRegisteredPlugins();
-    }
     pluginServices.clear();
     state = Lifecycle.OPTIONS_DEFINED;
   }

@@ -259,7 +259,7 @@ public class Runner implements AutoCloseable {
   }
 
   /**
-   * Stops the services, clears data, and resets data path for the next cycle.
+   * Stops the plugins and the services, clears data, and resets data path for the next cycle.
    *
    * @param besuCommand the Besu command instance to invoke its methods
    * @throws IOException if file operations fail
@@ -267,6 +267,8 @@ public class Runner implements AutoCloseable {
    */
   public void stopEphemery(final BesuCommand besuCommand) throws IOException, InterruptedException {
     if (besuController != null) {
+      // the plugins stop first, while the services they may use are still up, as on a shutdown
+      besuCommand.stopPluginsForRestart();
       stopServices();
       // the next cycle is a new chain, with a new chain id, that is registered when its controller
       // is built
