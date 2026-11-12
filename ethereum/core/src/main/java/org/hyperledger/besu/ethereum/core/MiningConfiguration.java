@@ -165,6 +165,11 @@ public abstract class MiningConfiguration {
   }
 
   @Value.Default
+  public boolean isMempoolPrewarmEnabled() {
+    return false;
+  }
+
+  @Value.Default
   public TransactionSelectionService getTransactionSelectionService() {
     return new TransactionSelectionService() {
       @Override
@@ -342,7 +347,6 @@ public abstract class MiningConfiguration {
     long DEFAULT_POS_BLOCK_CREATION_REPETITION_MIN_DURATION = Duration.ofMillis(500).toMillis();
     long DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS = 0L;
     Integer DEFAULT_POS_SLOT_DURATION_SECS = 12;
-    boolean DEFAULT_MEMPOOL_PREWARM_ENABLED = false;
     int DEFAULT_MEMPOOL_PREWARM_THREADS =
         Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
     int DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER = 4;
@@ -372,11 +376,6 @@ public abstract class MiningConfiguration {
     @Value.Default
     default long getPosBlockFinalizationTimeoutMs() {
       return DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS;
-    }
-
-    @Value.Default
-    default boolean isMempoolPrewarmEnabled() {
-      return DEFAULT_MEMPOOL_PREWARM_ENABLED;
     }
 
     @Value.Default

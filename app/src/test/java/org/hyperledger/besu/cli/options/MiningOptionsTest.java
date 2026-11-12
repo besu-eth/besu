@@ -45,6 +45,8 @@ import java.util.OptionalLong;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
@@ -186,20 +188,66 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
   }
 
   @Test
-  public void mempoolPrewarmIsDisabledByDefault() {
+  public void mempoolPrewarmIsEnabledByDefaultWithoutNetwork() {
     internalTestSuccess(
-        miningParams -> assertThat(miningParams.getUnstable().isMempoolPrewarmEnabled()).isFalse());
+        miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isTrue());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"mainnet", "sepolia", "hoodi", "ephemery"})
+  public void mempoolPrewarmIsEnabledByDefaultOnPublicEthereumNetworks(final String network) {
+    internalTestSuccess(
+        miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isTrue(),
+        "--network",
+        network);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"linea-mainnet", "linea-sepolia", "lukso"})
+  public void mempoolPrewarmIsDisabledByDefaultOnOtherNamedNetworks(final String network) {
+    internalTestSuccess(
+        miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isFalse(),
+        "--network",
+        network);
+  }
+
+  @Test
+  public void mempoolPrewarmIsDisabledByDefaultWithGenesisFile() throws IOException {
+    final Path genesisFilePoS = createFakeGenesisFile(VALID_GENESIS_CLIQUE_WITH_POS_TRANSITION);
+    internalTestSuccess(
+        miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isFalse(),
+        "--genesis-file",
+        genesisFilePoS.toString());
+  }
+
+  @Test
+  public void mempoolPrewarmCanBeEnabledWithGenesisFile() throws IOException {
+    final Path genesisFilePoS = createFakeGenesisFile(VALID_GENESIS_CLIQUE_WITH_POS_TRANSITION);
+    internalTestSuccess(
+        miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isTrue(),
+        "--genesis-file",
+        genesisFilePoS.toString(),
+        "--mempool-prewarm-enabled");
+  }
+
+  @Test
+  public void mempoolPrewarmCanBeDisabledOnMainnet() {
+    internalTestSuccess(
+        miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isFalse(),
+        "--network",
+        "mainnet",
+        "--mempool-prewarm-enabled=false");
   }
 
   @Test
   public void mempoolPrewarmOptions() {
     internalTestSuccess(
         miningParams -> {
-          assertThat(miningParams.getUnstable().isMempoolPrewarmEnabled()).isTrue();
+          assertThat(miningParams.isMempoolPrewarmEnabled()).isTrue();
           assertThat(miningParams.getUnstable().getMempoolPrewarmThreads()).isEqualTo(3);
           assertThat(miningParams.getUnstable().getMempoolPrewarmGasLimitMultiplier()).isEqualTo(2);
         },
-        "--Xmempool-prewarm-enabled=true",
+        "--mempool-prewarm-enabled=true",
         "--Xmempool-prewarm-threads=3",
         "--Xmempool-prewarm-gas-limit-multiplier=2");
   }
@@ -497,6 +545,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
     return ImmutableMiningConfiguration.builder()
         .mutableInitValues(
             MutableInitValues.builder().extraData(Bytes.fromHexString("0xabc321")).build())
+        .isMempoolPrewarmEnabled(true)
         .unstable(Unstable.builder().posBlockCreationMaxTime(1000).build())
         .build();
   }
@@ -512,8 +561,13 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
   }
 
   @Override
+  protected String[] getFieldsWithComputedDefaults() {
+    return new String[] {"mempoolPrewarmEnabled"};
+  }
+
+  @Override
   protected String[] getNonOptionFields() {
-    return new String[] {"transactionSelectionService"};
+    return new String[] {"transactionSelectionService", "mempoolPrewarmEnabledByDefault"};
   }
 
   private MiningConfiguration runtimeConfiguration(

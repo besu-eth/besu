@@ -1579,7 +1579,7 @@ public class BesuCommandTest extends CommandTestAbstract {
 
   @Test
   public void balPrefetchReadingDisabledDoesNotForceBonsaiCrossBlockCache() {
-    parseCommand("--Xbal-prefetch-reading-enabled=false");
+    parseCommand("--Xbal-prefetch-reading-enabled=false", "--mempool-prewarm-enabled=false");
     verify(mockControllerBuilder)
         .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
 
@@ -1596,8 +1596,8 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void mempoolPrewarmingAutoEnablesBonsaiCrossBlockCache() {
-    parseCommand("--Xbal-prefetch-reading-enabled=false", "--Xmempool-prewarm-enabled=true");
+  public void mempoolPrewarmingOnByDefaultAutoEnablesBonsaiCrossBlockCache() {
+    parseCommand("--Xbal-prefetch-reading-enabled=false");
     verify(mockControllerBuilder)
         .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
 

@@ -23,7 +23,9 @@ import static org.hyperledger.besu.cli.DefaultCommandValues.getDefaultBesuDataPa
 import static org.hyperledger.besu.cli.util.CommandLineUtils.DEPENDENCY_WARNING_MSG;
 import static org.hyperledger.besu.cli.util.CommandLineUtils.isOptionSet;
 import static org.hyperledger.besu.config.NetworkDefinition.EPHEMERY;
+import static org.hyperledger.besu.config.NetworkDefinition.HOODI;
 import static org.hyperledger.besu.config.NetworkDefinition.MAINNET;
+import static org.hyperledger.besu.config.NetworkDefinition.SEPOLIA;
 import static org.hyperledger.besu.controller.BesuController.DATABASE_PATH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.authentication.EngineAuthService.EPHEMERAL_JWT_FILE;
 
@@ -219,6 +221,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -290,6 +293,11 @@ import picocli.CommandLine.ParseResult;
       "%nMore info and other profiles at https://besu.hyperledger.org%n"
     })
 public class BesuCommand implements DefaultCommandValues, Runnable {
+  // Mempool prewarming has been measured on mainnet and Sepolia; Hoodi and Ephemery are public
+  // Ethereum testnets with the same slot time and client mix. Other networks opt in.
+  private static final Set<NetworkDefinition> MEMPOOL_PREWARM_NETWORKS =
+      EnumSet.of(MAINNET, SEPOLIA, HOODI, EPHEMERY);
+
   @SuppressWarnings("PrivateStaticFinalLoggers")
   // non-static for testing
   private final Logger logger;
@@ -2082,6 +2090,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     checkIfRequiredPortsAreAvailable();
     syncMode = getDefaultSyncModeIfNotSet();
     versionCompatibilityProtection = getDefaultVersionCompatibilityProtectionIfNotSet();
+    miningOptions.setMempoolPrewarmEnabledByDefault(
+        genesisFile == null && MEMPOOL_PREWARM_NETWORKS.contains(network));
 
     ethNetworkConfig = updateNetworkConfig(network);
 
