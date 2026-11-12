@@ -122,6 +122,10 @@ public class MempoolPrewarmer implements AutoCloseable {
   @Nullable private volatile Warming warming;
   // the last prewarming a payload stopped, which its block counts against once the block is known
   private final AtomicReference<Warming> stoppedForPayload = new AtomicReference<>();
+  // the blocks executing, guarded by this
+  private int blocksExecuting;
+  // the head prewarming was last started for while a block executed, guarded by this
+  @Nullable private BlockHeader startAfterExecution;
 
   private final Counter executedTransactions;
   private final Counter invalidTransactions;
@@ -248,11 +252,17 @@ public class MempoolPrewarmer implements AutoCloseable {
   /**
    * Starts prewarming for a new head, stopping any prewarming for an earlier one. Prewarming that
    * stopped while the head stayed resumes with the gas budget it has left, until the next slot is
-   * over.
+   * over. While a block executes, prewarming starts once the execution has ended.
    *
    * @param head the new head
    */
-  public void start(final BlockHeader head) {
+  public synchronized void start(final BlockHeader head) {
+    if (blocksExecuting > 0) {
+      // a forkchoice update can arrive while a payload executes, and prewarming would compete with
+      // the payload's execution
+      startAfterExecution = head;
+      return;
+    }
     if (!transactionPool.isEnabled()) {
       // the pool offers nothing to warm until it is enabled again
       stop(Optional.empty());
@@ -334,10 +344,45 @@ public class MempoolPrewarmer implements AutoCloseable {
   }
 
   /**
+   * Stops prewarming while a block executes, as the block arrived and is about to be executed. Each
+   * call is followed by a call to {@link #executionEnded()} once the execution ends.
+   *
+   * @param block the block about to be executed
+   */
+  public void stopForExecution(final Block block) {
+    synchronized (this) {
+      blocksExecuting++;
+    }
+    // after the count, so that a start racing with it is either stopped here or waits
+    stop(Optional.of(block));
+  }
+
+  /**
+   * Ends the stop of a {@link #stopForExecution(Block)} call. Once no block executes any more,
+   * prewarming starts for the head it was last started for in the meantime, if any.
+   */
+  public void executionEnded() {
+    final BlockHeader head;
+    synchronized (this) {
+      blocksExecuting--;
+      if (blocksExecuting > 0 || startAfterExecution == null) {
+        return;
+      }
+      head = startAfterExecution;
+      startAfterExecution = null;
+    }
+    start(head);
+  }
+
+  /**
    * Stops prewarming, as block building starts on the head and executes the pool's transactions
    * itself. Prewarming does not start again for the same head before the next slot is over.
    */
   public void stopForBlockBuilding() {
+    synchronized (this) {
+      // block building starts on the head a start during an execution was for
+      startAfterExecution = null;
+    }
     final Warming current = warming;
     if (current != null) {
       current.building().set(true);

@@ -775,21 +775,22 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   private BlockProcessingResult validateBlock(
       final Block block, final Optional<BlockAccessList> blockAccessList) {
-    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.of(block)));
-    final var validationResult =
-        protocolSchedule
-            .getByBlockHeader(block.getHeader())
-            .getBlockValidator()
-            .validateAndProcessBlock(
-                protocolContext,
-                block,
-                HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE,
-                blockAccessList,
-                InclusionListTransactions.EMPTY,
-                false);
-
-    return validationResult;
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stopForExecution(block));
+    try {
+      return protocolSchedule
+          .getByBlockHeader(block.getHeader())
+          .getBlockValidator()
+          .validateAndProcessBlock(
+              protocolContext,
+              block,
+              HeaderValidationMode.FULL,
+              HeaderValidationMode.NONE,
+              blockAccessList,
+              InclusionListTransactions.EMPTY,
+              false);
+    } finally {
+      mempoolPrewarmer.ifPresent(MempoolPrewarmer::executionEnded);
+    }
   }
 
   private BlockProcessingResult validateProposedBlock(
@@ -824,19 +825,24 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final InclusionListTransactions inclusionListTransactions,
       final Executor blockWriter) {
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
-    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.of(block)));
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stopForExecution(block));
     final var chain = protocolContext.getBlockchain();
-    final var validationResult =
-        protocolSchedule
-            .getByBlockHeader(block.getHeader())
-            .getBlockValidator()
-            .validateAndProcessBlockDeferringTrieLog(
-                protocolContext,
-                block,
-                HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE,
-                blockAccessList,
-                inclusionListTransactions);
+    final BlockProcessingResult validationResult;
+    try {
+      validationResult =
+          protocolSchedule
+              .getByBlockHeader(block.getHeader())
+              .getBlockValidator()
+              .validateAndProcessBlockDeferringTrieLog(
+                  protocolContext,
+                  block,
+                  HeaderValidationMode.FULL,
+                  HeaderValidationMode.NONE,
+                  blockAccessList,
+                  inclusionListTransactions);
+    } finally {
+      mempoolPrewarmer.ifPresent(MempoolPrewarmer::executionEnded);
+    }
     validationResult
         .getYield()
         .ifPresentOrElse(
