@@ -61,11 +61,13 @@ public class FrontierRootHashTracker implements CommittedTransactionListener {
 
   /**
    * Records the addresses changed by a committed transaction so they will be applied on the next
-   * {@link #frontierRootHash(Hash)} call.
+   * {@link #frontierRootHash(Hash)} call. A cached storage trie of an account whose storage was
+   * cleared still holds the slots written before the clear, so it is discarded.
    */
   @Override
   public void onTransactionCommitted(final CommittedTransactionChanges changes) {
     dirtyAddresses.addAll(changes.changedAddresses());
+    changes.clearedStorageAddresses().forEach(storageRootTracker::invalidate);
   }
 
   /** Discards cached trie state when the accumulator is wiped (e.g. block-processing abort). */

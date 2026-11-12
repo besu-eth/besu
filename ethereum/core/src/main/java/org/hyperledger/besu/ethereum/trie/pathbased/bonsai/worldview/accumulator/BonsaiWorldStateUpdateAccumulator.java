@@ -146,12 +146,18 @@ public class BonsaiWorldStateUpdateAccumulator
 
   @Override
   public void commit() {
+    // super.commit() resets the storage-cleared flags, so read them first
+    final Set<Address> clearedStorage = new HashSet<>(getDeletedAccountAddresses());
+    getUpdatedAccounts().stream()
+        .filter(account -> account.getStorageWasCleared())
+        .forEach(account -> clearedStorage.add(account.getAddress()));
     super.commit();
     final Set<Address> changed = new HashSet<>();
     getUpdatedAccounts().forEach(account -> changed.add(account.getAddress()));
     changed.addAll(getDeletedAccountAddresses());
     if (!changed.isEmpty()) {
-      committedTransactionListener.onTransactionCommitted(new CommittedTransactionChanges(changed));
+      committedTransactionListener.onTransactionCommitted(
+          new CommittedTransactionChanges(changed, clearedStorage));
     }
   }
 
@@ -163,7 +169,8 @@ public class BonsaiWorldStateUpdateAccumulator
     // snapshot from this path so listeners observe both code paths uniformly.
     final Set<Address> changed = new HashSet<>(source.getAccountsToUpdate().keySet());
     if (!changed.isEmpty()) {
-      committedTransactionListener.onTransactionCommitted(new CommittedTransactionChanges(changed));
+      committedTransactionListener.onTransactionCommitted(
+          new CommittedTransactionChanges(changed, source.getStorageToClear()));
     }
   }
 

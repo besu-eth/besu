@@ -188,6 +188,117 @@ class BonsaiClearStorageTest {
     assertThat(worldState.getAllAccountStorage(CONTRACT, storageRoot)).hasSize(1);
   }
 
+  /**
+   * Regression test for <a href="https://github.com/besu-eth/besu/issues/11522">#11522</a>.
+   *
+   * <p>After a {@code clearStorage()} on an existing account is committed, reads of slots that are
+   * only in the persisted world state must return zero, matching the storage root that is rebuilt
+   * from an empty trie.
+   */
+  @Test
+  void persistedStorageIsNotReadAfterClearStorageIsCommitted() {
+    final Blockchain blockchain = mock(Blockchain.class);
+    final BonsaiWorldStateProvider archive =
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive(blockchain);
+
+    final UInt256 clearedSlot = UInt256.ONE;
+    final UInt256 overriddenSlot = UInt256.valueOf(3);
+    final UInt256 value = UInt256.valueOf(42);
+
+    final WorldUpdater setup = archive.getWorldState().updater();
+    final MutableAccount account = setup.createAccount(CONTRACT, 1, Wei.of(1));
+    account.setStorageValue(clearedSlot, UInt256.ONE);
+    account.setStorageValue(overriddenSlot, UInt256.valueOf(3));
+    setup.commit();
+    archive.getWorldState().persist(null);
+
+    final WorldUpdater updater = archive.getWorldState().updater();
+    final MutableAccount cleared = updater.getAccount(CONTRACT);
+    cleared.clearStorage();
+    cleared.setStorageValue(overriddenSlot, value);
+    updater.commit();
+
+    final MutableAccount reread = archive.getWorldState().updater().getAccount(CONTRACT);
+    assertThat(reread.getStorageValue(overriddenSlot)).isEqualTo(value);
+    assertThat(reread.getStorageValue(clearedSlot)).isEqualTo(UInt256.ZERO);
+
+    archive.getWorldState().persist(null);
+
+    assertThat(archive.getWorldState().get(CONTRACT).getStorageValue(clearedSlot))
+        .isEqualTo(UInt256.ZERO);
+    assertThat(archive.getWorldState().rootHash())
+        .isEqualTo(rootWithOnlySlot(1, overriddenSlot, value));
+  }
+
+  /**
+   * Regression test for <a href="https://github.com/besu-eth/besu/issues/11522">#11522</a>.
+   *
+   * <p>When an account deleted earlier in the block is recreated and then has its storage cleared,
+   * the cleared-slot markers recorded by the deletion are dropped. Reads of slots that are only in
+   * the persisted world state must still return zero, and must not be written back on persist.
+   */
+  @Test
+  void persistedStorageIsNotReadWhenDeletedAccountIsRecreatedAndClearedInSameBlock() {
+    final Blockchain blockchain = mock(Blockchain.class);
+    final BonsaiWorldStateProvider archive =
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive(blockchain);
+
+    final UInt256 clearedSlot = UInt256.ONE;
+    final UInt256 writtenSlot = UInt256.valueOf(3);
+    final UInt256 value = UInt256.valueOf(42);
+
+    final WorldUpdater setup = archive.getWorldState().updater();
+    final MutableAccount account = setup.createAccount(CONTRACT, 1, Wei.of(1));
+    account.setStorageValue(clearedSlot, UInt256.ONE);
+    account.setStorageValue(writtenSlot, UInt256.valueOf(3));
+    setup.commit();
+    archive.getWorldState().persist(null);
+
+    // block 2, one commit per tx as in AbstractBlockProcessor: delete the account, recreate it,
+    // then clear its storage and write a slot (the accumulator sequence a CREATE2 redeploy
+    // produces)
+    final WorldUpdater blockUpdater = archive.getWorldState().updater();
+    final WorldUpdater tx1 = blockUpdater.updater();
+    tx1.deleteAccount(CONTRACT);
+    tx1.commit();
+    blockUpdater.commit();
+    blockUpdater.markTransactionBoundary();
+
+    final WorldUpdater tx2 = blockUpdater.updater();
+    tx2.createAccount(CONTRACT, 0, Wei.of(1));
+    tx2.commit();
+    blockUpdater.commit();
+    blockUpdater.markTransactionBoundary();
+
+    final WorldUpdater tx3 = blockUpdater.updater();
+    final MutableAccount created = tx3.getAccount(CONTRACT);
+    created.clearStorage();
+    created.setStorageValue(writtenSlot, value);
+    tx3.commit();
+    blockUpdater.commit();
+    blockUpdater.markTransactionBoundary();
+
+    assertThat(blockUpdater.get(CONTRACT).getStorageValue(clearedSlot)).isEqualTo(UInt256.ZERO);
+
+    archive.getWorldState().persist(null);
+
+    assertThat(archive.getWorldState().get(CONTRACT).getStorageValue(clearedSlot))
+        .isEqualTo(UInt256.ZERO);
+    assertThat(archive.getWorldState().rootHash())
+        .isEqualTo(rootWithOnlySlot(0, writtenSlot, value));
+  }
+
+  private Hash rootWithOnlySlot(final long nonce, final UInt256 slot, final UInt256 value) {
+    final BonsaiWorldStateProvider expected =
+        InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive(
+            mock(Blockchain.class));
+    final WorldUpdater updater = expected.getWorldState().updater();
+    updater.createAccount(CONTRACT, nonce, Wei.of(1)).setStorageValue(slot, value);
+    updater.commit();
+    expected.getWorldState().persist(null);
+    return expected.getWorldState().rootHash();
+  }
+
   private void populateStorage(final BonsaiWorldStateProvider archive, final int slots) {
     final WorldUpdater setup = archive.getWorldState().updater();
     final MutableAccount account = setup.createAccount(CONTRACT);
