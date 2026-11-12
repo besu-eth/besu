@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransacti
 import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransactionSelectorTest.Sender.SENDER3;
 import static org.hyperledger.besu.ethereum.blockcreation.AbstractBlockTransactionSelectorTest.Sender.SENDER5;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MAX_SCORE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXECUTION_INTERRUPTED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_LOW;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_SELECTION_TIMEOUT;
@@ -1674,6 +1675,23 @@ public abstract class AbstractBlockTransactionSelectorTest {
             () ->
                 assertThat(transactionPool.getTransactionByHash(lateTx.getHash()).isEmpty())
                     .isEqualTo(isLongProcessingTxDropped));
+
+    if (!isLongProcessingTxDropped) {
+      // the tx is penalized only if it took too long itself, and not when it was just the one
+      // running when the block ran out of time
+      final byte expectedScore =
+          longProcessingTxResult.penalize() ? (byte) (MAX_SCORE - 1) : MAX_SCORE;
+      await()
+          .untilAsserted(
+              () ->
+                  assertThat(
+                          transactionPool.getPendingTransactions().stream()
+                              .filter(pt -> pt.getHash().equals(lateTx.getHash()))
+                              .findFirst()
+                              .orElseThrow()
+                              .getScore())
+                      .isEqualTo(expectedScore));
+    }
   }
 
   @Disabled("flaky #7150")

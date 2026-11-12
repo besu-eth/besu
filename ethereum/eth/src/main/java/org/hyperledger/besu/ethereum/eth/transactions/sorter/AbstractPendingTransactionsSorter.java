@@ -47,6 +47,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -146,19 +147,33 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
   @Override
   public void evictOldTransactions() {
-    final long removeTransactionsBefore =
-        clock.instant().minus(poolConfig.getPendingTxRetentionDuration()).toEpochMilli();
+    final Duration retention = poolConfig.getPendingTxRetentionDuration();
+    final long removeTransactionsBefore = clock.instant().minus(retention).toEpochMilli();
 
-    pendingTransactions.values().stream()
-        .filter(transaction -> transaction.getAddedAt() < removeTransactionsBefore)
-        .forEach(
-            transactionInfo -> {
-              LOG.atTrace()
-                  .setMessage("Evicted {} due to age")
-                  .addArgument(transactionInfo::toTraceLog)
-                  .log();
-              removeTransaction(transactionInfo, TIMED_EVICTION);
-            });
+    final long evictedCount =
+        pendingTransactions.values().stream()
+            .filter(transaction -> transaction.getAddedAt() < removeTransactionsBefore)
+            .filter(
+                transactionInfo -> {
+                  LOG.atTrace()
+                      .setMessage("Evicted {} due to age")
+                      .addArgument(transactionInfo::toTraceLog)
+                      .log();
+                  return removeTransaction(transactionInfo, TIMED_EVICTION);
+                })
+            .count();
+
+    // Seqeuenced-pool-only INFO log per block, iff there are 1 or more evicted transactions.
+    // This is either silent under normal conditions, or once per block (so not super noisy) in the
+    // case where the user is trying to get a lot of un-minable transctions into blocks. In this
+    // case it is much more useful to log than silently evict them - the latter make PD much harder.
+    if (evictedCount > 0) {
+      LOG.info(
+          "Evicted {} transaction(s) from the pool as they exceeded the configured retention"
+              + " period of {} seconds",
+          evictedCount,
+          retention.toSeconds());
+    }
   }
 
   @Override
@@ -193,7 +208,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     return transactionAddedStatus;
   }
 
-  void removeTransaction(
+  boolean removeTransaction(
       final PendingTransaction pendingTransaction, final SequencedRemovalReason reason) {
     // notify while holding the lock, so that the events are notified in the order they happen, and
     // only if this pending tx is still in the pool, since it could have been removed already, and
@@ -202,8 +217,10 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
       if (pendingTransaction.equals(pendingTransactions.get(pendingTransaction.getHash()))) {
         removeTransaction(pendingTransaction.getTransaction(), false);
         eventEmitter.notifyPendingTransactionDropped(pendingTransaction, reason);
+        return true;
       }
     }
+    return false;
   }
 
   @Override
@@ -285,7 +302,39 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
         removeTransaction(pendingTransaction, INVALID);
       }
       logDiscardedTransaction(pendingTransaction, result);
+    } else if (result.penalize()) {
+      penalizeTransaction(pendingTransaction, result);
     }
+  }
+
+  /**
+   * A transaction whose selection result asks for it to be penalized (e.g. because its execution
+   * did not complete in the allotted time) is moved to the back of the selection order so it
+   * doesn't semi-permanently block newer, smaller transactions from being selected. If it is never
+   * successfully selected it is eventually removed when the TX pool retention period expires.
+   *
+   * @param pendingTransaction the evaluated transaction
+   * @param result the reason why it was not selected
+   */
+  private void penalizeTransaction(
+      final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
+    synchronized (lock) {
+      // the tx could have been removed or replaced while the selection was running
+      if (!pendingTransaction.equals(pendingTransactions.get(pendingTransaction.getHash()))) {
+        return;
+      }
+      // the score is part of the prioritization order, so the tx must be removed from the
+      // ordered structures before it is changed, and re-inserted afterwards
+      removePrioritizedTransaction(pendingTransaction);
+      pendingTransaction.decrementScore();
+      prioritizeTransaction(pendingTransaction);
+    }
+    LOG.atDebug()
+        .setMessage("Transaction {} penalized by block selection with result {}, new score {}")
+        .addArgument(pendingTransaction::getHash)
+        .addArgument(result)
+        .addArgument(pendingTransaction::getScore)
+        .log();
   }
 
   private void logDiscardedTransaction(

@@ -23,7 +23,9 @@ import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRem
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.INVALID;
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.REPLACED;
 import static org.hyperledger.besu.ethereum.eth.transactions.sorter.SequencedRemovalReason.TIMED_EVICTION;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_FULL;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.TX_EVALUATION_TOO_LONG;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -873,6 +875,15 @@ public abstract class AbstractPendingTransactionsTestBase {
                     entry -> CompletableFuture.completedFuture(entry.getValue())));
   }
 
+  private static byte getScore(
+      final PendingTransactions pendingTransactions, final Transaction transaction) {
+    return pendingTransactions.getPendingTransactions().stream()
+        .filter(pt -> pt.getHash().equals(transaction.getHash()))
+        .findFirst()
+        .orElseThrow()
+        .getScore();
+  }
+
   private PendingTransaction createRemotePendingTransaction(
       final Transaction transaction, final long addedAt) {
     return PendingTransaction.newPendingTransaction(transaction, false, false, MAX_SCORE, addedAt);
@@ -884,6 +895,121 @@ public abstract class AbstractPendingTransactionsTestBase {
 
   private PendingTransaction createLocalPendingTransaction(final Transaction transaction) {
     return PendingTransaction.newPendingTransaction(transaction, true, true, MAX_SCORE);
+  }
+
+  @Test
+  public void shouldNotPenalizeNotSelectedTransactionsThatDoNotRequireIt() {
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+
+    // the first tx is not selected because the block is full, that is not its fault
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+              return Map.of(pendingTxs.get(0), BLOCK_FULL);
+            }));
+
+    // so its score and its position in the selection order are unchanged
+    assertThat(transactionsLarge.size()).isEqualTo(2);
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo(MAX_SCORE);
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+              return Map.of();
+            }));
+  }
+
+  @Test
+  public void shouldPenalizeNotSelectedTransactionsAndSelectThemAfterTheOthers() {
+    // sender 2 nonce 1 is the oldest, so it is selected first, then its nonce 2, then sender 1
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX2Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+
+    // first selection: sender 2 nonce 1 takes too long and is not included in the block
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX2Sdr2, zeroGasPriceTX1Sdr1);
+              return Map.of(pendingTxs.get(0), TX_EVALUATION_TOO_LONG);
+            }));
+
+    // the penalized tx is still in the pool, with a lower score
+    assertThat(transactionsLarge.size()).isEqualTo(3);
+    assertThat(transactionsLarge.getTransactionByHash(zeroGasPriceTX1Sdr2.getHash())).isPresent();
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo((byte) (MAX_SCORE - 1));
+
+    // second selection: sender 1 goes first, the penalized tx is moved after it and sender 2
+    // nonce 2 is still deferred behind sender 2 nonce 1
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr1, zeroGasPriceTX1Sdr2, zeroGasPriceTX2Sdr2);
+              return Map.of(pendingTxs.get(1), TX_EVALUATION_TOO_LONG);
+            }));
+
+    // penalized again, nothing is removed from the pool
+    assertThat(transactionsLarge.size()).isEqualTo(3);
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo((byte) (MAX_SCORE - 2));
+  }
+
+  @Test
+  public void shouldPenalizeTransactionWhenItsLateSelectionResultCompletes() {
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+
+    // the evaluation of the first tx is still running when the selection returns
+    final var lateResult = new CompletableFuture<TransactionSelectionResult>();
+    transactionsLarge.selectTransactions(pendingTxs -> Map.of(pendingTxs.get(0), lateResult));
+
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo(MAX_SCORE);
+
+    // the tx is penalized only once its evaluation completes
+    lateResult.complete(TX_EVALUATION_TOO_LONG);
+
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo((byte) (MAX_SCORE - 1));
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr1, zeroGasPriceTX1Sdr2);
+              return Map.of();
+            }));
+  }
+
+  @Test
+  public void shouldNotPenalizeSelectedTransactions() {
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> Map.of(pendingTxs.get(0), SELECTED, pendingTxs.get(1), SELECTED)));
+
+    assertThat(transactionsLarge.getPendingTransactions())
+        .allSatisfy(pt -> assertThat(pt.getScore()).isEqualTo(MAX_SCORE));
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+              return Collections.emptyMap();
+            }));
   }
 
   @Test
