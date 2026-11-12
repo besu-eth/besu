@@ -63,6 +63,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
@@ -105,7 +106,8 @@ import org.mockito.junit.jupiter.MockitoSettings;
 @MockitoSettings(strictness = LENIENT)
 public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoolTestBase {
 
-  // The frame senders are funded in txpool-test-genesis.json; the second one has code.
+  // The frame senders are funded in txpool-test-genesis.json; the second one has code. The
+  // genesis also deploys the canonical EIP-8141 expiry verifier.
   private static final KeyPair FRAME_SENDER_KEY_PAIR =
       SignatureAlgorithmFactory.getInstance()
           .createKeyPair(
@@ -1180,6 +1182,33 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
   }
 
   @ParameterizedTest
+  @CsvSource({"24, true", "23, false"})
+  @EnabledIf("isLayeredBaseFeeMarket")
+  public void shouldAdmitFrameTransactionWithExpiryVerifierOnlyIfItsDeadlineLeavesTheMargin(
+      final long secondsAfterHead, final boolean admitted) {
+    final long deadline = blockchain.getChainHeadHeader().getTimestamp() + secondsAfterHead;
+    final Transaction frameTransaction =
+        createFrameTransaction(
+            FRAME_SENDER,
+            0,
+            List.of(expiryVerifierFrame(deadline), selfVerifyFrame(), userOpFrame(50_000L, 0L)),
+            List.of(frameSenderSignature()),
+            FRAME_PRIORITY_FEE);
+    givenTransactionIsValid(frameTransaction);
+
+    final ValidationResult<TransactionInvalidReason> result =
+        addRemoteTransaction(frameTransaction);
+
+    if (admitted) {
+      assertThat(result).isEqualTo(valid());
+      assertTransactionPending(frameTransaction);
+    } else {
+      assertThat(result.getInvalidReason()).isEqualTo(FRAME_MEMPOOL_POLICY_VIOLATION);
+      assertTransactionNotPending(frameTransaction);
+    }
+  }
+
+  @ParameterizedTest
   @CsvSource({"110, 110, true", "200, 100, false", "100, 200, false", "109, 110, false"})
   @EnabledIf("isLayeredBaseFeeMarket")
   public void shouldReplaceFrameTransactionOnlyWhenBothFeesAreBumped(
@@ -1296,6 +1325,17 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
         0L,
         Wei.ZERO,
         Bytes.EMPTY);
+  }
+
+  private static Frame expiryVerifierFrame(final long deadline) {
+    return new Frame(
+        Frame.MODE_VERIFY,
+        0,
+        Optional.of(MainnetTransactionValidator.EXPIRY_VERIFIER),
+        5_000L,
+        0L,
+        Wei.ZERO,
+        Bytes.ofUnsignedLong(deadline));
   }
 
   private static Frame userOpFrame(final long executionGasLimit, final long stateGasLimit) {

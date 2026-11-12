@@ -548,7 +548,8 @@ public class TransactionPool implements BlockAddedObserver {
           FrameTransactionPoolPolicy.checkStatic(
               transaction,
               configuration.getTxPoolImplementation(),
-              chainHeadSpec.getGasCalculator());
+              chainHeadSpec.getGasCalculator(),
+              chainHeadBlockHeader.getTimestamp());
       if (!policyResult.isValid()) {
         return new ValidationResultAndAccount(policyResult);
       }
@@ -644,11 +645,15 @@ public class TransactionPool implements BlockAddedObserver {
               .validateForSender(
                   transaction, senderAccount, TransactionValidationParams.transactionPool());
       if (isFrameTransaction && senderResult.isValid()) {
+        final ValidationResult<TransactionInvalidReason> senderPolicyResult =
+            FrameTransactionPoolPolicy.checkSender(
+                transaction, senderAccount, chainHeadSpec.getGasCalculator());
         return new ValidationResultAndAccount(
             senderAccount,
             chainHeadBlockHeader.getHash(),
-            FrameTransactionPoolPolicy.checkSender(
-                transaction, senderAccount, chainHeadSpec.getGasCalculator()));
+            senderPolicyResult.isValid()
+                ? FrameTransactionPoolPolicy.checkExpiryVerifier(transaction, worldState)
+                : senderPolicyResult);
       }
       return new ValidationResultAndAccount(
           senderAccount, chainHeadBlockHeader.getHash(), senderResult);

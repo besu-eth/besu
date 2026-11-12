@@ -59,6 +59,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
@@ -83,6 +84,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 
@@ -716,6 +718,47 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     assertThat(pendingTransactions.getPendingTransactions())
         .map(PendingTransaction::getTransaction)
         .containsExactlyInAnyOrderElementsOf(pendingTxs.subList(1, 3));
+  }
+
+  @ParameterizedTest
+  @CsvSource({"999, true", "1000, true", "1001, false"})
+  public void newHeadDropsFrameTransactionPastItsExpiryDeadline(
+      final long blockTimestamp, final boolean kept) {
+    // No block is built: the sweep runs on every new head.
+    final Transaction expiryTx =
+        createFrameTransaction(
+            0,
+            Wei.of(5000L),
+            Wei.of(500L),
+            KEYS1,
+            List.of(
+                new Frame(
+                    Frame.MODE_VERIFY,
+                    0,
+                    Optional.of(MainnetTransactionValidator.EXPIRY_VERIFIER),
+                    3_051L,
+                    0L,
+                    Wei.ZERO,
+                    Bytes.ofUnsignedLong(1_000L))));
+    final Transaction followingTx = createEIP1559Transaction(1, KEYS1, 1);
+    final Transaction otherSenderTx = createEIP1559Transaction(0, KEYS2, 1);
+    for (final Transaction tx : List.of(expiryTx, followingTx, otherSenderTx)) {
+      assertThat(
+              pendingTransactions.addTransaction(
+                  createRemotePendingTransaction(tx), Optional.empty()))
+          .isEqualTo(ADDED);
+    }
+
+    final BlockHeader blockHeader = mockBlockHeader();
+    when(blockHeader.getTimestamp()).thenReturn(blockTimestamp);
+    pendingTransactions.manageBlockAdded(blockHeader, List.of(), List.of(), FeeMarket.london(0L));
+
+    assertThat(pendingTransactions.getPendingTransactions())
+        .map(PendingTransaction::getTransaction)
+        .containsExactlyInAnyOrderElementsOf(
+            kept
+                ? List.of(expiryTx, followingTx, otherSenderTx)
+                : List.of(followingTx, otherSenderTx));
   }
 
   private List<Transaction> addEIP1559Transactions(final KeyPair keys, final int count) {

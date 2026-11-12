@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -298,9 +299,22 @@ public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
    */
   protected Transaction createFrameTransaction(
       final long nonce, final Wei maxGasPrice, final Wei maxPriorityFeePerGas, final KeyPair keys) {
+    return createFrameTransaction(nonce, maxGasPrice, maxPriorityFeePerGas, keys, List.of());
+  }
+
+  /**
+   * Creates the frame transaction of {@link #createFrameTransaction(long, Wei, Wei, KeyPair)} with
+   * {@code leadingFrames}, such as an expiry verifier frame, before its {@code self_verify} frame.
+   */
+  protected Transaction createFrameTransaction(
+      final long nonce,
+      final Wei maxGasPrice,
+      final Wei maxPriorityFeePerGas,
+      final KeyPair keys,
+      final List<Frame> leadingFrames) {
     final Address sender = Util.publicKeyToAddress(keys.getPublicKey());
-    final List<Frame> frames =
-        List.of(
+    final Stream<Frame> prefixAndBody =
+        Stream.of(
             new Frame(
                 Frame.MODE_VERIFY,
                 Frame.APPROVE_SCOPE_MASK,
@@ -317,6 +331,7 @@ public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
                 0L,
                 Wei.ZERO,
                 Bytes.EMPTY));
+    final List<Frame> frames = Stream.concat(leadingFrames.stream(), prefixAndBody).toList();
     final List<FrameSignature> signatures =
         List.of(
             new FrameSignature(

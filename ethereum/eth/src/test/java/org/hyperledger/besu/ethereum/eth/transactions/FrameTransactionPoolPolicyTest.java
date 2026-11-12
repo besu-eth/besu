@@ -44,10 +44,12 @@ import org.hyperledger.besu.evm.fluent.SimpleAccount;
 import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
+import org.hyperledger.besu.evm.worldstate.WorldView;
 
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -71,6 +73,13 @@ class FrameTransactionPoolPolicyTest {
   private static final Wei MAX_FEE = Wei.fromEth(1);
   // EIP-8141 MAX_VERIFY_GAS less the secp256k1 signature validation cost.
   private static final long MAX_SELF_VERIFY_EXECUTION_GAS = 97_200L;
+  private static final long HEAD_TIMESTAMP = 1_000L;
+  private static final long MIN_DEADLINE = HEAD_TIMESTAMP + 24L;
+  // The frame entry's cold access to the verifier, 3,000 since EIP-8038, plus the canonical
+  // code's 51 gas.
+  private static final long MIN_EXPIRY_EXECUTION_GAS = 3_051L;
+  private static final Bytes CANONICAL_EXPIRY_VERIFIER_CODE =
+      Bytes.fromHexString("0x60083614600a575f5ffd5b5f3560c01c4211601657005b5f5ffd");
   private static final long NEW_ACCOUNT_STATE_GAS =
       GAS_CALCULATOR.stateGasCostCalculator().newAccountStateGas();
 
@@ -80,6 +89,7 @@ class FrameTransactionPoolPolicyTest {
   private static final Frame CHECK = frame(MODE_ASSERT, 0, Optional.of(OTHER), 50_000L);
   private static final FrameSignature SENDER_SIGNATURE =
       signature(SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY);
+  private static final Frame EXPIRY_VERIFY = expiryVerify(5_000L, MIN_DEADLINE);
 
   static Stream<Arguments> admittedShapes() {
     return Stream.of(
@@ -101,7 +111,16 @@ class FrameTransactionPoolPolicyTest {
             "execution limit at the cap",
             List.of(selfVerify(Optional.empty(), MAX_SELF_VERIFY_EXECUTION_GAS, 0L))),
         Arguments.of(
-            "state limit at the cap", List.of(selfVerify(Optional.empty(), 5_000L, 500_000L))));
+            "state limit at the cap", List.of(selfVerify(Optional.empty(), 5_000L, 500_000L))),
+        Arguments.of("expiry_verify, self_verify", List.of(EXPIRY_VERIFY, SELF_VERIFY)),
+        Arguments.of(
+            "spamoor default: expiry_verify, self_verify, user_op",
+            List.of(EXPIRY_VERIFY, SELF_VERIFY, USER_OP)),
+        Arguments.of(
+            "expiry deadline 2^64 - 1", List.of(expiryVerify(5_000L, -1L), SELF_VERIFY, USER_OP)),
+        Arguments.of(
+            "expiry execution limit at the canonical cost",
+            List.of(expiryVerify(MIN_EXPIRY_EXECUTION_GAS, MIN_DEADLINE), SELF_VERIFY)));
   }
 
   @ParameterizedTest(name = "{index}: {0}")
@@ -112,15 +131,51 @@ class FrameTransactionPoolPolicyTest {
 
   static Stream<Arguments> rejectedShapes() {
     return Stream.of(
+        Arguments.of("expiry verifier not first", List.of(SELF_VERIFY, EXPIRY_VERIFY, USER_OP)),
         Arguments.of(
-            "expiry verifier first",
+            "two expiry verifier frames", List.of(EXPIRY_VERIFY, EXPIRY_VERIFY, SELF_VERIFY)),
+        Arguments.of("expiry verifier alone", List.of(EXPIRY_VERIFY)),
+        Arguments.of("expiry verifier before user_op", List.of(EXPIRY_VERIFY, USER_OP)),
+        Arguments.of(
+            "expiry deadline below the margin",
+            List.of(expiryVerify(5_000L, MIN_DEADLINE - 1), SELF_VERIFY)),
+        Arguments.of(
+            "expiry deadline at the head",
+            List.of(expiryVerify(5_000L, HEAD_TIMESTAMP), SELF_VERIFY)),
+        Arguments.of(
+            "expiry execution limit below the canonical cost",
+            List.of(expiryVerify(MIN_EXPIRY_EXECUTION_GAS - 1, MIN_DEADLINE), SELF_VERIFY)),
+        Arguments.of(
+            "expiry verifier with flags",
+            List.of(
+                frame(
+                    MODE_VERIFY,
+                    FLAG_APPROVE_PAYMENT,
+                    Optional.of(MainnetTransactionValidator.EXPIRY_VERIFIER),
+                    5_000L,
+                    Bytes.ofUnsignedLong(MIN_DEADLINE)),
+                SELF_VERIFY)),
+        Arguments.of(
+            "expiry verifier with state gas",
+            List.of(
+                new Frame(
+                    MODE_VERIFY,
+                    0,
+                    Optional.of(MainnetTransactionValidator.EXPIRY_VERIFIER),
+                    5_000L,
+                    1L,
+                    Wei.ZERO,
+                    Bytes.ofUnsignedLong(MIN_DEADLINE)),
+                SELF_VERIFY)),
+        Arguments.of(
+            "expiry verifier with 7 data bytes",
             List.of(
                 frame(
                     MODE_VERIFY,
                     0,
                     Optional.of(MainnetTransactionValidator.EXPIRY_VERIFIER),
                     5_000L,
-                    Bytes.ofUnsignedLong(1_000L)),
+                    Bytes.ofUnsignedLong(MIN_DEADLINE).slice(1)),
                 SELF_VERIFY)),
         Arguments.of(
             "recent-root verifier first",
@@ -168,6 +223,42 @@ class FrameTransactionPoolPolicyTest {
   @MethodSource("rejectedShapes")
   void staticCheckRejectsOtherShapes(final String name, final List<Frame> frames) {
     assertViolation(checkStatic(frameTx(frames, List.of(SENDER_SIGNATURE))));
+  }
+
+  // The expiry and self_verify execution limits plus the signature's 2,800 must not exceed
+  // MAX_VERIFY_GAS, 100,000.
+  static Stream<Arguments> prefixExecutionLimits() {
+    return Stream.of(
+        Arguments.of("expiry 5,000, self_verify 5,000", 5_000L, 5_000L, true),
+        Arguments.of("expiry 5,000, self_verify 92,200: at the cap", 5_000L, 92_200L, true),
+        Arguments.of("expiry 5,000, self_verify 92,201: 1 above", 5_000L, 92_201L, false),
+        Arguments.of("expiry 92,200, self_verify 5,000: at the cap", 92_200L, 5_000L, true),
+        Arguments.of("expiry 92,201, self_verify 5,000: 1 above", 92_201L, 5_000L, false),
+        Arguments.of(
+            "expiry 3,051, self_verify 94,149: at the cap",
+            MIN_EXPIRY_EXECUTION_GAS,
+            94_149L,
+            true),
+        Arguments.of(
+            "expiry 3,051, self_verify 94,150: 1 above", MIN_EXPIRY_EXECUTION_GAS, 94_150L, false),
+        Arguments.of("expiry 2^64 - 1", -1L, 5_000L, false),
+        Arguments.of("self_verify 2^64 - 1", 5_000L, -1L, false),
+        Arguments.of("both 2^64 - 1", -1L, -1L, false),
+        Arguments.of("limits whose 64-bit sum wraps to 1,000", -4_000L, 5_000L, false));
+  }
+
+  @ParameterizedTest(name = "{index}: {0}")
+  @MethodSource("prefixExecutionLimits")
+  void staticCheckBoundsPrefixExecutionLimitsPlusSignatureByMaxVerifyGas(
+      final String name,
+      final long expiryExecutionGas,
+      final long selfVerifyExecutionGas,
+      final boolean admitted) {
+    final List<Frame> frames =
+        List.of(
+            expiryVerify(expiryExecutionGas, MIN_DEADLINE),
+            selfVerify(Optional.empty(), selfVerifyExecutionGas, 0L));
+    assertAdmitted(checkStatic(frameTx(frames, List.of(SENDER_SIGNATURE))), admitted);
   }
 
   static Stream<Arguments> rejectedSignatures() {
@@ -225,7 +316,51 @@ class FrameTransactionPoolPolicyTest {
   void staticCheckRejectsSequencedPool() {
     final Transaction tx = frameTx(List.of(SELF_VERIFY), List.of(SENDER_SIGNATURE));
     assertViolation(
-        FrameTransactionPoolPolicy.checkStatic(tx, Implementation.SEQUENCED, GAS_CALCULATOR));
+        FrameTransactionPoolPolicy.checkStatic(
+            tx, Implementation.SEQUENCED, GAS_CALCULATOR, HEAD_TIMESTAMP));
+  }
+
+  static Stream<Arguments> expiryVerifierStates() {
+    final SimpleAccount canonical =
+        new SimpleAccount(MainnetTransactionValidator.EXPIRY_VERIFIER, 1L, Wei.ZERO);
+    canonical.setCode(CANONICAL_EXPIRY_VERIFIER_CODE);
+    final SimpleAccount modified =
+        new SimpleAccount(MainnetTransactionValidator.EXPIRY_VERIFIER, 1L, Wei.ZERO);
+    modified.setCode(Bytes.fromHexString("0x00"));
+    return Stream.of(
+        Arguments.of("canonical code", List.of(EXPIRY_VERIFY, SELF_VERIFY), canonical, true),
+        Arguments.of("other code", List.of(EXPIRY_VERIFY, SELF_VERIFY), modified, false),
+        Arguments.of("no account", List.of(EXPIRY_VERIFY, SELF_VERIFY), null, false),
+        Arguments.of("no expiry verifier frame", List.of(SELF_VERIFY), null, true));
+  }
+
+  @ParameterizedTest(name = "{index}: {0}")
+  @MethodSource("expiryVerifierStates")
+  void expiryVerifierCheckNeedsCanonicalCode(
+      final String name, final List<Frame> frames, final Account verifier, final boolean admitted) {
+    final WorldView worldView =
+        address -> address.equals(MainnetTransactionValidator.EXPIRY_VERIFIER) ? verifier : null;
+    assertAdmitted(
+        FrameTransactionPoolPolicy.checkExpiryVerifier(
+            frameTx(frames, List.of(SENDER_SIGNATURE)), worldView),
+        admitted);
+  }
+
+  static Stream<Arguments> expiryDeadlines() {
+    return Stream.of(
+        Arguments.of("expiry verifier first", List.of(EXPIRY_VERIFY, SELF_VERIFY), MIN_DEADLINE),
+        Arguments.of("unsigned deadline", List.of(expiryVerify(5_000L, -1L), SELF_VERIFY), -1L),
+        Arguments.of("no expiry verifier frame", List.of(SELF_VERIFY), null),
+        Arguments.of("expiry verifier not first", List.of(SELF_VERIFY, EXPIRY_VERIFY), null));
+  }
+
+  @ParameterizedTest(name = "{index}: {0}")
+  @MethodSource("expiryDeadlines")
+  void expiryDeadlineReadsTheFirstFrame(
+      final String name, final List<Frame> frames, final Long deadline) {
+    assertThat(
+            FrameTransactionPoolPolicy.expiryDeadline(frameTx(frames, List.of(SENDER_SIGNATURE))))
+        .isEqualTo(deadline == null ? OptionalLong.empty() : OptionalLong.of(deadline));
   }
 
   static Stream<Arguments> senderStates() {
@@ -257,24 +392,51 @@ class FrameTransactionPoolPolicyTest {
 
   static Stream<Arguments> zeroFeeSenderStates() {
     return Stream.of(
-        Arguments.of("no account, state limit 0", null, 0L, 0L, false),
+        Arguments.of("no account, state limit 0", null, 0L, 0L, List.of(), false),
         Arguments.of(
             "no account, state limit below new account",
             null,
             0L,
             NEW_ACCOUNT_STATE_GAS - 1,
+            List.of(),
             false),
         Arguments.of(
-            "no account, state limit covers new account", null, 0L, NEW_ACCOUNT_STATE_GAS, true),
-        Arguments.of("empty account, state limit 0", account(0L, Wei.ZERO), 0L, 0L, false),
+            "no account, state limit covers new account",
+            null,
+            0L,
+            NEW_ACCOUNT_STATE_GAS,
+            List.of(),
+            true),
+        Arguments.of(
+            "empty account, state limit 0", account(0L, Wei.ZERO), 0L, 0L, List.of(), false),
         Arguments.of(
             "empty account, state limit covers new account",
             account(0L, Wei.ZERO),
             0L,
             NEW_ACCOUNT_STATE_GAS,
+            List.of(),
             true),
         Arguments.of(
-            "account with a nonce, state limit 0", account(NONCE, Wei.ZERO), NONCE, 0L, true));
+            "account with a nonce, state limit 0",
+            account(NONCE, Wei.ZERO),
+            NONCE,
+            0L,
+            List.of(),
+            true),
+        Arguments.of(
+            "expiry shape, no account, state limit below new account",
+            null,
+            0L,
+            NEW_ACCOUNT_STATE_GAS - 1,
+            List.of(EXPIRY_VERIFY),
+            false),
+        Arguments.of(
+            "expiry shape, no account, state limit covers new account",
+            null,
+            0L,
+            NEW_ACCOUNT_STATE_GAS,
+            List.of(EXPIRY_VERIFY),
+            true));
   }
 
   @ParameterizedTest(name = "{index}: {0}")
@@ -284,11 +446,14 @@ class FrameTransactionPoolPolicyTest {
       final Account senderAccount,
       final long txNonce,
       final long stateGasLimit,
+      final List<Frame> prefix,
       final boolean admitted) {
+    final List<Frame> frames =
+        Stream.concat(
+                prefix.stream(), Stream.of(selfVerify(Optional.empty(), 5_000L, stateGasLimit)))
+            .toList();
     final Transaction tx =
-        frameTxBuilder(
-                List.of(selfVerify(Optional.empty(), 5_000L, stateGasLimit)),
-                List.of(SENDER_SIGNATURE))
+        frameTxBuilder(frames, List.of(SENDER_SIGNATURE))
             .nonce(txNonce)
             .maxFee(Wei.ZERO)
             .maxPriorityFeePerGas(Wei.ZERO)
@@ -307,7 +472,8 @@ class FrameTransactionPoolPolicyTest {
   }
 
   private static ValidationResult<TransactionInvalidReason> checkStatic(final Transaction tx) {
-    return FrameTransactionPoolPolicy.checkStatic(tx, Implementation.LAYERED, GAS_CALCULATOR);
+    return FrameTransactionPoolPolicy.checkStatic(
+        tx, Implementation.LAYERED, GAS_CALCULATOR, HEAD_TIMESTAMP);
   }
 
   private static ValidationResult<TransactionInvalidReason> valid() {
@@ -334,6 +500,15 @@ class FrameTransactionPoolPolicyTest {
         stateGasLimit,
         Wei.ZERO,
         Bytes.EMPTY);
+  }
+
+  private static Frame expiryVerify(final long executionGasLimit, final long deadline) {
+    return frame(
+        MODE_VERIFY,
+        0,
+        Optional.of(MainnetTransactionValidator.EXPIRY_VERIFIER),
+        executionGasLimit,
+        Bytes.ofUnsignedLong(deadline));
   }
 
   private static Frame frame(
