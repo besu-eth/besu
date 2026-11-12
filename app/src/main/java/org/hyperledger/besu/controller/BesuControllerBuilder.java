@@ -731,12 +731,40 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             .map(BesuComponent::getCachedMerkleTrieLoader)
             .orElseGet(() -> new BonsaiCachedMerkleTrieLoader(metricsSystem));
 
+    final int maxMessageSize = ethereumWireProtocolConfiguration.getMaxMessageSize();
+    final Supplier<ProtocolSpec> currentProtocolSpecSupplier =
+        () -> protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader());
+    final ForkIdManager forkIdManager =
+        new ForkIdManager(
+            blockchain,
+            genesisConfigOptions.getForkBlockNumbers(),
+            genesisConfigOptions.getForkBlockTimestamps());
+    final EthPeers ethPeers =
+        new EthPeers(
+            currentProtocolSpecSupplier,
+            clock,
+            metricsSystem,
+            maxMessageSize,
+            messagePermissioningProviders,
+            nodeKey.getPublicKey().getEncodedBytes(),
+            maxPeers,
+            maxRemotelyInitiatedPeers,
+            randomPeerPriority,
+            syncConfig.getSyncMode(),
+            forkIdManager);
+
+    final boolean fullSyncDisabled = syncConfig.getSyncMode() != SyncMode.FULL;
+    final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
+    final SyncState syncState =
+        new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
+
     final WorldStateArchive worldStateArchive =
         createWorldStateArchive(
             worldStateStorageCoordinator,
             blockchain,
             bonsaiCachedMerkleTrieLoader,
-            protocolSchedule);
+            protocolSchedule,
+            syncState);
 
     if (maybeStoredGenesisBlockHash.isEmpty()) {
       genesisState.writeStateTo(worldStateArchive.getWorldState());
@@ -763,28 +791,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
                 .orElse(new BesuPluginContextImpl()));
     validateContext(protocolContext);
 
-    final int maxMessageSize = ethereumWireProtocolConfiguration.getMaxMessageSize();
-    final Supplier<ProtocolSpec> currentProtocolSpecSupplier =
-        () -> protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader());
-    final ForkIdManager forkIdManager =
-        new ForkIdManager(
-            blockchain,
-            genesisConfigOptions.getForkBlockNumbers(),
-            genesisConfigOptions.getForkBlockTimestamps());
-    final EthPeers ethPeers =
-        new EthPeers(
-            currentProtocolSpecSupplier,
-            clock,
-            metricsSystem,
-            maxMessageSize,
-            messagePermissioningProviders,
-            nodeKey.getPublicKey().getEncodedBytes(),
-            maxPeers,
-            maxRemotelyInitiatedPeers,
-            randomPeerPriority,
-            syncConfig.getSyncMode(),
-            forkIdManager);
-
     final EthMessages ethMessages = new EthMessages();
     final EthMessages snapMessages = new EthMessages();
 
@@ -795,10 +801,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             metricsSystem);
     final EthContext ethContext =
         new EthContext(ethPeers, ethMessages, snapMessages, scheduler, peerTaskExecutor);
-    final boolean fullSyncDisabled = syncConfig.getSyncMode() != SyncMode.FULL;
-    final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
-    final SyncState syncState =
-        new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
 
     protocolContext
         .safeConsensusContext(MergeContext.class)
@@ -1432,7 +1434,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final Blockchain blockchain,
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final ProtocolSchedule protocolSchedule) {
+      final ProtocolSchedule protocolSchedule,
+      final SyncState syncState) {
     final Optional<Long> amsterdamMilestone = amsterdamOrLaterMilestone(protocolSchedule);
     return switch (dataStorageConfiguration.getDataStorageFormat()) {
       case BONSAI -> {
@@ -1463,7 +1466,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             codeCache,
             metricsSystem,
             amsterdamMilestone,
-            syncConfig.getComputationParallelism());
+            syncConfig.getComputationParallelism(),
+            // BFT blocks are final on import; Clique blocks can still be reorged
+            genesisConfigOptions.isPoa() && !genesisConfigOptions.isClique(),
+            syncState::bestChainHeight);
       }
       case FOREST -> {
         final WorldStatePreimageStorage preimageStorage =

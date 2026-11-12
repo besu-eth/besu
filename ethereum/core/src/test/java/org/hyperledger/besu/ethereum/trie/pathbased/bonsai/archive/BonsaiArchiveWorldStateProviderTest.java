@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveWorldStateProvider.CONFIRMATION_DEPTH;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -44,7 +45,9 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.LongSupplier;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -59,6 +62,8 @@ public class BonsaiArchiveWorldStateProviderTest {
   private BonsaiWorldStateKeyValueStorage worldStateStorage;
   private Long seededProgress;
   private boolean seedWorldStateBlockHash = true;
+  private boolean instantFinality = false;
+  private LongSupplier networkHead = () -> CHAIN_HEAD;
 
   @BeforeEach
   void setup() {
@@ -199,6 +204,8 @@ public class BonsaiArchiveWorldStateProviderTest {
         .saveArchiveProgress(
             tx, new ArchivedBlock(queryBlockNumber, historicalHeader.getBlockHash()));
     tx.commit();
+    when(blockchain.getBlockHashByNumber(queryBlockNumber))
+        .thenReturn(Optional.of(historicalHeader.getBlockHash()));
 
     final RuntimeException failure = new RuntimeException("proof failure");
     assertThatThrownBy(
@@ -246,10 +253,49 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
-  void isFinalTrueWithoutFinalizedBlock() {
-    when(blockchain.getFinalized()).thenReturn(Optional.empty());
+  void everyBlockIsFinalWithInstantFinality() {
+    instantFinality = true;
+    final BonsaiArchiveWorldStateProvider bftProvider = createProvider(true);
 
-    assertThat(provider.isFinal(CHAIN_HEAD)).isTrue();
+    assertThat(bftProvider.isFinal(CHAIN_HEAD)).isTrue();
+  }
+
+  @Test
+  void withoutFinalizedBlockOnlyBlocksBuriedUnderTheDepthAreFinal() {
+    when(blockchain.getFinalized()).thenReturn(Optional.empty());
+    networkHead = () -> 1000L;
+    final BonsaiArchiveWorldStateProvider depthProvider = createProvider(true);
+
+    assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH)).isTrue();
+    assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH + 1)).isFalse();
+  }
+
+  @Test
+  void genesisIsAlwaysFinal() {
+    when(blockchain.getFinalized()).thenReturn(Optional.empty());
+    networkHead = () -> 1L;
+    final BonsaiArchiveWorldStateProvider depthProvider = createProvider(true);
+
+    assertThat(depthProvider.isFinal(0L)).isTrue();
+    assertThat(depthProvider.isFinal(1L)).isFalse();
+  }
+
+  @Test
+  void archiveIsCanonicalWhileLastArchivedBlockIsCanonical() {
+    final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
+    when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.of(archived.getHash()));
+
+    assertThat(provider.isCanonical(new ArchivedBlock(5L, archived.getHash()))).isTrue();
+  }
+
+  @Test
+  void archiveIsNotCanonicalOnceLastArchivedBlockIsReplaced() {
+    final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
+    final BlockHeader replacement =
+        new BlockHeaderTestFixture().number(5).extraData(Bytes.of(1)).buildHeader();
+    when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.of(replacement.getHash()));
+
+    assertThat(provider.isCanonical(new ArchivedBlock(5L, archived.getHash()))).isFalse();
   }
 
   @Test
@@ -353,6 +399,8 @@ public class BonsaiArchiveWorldStateProviderTest {
         new BonsaiCodeCache(),
         new NoOpMetricsSystem(),
         Optional.empty(),
-        2);
+        2,
+        instantFinality,
+        networkHead);
   }
 }
