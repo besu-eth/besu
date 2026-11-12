@@ -67,6 +67,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -106,8 +107,8 @@ class MempoolPrewarmerTest {
   private final TransactionPool transactionPool = mock(TransactionPool.class);
   private final List<PendingTransaction> candidates = new CopyOnWriteArrayList<>();
   private final List<PendingTransactionAddedListener> poolListeners = new CopyOnWriteArrayList<>();
-  private final List<Map<PendingTransaction, TransactionSelectionResult>> selectionResults =
-      new CopyOnWriteArrayList<>();
+  private final List<Map<PendingTransaction, CompletableFuture<TransactionSelectionResult>>>
+      selectionResults = new CopyOnWriteArrayList<>();
   private final StubMetricsSystem metricsSystem = new StubMetricsSystem();
   // stubbing the pool again while a pass uses it from another thread confuses Mockito
   private final AtomicBoolean poolEnabled = new AtomicBoolean(true);

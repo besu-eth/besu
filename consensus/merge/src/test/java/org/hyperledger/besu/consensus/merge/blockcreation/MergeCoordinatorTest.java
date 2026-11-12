@@ -207,7 +207,8 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
           TestClock.system(ZoneId.systemDefault()),
           metricsSystem,
           MergeCoordinatorTest::mockBlockHeader,
-          transactionEventNotifier.newEmitter());
+          transactionEventNotifier.newEmitter(),
+          new DeterministicEthScheduler());
 
   private TransactionPool transactionPool;
 
