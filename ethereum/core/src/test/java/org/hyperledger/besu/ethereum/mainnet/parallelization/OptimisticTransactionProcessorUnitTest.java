@@ -613,6 +613,8 @@ class OptimisticTransactionProcessorUnitTest {
               TransactionProcessingResult.failed(
                   0,
                   0,
+                  0,
+                  0,
                   ValidationResult.valid(),
                   Optional.of(Bytes.EMPTY),
                   Optional.empty(),

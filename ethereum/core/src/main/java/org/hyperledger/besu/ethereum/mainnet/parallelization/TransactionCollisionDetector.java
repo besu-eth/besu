@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Map;
 
@@ -64,23 +63,6 @@ public class TransactionCollisionDetector {
   }
 
   /**
-   * Checks whether the transaction touched the address, while it is still executing against the
-   * updater the speculative execution gave it.
-   *
-   * @param transaction the transaction that is executing speculatively
-   * @param worldUpdater the updater the transaction is executing against, stacked on the
-   *     accumulator that records the state it reads and writes
-   * @param address the address to look for
-   * @return true if the transaction has touched the address
-   * @throws IllegalArgumentException if the updater does not stack on a path-based accumulator, as
-   *     only a speculative parallel execution does
-   */
-  public boolean isAddressTouchedByTransaction(
-      final Transaction transaction, final WorldUpdater worldUpdater, final Address address) {
-    return isAddressTouchedByTransaction(transaction, accumulatorOf(worldUpdater), address);
-  }
-
-  /**
    * Checks whether the transaction touched the address: its sender, its recipient, or an account
    * its execution read, wrote or deleted.
    *
@@ -98,28 +80,6 @@ public class TransactionCollisionDetector {
         || address.equals(transaction.getTo().orElse(null))
         || transactionAccumulator.getAccountsToUpdate().containsKey(address)
         || transactionAccumulator.getDeletedAccountAddresses().contains(address);
-  }
-
-  /**
-   * Finds the accumulator the transaction's updater stacks on, which holds every account the
-   * speculative execution has read, written or deleted so far, the reads included. The updaters
-   * above it only track the accounts the execution asked to modify, and so would miss a read.
-   *
-   * <p>A speculative execution stacks one updater on the accumulator, so the walk takes a single
-   * hop. It is a walk all the same: silently answering from the wrong updater would drop reads out
-   * of collision detection, and so out of consensus.
-   */
-  private static PathBasedWorldStateUpdateAccumulator<?> accumulatorOf(
-      final WorldUpdater worldUpdater) {
-    WorldUpdater current = worldUpdater;
-    while (current != null) {
-      if (current instanceof PathBasedWorldStateUpdateAccumulator<?> accumulator) {
-        return accumulator;
-      }
-      current = current.parentUpdater().orElse(null);
-    }
-    throw new IllegalArgumentException(
-        "Collision detection requires a path-based world state accumulator");
   }
 
   private boolean hasCollision(
