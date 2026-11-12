@@ -13,7 +13,9 @@ overrides only what its spec version adds or changes.
 
 - Engine methods execute concurrently by default. Engine methods that require ordering (FIFO)
   must extend `OrderedExecutionJsonRpcMethod` — for example `EngineNewPayloadV1`,
-  `EngineForkchoiceUpdatedV1`, and their sealed version hierarchies.
+  `EngineForkchoiceUpdatedV1`, and their sealed version hierarchies. Each of the two series runs
+  on a thread of its own, and a call waits for the calls of the other series received before it,
+  except a forkchoiceUpdated call whose head is already the chain head.
 - `EngineGetPayloadV1 permits EngineGetPayloadV2`, `... V5 permits EngineGetPayloadV6`, and the
   latest version is `final`. The same applies to the other series.
 - All versions extend `ExecutionEngineJsonRpcMethod`, which owns the fork-window validation

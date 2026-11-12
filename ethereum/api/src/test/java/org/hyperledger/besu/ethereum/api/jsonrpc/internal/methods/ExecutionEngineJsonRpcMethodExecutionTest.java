@@ -20,6 +20,7 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod.Series;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -40,10 +41,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -64,6 +67,13 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   @Mock private EthPeers ethPeers;
 
   @Mock private TransactionPool transactionPool;
+
+  private final ExecutorService callers = Executors.newCachedThreadPool();
+
+  @AfterEach
+  public void stopCallers() {
+    callers.shutdownNow();
+  }
 
   @AfterAll
   public static void tearDown() {
@@ -101,22 +111,13 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final AtomicInteger active = new AtomicInteger();
     final AtomicInteger maxActive = new AtomicInteger();
     final OrderedStubEngineMethod method =
-        new OrderedStubEngineMethod(
-            protocolSchedule,
-            protocolContext,
-            engineCallListener,
-            mergeCoordinator,
-            ethPeers,
-            transactionPool,
+        ordered(
+            Series.NEW_PAYLOAD,
             req -> {
               maxActive.accumulateAndGet(active.incrementAndGet(), Math::max);
-              try {
-                Thread.sleep(50);
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-              }
+              sleep(50);
               active.decrementAndGet();
-              return new JsonRpcSuccessResponse(req.getRequest().getId());
+              return success(req);
             });
 
     final List<JsonRpcResponse> responses = callConcurrently(method, 4);
@@ -126,33 +127,24 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   }
 
   @Test
-  public void workQueuedByAnOrderedCallRunsBeforeTheNextOrderedCall() throws Exception {
+  public void workQueuedByANewPayloadRunsBeforeTheNextNewPayload() throws Exception {
     final List<String> events = Collections.synchronizedList(new ArrayList<>());
     final AtomicReference<OrderedStubEngineMethod> method = new AtomicReference<>();
     method.set(
-        new OrderedStubEngineMethod(
-            protocolSchedule,
-            protocolContext,
-            engineCallListener,
-            mergeCoordinator,
-            ethPeers,
-            transactionPool,
+        ordered(
+            Series.NEW_PAYLOAD,
             req -> {
               if (events.isEmpty()) {
                 method
                     .get()
                     .queue(
                         () -> {
-                          try {
-                            Thread.sleep(200);
-                          } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                          }
+                          sleep(200);
                           events.add("queued work");
                         });
               }
               events.add("call");
-              return new JsonRpcSuccessResponse(req.getRequest().getId());
+              return success(req);
             }));
 
     assertThat(call(method.get()).getType()).isEqualTo(RpcResponseType.SUCCESS);
@@ -164,62 +156,211 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   }
 
   @Test
-  public void workQueuedByAnOrderedCallRunsBeforeACallReceivedWhileItRan() throws Exception {
+  public void workQueuedByANewPayloadRunsBeforeAForkchoiceUpdatedReceivedWhileItRan()
+      throws Exception {
     final List<String> events = Collections.synchronizedList(new ArrayList<>());
-    final CountDownLatch firstCallStarted = new CountDownLatch(1);
-    final CountDownLatch secondCallReceived = new CountDownLatch(1);
-    final AtomicReference<OrderedStubEngineMethod> first = new AtomicReference<>();
-    first.set(
-        new OrderedStubEngineMethod(
-            protocolSchedule,
-            protocolContext,
-            engineCallListener,
-            mergeCoordinator,
-            ethPeers,
-            transactionPool,
+    final CountDownLatch newPayloadStarted = new CountDownLatch(1);
+    final CountDownLatch forkchoiceUpdatedReceived = new CountDownLatch(1);
+    final AtomicReference<OrderedStubEngineMethod> newPayload = new AtomicReference<>();
+    newPayload.set(
+        ordered(
+            Series.NEW_PAYLOAD,
             req -> {
-              firstCallStarted.countDown();
-              try {
-                secondCallReceived.await(10, TimeUnit.SECONDS);
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-              }
-              first.get().queue(() -> events.add("queued work"));
-              events.add("first call");
-              return new JsonRpcSuccessResponse(req.getRequest().getId());
+              newPayloadStarted.countDown();
+              await(forkchoiceUpdatedReceived);
+              newPayload.get().queue(() -> events.add("queued work"));
+              events.add("newPayload");
+              return success(req);
             }));
-    // a different method shares the ordered thread and its queued work, as forkchoiceUpdated does
-    // with newPayload
-    final OrderedStubEngineMethod second =
-        new OrderedStubEngineMethod(
-            protocolSchedule,
-            protocolContext,
-            engineCallListener,
-            mergeCoordinator,
-            ethPeers,
-            transactionPool,
+    final OrderedStubEngineMethod forkchoiceUpdated =
+        ordered(
+            Series.FORKCHOICE_UPDATED,
             req -> {
-              events.add("second call");
-              return new JsonRpcSuccessResponse(req.getRequest().getId());
+              events.add("forkchoiceUpdated");
+              return success(req);
             });
 
-    final ExecutorService callers = Executors.newFixedThreadPool(2);
-    try {
-      final Future<JsonRpcResponse> firstResponse = callers.submit(() -> call(first.get()));
-      assertThat(firstCallStarted.await(10, TimeUnit.SECONDS)).isTrue();
-      final Future<JsonRpcResponse> secondResponse = callers.submit(() -> call(second));
-      // the second call is queued on the ordered thread by then
-      Thread.sleep(200);
-      secondCallReceived.countDown();
+    final Future<JsonRpcResponse> newPayloadResponse = callers.submit(() -> call(newPayload.get()));
+    assertThat(newPayloadStarted.await(10, TimeUnit.SECONDS)).isTrue();
+    final Future<JsonRpcResponse> forkchoiceUpdatedResponse =
+        callers.submit(() -> call(forkchoiceUpdated));
+    // the forkchoiceUpdated call is queued by then
+    sleep(200);
+    forkchoiceUpdatedReceived.countDown();
 
-      assertThat(firstResponse.get(10, TimeUnit.SECONDS).getType())
+    assertThat(newPayloadResponse.get(10, TimeUnit.SECONDS).getType())
+        .isEqualTo(RpcResponseType.SUCCESS);
+    assertThat(forkchoiceUpdatedResponse.get(10, TimeUnit.SECONDS).getType())
+        .isEqualTo(RpcResponseType.SUCCESS);
+    assertThat(events).containsExactly("newPayload", "queued work", "forkchoiceUpdated");
+  }
+
+  @Test
+  public void forkchoiceUpdatedThatDoesNotNeedEarlierNewPayloadsRunsWhileOneRuns()
+      throws Exception {
+    final CountDownLatch newPayloadStarted = new CountDownLatch(1);
+    final CountDownLatch releaseNewPayload = new CountDownLatch(1);
+    final OrderedStubEngineMethod newPayload =
+        ordered(
+            Series.NEW_PAYLOAD,
+            req -> {
+              newPayloadStarted.countDown();
+              await(releaseNewPayload);
+              return success(req);
+            });
+    final OrderedStubEngineMethod forkchoiceUpdated =
+        ordered(Series.FORKCHOICE_UPDATED, () -> false, this::success);
+
+    final Future<JsonRpcResponse> newPayloadResponse = callers.submit(() -> call(newPayload));
+    try {
+      assertThat(newPayloadStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+      assertThat(callers.submit(() -> call(forkchoiceUpdated)).get(10, TimeUnit.SECONDS).getType())
           .isEqualTo(RpcResponseType.SUCCESS);
-      assertThat(secondResponse.get(10, TimeUnit.SECONDS).getType())
-          .isEqualTo(RpcResponseType.SUCCESS);
+      assertThat(newPayloadResponse).isNotDone();
     } finally {
-      callers.shutdownNow();
+      releaseNewPayload.countDown();
     }
-    assertThat(events).containsExactly("first call", "queued work", "second call");
+    assertThat(newPayloadResponse.get(10, TimeUnit.SECONDS).getType())
+        .isEqualTo(RpcResponseType.SUCCESS);
+  }
+
+  @Test
+  public void forkchoiceUpdatedThatDoesNotNeedEarlierNewPayloadsKeepsItsOrder() throws Exception {
+    final List<String> events = Collections.synchronizedList(new ArrayList<>());
+    final CountDownLatch newPayloadStarted = new CountDownLatch(1);
+    final CountDownLatch firstForkchoiceUpdatedStarted = new CountDownLatch(1);
+    final CountDownLatch releaseNewPayload = new CountDownLatch(1);
+    final OrderedStubEngineMethod newPayload =
+        ordered(
+            Series.NEW_PAYLOAD,
+            req -> {
+              newPayloadStarted.countDown();
+              await(releaseNewPayload);
+              events.add("newPayload");
+              return success(req);
+            });
+    final OrderedStubEngineMethod first =
+        ordered(
+            Series.FORKCHOICE_UPDATED,
+            () -> {
+              firstForkchoiceUpdatedStarted.countDown();
+              return true;
+            },
+            req -> {
+              events.add("first forkchoiceUpdated");
+              return success(req);
+            });
+    final OrderedStubEngineMethod second =
+        ordered(
+            Series.FORKCHOICE_UPDATED,
+            () -> false,
+            req -> {
+              events.add("second forkchoiceUpdated");
+              return success(req);
+            });
+
+    final List<Future<JsonRpcResponse>> responses = new ArrayList<>();
+    try {
+      responses.add(callers.submit(() -> call(newPayload)));
+      assertThat(newPayloadStarted.await(10, TimeUnit.SECONDS)).isTrue();
+      responses.add(callers.submit(() -> call(first)));
+      assertThat(firstForkchoiceUpdatedStarted.await(10, TimeUnit.SECONDS)).isTrue();
+      responses.add(callers.submit(() -> call(second)));
+      sleep(200);
+
+      assertThat(events).isEmpty();
+    } finally {
+      releaseNewPayload.countDown();
+    }
+    for (final Future<JsonRpcResponse> response : responses) {
+      assertThat(response.get(10, TimeUnit.SECONDS).getType()).isEqualTo(RpcResponseType.SUCCESS);
+    }
+    assertThat(events)
+        .containsExactly("newPayload", "first forkchoiceUpdated", "second forkchoiceUpdated");
+  }
+
+  @Test
+  public void newPayloadWaitsForTheForkchoiceUpdatedsReceivedBeforeIt() throws Exception {
+    final List<String> events = Collections.synchronizedList(new ArrayList<>());
+    final CountDownLatch forkchoiceUpdatedStarted = new CountDownLatch(1);
+    final CountDownLatch releaseForkchoiceUpdated = new CountDownLatch(1);
+    final OrderedStubEngineMethod forkchoiceUpdated =
+        ordered(
+            Series.FORKCHOICE_UPDATED,
+            () -> false,
+            req -> {
+              forkchoiceUpdatedStarted.countDown();
+              await(releaseForkchoiceUpdated);
+              events.add("forkchoiceUpdated");
+              return success(req);
+            });
+    final OrderedStubEngineMethod newPayload =
+        ordered(
+            Series.NEW_PAYLOAD,
+            req -> {
+              events.add("newPayload");
+              return success(req);
+            });
+
+    final Future<JsonRpcResponse> forkchoiceUpdatedResponse =
+        callers.submit(() -> call(forkchoiceUpdated));
+    final Future<JsonRpcResponse> newPayloadResponse;
+    try {
+      assertThat(forkchoiceUpdatedStarted.await(10, TimeUnit.SECONDS)).isTrue();
+      newPayloadResponse = callers.submit(() -> call(newPayload));
+      sleep(200);
+
+      assertThat(newPayloadResponse).isNotDone();
+    } finally {
+      releaseForkchoiceUpdated.countDown();
+    }
+    assertThat(forkchoiceUpdatedResponse.get(10, TimeUnit.SECONDS).getType())
+        .isEqualTo(RpcResponseType.SUCCESS);
+    assertThat(newPayloadResponse.get(10, TimeUnit.SECONDS).getType())
+        .isEqualTo(RpcResponseType.SUCCESS);
+    assertThat(events).containsExactly("forkchoiceUpdated", "newPayload");
+  }
+
+  private JsonRpcResponse success(final JsonRpcRequestContext request) {
+    return new JsonRpcSuccessResponse(request.getRequest().getId());
+  }
+
+  private OrderedStubEngineMethod ordered(
+      final Series series, final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
+    return ordered(series, () -> true, body);
+  }
+
+  private OrderedStubEngineMethod ordered(
+      final Series series,
+      final BooleanSupplier needsEarlierNewPayloads,
+      final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
+    return new OrderedStubEngineMethod(
+        protocolSchedule,
+        protocolContext,
+        engineCallListener,
+        mergeCoordinator,
+        ethPeers,
+        transactionPool,
+        series,
+        needsEarlierNewPayloads,
+        body);
+  }
+
+  private static void await(final CountDownLatch latch) {
+    try {
+      latch.await(10, TimeUnit.SECONDS);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  private static void sleep(final long millis) {
+    try {
+      Thread.sleep(millis);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   private static JsonRpcResponse call(final JsonRpcMethod method) {
@@ -288,6 +429,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   }
 
   private static class OrderedStubEngineMethod extends OrderedExecutionJsonRpcMethod {
+    private final BooleanSupplier needsEarlierNewPayloads;
     private final Function<JsonRpcRequestContext, JsonRpcResponse> body;
 
     OrderedStubEngineMethod(
@@ -297,6 +439,8 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
         final MergeMiningCoordinator mergeCoordinator,
         final EthPeers ethPeers,
         final TransactionPool transactionPool,
+        final Series series,
+        final BooleanSupplier needsEarlierNewPayloads,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
       super(
           new ConstructorArgumentsBuilder()
@@ -311,7 +455,9 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
               .maxRequestBlocks(0)
               .build(),
           null,
-          null);
+          null,
+          series);
+      this.needsEarlierNewPayloads = needsEarlierNewPayloads;
       this.body = body;
     }
 
@@ -320,8 +466,13 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
       return "engine_stub_ordered";
     }
 
+    @Override
+    protected boolean needsEarlierNewPayloads(final JsonRpcRequestContext request) {
+      return needsEarlierNewPayloads.getAsBoolean();
+    }
+
     void queue(final Runnable work) {
-      queueOnOrderedThread(work);
+      queueAfterReply(work);
     }
 
     @Override

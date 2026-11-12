@@ -67,10 +67,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Extends {@link OrderedExecutionJsonRpcMethod} so that {@code engine_newPayload} calls (and those
- * of the whole sealed V1-V5 hierarchy) are processed in the order they have been received,
- * consistent with {@code engine_forkchoiceUpdated}: both affect canonical chain state and a
- * newPayload racing ahead of (or behind) an FCU for the same or a related block could otherwise be
- * observed out of order.
+ * of the whole sealed V1-V5 hierarchy) are processed in the order they have been received, and
+ * after the {@code engine_forkchoiceUpdated} calls received before them: a newPayload racing ahead
+ * of an FCU for the same or a related block could otherwise be observed out of order.
  */
 public sealed class EngineNewPayloadV1<
         EP extends ExecutionPayloadV1, NPRP extends NewPayloadRequestParametersV1<? extends EP>>
@@ -93,7 +92,7 @@ public sealed class EngineNewPayloadV1<
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
+    super(constructorArguments, minSupportedFork, firstUnsupportedFork, Series.NEW_PAYLOAD);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
     this.ethPeers = constructorArguments.ethPeers();
@@ -539,7 +538,7 @@ public sealed class EngineNewPayloadV1<
    */
   protected Executor writeAfterReply(final Block block) {
     return writes ->
-        queueOnOrderedThread(
+        queueAfterReply(
             () -> {
               try {
                 writes.run();
