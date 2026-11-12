@@ -29,7 +29,6 @@ public class JumpOperationV2 extends AbstractFixedCostOperationV2 {
   private static final OperationResult INVALID_JUMP_RESPONSE =
       new OperationResult(8L, ExceptionalHaltReason.INVALID_JUMP_DESTINATION);
   private static final OperationResult JUMP_RESPONSE = new OperationResult(8L, null, 0);
-  // JUMP and the JUMPDEST it lands on: 8 + 1 gas, and the pc moves past the JUMPDEST
   private static final OperationResult JUMP_AND_JUMPDEST_RESPONSE =
       new OperationResult(9L, null, 1);
 
@@ -64,24 +63,23 @@ public class JumpOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   /**
-   * Execute the JUMP opcode, and the JUMPDEST a valid jump lands on, for the untraced loop. That
-   * saves the loop a dispatch for the JUMPDEST. Only when the gas covers both: otherwise this jumps
-   * as {@link #staticOperation(MessageFrame)} does, and the loop runs the JUMPDEST, which then
-   * halts for the gas as it would in a traced run.
+   * Execute the JUMP opcode on the v2 long[] stack, and the JUMPDEST it lands on if the gas covers
+   * both.
    *
    * @param frame the message frame
    * @param gas the gas left, which the untraced loop holds outside the frame
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame, final long gas) {
-    // the body of staticOperation(frame), not a call to a shared helper, to keep the inlining
-    // depth of the untraced loop as it was
-    final OperationResult jumpResponse = gas >= 9L ? JUMP_AND_JUMPDEST_RESPONSE : JUMP_RESPONSE;
     if (!frame.stackHasItemsV2(1)) return UNDERFLOW_RESPONSE;
     final int top = frame.stackTopV2();
     frame.setTopV2(top - 1);
     return performJump(
-        frame, frame.stackDataV2(), (top - 1) << 2, jumpResponse, INVALID_JUMP_RESPONSE);
+        frame,
+        frame.stackDataV2(),
+        (top - 1) << 2,
+        gas >= 9L ? JUMP_AND_JUMPDEST_RESPONSE : JUMP_RESPONSE,
+        INVALID_JUMP_RESPONSE);
   }
 
   /**
