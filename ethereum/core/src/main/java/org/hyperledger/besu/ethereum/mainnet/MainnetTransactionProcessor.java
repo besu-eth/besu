@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -87,6 +88,13 @@ public class MainnetTransactionProcessor {
 
   private final TransferLogEmitter transferLogEmitter;
 
+  /**
+   * Set when the processor runs transactions speculatively for a parallel block execution, which
+   * has to tell what the transaction touched from what crediting the mining beneficiary did. Null
+   * on every other processor, where the check is skipped rather than reported as untouched.
+   */
+  private final TransactionCollisionDetector collisionDetector;
+
   private final TopLevelTransactionSupport topLevelSupport;
 
   private MainnetTransactionProcessor(
@@ -100,7 +108,8 @@ public class MainnetTransactionProcessor {
       final FeeMarket feeMarket,
       final CoinbaseFeePriceCalculator coinbaseFeePriceCalculator,
       final CodeDelegationProcessor maybeCodeDelegationProcessor,
-      final TransferLogEmitter transferLogEmitter) {
+      final TransferLogEmitter transferLogEmitter,
+      final TransactionCollisionDetector transactionCollisionDetector) {
     this.gasCalculator = gasCalculator;
     this.transactionValidatorFactory = transactionValidatorFactory;
     this.contractCreationProcessor = contractCreationProcessor;
@@ -112,6 +121,7 @@ public class MainnetTransactionProcessor {
     this.coinbaseFeePriceCalculator = coinbaseFeePriceCalculator;
     this.maybeCodeDelegationProcessor = Optional.ofNullable(maybeCodeDelegationProcessor);
     this.transferLogEmitter = transferLogEmitter;
+    this.collisionDetector = transactionCollisionDetector;
     this.topLevelSupport =
         new TopLevelTransactionSupport(
             gasCalculator, messageCallProcessor, coinbaseFeePriceCalculator);
@@ -609,6 +619,19 @@ public class MainnetTransactionProcessor {
 
       operationTracer.traceBeforeRewardTransaction(worldUpdater, transaction, coinbaseWeiDelta);
 
+      /*
+       * Crediting the reward below touches the mining beneficiary on its own, so only the state read
+       * up to this point tells whether the transaction needs that account. If the transaction has
+       * interacted with the address to read or modify it, the value is necessary for the proper
+       * execution of the transaction and will therefore be considered in collision detection. If
+       * this is not the case, the address can be ignored during conflict detection. Checked here,
+       * ahead of the credit, and only by the processor a parallel execution runs transactions on.
+       */
+      final boolean miningBeneficiaryTouchedPreReward =
+          collisionDetector != null
+              && collisionDetector.isAddressTouchedByTransaction(
+                  transaction, worldState, miningBeneficiary);
+
       TopLevelTransactionSupport.creditCoinbase(
           worldState, miningBeneficiary, coinbaseWeiDelta, accessLocationTracker);
 
@@ -657,6 +680,8 @@ public class MainnetTransactionProcessor {
                 partialBlockAccessView,
                 validationResult);
         successResult.setExecutionGasUsedForBlock(gasResult.executionGas());
+        successResult.setMiningBeneficiaryReward(
+            coinbaseWeiDelta, miningBeneficiaryTouchedPreReward);
         return successResult;
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
@@ -682,6 +707,8 @@ public class MainnetTransactionProcessor {
                 initialFrame.getExceptionalHaltReason(),
                 partialBlockAccessView);
         failedResult.setExecutionGasUsedForBlock(gasResult.executionGas());
+        failedResult.setMiningBeneficiaryReward(
+            coinbaseWeiDelta, miningBeneficiaryTouchedPreReward);
         return failedResult;
       }
     } catch (final MerkleTrieException | MissingCodeException re) {
@@ -985,6 +1012,7 @@ public class MainnetTransactionProcessor {
     private CoinbaseFeePriceCalculator coinbaseFeePriceCalculator;
     private CodeDelegationProcessor codeDelegationProcessor;
     private TransferLogEmitter transferLogEmitter = TransferLogEmitter.NOOP;
+    private TransactionCollisionDetector transactionCollisionDetector;
 
     public Builder gasCalculator(final GasCalculator gasCalculator) {
       this.gasCalculator = gasCalculator;
@@ -1045,6 +1073,21 @@ public class MainnetTransactionProcessor {
       return this;
     }
 
+    /**
+     * Gives the processor the collision detection a speculative parallel execution needs, which
+     * makes it report on its results what the transaction had touched of the mining beneficiary
+     * when the reward was credited.
+     *
+     * @param transactionCollisionDetector the detector the parallel execution reuses to confirm the
+     *     speculative result, or null for a processor that does not run transactions speculatively
+     * @return this builder
+     */
+    public Builder transactionCollisionDetector(
+        final TransactionCollisionDetector transactionCollisionDetector) {
+      this.transactionCollisionDetector = transactionCollisionDetector;
+      return this;
+    }
+
     public Builder populateFrom(final MainnetTransactionProcessor processor) {
       this.gasCalculator = processor.gasCalculator;
       this.transactionValidatorFactory = processor.transactionValidatorFactory;
@@ -1057,6 +1100,7 @@ public class MainnetTransactionProcessor {
       this.coinbaseFeePriceCalculator = processor.coinbaseFeePriceCalculator;
       this.codeDelegationProcessor = processor.maybeCodeDelegationProcessor.orElse(null);
       this.transferLogEmitter = processor.transferLogEmitter;
+      this.transactionCollisionDetector = processor.collisionDetector;
       return this;
     }
 
@@ -1072,7 +1116,8 @@ public class MainnetTransactionProcessor {
           feeMarket,
           coinbaseFeePriceCalculator,
           codeDelegationProcessor,
-          transferLogEmitter);
+          transferLogEmitter,
+          transactionCollisionDetector);
     }
   }
 }

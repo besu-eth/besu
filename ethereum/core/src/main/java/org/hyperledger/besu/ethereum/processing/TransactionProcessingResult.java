@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.processing;
 
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
@@ -62,6 +63,15 @@ public class TransactionProcessingResult
   private final Bytes output;
 
   private Optional<Boolean> isProcessedInParallel = Optional.empty();
+
+  /** The reward credited to the mining beneficiary; zero until the transaction reaches it. */
+  private Wei miningBeneficiaryReward = Wei.ZERO;
+
+  /**
+   * Whether the transaction had touched the mining beneficiary when the reward was credited. Only a
+   * processor built with a collision detector looks, so it stays false for every other one.
+   */
+  private boolean miningBeneficiaryTouchedPreReward;
 
   private final ValidationResult<TransactionInvalidReason> validationResult;
   private final Optional<Bytes> revertReason;
@@ -488,6 +498,45 @@ public class TransactionProcessingResult
    */
   public Optional<Boolean> getIsProcessedInParallel() {
     return isProcessedInParallel;
+  }
+
+  /**
+   * Records what the processor saw when it credited the mining beneficiary, which a speculative
+   * parallel execution replays onto the block's own state.
+   *
+   * @param miningBeneficiaryReward the reward credited to the mining beneficiary
+   * @param miningBeneficiaryTouchedPreReward whether the transaction had read, written or deleted
+   *     the mining beneficiary's account by then, which only a processor built with a collision
+   *     detector looks for
+   */
+  @SuppressWarnings("checkstyle:HiddenField")
+  public void setMiningBeneficiaryReward(
+      final Wei miningBeneficiaryReward, final boolean miningBeneficiaryTouchedPreReward) {
+    this.miningBeneficiaryReward = miningBeneficiaryReward;
+    this.miningBeneficiaryTouchedPreReward = miningBeneficiaryTouchedPreReward;
+  }
+
+  /**
+   * Returns the reward credited to the mining beneficiary, which a speculative parallel execution
+   * credits itself once the transaction is confirmed, since it ran on state the block has moved on
+   * from.
+   *
+   * @return the reward, zero if the transaction did not reach it
+   */
+  public Wei getMiningBeneficiaryReward() {
+    return miningBeneficiaryReward;
+  }
+
+  /**
+   * Returns whether the transaction itself had touched the mining beneficiary when its reward was
+   * credited. A speculative parallel execution leaves an untouched beneficiary out of collision
+   * detection, as the reward alone would otherwise collide every transaction on it.
+   *
+   * @return true if the transaction had touched the mining beneficiary, always false unless the
+   *     processor was built with a collision detector
+   */
+  public boolean isMiningBeneficiaryTouchedPreReward() {
+    return miningBeneficiaryTouchedPreReward;
   }
 
   /**

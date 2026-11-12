@@ -31,7 +31,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
-import org.hyperledger.besu.evm.worldstate.WorldView;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -63,20 +62,38 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
    * processor is responsible for the individual processing of transactions.
    *
+   * <p>The transaction processor is expected to carry the same collision detector, so that it
+   * reports what each transaction touched of the mining beneficiary before its reward was credited.
+   * A processor without the detector reports every mining beneficiary as untouched, which is only
+   * safe for a caller that never confirms a speculative result against real state.
+   *
    * @param transactionProcessor The transaction processor for processing individual transactions.
+   * @param transactionCollisionDetector The detector confirming the speculative results.
    */
-  public OptimisticConcurrentTransactionProcessor(
-      final MainnetTransactionProcessor transactionProcessor) {
-    this.transactionProcessor = transactionProcessor;
-    this.transactionCollisionDetector = new TransactionCollisionDetector();
-  }
-
-  @VisibleForTesting
   public OptimisticConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionCollisionDetector transactionCollisionDetector) {
     this.transactionProcessor = transactionProcessor;
     this.transactionCollisionDetector = transactionCollisionDetector;
+  }
+
+  /**
+   * Constructs a processor that runs transactions on a copy of the given transaction processor
+   * holding a collision detector of its own.
+   *
+   * <p>The copy costs an allocation, so a caller that starts a parallel execution per block is
+   * better off making the pair once and handing it to the other constructor.
+   *
+   * @param transactionProcessor The transaction processor for processing individual transactions.
+   */
+  public OptimisticConcurrentTransactionProcessor(
+      final MainnetTransactionProcessor transactionProcessor) {
+    this.transactionCollisionDetector = new TransactionCollisionDetector();
+    this.transactionProcessor =
+        MainnetTransactionProcessor.builder()
+            .populateFrom(transactionProcessor)
+            .transactionCollisionDetector(transactionCollisionDetector)
+            .build();
   }
 
   @Override
@@ -119,30 +136,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               blockHeader,
               transaction.detachedCopy(),
               miningBeneficiary,
-              new OperationTracer() {
-                @Override
-                public boolean tracesOperations() {
-                  return false;
-                }
-
-                @Override
-                public void traceBeforeRewardTransaction(
-                    final WorldView worldView,
-                    final org.hyperledger.besu.datatypes.Transaction tx,
-                    final Wei miningReward) {
-                  /*
-                   * This part checks if the mining beneficiary's account was accessed before increasing its balance for rewards.
-                   * Indeed, if the transaction has interacted with the address to read or modify it,
-                   * it means that the value is necessary for the proper execution of the transaction and will therefore be considered in collision detection.
-                   * If this is not the case, we can ignore this address during conflict detection.
-                   */
-                  if (transactionCollisionDetector.isAddressTouchedByTransaction(
-                      transaction, roundWorldStateUpdater, miningBeneficiary)) {
-                    contextBuilder.isMiningBeneficiaryTouchedPreRewardByTransaction(true);
-                  }
-                  contextBuilder.miningBeneficiaryReward(miningReward);
-                }
-              },
+              OperationTracer.NO_TRACING,
               blockHashLookup.forkForParallelWorker(),
               TransactionValidationParams.processingBlock(),
               blobGasPrice,
@@ -153,6 +147,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       roundWorldStateUpdater.commit();
 
       contextBuilder
+          // what the processor's collision detector saw of the mining beneficiary while the reward
+          // was still to be credited, zero and untouched if the transaction never reached it
+          .miningBeneficiaryReward(result.getMiningBeneficiaryReward())
+          .isMiningBeneficiaryTouchedPreRewardByTransaction(
+              result.isMiningBeneficiaryTouchedPreReward())
           .transactionAccumulator(ws.getAccumulator())
           .transactionProcessingResult(result);
 

@@ -62,6 +62,15 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
   private final Optional<Counter> confirmedParallelizedTransactionCounter;
   private final Optional<Counter> conflictingButCachedTransactionCounter;
 
+  /**
+   * The transaction processor the optimistic parallel execution runs transactions on, a copy of the
+   * sequential one that reports what each transaction touched of the mining beneficiary. Both it
+   * and the stateless detector are built once and shared by every block and every worker thread.
+   */
+  private final TransactionCollisionDetector transactionCollisionDetector;
+
+  private final MainnetTransactionProcessor speculativeTransactionProcessor;
+
   public MainnetParallelBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionReceiptFactory transactionReceiptFactory,
@@ -96,6 +105,12 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
         balConfiguration,
         metricsSystem);
     this.executor = executor;
+    this.transactionCollisionDetector = new TransactionCollisionDetector();
+    this.speculativeTransactionProcessor =
+        MainnetTransactionProcessor.builder()
+            .populateFrom(transactionProcessor)
+            .transactionCollisionDetector(transactionCollisionDetector)
+            .build();
     this.confirmedParallelizedTransactionCounter =
         Optional.of(
             metricsSystem.createCounter(
@@ -178,7 +193,9 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
           new BalConcurrentTransactionProcessor(
               transactionProcessor, blockAccessList.get(), balConfiguration);
     } else {
-      parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
+      parallelProcessor =
+          new OptimisticConcurrentTransactionProcessor(
+              speculativeTransactionProcessor, transactionCollisionDetector);
     }
 
     parallelProcessor.runAsyncBlock(
