@@ -19,6 +19,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
@@ -75,7 +76,10 @@ public class MergeProtocolSchedule {
         0L,
         (specBuilder) ->
             MergeProtocolSchedule.applyParisSpecificModifications(
-                specBuilder, config.getChainId(), miningConfiguration, evmConfiguration));
+                specBuilder,
+                ChainId.fromOptional(config.getChainId()),
+                miningConfiguration,
+                evmConfiguration));
     unapplyModificationsFromShanghaiOnwards(config, postMergeModifications);
 
     return new ProtocolScheduleBuilder(
@@ -100,14 +104,17 @@ public class MergeProtocolSchedule {
    */
   private static ProtocolSpecBuilder applyParisSpecificModifications(
       final ProtocolSpecBuilder specBuilder,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final MiningConfiguration miningConfiguration,
       final EvmConfiguration evmConfiguration) {
 
     return specBuilder
         .evmBuilder(
             (gasCalculator, jdCacheConfig) ->
-                MainnetEVMs.paris(gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.paris(
+                    gasCalculator,
+                    chainId.isPresent() ? chainId.toBigInteger() : BigInteger.ZERO,
+                    evmConfiguration))
         .blockHeaderValidatorBuilder(MergeProtocolSchedule::getBlockHeaderValidator)
         .blockRewardProcessor(BlockRewardProcessor.NO_REWARDS)
         .difficultyCalculator((a, b) -> BigInteger.ZERO)

@@ -160,15 +160,7 @@ public abstract class AbstractIsolationTests {
         // (whereas a full db strategy will not, since the worldstates are frozen/cached)
         createKeyValueStorageProvider()
             .createWorldStateStorage(DataStorageConfiguration.DEFAULT_BONSAI_PARTIAL_DB_CONFIG);
-    archive =
-        new BonsaiWorldStateProvider(
-            (BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage,
-            blockchain,
-            ImmutableExtraStorageConfiguration.builder().maxLayersToLoad(16L).build(),
-            new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
-            null,
-            EvmConfiguration.DEFAULT,
-            new BonsaiCodeCache());
+    archive = createArchive();
     var ws = archive.getWorldState();
     genesisState.writeStateTo(ws);
     protocolContext =
@@ -367,20 +359,36 @@ public abstract class AbstractIsolationTests {
         .getBlock();
   }
 
+  /** Creates a world state archive on the storage, as a restarted node does. */
+  protected BonsaiWorldStateProvider createArchive() {
+    return new BonsaiWorldStateProvider(
+        (BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage,
+        blockchain,
+        ImmutableExtraStorageConfiguration.builder().maxLayersToLoad(16L).build(),
+        new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
+        null,
+        EvmConfiguration.DEFAULT,
+        new BonsaiCodeCache());
+  }
+
   protected BlockProcessingResult executeBlock(final MutableWorldState ws, final Block block) {
-    var res =
-        protocolSchedule
-            .getByBlockHeader(blockHeader(0))
-            .getBlockProcessor()
-            .processBlock(
-                BlockExecutionContext.builder()
-                    .protocolContext(protocolContext)
-                    .worldState(ws)
-                    .block(block)
-                    .blockAccessList(Optional.empty())
-                    .build());
+    var res = processBlock(ws, block);
     blockchain.appendBlock(block, res.getReceipts());
     return res;
+  }
+
+  /** Processes the block and persists the world state at it, without storing the block. */
+  protected BlockProcessingResult processBlock(final MutableWorldState ws, final Block block) {
+    return protocolSchedule
+        .getByBlockHeader(blockHeader(0))
+        .getBlockProcessor()
+        .processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(ws)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
   }
 
   private BlockHeader blockHeader(final long number) {
