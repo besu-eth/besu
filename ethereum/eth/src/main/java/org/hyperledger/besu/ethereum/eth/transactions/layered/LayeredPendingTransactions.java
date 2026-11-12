@@ -43,6 +43,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.AccountState;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
@@ -523,9 +524,16 @@ public class LayeredPendingTransactions implements PendingTransactions {
   private static Map<Address, Long> maxNonceBySenderOnly(
       final List<Transaction> confirmedTransactions) {
     return confirmedTransactions.stream()
+        .filter(LayeredPendingTransactions::usesAccountNonce)
         .collect(
             groupingBy(
                 Transaction::getSender, mapping(Transaction::getNonce, reducing(0L, Math::max))));
+  }
+
+  // EIP-8250: a frame transaction with a non-empty nonce key set consumes sequences held by the
+  // nonce manager, and its nonce is one of those sequences, not the sender's account nonce.
+  private static boolean usesAccountNonce(final Transaction transaction) {
+    return transaction.getNonceKeys().map(KeyedNonces::isLegacy).orElse(true);
   }
 
   @Override

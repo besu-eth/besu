@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.transactions.layered;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
 import static org.hyperledger.besu.datatypes.TransactionType.BLOB;
+import static org.hyperledger.besu.datatypes.TransactionType.FRAME;
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult.ADDED;
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult.ALREADY_KNOWN;
 import static org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
@@ -60,8 +62,10 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacement
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -74,8 +78,12 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 
 public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
@@ -675,6 +683,76 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     assertThat(layers.prioritizedTransactions.getByScore())
         .map(PendingTransaction::getTransaction)
         .containsExactly(tx1);
+  }
+
+  @ParameterizedTest
+  @ValueSource(longs = {1L, 5L, KeyedNonces.MAX_NONCE_SEQ})
+  public void confirmedKeyedFrameTransactionKeepsSenderPendingTransactions(final long nonceSeq) {
+    final List<Transaction> pendingTxs = addEIP1559Transactions(KEYS1, 3);
+
+    pendingTransactions.manageBlockAdded(
+        mockBlockHeader(),
+        List.of(createConfirmedFrameTransaction(nonceSeq, List.of(UInt256.ONE))),
+        List.of(),
+        FeeMarket.london(0L));
+
+    assertThat(pendingTransactions.getPendingTransactions())
+        .map(PendingTransaction::getTransaction)
+        .containsExactlyInAnyOrderElementsOf(pendingTxs);
+  }
+
+  @Test
+  public void confirmedLegacyKeyFrameTransactionConfirmsOnlyItsAccountNonce() {
+    final List<Transaction> pendingTxs = addEIP1559Transactions(KEYS1, 3);
+
+    pendingTransactions.manageBlockAdded(
+        mockBlockHeader(),
+        List.of(
+            createConfirmedFrameTransaction(5L, List.of(UInt256.ONE)),
+            createConfirmedFrameTransaction(0L, KeyedNonces.LEGACY_NONCE_KEYS)),
+        List.of(),
+        FeeMarket.london(0L));
+
+    assertThat(pendingTransactions.getPendingTransactions())
+        .map(PendingTransaction::getTransaction)
+        .containsExactlyInAnyOrderElementsOf(pendingTxs.subList(1, 3));
+  }
+
+  private List<Transaction> addEIP1559Transactions(final KeyPair keys, final int count) {
+    final List<Transaction> txs = new ArrayList<>(count);
+    for (int nonce = 0; nonce < count; nonce++) {
+      final Transaction tx = createEIP1559Transaction(nonce, keys, 1);
+      assertThat(
+              pendingTransactions.addTransaction(
+                  createRemotePendingTransaction(tx), Optional.empty()))
+          .isEqualTo(ADDED);
+      txs.add(tx);
+    }
+    return txs;
+  }
+
+  private static Transaction createConfirmedFrameTransaction(
+      final long nonceSeq, final List<UInt256> nonceKeys) {
+    return Transaction.builder()
+        .type(FRAME)
+        .chainId(BigInteger.valueOf(1337))
+        .sender(SENDER1)
+        .nonce(nonceSeq)
+        .nonceKeys(nonceKeys)
+        .maxPriorityFeePerGas(Wei.of(500))
+        .maxFee(Wei.fromEth(1))
+        .frames(
+            List.of(
+                new Frame(
+                    Frame.MODE_VERIFY,
+                    Frame.APPROVE_SCOPE_MASK,
+                    Optional.empty(),
+                    100_000L,
+                    0L,
+                    Wei.ZERO,
+                    Bytes.EMPTY)))
+        .frameSignatures(List.of())
+        .build();
   }
 
   @Test
