@@ -23,9 +23,7 @@ import static org.hyperledger.besu.cli.DefaultCommandValues.getDefaultBesuDataPa
 import static org.hyperledger.besu.cli.util.CommandLineUtils.DEPENDENCY_WARNING_MSG;
 import static org.hyperledger.besu.cli.util.CommandLineUtils.isOptionSet;
 import static org.hyperledger.besu.config.NetworkDefinition.EPHEMERY;
-import static org.hyperledger.besu.config.NetworkDefinition.HOODI;
 import static org.hyperledger.besu.config.NetworkDefinition.MAINNET;
-import static org.hyperledger.besu.config.NetworkDefinition.SEPOLIA;
 import static org.hyperledger.besu.controller.BesuController.DATABASE_PATH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.authentication.EngineAuthService.EPHEMERAL_JWT_FILE;
 
@@ -221,7 +219,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -293,12 +290,6 @@ import picocli.CommandLine.ParseResult;
       "%nMore info and other profiles at https://besu.hyperledger.org%n"
     })
 public class BesuCommand implements DefaultCommandValues, Runnable {
-  // Mempool prewarming is on by default where it was measured, mainnet and Sepolia with Bonsai
-  // storage, and on Hoodi and Ephemery, public Ethereum testnets like Sepolia. Elsewhere it is
-  // opt-in.
-  private static final Set<NetworkDefinition> MEMPOOL_PREWARM_NETWORKS =
-      EnumSet.of(MAINNET, SEPOLIA, HOODI, EPHEMERY);
-
   @SuppressWarnings("PrivateStaticFinalLoggers")
   // non-static for testing
   private final Logger logger;
@@ -866,7 +857,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     this.transactionSimulationServiceImpl = transactionSimulationServiceImpl;
     this.blockchainServiceImpl = blockchainServiceImpl;
     this.transactionValidatorServiceImpl = transactionValidatorServiceImpl;
-    miningOptions.setMempoolPrewarmEnabledByDefault(this::isMempoolPrewarmEnabledByDefault);
   }
 
   /**
@@ -1672,11 +1662,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void validateMiningParams() {
     miningOptions.validate(
-        commandLine,
-        genesisConfigOptionsSupplier.get(),
-        isMergeEnabled(),
-        genesisFile == null,
-        logger);
+        commandLine, genesisConfigOptionsSupplier.get(), genesisFile == null, logger);
   }
 
   private void validateP2POptions() {
@@ -2479,6 +2465,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private MiningConfiguration getMiningParameters() {
+    miningOptions.setMempoolPrewarmEnabledByDefault(isMempoolPrewarmEnabledByDefault());
     miningOptions.setTransactionSelectionService(transactionSelectionServiceImpl);
     final var miningParameters = miningOptions.toDomainObject();
     getBlockPeriodSeconds(readGenesisConfigOptions())
@@ -2510,7 +2497,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     final boolean balPrefetch =
         balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled();
     if (DataStorageFormat.BONSAI.equals(dataStorageConfiguration.getDataStorageFormat())
-        && (balPrefetch || miningOptions.isMempoolPrewarmEnabled())
+        && (balPrefetch || miningParametersSupplier.get().isMempoolPrewarmEnabled())
         && !dataStorageConfiguration
             .getExtraStorageConfiguration()
             .getUnstable()
@@ -3170,8 +3157,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private boolean isMempoolPrewarmEnabledByDefault() {
+    // not getDataStorageConfiguration(): it reads the mining parameters, which call this
     return genesisFile == null
-        && MEMPOOL_PREWARM_NETWORKS.contains(network)
+        && network.isMempoolPrewarmEnabledByDefault()
         && DataStorageFormat.BONSAI.equals(
             dataStorageOptions.toDomainObject().getDataStorageFormat());
   }

@@ -512,7 +512,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
     final GenesisConfigOptions genesisConfigOptions = mock(GenesisConfigOptions.class);
     when(genesisConfigOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(1_777_000_000L));
 
-    options.validate(new CommandLine(options), genesisConfigOptions, true, true, mockLogger);
+    options.validate(new CommandLine(options), genesisConfigOptions, true, mockLogger);
 
     final ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
     verify(mockLogger).warn(messageCaptor.capture(), eq(36_000_000L), eq(1_777_000_000L));
@@ -526,8 +526,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
     miningConfiguration.setTargetGasLimit(36_000_000L);
     final MiningOptions options = MiningOptions.fromConfig(miningConfiguration);
 
-    options.validate(
-        new CommandLine(options), mock(GenesisConfigOptions.class), true, false, mockLogger);
+    options.validate(new CommandLine(options), mock(GenesisConfigOptions.class), false, mockLogger);
 
     verify(mockLogger, never()).warn(anyString(), any(), any());
   }
@@ -541,7 +540,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
     final GenesisConfigOptions genesisConfigOptions = mock(GenesisConfigOptions.class);
     when(genesisConfigOptions.getAmsterdamTime()).thenReturn(OptionalLong.empty());
 
-    options.validate(new CommandLine(options), genesisConfigOptions, true, true, mockLogger);
+    options.validate(new CommandLine(options), genesisConfigOptions, true, mockLogger);
 
     verify(mockLogger, never()).warn(anyString(), any(), any());
   }
@@ -550,8 +549,7 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
   public void doesNotWarnAboutTargetGasLimitWhenNotSet() {
     final MiningOptions options = MiningOptions.fromConfig(MiningConfiguration.newDefault());
 
-    options.validate(
-        new CommandLine(options), mock(GenesisConfigOptions.class), true, true, mockLogger);
+    options.validate(new CommandLine(options), mock(GenesisConfigOptions.class), true, mockLogger);
 
     verify(mockLogger, never()).warn(anyString(), any(), any());
   }
