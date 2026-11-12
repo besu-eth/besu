@@ -51,6 +51,7 @@
 - Struct logs from `debug_traceTransaction` and `debug_traceCall`, and from `debug_traceBlock*` in JSON-RPC batch requests, report a failed code deposit's `error` on the creation's last operation, usually its `RETURN`, instead of the last operation that was not a `RETURN`. [#11345](https://github.com/besu-eth/besu/pull/11345)
 - `trace_rawTransaction` validates and executes the original signed transaction. Invalid signatures and empty EIP-7702 authorization lists are rejected. `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_sendRawTransaction`, `trace_call` and `trace_callMany` return `-32602` instead of `Internal error` (`-32603`) when they reject a transaction for an init code above the size limit or an up-front cost above 2^256, and `eth_sendRawTransaction` also does for an empty EIP-7702 authorization list. [#11395](https://github.com/besu-eth/besu/pull/11395)
 - A node stopped while importing a block no longer gets stuck after a restart, failing to process the next block because the parent world state is not available. [#11882](https://github.com/besu-eth/besu/pull/11882)
+- A backward sync started by `engine_newPayload` no longer moves the chain head onto the branch of that payload; only `engine_forkchoiceUpdated` moves it. [#11616](https://github.com/besu-eth/besu/pull/11616)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
@@ -166,7 +167,6 @@
 - The sequenced transaction pool notifies transaction added and dropped events in the order they happen. Previously a transaction could be notified as dropped before it was notified as added, when another thread replaced it right after it was added, or when it was evicted because the pool was full after adding it. A transaction removed by the timed eviction after it had already been dropped is no longer notified as dropped a second time. [#11685](https://github.com/besu-eth/besu/pull/11685)
 - Discovery no longer buffers unbounded memory for inbound DiscV5 packets: over-sized datagrams are dropped before they are copied for dispatch, and the dispatch queue is bounded. [#11672](https://github.com/besu-eth/besu/pull/11672)
 - On OpenTelemetry, a supplied metric created again, as by the world state download after a resync, now replaces the old one, as on Prometheus. Previously a labelled supplied gauge or counter threw `IllegalStateException` and a gauge kept reporting its first supplier. `debug_metrics` no longer fails on OpenTelemetry once a supplied counter is registered. [#11773](https://github.com/besu-eth/besu/pull/11773)
-- A backward sync started by `engine_newPayload` no longer moves the chain head onto the branch of that payload; only `engine_forkchoiceUpdated` moves it. [#11616](https://github.com/besu-eth/besu/pull/11616)
 
 ### Additions and Improvements
 - `trace_filter` accepts `mode`: `intersection`, the default, or `union`, which matches a trace in either `fromAddress` or `toAddress`. An unknown value is rejected with `-32602`. [#11436](https://github.com/besu-eth/besu/pull/11436)
