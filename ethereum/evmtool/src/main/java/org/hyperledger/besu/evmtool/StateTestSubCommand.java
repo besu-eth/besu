@@ -197,9 +197,6 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   // they count as filtered, and so would otherwise go unchecked without anything saying so.
   private final List<String> gasLimitSkipped = Collections.synchronizedList(new ArrayList<>());
 
-  // Cached across all tests; guarded by getSchedules()
-  private @Nullable ReferenceTestProtocolSchedules cachedSchedules;
-
   // Shared for summary output; createObjectNode() is thread safe
   private static final ObjectMapper SHARED_OBJECT_MAPPER = JsonUtils.createObjectMapper();
 
@@ -437,18 +434,6 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
     return nameFilter == null || requireNonNull(nameFilter).matches(test);
   }
 
-  /**
-   * The reference test schedules, built once and shared by every worker. Building them is expensive
-   * — 30+ schedules per call — and {@code create} also initialises the KZG trusted setup, which is
-   * process-wide state, so the check-then-act has to be atomic rather than merely visible.
-   */
-  private synchronized ReferenceTestProtocolSchedules getSchedules() {
-    if (cachedSchedules == null) {
-      cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
-    }
-    return cachedSchedules;
-  }
-
   private void traceTestSpecs(
       final String test,
       final List<GeneralStateTestCaseEipSpec> specs,
@@ -561,7 +546,14 @@ public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
       }
 
       final String forkName = fork == null ? spec.getFork() : fork;
-      final ProtocolSchedule protocolSchedule = getSchedules().getByName(forkName);
+      // The fixture's own config.blobSchedule is passed through: without one, BPO1, BPO2 and
+      // every fork built on them keep Prague's blob target, max and update fraction.
+      final ProtocolSchedule protocolSchedule =
+          ReferenceTestProtocolSchedules.cached(
+                  parentCommand.getEvmConfiguration(),
+                  spec.getBlobScheduleOptions().orElse(null),
+                  List.of())
+              .getByName(forkName);
       if (protocolSchedule == null) {
         throw new UnsupportedForkException(forkName);
       }
