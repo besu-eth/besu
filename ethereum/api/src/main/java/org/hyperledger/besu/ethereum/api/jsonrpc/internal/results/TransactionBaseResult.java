@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 
 import java.util.List;
@@ -100,7 +101,8 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
     final TransactionType transactionType = transaction.getType();
     this.accessList =
         transaction.getAccessList().orElse(transactionType.supportsAccessList() ? List.of() : null);
-    this.chainId = transaction.getChainId().map(Quantity::create).orElse(null);
+    final ChainId transactionChainId = transaction.getChainIdentifier();
+    this.chainId = transactionChainId.isPresent() ? transactionChainId.toHexString() : null;
     this.from = transaction.getSender().toString();
     this.gas = Quantity.create(transaction.getGasLimit());
     this.maxPriorityFeePerGas =

@@ -138,8 +138,7 @@ public final class StateDiffApplier {
     return new Outcome(applied, skipped, deleted, slots, stale);
   }
 
-  // a batch committed every WRITES_PER_COMMIT writes, dropped before its commit so that a commit
-  // that fails leaves nothing to abort
+  // a batch committed every WRITES_PER_COMMIT writes
   private static final class Writes {
     private final SyncStateStorage storage;
     private SyncStateStorage.Batch batch;
@@ -162,15 +161,11 @@ public final class StateDiffApplier {
     }
 
     private void commit() {
-      final SyncStateStorage.Batch full = batch;
-      batch = null;
-      full.commit();
+      batch.commit();
     }
 
     private void abort() {
-      if (batch != null) {
-        batch.abort();
-      }
+      batch.abort();
     }
   }
 

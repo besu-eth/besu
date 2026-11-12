@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.trie.NodeFactory;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.NullNode;
 import org.hyperledger.besu.ethereum.trie.StoredNode;
+import org.hyperledger.besu.ethereum.trie.TrieBytes;
 
 import java.util.Optional;
 import java.util.function.Function;
@@ -138,12 +139,12 @@ public final class AscendingCollapsePutVisitor extends PutVisitor<Bytes> {
       for (int i = 0; i < branch.maxChild(); i++) {
         final Node<Bytes> child = branch.child((byte) i);
         if (isLeftToCommit(child)) {
-          commit(sink, child, Bytes.concatenate(location, Bytes.of(i)));
+          commit(sink, child, TrieBytes.append(location, (byte) i));
         }
       }
     } else if (node instanceof ExtensionNode<Bytes> extension
         && isLeftToCommit(extension.getChild())) {
-      commit(sink, extension.getChild(), Bytes.concatenate(location, extension.getPath()));
+      commit(sink, extension.getChild(), TrieBytes.concat(location, extension.getPath()));
     }
     sink.store(location, node.getHash(), node.getEncodedBytes());
   }

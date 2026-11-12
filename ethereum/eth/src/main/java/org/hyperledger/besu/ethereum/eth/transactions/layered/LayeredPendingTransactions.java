@@ -47,6 +47,7 @@ import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
 import java.util.ArrayDeque;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -77,6 +78,17 @@ public class LayeredPendingTransactions implements PendingTransactions {
     this.poolConfig = poolConfig;
     this.prioritizedTransactions = prioritizedTransactions;
     this.ethScheduler = ethScheduler;
+  }
+
+  @Override
+  public boolean requiresDelegationLimits() {
+    return true;
+  }
+
+  @Override
+  public synchronized void removeInvalidated(
+      final Collection<PendingTransaction> invalidatedTransactions) {
+    invalidatedTransactions.forEach(ptx -> prioritizedTransactions.remove(ptx, INVALIDATED));
   }
 
   @Override
@@ -301,47 +313,56 @@ public class LayeredPendingTransactions implements PendingTransactions {
     final var evaluationResults =
         selector.evaluatePendingTransactions(Collections.unmodifiableList(candidateTxsByScore));
 
-    for (final var evaluationResult : evaluationResults.entrySet()) {
-      final var evaluatedPendingTx = evaluationResult.getKey();
-      final var result = evaluationResult.getValue();
+    // results are processed asynchronously, and the result of a tx whose evaluation is still
+    // running after a timeout or a cancellation, only once it completes
+    evaluationResults.forEach(
+        (evaluatedPendingTx, futureResult) ->
+            futureResult
+                .thenAcceptAsync(
+                    result -> processSelectionResult(evaluatedPendingTx, result),
+                    ethScheduler::executeServiceTask)
+                .exceptionally(
+                    throwable -> {
+                      LOG.warn(
+                          "Selection result of transaction {} not processed",
+                          evaluatedPendingTx.getHash(),
+                          throwable);
+                      return null;
+                    }));
+  }
 
-      LOG.atTrace()
-          .setMessage("Selection result {} for transaction {}")
-          .addArgument(result)
-          .addArgument(evaluatedPendingTx::toTraceLog)
-          .log();
+  private void processSelectionResult(
+      final PendingTransaction evaluatedPendingTx, final TransactionSelectionResult result) {
+    LOG.atTrace()
+        .setMessage("Selection result {} for transaction {}")
+        .addArgument(result)
+        .addArgument(evaluatedPendingTx::toTraceLog)
+        .log();
 
-      if (result.discard()) {
-        ethScheduler.scheduleServiceTask(
-            () -> {
-              synchronized (this) {
-                getPooledInstance(evaluatedPendingTx)
-                    .ifPresent(
-                        pooledTx -> {
-                          prioritizedTransactions.remove(pooledTx, INVALIDATED);
-                          logInvalidTransaction(pooledTx, result);
-                          LOG.atTrace()
-                              .setMessage("Transaction {} removed by block selection")
-                              .addArgument(pooledTx::toTraceLog)
-                              .log();
-                        });
-              }
-            });
-      } else if (result.penalize()) {
-        ethScheduler.scheduleServiceTask(
-            () -> {
-              synchronized (this) {
-                getPooledInstance(evaluatedPendingTx)
-                    .ifPresent(
-                        pooledTx -> {
-                          prioritizedTransactions.penalize(pooledTx, result);
-                          LOG.atTrace()
-                              .setMessage("Transaction {} penalized by block selection")
-                              .addArgument(pooledTx::toTraceLog)
-                              .log();
-                        });
-              }
-            });
+    if (result.discard()) {
+      synchronized (this) {
+        getPooledInstance(evaluatedPendingTx)
+            .ifPresent(
+                pooledTx -> {
+                  prioritizedTransactions.remove(pooledTx, INVALIDATED);
+                  logInvalidTransaction(pooledTx, result);
+                  LOG.atTrace()
+                      .setMessage("Transaction {} removed by block selection")
+                      .addArgument(pooledTx::toTraceLog)
+                      .log();
+                });
+      }
+    } else if (result.penalize()) {
+      synchronized (this) {
+        getPooledInstance(evaluatedPendingTx)
+            .ifPresent(
+                pooledTx -> {
+                  prioritizedTransactions.penalize(pooledTx, result);
+                  LOG.atTrace()
+                      .setMessage("Transaction {} penalized by block selection")
+                      .addArgument(pooledTx::toTraceLog)
+                      .log();
+                });
       }
     }
   }

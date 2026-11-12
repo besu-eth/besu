@@ -16,12 +16,16 @@ package org.hyperledger.besu.ethereum.mainnet.inclusionlist;
 
 import static org.hyperledger.besu.crypto.Hash.keccak256;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Transaction;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.SequencedMap;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -47,6 +51,7 @@ public final class InclusionListTransactions {
   public static final InclusionListTransactions EMPTY = new InclusionListTransactions(List.of());
 
   private final SortedSet<Transaction> transactions;
+  private final SequencedMap<Hash, Transaction> transactionsByHash;
   private final Bytes32 checksum;
 
   /**
@@ -58,6 +63,9 @@ public final class InclusionListTransactions {
     final SortedSet<Transaction> sortedTransactions = new TreeSet<>(HASH_ORDER);
     sortedTransactions.addAll(transactions);
     this.transactions = Collections.unmodifiableSortedSet(sortedTransactions);
+    final SequencedMap<Hash, Transaction> byHash = new LinkedHashMap<>();
+    sortedTransactions.forEach(tx -> byHash.put(tx.getHash(), tx));
+    this.transactionsByHash = Collections.unmodifiableSequencedMap(byHash);
     this.checksum =
         keccak256(
             Bytes.concatenate(
@@ -71,6 +79,31 @@ public final class InclusionListTransactions {
    */
   public Set<Transaction> getTransactions() {
     return transactions;
+  }
+
+  /**
+   * Returns the transactions of the inclusion list that are not included in the block. A
+   * transaction is included only if a block transaction has its exact bytes, so they are matched by
+   * hash: {@link Transaction#equals} ignores some fields, like the access list and the
+   * authorization list.
+   *
+   * <p>The block transactions are only looked at until all the inclusion list transactions are
+   * found, which is the usual case.
+   *
+   * @param blockTransactions the transactions of the block
+   * @return the inclusion list transactions that are not in the block, sorted by hash
+   */
+  public Collection<Transaction> notIncludedIn(final List<Transaction> blockTransactions) {
+    if (transactionsByHash.isEmpty()) {
+      return List.of();
+    }
+    final Map<Hash, Transaction> notIncluded = new LinkedHashMap<>(transactionsByHash);
+    for (final Transaction blockTransaction : blockTransactions) {
+      if (notIncluded.remove(blockTransaction.getHash()) != null && notIncluded.isEmpty()) {
+        break;
+      }
+    }
+    return notIncluded.values();
   }
 
   /**

@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -222,6 +223,10 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
 
   protected abstract FeeMarket getFeeMarket();
 
+  protected ExecutionContextTestFixture getExecutionContext() {
+    return executionContext;
+  }
+
   @BeforeEach
   public void setUp() {
     executionContext = createExecutionContextTestFixture();
@@ -265,7 +270,7 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
     return createTransactionPool(b -> b.minGasPrice(Wei.of(2)));
   }
 
-  TransactionPool createTransactionPool(
+  protected TransactionPool createTransactionPool(
       final Consumer<ImmutableTransactionPoolConfiguration.Builder> configConsumer) {
     final ImmutableTransactionPoolConfiguration.Builder configBuilder =
         ImmutableTransactionPoolConfiguration.builder();
@@ -461,11 +466,11 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
   protected void protocolSupportsTxReplayProtection(
       final long chainId, final boolean isSupportedAtCurrentBlock) {
     when(protocolSpec.isReplayProtectionSupported()).thenReturn(isSupportedAtCurrentBlock);
-    when(protocolSchedule.getChainId()).thenReturn(Optional.of(BigInteger.valueOf(chainId)));
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.of(chainId));
   }
 
   protected void protocolDoesNotSupportTxReplayProtection() {
-    when(protocolSchedule.getChainId()).thenReturn(Optional.empty());
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.absent());
   }
 
   protected Transaction createTransactionWithoutChainId(final int transactionNumber) {

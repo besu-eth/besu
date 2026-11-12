@@ -141,7 +141,7 @@ public class SnapDownloaderFactory {
    * @param syncState the sync state holding the configured checkpoint, if any
    * @return true when nothing but the trust anchor is stored
    */
-  static boolean holdsNothingButTheTrustAnchor(
+  public static boolean holdsNothingButTheTrustAnchor(
       final Blockchain blockchain, final SyncState syncState) {
     final BlockHeader chainHead = blockchain.getChainHeadHeader();
     if (chainHead.getNumber() == BlockHeader.GENESIS_BLOCK_NUMBER) {

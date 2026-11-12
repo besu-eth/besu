@@ -314,13 +314,11 @@ public final class WorldStateTrieBuilder {
     // the nodes before the fixes: a committed root always has its trie
     private void commit() {
       writer.commit();
-      final SyncStateStorage.Batch batch = fixes;
-      // dropped first, so a failed commit leaves no batch to abort
-      fixes = null;
-      pendingFixes = 0;
-      if (batch != null) {
-        batch.commit();
+      if (fixes != null) {
+        fixes.commit();
+        fixes = null;
       }
+      pendingFixes = 0;
     }
 
     private void abort() {

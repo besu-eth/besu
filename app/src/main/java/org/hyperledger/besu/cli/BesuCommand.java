@@ -122,7 +122,9 @@ import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointServiceImpl;
 import org.hyperledger.besu.ethereum.blockcreation.pluginadapter.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
+import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningParametersMetrics;
 import org.hyperledger.besu.ethereum.core.VersionMetadata;
@@ -476,7 +478,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             "Invalid value for option '--sync-mode': '"
                 + value
                 + "' is not a valid sync mode. "
-                + "Valid values are: FULL, SNAP");
+                + "Valid values are: "
+                + Arrays.stream(SyncMode.values())
+                    .map(Enum::name)
+                    .collect(Collectors.joining(", ")));
       }
     }
   }
@@ -665,13 +670,26 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   @CommandLine.Option(
       names = {"--cache-last-blocks"},
-      description = "Specifies the number of last blocks to cache  (default: ${DEFAULT-VALUE})")
-  private final Integer numberOfBlocksToCache = 0;
+      paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
+      description =
+          "Specifies the number of last blocks whose headers, bodies, receipts and block access"
+              + " lists to cache, 0 to disable (default: ${DEFAULT-VALUE})")
+  private final Integer numberOfBlocksToCache = DefaultBlockchain.DEFAULT_BLOCKS_TO_CACHE;
+
+  @CommandLine.Option(
+      names = {"--cache-last-blocks-max-capacity"},
+      paramLabel = MANDATORY_LONG_FORMAT_HELP,
+      description =
+          "Max amount of memory, in bytes, that the cache of the block access lists of the last"
+              + " blocks could occupy (default: ${DEFAULT-VALUE})")
+  private final Long lastBlocksCacheMaxCapacity =
+      DefaultBlockchain.DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY;
 
   @CommandLine.Option(
       names = {"--cache-last-block-headers"},
       description =
-          "Specifies the number of last block headers to cache  (default: ${DEFAULT-VALUE})")
+          "Specifies the number of last block headers to cache, raised to --cache-last-blocks if"
+              + " lower (default: ${DEFAULT-VALUE})")
   private final Integer numberOfBlockHeadersToCache = 0;
 
   @CommandLine.Option(
@@ -1056,6 +1074,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       validateOptions();
 
       initialProcess();
+      // A trusted setup loading in the background may still be loading: wait for it, so that a
+      // failed load stops the node now rather than at its first KZG operation. No-op otherwise.
+      KZGPointEvalPrecompiledContract.awaitTrustedSetup();
 
       if (network.equals(EPHEMERY)) {
         long lastGenesisTimestamp = parseLong(genesisConfigOverrides.get("timestamp"));
@@ -1086,8 +1107,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
 
     configure();
-
-    setIgnorableStorageSegments();
 
     // If we're not running against a named network, or if version compat protection has been
     // explicitly enabled, perform compatibility check
@@ -1532,10 +1551,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
 
     if (hasKzgFork(readGenesisConfigOptions())) {
+      final boolean loadInBackground =
+          unstableNativeLibraryOptions.getKzgTrustedSetupBackgroundLoad();
       if (kzgTrustedSetupFile != null) {
-        KZGPointEvalPrecompiledContract.init(kzgTrustedSetupFile);
+        KZGPointEvalPrecompiledContract.init(kzgTrustedSetupFile, loadInBackground);
       } else {
-        KZGPointEvalPrecompiledContract.init();
+        KZGPointEvalPrecompiledContract.init(loadInBackground);
       }
     } else if (kzgTrustedSetupFile != null) {
       throw new ParameterException(
@@ -1591,6 +1612,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateAndResolveCheckpointRelatedConfig();
     validateTransactionPoolOptions();
     validateDataStorageOptions();
+    validateCacheOptions();
     validateGraphQlOptions();
     validatePluginOptions();
     validateUnstableNetworkingOptions();
@@ -1609,11 +1631,33 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private void validateTransactionPoolOptions() {
-    transactionPoolOptions.validate(commandLine, genesisConfigOptionsSupplier.get());
+    transactionPoolOptions.validate(commandLine, genesisConfigOptionsSupplier.get(), logger);
   }
 
   private void validateDataStorageOptions() {
     dataStorageOptions.validate(commandLine);
+    // the SNAP2 sync storage is on Bonsai and Forest, not on an archive
+    final DataStorageFormat format = dataStorageOptions.toDomainObject().getDataStorageFormat();
+    if (getDefaultSyncModeIfNotSet() == SyncMode.SNAP2
+        && format == DataStorageFormat.X_BONSAI_ARCHIVE) {
+      throw new ParameterException(
+          commandLine,
+          "--sync-mode=SNAP2 needs --data-storage-format=BONSAI or FOREST, not " + format);
+    }
+  }
+
+  private void validateCacheOptions() {
+    if (numberOfBlocksToCache < 0) {
+      throw new ParameterException(
+          this.commandLine, "--cache-last-blocks must be >= 0 (0 disables the caches)");
+    }
+    if (lastBlocksCacheMaxCapacity < 0) {
+      throw new ParameterException(
+          this.commandLine, "--cache-last-blocks-max-capacity must be >= 0");
+    }
+    if (numberOfBlockHeadersToCache < 0) {
+      throw new ParameterException(this.commandLine, "--cache-last-block-headers must be >= 0");
+    }
   }
 
   private void validateMiningParams() {
@@ -2048,17 +2092,26 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             unstableRPCOptions.getHttpTimeoutSec(),
             unstableRPCOptions.getHttpStreamingTimeoutSec());
     logger.info("RPC HTTP JSON-RPC config: {}", jsonRpcConfiguration);
+    final long maxRequestContentLength;
     if (isEngineApiEnabled()) {
       engineJsonRpcConfiguration = createEngineJsonRpcConfiguration();
       logger.info("Engine JSON-RPC config: {}", engineJsonRpcConfiguration);
-      // align JSON decoding limit with HTTP body limit
+      // align JSON decoding limit with the largest HTTP body limit across both services
       // character count is close to size in bytes
-      final long maxRequestContentLength =
+      maxRequestContentLength =
           Math.max(
               jsonRpcConfiguration.getMaxRequestContentLength(),
               engineJsonRpcConfiguration.getMaxRequestContentLength());
-      configureVertxJsonDecodingMaxLength((int) maxRequestContentLength);
+    } else {
+      maxRequestContentLength = jsonRpcConfiguration.getMaxRequestContentLength();
     }
+    // Configure the shared Vert.x JSON decoder for every node, not only engine-enabled ones.
+    // DatabindCodec.mapper() is a single global mapper shared by the JSON-RPC and Engine JSON-RPC
+    // parsers; leaving it unconfigured on a non-engine node falls back to Jackson defaults, which
+    // place no limit on the number of tokens and let a single request inflate into a very large
+    // in-memory node tree.
+    configureVertxJsonDecodingConstraints(
+        maxRequestContentLength, unstableRPCOptions.getMaxRequestTokenCount());
 
     graphQLConfiguration =
         graphQlOptions.graphQLConfiguration(
@@ -2099,15 +2152,32 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     logger.info("Security Module: {}", securityModuleName);
   }
 
-  private static void configureVertxJsonDecodingMaxLength(final int maxStringLength) {
-    // Supports large sized engine_newPayload decoding
-
-    // This is a global setting for the Vert.x ObjectMapper
-    // which is used by both the JsonRpc and EngineJsonRpc services
-    // Attempting to limit the scope of the mapper config leads to extra serialisation steps
+  @VisibleForTesting
+  static void configureVertxJsonDecodingConstraints(
+      final long maxRequestContentLength, final long maxRequestTokenCount) {
+    // Used by both the JsonRpc and EngineJsonRpc.
+    //
+    // maxStringLength is sized to the HTTP body limit so large engine_newPayload fields still
+    // decode (character count is close to size in bytes). A non-positive body limit means no limit.
+    //
+    // maxTokenCount is the limit that bounds the cost of decoding a request. The body limit alone
+    // does not: a body of tiny tokens such as [{},{},...] that fits under it still decodes into
+    // millions of nodes, and the batch size is only checked after the whole parse. The parser
+    // aborts as soon as the count is exceeded, before the tree is built. Engine payloads are large
+    // but have few tokens, since transactions and the block access list are single hex strings, so
+    // one cap protects every service sharing this mapper. A non-positive value disables the limit.
+    //
+    // maxNestingDepth is left at Jackson's default via the builder.
+    final int maxStringLength =
+        maxRequestContentLength <= 0
+            ? Integer.MAX_VALUE
+            : (int) Math.min(maxRequestContentLength, Integer.MAX_VALUE);
     ObjectMapper om = DatabindCodec.mapper();
     StreamReadConstraints src =
-        StreamReadConstraints.builder().maxStringLength(maxStringLength).build();
+        StreamReadConstraints.builder()
+            .maxStringLength(maxStringLength)
+            .maxTokenCount(maxRequestTokenCount)
+            .build();
     om.getFactory().setStreamReadConstraints(src);
   }
 
@@ -2151,7 +2221,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    */
   public BesuController buildController() {
     try {
-      return setupControllerBuilder().build();
+      final BesuController controller = setupControllerBuilder().build();
+      // the chain id is fixed for the life of the node: register it, so that every chain id with
+      // the same value, like the ones of the decoded transactions, shares the same instance
+      ChainId.initNetworkChainId(controller.getProtocolSchedule().getChainId());
+      return controller;
     } catch (final Exception e) {
       throw new ExecutionException(this.commandLine, e.getMessage(), e);
     }
@@ -2198,6 +2272,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .randomPeerPriority(p2PDiscoveryOptions.randomPeerPriority)
             .chainPruningConfiguration(unstableChainPruningOptions.toDomainObject())
             .cacheLastBlocks(numberOfBlocksToCache)
+            .cacheLastBlocksMaxCapacity(lastBlocksCacheMaxCapacity)
             .cacheLastBlockHeaders(numberOfBlockHeadersToCache)
             .isCacheLastBlockHeadersPreloadEnabled(isCacheLastBlockHeadersPreloadEnabled)
             .senderNonceIndexingEnabled(txSenderNonceIndexEnabled)
@@ -2226,6 +2301,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     engineConfig.setPort(engineRPCConfig.engineRpcPort());
     engineConfig.setRpcApis(Arrays.asList("ENGINE", "ETH"));
     engineConfig.setEnabled(isEngineApiEnabled());
+    // The engine port shares --rpc-http-max-request-content-length with the main HTTP port, whose
+    // default is too small for large execution payloads (engine_newPayload). Unless the operator
+    // set the option, use the engine default instead; a value they set applies to both ports.
+    if (!isOptionSet(commandLine, "--rpc-http-max-request-content-length")) {
+      engineConfig.setMaxRequestContentLength(
+          JsonRpcConfiguration.createEngineDefault().getMaxRequestContentLength());
+    }
     if (!engineRPCConfig.isEngineAuthDisabled()) {
       engineConfig.setAuthenticationEnabled(true);
       engineConfig.setAuthenticationAlgorithm(JwtAlgorithm.HS256);
@@ -2294,6 +2376,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private KeyValueStorageProvider keyValueStorageProvider(final String name) {
     if (this.keyValueStorageProvider == null) {
+      // before the database opens, for the node and the subcommands alike
+      setIgnorableStorageSegments();
       this.keyValueStorageProvider =
           new KeyValueStorageProviderBuilder()
               .withStorageFactory(
@@ -2409,12 +2493,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       dataStorageConfiguration = dataStorageOptions.toDomainObject();
     }
 
-    // BAL prefetch warms VersionedFlatDbCacheManager; enable the cross-block cache when prefetch is
-    // on so those reads are not discarded by the no-op cache. Only Bonsai (non-archive) benefits:
-    // Forest ignores the flag, and archive getMultipleFlat is a no-op, so auto-enabling there would
-    // only change default memory behaviour.
+    // BAL prefetch and mempool prewarming warm VersionedFlatDbCacheManager; enable the cross-block
+    // cache when either is on so those reads are not discarded by the no-op cache. Only Bonsai
+    // (non-archive) benefits: Forest ignores the flag, and archive getMultipleFlat is a no-op, so
+    // auto-enabling there would only change default memory behaviour.
+    final boolean balPrefetch =
+        balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled();
     if (DataStorageFormat.BONSAI.equals(dataStorageConfiguration.getDataStorageFormat())
-        && balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled()
+        && (balPrefetch || miningOptions.isMempoolPrewarmEnabled())
         && !dataStorageConfiguration
             .getExtraStorageConfiguration()
             .getUnstable()
@@ -2430,7 +2516,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                                       .getExtraStorageConfiguration()
                                       .getUnstable())
                               .withBonsaiCrossBlockCacheEnabled(true)));
-      logger.info("Bonsai cross-block cache enabled for BAL prefetch reading");
+      logger.info(
+          "Bonsai cross-block cache enabled for {}",
+          balPrefetch ? "BAL prefetch reading" : "mempool prewarming");
     }
 
     if (SyncMode.FULL.equals(getDefaultSyncModeIfNotSet())
@@ -3004,10 +3092,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   /** Set ignorable segments in RocksDB Storage Provider plugin. */
-  public void setIgnorableStorageSegments() {
+  private void setIgnorableStorageSegments() {
     if (unstableChainPruningOptions.getChainPruningStrategy().equals(ChainPruningStrategy.NONE)
-        && !dataStorageConfiguration.getHistoryExpiryPruneEnabled()) {
+        && !getDataStorageConfiguration().getHistoryExpiryPruneEnabled()) {
       rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.CHAIN_PRUNER_STATE);
+    }
+    // the flat state the SNAP2 sync stages on Forest, created only for that sync
+    if (getDefaultSyncModeIfNotSet() != SyncMode.SNAP2
+        || getDataStorageConfiguration().getDataStorageFormat() != DataStorageFormat.FOREST) {
+      rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_ACCOUNTS);
+      rocksDBPlugin.addIgnorableSegmentIdentifier(KeyValueSegmentIdentifier.SNAPSYNC_FLAT_STORAGE);
     }
   }
 
