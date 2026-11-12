@@ -71,18 +71,12 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
   private final AtomicBoolean logMissingCoverage = new AtomicBoolean(true);
 
   // Nodes read from one state, by key. They're the same whichever storage they were read from.
-  private record LoadedNodes(Hash root, Map<Bytes, Bytes> nodes) {
-    static LoadedNodes none() {
-      return new LoadedNodes(Hash.ZERO, new ConcurrentHashMap<>());
-    }
+  // Empty when the next block can't be captured, so there's nothing to collect.
+  private record LoadedNodes(Hash root, Optional<Map<Bytes, Bytes>> nodes) {}
 
-    LoadedNodes at(final Hash stateRoot) {
-      return root.equals(stateRoot) ? this : new LoadedNodes(stateRoot, new ConcurrentHashMap<>());
-    }
-  }
+  private static final LoadedNodes NO_LOADED_NODES = new LoadedNodes(Hash.ZERO, Optional.empty());
 
-  private final AtomicReference<LoadedNodes> loadedNodes =
-      new AtomicReference<>(LoadedNodes.none());
+  private final AtomicReference<LoadedNodes> loadedNodes = new AtomicReference<>(NO_LOADED_NODES);
 
   // Transactions persisting a captured block, mapped to the nodes that block replaces.
   private final Cache<SegmentedKeyValueStorageTransaction, Map<Bytes, Bytes>> capturedBlocks =
@@ -123,11 +117,11 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
   @Override
   public NodeLoader wrapNodeLoader(
       final Hash stateRoot, final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
-    // Only nodes from the current head are useful, so skip others. Check memory before disk.
-    if (!(loadedNodes.get().root().equals(stateRoot) || isPersistedRoot(stateRoot))) {
+    final Optional<Map<Bytes, Bytes>> maybeLoaded = loadedNodesFor(stateRoot);
+    if (maybeLoaded.isEmpty()) {
       return loader;
     }
-    final Map<Bytes, Bytes> loaded = loadedNodes.updateAndGet(c -> c.at(stateRoot)).nodes();
+    final Map<Bytes, Bytes> loaded = maybeLoaded.get();
     return (location, hash) -> {
       final Optional<Bytes> node = loader.getNode(location, hash);
       // the empty trie node is never stored, so it is never a prior
@@ -138,6 +132,34 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
     };
   }
 
+  // Only nodes from the current head are useful, and only if the next block can be captured.
+  // Decided once per state; check memory before disk.
+  private Optional<Map<Bytes, Bytes>> loadedNodesFor(final Hash stateRoot) {
+    final LoadedNodes current = loadedNodes.get();
+    if (current.root().equals(stateRoot)) {
+      return current.nodes();
+    }
+    if (!isPersistedRoot(stateRoot)) {
+      return Optional.empty();
+    }
+    final Optional<Map<Bytes, Bytes>> nodes =
+        coverageEndsAtPersistedBlock() ? Optional.of(new ConcurrentHashMap<>()) : Optional.empty();
+    return loadedNodes
+        .updateAndGet(c -> c.root().equals(stateRoot) ? c : new LoadedNodes(stateRoot, nodes))
+        .nodes();
+  }
+
+  // The next block can only extend coverage if coverage ends at the persisted state.
+  private boolean coverageEndsAtPersistedBlock() {
+    final Optional<Bytes> archived =
+        historyStore.getArchivedBlock().map(last -> last.hash().getBytes());
+    return archived.isPresent() && archived.equals(persistedBlockHash());
+  }
+
+  private Optional<Bytes> persistedBlockHash() {
+    return captureStorage.get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY).map(Bytes::wrap);
+  }
+
   private boolean isPersistedRoot(final Hash stateRoot) {
     return captureStorage
         .get(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY)
@@ -145,10 +167,9 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
         .isPresent();
   }
 
-  // Loads are priors only if their root is the state this block replaces; genesis has none.
+  // Loads are only collected for the persisted state, which this block replaces; genesis has none.
   private Map<Bytes, Bytes> priorNodes() {
-    final LoadedNodes loaded = loadedNodes.get();
-    return isPersistedRoot(loaded.root()) ? loaded.nodes() : Map.of();
+    return loadedNodes.get().nodes().orElse(Map.of());
   }
 
   @Override
@@ -159,17 +180,15 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
     final long block = blockHeader.getNumber();
     if (storage == captureStorage
         && isFinal.test(block)
-        && isSingleBlockPersist(storage, blockHeader)
+        && isSingleBlockPersist(blockHeader)
         && extendsCoverage(blockHeader)) {
       trieNodeWriter.beginBlock(transaction, blockHeader);
       capturedBlocks.put(transaction, priorNodes());
     }
   }
 
-  private static boolean isSingleBlockPersist(
-      final SegmentedKeyValueStorage storage, final BlockHeader blockHeader) {
-    final Optional<Bytes> persisted =
-        storage.get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY).map(Bytes::wrap);
+  private boolean isSingleBlockPersist(final BlockHeader blockHeader) {
+    final Optional<Bytes> persisted = persistedBlockHash();
     return blockHeader.getNumber() == 0L
         ? persisted.isEmpty()
         : persisted.isPresent() && persisted.get().equals(blockHeader.getParentHash().getBytes());
@@ -271,7 +290,7 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
       final SegmentedKeyValueStorageTransaction transaction) {
     if (storage == captureStorage) {
       // the next block's tries load again, so don't hold this block's nodes past its commit
-      loadedNodes.set(LoadedNodes.none());
+      loadedNodes.set(NO_LOADED_NODES);
     }
     if (capturedBlocks.asMap().remove(transaction) != null) {
       trieNodeWriter.onBeforeCommit(transaction);

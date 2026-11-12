@@ -543,6 +543,25 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
+  void loaderIsNotDecoratedOnceCoverageFallsBehindTheHead() {
+    final ArchiveTrieNodeStrategy strategy = strategy(b -> b == 0);
+    final NodeLoader loader = (location, hash) -> Optional.empty();
+    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
+    persistBlock(strategy, 1);
+
+    assertThat(strategy.wrapNodeLoader(rootOf(1), loader, Function.identity())).isSameAs(loader);
+  }
+
+  @Test
+  void loaderIsDecoratedWhileCoverageEndsAtTheHead() {
+    final ArchiveTrieNodeStrategy strategy = strategy();
+    final NodeLoader loader = (location, hash) -> Optional.empty();
+    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
+
+    assertThat(strategy.wrapNodeLoader(rootOf(0), loader, Function.identity())).isNotSameAs(loader);
+  }
+
+  @Test
   void loaderRootedAtAnotherStateIsNotDecorated() {
     final ArchiveTrieNodeStrategy strategy = strategy();
     final NodeLoader loader = (location, hash) -> Optional.empty();
