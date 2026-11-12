@@ -37,6 +37,7 @@
 - A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork. With `--snapsync-server-enabled` on Bonsai, it advertises snap/2 once it can serve peers syncing with SNAP2. [#11983](https://github.com/besu-eth/besu/pull/11983)
 - Snap sync no longer loses trie nodes when writing them fails with a retryable error, which stalled the sync or left blocks after the pivot unable to import. [#12016](https://github.com/besu-eth/besu/pull/12016)
 - Keep `vmTrace` parent instructions, top-level and child bytecode and CALL resumption gas correct after omitted halted opcodes. [#11352](https://github.com/besu-eth/besu/pull/11352)
+- `callTracer` and `flatCallTracer` no longer fail with `NoSuchElementException` on an Amsterdam transaction that runs out of gas before its execution starts. [#11505](https://github.com/besu-eth/besu/pull/11505)
 
 ### Additions and Improvements
 - The sequenced transaction pool penalises a transaction whose selection result asks for it, for example one that took longer than the block selection time to execute, as the layered pool does. A penalised transaction is selected after the others, so it cannot monopolise the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)
@@ -345,7 +346,6 @@ This release is identical to 26.10.0 but will not activate Glamsterdam on Hoodi 
 - Snap sync now restarts instead of staying idle when one of its world state download pipelines fails. [#11515](https://github.com/besu-eth/besu/pull/11515)
 - Snap sync no longer downloads the storage and code of an account twice when an account range response goes past the end of the range. [#11516](https://github.com/besu-eth/besu/pull/11516)
 - Snap sync no longer stalls when a download completes while the pipeline stage is handing on another result. [#11514](https://github.com/besu-eth/besu/pull/11514)
-- `callTracer` and `flatCallTracer` no longer fail with `NoSuchElementException` on an Amsterdam transaction that runs out of gas before its execution starts. [#11505](https://github.com/besu-eth/besu/pull/11505)
 
 ### Additions and Improvements
 - Update `Bouncycastle` to 1.85 to address CVEs `CVE-2026-8763` and `CVE-2026-13506`. [#11336](https://github.com/besu-eth/besu/pull/11336)
