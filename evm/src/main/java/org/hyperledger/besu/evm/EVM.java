@@ -658,20 +658,22 @@ public class EVM {
         }
         case 0x57 -> { // JUMPI
           // the gas too: C2 doesn't always inline the jump destination check, and the gas local
-          // must not be needed after a call that isn't inlined
+          // must not be needed after a call that isn't inlined. A taken jump also runs the
+          // JUMPDEST it lands on, when the gas covers it.
           frame.setTopV2(base ^ 0x57);
           frame.setPC(pc);
           frame.setGasRemaining(gas);
-          result = JumpiOperationV2.staticOperation(frame);
+          result = JumpiOperationV2.staticOperation(frame, gas);
           sp = frame.stackTopV2();
           pc = frame.getPC();
           gas = frame.getRemainingGas();
         }
         case 0x56 -> { // JUMP
+          // as JUMPI, the JUMPDEST too
           frame.setTopV2(base ^ 0x56);
           frame.setPC(pc);
           frame.setGasRemaining(gas);
-          result = JumpOperationV2.staticOperation(frame);
+          result = JumpOperationV2.staticOperation(frame, gas);
           sp = frame.stackTopV2();
           pc = frame.getPC();
           gas = frame.getRemainingGas();
