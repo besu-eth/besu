@@ -21,7 +21,6 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.wit
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockTransactionSelector;
@@ -462,10 +461,11 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
 
     if (newProtocolSpec.getFeeMarket().implementsBlobFee()) {
       final var gasCalculator = newProtocolSpec.getGasCalculator();
+      // EIP-8141: frame transactions carry blobs too, so count every transaction's blobs, as
+      // block import does.
       final int newBlobsCount =
-          transactionResults.getTransactionsByType(TransactionType.BLOB).stream()
-              .map(tx -> tx.getVersionedHashes().orElseThrow())
-              .mapToInt(List::size)
+          transactionResults.getSelectedTransactions().stream()
+              .mapToInt(Transaction::getBlobCount)
               .sum();
       // casting parent excess blob gas to long since for the moment it should be well below that
       // limit
