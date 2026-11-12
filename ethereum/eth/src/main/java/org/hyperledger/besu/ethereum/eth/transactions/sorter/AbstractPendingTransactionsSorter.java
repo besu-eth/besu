@@ -47,6 +47,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -146,19 +147,29 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
   @Override
   public void evictOldTransactions() {
-    final long removeTransactionsBefore =
-        clock.instant().minus(poolConfig.getPendingTxRetentionDuration()).toEpochMilli();
+    final Duration retention = poolConfig.getPendingTxRetentionDuration();
+    final long removeTransactionsBefore = clock.instant().minus(retention).toEpochMilli();
 
-    pendingTransactions.values().stream()
-        .filter(transaction -> transaction.getAddedAt() < removeTransactionsBefore)
-        .forEach(
-            transactionInfo -> {
-              LOG.atTrace()
-                  .setMessage("Evicted {} due to age")
-                  .addArgument(transactionInfo::toTraceLog)
-                  .log();
-              removeTransaction(transactionInfo, TIMED_EVICTION);
-            });
+    final long evictedCount =
+        pendingTransactions.values().stream()
+            .filter(transaction -> transaction.getAddedAt() < removeTransactionsBefore)
+            .filter(
+                transactionInfo -> {
+                  LOG.atTrace()
+                      .setMessage("Evicted {} due to age")
+                      .addArgument(transactionInfo::toTraceLog)
+                      .log();
+                  return removeTransaction(transactionInfo, TIMED_EVICTION);
+                })
+            .count();
+
+    if (evictedCount > 0) {
+      LOG.info(
+          "Evicted {} transaction(s) from the pool as they exceeded the configured retention"
+              + " period of {} seconds",
+          evictedCount,
+          retention.toSeconds());
+    }
   }
 
   @Override
@@ -193,7 +204,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     return transactionAddedStatus;
   }
 
-  void removeTransaction(
+  boolean removeTransaction(
       final PendingTransaction pendingTransaction, final SequencedRemovalReason reason) {
     // notify while holding the lock, so that the events are notified in the order they happen, and
     // only if this pending tx is still in the pool, since it could have been removed already, and
@@ -202,8 +213,10 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
       if (pendingTransaction.equals(pendingTransactions.get(pendingTransaction.getHash()))) {
         removeTransaction(pendingTransaction.getTransaction(), false);
         eventEmitter.notifyPendingTransactionDropped(pendingTransaction, reason);
+        return true;
       }
     }
+    return false;
   }
 
   @Override
