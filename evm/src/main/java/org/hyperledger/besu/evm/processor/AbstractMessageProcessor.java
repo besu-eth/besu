@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.evm.processor;
 
+import static com.google.common.base.Preconditions.checkState;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.evm.Code;
@@ -220,6 +222,13 @@ public abstract class AbstractMessageProcessor {
     frame.releaseStackV2();
   }
 
+  private void exitFailed(final MessageFrame frame, final OperationTracer operationTracer) {
+    if (operationTracer != null) {
+      operationTracer.traceContextExit(frame);
+    }
+    completedFailed(frame);
+  }
+
   /**
    * Executes the message frame code until it halts.
    *
@@ -242,14 +251,7 @@ public abstract class AbstractMessageProcessor {
    */
   public void process(final MessageFrame frame, final OperationTracer operationTracer) {
     if (LOG.isTraceEnabled() && frame.getState() == MessageFrame.State.NOT_STARTED) {
-      final var contractAddress = frame.getContractAddress();
-      LOG.trace(
-          "EIP-8037 FRAME_ENTER depth={} contractAddress={} gasLimit={} reservoir={} stateGasUsed={}",
-          frame.getDepth(),
-          contractAddress == null ? "" : contractAddress.toHexString(),
-          frame.getRemainingGas(),
-          frame.getStateGasReservoir(),
-          frame.getStateGasUsed());
+      traceFrameEnter(frame);
     }
     if (operationTracer != null) {
       if (frame.getState() == MessageFrame.State.NOT_STARTED) {
@@ -288,11 +290,45 @@ public abstract class AbstractMessageProcessor {
       completedSuccess(frame);
     }
     if (frame.getState() == MessageFrame.State.COMPLETED_FAILED) {
-      if (operationTracer != null) {
-        operationTracer.traceContextExit(frame);
-      }
-      completedFailed(frame);
+      exitFailed(frame, operationTracer);
     }
+  }
+
+  /**
+   * Fails a frame that ran out of gas before it started, without executing it. It goes through the
+   * same halt path as a frame that runs out of gas while executing, and tracers still see it enter
+   * and exit like any other failed call.
+   *
+   * @param frame the frame, not started and with its exceptional halt reason already set
+   * @param operationTracer the operation tracer
+   * @throws IllegalStateException if the frame has started or has no exceptional halt reason
+   */
+  public void haltBeforeStart(final MessageFrame frame, final OperationTracer operationTracer) {
+    checkState(
+        frame.getState() == MessageFrame.State.NOT_STARTED,
+        "Frame already started, state %s",
+        frame.getState());
+    checkState(
+        frame.getExceptionalHaltReason().isPresent(), "Frame has no exceptional halt reason");
+    if (LOG.isTraceEnabled()) {
+      traceFrameEnter(frame);
+    }
+    if (operationTracer != null) {
+      operationTracer.traceContextEnter(frame);
+    }
+    exceptionalHalt(frame);
+    exitFailed(frame, operationTracer);
+  }
+
+  private static void traceFrameEnter(final MessageFrame frame) {
+    final var contractAddress = frame.getContractAddress();
+    LOG.trace(
+        "EIP-8037 FRAME_ENTER depth={} contractAddress={} gasLimit={} reservoir={} stateGasUsed={}",
+        frame.getDepth(),
+        contractAddress == null ? "" : contractAddress.toHexString(),
+        frame.getRemainingGas(),
+        frame.getStateGasReservoir(),
+        frame.getStateGasUsed());
   }
 
   /**

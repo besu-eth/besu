@@ -469,9 +469,13 @@ public class MainnetTransactionProcessor {
       // frame spill and refund a second time. prepCharges already holds what it needs.
       initialFrame.resetStateGasSpilled();
 
-      Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
-      while (!messageFrameStack.isEmpty()) {
-        process(messageFrameStack.peekFirst(), operationTracer);
+      if (prepCharges.halted()) {
+        getMessageProcessor(initialFrame.getType()).haltBeforeStart(initialFrame, operationTracer);
+      } else {
+        Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
+        while (!messageFrameStack.isEmpty()) {
+          process(messageFrameStack.peekFirst(), operationTracer);
+        }
       }
 
       // Under two-dimensional gas, tx.gasLimit may exceed TX_MAX_GAS_LIMIT to accommodate state
@@ -797,7 +801,7 @@ public class MainnetTransactionProcessor {
    * @param create the contract-creation NEW_ACCOUNT charge
    * @param authorizations the EIP-7702 per-authority charges, taken as a whole
    * @param recipient the dispatch-entry charge on the recipient
-   * @param halted whether any of them ran out of gas, leaving the frame exceptionally halted
+   * @param halted whether any of them ran out of gas, so the frame must not execute
    */
   private record PrepCharges(
       StateCharge create, StateCharge authorizations, StateCharge recipient, boolean halted) {}
@@ -827,8 +831,9 @@ public class MainnetTransactionProcessor {
   /**
    * Runs the top frame's preparation phase before any opcode executes, in spec order: the
    * contract-creation charge, the per-authority delegation charges, then the dispatch-entry
-   * recipient load and charge. The first unaffordable charge halts the frame and skips the rest,
-   * which is what keeps a recipient the transaction never got to load out of the block access list.
+   * recipient load and charge. The first unaffordable charge stops the preparation and skips the
+   * rest, which is what keeps a recipient the transaction never got to load out of the block access
+   * list.
    */
   private PrepCharges chargeTopFrame(
       final MessageFrame initialFrame,
@@ -881,7 +886,6 @@ public class MainnetTransactionProcessor {
 
     if (outOfGas) {
       initialFrame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
-      initialFrame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
     }
     return new PrepCharges(create, authorizations, recipient, outOfGas);
   }
