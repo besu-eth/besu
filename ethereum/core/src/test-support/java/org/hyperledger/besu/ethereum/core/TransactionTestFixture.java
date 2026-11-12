@@ -139,6 +139,7 @@ public class TransactionTestFixture {
                         Wei.ZERO,
                         Bytes.EMPTY))));
         builder.frameSignatures(frameSignatures.orElse(List.of()));
+        versionedHashes.ifPresent(builder::versionedHashes);
         break;
     }
 

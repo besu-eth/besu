@@ -30,6 +30,11 @@ public interface TransactionPriceCalculator {
   static TransactionPriceCalculator eip1559() {
     return (transaction, maybeBaseFee) -> {
       final Wei baseFee = maybeBaseFee.orElseThrow();
+      // EIP-8141 frame transactions cap their total fee rather than their price per gas: they pay
+      // the base fee plus the tip per gas their fee budget covers on every unit of their gas limit.
+      if (transaction.getType().supportsFrames()) {
+        return transaction.getEffectiveGasPrice(maybeBaseFee);
+      }
       if (!transaction.getType().supports1559FeeMarket()) {
         return transaction.getGasPrice().orElse(Wei.ZERO);
       }

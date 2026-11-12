@@ -17,20 +17,26 @@ package org.hyperledger.besu.ethereum.core.feemarket;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.TransactionType.ACCESS_LIST;
 import static org.hyperledger.besu.datatypes.TransactionType.EIP1559;
+import static org.hyperledger.besu.datatypes.TransactionType.FRAME;
 import static org.hyperledger.besu.datatypes.TransactionType.FRONTIER;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.Frame;
 import org.hyperledger.besu.ethereum.core.Transaction;
 
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 public class TransactionPriceCalculatorTest {
@@ -145,5 +151,44 @@ public class TransactionPriceCalculatorTest {
                     .build(),
                 baseFee))
         .isEqualByComparingTo(expectedPrice);
+  }
+
+  @ParameterizedTest(name = "maxFee={0}, maxPriorityFeePerGas={1}, baseFee={2}")
+  @CsvSource({
+    // the tip is capped by max_priority_fee_per_gas: 150 + 10
+    "100000, 10, 150, 160",
+    // the tip is capped by the budget left after the base fee: 150 + floor(1050 / 100)
+    "16050, 100, 150, 160",
+    // a budget below the base fee leaves no tip; the transaction processor rejects the budget
+    "10000, 10, 150, 150",
+    "1000, 5, 0, 5"
+  })
+  public void frameTransactionPaysBaseFeePlusTipItsBudgetCovers(
+      final long maxFee,
+      final long maxPriorityFeePerGas,
+      final long baseFee,
+      final long expectedPrice) {
+    final Transaction frameTransaction =
+        Transaction.builder()
+            .type(FRAME)
+            .chainId(BigInteger.ONE)
+            .sender(Address.fromHexString("0x1000"))
+            .gasLimit(100)
+            .maxFee(Wei.of(maxFee))
+            .maxPriorityFeePerGas(Wei.of(maxPriorityFeePerGas))
+            .frames(
+                List.of(
+                    new Frame(
+                        Frame.MODE_VERIFY,
+                        Frame.APPROVE_SCOPE_MASK,
+                        Optional.empty(),
+                        100L,
+                        0L,
+                        Wei.ZERO,
+                        Bytes.EMPTY)))
+            .build();
+
+    assertThat(EIP_1559_CALCULATOR.price(frameTransaction, Optional.of(Wei.of(baseFee))))
+        .isEqualByComparingTo(Wei.of(expectedPrice));
   }
 }
