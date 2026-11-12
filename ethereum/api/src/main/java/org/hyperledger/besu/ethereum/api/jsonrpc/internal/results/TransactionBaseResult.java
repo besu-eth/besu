@@ -123,7 +123,7 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
                     () ->
                         maybeBaseFee.isPresent()
                             ? transaction.getEffectiveGasPrice(maybeBaseFee)
-                            : maxGasPrice(transaction)));
+                            : transaction.getMaxGasPrice()));
     this.hash = transaction.getHash().toString();
     this.input = transaction.getPayload().toString();
     this.nonce = Quantity.create(transaction.getNonce());
@@ -163,15 +163,6 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
             .getCodeDelegationList()
             .map(cds -> cds.stream().map(CodeDelegationResult::new).toList())
             .orElse(null);
-  }
-
-  // An EIP-8141 frame transaction caps its total fee, not the fee per gas, so the cap per gas is
-  // max_fee spread over the gas limit.
-  private static Wei maxGasPrice(final Transaction transaction) {
-    return transaction
-        .getMaxFee()
-        .map(maxFee -> maxFee.divide(transaction.getGasLimit()))
-        .orElseGet(transaction::getMaxGasPrice);
   }
 
   @JsonGetter(value = "accessList")

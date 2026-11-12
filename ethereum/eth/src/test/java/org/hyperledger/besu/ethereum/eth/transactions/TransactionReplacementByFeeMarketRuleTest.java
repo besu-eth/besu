@@ -88,6 +88,24 @@ public class TransactionReplacementByFeeMarketRuleTest extends AbstractTransacti
           //            // blob tx must be replaced by blob tx only
           {blobTx(3L, 6L, 1L), eip1559Tx(3L, 6L), Optional.of(Wei.of(3L)), 0, 0, false},
           {eip1559Tx(3L, 6L), blobTx(3L, 6L, 1L), Optional.of(Wei.of(3L)), 0, 0, false},
+          // frame tx: both max_fee and max_priority_fee_per_gas must be bumped
+          {frameTx(10L, 1000L), frameTx(11L, 1100L), Optional.of(Wei.of(3L)), 10, 100, true},
+          {frameTx(10L, 1000L), frameTx(20L, 2000L), Optional.of(Wei.of(3L)), 10, 100, true},
+          {frameTx(10L, 1000L), frameTx(10L, 1000L), Optional.of(Wei.of(3L)), 0, 100, true},
+          {frameTx(10L, 1000L), frameTx(10L, 1000L), Optional.of(Wei.of(3L)), 10, 100, false},
+          {frameTx(10L, 1000L), frameTx(11L, 1099L), Optional.of(Wei.of(3L)), 10, 100, false},
+          {frameTx(10L, 1000L), frameTx(10L, 1100L), Optional.of(Wei.of(3L)), 10, 100, false},
+          {frameTx(10L, 1000L), frameTx(20L, 1000L), Optional.of(Wei.of(3L)), 10, 100, false},
+          {frameTx(10L, 1000L), frameTx(9L, 2000L), Optional.of(Wei.of(3L)), 10, 100, false},
+          // frame tx can only replace and be replaced by frame tx
+          {eip1559Tx(1L, 6L), frameTx(100L, 1_000_000L), Optional.of(Wei.of(3L)), 0, 0, false},
+          {frameTx(1L, 1000L), eip1559Tx(100L, 1_000_000L), Optional.of(Wei.of(3L)), 0, 0, false},
+          {blobTx(1L, 6L, 1L), frameTx(100L, 1_000_000L), Optional.of(Wei.of(3L)), 0, 0, false},
+          {
+            frameTx(1L, 1000L), blobTx(100L, 1_000_000L, 100L), Optional.of(Wei.of(3L)), 0, 0, false
+          },
+          {frontierTx(5L), frameTx(100L, 1_000_000L), Optional.of(Wei.of(3L)), 0, 0, false},
+          {frameTx(1L, 1000L), frontierTx(1_000_000L), Optional.of(Wei.of(3L)), 0, 0, false},
         });
   }
 

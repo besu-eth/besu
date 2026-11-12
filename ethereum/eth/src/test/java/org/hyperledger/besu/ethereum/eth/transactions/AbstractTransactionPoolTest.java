@@ -1006,8 +1006,7 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
 
   @Test
   public void shouldRejectLocalFrameTransactionBeforeCheckingItsFee() {
-    // A frame transaction has no per-gas fee cap, so a price check ahead of the frame rejection
-    // throws instead of rejecting it.
+    // The frame rejection runs before the price checks and before the transaction validator.
     final Transaction frameTransaction = createFrameTransaction(Wei.fromEth(2));
 
     addAndAssertTransactionViaApiInvalid(frameTransaction, INVALID_TRANSACTION_FORMAT);

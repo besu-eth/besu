@@ -786,9 +786,15 @@ public class Transaction
   /**
    * Calculates the max up-front cost for the gas the transaction can use.
    *
+   * <p>For an EIP-8141 frame transaction this is its {@code max_fee}, which caps what it pays for
+   * all of its execution, state and blob gas.
+   *
    * @return the max up-front cost for the gas the transaction can use.
    */
   public Wei getMaxUpfrontGasCost(final long blobGasPerBlock) {
+    if (transactionType.supportsFrames()) {
+      return maxFee.orElseThrow();
+    }
     return getUpfrontGasCost(
         getMaxGasPrice(), getMaxFeePerBlobGas().orElse(Wei.ZERO), blobGasPerBlock);
   }
@@ -845,9 +851,16 @@ public class Transaction
   /**
    * Return the maximum fee per gas the sender is willing to pay for this transaction.
    *
+   * <p>An EIP-8141 frame transaction caps its total fee rather than its fee per gas, so for it this
+   * is {@code max_fee} spread over its gas limit, rounded down: the highest base fee its budget
+   * covers on every unit of {@code max_gas}, ignoring blob gas.
+   *
    * @return max fee per gas in wei
    */
   public Wei getMaxGasPrice() {
+    if (transactionType.supportsFrames()) {
+      return maxFee.orElseThrow().divide(gasLimit);
+    }
     return maxFeePerGas.orElseGet(
         () ->
             gasPrice.orElseThrow(

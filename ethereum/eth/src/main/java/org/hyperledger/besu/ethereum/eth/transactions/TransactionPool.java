@@ -346,14 +346,8 @@ public class TransactionPool implements BlockAddedObserver {
     return new AdditionOutcome(validationResult.result, transaction);
   }
 
-  private Optional<Wei> getMaxGasPrice(final Transaction transaction) {
-    return transaction.getGasPrice().map(Optional::of).orElse(transaction.getMaxFeePerGas());
-  }
-
   private boolean isMaxGasPriceBelowConfiguredMinGasPrice(final Transaction transaction) {
-    return getMaxGasPrice(transaction)
-        .map(g -> g.lessThan(configuration.getMinGasPrice()))
-        .orElse(true);
+    return transaction.getMaxGasPrice().lessThan(configuration.getMinGasPrice());
   }
 
   private Stream<Transaction> sortedBySenderAndNonce(final Stream<Transaction> transactions) {
@@ -534,8 +528,6 @@ public class TransactionPool implements BlockAddedObserver {
     if (transaction.getType().supportsFrames()) {
       // The EIP-8141 mempool validation rules (validation prefix simulation, paymaster
       // accounting) are not implemented yet, so frame transactions are only accepted in blocks.
-      // This runs before validatePrice, which reads getMaxGasPrice and so assumes a per-gas fee
-      // cap.
       return ValidationResultAndAccount.invalid(
           TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
           "Frame transactions are not yet supported by the transaction pool");
@@ -632,12 +624,12 @@ public class TransactionPool implements BlockAddedObserver {
     if (isLocal) {
       // Local (RPC) fee cap
       if (!configuration.getTxFeeCap().isZero()
-          && getMaxGasPrice(transaction).get().greaterThan(configuration.getTxFeeCap())) {
+          && transaction.getMaxGasPrice().greaterThan(configuration.getTxFeeCap())) {
         return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
       }
     } else {
       // Remote (P2P) fee cap
-      if (getMaxGasPrice(transaction).get().greaterThan(configuration.getP2pTxFeeCap())) {
+      if (transaction.getMaxGasPrice().greaterThan(configuration.getP2pTxFeeCap())) {
         return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
       }
     }

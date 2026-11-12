@@ -21,9 +21,11 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Optional;
 
 public class AbstractTransactionReplacementTest {
   protected static PendingTransaction frontierTx(final long price) {
@@ -65,6 +67,18 @@ public class AbstractTransactionReplacementTest {
             .maxFeePerBlobGas(Wei.of(maxFeePerBlobGas))
             .versionedHashes(List.of(VersionedHash.DEFAULT_VERSIONED_HASH))
             .build();
+    when(pendingTransaction.getTransaction()).thenReturn(transaction);
+    return pendingTransaction;
+  }
+
+  protected static PendingTransaction frameTx(final long maxPriorityFeePerGas, final long maxFee) {
+    final PendingTransaction pendingTransaction = mock(PendingTransaction.class);
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .type(TransactionType.FRAME)
+            .maxPriorityFeePerGas(Optional.of(Wei.of(maxPriorityFeePerGas)))
+            .maxFee(Optional.of(Wei.of(maxFee)))
+            .createTransaction(null);
     when(pendingTransaction.getTransaction()).thenReturn(transaction);
     return pendingTransaction;
   }

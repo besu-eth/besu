@@ -26,6 +26,8 @@ import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 public class LondonFeeMarketTest {
 
@@ -56,6 +58,22 @@ public class LondonFeeMarketTest {
 
     final BaseFeeMarket londonFeeMarket = FeeMarket.london(0);
     assertThat(londonFeeMarket.satisfiesFloorTxFee(transaction)).isFalse();
+  }
+
+  @ParameterizedTest(name = "maxFee={0}")
+  @CsvSource({"35000, true", "34999, false"})
+  public void frameTransactionFloorIsItsMaxFeeOverGasLimit(
+      final long maxFee, final boolean satisfiesFloor) {
+    // the London floor is 7 wei per gas, so a 5000 gas frame transaction needs a 35000 wei budget
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .type(TransactionType.FRAME)
+            .gasLimit(5000)
+            .maxFee(Optional.of(Wei.of(maxFee)))
+            .createTransaction(KEY_PAIR1);
+
+    final BaseFeeMarket londonFeeMarket = FeeMarket.london(0);
+    assertThat(londonFeeMarket.satisfiesFloorTxFee(transaction)).isEqualTo(satisfiesFloor);
   }
 
   @Test

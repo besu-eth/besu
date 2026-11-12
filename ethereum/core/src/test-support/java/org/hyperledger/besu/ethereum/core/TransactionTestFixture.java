@@ -63,6 +63,7 @@ public class TransactionTestFixture {
   private Optional<Wei> maxPriorityFeePerGas = Optional.empty();
   private Optional<Wei> maxFeePerGas = Optional.empty();
   private Optional<Wei> maxFeePerBlobGas = Optional.empty();
+  private Optional<Wei> maxFee = Optional.empty();
 
   private Optional<List<AccessListEntry>> accessListEntries = Optional.empty();
   private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
@@ -126,7 +127,7 @@ public class TransactionTestFixture {
         break;
       case FRAME:
         builder.maxPriorityFeePerGas(maxPriorityFeePerGas.orElse(Wei.of(500)));
-        builder.maxFee(Wei.fromEth(1));
+        builder.maxFee(maxFee.orElse(Wei.fromEth(1)));
         builder.frames(
             frames.orElse(
                 List.of(
@@ -208,6 +209,11 @@ public class TransactionTestFixture {
 
   public TransactionTestFixture maxFeePerBlobGas(final Optional<Wei> maxFeePerBlobGas) {
     this.maxFeePerBlobGas = maxFeePerBlobGas;
+    return this;
+  }
+
+  public TransactionTestFixture maxFee(final Optional<Wei> maxFee) {
+    this.maxFee = maxFee;
     return this;
   }
 
