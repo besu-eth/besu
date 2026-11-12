@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -217,6 +219,31 @@ public class EthSendRawTransactionTest {
   public void transactionTooBigIsRejected() {
     verifyErrorForInvalidTransaction(
         TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES, RpcErrorType.EXCEEDS_MAX_TX_BYTES);
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "INVALID_FRAMES, FRAME_VALIDATION_FAILED",
+    "FRAME_VERIFICATION_FAILED, FRAME_VALIDATION_FAILED",
+    "FRAME_SENDER_NOT_APPROVED, FRAME_VALIDATION_FAILED",
+    "FRAME_PAYMENT_NOT_APPROVED, FRAME_VALIDATION_FAILED",
+    "FRAME_MEMPOOL_POLICY_VIOLATION, FRAME_MEMPOOL_POLICY_VIOLATION"
+  })
+  public void frameTransactionRejectionNamesTheFailedCheck(
+      final TransactionInvalidReason reason, final RpcErrorType expectedError) {
+    when(transactionPool.addTransactionViaApi(any(Transaction.class)))
+        .thenReturn(ValidationResult.invalid(reason, "the failed check"));
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_sendRawTransaction", new String[] {VALID_TRANSACTION}));
+
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcError error = ((JsonRpcErrorResponse) actualResponse).getError();
+    assertThat(error.getCode()).isEqualTo(expectedError.getCode());
+    assertThat(error.getMessage()).isEqualTo(expectedError.getMessage() + " (the failed check)");
   }
 
   private void verifyErrorForInvalidTransaction(

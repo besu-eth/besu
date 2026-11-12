@@ -129,11 +129,21 @@ public class EthSendRawTransaction implements JsonRpcMethod {
         return new JsonRpcErrorResponse(
             requestContext.getRequest().getId(),
             new JsonRpcError(rpcErrorType.getCode(), validationResult.getErrorMessage(), null));
+      } else if (isFrameRejection(errorReason)) {
+        // One frame reason covers many checks, so the message also names the check that failed
+        return new JsonRpcErrorResponse(
+            requestContext.getRequest().getId(), JsonRpcError.from(validationResult));
       } else {
         return new JsonRpcErrorResponse(
             requestContext.getRequest().getId(),
             JsonRpcErrorConverter.convertTransactionInvalidReason(errorReason));
       }
     }
+  }
+
+  private static boolean isFrameRejection(final TransactionInvalidReason reason) {
+    final RpcErrorType rpcErrorType = JsonRpcErrorConverter.convertTransactionInvalidReason(reason);
+    return rpcErrorType == RpcErrorType.FRAME_VALIDATION_FAILED
+        || rpcErrorType == RpcErrorType.FRAME_MEMPOOL_POLICY_VIOLATION;
   }
 }
