@@ -79,7 +79,7 @@ public abstract class ParallelBlockTransactionProcessor {
   }
 
   // the receipt's bloom depends on this transaction alone, so it is hashed on the worker
-  private static ParallelizedTransactionContext precomputeLogsBloom(
+  protected static ParallelizedTransactionContext precomputeLogsBloom(
       final ParallelizedTransactionContext context) {
     if (context != null && context.transactionProcessingResult() != null) {
       context.transactionProcessingResult().getLogsBloom();
