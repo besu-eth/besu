@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
 
 public interface PendingTransactions {
 
@@ -110,8 +111,18 @@ public interface PendingTransactions {
 
   @FunctionalInterface
   interface PendingTransactionsSelector {
-    Map<PendingTransaction, TransactionSelectionResult> evaluatePendingTransactions(
-        List<PendingTransaction> candidatePendingTransactions);
+    /**
+     * Evaluates the candidate transactions for inclusion in a block.
+     *
+     * <p>The result of a transaction can still be incomplete when this method returns, since its
+     * evaluation can still be running after the selection timed out or was cancelled, so the pool
+     * must process each result only when its future completes.
+     *
+     * @param candidatePendingTransactions the transactions to evaluate, in priority order
+     * @return the future result of each transaction whose evaluation started
+     */
+    Map<PendingTransaction, CompletableFuture<TransactionSelectionResult>>
+        evaluatePendingTransactions(List<PendingTransaction> candidatePendingTransactions);
   }
 
   record Status(long pendingCount, long queuedCount) {}

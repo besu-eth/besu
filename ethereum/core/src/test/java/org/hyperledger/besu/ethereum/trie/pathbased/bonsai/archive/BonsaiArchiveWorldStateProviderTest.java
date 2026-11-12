@@ -15,15 +15,18 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
@@ -35,6 +38,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -48,6 +52,7 @@ public class BonsaiArchiveWorldStateProviderTest {
   private Blockchain blockchain;
   private BlockHeader chainHeadHeader;
   private BonsaiArchiveWorldStateProvider provider;
+  private BonsaiWorldStateKeyValueStorage worldStateStorage;
 
   @BeforeEach
   void setup() {
@@ -178,6 +183,29 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void archiveProof_failurePropagates() {
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    final var liveStorage = worldStateStorage.getComposedWorldStateStorage();
+    final var tx = liveStorage.startTransaction();
+    new ArchiveCoverageTracker(liveStorage).record(tx, queryBlockNumber);
+    tx.commit();
+
+    final RuntimeException failure = new RuntimeException("proof failure");
+    assertThatThrownBy(
+            () ->
+                provider.getAccountProof(
+                    historicalHeader,
+                    Address.ZERO,
+                    List.of(),
+                    proof -> {
+                      throw failure;
+                    }))
+        .isSameAs(failure);
+  }
+
+  @Test
   void recentQuery_beforeMigrationComplete_returnsBonsaiWorldStateBackedByMainStorage() {
     // Migration not yet complete: falls through to super.getWorldState() which serves
     // recent blocks normally via trie-log rollback from the cached head state.
@@ -200,7 +228,7 @@ public class BonsaiArchiveWorldStateProviderTest {
             .extraStorageConfiguration(
                 ImmutableExtraStorageConfiguration.builder().maxLayersToLoad(MAX_LAYERS).build())
             .build();
-    final BonsaiWorldStateKeyValueStorage worldStateStorage =
+    worldStateStorage =
         new BonsaiWorldStateKeyValueStorage(
             new InMemoryKeyValueStorageProvider(), new NoOpMetricsSystem(), config);
     if (archiveModeReady) {

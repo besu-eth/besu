@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockOptions;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
@@ -61,7 +62,6 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
-import java.math.BigInteger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1334,6 +1334,55 @@ public class DefaultBlockchainTest {
         .isEqualTo(newBlock.getHeader());
   }
 
+  @Test
+  public void forwardToBlockReusesCachedBlockData() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock, "/data/test", 512, 512);
+
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+    blockchain.storeBlock(newBlock, gen.receipts(newBlock));
+
+    final List<BlockAddedEvent> events = new ArrayList<>();
+    blockchain.observeBlockAdded(events::add);
+
+    assertThat(blockchain.forwardToBlock(newBlock.getHeader())).isTrue();
+
+    assertThat(events).hasSize(1);
+    assertThat(events.getFirst().getBlock().getBody()).isSameAs(newBlock.getBody());
+    assertBlockIsHead(blockchain, newBlock);
+  }
+
+  @Test
+  public void forwardToBlockReadsFromStorageWhenCachesAreDisabled() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final Block genesisBlock = gen.genesisBlock();
+    // 0 cache sizes disable the block and receipts caches
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, genesisBlock, "/data/test", 0, 0);
+
+    final Block newBlock =
+        gen.block(new BlockOptions().setBlockNumber(1L).setParentHash(genesisBlock.getHash()));
+    final List<TransactionReceipt> receipts = gen.receipts(newBlock);
+    blockchain.storeBlock(newBlock, receipts);
+
+    final List<BlockAddedEvent> events = new ArrayList<>();
+    blockchain.observeBlockAdded(events::add);
+
+    assertThat(blockchain.forwardToBlock(newBlock.getHeader())).isTrue();
+
+    assertThat(events).hasSize(1);
+    assertThat(events.getFirst().getBlock()).isEqualTo(newBlock);
+    assertBlockIsHead(blockchain, newBlock);
+    assertBlockDataIsStored(blockchain, newBlock, receipts);
+  }
+
   /*
    * Check that block header, block body, block number, transaction locations, and receipts for this
    * block are all stored.
@@ -1700,7 +1749,7 @@ public class DefaultBlockchainTest {
         SyncBlockBody.readWrappedBodyFrom(
             new BytesValueRLPInput(output.encoded(), false),
             false,
-            new DefaultProtocolSchedule(Optional.of(BigInteger.ONE)));
+            new DefaultProtocolSchedule(ChainId.of(1)));
     return new SyncBlockWithReceipts(
         new SyncBlock(block.getHeader(), body), receipts.stream().map(this::asSent).toList());
   }
