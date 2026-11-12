@@ -124,6 +124,14 @@ class TransactionBuilderTest {
   }
 
   @Test
+  void frameTransactionHasNoPublicKey() {
+    final Transaction frameTx =
+        new TransactionTestFixture().type(TransactionType.FRAME).createTransaction(senderKeys);
+
+    assertThat(frameTx.getPublicKey()).isEmpty();
+  }
+
+  @Test
   @SuppressWarnings("ReferenceEquality")
   void copyFromIsIdentical() {
     final TransactionTestFixture fixture = new TransactionTestFixture();

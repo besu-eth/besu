@@ -583,9 +583,13 @@ public class Transaction
   /**
    * Returns the public key extracted from the signature.
    *
-   * @return the public key
+   * @return the public key, or empty for an EIP-8141 frame transaction, which has no outer
+   *     signature
    */
   public Optional<String> getPublicKey() {
+    if (signature == null) {
+      return Optional.empty();
+    }
     return signatureAlgorithm
         .recoverPublicKeyFromSignature(getOrComputeSenderRecoveryHash(), signature)
         .map(SECPPublicKey::toString);
