@@ -34,8 +34,10 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Util;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -48,6 +50,22 @@ public class BftCommitSealsValidationRuleTest {
   private final BlockHeader blockHeader = mock(BlockHeader.class);
   private final BftCommitSealsValidationRule commitSealsValidationRule =
       new BftCommitSealsValidationRule();
+
+  @Test
+  public void commitSealThatDoesNotRecoverToAnAddressFailsValidationWithoutThrowing() {
+    // A crafted commit seal whose public-key recovery fails yields a null committer. The production
+    // validator set is a natural-ordering TreeSet, whose containsAll(...) throws
+    // NullPointerException
+    // on a null element, so the header must be rejected rather than throwing.
+    final Address validator = Util.publicKeyToAddress(NodeKeyUtils.generate().getPublicKey());
+    final Collection<Address> validators = new TreeSet<>(singletonList(validator));
+    final BftContext bftContext = setupContextWithValidators(validators);
+    final ProtocolContext context =
+        new ProtocolContext.Builder().withConsensusContext(bftContext).build();
+    stubCommitters(bftContext, singletonList((Address) null));
+
+    assertThat(commitSealsValidationRule.validate(blockHeader, null, context)).isFalse();
+  }
 
   @Test
   public void correctlyConstructedHeaderPassesValidation() {

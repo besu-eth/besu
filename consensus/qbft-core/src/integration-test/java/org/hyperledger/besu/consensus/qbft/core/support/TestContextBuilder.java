@@ -72,6 +72,7 @@ import org.hyperledger.besu.consensus.qbft.adaptor.QbftFinalStateImpl;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftProtocolScheduleAdaptor;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftValidatorModeTransitionLoggerAdaptor;
 import org.hyperledger.besu.consensus.qbft.adaptor.QbftValidatorProviderAdaptor;
+import org.hyperledger.besu.consensus.qbft.adaptor.ValidatedBlockCache;
 import org.hyperledger.besu.consensus.qbft.blockcreation.QbftBlockCreatorFactory;
 import org.hyperledger.besu.consensus.qbft.core.payload.MessageFactory;
 import org.hyperledger.besu.consensus.qbft.core.statemachine.QbftBlockHeightManagerFactory;
@@ -514,7 +515,8 @@ public class TestContextBuilder {
             clock,
             metricsSystem,
             blockChain::getChainHeadHeader,
-            transactionEventNotifier.newEmitter());
+            transactionEventNotifier.newEmitter(),
+            new DeterministicEthScheduler());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -550,6 +552,8 @@ public class TestContextBuilder {
     final ProposerSelector proposerSelector =
         new BftProposerSelector(blockChain, BFT_BLOCK_INTERFACE, true, validatorProvider);
 
+    final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
+
     final BftExecutors bftExecutors =
         BftExecutors.create(new NoOpMetricsSystem(), BftExecutors.ConsensusType.QBFT);
     final QbftFinalState finalState =
@@ -564,13 +568,15 @@ public class TestContextBuilder {
                 new BftRoundExpiryTimeCalculator(Duration.ofSeconds(ROUND_TIMER_SEC)),
                 bftExecutors),
             new BlockTimer(bftEventQueue, forksSchedule, bftExecutors, TestClock.fixed()),
-            new QbftBlockCreatorFactoryAdaptor(blockCreatorFactory, BFT_EXTRA_DATA_ENCODER),
+            new QbftBlockCreatorFactoryAdaptor(
+                blockCreatorFactory, BFT_EXTRA_DATA_ENCODER, validatedBlockCache),
             clock);
 
     final MessageFactory messageFactory = new MessageFactory(nodeKey, blockEncoder);
 
     final QbftProtocolScheduleAdaptor qbftProtocolSchedule =
-        new QbftProtocolScheduleAdaptor(protocolSchedule, bftProtocolContext);
+        new QbftProtocolScheduleAdaptor(
+            protocolSchedule, bftProtocolContext, BFT_EXTRA_DATA_ENCODER, validatedBlockCache);
     final MessageValidatorFactory messageValidatorFactory =
         new MessageValidatorFactory(
             proposerSelector, qbftProtocolSchedule, qbftValidatorProvider, qbftBlockInterface);

@@ -17,6 +17,7 @@ package org.hyperledger.besu.consensus.merge;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.PermissionTransactionFilter;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
@@ -25,7 +26,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
 import org.hyperledger.besu.plugin.services.txvalidator.TransactionValidationRule;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -165,7 +165,7 @@ public class TransitionProtocolSchedule implements ProtocolSchedule {
    * @return the chain id
    */
   @Override
-  public Optional<BigInteger> getChainId() {
+  public ChainId getChainId() {
     return transitionUtils.dispatchFunctionAccordingToMergeState(ProtocolSchedule::getChainId);
   }
 

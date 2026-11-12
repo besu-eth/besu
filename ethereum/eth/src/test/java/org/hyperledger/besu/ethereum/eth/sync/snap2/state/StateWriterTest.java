@@ -18,11 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStorageFixture.slots;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,6 +55,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
+import org.mockito.Answers;
 
 class StateWriterTest {
 
@@ -352,20 +351,16 @@ class StateWriterTest {
   }
 
   @Test
-  void abortsTheBatchOfAFailedWriteButNotOneWhoseCommitFailed() {
-    final SyncStateStorage mocked = mock(SyncStateStorage.class);
+  void abortsTheBatchOfAFailedWrite() {
+    final SyncStateStorage mocked = mock(SyncStateStorage.class, Answers.CALLS_REAL_METHODS);
     final SyncStateStorage.Batch batch = mock(SyncStateStorage.Batch.class);
     when(mocked.batch()).thenReturn(batch);
     final StateWriter mockedWriter = new StateWriter(mocked, coverage);
     final Bytes32 codeHash = Bytes32.wrap(Hash.hash(CODE).getBytes());
-
-    // the commit of the transaction has started, it cannot be rolled back
-    doThrow(new StorageException("disk full")).when(batch).commit();
-    assertThatThrownBy(() -> mockedWriter.codes(Map.of(codeHash, CODE))).hasMessage("disk full");
-    verify(batch, never()).abort();
-
     doThrow(new StorageException("write failed")).when(batch).putCode(any(), any());
+
     assertThatThrownBy(() -> mockedWriter.codes(Map.of(codeHash, CODE))).hasMessage("write failed");
+    verify(batch, never()).commit();
     verify(batch).abort();
   }
 
@@ -507,52 +502,8 @@ class StateWriterTest {
 
   // a writer whose first commit holding a node at such a location fails, dropping what it holds
   private StateWriter writerFailingOnce(final Predicate<Bytes> nodeLocation) {
-    final SyncStateStorage failing = spy(storages.sync());
-    final AtomicBoolean failed = new AtomicBoolean();
-    doAnswer(
-            invocation ->
-                failingOnce(
-                    (SyncStateStorage.TrieWriter) invocation.callRealMethod(),
-                    nodeLocation,
-                    failed))
-        .when(failing)
-        .trieWriter();
-    return new StateWriter(failing, coverage);
-  }
-
-  private static SyncStateStorage.TrieWriter failingOnce(
-      final SyncStateStorage.TrieWriter writer,
-      final Predicate<Bytes> nodeLocation,
-      final AtomicBoolean failed) {
-    return new SyncStateStorage.TrieWriter() {
-      private boolean holdsFailingNode;
-
-      @Override
-      public void accountNode(final Bytes location, final Bytes32 hash, final Bytes rlp) {
-        writer.accountNode(location, hash, rlp);
-      }
-
-      @Override
-      public void storageNode(
-          final Bytes32 accountHash, final Bytes location, final Bytes32 hash, final Bytes rlp) {
-        holdsFailingNode |= nodeLocation.test(location);
-        writer.storageNode(accountHash, location, hash, rlp);
-      }
-
-      @Override
-      public void commit() {
-        if (holdsFailingNode && failed.compareAndSet(false, true)) {
-          writer.abort();
-          throw new StorageException("disk failure");
-        }
-        holdsFailingNode = false;
-        writer.commit();
-      }
-
-      @Override
-      public void abort() {
-        writer.abort();
-      }
-    };
+    return new StateWriter(
+        FailingTrieWriter.failingOnce(storages.sync(), nodeLocation, new AtomicBoolean()),
+        coverage);
   }
 }

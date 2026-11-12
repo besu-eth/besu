@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidationResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.blockcreation.MempoolPrewarmer;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -65,6 +66,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -101,6 +103,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   /** The Protocol schedule. */
   protected final ProtocolSchedule protocolSchedule;
 
+  private final Optional<MempoolPrewarmer> mempoolPrewarmer;
+
   private final Map<PayloadIdentifier, BlockCreationTask> blockCreationTasks =
       new ConcurrentHashMap<>();
 
@@ -129,6 +133,35 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         protocolContext,
         protocolSchedule,
         ethScheduler,
+        transactionPool,
+        miningParams,
+        backwardSyncContext,
+        Optional.empty());
+  }
+
+  /**
+   * Instantiates a new Merge coordinator.
+   *
+   * @param protocolContext the protocol context
+   * @param protocolSchedule the protocol schedule
+   * @param ethScheduler the block builder executor
+   * @param transactionPool the pending transactions
+   * @param miningParams the mining params
+   * @param backwardSyncContext the backward sync context
+   * @param mempoolPrewarmer prewarms the state for the next block between blocks, if enabled
+   */
+  public MergeCoordinator(
+      final ProtocolContext protocolContext,
+      final ProtocolSchedule protocolSchedule,
+      final EthScheduler ethScheduler,
+      final TransactionPool transactionPool,
+      final MiningConfiguration miningParams,
+      final BackwardSyncContext backwardSyncContext,
+      final Optional<MempoolPrewarmer> mempoolPrewarmer) {
+    this(
+        protocolContext,
+        protocolSchedule,
+        ethScheduler,
         miningParams,
         backwardSyncContext,
         (parentHeader, address) -> {
@@ -141,7 +174,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
               protocolSchedule,
               parentHeader,
               ethScheduler);
-        });
+        },
+        mempoolPrewarmer);
   }
 
   /**
@@ -162,6 +196,36 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final MiningConfiguration miningParams,
       final BackwardSyncContext backwardSyncContext,
       final MergeBlockCreatorFactory mergeBlockCreatorFactory) {
+    this(
+        protocolContext,
+        protocolSchedule,
+        ethScheduler,
+        miningParams,
+        backwardSyncContext,
+        mergeBlockCreatorFactory,
+        Optional.empty());
+  }
+
+  /**
+   * Instantiates a new Merge coordinator.
+   *
+   * @param protocolContext the protocol context
+   * @param protocolSchedule the protocol schedule
+   * @param ethScheduler the block builder executor
+   * @param miningParams the mining params
+   * @param backwardSyncContext the backward sync context
+   * @param mergeBlockCreatorFactory the merge block creator factory
+   * @param mempoolPrewarmer prewarms the state for the next block between blocks, if enabled
+   */
+  @VisibleForTesting
+  public MergeCoordinator(
+      final ProtocolContext protocolContext,
+      final ProtocolSchedule protocolSchedule,
+      final EthScheduler ethScheduler,
+      final MiningConfiguration miningParams,
+      final BackwardSyncContext backwardSyncContext,
+      final MergeBlockCreatorFactory mergeBlockCreatorFactory,
+      final Optional<MempoolPrewarmer> mempoolPrewarmer) {
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
     this.ethScheduler = ethScheduler;
@@ -177,6 +241,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     this.miningConfiguration = miningParams;
 
     this.mergeBlockCreatorFactory = mergeBlockCreatorFactory;
+    this.mempoolPrewarmer = mempoolPrewarmer;
+    // prewarming stops before the payload's checks, which run before its execution
+    mempoolPrewarmer.ifPresent(
+        prewarmer -> mergeContext.addNewUnverifiedPayloadListener(prewarmer::stopForPayload));
 
     this.backwardSyncContext.subscribeBadChainListener(this);
   }
@@ -185,10 +253,16 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public void start() {}
 
   @Override
-  public void stop() {}
+  public void stop() {
+    // the next forkchoiceUpdated starts prewarming again; only the node's shutdown closes it
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.empty()));
+  }
 
   @Override
-  public void awaitStop() throws InterruptedException {}
+  public void awaitStop() throws InterruptedException {
+    // only the node's shutdown waits for mining to stop, before it closes the storage
+    mempoolPrewarmer.ifPresent(MempoolPrewarmer::close);
+  }
 
   @Override
   public boolean enable() {
@@ -242,6 +316,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     // we assume that preparePayload is always called sequentially, since the RPC Engine calls
     // are sequential, if this assumption changes then more synchronization should be added to
     // shared data structures
+
+    mempoolPrewarmer.ifPresent(MempoolPrewarmer::stopForBlockBuilding);
 
     final PayloadIdentifier payloadIdentifier =
         PayloadIdentifier.forPayloadParams(preparePayloadArgs);
@@ -699,6 +775,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   private BlockProcessingResult validateBlock(
       final Block block, final Optional<BlockAccessList> blockAccessList) {
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.of(block)));
     final var validationResult =
         protocolSchedule
             .getByBlockHeader(block.getHeader())
@@ -709,6 +786,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
+                InclusionListTransactions.EMPTY,
                 false);
 
     return validationResult;
@@ -726,6 +804,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
+                // the inclusion list validation result is not used for a proposed block
+                InclusionListTransactions.EMPTY,
                 false,
                 false);
 
@@ -739,18 +819,33 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public BlockProcessingResult rememberBlock(
-      final Block block, final Optional<BlockAccessList> blockAccessList) {
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final InclusionListTransactions inclusionListTransactions,
+      final Executor blockWriter) {
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.of(block)));
     final var chain = protocolContext.getBlockchain();
-    final var validationResult = validateBlock(block, blockAccessList);
+    final var validationResult =
+        protocolSchedule
+            .getByBlockHeader(block.getHeader())
+            .getBlockValidator()
+            .validateAndProcessBlockDeferringTrieLog(
+                protocolContext,
+                block,
+                HeaderValidationMode.FULL,
+                HeaderValidationMode.NONE,
+                blockAccessList,
+                inclusionListTransactions);
     validationResult
         .getYield()
         .ifPresentOrElse(
             result ->
-                chain.storeBlock(
-                    block,
-                    result.getReceipts(),
-                    validationResult.getYield().flatMap(y -> y.getBlockAccessList())),
+                blockWriter.execute(
+                    () -> {
+                      result.getTrieLogWrite().run();
+                      chain.storeBlock(block, result.getReceipts(), result.getBlockAccessList());
+                    }),
             () -> LOG.debug("empty yield in blockProcessingResult"));
     return validationResult;
   }
@@ -799,6 +894,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
               blockchain.setSafeBlock(safeBlockHash);
               mergeContext.setSafeBlock(newSafeBlock);
             });
+
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.start(newHead));
 
     return ForkchoiceResult.withResult(newFinalized, Optional.of(newHead));
   }
@@ -885,6 +982,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   @Override
   public CompletableFuture<Void> appendNewPayloadToSync(
       final Block newPayload, final Optional<BlockAccessList> blockAccessList) {
+    // the head the prewarmer warms for is behind the blocks backward sync imports
+    mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.empty()));
     return backwardSyncContext.syncBackwardsUntil(newPayload, blockAccessList);
   }
 
@@ -1128,6 +1227,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   private Optional<Long> getDefaultGasLimit(final ProtocolSchedule protocolSchedule) {
     return protocolSchedule
         .getChainId()
+        .toOptionalBigInteger()
         .flatMap(NetworkDefinition::fromChainId)
         .map(NetworkDefinition::getTargetGasLimit);
   }

@@ -16,12 +16,14 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INTERNAL_ERROR;
 
+import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TraceTypeParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -32,8 +34,8 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
-import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
 
@@ -46,11 +48,15 @@ import org.slf4j.LoggerFactory;
 public class TraceRawTransaction extends AbstractTraceByBlock implements JsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(TraceRawTransaction.class);
 
+  private final long serverStepLimit;
+
   public TraceRawTransaction(
       final ProtocolSchedule protocolSchedule,
       final BlockchainQueries blockchainQueries,
-      final TransactionSimulator transactionSimulator) {
+      final TransactionSimulator transactionSimulator,
+      final ApiConfiguration apiConfiguration) {
     super(blockchainQueries, protocolSchedule, transactionSimulator);
+    this.serverStepLimit = apiConfiguration.getDebugTraceStepLimit();
   }
 
   @Override
@@ -103,16 +109,24 @@ public class TraceRawTransaction extends AbstractTraceByBlock implements JsonRpc
 
     final Set<TraceTypeParameter.TraceType> traceTypes = traceTypeParameter.getTraceTypes();
     final DebugOperationTracer tracer =
-        new DebugOperationTracer(buildTraceOptions(traceTypes).opCodeTracerConfig(), false);
+        new DebugOperationTracer(
+            TraceStepLimit.clamp(buildTraceOptions(traceTypes), serverStepLimit)
+                .opCodeTracerConfig(),
+            false);
     final BlockHeader headBlock = blockchainQueriesSupplier.get().headBlockHeader();
     return transactionSimulator
         .process(
-            CallParameter.fromTransaction(transaction),
-            buildTransactionValidationParams(),
+            transaction,
+            TransactionValidationParams.blockReplay(),
             tracer,
             (mutableWorldState, transactionSimulatorResult) ->
                 transactionSimulatorResult.map(
                     result -> {
+                      if (result.isInvalid()) {
+                        return new JsonRpcErrorResponse(
+                            requestContext.getRequest().getId(),
+                            JsonRpcError.from(result.getValidationResult()));
+                      }
                       final TransactionTrace transactionTrace =
                           new TransactionTrace(
                               result.transaction(), result.result(), tracer.getTraceFrames());

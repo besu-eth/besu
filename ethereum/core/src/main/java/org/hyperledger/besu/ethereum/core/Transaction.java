@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.core;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.crypto.Hash.keccak256;
+import static org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper.CELL_PROOFS_PER_BLOB;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPublicKey;
@@ -40,7 +41,7 @@ import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
-import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -54,6 +55,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Lists;
@@ -84,6 +86,12 @@ public class Transaction
 
   public static final BigInteger TWO = BigInteger.valueOf(2);
 
+  private static final long REPLAY_UNPROTECTED_V_BASE_LONG = 27L;
+  private static final long REPLAY_PROTECTED_V_BASE_LONG = 35L;
+  // Largest chain id for which v = 2 * chainId + 35 + recId does not overflow a long
+  private static final long MAX_CHAIN_ID_FOR_LONG_V =
+      (Long.MAX_VALUE - REPLAY_PROTECTED_V_BASE_LONG - 1) / 2;
+
   private static final Cache<Hash, Address> senderCache =
       CacheBuilder.newBuilder()
           .concurrencyLevel(Runtime.getRuntime().availableProcessors())
@@ -111,7 +119,7 @@ public class Transaction
 
   private final Optional<List<AccessListEntry>> maybeAccessList;
 
-  private final Optional<BigInteger> chainId;
+  private final ChainId chainId;
 
   // Caches a "hash" of a portion of the transaction used for sender recovery.
   // Note that this hash does not include the transaction signature, so it does not
@@ -126,6 +134,7 @@ public class Transaction
   private volatile Hash hash;
   // Caches the size in bytes of the encoded transaction.
   private volatile int sizeForAnnouncement = -1;
+  private volatile int sizeForEth72Announcement = -1;
   private volatile int sizeForBlockInclusion = -1;
   private final TransactionType transactionType;
 
@@ -209,14 +218,15 @@ public class Transaction
       final Payload payload,
       final Optional<List<AccessListEntry>> maybeAccessList,
       final Address sender,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<VersionedHash>> versionedHashes,
       final Optional<BlobsWithCommitments> blobsWithCommitments,
       final Optional<List<CodeDelegation>> maybeCodeDelegationList,
       final Optional<Bytes> rawRlp,
       final Optional<Hash> hash,
-      final Optional<Integer> sizeForAnnouncement,
-      final Optional<Integer> sizeForBlockInclusion) {
+      final int sizeForAnnouncement,
+      final int sizeForEth72Announcement,
+      final int sizeForBlockInclusion) {
 
     if (!forCopy) {
       if (transactionType.requiresChainId()) {
@@ -279,8 +289,9 @@ public class Transaction
     this.maybeCodeDelegationList = maybeCodeDelegationList;
     this.rawRlp = rawRlp;
     hash.ifPresent(h -> this.hash = h);
-    sizeForAnnouncement.ifPresent(i -> this.sizeForAnnouncement = i);
-    sizeForBlockInclusion.ifPresent(i -> this.sizeForBlockInclusion = i);
+    this.sizeForAnnouncement = sizeForAnnouncement;
+    this.sizeForEth72Announcement = sizeForEth72Announcement;
+    this.sizeForBlockInclusion = sizeForBlockInclusion;
   }
 
   /**
@@ -460,6 +471,17 @@ public class Transaction
    */
   @Override
   public Optional<BigInteger> getChainId() {
+    return chainId.toOptionalBigInteger();
+  }
+
+  /**
+   * Return the transaction chain id, that is absent if the transaction is not tied to a specific
+   * chain.
+   *
+   * @return the transaction chain id
+   */
+  @JsonIgnore
+  public ChainId getChainIdentifier() {
     return chainId;
   }
 
@@ -572,10 +594,16 @@ public class Transaction
       // EIP-2718 typed transaction, use yParity:
       return null;
     } else {
-      final BigInteger recId = BigInteger.valueOf(signature.getRecId());
-      return chainId
-          .map(bigInteger -> recId.add(REPLAY_PROTECTED_V_BASE).add(TWO.multiply(bigInteger)))
-          .orElseGet(() -> recId.add(REPLAY_UNPROTECTED_V_BASE));
+      final int recId = signature.getRecId();
+      if (chainId.isAbsent()) {
+        return BigInteger.valueOf(REPLAY_UNPROTECTED_V_BASE_LONG + recId);
+      }
+      if (chainId.fitsLong() && chainId.toLong() <= MAX_CHAIN_ID_FOR_LONG_V) {
+        return BigInteger.valueOf(2 * chainId.toLong() + REPLAY_PROTECTED_V_BASE_LONG + recId);
+      }
+      return BigInteger.valueOf(recId)
+          .add(REPLAY_PROTECTED_V_BASE)
+          .add(TWO.multiply(chainId.toBigInteger()));
     }
   }
 
@@ -637,6 +665,35 @@ public class Transaction
       // for transactions not containing blobs the encoding is the same, so we can set this as well:
       sizeForAnnouncement = sizeForBlockInclusion;
     }
+  }
+
+  /**
+   * Returns the size in bytes announced to eth/72 peers.
+   *
+   * <p>This is not the same as {@link #getSizeForAnnouncement()}. An eth/72 {@code
+   * PooledTransactions} response elides blob payloads, encoding {@code blobs} as the empty list, so
+   * the announced size has to describe what {@code GetPooledTransactions} will actually return.
+   * Announcing the full pooled size to an eth/72 peer overstates a blob transaction by roughly 128
+   * KiB per blob.
+   *
+   * @return the size in bytes of the encoded transaction with blob payloads elided
+   */
+  public int getSizeForEth72Announcement() {
+    if (sizeForEth72Announcement == -1) {
+      memoizeSizeForEth72Announcement();
+    }
+    return sizeForEth72Announcement;
+  }
+
+  private void memoizeSizeForEth72Announcement() {
+    if (!transactionType.supportsBlob() || getBlobsWithCommitments().isEmpty()) {
+      // Nothing to elide, so the two encodings coincide.
+      sizeForEth72Announcement = getSizeForAnnouncement();
+      return;
+    }
+    sizeForEth72Announcement =
+        TransactionEncoder.encodeOpaqueBytes(this, EncodingContext.POOLED_TRANSACTION_ETH_72)
+            .size();
   }
 
   private void memoizeSizeForAnnouncement() {
@@ -801,7 +858,7 @@ public class Transaction
       final Optional<List<AccessListEntry>> accessList,
       final List<VersionedHash> versionedHashes,
       final Optional<List<CodeDelegation>> codeDelegationList,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     if (transactionType.requiresChainId()) {
       checkArgument(chainId.isPresent(), "Transaction type %s requires chainId", transactionType);
     }
@@ -857,7 +914,7 @@ public class Transaction
       final Optional<List<AccessListEntry>> accessList,
       final List<VersionedHash> versionedHashes,
       final Optional<List<CodeDelegation>> codeDelegationList,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     final Bytes preimage =
         switch (transactionType) {
           case FRONTIER -> frontierPreimage(nonce, gasPrice, gasLimit, to, value, payload, chainId);
@@ -924,7 +981,7 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     return RLP.encode(
         rlpOutput -> {
           rlpOutput.startList();
@@ -935,7 +992,7 @@ public class Transaction
           rlpOutput.writeUInt256Scalar(value);
           rlpOutput.writeBytes(payload);
           if (chainId.isPresent()) {
-            rlpOutput.writeBigIntegerScalar(chainId.get());
+            chainId.writeTo(rlpOutput);
             rlpOutput.writeUInt256Scalar(UInt256.ZERO);
             rlpOutput.writeUInt256Scalar(UInt256.ZERO);
           }
@@ -951,7 +1008,7 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<AccessListEntry>> accessList) {
     final Bytes encoded =
         RLP.encode(
@@ -981,10 +1038,10 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<AccessListEntry>> accessList,
       final RLPOutput rlpOutput) {
-    rlpOutput.writeBigIntegerScalar(chainId.orElseThrow());
+    chainId.writeTo(rlpOutput);
     rlpOutput.writeLongScalar(nonce);
     rlpOutput.writeUInt256Scalar(maxPriorityFeePerGas);
     rlpOutput.writeUInt256Scalar(maxFeePerGas);
@@ -1004,7 +1061,7 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<AccessListEntry>> accessList,
       final List<VersionedHash> versionedHashes) {
 
@@ -1038,7 +1095,7 @@ public class Transaction
       final Wei value,
       final Bytes payload,
       final List<AccessListEntry> accessList,
-      final Optional<BigInteger> chainId) {
+      final ChainId chainId) {
     final Bytes encode =
         RLP.encode(
             rlpOutput -> {
@@ -1058,7 +1115,7 @@ public class Transaction
       final Optional<Address> to,
       final Wei value,
       final Bytes payload,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Optional<List<AccessListEntry>> accessList,
       final List<CodeDelegation> authorizationList) {
     final Bytes encoded =
@@ -1146,7 +1203,7 @@ public class Transaction
     if (getTo().isPresent()) sb.append("to=").append(getTo().get()).append(", ");
     sb.append("value=").append(getValue()).append(", ");
     sb.append("sig=").append(getSignature()).append(", ");
-    if (chainId.isPresent()) sb.append("chainId=").append(getChainId().get()).append(", ");
+    if (chainId.isPresent()) sb.append("chainId=").append(chainId).append(", ");
     if (transactionType.equals(TransactionType.ACCESS_LIST)) {
       sb.append("accessList=").append(maybeAccessList).append(", ");
     }
@@ -1190,7 +1247,7 @@ public class Transaction
                 : isContractCreation() ? "ContractCreation" : "MessageCall")
         .append(", ");
     sb.append(getNonce()).append(", ");
-    sb.append(getSender()).append(", ");
+    sb.append(senderForLog()).append(", ");
     sb.append(getType()).append(", ");
     getGasPrice()
         .ifPresent(gp -> sb.append("gp: ").append(gp.toHumanReadableString()).append(", "));
@@ -1221,6 +1278,19 @@ public class Transaction
     sb.append("v: ").append(getValue().toHumanReadableString()).append(", ");
     getTo().ifPresent(t -> sb.append("to: ").append(t));
     return sb.append("}").toString();
+  }
+
+  /**
+   * The sender to show in logs. Logging a transaction must not fail, also when it has a signature
+   * that does not recover a public key, e.g. an inclusion list transaction (EIP-7805) that is
+   * logged before being validated.
+   */
+  private String senderForLog() {
+    try {
+      return getSender().toString();
+    } catch (final IllegalArgumentException | IllegalStateException e) {
+      return "<unrecoverable sender>";
+    }
   }
 
   @Override
@@ -1284,8 +1354,9 @@ public class Transaction
             detachedCodeDelegationList,
             Optional.empty(),
             Optional.ofNullable(hash),
-            Optional.of(sizeForAnnouncement),
-            Optional.of(sizeForBlockInclusion));
+            sizeForAnnouncement,
+            sizeForEth72Announcement,
+            sizeForBlockInclusion);
 
     // copy also the computed fields, to avoid to recompute them
     copiedTx.sender = this.sender;
@@ -1303,35 +1374,10 @@ public class Transaction
   private CodeDelegation codeDelegationDetachedCopy(final CodeDelegation codeDelegation) {
     final Address detachedAddress = Address.wrap(codeDelegation.address().getBytes().copy());
     return new org.hyperledger.besu.ethereum.core.CodeDelegation(
-        codeDelegation.chainId(),
+        ChainId.fromCodeDelegation(codeDelegation),
         detachedAddress,
         codeDelegation.nonce(),
         codeDelegation.signature());
-  }
-
-  /**
-   * Builds a sidecar from a flat proof list, which is the shape it has on the wire and here: one
-   * proof per blob for {@link BlobType#KZG_PROOF}, and every blob's cell proofs one blob after
-   * another for {@link BlobType#KZG_CELL_PROOFS}.
-   */
-  private static BlobsWithCommitments blobsWithCommitmentsOf(
-      final BlobType blobType,
-      final List<KZGCommitment> kzgCommitments,
-      final List<Blob> blobs,
-      final List<KZGProof> kzgProofs,
-      final List<VersionedHash> versionedHashes) {
-    return switch (blobType) {
-      case KZG_PROOF ->
-          BlobsWithCommitments.createFromBlobsType0(
-              kzgCommitments, blobs, kzgProofs, versionedHashes);
-      case KZG_CELL_PROOFS ->
-          BlobsWithCommitments.createFromBlobsType1(
-              kzgCommitments,
-              blobs,
-              // partition takes the size of each group, not the number of groups
-              Lists.partition(kzgProofs, CKZG4844Helper.CELL_PROOFS_PER_BLOB),
-              versionedHashes);
-    };
   }
 
   public static class Builder {
@@ -1362,15 +1408,16 @@ public class Transaction
 
     protected Address sender;
 
-    protected Optional<BigInteger> chainId = Optional.empty();
+    protected ChainId chainId = ChainId.absent();
     protected Optional<BigInteger> v = Optional.empty();
     protected List<VersionedHash> versionedHashes = null;
     private BlobsWithCommitments blobsWithCommitments;
     protected Optional<List<CodeDelegation>> codeDelegationAuthorizations = Optional.empty();
     protected Bytes rawRlp = null;
     private Optional<Hash> hash = Optional.empty();
-    private Optional<Integer> sizeForAnnouncement = Optional.empty();
-    private Optional<Integer> sizeForBlockInclusion = Optional.empty();
+    private int sizeForAnnouncement = -1;
+    private int sizeForEth72Announcement = -1;
+    private int sizeForBlockInclusion = -1;
 
     public Builder copiedFrom(final Transaction toCopy) {
       this.transactionType = toCopy.transactionType;
@@ -1399,7 +1446,12 @@ public class Transaction
     }
 
     public Builder chainId(final BigInteger chainId) {
-      this.chainId = Optional.of(chainId);
+      this.chainId = ChainId.of(chainId);
+      return this;
+    }
+
+    public Builder chainId(final ChainId chainId) {
+      this.chainId = chainId;
       return this;
     }
 
@@ -1487,12 +1539,17 @@ public class Transaction
     }
 
     public Builder sizeForAnnouncement(final int sizeForAnnouncement) {
-      this.sizeForAnnouncement = Optional.of(sizeForAnnouncement);
+      this.sizeForAnnouncement = sizeForAnnouncement;
+      return this;
+    }
+
+    public Builder sizeForEth72Announcement(final int sizeForEth72Announcement) {
+      this.sizeForEth72Announcement = sizeForEth72Announcement;
       return this;
     }
 
     public Builder sizeForBlockInclusion(final int sizeForBlockInclusion) {
-      this.sizeForBlockInclusion = Optional.of(sizeForBlockInclusion);
+      this.sizeForBlockInclusion = sizeForBlockInclusion;
       return this;
     }
 
@@ -1539,6 +1596,7 @@ public class Transaction
           Optional.ofNullable(rawRlp),
           hash,
           sizeForAnnouncement,
+          sizeForEth72Announcement,
           sizeForBlockInclusion);
     }
 
@@ -1579,7 +1637,28 @@ public class Transaction
         final List<Blob> blobs,
         final List<KZGProof> kzgProofs) {
       this.blobsWithCommitments =
-          blobsWithCommitmentsOf(blobType, kzgCommitments, blobs, kzgProofs, versionedHashes);
+          switch (blobType) {
+            case KZG_PROOF ->
+                BlobsWithCommitments.createFromBlobsType0(
+                    kzgCommitments, blobs, kzgProofs, versionedHashes);
+            case KZG_CELL_PROOFS ->
+                BlobsWithCommitments.createFromBlobsType1(
+                    kzgCommitments,
+                    blobs,
+                    // partition takes the size of each group, not the number of groups
+                    Lists.partition(kzgProofs, CELL_PROOFS_PER_BLOB),
+                    versionedHashes);
+          };
+      return this;
+    }
+
+    public Builder kzgBlobCells(
+        final List<KZGCommitment> kzgCommitments,
+        final List<CellsWithMask> cellsWithMaskList,
+        final List<KZGProof> kzgProofs) {
+      this.blobsWithCommitments =
+          BlobsWithCommitments.createFromBlobCells(
+              kzgCommitments, cellsWithMaskList, kzgProofs, versionedHashes);
       return this;
     }
 

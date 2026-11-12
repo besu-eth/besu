@@ -24,6 +24,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.TrieBytes;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.FlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedFlatDbCacheManager;
@@ -37,6 +38,7 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
+import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
@@ -375,7 +377,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
       final Hash accountHash,
       final StorageSlotKey storageSlotKey) {
     final Bytes key =
-        Bytes.concatenate(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes());
+        TrieBytes.concat(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes());
     return cacheManager.getFromCacheOrStorage(
         ACCOUNT_STORAGE_STORAGE,
         key,
@@ -634,6 +636,18 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     }
 
     /**
+     * Notifies the trie-node strategy that {@code blockHeader}'s block is about to be persisted
+     * through this updater. Must be called before the block's trie nodes are written.
+     *
+     * @param blockHeader the header of the block being persisted
+     * @return this updater
+     */
+    public Updater beginBlockPersist(final BlockHeader blockHeader) {
+      trieNodeStrategy.onBlockPersist(worldStorage, composedWorldStateTransaction, blockHeader);
+      return this;
+    }
+
+    /**
      * Stores a trie node under {@code key}. The empty trie node is never stored.
      *
      * @param key the {@link TrieNodeKey} of the node
@@ -768,7 +782,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
         final Hash accountHash, final Hash slotHash, final Bytes storageValue) {
       stagePut(
           ACCOUNT_STORAGE_STORAGE,
-          Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()),
+          TrieBytes.concat(accountHash.getBytes(), slotHash.getBytes()),
           storageValue);
       return super.putStorageValueBySlotHash(accountHash, slotHash, storageValue);
     }
@@ -777,7 +791,7 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     public synchronized void removeStorageValueBySlotHash(
         final Hash accountHash, final Hash slotHash) {
       stageRemoval(
-          ACCOUNT_STORAGE_STORAGE, Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()));
+          ACCOUNT_STORAGE_STORAGE, TrieBytes.concat(accountHash.getBytes(), slotHash.getBytes()));
       super.removeStorageValueBySlotHash(accountHash, slotHash);
     }
 

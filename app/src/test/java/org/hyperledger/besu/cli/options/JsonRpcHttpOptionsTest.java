@@ -24,6 +24,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import org.hyperledger.besu.cli.CommandTestAbstract;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.JwtAlgorithm;
 import org.hyperledger.besu.ethereum.api.tls.TlsConfiguration;
@@ -924,6 +925,38 @@ public class JsonRpcHttpOptionsTest extends CommandTestAbstract {
 
     assertThat(jsonRpcConfigArgumentCaptor.getValue().getRpcApis())
         .containsExactlyInAnyOrder("BOB");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void engineMaxRequestContentLengthDefaultsToTheEngineDefault() {
+    parseCommand("--engine-rpc-enabled");
+
+    verify(mockRunnerBuilder).engineJsonRpcConfiguration(jsonRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(jsonRpcConfigArgumentCaptor.getValue().getMaxRequestContentLength())
+        .isEqualTo(JsonRpcConfiguration.createEngineDefault().getMaxRequestContentLength());
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void engineMaxRequestContentLengthUsesALowerValueTheOperatorSet() {
+    final long rpcHttpMaxRequestContentLength = 1024;
+    parseCommand(
+        "--engine-rpc-enabled",
+        "--rpc-http-max-request-content-length",
+        Long.toString(rpcHttpMaxRequestContentLength));
+
+    verify(mockRunnerBuilder).engineJsonRpcConfiguration(jsonRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(jsonRpcConfigArgumentCaptor.getValue().getMaxRequestContentLength())
+        .isEqualTo(rpcHttpMaxRequestContentLength);
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();

@@ -59,8 +59,7 @@ public class PluginsConfigurationOptions implements CLIOptions<PluginConfigurati
 
   @CommandLine.Option(
       names = {PLUGINS_VERIFICATION_MODE_OPTION_NAME},
-      description = "How to verify plugins during startup phase (default: ${DEFAULT-VALUE})",
-      arity = "1")
+      description = "How to verify plugins during startup phase (default: ${DEFAULT-VALUE})")
   private final PluginsVerificationMode pluginsVerificationMode = DEFAULT_PLUGINS_VERIFICATION_MODE;
 
   /** Default Constructor. */

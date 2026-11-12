@@ -40,7 +40,16 @@ public class JsonRpcConfiguration {
   public static final long DEFAULT_HTTP_TIMEOUT_SEC =
       TimeoutOptions.defaultOptions().getTimeoutSeconds();
   public static final long DEFAULT_HTTP_STREAMING_TIMEOUT_SEC = 600; // 10 minutes
-  public static final long DEFAULT_MAX_REQUEST_CONTENT_LENGTH = 128 * 1024 * 1024; // 128MB
+  public static final long DEFAULT_MAX_REQUEST_CONTENT_LENGTH = 10 * 1024 * 1024; // 10MB
+  // The Engine API must accept large execution payloads (engine_newPayload), so its body limit is
+  // kept well above the main HTTP port's limit. The main port is unauthenticated by default, so its
+  // limit is kept small to bound the cost of parsing a hostile request into an in-memory node tree.
+  public static final long DEFAULT_ENGINE_MAX_REQUEST_CONTENT_LENGTH = 128 * 1024 * 1024; // 128MB
+  // Bounds the number of JSON tokens decoded from a single request, which is what the cost of
+  // parsing it scales with. Above the largest legitimate requests (a full batch, or an
+  // eth_simulateV1 with large state overrides filling the main body limit, is ~150k tokens), and
+  // engine payloads are token-sparse since transactions and the block access list are hex strings.
+  public static final long DEFAULT_MAX_REQUEST_TOKEN_COUNT = 500_000L;
   public static final boolean DEFAULT_PRETTY_JSON_ENABLED = false;
 
   private boolean enabled;
@@ -87,6 +96,7 @@ public class JsonRpcConfiguration {
     config.setAuthenticationEnabled(true);
     config.setAuthenticationAlgorithm(JwtAlgorithm.HS256);
     config.setAuthenticationPublicKeyFile(null); // ephemeral key will be generated on startup.
+    config.setMaxRequestContentLength(DEFAULT_ENGINE_MAX_REQUEST_CONTENT_LENGTH);
     return config;
   }
 

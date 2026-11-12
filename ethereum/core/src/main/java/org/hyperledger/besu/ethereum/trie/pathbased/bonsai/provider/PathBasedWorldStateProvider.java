@@ -301,7 +301,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             () -> new IllegalStateException("Missing trie log for block hash " + blockHash));
   }
 
-  private Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
+  protected Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
       final PathBasedWorldState mutableState,
       final Hash blockHash,
       final Level rollingFailureLogLevel,
@@ -453,25 +453,43 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       final Address accountAddress,
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
-    try (PathBasedWorldState ws =
-        (PathBasedWorldState)
-            getWorldState(withBlockHeaderAndNoUpdateNodeHead(blockHeader)).orElse(null)) {
-      if (ws != null) {
-        final WorldStateProofProvider worldStateProofProvider =
-            new WorldStateProofProvider(
-                new WorldStateStorageCoordinator(ws.getWorldStateStorage()));
-        return mapper.apply(
-            worldStateProofProvider.getAccountProof(
-                ws.getWorldStateRootHash(),
-                ws.getWorldStateBlockHash(),
-                accountAddress,
-                accountStorageKeys));
-      }
-    } catch (Exception ex) {
-      LOG.error(
-          "failed proof query for " + blockHeader.getBlockHash().getBytes().toShortHexString(), ex);
+    // Empty means no world state for the block, including when it cannot be loaded, e.g. a trie
+    // log missing for the roll or a cached layer closed while it is being layered on, or a world
+    // state without a trie to prove against. Failures building the proof propagate so callers do
+    // not mistake them for missing state.
+    final Optional<MutableWorldState> maybeWorldState;
+    try {
+      maybeWorldState = getWorldState(withBlockHeaderAndNoUpdateNodeHead(blockHeader));
+    } catch (final RuntimeException e) {
+      LOG.atDebug()
+          .setMessage("Cannot load world state for proof query at block {}")
+          .addArgument(blockHeader::toLogString)
+          .setCause(e)
+          .log();
+      return Optional.empty();
     }
-    return Optional.empty();
+    try (PathBasedWorldState ws = (PathBasedWorldState) maybeWorldState.orElse(null)) {
+      if (ws == null) {
+        return Optional.empty();
+      }
+      // with the trie disabled (disableWorldStateTrie, or a historical archive state without
+      // archive proofs) only the root hash is kept, so there are no nodes to build a proof from
+      if (ws.isTrieDisabled()) {
+        LOG.atDebug()
+            .setMessage("No trie to prove against at block {}")
+            .addArgument(blockHeader::toLogString)
+            .log();
+        return Optional.empty();
+      }
+      final WorldStateProofProvider worldStateProofProvider =
+          new WorldStateProofProvider(new WorldStateStorageCoordinator(ws.getWorldStateStorage()));
+      return mapper.apply(
+          worldStateProofProvider.getAccountProof(
+              ws.getWorldStateRootHash(),
+              ws.getWorldStateBlockHash(),
+              accountAddress,
+              accountStorageKeys));
+    }
   }
 
   @Override
