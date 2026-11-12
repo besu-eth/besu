@@ -294,11 +294,12 @@ public class TransactionLogBloomCacher {
         stopBlock,
         cacheDir);
 
+    final long startSegment = startBlock / BLOCKS_PER_BLOOM_CACHE;
+    final long stopSegment = stopBlock / BLOCKS_PER_BLOOM_CACHE;
     IOException firstFailure = null;
-    for (long blockNum = startBlock; blockNum <= stopBlock; blockNum += BLOCKS_PER_BLOOM_CACHE) {
+    for (long segmentNumber = startSegment; segmentNumber <= stopSegment; segmentNumber++) {
+      final long fromBlock = segmentNumber * BLOCKS_PER_BLOOM_CACHE;
       try {
-        final long segmentNumber = blockNum / BLOCKS_PER_BLOOM_CACHE;
-        final long fromBlock = segmentNumber * BLOCKS_PER_BLOOM_CACHE;
         final File cacheFile = calculateCacheFileName(fromBlock, cacheDir);
         cachedSegments.remove(segmentNumber);
         if (Files.deleteIfExists(cacheFile.toPath())) {
@@ -316,7 +317,7 @@ public class TransactionLogBloomCacher {
           System.exit(DISK_FULL_EXIT_CODE);
         }
         LOG.error(
-            String.format("Unhandled exception removing cache for block number %d", blockNum), e);
+            String.format("Unhandled exception removing cache for block number %d", fromBlock), e);
         if (firstFailure == null) {
           firstFailure = e;
         } else {
