@@ -96,10 +96,11 @@ class RollingTrieNodeArchiveStepTest {
       blockchain.appendBlock(block, generator.receipts(block));
     }
     final SegmentedKeyValueStorageTransaction tx = canonical.startTransaction();
-    historyStore.saveArchiveProgress(tx, 0L, hashOf(0));
+    historyStore.saveArchiveProgress(tx, new ArchivedBlock(0L, hashOf(0)));
     tx.commit();
 
     when(state.getWorldStateStorage()).thenReturn(stateStorage);
+    when(stateStorage.getComposedWorldStateStorage()).thenReturn(layer);
     doAnswer(invocation -> installed = invocation.getArgument(0))
         .when(stateStorage)
         .setTrieNodeStrategy(any());
@@ -175,7 +176,7 @@ class RollingTrieNodeArchiveStepTest {
   }
 
   private long coverageEnd() {
-    return historyStore.getArchivedBlockNumber();
+    return historyStore.getArchivedBlock().map(ArchivedBlock::number).orElse(-1L);
   }
 
   @Test

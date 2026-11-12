@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static com.google.common.base.Preconditions.checkState;
 
-import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -50,16 +50,12 @@ public class ArchiveTrieNodeWriter implements Closeable {
       Bytes naturalKey, Bytes historyKey, Bytes codecEntry, Optional<Integer> latestCounter) {}
 
   private static class CaptureBuffer {
-    final long block;
-    final Hash blockHash;
-    final boolean chainContiguous;
+    final ArchivedBlock block;
     final List<CaptureRequest> pendingRequests = new ArrayList<>();
     final List<Future<?>> inFlight = new ArrayList<>();
 
-    CaptureBuffer(final long block, final Hash blockHash, final boolean chainContiguous) {
+    CaptureBuffer(final ArchivedBlock block) {
       this.block = block;
-      this.blockHash = blockHash;
-      this.chainContiguous = chainContiguous;
     }
   }
 
@@ -97,9 +93,8 @@ public class ArchiveTrieNodeWriter implements Closeable {
   }
 
   /**
-   * Opens {@code transaction}'s capture buffer for {@code blockHeader}'s block. Entries diff
-   * against prior history only when coverage ends at {@code block - 1}; otherwise every entry is
-   * written FULL.
+   * Opens {@code transaction}'s capture buffer for {@code blockHeader}'s block. The block must
+   * extend archived coverage, since entries diff against the latest archived history.
    *
    * @param transaction the open transaction that will commit this block's writes
    * @param blockHeader the header of the block being imported
@@ -107,12 +102,10 @@ public class ArchiveTrieNodeWriter implements Closeable {
    */
   public void beginBlock(
       final SegmentedKeyValueStorageTransaction transaction, final BlockHeader blockHeader) {
-    final long block = blockHeader.getNumber();
-    final boolean chainContiguous = historyStore.getArchivedBlockNumber() == block - 1;
+    final CaptureBuffer buffer =
+        new CaptureBuffer(new ArchivedBlock(blockHeader.getNumber(), blockHeader.getBlockHash()));
     checkState(
-        buffers.putIfAbsent(
-                transaction, new CaptureBuffer(block, blockHeader.getBlockHash(), chainContiguous))
-            == null,
+        buffers.putIfAbsent(transaction, buffer) == null,
         "Block already begun on this transaction");
   }
 
@@ -121,7 +114,6 @@ public class ArchiveTrieNodeWriter implements Closeable {
    *
    * @param naturalKey the archive key for this node (account or storage form)
    * @param location the nibble-path location in bytes, used to select the checkpoint interval
-   * @param block the block number being imported
    * @param newNode the new RLP-encoded node value, or {@code null} if the node is being deleted
    * @param priorNode the previous RLP-encoded node value, or {@code null} if this is a creation
    * @param transaction the open transaction that will commit this block's writes
@@ -130,24 +122,14 @@ public class ArchiveTrieNodeWriter implements Closeable {
   void capture(
       final Bytes naturalKey,
       final Bytes location,
-      final long block,
       final Bytes newNode,
       final Bytes priorNode,
       final SegmentedKeyValueStorageTransaction transaction) {
     final CaptureBuffer buf = buffers.get(transaction);
-    if (buf == null) {
-      throw new IllegalStateException(
-          "trie-node capture for block " + block + " on a transaction with no begun block");
-    }
+    checkState(buf != null, "Trie-node capture on a transaction with no begun block");
     synchronized (buf) {
-      if (buf.block != block) {
-        throw new IllegalStateException(
-            "trie-node capture buffer holds block "
-                + buf.block
-                + " but its transaction received a write for block "
-                + block);
-      }
-      buf.pendingRequests.add(new CaptureRequest(naturalKey, location, block, newNode, priorNode));
+      buf.pendingRequests.add(
+          new CaptureRequest(naturalKey, location, buf.block.number(), newNode, priorNode));
       if (buf.pendingRequests.size() >= BATCH_SIZE) {
         dispatchBatch(buf);
       }
@@ -157,13 +139,13 @@ public class ArchiveTrieNodeWriter implements Closeable {
   private void dispatchBatch(final CaptureBuffer buf) {
     final List<CaptureRequest> batch = List.copyOf(buf.pendingRequests);
     buf.pendingRequests.clear();
-    buf.inFlight.add(capturePool.submit(() -> encodeAndCommit(batch, buf.chainContiguous)));
+    buf.inFlight.add(capturePool.submit(() -> encodeAndCommit(batch)));
   }
 
   // Runs on the capture pool: encodes the batch, then commits its entries and index updates in a
   // transaction of its own, so the pool threads share the write work.
-  private void encodeAndCommit(final List<CaptureRequest> batch, final boolean chainContiguous) {
-    final List<EncodedEntry> entries = encodeBatch(batch, chainContiguous);
+  private void encodeAndCommit(final List<CaptureRequest> batch) {
+    final List<EncodedEntry> entries = encodeBatch(batch);
     final SegmentedKeyValueStorageTransaction writeTx = archiveTransactions.get();
     try {
       for (final EncodedEntry entry : entries) {
@@ -181,18 +163,15 @@ public class ArchiveTrieNodeWriter implements Closeable {
     writeTx.commit();
   }
 
-  // Looks up the latest counters of the batch's updates in one multiget; creations, deletions and
-  // non-contiguous blocks are written FULL.
-  private List<EncodedEntry> encodeBatch(
-      final List<CaptureRequest> batch, final boolean chainContiguous) {
+  // Looks up the latest counters of the batch's updates in one multiget; creations and deletions
+  // are written FULL.
+  private List<EncodedEntry> encodeBatch(final List<CaptureRequest> batch) {
     final Map<Bytes, Integer> priorCounters =
-        chainContiguous
-            ? historyStore.getLatestCounters(
-                batch.stream()
-                    .filter(r -> r.priorNode() != null && r.newNode() != null)
-                    .map(CaptureRequest::naturalKey)
-                    .toList())
-            : Map.of();
+        historyStore.getLatestCounters(
+            batch.stream()
+                .filter(r -> r.priorNode() != null && r.newNode() != null)
+                .map(CaptureRequest::naturalKey)
+                .toList());
     return batch.stream()
         .map(r -> encodeHistoryEntry(r, Optional.ofNullable(priorCounters.get(r.naturalKey()))))
         .toList();
@@ -241,7 +220,7 @@ public class ArchiveTrieNodeWriter implements Closeable {
     awaitEntries(buf);
     final SegmentedKeyValueStorageTransaction coverageTx = archiveTransactions.get();
     try {
-      historyStore.saveArchiveProgress(coverageTx, buf.block, buf.blockHash);
+      historyStore.saveArchiveProgress(coverageTx, buf.block);
     } catch (final RuntimeException | Error e) {
       coverageTx.rollback();
       throw e;

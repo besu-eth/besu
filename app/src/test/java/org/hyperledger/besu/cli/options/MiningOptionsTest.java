@@ -186,6 +186,31 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
   }
 
   @Test
+  public void mempoolPrewarmIsDisabledByDefault() {
+    internalTestSuccess(
+        miningParams -> assertThat(miningParams.getUnstable().isMempoolPrewarmEnabled()).isFalse());
+  }
+
+  @Test
+  public void mempoolPrewarmOptions() {
+    internalTestSuccess(
+        miningParams -> {
+          assertThat(miningParams.getUnstable().isMempoolPrewarmEnabled()).isTrue();
+          assertThat(miningParams.getUnstable().getMempoolPrewarmThreads()).isEqualTo(3);
+          assertThat(miningParams.getUnstable().getMempoolPrewarmGasLimitMultiplier()).isEqualTo(2);
+        },
+        "--Xmempool-prewarm-enabled=true",
+        "--Xmempool-prewarm-threads=3",
+        "--Xmempool-prewarm-gas-limit-multiplier=2");
+  }
+
+  @Test
+  public void mempoolPrewarmThreadsMustBePositive() {
+    internalTestFailure(
+        "--Xmempool-prewarm-threads must be positive", "--Xmempool-prewarm-threads=0");
+  }
+
+  @Test
   public void blockTxsSelectionMaxTimeDefaultValue() {
     internalTestSuccess(
         this::runtimeConfiguration,

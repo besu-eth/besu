@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
@@ -355,12 +356,12 @@ class TrailingTrieNodeArchiverTest {
 
   private void recordCoverage(final long block, final Hash hash) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    historyStore.saveArchiveProgress(tx, block, hash);
+    historyStore.saveArchiveProgress(tx, new ArchivedBlock(block, hash));
     tx.commit();
   }
 
   private long lastCovered() {
-    return historyStore.getArchivedBlockNumber();
+    return historyStore.getArchivedBlock().map(ArchivedBlock::number).orElse(-1L);
   }
 
   private record Call(long fromExclusive, long toInclusive) {}

@@ -149,7 +149,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         new BonsaiTrieNodeStrategy(),
         newWriter(unstable, capturePool, liveStorage::startBatchTransaction),
         archiveHistoryStore,
-        storage -> storage == liveStorage,
+        liveStorage,
         this::isFinal);
   }
 
@@ -268,28 +268,19 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
     final long blockNumber = blockHeader.getNumber();
-    if (blockNumber > archiveHistoryStore.getArchivedBlockNumber()) {
+    if (!archiveHistoryStore.isArchived(blockNumber)) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
-    try {
-      final WorldStateStorageCoordinator coordinator =
-          new BonsaiArchiveReadWorldStateStorageCoordinator(
-              archiveReadStorage, archiveHistoryReader, blockNumber);
-      final WorldStateProofProvider proofProvider = new WorldStateProofProvider(coordinator);
-      return mapper.apply(
-          proofProvider.getAccountProof(
-              blockHeader.getStateRoot(),
-              blockHeader.getBlockHash(),
-              accountAddress,
-              accountStorageKeys));
-    } catch (final Exception ex) {
-      LOG.error(
-          "failed archive proof query for block {} ({})",
-          blockHeader.getNumber(),
-          blockHeader.getBlockHash().toShortLogString(),
-          ex);
-      return Optional.empty();
-    }
+    final WorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(
+            archiveReadStorage, archiveHistoryReader, blockNumber);
+    final WorldStateProofProvider proofProvider = new WorldStateProofProvider(coordinator);
+    return mapper.apply(
+        proofProvider.getAccountProof(
+            blockHeader.getStateRoot(),
+            blockHeader.getBlockHash(),
+            accountAddress,
+            accountStorageKeys));
   }
 
   // Archive-specific rollback behaviour. There is no trie-log roll forward/backward, we just roll

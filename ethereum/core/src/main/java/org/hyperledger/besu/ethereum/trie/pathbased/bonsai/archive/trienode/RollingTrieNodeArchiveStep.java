@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -72,15 +73,14 @@ public final class RollingTrieNodeArchiveStep implements TrieNodeArchiveStep {
     }
     try (final PathBasedWorldState state = headStateOpener.get()) {
       roller.rollTo(state, canonicalHash(fromExclusive));
-      state
-          .getWorldStateStorage()
-          .setTrieNodeStrategy(
-              new ArchiveTrieNodeStrategy(
-                  new BonsaiTrieNodeStrategy(),
-                  writerFactory.get(),
-                  historyStore,
-                  storage -> true,
-                  block -> true));
+      final BonsaiWorldStateKeyValueStorage layer = state.getWorldStateStorage();
+      layer.setTrieNodeStrategy(
+          new ArchiveTrieNodeStrategy(
+              new BonsaiTrieNodeStrategy(),
+              writerFactory.get(),
+              historyStore,
+              layer.getComposedWorldStateStorage(),
+              block -> true));
       for (long block = fromExclusive + 1;
           block <= toInclusive && keepGoing.getAsBoolean();
           block++) {
@@ -97,7 +97,7 @@ public final class RollingTrieNodeArchiveStep implements TrieNodeArchiveStep {
       throw new ArchiveGapException("the trie log for block " + block + " is missing");
     }
     roller.rollTo(state, blockHash);
-    if (historyStore.getArchivedBlockNumber() < block) {
+    if (!historyStore.isArchived(block)) {
       LOG.warn("Trie-node archiver did not capture block {}; stopping this range", block);
       return false;
     }

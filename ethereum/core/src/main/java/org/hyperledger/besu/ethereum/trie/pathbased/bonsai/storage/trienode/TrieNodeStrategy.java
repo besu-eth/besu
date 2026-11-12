@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
@@ -45,19 +46,8 @@ public interface TrieNodeStrategy {
   void removeTrieNode(
       SegmentedKeyValueStorage storage, SegmentedKeyValueStorageTransaction transaction, Bytes key);
 
-  /**
-   * Returns the node loader a state-root trie over {@code storage} should use in place of {@code
-   * loader}.
-   *
-   * @param storage the storage the trie's nodes are read from
-   * @param loader the trie's node loader
-   * @param keyOf maps a node location to its {@link TrieNodeKey}
-   * @return the loader to use
-   */
-  default NodeLoader overrideNodeLoader(
-      final SegmentedKeyValueStorage storage,
-      final NodeLoader loader,
-      final Function<Bytes, Bytes> keyOf) {
+  default NodeLoader wrapNodeLoader(
+      final Hash stateRoot, final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
     return loader;
   }
 

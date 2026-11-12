@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
 import static org.mockito.ArgumentMatchers.any;
@@ -87,7 +88,14 @@ class ArchiveTrieNodeStrategyTest {
     final List<BlockHeader> headers = new ArrayList<>();
     Hash parentHash = Hash.EMPTY;
     for (int i = 0; i < length; i++) {
-      final BlockHeader header = fixture.get().number(i).parentHash(parentHash).buildHeader();
+      final BlockHeader header =
+          fixture
+              .get()
+              .number(i)
+              .parentHash(parentHash)
+              .stateRoot(
+                  Hash.hash(Bytes.concatenate(Bytes.ofUnsignedInt(i), parentHash.getBytes())))
+              .buildHeader();
       headers.add(header);
       parentHash = header.getHash();
     }
@@ -100,23 +108,27 @@ class ArchiveTrieNodeStrategyTest {
 
   private ArchiveTrieNodeStrategy strategy(final LongPredicate isFinal) {
     return new ArchiveTrieNodeStrategy(
-        new BonsaiTrieNodeStrategy(), capture, historyStore, s -> s == storage, isFinal);
+        new BonsaiTrieNodeStrategy(), capture, historyStore, storage, isFinal);
   }
 
   private ArchiveTrieNodeStrategy strategyOver(final BonsaiTrieNodeStrategy base) {
-    return new ArchiveTrieNodeStrategy(base, capture, historyStore, s -> s == storage, b -> true);
+    return new ArchiveTrieNodeStrategy(base, capture, historyStore, storage, b -> true);
   }
 
-  // A state-root trie over {@code target} loading {@code node} at {@code location}.
+  // A state-root trie rooted at {@code stateRoot} loading {@code node} at {@code location}.
   private static void load(
       final ArchiveTrieNodeStrategy strategy,
-      final SegmentedKeyValueStorage target,
+      final Hash stateRoot,
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
     strategy
-        .overrideNodeLoader(target, (l, h) -> Optional.of(node), Function.identity())
+        .wrapNodeLoader(stateRoot, (l, h) -> Optional.of(node), Function.identity())
         .getNode(location, nodeHash);
+  }
+
+  private Hash rootOf(final int block) {
+    return chain.get(block).getStateRoot();
   }
 
   private static Bytes32 hash(final Bytes value) {
@@ -131,21 +143,29 @@ class ArchiveTrieNodeStrategyTest {
     return (strategy, tx) -> strategy.removeTrieNode(storage, tx, key);
   }
 
-  private void setStoredBlockHash(final SegmentedKeyValueStorage target, final Hash blockHash) {
+  private void setStoredHead(final SegmentedKeyValueStorage target, final BlockHeader head) {
     final SegmentedKeyValueStorageTransaction tx = target.startTransaction();
-    tx.put(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY, blockHash.getBytes().toArrayUnsafe());
+    putHead(tx, head);
     tx.commit();
+  }
+
+  private static void putHead(
+      final SegmentedKeyValueStorageTransaction tx, final BlockHeader head) {
+    tx.put(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY, head.getHash().getBytes().toArrayUnsafe());
+    tx.put(
+        TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY, head.getStateRoot().getBytes().toArrayUnsafe());
   }
 
   // Persists chain block {@code block} as a single step on canonical storage.
   private void persistBlock(
       final ArchiveTrieNodeStrategy strategy, final long block, final Write... writes) {
     if (block > 0) {
-      setStoredBlockHash(storage, chain.get((int) block - 1).getHash());
+      setStoredHead(storage, chain.get((int) block - 1));
     }
     persist(strategy, chain.get((int) block), writes);
   }
 
+  // Writes the block's nodes and moves the persisted head to it, as a world-state persist does.
   private void persist(
       final ArchiveTrieNodeStrategy strategy, final BlockHeader header, final Write... writes) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
@@ -153,6 +173,7 @@ class ArchiveTrieNodeStrategyTest {
     for (final Write write : writes) {
       write.apply(strategy, tx);
     }
+    putHead(tx, header);
     strategy.onBeforeCommit(storage, tx);
     tx.commit();
   }
@@ -165,8 +186,17 @@ class ArchiveTrieNodeStrategyTest {
     return new ArchivedBlock(last, chain.get(last).getHash());
   }
 
+  private Optional<ArchiveNodeHistoryStore.HistoryEntry> latest(
+      final Bytes location, final long block) {
+    return historyStore.getLatestBefore(ArchiveNodeKey.account(location), block);
+  }
+
+  private static List<BlockHeader> forkB(final int length) {
+    return buildChain(() -> new BlockHeaderTestFixture().extraData(Bytes.of(0x0b)), length);
+  }
+
   @Test
-  void capturesContiguousFinalSingleStepOnCanonicalStorage() {
+  void capturesContiguousSingleStepOnLiveStorage() {
     final ArchiveTrieNodeStrategy strategy = strategy();
     final Bytes location = Bytes.of(0x0e);
 
@@ -174,7 +204,7 @@ class ArchiveTrieNodeStrategyTest {
     persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
 
     assertThat(coverage()).contains(coverageThrough(1));
-    final var latest = historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L);
+    final var latest = latest(location, 1L);
     assertThat(latest).isPresent();
     assertThat(latest.get().block()).isEqualTo(1L);
   }
@@ -195,27 +225,26 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x0e);
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
 
-    setStoredBlockHash(storage, chain.get(0).getHash());
+    setStoredHead(storage, chain.get(0));
     persist(strategy, chain.get(2), put(location, Bytes.fromHexString("0xbbbb")));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 2L)).isEmpty();
+    assertThat(latest(location, 2L)).isEmpty();
     assertThat(coverage()).contains(coverageThrough(0));
   }
 
   @Test
-  void siblingForkBlockIsNotCaptured() {
+  void siblingOfLastArchivedBlockIsNotCaptured() {
     final ArchiveTrieNodeStrategy strategy = strategy();
     final Bytes location = Bytes.of(0x0e);
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
     persistBlock(strategy, 1);
-    final List<BlockHeader> forkB =
-        buildChain(() -> new BlockHeaderTestFixture().extraData(Bytes.of(0x0b)), 3);
+    final List<BlockHeader> fork = forkB(2);
 
-    // Stored state is block 1 on fork A; header 2 on fork B has a different parent.
-    setStoredBlockHash(storage, chain.get(1).getHash());
-    persist(strategy, forkB.get(2), put(location, Bytes.fromHexString("0xbbbb")));
+    // B1 persists in one step at the archived A1's height.
+    setStoredHead(storage, fork.get(0));
+    persist(strategy, fork.get(1), put(location, Bytes.fromHexString("0xbbbb")));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 2L)).isEmpty();
+    assertThat(latest(location, 1L)).isEmpty();
     assertThat(coverage()).contains(coverageThrough(1));
   }
 
@@ -225,14 +254,13 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x0e);
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
     persistBlock(strategy, 1);
-    final List<BlockHeader> forkB =
-        buildChain(() -> new BlockHeaderTestFixture().extraData(Bytes.of(0x0b)), 3);
+    final List<BlockHeader> fork = forkB(3);
 
     // Coverage ends at A1, but the persisted state was reorged to B1.
-    setStoredBlockHash(storage, forkB.get(1).getHash());
-    persist(strategy, forkB.get(2), put(location, Bytes.fromHexString("0xbbbb")));
+    setStoredHead(storage, fork.get(1));
+    persist(strategy, fork.get(2), put(location, Bytes.fromHexString("0xbbbb")));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 2L)).isEmpty();
+    assertThat(latest(location, 2L)).isEmpty();
     assertThat(coverage()).contains(coverageThrough(1));
   }
 
@@ -244,18 +272,18 @@ class ArchiveTrieNodeStrategyTest {
 
     persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isEmpty();
+    assertThat(latest(location, 1L)).isEmpty();
     assertThat(coverage()).contains(coverageThrough(0));
   }
 
   @Test
-  void nonCanonicalStorageIsNotCaptured() {
+  void otherStorageIsNotCaptured() {
     final ArchiveTrieNodeStrategy strategy = strategy();
     final Bytes location = Bytes.of(0x0e);
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
 
     final SegmentedKeyValueStorage otherStorage = newStorage();
-    setStoredBlockHash(otherStorage, chain.get(0).getHash());
+    setStoredHead(otherStorage, chain.get(0));
     final SegmentedKeyValueStorageTransaction tx = otherStorage.startTransaction();
     strategy.onBlockPersist(otherStorage, tx, chain.get(1));
     final Bytes node = Bytes.fromHexString("0xbbbb");
@@ -275,7 +303,7 @@ class ArchiveTrieNodeStrategyTest {
 
     persistBlock(strategy, 5, put(location, Bytes.fromHexString("0xbbbb")));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 5L)).isEmpty();
+    assertThat(latest(location, 5L)).isEmpty();
     assertThat(coverage()).contains(coverageThrough(0));
   }
 
@@ -286,19 +314,19 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes node = Bytes.fromHexString("0xbbbb");
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
 
-    setStoredBlockHash(storage, chain.get(0).getHash());
+    setStoredHead(storage, chain.get(0));
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     strategy.onBlockPersist(storage, tx, chain.get(1));
     strategy.putTrieNode(storage, tx, location, hash(node), node);
     strategy.onRollback(tx);
     tx.rollback();
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isEmpty();
+    assertThat(latest(location, 1L)).isEmpty();
     assertThat(coverage()).contains(coverageThrough(0));
 
     persistBlock(strategy, 1, put(location, node));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isPresent();
+    assertThat(latest(location, 1L)).isPresent();
     assertThat(coverage()).contains(coverageThrough(1));
   }
 
@@ -314,7 +342,7 @@ class ArchiveTrieNodeStrategyTest {
     tx.commit();
 
     assertThat(storage.get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe())).isPresent();
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 0L)).isEmpty();
+    assertThat(latest(location, 0L)).isEmpty();
     assertThat(coverage()).isEmpty();
   }
 
@@ -330,32 +358,26 @@ class ArchiveTrieNodeStrategyTest {
         put(location1, Bytes.fromHexString("0x1111")),
         put(location2, Bytes.fromHexString("0x2222")));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location1), 0L)).isPresent();
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location2), 0L)).isPresent();
+    assertThat(latest(location1, 0L)).isPresent();
+    assertThat(latest(location2, 0L)).isPresent();
     assertThat(coverage()).contains(coverageThrough(0));
   }
 
   @Test
   void skipsArchivingNoOpRewriteOfUnchangedNode() {
-    // A node re-written with its already-committed bytes (the no-op storage write Bonsai still
-    // re-commits along a touched path) must not add a redundant archive entry: getLatestBefore
-    // resolves to the last real change, whose value is identical.
-    final ArchiveTrieNodeStrategy strategy = strategy();
+    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
+    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
     final Bytes location = Bytes.of(0x07);
     final Bytes node = Bytes.fromHexString("0xfeed");
-
-    // Block 0: real write — archived.
     persistBlock(strategy, 0, put(location, node));
 
-    // Block 1: identical bytes re-written over the loaded node — no-op, must be skipped.
-    load(strategy, storage, location, hash(node), node);
+    // Bonsai re-commits the unchanged node along a touched path.
+    load(strategy, rootOf(0), location, hash(node), node);
+    clearInvocations(base);
     persistBlock(strategy, 1, put(location, node));
 
-    final var latest = historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L);
-    assertThat(latest).isPresent();
-    assertThat(latest.get().block())
-        .as("no entry written at the no-op block; resolves to the block-0 entry")
-        .isEqualTo(0L);
+    verify(base, never()).getTrieNode(any(), any(), any());
+    assertThat(latest(location, 1L).orElseThrow().block()).isZero();
   }
 
   @Test
@@ -384,22 +406,20 @@ class ArchiveTrieNodeStrategyTest {
 
   @Test
   void removingExistingNodeWritesDeletionTombstone() {
-    final ArchiveTrieNodeStrategy strategy = strategy();
+    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
+    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
     final Bytes location = Bytes.of(0x05);
-
-    // Block 0: create the node so it exists in committed storage.
     persistBlock(strategy, 0, put(location, Bytes.fromHexString("0xdeadbeef")));
 
-    // Block 1: remove the node — prior lookup finds it, tombstone must be captured.
+    clearInvocations(base);
     persistBlock(strategy, 1, remove(location));
 
-    final var tombstone = historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L);
-    assertThat(tombstone).as("deletion tombstone written at block 1").isPresent();
-    assertThat(tombstone.get().codecEntry().isDeletion())
-        .as("entry at block 1 must be a deletion tombstone")
-        .isTrue();
-    assertThat(tombstone.get().block()).isEqualTo(1L);
-    assertThat(historyStore.getArchivedBlockNumber()).isEqualTo(1L);
+    // The node wasn't loaded, so storage tells whether it existed.
+    verify(base).getTrieNode(storage, location, Bytes32.ZERO);
+    final var tombstone = latest(location, 1L).orElseThrow();
+    assertThat(tombstone.codecEntry().isDeletion()).isTrue();
+    assertThat(tombstone.block()).isEqualTo(1L);
+    assertThat(coverage()).contains(coverageThrough(1));
   }
 
   @Test
@@ -420,7 +440,7 @@ class ArchiveTrieNodeStrategyTest {
     assertThat(tombstone).as("deletion tombstone written at block 1").isPresent();
     assertThat(tombstone.get().codecEntry().isDeletion()).isTrue();
     assertThat(tombstone.get().block()).isEqualTo(1L);
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isEmpty();
+    assertThat(latest(location, 1L)).isEmpty();
   }
 
   @Test
@@ -431,29 +451,7 @@ class ArchiveTrieNodeStrategyTest {
 
     persistBlock(strategy, 1, remove(location));
 
-    assertThat(historyStore.getLatestBefore(ArchiveNodeKey.account(location), 1L)).isEmpty();
-  }
-
-  @Test
-  void priorLoadedByTheStateRootTrieIsUsedWithoutReadingStorage() {
-    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
-    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
-    final Bytes location = Bytes.of(0x07);
-    final Bytes node = Bytes.fromHexString("0xfeed");
-    persistBlock(strategy, 0, put(location, node));
-
-    load(strategy, storage, location, hash(node), node);
-    clearInvocations(base);
-    // an unchanged rewrite is only skipped if the prior is known
-    persistBlock(strategy, 1, put(location, node));
-
-    verify(base, never()).getTrieNode(any(), any(), any());
-    assertThat(
-            historyStore
-                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
-                .orElseThrow()
-                .block())
-        .isZero();
+    assertThat(latest(location, 1L)).isEmpty();
   }
 
   @Test
@@ -468,13 +466,7 @@ class ArchiveTrieNodeStrategyTest {
     persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbeef")));
 
     verify(base, never()).getTrieNode(any(), any(), any());
-    assertThat(
-            historyStore
-                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
-                .orElseThrow()
-                .codecEntry()
-                .isFull())
-        .isTrue();
+    assertThat(latest(location, 1L).orElseThrow().codecEntry().isFull()).isTrue();
   }
 
   @Test
@@ -484,66 +476,79 @@ class ArchiveTrieNodeStrategyTest {
     final Bytes location = Bytes.of(0x07);
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
 
-    load(strategy, storage, location, MerkleTrie.EMPTY_TRIE_NODE_HASH, MerkleTrie.EMPTY_TRIE_NODE);
+    load(
+        strategy, rootOf(0), location, MerkleTrie.EMPTY_TRIE_NODE_HASH, MerkleTrie.EMPTY_TRIE_NODE);
     clearInvocations(base);
     persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xfeed")));
 
     verify(base, never()).getTrieNode(any(), any(), any());
-    assertThat(
-            historyStore
-                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
-                .orElseThrow()
-                .codecEntry()
-                .isFull())
-        .isTrue();
+    assertThat(latest(location, 1L).orElseThrow().codecEntry().isFull()).isTrue();
   }
 
   @Test
-  void commitDiscardsNodesLoadedBeforeIt() {
-    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
-    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
+  void nodesLoadedBeforeTheHeadMovesAreNotPriors() {
+    final ArchiveTrieNodeStrategy strategy = strategy();
     final Bytes location = Bytes.of(0x07);
     final Bytes node = Bytes.fromHexString("0xfeed");
     persistBlock(strategy, 0, put(location, node));
 
-    load(strategy, storage, location, hash(node), node);
-    strategy.onBeforeCommit(storage, storage.startTransaction());
-    persistBlock(strategy, 1, put(location, node));
+    load(strategy, rootOf(0), location, hash(node), node);
+    persistBlock(strategy, 1);
+    persistBlock(strategy, 2, put(location, node));
 
-    // the prior was discarded, so the unchanged rewrite is archived
-    assertThat(
-            historyStore
-                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
-                .orElseThrow()
-                .block())
-        .isEqualTo(1L);
+    // block 2 replaces block 1's state, so the node loaded at block 0's isn't its prior
+    assertThat(latest(location, 2L).orElseThrow().block()).isEqualTo(2L);
   }
 
   @Test
-  void removalOfNodeNotLoadedReadsStorage() {
-    final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
-    final ArchiveTrieNodeStrategy strategy = strategyOver(base);
+  void commitDropsLoadedNodesEvenWhenTheRootIsUnchanged() {
+    final ArchiveTrieNodeStrategy strategy = strategy();
     final Bytes location = Bytes.of(0x07);
-    persistBlock(strategy, 0, put(location, Bytes.fromHexString("0xfeed")));
+    final Bytes node = Bytes.fromHexString("0xfeed");
+    persistBlock(strategy, 0, put(location, node));
+    final BlockHeader emptyBlock =
+        new BlockHeaderTestFixture()
+            .number(1)
+            .parentHash(chain.get(0).getHash())
+            .stateRoot(rootOf(0))
+            .buildHeader();
+    final BlockHeader next =
+        new BlockHeaderTestFixture().number(2).parentHash(emptyBlock.getHash()).buildHeader();
 
-    clearInvocations(base);
-    persistBlock(strategy, 1, remove(location));
+    load(strategy, rootOf(0), location, hash(node), node);
+    persist(strategy, emptyBlock);
+    persist(strategy, next, put(location, node));
 
-    verify(base).getTrieNode(storage, location, Bytes32.ZERO);
-    assertThat(
-            historyStore
-                .getLatestBefore(ArchiveNodeKey.account(location), 1L)
-                .orElseThrow()
-                .codecEntry()
-                .isDeletion())
-        .isTrue();
+    // without a prior the unchanged node isn't skipped as a re-commit
+    assertThat(latest(location, 2L).orElseThrow().block()).isEqualTo(2L);
   }
 
   @Test
-  void loaderOverOtherStorageIsNotDecorated() {
-    final NodeLoader loader = (location, hash) -> Optional.empty();
+  void loadsPastTheCapAreNotPriors() {
+    final ArchiveTrieNodeStrategy strategy =
+        new ArchiveTrieNodeStrategy(
+            new BonsaiTrieNodeStrategy(), capture, historyStore, storage, b -> true, 1);
+    final Bytes first = Bytes.of(0x07);
+    final Bytes second = Bytes.of(0x08);
+    final Bytes node = Bytes.fromHexString("0xfeed");
+    persistBlock(strategy, 0, put(first, node), put(second, node));
 
-    assertThat(strategy().overrideNodeLoader(newStorage(), loader, Function.identity()))
-        .isSameAs(loader);
+    load(strategy, rootOf(0), first, hash(node), node);
+    load(strategy, rootOf(0), second, hash(node), node);
+    persistBlock(strategy, 1, put(first, node), put(second, node));
+
+    assertThat(latest(first, 1L).orElseThrow().block()).isZero();
+    final var uncapped = latest(second, 1L).orElseThrow();
+    assertThat(uncapped.block()).isEqualTo(1L);
+    assertThat(uncapped.codecEntry().isFull()).isTrue();
+  }
+
+  @Test
+  void loaderRootedAtAnotherStateIsNotDecorated() {
+    final ArchiveTrieNodeStrategy strategy = strategy();
+    final NodeLoader loader = (location, hash) -> Optional.empty();
+    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
+
+    assertThat(strategy.wrapNodeLoader(rootOf(1), loader, Function.identity())).isSameAs(loader);
   }
 }

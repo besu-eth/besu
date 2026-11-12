@@ -21,12 +21,14 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.Bonsai
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -40,6 +42,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +58,7 @@ public class BonsaiArchiveWorldStateProviderTest {
   private BonsaiArchiveWorldStateProvider provider;
   private Long seededProgress;
   private boolean seedWorldStateBlockHash = true;
+  private BonsaiWorldStateKeyValueStorage worldStateStorage;
 
   @BeforeEach
   void setup() {
@@ -185,6 +189,31 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void archiveProof_failurePropagates() {
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    final var liveStorage = worldStateStorage.getComposedWorldStateStorage();
+    final var tx = liveStorage.startTransaction();
+    new ArchiveNodeHistoryStore(liveStorage)
+        .saveArchiveProgress(
+            tx, new ArchivedBlock(queryBlockNumber, historicalHeader.getBlockHash()));
+    tx.commit();
+
+    final RuntimeException failure = new RuntimeException("proof failure");
+    assertThatThrownBy(
+            () ->
+                provider.getAccountProof(
+                    historicalHeader,
+                    Address.ZERO,
+                    List.of(),
+                    proof -> {
+                      throw failure;
+                    }))
+        .isSameAs(failure);
+  }
+
+  @Test
   void installsInlineStrategyWhenProofsEnabled() {
     seededProgress = 4L;
     final BonsaiArchiveWorldStateProvider proofsProvider = createProvider(true);
@@ -275,7 +304,7 @@ public class BonsaiArchiveWorldStateProviderTest {
                             .build())
                     .build())
             .build();
-    final BonsaiWorldStateKeyValueStorage worldStateStorage =
+    worldStateStorage =
         new BonsaiWorldStateKeyValueStorage(
             new InMemoryKeyValueStorageProvider(), new NoOpMetricsSystem(), config);
 
@@ -290,7 +319,7 @@ public class BonsaiArchiveWorldStateProviderTest {
     }
     if (seededProgress != null) {
       new ArchiveNodeHistoryStore(worldStateStorage.getComposedWorldStateStorage())
-          .saveArchiveProgress(tx, seededProgress, Hash.ZERO);
+          .saveArchiveProgress(tx, new ArchivedBlock(seededProgress, Hash.ZERO));
     }
     tx.commit();
 

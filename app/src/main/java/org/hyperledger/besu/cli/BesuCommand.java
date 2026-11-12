@@ -124,6 +124,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningParametersMetrics;
 import org.hyperledger.besu.ethereum.core.VersionMetadata;
@@ -2220,7 +2221,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    */
   public BesuController buildController() {
     try {
-      return setupControllerBuilder().build();
+      final BesuController controller = setupControllerBuilder().build();
+      // the chain id is fixed for the life of the node: register it, so that every chain id with
+      // the same value, like the ones of the decoded transactions, shares the same instance
+      ChainId.initNetworkChainId(controller.getProtocolSchedule().getChainId());
+      return controller;
     } catch (final Exception e) {
       throw new ExecutionException(this.commandLine, e.getMessage(), e);
     }
@@ -2488,12 +2493,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       dataStorageConfiguration = dataStorageOptions.toDomainObject();
     }
 
-    // BAL prefetch warms VersionedFlatDbCacheManager; enable the cross-block cache when prefetch is
-    // on so those reads are not discarded by the no-op cache. Only Bonsai (non-archive) benefits:
-    // Forest ignores the flag, and archive getMultipleFlat is a no-op, so auto-enabling there would
-    // only change default memory behaviour.
+    // BAL prefetch and mempool prewarming warm VersionedFlatDbCacheManager; enable the cross-block
+    // cache when either is on so those reads are not discarded by the no-op cache. Only Bonsai
+    // (non-archive) benefits: Forest ignores the flag, and archive getMultipleFlat is a no-op, so
+    // auto-enabling there would only change default memory behaviour.
+    final boolean balPrefetch =
+        balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled();
     if (DataStorageFormat.BONSAI.equals(dataStorageConfiguration.getDataStorageFormat())
-        && balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled()
+        && (balPrefetch || miningOptions.isMempoolPrewarmEnabled())
         && !dataStorageConfiguration
             .getExtraStorageConfiguration()
             .getUnstable()
@@ -2509,7 +2516,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                                       .getExtraStorageConfiguration()
                                       .getUnstable())
                               .withBonsaiCrossBlockCacheEnabled(true)));
-      logger.info("Bonsai cross-block cache enabled for BAL prefetch reading");
+      logger.info(
+          "Bonsai cross-block cache enabled for {}",
+          balPrefetch ? "BAL prefetch reading" : "mempool prewarming");
     }
 
     if (SyncMode.FULL.equals(getDefaultSyncModeIfNotSet())

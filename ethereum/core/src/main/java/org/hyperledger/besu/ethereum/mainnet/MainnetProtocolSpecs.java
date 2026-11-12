@@ -59,6 +59,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.MainnetBlockValidatorBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
@@ -171,7 +172,7 @@ public abstract class MainnetProtocolSpecs {
         .transactionValidatorFactoryBuilder(
             (evm, gasLimitCalculator, feeMarket) ->
                 new TransactionValidatorFactory(
-                    evm.getGasCalculator(), gasLimitCalculator, false, Optional.empty()))
+                    evm.getGasCalculator(), gasLimitCalculator, false, ChainId.absent()))
         .transactionProcessorBuilder(
             (gasCalculator,
                 feeMarket,
@@ -256,7 +257,7 @@ public abstract class MainnetProtocolSpecs {
         .transactionValidatorFactoryBuilder(
             (evm, gasLimitCalculator, feeMarket) ->
                 new TransactionValidatorFactory(
-                    evm.getGasCalculator(), gasLimitCalculator, true, Optional.empty()))
+                    evm.getGasCalculator(), gasLimitCalculator, true, ChainId.absent()))
         .difficultyCalculator(MainnetDifficultyCalculators.HOMESTEAD)
         .hardforkId(HOMESTEAD);
   }
@@ -329,7 +330,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   public static ProtocolSpecBuilder spuriousDragonDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
       final boolean isParallelTxProcessingEnabled,
@@ -382,7 +383,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   public static ProtocolSpecBuilder byzantiumDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -406,7 +407,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   public static ProtocolSpecBuilder constantinopleDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -429,7 +430,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   public static ProtocolSpecBuilder petersburgDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -449,7 +450,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   public static ProtocolSpecBuilder istanbulDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -467,8 +468,7 @@ public abstract class MainnetProtocolSpecs {
         .gasCalculator(IstanbulGasCalculator::new)
         .evmBuilder(
             (gasCalculator, jdCacheConfig) ->
-                MainnetEVMs.istanbul(
-                    gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.istanbul(gasCalculator, evmChainId(chainId), evmConfiguration))
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::istanbul)
         .contractCreationProcessorBuilder(
             evm ->
@@ -482,7 +482,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder muirGlacierDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -502,7 +502,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder berlinDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -531,7 +531,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder londonDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -604,8 +604,7 @@ public abstract class MainnetProtocolSpecs {
                     SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES))
         .evmBuilder(
             (gasCalculator, jdCacheConfig) ->
-                MainnetEVMs.london(
-                    gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.london(gasCalculator, evmChainId(chainId), evmConfiguration))
         .difficultyCalculator(MainnetDifficultyCalculators.LONDON)
         .blockHeaderValidatorBuilder(
             (feeMarket, gasCalculator, gasLimitCalculator) ->
@@ -619,7 +618,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder arrowGlacierDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -641,7 +640,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder grayGlacierDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -663,7 +662,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder parisDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -683,7 +682,7 @@ public abstract class MainnetProtocolSpecs {
             metricsSystem)
         .evmBuilder(
             (gasCalculator, jdCacheConfig) ->
-                MainnetEVMs.paris(gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.paris(gasCalculator, evmChainId(chainId), evmConfiguration))
         .difficultyCalculator(MainnetDifficultyCalculators.PROOF_OF_STAKE_DIFFICULTY)
         .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::mergeBlockHeaderValidator)
         .blockRewardProcessor(BlockRewardProcessor.NO_REWARDS)
@@ -693,7 +692,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder shanghaiDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -715,8 +714,7 @@ public abstract class MainnetProtocolSpecs {
         // EVM has a new operation for EIP-3855 PUSH0 instruction
         .evmBuilder(
             (gasCalculator, jdCacheConfig) ->
-                MainnetEVMs.shanghai(
-                    gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.shanghai(gasCalculator, evmChainId(chainId), evmConfiguration))
         // we need to flip the Warm Coinbase flag for EIP-3651 warm coinbase
         .transactionProcessorBuilder(
             (gasCalculator,
@@ -756,7 +754,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder cancunDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -806,8 +804,7 @@ public abstract class MainnetProtocolSpecs {
         // EVM changes to support EIP-1153: TSTORE and EIP-5656: MCOPY
         .evmBuilder(
             (gasCalculator, jdCacheConfig) ->
-                MainnetEVMs.cancun(
-                    gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.cancun(gasCalculator, evmChainId(chainId), evmConfiguration))
         // use Cancun fee market
         .transactionProcessorBuilder(
             (gasCalculator,
@@ -867,7 +864,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder pragueDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -893,8 +890,7 @@ public abstract class MainnetProtocolSpecs {
             .gasCalculator(PragueGasCalculator::new)
             .evmBuilder(
                 (gasCalculator, jdCacheConfig) ->
-                    MainnetEVMs.prague(
-                        gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                    MainnetEVMs.prague(gasCalculator, evmChainId(chainId), evmConfiguration))
 
             // EIP-2537 BLS12-381 precompiles
             .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::prague)
@@ -986,7 +982,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder osakaDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1019,7 +1015,7 @@ public abstract class MainnetProtocolSpecs {
                     miningConfiguration.getMaxBlobsPerBlock()))
         .evmBuilder(
             (gasCalculator, __) ->
-                MainnetEVMs.osaka(gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.osaka(gasCalculator, evmChainId(chainId), evmConfiguration))
         .transactionValidatorFactoryBuilder(
             (evm, gasLimitCalculator, feeMarket) ->
                 new TransactionValidatorFactory(
@@ -1043,7 +1039,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder bpo1Definition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1070,7 +1066,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder bpo2Definition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1097,7 +1093,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder amsterdamDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1119,8 +1115,7 @@ public abstract class MainnetProtocolSpecs {
             // EIP-7708: Override evmBuilder to use Amsterdam EVM with transfer logging
             .evmBuilder(
                 (gasCalculator, __) ->
-                    MainnetEVMs.amsterdam(
-                        gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                    MainnetEVMs.amsterdam(gasCalculator, evmChainId(chainId), evmConfiguration))
             // EIP-7708: ContractCreationProcessor with transfer log emission enabled
             .contractCreationProcessorBuilder(
                 evm ->
@@ -1233,7 +1228,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder bpo3Definition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1260,7 +1255,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder bpo4Definition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1287,7 +1282,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder bpo5Definition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1314,7 +1309,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder bogotaDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1333,8 +1328,7 @@ public abstract class MainnetProtocolSpecs {
             metricsSystem)
         .evmBuilder(
             (gasCalculator, __) ->
-                MainnetEVMs.bogota(
-                    gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.bogota(gasCalculator, evmChainId(chainId), evmConfiguration))
         .hardforkId(BOGOTA);
   }
 
@@ -1357,7 +1351,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder futureEipsDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1379,7 +1373,7 @@ public abstract class MainnetProtocolSpecs {
   }
 
   static ProtocolSpecBuilder experimentalEipsDefinition(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final boolean enableRevertReason,
       final GenesisConfigOptions genesisConfigOptions,
       final EvmConfiguration evmConfiguration,
@@ -1399,8 +1393,7 @@ public abstract class MainnetProtocolSpecs {
             metricsSystem)
         .evmBuilder(
             (gasCalculator, jdCacheConfig) ->
-                MainnetEVMs.experimentalEips(
-                    gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+                MainnetEVMs.experimentalEips(gasCalculator, evmChainId(chainId), evmConfiguration))
         .hardforkId(EXPERIMENTAL_EIPS);
   }
 
@@ -1457,9 +1450,11 @@ public abstract class MainnetProtocolSpecs {
         final TransactionProcessingResult result,
         final long gasUsed) {
       return new TransactionReceipt(
+          TransactionType.FRONTIER,
           result.isSuccessful() ? 1 : 0,
           gasUsed,
           result.getLogs(),
+          result.getLogsBloom(),
           revertReasonEnabled ? result.getRevertReason() : Optional.empty());
     }
   }
@@ -1480,6 +1475,7 @@ public abstract class MainnetProtocolSpecs {
           result.isSuccessful() ? 1 : 0,
           gasUsed,
           result.getLogs(),
+          result.getLogsBloom(),
           revertReasonEnabled ? result.getRevertReason() : Optional.empty());
     }
   }
@@ -1542,5 +1538,10 @@ public abstract class MainnetProtocolSpecs {
       return blobSchedule -> FeeMarket.fixedBaseFee(londonForkBlockNumber, minTransactionGasPrice);
     }
     return feeMarketBuilder;
+  }
+
+  /** The chain id returned by the CHAINID opcode, that is zero for chains without a chain id. */
+  private static BigInteger evmChainId(final ChainId chainId) {
+    return chainId.isPresent() ? chainId.toBigInteger() : BigInteger.ZERO;
   }
 }

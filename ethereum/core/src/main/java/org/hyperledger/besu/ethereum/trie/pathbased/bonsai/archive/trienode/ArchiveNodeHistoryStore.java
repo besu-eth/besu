@@ -42,6 +42,8 @@ import org.slf4j.LoggerFactory;
  * <p>Each stored value is an {@link ArchiveTrieNodeCodec} entry. The diff counter of each key's
  * latest entry (the number of DIFFs since its last FULL) is kept separately in {@code
  * TRIE_BRANCH_STORAGE_ARCHIVE_LATEST}.
+ *
+ * <p>Also records the last archived block; history covers every block up to it.
  */
 public final class ArchiveNodeHistoryStore {
 
@@ -53,7 +55,7 @@ public final class ArchiveNodeHistoryStore {
   /** The last block whose trie nodes are archived; history covers {@code [0, number]}. */
   public record ArchivedBlock(long number, Hash hash) {}
 
-  // Last archived block number (8 bytes) and hash (32 bytes); coverage always starts at block 0.
+  // Last archived block number (8 bytes) and hash (32 bytes).
   static final byte[] ARCHIVE_PROGRESS_KEY =
       "ARCHIVE_TRIE_PROGRESS".getBytes(StandardCharsets.UTF_8);
 
@@ -69,12 +71,13 @@ public final class ArchiveNodeHistoryStore {
   }
 
   /**
-   * Returns the last block whose trie nodes are archived; history covers {@code [0, block]}.
+   * Returns whether {@code block}'s trie nodes are archived.
    *
-   * @return the last archived block, or {@code -1} if none
+   * @param block the block number
+   * @return {@code true} if history covers {@code block}
    */
-  public long getArchivedBlockNumber() {
-    return getArchivedBlock().map(ArchivedBlock::number).orElse(-1L);
+  public boolean isArchived(final long block) {
+    return getArchivedBlock().filter(last -> block <= last.number()).isPresent();
   }
 
   /**
@@ -85,24 +88,23 @@ public final class ArchiveNodeHistoryStore {
   public Optional<ArchivedBlock> getArchivedBlock() {
     return storage
         .get(TRIE_BRANCH_STORAGE_ARCHIVE, ARCHIVE_PROGRESS_KEY)
-        .filter(raw -> raw.length == 40)
         .map(Bytes::wrap)
-        .map(b -> new ArchivedBlock(b.getLong(0), Hash.wrap(Bytes32.wrap(b.slice(8, 32)))));
+        .map(b -> new ArchivedBlock(b.getLong(0), Hash.wrap(Bytes32.wrap(b.slice(Long.BYTES)))));
   }
 
   /**
    * Records {@code block} as the last archived block, atomically with the block's history entries.
    *
    * @param tx the transaction committing the block's history entries
-   * @param block the archived block number
-   * @param blockHash the archived block's hash
+   * @param block the archived block
    */
   public void saveArchiveProgress(
-      final SegmentedKeyValueStorageTransaction tx, final long block, final Hash blockHash) {
+      final SegmentedKeyValueStorageTransaction tx, final ArchivedBlock block) {
     tx.put(
         TRIE_BRANCH_STORAGE_ARCHIVE,
         ARCHIVE_PROGRESS_KEY,
-        Bytes.concatenate(Bytes.ofUnsignedLong(block), blockHash.getBytes()).toArrayUnsafe());
+        Bytes.concatenate(Bytes.ofUnsignedLong(block.number()), block.hash().getBytes())
+            .toArrayUnsafe());
   }
 
   /**

@@ -52,6 +52,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
@@ -295,11 +296,12 @@ class BonsaiArchiveProofCoverageTest {
   }
 
   private long lastCovered() {
-    return historyStore.getArchivedBlockNumber();
+    return historyStore.getArchivedBlock().map(ArchivedBlock::number).orElse(-1L);
   }
 
   private void assertArchivedThrough(final long last) {
-    assertThat(historyStore.getArchivedBlockNumber()).isEqualTo(last);
+    assertThat(historyStore.getArchivedBlock().map(ArchivedBlock::number).orElse(-1L))
+        .isEqualTo(last);
   }
 
   // Simulates a lost inline capture: coverage ends at {@code last}, hashed as the canonical block.
@@ -307,7 +309,7 @@ class BonsaiArchiveProofCoverageTest {
     final SegmentedKeyValueStorageTransaction tx =
         worldStateStorage.getComposedWorldStateStorage().startTransaction();
     historyStore.saveArchiveProgress(
-        tx, last, blockchain.getBlockHeader(last).orElseThrow().getHash());
+        tx, new ArchivedBlock(last, blockchain.getBlockHeader(last).orElseThrow().getHash()));
     tx.commit();
   }
 
