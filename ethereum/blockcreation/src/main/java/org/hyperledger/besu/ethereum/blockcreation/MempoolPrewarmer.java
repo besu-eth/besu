@@ -122,9 +122,11 @@ public class MempoolPrewarmer implements AutoCloseable {
   @Nullable private volatile Warming warming;
   // the last prewarming a payload stopped, which its block counts against once the block is known
   private final AtomicReference<Warming> stoppedForPayload = new AtomicReference<>();
-  // the blocks executing, guarded by this
+  // orders the starts and stops, which forkchoiceUpdated and newPayload calls make concurrently
+  private final Object lock = new Object();
+  // the blocks executing, guarded by lock
   private int blocksExecuting;
-  // the head prewarming was last started for while a block executed, guarded by this
+  // the head prewarming was last started for while a block executed, guarded by lock
   @Nullable private BlockHeader startAfterExecution;
 
   private final Counter executedTransactions;
@@ -256,53 +258,61 @@ public class MempoolPrewarmer implements AutoCloseable {
    *
    * @param head the new head
    */
-  public synchronized void start(final BlockHeader head) {
-    if (blocksExecuting > 0) {
-      // a forkchoice update can arrive while a payload executes, and prewarming would compete with
-      // the payload's execution
-      startAfterExecution = head;
-      return;
+  public void start(final BlockHeader head) {
+    synchronized (lock) {
+      if (blocksExecuting > 0) {
+        // a forkchoice update can arrive while a payload executes, and prewarming would compete
+        // with the payload's execution
+        startAfterExecution = head;
+        return;
+      }
+      final Warming next = nextWarming(head);
+      if (next == null) {
+        return;
+      }
+      warming = next;
+      try {
+        coordinator.execute(() -> warm(next));
+      } catch (final RejectedExecutionException e) {
+        LOG.debug("Not prewarming for head {}, the prewarmer is closed", head.toLogString());
+      }
     }
+  }
+
+  /** The prewarming to start for the head, or null if there is none to start. */
+  @Nullable
+  private Warming nextWarming(final BlockHeader head) {
     if (!transactionPool.isEnabled()) {
       // the pool offers nothing to warm until it is enabled again
       stop(Optional.empty());
-      return;
+      return null;
     }
     final Warming current = warming;
-    final Warming next;
     if (current != null
         && current.head().getHash().equals(head.getHash())
         && clock.millis() < current.deadline()) {
       if (isCurrent(current) || current.building().get()) {
-        return;
+        return null;
       }
       // the budget caps the work for a head, however often a block that does not become the head
       // stops it
-      next = current.resumed(generation.incrementAndGet());
-    } else {
-      final long timestamp;
-      try {
-        timestamp = slotTimestamp(head);
-      } catch (final RuntimeException e) {
-        LOG.debug("Cannot prewarm for head {}", head.toLogString(), e);
-        return;
-      }
-      final long gasLimit = head.getGasLimit();
-      next =
-          new Warming(
-              generation.incrementAndGet(),
-              head,
-              timestamp,
-              gasLimit > Long.MAX_VALUE / gasLimitMultiplier
-                  ? Long.MAX_VALUE
-                  : gasLimit * gasLimitMultiplier);
+      return current.resumed(generation.incrementAndGet());
     }
-    warming = next;
+    final long timestamp;
     try {
-      coordinator.execute(() -> warm(next));
-    } catch (final RejectedExecutionException e) {
-      LOG.debug("Not prewarming for head {}, the prewarmer is closed", head.toLogString());
+      timestamp = slotTimestamp(head);
+    } catch (final RuntimeException e) {
+      LOG.debug("Cannot prewarm for head {}", head.toLogString(), e);
+      return null;
     }
+    final long gasLimit = head.getGasLimit();
+    return new Warming(
+        generation.incrementAndGet(),
+        head,
+        timestamp,
+        gasLimit > Long.MAX_VALUE / gasLimitMultiplier
+            ? Long.MAX_VALUE
+            : gasLimit * gasLimitMultiplier);
   }
 
   /**
@@ -310,10 +320,12 @@ public class MempoolPrewarmer implements AutoCloseable {
    * stop when their transaction next enters or leaves a call.
    */
   public void stopForPayload() {
-    final Warming stopped = warming;
-    final long running = generation.getAndIncrement();
-    if (stopped != null && stopped.generation() == running) {
-      stoppedForPayload.set(stopped);
+    synchronized (lock) {
+      final Warming stopped = warming;
+      final long running = generation.getAndIncrement();
+      if (stopped != null && stopped.generation() == running) {
+        stoppedForPayload.set(stopped);
+      }
     }
   }
 
@@ -324,54 +336,64 @@ public class MempoolPrewarmer implements AutoCloseable {
    * @param arrivingBlock the block that arrived, if one did
    */
   public void stop(final Optional<Block> arrivingBlock) {
-    final Warming current = warming;
-    final long running = generation.getAndIncrement();
-    final Warming stoppedEarlier = stoppedForPayload.getAndSet(null);
-    // the block's execution starts now, so these executions run alongside it
-    if (arrivingBlock.isPresent()) {
-      blockStartedNanos = System.nanoTime();
-      executionsRunningAtBlock.inc(runningExecutions.get());
+    synchronized (lock) {
+      final Warming current = warming;
+      final long running = generation.getAndIncrement();
+      final Warming stoppedEarlier = stoppedForPayload.getAndSet(null);
+      // the block's execution starts now, so these executions run alongside it
+      if (arrivingBlock.isPresent()) {
+        blockStartedNanos = System.nanoTime();
+        executionsRunningAtBlock.inc(runningExecutions.get());
+      }
+      // a block counts once, and only against prewarming that ran until it or its payload arrived
+      final Warming stopped =
+          current != null && current.generation() == running ? current : stoppedEarlier;
+      if (stopped == null) {
+        return;
+      }
+      arrivingBlock
+          .filter(block -> block.getHeader().getParentHash().equals(stopped.head().getHash()))
+          .ifPresent(block -> countPrewarmed(stopped, block));
     }
-    // a block counts once, and only against prewarming that ran until it or its payload arrived
-    final Warming stopped =
-        current != null && current.generation() == running ? current : stoppedEarlier;
-    if (stopped == null) {
-      return;
-    }
-    arrivingBlock
-        .filter(block -> block.getHeader().getParentHash().equals(stopped.head().getHash()))
-        .ifPresent(block -> countPrewarmed(stopped, block));
   }
 
   /**
    * Stops prewarming while a block executes, as the block arrived and is about to be executed. Each
-   * call is followed by a call to {@link #executionEnded()} once the execution ends.
+   * call is followed by a call to {@link #executionEnded()} once the execution ends. Never throws,
+   * as prewarming must not fail the block.
    *
    * @param block the block about to be executed
    */
   public void stopForExecution(final Block block) {
-    synchronized (this) {
+    synchronized (lock) {
       blocksExecuting++;
+      try {
+        stop(Optional.of(block));
+      } catch (final RuntimeException e) {
+        LOG.debug("Failed to stop prewarming for block {}", block.toLogString(), e);
+      }
     }
-    // after the count, so that a start racing with it is either stopped here or waits
-    stop(Optional.of(block));
   }
 
   /**
    * Ends the stop of a {@link #stopForExecution(Block)} call. Once no block executes any more,
-   * prewarming starts for the head it was last started for in the meantime, if any.
+   * prewarming starts for the head it was last started for in the meantime, if any. Never throws,
+   * as prewarming must not fail the block.
    */
   public void executionEnded() {
-    final BlockHeader head;
-    synchronized (this) {
+    synchronized (lock) {
       blocksExecuting--;
       if (blocksExecuting > 0 || startAfterExecution == null) {
         return;
       }
-      head = startAfterExecution;
+      final BlockHeader head = startAfterExecution;
       startAfterExecution = null;
+      try {
+        start(head);
+      } catch (final RuntimeException e) {
+        LOG.debug("Failed to start prewarming for head {}", head.toLogString(), e);
+      }
     }
-    start(head);
   }
 
   /**
@@ -379,15 +401,21 @@ public class MempoolPrewarmer implements AutoCloseable {
    * itself. Prewarming does not start again for the same head before the next slot is over.
    */
   public void stopForBlockBuilding() {
-    synchronized (this) {
-      // block building starts on the head a start during an execution was for
-      startAfterExecution = null;
+    synchronized (lock) {
+      if (startAfterExecution != null) {
+        // block building starts on that head, so its prewarming must exist to be marked as building
+        final Warming next = nextWarming(startAfterExecution);
+        if (next != null) {
+          warming = next;
+        }
+        startAfterExecution = null;
+      }
+      final Warming current = warming;
+      if (current != null) {
+        current.building().set(true);
+      }
+      generation.incrementAndGet();
     }
-    final Warming current = warming;
-    if (current != null) {
-      current.building().set(true);
-    }
-    generation.incrementAndGet();
   }
 
   /**
