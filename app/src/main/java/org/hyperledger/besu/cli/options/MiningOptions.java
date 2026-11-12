@@ -234,7 +234,6 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
    *
    * @param commandLine the full commandLine to check all the options specified by the user
    * @param genesisConfigOptions genesis config determines whether we are running PoA or PoS
-   * @param isMergeEnabled is the Merge enabled?
    * @param isBuiltInGenesis true when the active genesis is a Besu built-in network (no
    *     --genesis-file override)
    * @param logger the logger
@@ -242,7 +241,6 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
   public void validate(
       final CommandLine commandLine,
       final GenesisConfigOptions genesisConfigOptions,
-      final boolean isMergeEnabled,
       final boolean isBuiltInGenesis,
       final Logger logger) {
 
