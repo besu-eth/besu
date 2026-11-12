@@ -35,6 +35,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockOptions;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
@@ -50,7 +51,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
-import java.math.BigInteger;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -78,7 +78,7 @@ public class DownloadSyncReceiptsStepTest {
 
   @BeforeEach
   public void setUp() {
-    protocolSchedule = new DefaultProtocolSchedule(Optional.of(BigInteger.ONE));
+    protocolSchedule = new DefaultProtocolSchedule(ChainId.of(1));
     when(ethContext.getScheduler()).thenReturn(new DeterministicEthScheduler());
     when(ethContext.getPeerTaskExecutor()).thenReturn(peerTaskExecutor);
 
