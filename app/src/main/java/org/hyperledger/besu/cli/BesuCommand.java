@@ -293,8 +293,9 @@ import picocli.CommandLine.ParseResult;
       "%nMore info and other profiles at https://besu.hyperledger.org%n"
     })
 public class BesuCommand implements DefaultCommandValues, Runnable {
-  // Mempool prewarming has been measured on mainnet and Sepolia; Hoodi and Ephemery are public
-  // Ethereum testnets with the same slot time and client mix. Other networks opt in.
+  // Mempool prewarming is on by default where it was measured, mainnet and Sepolia with Bonsai
+  // storage, and on Hoodi and Ephemery, public Ethereum testnets like Sepolia. Elsewhere it is
+  // opt-in.
   private static final Set<NetworkDefinition> MEMPOOL_PREWARM_NETWORKS =
       EnumSet.of(MAINNET, SEPOLIA, HOODI, EPHEMERY);
 
@@ -865,6 +866,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     this.transactionSimulationServiceImpl = transactionSimulationServiceImpl;
     this.blockchainServiceImpl = blockchainServiceImpl;
     this.transactionValidatorServiceImpl = transactionValidatorServiceImpl;
+    miningOptions.setMempoolPrewarmEnabledByDefault(this::isMempoolPrewarmEnabledByDefault);
   }
 
   /**
@@ -2090,8 +2092,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     checkIfRequiredPortsAreAvailable();
     syncMode = getDefaultSyncModeIfNotSet();
     versionCompatibilityProtection = getDefaultVersionCompatibilityProtectionIfNotSet();
-    miningOptions.setMempoolPrewarmEnabledByDefault(
-        genesisFile == null && MEMPOOL_PREWARM_NETWORKS.contains(network));
 
     ethNetworkConfig = updateNetworkConfig(network);
 
@@ -3169,6 +3169,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                 : SyncMode.FULL);
   }
 
+  private boolean isMempoolPrewarmEnabledByDefault() {
+    return genesisFile == null
+        && MEMPOOL_PREWARM_NETWORKS.contains(network)
+        && DataStorageFormat.BONSAI.equals(
+            dataStorageOptions.toDomainObject().getDataStorageFormat());
+  }
+
   private Boolean getDefaultVersionCompatibilityProtectionIfNotSet() {
     // Version compatibility protection is enabled by default for non-named networks
     return Optional.ofNullable(versionCompatibilityProtection)
@@ -3206,6 +3213,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         getDataStorageConfiguration()
             .getExtraStorageConfiguration()
             .getParallelTxProcessingEnabled());
+    builder.setMempoolPrewarmEnabled(miningParametersSupplier.get().isMempoolPrewarmEnabled());
 
     if (jsonRpcConfiguration != null && jsonRpcConfiguration.isEnabled()) {
       builder

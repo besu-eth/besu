@@ -1614,6 +1614,30 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void mempoolPrewarmingEnabledWithGenesisFileAutoEnablesBonsaiCrossBlockCache()
+      throws IOException {
+    final Path genesisFile = createFakeGenesisFile(GENESIS_VALID_JSON);
+    parseCommand(
+        "--genesis-file",
+        genesisFile.toString(),
+        "--Xbal-prefetch-reading-enabled=false",
+        "--mempool-prewarm-enabled");
+    verify(mockControllerBuilder)
+        .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
+
+    final DataStorageConfiguration dataStorageConfiguration =
+        dataStorageConfigurationArgumentCaptor.getValue();
+    assertThat(
+            dataStorageConfiguration
+                .getExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiCrossBlockCacheEnabled())
+        .isTrue();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void balPrefetchReadingDoesNotAutoEnableCrossBlockCacheForForest() {
     parseCommand("--data-storage-format=FOREST");
     verify(mockControllerBuilder)

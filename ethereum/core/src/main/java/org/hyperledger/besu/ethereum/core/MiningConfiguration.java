@@ -47,6 +47,7 @@ public abstract class MiningConfiguration {
       PositiveNumber.fromInt(75);
   public static final PositiveNumber DEFAULT_PLUGIN_BLOCK_TXS_SELECTION_MAX_TIME =
       PositiveNumber.fromInt(50);
+  public static final boolean DEFAULT_MEMPOOL_PREWARM_ENABLED = false;
   public static final MiningConfiguration MINING_DISABLED =
       ImmutableMiningConfiguration.builder()
           .mutableInitValues(
@@ -166,7 +167,7 @@ public abstract class MiningConfiguration {
 
   @Value.Default
   public boolean isMempoolPrewarmEnabled() {
-    return false;
+    return DEFAULT_MEMPOOL_PREWARM_ENABLED;
   }
 
   @Value.Default

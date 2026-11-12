@@ -16,6 +16,7 @@ package org.hyperledger.besu.cli.options;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Collections.singletonList;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_MEMPOOL_PREWARM_ENABLED;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_PLUGIN_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
@@ -40,8 +41,8 @@ import org.hyperledger.besu.plugin.services.TransactionSelectionService;
 import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.OptionalInt;
+import java.util.function.BooleanSupplier;
 
 import jakarta.validation.constraints.Positive;
 import org.apache.tuweni.bytes.Bytes;
@@ -123,13 +124,15 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
 
   @Option(
       names = {"--mempool-prewarm-enabled"},
-      fallbackValue = "true",
+      paramLabel = "<Boolean>",
       description =
           "Execute pending transactions against the head state between blocks, so the state the next block is likely to read is cached when it arrives"
-              + " (default: true on mainnet, Sepolia, Hoodi and Ephemery, false otherwise)")
+              + " (default: true on mainnet, Sepolia, Hoodi and Ephemery with Bonsai storage, false otherwise)",
+      fallbackValue = "true",
+      arity = "0..1")
   private Boolean mempoolPrewarmEnabled = null;
 
-  private boolean mempoolPrewarmEnabledByDefault = false;
+  private BooleanSupplier mempoolPrewarmEnabledByDefault = () -> DEFAULT_MEMPOOL_PREWARM_ENABLED;
 
   @CommandLine.ArgGroup(validate = false)
   private final Unstable unstableOptions = new Unstable();
@@ -205,22 +208,24 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
   }
 
   /**
-   * Sets whether mempool prewarming is on when {@code --mempool-prewarm-enabled} is not set.
+   * Sets the default for mempool prewarming when {@code --mempool-prewarm-enabled} is not set.
    *
-   * @param enabledByDefault the default for the network the node runs on
+   * @param enabledByDefault gives the default for the node's network and storage format; it is
+   *     asked each time the setting is read, so the answer does not depend on when that happens
    */
-  public void setMempoolPrewarmEnabledByDefault(final boolean enabledByDefault) {
+  public void setMempoolPrewarmEnabledByDefault(final BooleanSupplier enabledByDefault) {
     this.mempoolPrewarmEnabledByDefault = enabledByDefault;
   }
 
   /**
    * Whether mempool prewarming is enabled.
    *
-   * @return the value of {@code --mempool-prewarm-enabled}, or the network's default when it is not
-   *     set
+   * @return the value of {@code --mempool-prewarm-enabled}, or the default when it is not set
    */
   public boolean isMempoolPrewarmEnabled() {
-    return Objects.requireNonNullElse(mempoolPrewarmEnabled, mempoolPrewarmEnabledByDefault);
+    return mempoolPrewarmEnabled != null
+        ? mempoolPrewarmEnabled
+        : mempoolPrewarmEnabledByDefault.getAsBoolean();
   }
 
   /**

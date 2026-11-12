@@ -230,13 +230,34 @@ public class MiningOptionsTest extends AbstractCLIOptionsTest<MiningConfiguratio
         "--mempool-prewarm-enabled");
   }
 
+  @ParameterizedTest
+  @ValueSource(strings = {"FOREST", "X_BONSAI_ARCHIVE"})
+  public void mempoolPrewarmIsDisabledByDefaultWithoutBonsai(final String dataStorageFormat) {
+    internalTestSuccess(
+        miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isFalse(),
+        "--network",
+        "mainnet",
+        "--data-storage-format",
+        dataStorageFormat);
+  }
+
+  @Test
+  public void mempoolPrewarmCanBeEnabledWithForest() {
+    internalTestSuccess(
+        miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isTrue(),
+        "--data-storage-format",
+        "FOREST",
+        "--mempool-prewarm-enabled=true");
+  }
+
   @Test
   public void mempoolPrewarmCanBeDisabledOnMainnet() {
     internalTestSuccess(
         miningParams -> assertThat(miningParams.isMempoolPrewarmEnabled()).isFalse(),
         "--network",
         "mainnet",
-        "--mempool-prewarm-enabled=false");
+        "--mempool-prewarm-enabled",
+        "false");
   }
 
   @Test
