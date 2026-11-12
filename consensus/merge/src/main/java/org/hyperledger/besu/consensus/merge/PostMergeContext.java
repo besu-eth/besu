@@ -51,6 +51,8 @@ public class PostMergeContext implements MergeContext {
       newUnverifiedForkchoiceCallbackSubscribers = Subscribers.create();
   private final Subscribers<UnverifiedPayloadListener> newUnverifiedPayloadCallbackSubscribers =
       Subscribers.create();
+  private final Subscribers<VerifiedForkchoiceListener> newVerifiedForkchoiceCallbackSubscribers =
+      Subscribers.create();
   private final Subscribers<NewPayloadListener> newPayloadCallbackSubscribers =
       Subscribers.create();
 
@@ -199,6 +201,20 @@ public class PostMergeContext implements MergeContext {
   public void fireNewUnverifiedPayloadEvent() {
     newUnverifiedPayloadCallbackSubscribers.forEach(
         UnverifiedPayloadListener::onNewUnverifiedPayload);
+  }
+
+  @Override
+  public long addNewVerifiedForkchoiceListener(
+      final VerifiedForkchoiceListener verifiedForkchoiceListener) {
+    return newVerifiedForkchoiceCallbackSubscribers.subscribe(verifiedForkchoiceListener);
+  }
+
+  @Override
+  public void fireNewVerifiedForkchoiceEvent(
+      final Hash headBlockHash, final Hash safeBlockHash, final Hash finalizedBlockHash) {
+    final ForkchoiceEvent event =
+        new ForkchoiceEvent(headBlockHash, safeBlockHash, finalizedBlockHash);
+    newVerifiedForkchoiceCallbackSubscribers.forEach(cb -> cb.onNewVerifiedForkchoice(event));
   }
 
   @Override

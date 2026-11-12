@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
@@ -103,8 +104,9 @@ public class BackwardSyncAlgSpecTest {
                 context,
                 FinalBlockConfirmation.confirmationChain(
                     FinalBlockConfirmation.genesisConfirmation(localBlockchain),
-                    FinalBlockConfirmation.ancestorConfirmation(localBlockchain))));
+                    FinalBlockConfirmation.ancestorConfirmation(context))));
     when(context.getProtocolContext().getBlockchain()).thenReturn(localBlockchain);
+    doCallRealMethod().when(context).isAlreadyImported(any());
   }
 
   @Test

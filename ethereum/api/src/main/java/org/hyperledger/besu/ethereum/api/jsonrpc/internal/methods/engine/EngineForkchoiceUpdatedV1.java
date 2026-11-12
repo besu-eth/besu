@@ -153,6 +153,7 @@ public sealed class EngineForkchoiceUpdatedV1<
             forkChoice.getHeadBlockHash(), forkChoice.getFinalizedBlockHash());
 
     if (maybeNewHead.isEmpty()) {
+      fireVerifiedForkchoice(forkChoice);
       return syncingResponse(requestId, forkChoice);
     }
 
@@ -162,6 +163,7 @@ public sealed class EngineForkchoiceUpdatedV1<
     if (!protocolContext
         .getWorldStateArchive()
         .isWorldStateAvailable(newHead.getStateRoot(), newHead.getHash())) {
+      fireVerifiedForkchoice(forkChoice);
       return syncingResponse(requestId, forkChoice);
     }
 
@@ -217,6 +219,7 @@ public sealed class EngineForkchoiceUpdatedV1<
 
     // 7. Client software MUST update its forkchoice state if payloads referenced by
     // forkchoiceState.headBlockHash and forkchoiceState.finalizedBlockHash are VALID.
+    fireVerifiedForkchoice(forkChoice);
     final MergeMiningCoordinator.ForkchoiceResult forkchoiceResult =
         mergeCoordinator.updateForkChoice(
             newHead, forkChoice.getFinalizedBlockHash(), forkChoice.getSafeBlockHash());
@@ -377,6 +380,16 @@ public sealed class EngineForkchoiceUpdatedV1<
       return ValidationResult.invalid(RpcErrorType.INVALID_PARAMS, "Missing finalizedBlockHash");
     }
     return ValidationResult.valid();
+  }
+
+  // backward sync only moves the chain head to a fork choice that is applied or synced to
+  private void fireVerifiedForkchoice(final ForkchoiceStateV1 forkChoice) {
+    mergeContext
+        .get()
+        .fireNewVerifiedForkchoiceEvent(
+            forkChoice.getHeadBlockHash(),
+            forkChoice.getSafeBlockHash(),
+            forkChoice.getFinalizedBlockHash());
   }
 
   private boolean isValidForkchoiceState(

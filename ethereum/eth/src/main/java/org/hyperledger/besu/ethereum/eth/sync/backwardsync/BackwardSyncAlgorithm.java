@@ -77,8 +77,7 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
     final MutableBlockchain blockchain = context.getProtocolContext().getBlockchain();
     final BlockHeader firstAncestorHeader = maybeFirstAncestorHeader.get();
     final BlockHeader chainHeader = blockchain.getChainHeadHeader();
-    if (blockchain.contains(firstAncestorHeader.getHash())
-        && firstAncestorHeader.getNumber() <= chainHeader.getNumber()) {
+    if (context.isAlreadyImported(firstAncestorHeader)) {
       return executeProcessKnownAncestors();
     }
 
