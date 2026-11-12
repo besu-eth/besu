@@ -1093,6 +1093,32 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
+  public void endsTheStopForAnExecutionAfterTheWritesOfTheBlock() {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+    final Block terminal = new Block(terminalPowBlock(), BlockBody.empty());
+    final List<Runnable> writes = new ArrayList<>();
+
+    assertThat(coordinator.rememberBlock(terminal, Optional.empty(), writes::add).getYield())
+        .isPresent();
+
+    assertThat(writes).hasSize(2);
+    writes.get(0).run();
+    assertThat(blockchain.getBlockByHash(terminal.getHash())).isPresent();
+    verify(prewarmer, never()).executionEnded();
+    writes.get(1).run();
+    verify(prewarmer).executionEnded();
+  }
+
+  @Test
   public void endsTheStopForAnExecutionThatFails() {
     final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
     coordinator =

@@ -313,9 +313,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs) {
-    // we assume that preparePayload is always called sequentially, since the RPC Engine calls
-    // are sequential, if this assumption changes then more synchronization should be added to
-    // shared data structures
+    // only forkchoiceUpdated calls, which run one at a time, prepare payloads; if that changes, the
+    // shared data structures need more synchronization
 
     mempoolPrewarmer.ifPresent(MempoolPrewarmer::stopForBlockBuilding);
 
@@ -827,9 +826,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
     mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stopForExecution(block));
     final var chain = protocolContext.getBlockchain();
-    final BlockProcessingResult validationResult;
     try {
-      validationResult =
+      final var validationResult =
           protocolSchedule
               .getByBlockHeader(block.getHeader())
               .getBlockValidator()
@@ -840,20 +838,21 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                   HeaderValidationMode.NONE,
                   blockAccessList,
                   inclusionListTransactions);
+      validationResult
+          .getYield()
+          .ifPresentOrElse(
+              result ->
+                  blockWriter.execute(
+                      () -> {
+                        result.getTrieLogWrite().run();
+                        chain.storeBlock(block, result.getReceipts(), result.getBlockAccessList());
+                      }),
+              () -> LOG.debug("empty yield in blockProcessingResult"));
+      return validationResult;
     } finally {
-      mempoolPrewarmer.ifPresent(MempoolPrewarmer::executionEnded);
+      // prewarming would compete with the writes of the block, so it resumes after them
+      mempoolPrewarmer.ifPresent(prewarmer -> blockWriter.execute(prewarmer::executionEnded));
     }
-    validationResult
-        .getYield()
-        .ifPresentOrElse(
-            result ->
-                blockWriter.execute(
-                    () -> {
-                      result.getTrieLogWrite().run();
-                      chain.storeBlock(block, result.getReceipts(), result.getBlockAccessList());
-                    }),
-            () -> LOG.debug("empty yield in blockProcessingResult"));
-    return validationResult;
   }
 
   @Override

@@ -19,10 +19,12 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
 import io.vertx.core.shareddata.Shareable;
@@ -91,7 +93,7 @@ final class EngineCallSequencer implements Shareable {
             () -> {
               try {
                 if (needsEarlierNewPayloads.getAsBoolean()) {
-                  earlierNewPayloads.join();
+                  awaitEarlierCalls(earlierNewPayloads);
                 }
                 return call.get();
               } finally {
@@ -114,37 +116,51 @@ final class EngineCallSequencer implements Shareable {
     final CompletableFuture<Void> earlierForkchoiceUpdates = forkchoiceUpdatesDone;
     final CompletableFuture<Void> done = new CompletableFuture<>();
     newPayloadsDone = done;
-    final Future<JsonRpcResponse> response =
-        newPayloadExecutor.executeBlocking(
-            () -> {
-              earlierForkchoiceUpdates.join();
-              return call.get();
-            },
-            false);
-    // queued right behind the call, so that the work it queued for after its reply runs before any
-    // call received after it that waits for it
+    final Promise<JsonRpcResponse> response = Promise.promise();
     newPayloadExecutor
         .<Void>executeBlocking(
             () -> {
               try {
+                awaitEarlierCalls(earlierForkchoiceUpdates);
+                response.complete(call.get());
+                // the work the call queued for after its reply runs before any call received
+                // after it that waits for it
                 runWorkAfterReply();
+              } catch (final RuntimeException e) {
+                response.tryFail(e);
+                throw e;
               } finally {
                 done.complete(null);
               }
               return null;
             },
             false)
-        .onFailure(e -> done.complete(null));
-    return response;
+        .onFailure(
+            e -> {
+              // a call the executor rejects must not hold up the calls received after it
+              response.tryFail(e);
+              done.complete(null);
+            });
+    return response.future();
   }
 
   /**
-   * Queues work to run once the running newPayload call has replied.
+   * Queues work to run once the running newPayload call has replied, or, if no call runs, on the
+   * newPayload thread.
    *
    * @param work the work
    */
   void queueAfterReply(final Runnable work) {
     workAfterReply.add(work);
+    // runs the work if no newPayload call does it first
+    newPayloadExecutor
+        .<Void>executeBlocking(
+            () -> {
+              runWorkAfterReply();
+              return null;
+            },
+            false)
+        .onFailure(e -> LOG.warn("Work queued for after a newPayload reply could not run", e));
   }
 
   private void runWorkAfterReply() {
@@ -156,6 +172,22 @@ final class EngineCallSequencer implements Shareable {
         // the calls received after it still have to run
         LOG.error("Work queued for after a newPayload reply failed", e);
       }
+    }
+  }
+
+  /**
+   * Waits for the calls of the other method received before a call. The wait is interruptible, as
+   * closing the executors drops the queued calls without completing what they would complete.
+   */
+  private static void awaitEarlierCalls(final CompletableFuture<Void> earlierCalls) {
+    try {
+      earlierCalls.get();
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while waiting for earlier engine calls", e);
+    } catch (final ExecutionException e) {
+      // completed normally only
+      throw new IllegalStateException(e);
     }
   }
 }

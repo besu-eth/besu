@@ -181,18 +181,30 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
             });
 
     final Future<JsonRpcResponse> newPayloadResponse = callers.submit(() -> call(newPayload.get()));
-    assertThat(newPayloadStarted.await(10, TimeUnit.SECONDS)).isTrue();
-    final Future<JsonRpcResponse> forkchoiceUpdatedResponse =
-        callers.submit(() -> call(forkchoiceUpdated));
-    // the forkchoiceUpdated call is queued by then
-    sleep(200);
-    forkchoiceUpdatedReceived.countDown();
+    final Future<JsonRpcResponse> forkchoiceUpdatedResponse;
+    try {
+      assertThat(newPayloadStarted.await(10, TimeUnit.SECONDS)).isTrue();
+      forkchoiceUpdatedResponse = callers.submit(() -> call(forkchoiceUpdated));
+      // the forkchoiceUpdated call is queued by then
+      sleep(200);
+    } finally {
+      forkchoiceUpdatedReceived.countDown();
+    }
 
     assertThat(newPayloadResponse.get(10, TimeUnit.SECONDS).getType())
         .isEqualTo(RpcResponseType.SUCCESS);
     assertThat(forkchoiceUpdatedResponse.get(10, TimeUnit.SECONDS).getType())
         .isEqualTo(RpcResponseType.SUCCESS);
     assertThat(events).containsExactly("newPayload", "queued work", "forkchoiceUpdated");
+  }
+
+  @Test
+  public void workQueuedOutsideANewPayloadRuns() throws Exception {
+    final CountDownLatch workRan = new CountDownLatch(1);
+
+    ordered(Series.NEW_PAYLOAD, this::success).queue(workRan::countDown);
+
+    assertThat(workRan.await(10, TimeUnit.SECONDS)).isTrue();
   }
 
   @Test

@@ -364,6 +364,24 @@ class MempoolPrewarmerTest {
   }
 
   @Test
+  void doesNotStartAfterAnExecutionForTheHeadABlockIsBuiltOnWhileAnotherHeadWasWarmed() {
+    prewarmer.start(childBlock().getHeader());
+    prewarmer.stopForExecution(childBlock());
+    prewarmer.start(head());
+    prewarmer.stopForBlockBuilding();
+    prewarmer.executionEnded();
+    addCandidate(transfer(0));
+
+    prewarmer.start(head());
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 0);
+  }
+
+  @Test
   void startsAgainForTheSameHeadOnceTheNextSlotIsOver() {
     prewarmer.start(head());
     now.addAndGet(Duration.ofMinutes(1).toMillis());
