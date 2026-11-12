@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.time.Clock;
@@ -36,7 +37,8 @@ public class BaseFeePendingTransactionsTest extends AbstractPendingTransactionsT
         clock.orElse(TestClock.system(ZoneId.systemDefault())),
         metricsSystem,
         AbstractPendingTransactionsTestBase::mockBlockHeader,
-        transactionEventNotifier.newEmitter());
+        transactionEventNotifier.newEmitter(),
+        new DeterministicEthScheduler());
   }
 
   private static final Random randomizeTxType = new Random();

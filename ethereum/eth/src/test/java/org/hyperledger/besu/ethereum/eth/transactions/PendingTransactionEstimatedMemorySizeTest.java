@@ -17,16 +17,17 @@ package org.hyperledger.besu.ethereum.eth.transactions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.ACCESS_LIST_ENTRY_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.ACCESS_LIST_STORAGE_KEY_SIZE;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BIG_CHAIN_ID_MAX_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BLOBS_WITH_COMMITMENTS_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BLOB_PROOF_BUNDLE_SIZE_V0;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.BLOB_PROOF_BUNDLE_SIZE_V1;
+import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.CHAIN_ID_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.CODE_DELEGATION_ENTRY_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.EIP1559_AND_EIP4844_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.FRONTIER_AND_ACCESS_LIST_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.KZG_PROOF_CONTAINER_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.KZG_PROOF_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_ACCESS_LIST_SHALLOW_SIZE;
-import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_CHAIN_ID_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.OPTIONAL_TO_SIZE;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.MemorySize.PAYLOAD_SHALLOW_SIZE;
@@ -40,6 +41,7 @@ import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
@@ -70,6 +72,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.openjdk.jol.info.ClassLayout;
+import org.openjdk.jol.info.GraphLayout;
 import org.openjdk.jol.info.GraphPathRecord;
 import org.openjdk.jol.info.GraphVisitor;
 import org.openjdk.jol.info.GraphWalker;
@@ -109,7 +112,7 @@ public class PendingTransactionEstimatedMemorySizeTest extends BaseTransactionPo
    * during the calculation
    */
   private static final Set<String> COMMON_CONSTANT_FIELD_PATHS =
-      Set.of(".value.ctor", ".hashNoSignature", ".signature.encoded.delegate");
+      Set.of(".value.ctor", ".hashNoSignature", ".signature.encoded.delegate", ".chainId");
 
   /**
    * Field that points to constant values, for EIP-1559 and EIP-4844 pending transactions, and are
@@ -128,7 +131,6 @@ public class PendingTransactionEstimatedMemorySizeTest extends BaseTransactionPo
   /** Field which value is dynamic and can only be calculated at runtime */
   private static final Set<String> TX_VARIABLE_SIZE_PATHS =
       Set.of(
-          ".chainId",
           ".to",
           ".payload",
           ".maybeAccessList",
@@ -201,18 +203,114 @@ public class PendingTransactionEstimatedMemorySizeTest extends BaseTransactionPo
   }
 
   @Test
-  public void chainIdSize() {
-    BigInteger chainId = BigInteger.valueOf(1);
-    Optional<BigInteger> maybeChainId = Optional.of(chainId);
+  public void chainIdIsSharedWithTheNetworkOne() {
+    final BigInteger chainId = BigInteger.valueOf(1337);
+    final Transaction tx =
+        prepareTransaction(
+                TransactionType.DELEGATE_CODE,
+                0,
+                Wei.of(500),
+                Wei.ZERO,
+                0,
+                0,
+                BlobType.KZG_PROOF,
+                List.of(
+                    // valid on this chain only, and on any chain
+                    TransactionTestFixture.createSignedCodeDelegation(
+                        chainId, Address.ZERO, 0, KEYS1),
+                    TransactionTestFixture.createSignedCodeDelegation(
+                        BigInteger.ZERO, Address.ZERO, 1, KEYS1)))
+            .chainId(Optional.of(chainId))
+            .createTransaction(KEYS1);
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    tx.writeTo(rlpOut);
 
-    final ClassLayout cl = ClassLayout.parseInstance(maybeChainId);
-    System.out.println(cl.toPrintable());
+    // done at startup by the node
+    final ChainId networkChainId = ChainId.initNetworkChainId(ChainId.of(chainId));
+    try {
+      final Transaction pendingTx =
+          Transaction.readFrom(new BytesValueRLPInput(rlpOut.encoded(), false)).detachedCopy();
 
-    final long maybeChainIdSize = retainedSizeOfField(maybeChainId, Set.of(), Set.of());
+      // the chain id of the pending transactions, and of their code delegations, is always the
+      // instance of the network chain id, so it is not counted in their memory size
+      assertThat(pendingTx.getChainIdentifier()).isSameAs(networkChainId);
+      final var codeDelegations = pendingTx.getCodeDelegationList().orElseThrow();
+      assertThat(ChainId.fromCodeDelegation(codeDelegations.get(0))).isSameAs(networkChainId);
+      assertThat(ChainId.fromCodeDelegation(codeDelegations.get(1))).isSameAs(ChainId.of(0));
+    } finally {
+      ChainId.resetNetworkChainId();
+    }
+  }
 
-    System.out.println("Optional ChainId size: " + maybeChainIdSize);
+  @Test
+  public void chainIdOfCodeDelegationForAnotherChainIsCounted() {
+    System.setProperty("jol.magicFieldOffset", "true");
+    final BigInteger chainId = BigInteger.valueOf(1337);
+    final BigInteger twoPow256MinusOne = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
 
-    assertThat(maybeChainIdSize).isEqualTo(OPTIONAL_CHAIN_ID_SIZE);
+    ChainId.initNetworkChainId(ChainId.of(chainId));
+    try {
+      // valid on any chain, so it shares the chain id instance like one for this chain
+      final PendingTransaction sharedChainId =
+          new PendingTransaction.Remote(decodedCodeDelegationTx(chainId, BigInteger.ZERO));
+      assertThat(
+              new PendingTransaction.Remote(decodedCodeDelegationTx(chainId, chainId)).memorySize())
+          .isEqualTo(sharedChainId.memorySize());
+
+      // a chain id that fits in a long
+      final Transaction longChainIdTx = decodedCodeDelegationTx(chainId, BigInteger.valueOf(42));
+      final ChainId longChainId =
+          ChainId.fromCodeDelegation(
+              longChainIdTx.getCodeDelegationList().orElseThrow().getFirst());
+      assertThat(GraphLayout.parseInstance(longChainId).totalSize())
+          .isEqualTo(CHAIN_ID_SHALLOW_SIZE);
+      assertThat(new PendingTransaction.Remote(longChainIdTx).memorySize())
+          .isEqualTo(sharedChainId.memorySize() + CHAIN_ID_SHALLOW_SIZE);
+
+      // chain ids that do not fit in a long, up to the largest allowed one
+      for (final BigInteger bigValue :
+          List.of(BigInteger.ONE.shiftLeft(64).add(BigInteger.ONE), twoPow256MinusOne)) {
+        final Transaction bigChainIdTx = decodedCodeDelegationTx(chainId, bigValue);
+        final ChainId bigChainId =
+            ChainId.fromCodeDelegation(
+                bigChainIdTx.getCodeDelegationList().orElseThrow().getFirst());
+        assertThat(GraphLayout.parseInstance(bigChainId).totalSize())
+            .isLessThanOrEqualTo(BIG_CHAIN_ID_MAX_SIZE);
+        assertThat(new PendingTransaction.Remote(bigChainIdTx).memorySize())
+            .isEqualTo(sharedChainId.memorySize() + BIG_CHAIN_ID_MAX_SIZE);
+      }
+      final ChainId largestChainId =
+          ChainId.fromCodeDelegation(
+              decodedCodeDelegationTx(chainId, twoPow256MinusOne)
+                  .getCodeDelegationList()
+                  .orElseThrow()
+                  .getFirst());
+      assertThat(GraphLayout.parseInstance(largestChainId).totalSize())
+          .isEqualTo(BIG_CHAIN_ID_MAX_SIZE);
+    } finally {
+      ChainId.resetNetworkChainId();
+    }
+  }
+
+  private Transaction decodedCodeDelegationTx(
+      final BigInteger chainId, final BigInteger codeDelegationChainId) {
+    final Transaction tx =
+        prepareTransaction(
+                TransactionType.DELEGATE_CODE,
+                0,
+                Wei.of(500),
+                Wei.ZERO,
+                0,
+                0,
+                BlobType.KZG_PROOF,
+                List.of(
+                    TransactionTestFixture.createSignedCodeDelegation(
+                        codeDelegationChainId, Address.ZERO, 0, KEYS1)))
+            .chainId(Optional.of(chainId))
+            .createTransaction(KEYS1);
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    tx.writeTo(rlpOut);
+    return Transaction.readFrom(new BytesValueRLPInput(rlpOut.encoded(), false)).detachedCopy();
   }
 
   @Test
@@ -483,7 +581,9 @@ public class PendingTransactionEstimatedMemorySizeTest extends BaseTransactionPo
 
     final CodeDelegation codeDelegation = optCD.get().getFirst();
 
-    long cdSize = retainedSizeOfField(codeDelegation, Set.of(), Set.of());
+    // the chain id is shared, see chainIdIsSharedWithTheNetworkOne, unless the code delegation is
+    // for another chain, see chainIdOfCodeDelegationForAnotherChainIsCounted
+    long cdSize = retainedSizeOfField(codeDelegation, Set.of(".chainId"), Set.of());
     System.out.println("CodeDelegation container size: " + cdSize);
 
     assertThat(cdSize).isEqualTo(CODE_DELEGATION_ENTRY_SIZE);
