@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.eth.manager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper.CELLS_PER_EXT_BLOB;
+import static org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper.CELL_PROOFS_PER_BLOB;
 import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
 import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
 import static org.mockito.Mockito.mock;
@@ -24,6 +26,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -36,7 +40,13 @@ import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
+import org.hyperledger.besu.ethereum.core.kzg.Blob;
+import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
+import org.hyperledger.besu.ethereum.core.kzg.Cell;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
+import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
+import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
@@ -45,9 +55,11 @@ import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationExc
 import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
+import org.hyperledger.besu.ethereum.eth.messages.CellsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
+import org.hyperledger.besu.ethereum.eth.messages.GetCellsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPaginatedReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetReceiptsMessage;
@@ -61,6 +73,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +83,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.bytes.Bytes48;
 import org.junit.jupiter.api.Test;
 
 public class EthServerTest {
@@ -703,6 +718,152 @@ public class EthServerTest {
     }
 
     return txReceiptsByHash;
+  }
+
+  @Test
+  public void shouldLimitCellsByMessageSize() {
+    // Each tx here is 2 blobs x 128 cells, so about 515 KiB of cells. A cap that fits two but not
+    // three exercises the truncation boundary rather than the trivial cases either side of it.
+    final List<Transaction> txs = setupBlobTransactions(3, 2);
+    final int msgSizeLimit = 1_200_000;
+
+    final MessageData response =
+        EthServer.constructGetCellsResponse(
+            transactionPool, ethPeer, GetCellsMessage.create(txs, CellMask.FULL), 16, msgSizeLimit);
+
+    // The real encoded message, not the estimate, must respect the cap.
+    assertThat(response.getData().size()).isLessThanOrEqualTo(msgSizeLimit);
+
+    final CellsMessage cells = CellsMessage.readFrom(response);
+    assertThat(cells.txHashes()).hasSize(2);
+    assertThat(cells.txHashes()).containsExactly(txs.get(0).getHash(), txs.get(1).getHash());
+    assertThat(cells.cellsList()).allSatisfy(group -> assertThat(group).hasSize(2 * 128));
+  }
+
+  @Test
+  public void shouldOmitNonBlobTransactionsFromCellsResponse() {
+    // A peer asking for cells of a non-blob transaction gets that hash left out, not a
+    // disconnect: go-ethereum skips anything it cannot serve, and devp2p's disconnect rule for
+    // these messages is about a responder sending bad data, not a requester naming a bad hash.
+    final List<Transaction> blobTxs = setupBlobTransactions(1, 1);
+    final List<Transaction> plainTxs = setupTransactions(1);
+
+    final List<Transaction> requested = new ArrayList<>(plainTxs);
+    requested.addAll(blobTxs);
+
+    final MessageData response =
+        EthServer.constructGetCellsResponse(
+            transactionPool,
+            ethPeer,
+            GetCellsMessage.create(requested, CellMask.FULL),
+            16,
+            EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
+
+    final CellsMessage cells = CellsMessage.readFrom(response);
+    assertThat(cells.txHashes()).containsExactly(blobTxs.getFirst().getHash());
+  }
+
+  @Test
+  public void shouldOmitABlobTransactionThatCarriesNoCells() {
+    // A pre-Osaka blob transaction has no cells, and its mask reads as full because there is
+    // nothing missing from one that was never meant to have any. Serving it by that mask would
+    // read cells that are not there, which is a crash in the message handler rather than a
+    // response, and a peer on eth/72 can ask for any hash in the pool.
+    final Transaction cellLessTx = setupBlobTransactionWithoutCells();
+    final List<Transaction> withCells = setupBlobTransactions(1, 1);
+
+    final List<Transaction> requested = new ArrayList<>(List.of(cellLessTx));
+    requested.addAll(withCells);
+
+    final MessageData response =
+        EthServer.constructGetCellsResponse(
+            transactionPool,
+            ethPeer,
+            GetCellsMessage.create(requested, CellMask.FULL),
+            16,
+            EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
+
+    final CellsMessage cells = CellsMessage.readFrom(response);
+    assertThat(cells.txHashes()).containsExactly(withCells.getFirst().getHash());
+  }
+
+  @Test
+  public void shouldReturnEmptyCellsResponseWhenNothingFitsTheMessageSize() {
+    final List<Transaction> txs = setupBlobTransactions(1, 6);
+
+    final MessageData response =
+        EthServer.constructGetCellsResponse(
+            transactionPool, ethPeer, GetCellsMessage.create(txs, CellMask.FULL), 16, 1024);
+
+    // devp2p allows an empty response, and it is preferable to emitting a message the peer drops.
+    final CellsMessage cells = CellsMessage.readFrom(response);
+    assertThat(cells.txHashes()).isEmpty();
+    assertThat(cells.cellsList()).isEmpty();
+  }
+
+  /** A blob transaction of the type from before cells existed, so it carries none. */
+  private Transaction setupBlobTransactionWithoutCells() {
+    final Transaction tx = mock(Transaction.class);
+    final Hash hash = Hash.wrap(Bytes32.wrap(Bytes.repeat((byte) 0x7f, 32)));
+    when(tx.getHash()).thenReturn(hash);
+    when(tx.getType()).thenReturn(TransactionType.BLOB);
+    when(tx.getBlobsWithCommitments())
+        .thenReturn(
+            Optional.of(
+                BlobsWithCommitments.createFromBlobsType0(
+                    List.of(new KZGCommitment(Bytes48.wrap(Bytes.repeat((byte) 1, 48)))),
+                    // the payload is never read on this path, so its contents do not matter
+                    List.of(new Blob(Bytes.repeat((byte) 3, 32))),
+                    List.of(new KZGProof(Bytes48.wrap(Bytes.repeat((byte) 2, 48)))),
+                    List.of(
+                        new VersionedHash(
+                            Bytes32.wrap(
+                                Bytes.concatenate(
+                                    Bytes.of((byte) 1), Bytes.repeat((byte) 0x7f, 31))))))));
+    when(transactionPool.getTransactionByHash(hash)).thenReturn(Optional.of(tx));
+    return tx;
+  }
+
+  /**
+   * Blob transactions whose cells are synthetic: the server serves cells without verifying them, so
+   * sizing behaviour can be exercised without a KZG trusted setup.
+   */
+  private List<Transaction> setupBlobTransactions(final int count, final int blobsPerTx) {
+    final List<Transaction> txs = new ArrayList<>(count);
+    for (int t = 0; t < count; t++) {
+      final List<KZGCommitment> commitments = new ArrayList<>(blobsPerTx);
+      final List<CellsWithMask> cellsWithMasks = new ArrayList<>(blobsPerTx);
+      final List<KZGProof> proofs = new ArrayList<>(blobsPerTx * CELL_PROOFS_PER_BLOB);
+      final List<VersionedHash> versionedHashes = new ArrayList<>(blobsPerTx);
+      for (int b = 0; b < blobsPerTx; b++) {
+        final List<Cell> cells = new ArrayList<>(CELLS_PER_EXT_BLOB);
+        for (int c = 0; c < CELLS_PER_EXT_BLOB; c++) {
+          cells.add(new Cell(Bytes.repeat((byte) c, Cell.SIZE)));
+        }
+        commitments.add(new KZGCommitment(Bytes48.wrap(Bytes.repeat((byte) 1, 48))));
+        cellsWithMasks.add(new CellsWithMask(cells, CellMask.FULL));
+        // Proofs are never elided on the wire, so every blob carries a full set of them.
+        proofs.addAll(
+            Collections.nCopies(
+                CELL_PROOFS_PER_BLOB, new KZGProof(Bytes48.wrap(Bytes.repeat((byte) 2, 48)))));
+        versionedHashes.add(
+            new VersionedHash(
+                Bytes32.wrap(
+                    Bytes.concatenate(Bytes.of((byte) 1), Bytes.repeat((byte) (t + 3), 31)))));
+      }
+      final Transaction tx = mock(Transaction.class);
+      final Hash hash = Hash.wrap(Bytes32.wrap(Bytes.repeat((byte) (t + 1), 32)));
+      when(tx.getHash()).thenReturn(hash);
+      when(tx.getType()).thenReturn(TransactionType.BLOB);
+      when(tx.getBlobsWithCommitments())
+          .thenReturn(
+              Optional.of(
+                  BlobsWithCommitments.createFromBlobCells(
+                      commitments, cellsWithMasks, proofs, versionedHashes)));
+      when(transactionPool.getTransactionByHash(hash)).thenReturn(Optional.of(tx));
+      txs.add(tx);
+    }
+    return txs;
   }
 
   private List<Transaction> setupTransactions(final int count) {
