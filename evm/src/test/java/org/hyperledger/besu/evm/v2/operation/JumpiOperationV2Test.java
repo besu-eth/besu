@@ -26,6 +26,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class JumpiOperationV2Test {
@@ -50,6 +51,43 @@ class JumpiOperationV2Test {
     assertThat(result.getGasCost()).isEqualTo(10);
     assertThat(frame.getPC()).isEqualTo(3);
     assertThat(frame.stackTopV2()).isZero();
+  }
+
+  @ParameterizedTest(name = "gas {0}")
+  @CsvSource({"10, 10, 0", "11, 11, 1", "1000, 11, 1"})
+  void alsoRunsTheJumpDestWhenTheGasCoversIt(
+      final long gas, final long gasCost, final int pcIncrement) {
+    final MessageFrame frame = frame("0x03", "0x01");
+
+    final Operation.OperationResult result = JumpiOperationV2.staticOperation(frame, gas);
+
+    assertThat(result.getHaltReason()).isNull();
+    assertThat(result.getGasCost()).isEqualTo(gasCost);
+    assertThat(result.getPcIncrement()).isEqualTo(pcIncrement);
+    assertThat(frame.getPC()).isEqualTo(3);
+    assertThat(frame.stackTopV2()).isZero();
+  }
+
+  @Test
+  void continuesOnAZeroConditionWhateverTheGas() {
+    final MessageFrame frame = frame("0x03", "0x00");
+
+    final Operation.OperationResult result = JumpiOperationV2.staticOperation(frame, 1000);
+
+    assertThat(result.getHaltReason()).isNull();
+    assertThat(result.getGasCost()).isEqualTo(10);
+    assertThat(result.getPcIncrement()).isEqualTo(1);
+    assertThat(frame.getPC()).isZero();
+  }
+
+  @Test
+  void haltsOnAnInvalidDestinationWhateverTheGas() {
+    final MessageFrame frame = frame("0x02", "0x01");
+
+    final Operation.OperationResult result = JumpiOperationV2.staticOperation(frame, 1000);
+
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INVALID_JUMP_DESTINATION);
+    assertThat(result.getGasCost()).isEqualTo(10);
   }
 
   @Test
