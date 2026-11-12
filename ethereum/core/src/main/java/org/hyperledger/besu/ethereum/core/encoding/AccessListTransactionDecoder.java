@@ -21,11 +21,10 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
-
-import java.math.BigInteger;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -43,7 +42,7 @@ class AccessListTransactionDecoder {
     final Transaction.Builder preSignatureTransactionBuilder =
         Transaction.builder()
             .type(TransactionType.ACCESS_LIST)
-            .chainId(BigInteger.valueOf(txRlp.readLongScalar()))
+            .chainId(ChainId.readFrom(txRlp, Long.BYTES))
             .nonce(txRlp.readLongScalar())
             .gasPrice(Wei.of(txRlp.readUInt256Scalar()))
             .gasLimit(txRlp.readLongScalar())

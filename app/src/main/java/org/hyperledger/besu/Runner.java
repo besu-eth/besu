@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketService;
 import org.hyperledger.besu.ethereum.api.query.cache.AutoTransactionLogBloomCachingService;
 import org.hyperledger.besu.ethereum.api.query.cache.TransactionLogBloomCacher;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolEvictionService;
 import org.hyperledger.besu.ethereum.p2p.network.NetworkRunner;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
@@ -262,6 +263,9 @@ public class Runner implements AutoCloseable {
   public void stopEphemery(final BesuCommand besuCommand) throws IOException, InterruptedException {
     if (besuController != null) {
       stopServices();
+      // the next cycle is a new chain, with a new chain id, that is registered when its controller
+      // is built
+      ChainId.resetNetworkChainId();
       clearDirectory(dataDir);
       besuCommand.setDataPathToParent();
       besuCommand.clearAllocatedPorts();

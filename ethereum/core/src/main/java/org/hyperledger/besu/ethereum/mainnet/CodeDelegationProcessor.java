@@ -19,6 +19,7 @@ import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDe
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -36,15 +37,15 @@ import org.slf4j.LoggerFactory;
 public class CodeDelegationProcessor {
   private static final Logger LOG = LoggerFactory.getLogger(CodeDelegationProcessor.class);
 
-  private final Optional<BigInteger> maybeChainId;
+  private final ChainId chainId;
   private final BigInteger halfCurveOrder;
   private final CodeDelegationService codeDelegationService;
 
   public CodeDelegationProcessor(
-      final Optional<BigInteger> maybeChainId,
+      final ChainId chainId,
       final BigInteger halfCurveOrder,
       final CodeDelegationService codeDelegationService) {
-    this.maybeChainId = maybeChainId;
+    this.chainId = chainId;
     this.halfCurveOrder = halfCurveOrder;
     this.codeDelegationService = codeDelegationService;
   }
@@ -166,13 +167,14 @@ public class CodeDelegationProcessor {
   }
 
   private boolean isCodeDelegationValid(final CodeDelegation codeDelegation) {
-    if (maybeChainId.isPresent()
-        && !codeDelegation.chainId().equals(BigInteger.ZERO)
-        && !maybeChainId.get().equals(codeDelegation.chainId())) {
+    final ChainId codeDelegationChainId = ChainId.fromCodeDelegation(codeDelegation);
+    if (chainId.isPresent()
+        && !codeDelegationChainId.isZero()
+        && !chainId.equals(codeDelegationChainId)) {
       LOG.trace(
           "Invalid chain id for code delegation. Expected: {}, Actual: {}",
-          maybeChainId.get(),
-          codeDelegation.chainId());
+          chainId,
+          codeDelegationChainId);
       return false;
     }
 
