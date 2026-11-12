@@ -41,7 +41,7 @@ class CallTracerTopFrameHaltTest {
   @EnumSource(Halt.class)
   void tracesTopFrameThatRunsOutOfGasBeforeExecutionStarts(final Halt halt) {
     final CallTracer tracer =
-        new CallTracer(new TraceOptions(TracerType.CALL_TRACER, null, Map.of()));
+        new CallTracer(new TraceOptions(TracerType.CALL_TRACER, null, Map.of()), FIXTURE.spec(), 0);
     final Transaction tx = FIXTURE.transaction(halt);
 
     final TransactionProcessingResult result = FIXTURE.process(tx, tracer);
