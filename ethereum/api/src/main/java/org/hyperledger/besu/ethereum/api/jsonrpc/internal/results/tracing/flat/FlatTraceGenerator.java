@@ -27,8 +27,6 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
-import org.hyperledger.besu.evm.operation.ReturnOperation;
-import org.hyperledger.besu.evm.operation.RevertOperation;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.util.ArrayDeque;
@@ -99,11 +97,6 @@ public class FlatTraceGenerator {
           .callType("call")
           .input(payload == null ? "0x" : payload.toHexString());
 
-      if (!transactionTrace.getTraceFrames().isEmpty()
-          && hasRevertInSubCall(transactionTrace, transactionTrace.getTraceFrames().get(0))) {
-        firstFlatTraceBuilder.error(Optional.of("Reverted"));
-      }
-
     } else {
       firstFlatTraceBuilder
           .type("create")
@@ -143,10 +136,12 @@ public class FlatTraceGenerator {
           traceFrame.getGasCost().orElse(0L) + traceFrame.getPrecompiledGasCost().orElse(0L);
 
       final String opcodeString = traceFrame.getOpcode();
-      if ("CALL".equals(opcodeString)
-          || "CALLCODE".equals(opcodeString)
-          || "DELEGATECALL".equals(opcodeString)
-          || "STATICCALL".equals(opcodeString)) {
+      final boolean isCall =
+          "CALL".equals(opcodeString)
+              || "CALLCODE".equals(opcodeString)
+              || "DELEGATECALL".equals(opcodeString)
+              || "STATICCALL".equals(opcodeString);
+      if (isCall) {
 
         if (traceFrame.isPrecompile()) {
           handlePrecompile(traceFrame, tracesContexts, flatTraces);
@@ -156,7 +151,6 @@ public class FlatTraceGenerator {
 
         currentContext =
             handleCall(
-                transactionTrace,
                 traceFrame,
                 nextTraceFrame,
                 flatTraces,
@@ -180,7 +174,6 @@ public class FlatTraceGenerator {
         if (traceFrame.getExceptionalHaltReason().isPresent()) {
           currentContext =
               handleCall(
-                  transactionTrace,
                   traceFrame,
                   nextTraceFrame,
                   flatTraces,
@@ -201,11 +194,11 @@ public class FlatTraceGenerator {
                 cumulativeGasCost,
                 tracesContexts,
                 smartContractAddress);
-      } else if ("REVERT".equals(opcodeString)) {
+      } else if ("REVERT".equals(opcodeString) && traceFrame.getExceptionalHaltReason().isEmpty()) {
         currentContext = handleRevert(tracesContexts, currentContext);
       }
 
-      // A RETURN whose code deposit fails ends its own frame here rather than returning.
+      // A halted RETURN or REVERT, including a failed code deposit, ends only its own frame.
       if (traceFrame.getExceptionalHaltReason().isPresent()) {
         currentContext = handleHalt(flatTraces, tracesContexts, currentContext, traceFrame);
       }
@@ -320,7 +313,6 @@ public class FlatTraceGenerator {
   }
 
   private static FlatTrace.Context handleCall(
-      final TransactionTrace transactionTrace,
       final TraceFrame traceFrame,
       final Optional<TraceFrame> nextTraceFrame,
       final List<FlatTrace.Builder> flatTraces,
@@ -354,13 +346,6 @@ public class FlatTraceGenerator {
     if (stack.length > 1) {
       subTraceActionBuilder.to(toAddress(stack[stack.length - 2]).toString());
     }
-
-    nextTraceFrame.ifPresent(
-        nextFrame -> {
-          if (hasRevertInSubCall(transactionTrace, nextFrame)) {
-            subTraceBuilder.error(Optional.of("Reverted"));
-          }
-        });
 
     final FlatTrace.Context currentContext =
         new FlatTrace.Context(subTraceBuilder.actionBuilder(subTraceActionBuilder));
@@ -596,23 +581,6 @@ public class FlatTraceGenerator {
       currentContext.getBuilder().getActionBuilder().value("0x0");
     }
     return currentContext;
-  }
-
-  private static boolean hasRevertInSubCall(
-      final TransactionTrace transactionTrace, final TraceFrame callFrame) {
-    for (int i = 0; i < transactionTrace.getTraceFrames().size(); i++) {
-      if (i + 1 < transactionTrace.getTraceFrames().size()) {
-        final TraceFrame next = transactionTrace.getTraceFrames().get(i + 1);
-        if (next.getDepth() == callFrame.getDepth()) {
-          if (next.getOpcodeNumber() == RevertOperation.OPCODE) {
-            return true;
-          } else if (next.getOpcodeNumber() == ReturnOperation.OPCODE) {
-            return false;
-          }
-        }
-      }
-    }
-    return false;
   }
 
   private static String calculateCallingAddress(final FlatTrace.Context lastContext) {

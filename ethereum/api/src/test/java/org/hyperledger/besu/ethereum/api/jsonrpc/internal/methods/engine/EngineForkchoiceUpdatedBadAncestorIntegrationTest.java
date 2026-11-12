@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
@@ -114,7 +115,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
 
     final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
 
-    when(protocolSchedule.getChainId()).thenReturn(Optional.empty());
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.absent());
     when(protocolSchedule.milestoneFor(CANCUN)).thenReturn(Optional.empty());
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
 
