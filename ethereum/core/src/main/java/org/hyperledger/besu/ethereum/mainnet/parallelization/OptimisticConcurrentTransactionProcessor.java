@@ -632,7 +632,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         roundWorldStateUpdater.getStorageToUpdate().remove(miningBeneficiary);
         roundWorldStateUpdater.getStorageToClear().remove(miningBeneficiary);
       }
-      return parallelizedTransactionContext;
+      return precomputeLogsBloom(parallelizedTransactionContext);
     } catch (Exception ex) {
       // no op as failing to get worldstate
       return null;
