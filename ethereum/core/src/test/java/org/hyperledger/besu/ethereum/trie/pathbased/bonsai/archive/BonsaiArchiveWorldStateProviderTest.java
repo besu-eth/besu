@@ -22,15 +22,18 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
@@ -54,6 +57,7 @@ public class BonsaiArchiveWorldStateProviderTest {
   private BlockHeader chainHeadHeader;
   private BonsaiArchiveWorldStateProvider provider;
   private BonsaiWorldStateKeyValueStorage worldStateStorage;
+  private Long seededProgress;
 
   @BeforeEach
   void setup() {
@@ -224,12 +228,87 @@ public class BonsaiArchiveWorldStateProviderTest {
         .isInstanceOf(BonsaiFullFlatDbStrategy.class);
   }
 
+  @Test
+  void installsInlineStrategyWhenProofsEnabled() {
+    seededProgress = 4L;
+    final BonsaiArchiveWorldStateProvider proofsProvider = createProvider(true, true);
+
+    assertThat(proofsProvider.getWorldStateKeyValueStorage().getTrieNodeStrategy())
+        .isInstanceOf(ArchiveTrieNodeStrategy.class);
+    proofsProvider.close();
+  }
+
+  @Test
+  void leavesDefaultStrategyWhenProofsDisabled() {
+    assertThat(provider.getWorldStateKeyValueStorage().getTrieNodeStrategy())
+        .isInstanceOf(BonsaiTrieNodeStrategy.class);
+  }
+
+  @Test
+  void isFinalTrueWithoutFinalizedBlock() {
+    when(blockchain.getFinalized()).thenReturn(Optional.empty());
+
+    assertThat(provider.isFinal(CHAIN_HEAD)).isTrue();
+  }
+
+  @Test
+  void isFinalComparesAgainstImportedFinalized() {
+    final BlockHeader finalized = new BlockHeaderTestFixture().number(3).buildHeader();
+    when(blockchain.getFinalized()).thenReturn(Optional.of(finalized.getHash()));
+    when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
+
+    assertThat(provider.isFinal(3)).isTrue();
+    assertThat(provider.isFinal(4)).isFalse();
+  }
+
+  @Test
+  void startupFailsWhenProofsEnabledPastGenesisWithoutCoverage() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
+
+    assertThatThrownBy(() -> createProvider(true, true))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("no proof history");
+  }
+
+  @Test
+  void startupSucceedsOnFreshChain() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(0L);
+
+    createProvider(true, true).close();
+  }
+
+  @Test
+  void startupSucceedsWithCoverageFromGenesis() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
+    seededProgress = 4L;
+
+    createProvider(true, true).close();
+  }
+
+  @Test
+  void startupIgnoresCoverageWhenProofsDisabled() {
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
+
+    createProvider(true, false);
+  }
+
   private BonsaiArchiveWorldStateProvider createProvider(final boolean archiveModeReady) {
+    return createProvider(archiveModeReady, false);
+  }
+
+  private BonsaiArchiveWorldStateProvider createProvider(
+      final boolean archiveModeReady, final boolean stateProofsEnabled) {
     final var config =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(DataStorageFormat.X_BONSAI_ARCHIVE)
             .extraStorageConfiguration(
-                ImmutableExtraStorageConfiguration.builder().maxLayersToLoad(MAX_LAYERS).build())
+                ImmutableExtraStorageConfiguration.builder()
+                    .maxLayersToLoad(MAX_LAYERS)
+                    .unstable(
+                        ImmutableExtraStorageConfiguration.Unstable.builder()
+                            .bonsaiArchiveStateProofsEnabled(stateProofsEnabled)
+                            .build())
+                    .build())
             .build();
     worldStateStorage =
         new BonsaiWorldStateKeyValueStorage(
@@ -245,6 +324,10 @@ public class BonsaiArchiveWorldStateProviderTest {
         TRIE_BRANCH_STORAGE,
         WORLD_BLOCK_HASH_KEY,
         chainHeadHeader.getHash().getBytes().toArrayUnsafe());
+    if (seededProgress != null) {
+      new ArchiveNodeHistoryStore(worldStateStorage.getComposedWorldStateStorage())
+          .saveArchiveProgress(tx, new ArchivedBlock(seededProgress, Hash.ZERO));
+    }
     tx.commit();
 
     return new BonsaiArchiveWorldStateProvider(
@@ -255,6 +338,8 @@ public class BonsaiArchiveWorldStateProviderTest {
         null,
         EvmConfiguration.DEFAULT,
         new BonsaiCodeCache(),
-        new NoOpMetricsSystem());
+        new NoOpMetricsSystem(),
+        Optional.empty(),
+        2);
   }
 }

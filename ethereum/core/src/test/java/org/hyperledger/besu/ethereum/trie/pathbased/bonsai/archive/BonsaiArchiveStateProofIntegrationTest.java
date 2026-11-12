@@ -100,7 +100,7 @@ class BonsaiArchiveStateProofIntegrationTest {
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
             DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
     archiveStrategy =
-        new ArchiveTrieNodeStrategy(baseStrategy, capture, historyStore, storage, () -> false);
+        new ArchiveTrieNodeStrategy(baseStrategy, capture, historyStore, storage, b -> true);
   }
 
   private BlockHeader header(final long block) {
@@ -460,11 +460,16 @@ class BonsaiArchiveStateProofIntegrationTest {
     final ArchiveNodeHistoryStore liveHistory = new ArchiveNodeHistoryStore(liveStorage);
 
     try (ArchiveTrieNodeStrategy strategy =
-        ArchiveTrieNodeStrategy.createArchiveStrategy(
+        new ArchiveTrieNodeStrategy(
+            new BonsaiTrieNodeStrategy(),
+            new ArchiveTrieNodeWriter(
+                liveHistory,
+                Executors.newFixedThreadPool(2),
+                DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
+                DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL),
+            liveHistory,
             liveStorage,
-            Executors.newFixedThreadPool(2),
-            DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL)) {
+            b -> true)) {
       worldStateStorage.setTrieNodeStrategy(strategy);
       final BonsaiWorldState worldState = (BonsaiWorldState) provider.getWorldState();
 
