@@ -1662,11 +1662,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void validateMiningParams() {
     miningOptions.validate(
-        commandLine,
-        genesisConfigOptionsSupplier.get(),
-        isMergeEnabled(),
-        genesisFile == null,
-        logger);
+        commandLine, genesisConfigOptionsSupplier.get(), genesisFile == null, logger);
   }
 
   private void validateP2POptions() {
@@ -2469,6 +2465,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private MiningConfiguration getMiningParameters() {
+    miningOptions.setMempoolPrewarmEnabledByDefault(isMempoolPrewarmEnabledByDefault());
     miningOptions.setTransactionSelectionService(transactionSelectionServiceImpl);
     final var miningParameters = miningOptions.toDomainObject();
     getBlockPeriodSeconds(readGenesisConfigOptions())
@@ -2500,7 +2497,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     final boolean balPrefetch =
         balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled();
     if (DataStorageFormat.BONSAI.equals(dataStorageConfiguration.getDataStorageFormat())
-        && (balPrefetch || miningOptions.isMempoolPrewarmEnabled())
+        && (balPrefetch || miningParametersSupplier.get().isMempoolPrewarmEnabled())
         && !dataStorageConfiguration
             .getExtraStorageConfiguration()
             .getUnstable()
@@ -3159,6 +3156,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                 : SyncMode.FULL);
   }
 
+  private boolean isMempoolPrewarmEnabledByDefault() {
+    // not getDataStorageConfiguration(): it reads the mining parameters, which call this
+    return genesisFile == null
+        && network.isMempoolPrewarmEnabledByDefault()
+        && DataStorageFormat.BONSAI.equals(
+            dataStorageOptions.toDomainObject().getDataStorageFormat());
+  }
+
   private Boolean getDefaultVersionCompatibilityProtectionIfNotSet() {
     // Version compatibility protection is enabled by default for non-named networks
     return Optional.ofNullable(versionCompatibilityProtection)
@@ -3196,6 +3201,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         getDataStorageConfiguration()
             .getExtraStorageConfiguration()
             .getParallelTxProcessingEnabled());
+    builder.setMempoolPrewarmEnabled(miningParametersSupplier.get().isMempoolPrewarmEnabled());
 
     if (jsonRpcConfiguration != null && jsonRpcConfiguration.isEnabled()) {
       builder
