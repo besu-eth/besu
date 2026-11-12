@@ -43,6 +43,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import org.apache.commons.collections4.map.LRUMap;
@@ -528,16 +529,18 @@ public class PeerTransactionTracker
    * calculated from {@code maxEntries * loadFactor}). This subclass prevents that by:
    *
    * <ul>
-   *   <li>Overriding {@link #calculateNewCapacity} to pre-size the backing array to exactly {@code
-   *       proposedCapacity / loadFactor} buckets so no rehash is ever triggered.
+   *   <li>Overriding {@link #calculateNewCapacity} to pre-size the backing array to the smallest
+   *       power of two of at least {@code proposedCapacity / loadFactor} buckets, so no rehash is
+   *       ever triggered.
    *   <li>Making {@link #checkCapacity} a no-op, because the map will never grow past {@code
    *       maxEntries} entries and a capacity check would be misleading.
    * </ul>
    *
-   * <p>The {@link #DEFAULT_LOAD_FACTOR load factor} of {@code 0.8} keeps hash-collision probability
-   * low while limiting memory overhead to ~25 % over the theoretical minimum.
+   * <p>The {@link #DEFAULT_LOAD_FACTOR load factor} of {@code 0.8} is an upper bound: the table is
+   * filled to between 40 % and 80 % of its buckets once the map is full.
    */
-  private static class FixedCapacityLRUMap<K, V> extends LRUMap<K, V> {
+  @VisibleForTesting
+  static class FixedCapacityLRUMap<K, V> extends LRUMap<K, V> {
     private static final float DEFAULT_LOAD_FACTOR = 0.8f;
 
     public FixedCapacityLRUMap(final int maxEntries) {
@@ -546,7 +549,7 @@ public class PeerTransactionTracker
 
     @Override
     protected int calculateNewCapacity(final int proposedCapacity) {
-      return (int) Math.ceil(proposedCapacity / DEFAULT_LOAD_FACTOR);
+      return super.calculateNewCapacity((int) Math.ceil(proposedCapacity / DEFAULT_LOAD_FACTOR));
     }
 
     @Override

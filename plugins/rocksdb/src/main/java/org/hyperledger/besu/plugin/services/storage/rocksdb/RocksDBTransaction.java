@@ -100,8 +100,13 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
     }
   }
 
-  // stops the node on a full disk, which no retry can fix
-  static StorageException storageException(final RocksDBException e) {
+  /**
+   * Wraps a RocksDB failure, stopping the node instead on a full disk, which no retry can fix.
+   *
+   * @param e the RocksDB failure
+   * @return the storage exception to throw
+   */
+  public static StorageException storageException(final RocksDBException e) {
     if (isDiskFull(e)) {
       logger.error("Disk full detected: {}", e.getMessage(), e);
       System.exit(DISK_FULL_EXIT_CODE);
