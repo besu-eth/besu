@@ -463,7 +463,7 @@ public abstract class PendingTransaction
     int ACCESS_LIST_ENTRY_SHALLOW_SIZE = 160;
     int OPTIONAL_ACCESS_LIST_SHALLOW_SIZE = 40;
     int OPTIONAL_CODE_DELEGATION_LIST_SHALLOW_SIZE = 40;
-    int CODE_DELEGATION_ENTRY_SIZE = 448;
+    int CODE_DELEGATION_ENTRY_SIZE = 392;
     int CHAIN_ID_SHALLOW_SIZE = 24;
     // a chain id larger than a long, of at most 32 bytes, backed by a BigInteger
     int BIG_CHAIN_ID_MAX_SIZE = 112;
