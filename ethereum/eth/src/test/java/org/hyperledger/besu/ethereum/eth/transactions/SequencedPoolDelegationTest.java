@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.math.BigInteger;
@@ -60,7 +61,8 @@ public class SequencedPoolDelegationTest extends AbstractTransactionPoolTestBase
         TestClock.system(ZoneId.systemDefault()),
         metricsSystem,
         protocolContext.getBlockchain()::getChainHeadHeader,
-        transactionEventNotifier.newEmitter());
+        transactionEventNotifier.newEmitter(),
+        new DeterministicEthScheduler());
   }
 
   @Override
