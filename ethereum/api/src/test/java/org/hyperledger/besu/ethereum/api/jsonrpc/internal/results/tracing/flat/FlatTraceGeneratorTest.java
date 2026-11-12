@@ -35,6 +35,8 @@ import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -45,9 +47,30 @@ public class FlatTraceGeneratorTest {
   @Mock private Transaction transaction;
   @Mock private TransactionProcessingResult transactionProcessingResult;
 
+  private static Stream<Arguments> rootCallsWithoutReturnFrame() {
+    final TraceFrame directPrecompile =
+        TraceFrame.builder()
+            .setOpcodeNumber(Integer.MAX_VALUE)
+            .setDepth(0)
+            .setGasRemaining(1000)
+            .setValue(Wei.ZERO)
+            .setInputData(Bytes.EMPTY)
+            .setOutputData(Bytes.EMPTY)
+            .setVirtualOperation(true)
+            .setPrecompiledGasCost(15)
+            .build();
+    // A trace step limit can end the frames before the root call's RETURN.
+    final TraceFrame firstStepOnly = frame("PUSH1", 0x60, 0);
+    return Stream.of("0x", "0x123456")
+        .flatMap(
+            output ->
+                Stream.of(
+                    Arguments.of(output, directPrecompile), Arguments.of(output, firstStepOnly)));
+  }
+
   @ParameterizedTest
-  @ValueSource(strings = {"0x", "0x123456"})
-  public void retainsOutputForCallsWithoutOpcodeFrames(final String outputHex) {
+  @MethodSource("rootCallsWithoutReturnFrame")
+  public void setsRootOutputWithoutReturnFrame(final String outputHex, final TraceFrame frame) {
     final Bytes output = Bytes.fromHexString(outputHex);
     Mockito.when(transaction.getSender()).thenReturn(Address.ZERO);
     Mockito.when(transaction.getTo()).thenReturn(Optional.of(Address.fromHexString("0x04")));
@@ -56,7 +79,7 @@ public class FlatTraceGeneratorTest {
     Mockito.when(transactionProcessingResult.isSuccessful()).thenReturn(true);
 
     final TransactionTrace transactionTrace =
-        new TransactionTrace(transaction, transactionProcessingResult, List.of());
+        new TransactionTrace(transaction, transactionProcessingResult, List.of(frame));
 
     final List<Trace> traces =
         FlatTraceGenerator.generateFromTransactionTrace(
