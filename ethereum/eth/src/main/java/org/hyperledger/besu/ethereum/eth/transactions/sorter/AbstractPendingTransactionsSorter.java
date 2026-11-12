@@ -163,6 +163,10 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                 })
             .count();
 
+    // Seqeuenced-pool-only INFO log per block, iff there are 1 or more evicted transactions.
+    // This is either silent under normal conditions, or once per block (so not super noisy) in the
+    // case where the user is trying to get a lot of un-minable transctions into blocks. In this
+    // case it is much more useful to log than silently evict them - the latter make PD much harder.
     if (evictedCount > 0) {
       LOG.info(
           "Evicted {} transaction(s) from the pool as they exceeded the configured retention"
@@ -306,7 +310,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   /**
    * A transaction whose selection result asks for it to be penalized (e.g. because its execution
    * did not complete in the allotted time) is moved to the back of the selection order so it
-   * doesn't permanently block newer, smaller transactions from being selected. If it is never
+   * doesn't semi-permanently block newer, smaller transactions from being selected. If it is never
    * successfully selected it is eventually removed when the TX pool retention period expires.
    *
    * @param pendingTransaction the evaluated transaction
