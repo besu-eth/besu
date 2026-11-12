@@ -86,6 +86,18 @@ public class FlatTraceGeneratorTest {
         TraceFrame.from(frame(opcode, 0xf1, 0))
             .setIsPrecompile(true)
             .setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR))
+            // The call's arguments, top last: no value is transferred to precompile 0x04.
+            .setStack(
+                Optional.of(
+                    new Bytes[] {
+                      Bytes.of(0),
+                      Bytes.of(0),
+                      Bytes.of(0),
+                      Bytes.of(0),
+                      Bytes.of(0),
+                      Bytes.of(4),
+                      Bytes.of(0xff)
+                    }))
             .build();
     final TransactionTrace transactionTrace =
         new TransactionTrace(
