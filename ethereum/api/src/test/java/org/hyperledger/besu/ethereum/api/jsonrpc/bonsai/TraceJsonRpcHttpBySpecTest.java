@@ -26,6 +26,9 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
@@ -39,6 +42,150 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
   protected BlockchainSetupUtil getBlockchainSetupUtil(final DataStorageFormat storageFormat) {
     return createBlockchainSetupUtil(
         "trace/chain-data/genesis.json", "trace/chain-data/blocks.bin", storageFormat);
+  }
+
+  @ParameterizedTest
+  @CsvSource({"53086, false", "53089, true"})
+  void rootOpcodeReportsEffectsOnlyWithSufficientGas(final long gas, final boolean succeeds)
+      throws Exception {
+    // Istanbul creation costs 53,080 intrinsic gas. Two PUSHes cost six more;
+    // ADD needs another three, so only the second case can execute it.
+    final JsonNode result = traceVm("6001600201", gas);
+    final JsonNode ops = result.get("vmTrace").get("ops");
+    final JsonNode add = ops.get(ops.size() - 1);
+    assertThat(add.get("pc").asInt()).isEqualTo(4);
+    if (succeeds) {
+      assertThat(result.get("trace").get(0).has("error")).isFalse();
+      assertThat(add.get("ex").get("push").get(0).asText()).isEqualTo("0x3");
+      assertThat(add.get("ex").get("used").asLong()).isZero();
+    } else {
+      assertThat(result.get("trace").get(0).get("error").asText()).isEqualTo("Out of gas");
+      assertThat(add.get("ex").isNull()).isTrue();
+    }
+  }
+
+  // Pushes CALL(gas=1, to=0x06 ecAdd, no value/input/output), then STOPs. ecAdd needs 150 gas, so
+  // the precompile halts while the CALL itself succeeds and pushes 0.
+  private static final String UNDERFUNDED_EC_ADD_CALL = "6000600060006000600060066001f100";
+
+  @Test
+  void rootCallToUnderfundedPrecompileKeepsReport() throws Exception {
+    assertUnderfundedPrecompileCallReport(
+        traceVm(UNDERFUNDED_EC_ADD_CALL, 100_000).get("vmTrace").get("ops"));
+  }
+
+  @Test
+  void nestedCallToUnderfundedPrecompileKeepsReport() throws Exception {
+    final JsonNode result = traceVm(createChild(UNDERFUNDED_EC_ADD_CALL), 200_000);
+    final JsonNode create = opAt(result.get("vmTrace").get("ops"), 26);
+    assertThat(create.get("ex").get("push").get(0).asText()).isNotEqualTo("0x0");
+    assertUnderfundedPrecompileCallReport(create.get("sub").get("ops"));
+  }
+
+  @Test
+  void rootCodeDepositOutOfGasKeepsLastOpcodeReport() throws Exception {
+    // PUSH1 0x20 PUSH1 0 RETURN: execution fits in the gas limit, the 6,400 gas code deposit does
+    // not. The tracer stamps the deposit failure onto the second PUSH1, which itself succeeded.
+    final JsonNode result = traceVm("60206000f3", 55_000);
+    assertThat(result.get("trace").get(0).get("error").asText()).isEqualTo("Out of gas");
+    final JsonNode push = opAt(result.get("vmTrace").get("ops"), 2);
+    assertThat(push.get("ex").isNull()).isFalse();
+    assertThat(push.get("ex").get("push").get(0).asText()).isEqualTo("0x0");
+    assertThat(push.get("ex").get("used").asLong()).isPositive();
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    // CALL(GAS, 0x04, 0, 0, 0, 0xffffffff, 1) cannot pay for the output window
+    "600163ffffffff60006000600060045af100, 16",
+    // CREATE(0, 0xffffffff, 0x20) cannot pay for the init code memory
+    "602063ffffffff6000f0, 9"
+  })
+  void rootCallOutOfGasOmitsSubtrace(final String code, final int pc) throws Exception {
+    final JsonNode call = opAt(traceVm(code, 100_000).get("vmTrace").get("ops"), pc);
+    assertThat(call.get("ex").isNull()).isTrue();
+    assertThat(call.get("sub").isNull()).isTrue();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"00", "60006000fd"})
+  void codeDepositOutOfGasAfterCalleeKeepsItsLastReport(final String callee) throws Exception {
+    // CREATE a child whose code is the callee, STOP or REVERT(0, 0), CALL it, then RETURN 1,024
+    // bytes. The 204,800 gas code deposit does not fit, and the tracer stamps its failure onto the
+    // callee's last opcode, which succeeded.
+    final int size = callee.length() / 2;
+    final String create =
+        createChild(
+            String.format("%02x%s60005260%02x60%02xf3", 0x5f + size, callee, size, 32 - size));
+    // Replace the trailing STOP with CALL(GAS, child, 0, 0, 0, 0, 0) and RETURN(result, 0x400).
+    final String code =
+        create.substring(0, create.length() - 2) + "600052610400600060006000600060006000515af1f3";
+    final JsonNode result = traceVm(code, 250_000);
+    assertThat(result.get("trace").get(0).get("error").asText()).isEqualTo("Out of gas");
+    final JsonNode call = opAt(result.get("vmTrace").get("ops"), create.length() / 2 + 19);
+    final JsonNode last = opAt(call.get("sub").get("ops"), size - 1);
+    assertThat(last.get("ex").isNull()).isFalse();
+  }
+
+  @Test
+  void nestedOpcodeOutOfGasOmitsReport() throws Exception {
+    // Child init code PUSH4 0xffffffff MLOAD cannot pay for the memory expansion.
+    final JsonNode result = traceVm(createChild("63ffffffff51"), 200_000);
+    assertThat(result.get("trace").get(0).has("error")).isFalse();
+    final JsonNode create = opAt(result.get("vmTrace").get("ops"), 16);
+    assertThat(create.get("ex").get("push").get(0).asText()).isEqualTo("0x0");
+    final JsonNode mload = opAt(create.get("sub").get("ops"), 5);
+    assertThat(mload.get("ex").isNull()).isTrue();
+  }
+
+  private static void assertUnderfundedPrecompileCallReport(final JsonNode ops) {
+    final JsonNode call = opAt(ops, 14);
+    final JsonNode stop = opAt(ops, 15);
+    assertThat(call.get("ex").isNull()).isFalse();
+    assertThat(call.get("ex").get("push").get(0).asText()).isEqualTo("0x0");
+    assertThat(call.get("ex").get("used").asLong())
+        .isEqualTo(stop.get("ex").get("used").asLong())
+        .isPositive();
+  }
+
+  private static JsonNode opAt(final JsonNode ops, final int pc) {
+    for (final JsonNode op : ops) {
+      if (op.get("pc").asInt() == pc) {
+        return op;
+      }
+    }
+    throw new AssertionError("no op at pc " + pc + " in " + ops);
+  }
+
+  /**
+   * Root init code that stores {@code childInitCode} in memory, CREATEs a child running it (at pc
+   * {@code size + 10}), then STOPs.
+   */
+  private static String createChild(final String childInitCode) {
+    final int size = childInitCode.length() / 2;
+    return String.format(
+        "%02x%s60005260%02x60%02x6000f000", 0x5f + size, childInitCode, size, 32 - size);
+  }
+
+  private JsonNode traceVm(final String code, final long gas) throws Exception {
+    final String request =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"trace_call\",\"params\":[{"
+            + "\"from\":\"0x627306090abab3a6e1400e9345bc60c78a8bef57\",\"gas\":\"0x"
+            + Long.toHexString(gas)
+            + "\",\"data\":\"0x"
+            + code
+            + "\"},[\"vmTrace\",\"trace\"],\"latest\"]}";
+    try (Response response =
+        client
+            .newCall(
+                new Request.Builder().url(baseUrl).post(RequestBody.create(request, JSON)).build())
+            .execute()) {
+      assertThat(response.code()).isEqualTo(200);
+      final JsonNode body = new ObjectMapper().readTree(response.body().string());
+      assertThat(body.has("error")).isFalse();
+      assertThat(body.has("result")).isTrue();
+      return body.get("result");
+    }
   }
 
   @Test

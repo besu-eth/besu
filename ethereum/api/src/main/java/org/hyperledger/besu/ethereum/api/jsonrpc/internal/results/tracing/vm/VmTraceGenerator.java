@@ -95,7 +95,7 @@ public class VmTraceGenerator {
       generateTracingPush(report);
       generateTracingStorage(report);
       handleDepthIncreased(op, report, nextTraceFrame);
-      completeStep(frame, op, report);
+      completeStep(frame, nextTraceFrame, op, report);
       lastDepth = frame.getDepth();
     }
   }
@@ -114,13 +114,14 @@ public class VmTraceGenerator {
   }
 
   private void completeStep(
-      final TraceFrame frame, final VmOperation op, final VmOperationExecutionReport report) {
+      final TraceFrame frame,
+      final Optional<TraceFrame> nextTraceFrame,
+      final VmOperation op,
+      final VmOperationExecutionReport report) {
     // add the operation representation to the list of traces
-    final Optional<ExceptionalHaltReason> exceptionalHaltReason = frame.getExceptionalHaltReason();
-    if (frame.getDepth() > 0
-        && exceptionalHaltReason.isPresent()
-        && exceptionalHaltReason.get() == ExceptionalHaltReason.INSUFFICIENT_GAS) {
+    if (ranOutOfGas(frame, nextTraceFrame)) {
       op.setVmOperationExecutionReport(null);
+      op.setSub(null);
     } else {
       op.setVmOperationExecutionReport(report);
     }
@@ -128,6 +129,34 @@ public class VmTraceGenerator {
       currentTrace.add(op);
     }
     currentIndex++;
+  }
+
+  /**
+   * Whether the opcode of this frame itself ran out of gas. The tracer also stamps {@code
+   * INSUFFICIENT_GAS} onto opcodes that succeeded: a CALL whose precompile callee was underfunded,
+   * and the last non-RETURN opcode before a code deposit that could not be paid. An opcode that
+   * runs out of gas always ends its call context and fails it without reverting. The deposit's
+   * opcode ends its call context only when it is a callee's last: a REVERT, or an opcode whose call
+   * succeeded.
+   */
+  private static boolean ranOutOfGas(
+      final TraceFrame frame, final Optional<TraceFrame> nextTraceFrame) {
+    return frame.getExceptionalHaltReason().orElse(null) == ExceptionalHaltReason.INSUFFICIENT_GAS
+        && frame.getPrecompiledGasCost().isEmpty()
+        && frame.getRevertReason().isEmpty()
+        && nextTraceFrame
+            .map(next -> next.getDepth() < frame.getDepth() && resumesAfterFailedCall(next))
+            .orElse(true);
+  }
+
+  /** Whether the caller resumes with zero, the result of a failed CALL or CREATE, on its stack. */
+  private static boolean resumesAfterFailedCall(final TraceFrame resumption) {
+    // the traced stack is the pre-execution snapshot, bottom to top
+    return resumption
+        .getStack()
+        .filter(stack -> stack.length > 0)
+        .map(stack -> stack[stack.length - 1].isZero())
+        .orElse(true);
   }
 
   private void handleDepthIncreased(
