@@ -21,7 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.mainnet.ValidationResult.valid;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.FRAME_MEMPOOL_POLICY_VIOLATION;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_TOO_LOW;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INTERNAL_ERROR;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_SIGNATURE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.NONCE_TOO_FAR_IN_FUTURE_FOR_SENDER;
@@ -37,12 +39,14 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.quality.Strictness.LENIENT;
 
+import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -51,7 +55,10 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameSignature;
+import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
@@ -60,7 +67,10 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
+import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidator;
+import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidatorFactory;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.MockExecutorService;
 import org.hyperledger.besu.util.number.Percentage;
@@ -75,12 +85,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIf;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -92,6 +104,22 @@ import org.mockito.junit.jupiter.MockitoSettings;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = LENIENT)
 public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoolTestBase {
+
+  // The frame senders are funded in txpool-test-genesis.json; the second one has code.
+  private static final KeyPair FRAME_SENDER_KEY_PAIR =
+      SignatureAlgorithmFactory.getInstance()
+          .createKeyPair(
+              SignatureAlgorithmFactory.getInstance()
+                  .createPrivateKey(
+                      Bytes32.fromHexString(
+                          "0x8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63")));
+  private static final Address FRAME_SENDER =
+      Address.fromHexString("0xfe3b557e8fb62b89f4916b721be55ceb828dbd73");
+  private static final Address FRAME_SENDER_WITH_CODE =
+      Address.fromHexString("0x8141000000000000000000000000000000000001");
+  private static final Wei FRAME_SENDER_BALANCE = Wei.fromEth(1_000_000);
+  private static final Wei FRAME_FEE_PER_GAS = Wei.of(5000L);
+  private static final Wei FRAME_PRIORITY_FEE = Wei.of(1000L);
 
   @Test
   public void blobCustodyColumnsStartsEmptyAndRoundTripsAfterUpdate() {
@@ -1005,43 +1033,286 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
   }
 
   @Test
-  public void shouldRejectLocalFrameTransactionBeforeCheckingItsFee() {
-    // The frame rejection runs before the price checks and before the transaction validator.
-    final Transaction frameTransaction = createFrameTransaction(Wei.fromEth(2));
+  public void shouldRejectFrameTransactionShapeBeforeVerifyingItsSignatures() {
+    // The policy runs before the transaction validator, which verifies every signature entry.
+    final Transaction frameTransaction =
+        createFrameTransaction(
+            FRAME_SENDER,
+            0,
+            List.of(selfVerifyFrame()),
+            Collections.nCopies(1_000, frameSenderSignature()),
+            FRAME_PRIORITY_FEE);
+    assertThat(frameTransaction.getSizeForBlockInclusion())
+        .isLessThanOrEqualTo(TransactionPoolConfiguration.DEFAULT_TX_POOL_MAX_TX_BYTES);
 
-    addAndAssertTransactionViaApiInvalid(frameTransaction, INVALID_TRANSACTION_FORMAT);
+    addAndAssertTransactionViaApiInvalid(frameTransaction, FRAME_MEMPOOL_POLICY_VIOLATION);
+    assertThat(addRemoteTransaction(frameTransaction).getInvalidReason())
+        .isEqualTo(FRAME_MEMPOOL_POLICY_VIOLATION);
     verifyNoInteractions(transactionValidatorFactory.get());
   }
 
   @Test
-  public void shouldRejectRemoteFrameTransactionBeforeValidatingIt() {
-    final Transaction frameTransaction = createFrameTransaction(Wei.of(5000));
+  @EnabledIf("isSequencedPool")
+  public void shouldRejectFrameTransactionInSequencedPool() {
+    transactionPool =
+        createTransactionPool(
+            b ->
+                b.minGasPrice(Wei.of(2))
+                    .txPoolImplementation(TransactionPoolConfiguration.Implementation.SEQUENCED));
+    final Transaction frameTransaction = createFrameTransaction(0);
+    givenTransactionIsValid(frameTransaction);
 
-    addAndAssertRemoteTransactionInvalid(frameTransaction);
-    verifyNoInteractions(transactionValidatorFactory.get());
+    addAndAssertTransactionViaApiInvalid(frameTransaction, FRAME_MEMPOOL_POLICY_VIOLATION);
   }
 
-  private static Transaction createFrameTransaction(final Wei maxFee) {
+  @Test
+  @EnabledIf("isLayeredBaseFeeMarket")
+  public void shouldAcceptLocalDirectlyEvaluableFrameTransaction() {
+    final Transaction frameTransaction = createFrameTransaction(0);
+    givenTransactionIsValid(frameTransaction);
+
+    addAndAssertTransactionViaApiValid(frameTransaction, false);
+  }
+
+  @Test
+  @EnabledIf("isLayeredBaseFeeMarket")
+  public void shouldAcceptAndGossipRemoteDirectlyEvaluableFrameTransaction() {
+    final Transaction frameTransaction = createFrameTransaction(0);
+    givenTransactionIsValid(frameTransaction);
+
+    addAndAssertRemoteTransactionsValid(frameTransaction);
+  }
+
+  @Test
+  @EnabledIf("isLayeredBaseFeeMarket")
+  public void shouldReportInternalErrorWhenPluginValidatorThrowsForLocalFrameTransaction() {
+    final TransactionPoolValidatorService throwingValidatorService =
+        new TransactionPoolValidatorService() {
+          @Override
+          public PluginTransactionPoolValidator createTransactionValidator() {
+            return (transaction, isLocal, hasPriority) -> {
+              throw new IllegalStateException(
+                  "gas price " + transaction.getGasPrice().orElseThrow());
+            };
+          }
+
+          @Override
+          public void registerPluginTransactionValidatorFactory(
+              final PluginTransactionPoolValidatorFactory pluginTransactionPoolValidatorFactory) {}
+        };
+    transactionPool =
+        createTransactionPool(b -> b.transactionPoolValidatorService(throwingValidatorService));
+    final Transaction frameTransaction = createFrameTransaction(0);
+    givenTransactionIsValid(frameTransaction);
+
+    addAndAssertTransactionViaApiInvalid(frameTransaction, INTERNAL_ERROR);
+    verify(transactionBroadcaster, never()).onTransactionsAdded(any());
+  }
+
+  static Stream<Arguments> frameTransactionsOutsideSenderPolicy() {
+    return Stream.of(
+        Arguments.of("nonce gap", createFrameTransaction(1)),
+        Arguments.of(
+            "sender with code",
+            createFrameTransaction(
+                FRAME_SENDER_WITH_CODE,
+                0,
+                List.of(selfVerifyFrame(), userOpFrame(50_000L, 0L)),
+                List.of(frameSenderSignature()),
+                FRAME_PRIORITY_FEE)),
+        Arguments.of(
+            "balance below max_fee",
+            createFrameTransaction(
+                FRAME_SENDER,
+                0,
+                List.of(selfVerifyFrame(), userOpFrame(50_000L, 0L)),
+                List.of(frameSenderSignature()),
+                FRAME_SENDER_BALANCE.add(1),
+                FRAME_PRIORITY_FEE)));
+  }
+
+  @ParameterizedTest(name = "{index}: {0}")
+  @MethodSource("frameTransactionsOutsideSenderPolicy")
+  @EnabledIf("isLayeredBaseFeeMarket")
+  public void shouldRejectFrameTransactionOutsideSenderPolicy(
+      final String name, final Transaction frameTransaction) {
+    givenTransactionIsValid(frameTransaction);
+
+    assertThat(addRemoteTransaction(frameTransaction).getInvalidReason())
+        .isEqualTo(FRAME_MEMPOOL_POLICY_VIOLATION);
+    assertTransactionNotPending(frameTransaction);
+    verify(transactionBroadcaster, never()).onTransactionsAdded(any());
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    // each dimension fits, though the summed gas limit is above the block gas limit
+    "100000, 0, true",
+    // the intrinsic gas pushes the execution reservation over the block gas limit
+    "0, 0, false",
+    "100000, -1, false"
+  })
+  @EnabledIf("isLayeredBaseFeeMarket")
+  public void shouldCheckFrameTransactionGasReservationsAgainstTheBlockGasLimit(
+      final long executionMargin, final long stateMargin, final boolean admitted) {
+    final Transaction frameTransaction =
+        createFrameTransaction(
+            FRAME_SENDER,
+            0,
+            List.of(
+                selfVerifyFrame(),
+                userOpFrame(blockGasLimit - executionMargin, blockGasLimit - stateMargin)),
+            List.of(frameSenderSignature()),
+            FRAME_PRIORITY_FEE);
+    assertThat(frameTransaction.getGasLimit()).isGreaterThan(blockGasLimit);
+    givenTransactionIsValid(frameTransaction);
+
+    final ValidationResult<TransactionInvalidReason> result =
+        addRemoteTransaction(frameTransaction);
+
+    if (admitted) {
+      assertThat(result).isEqualTo(valid());
+      assertTransactionPending(frameTransaction);
+    } else {
+      assertThat(result.getInvalidReason()).isEqualTo(EXCEEDS_BLOCK_GAS_LIMIT);
+      assertTransactionNotPending(frameTransaction);
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"110, 110, true", "200, 100, false", "100, 200, false", "109, 110, false"})
+  @EnabledIf("isLayeredBaseFeeMarket")
+  public void shouldReplaceFrameTransactionOnlyWhenBothFeesAreBumped(
+      final long maxFeePercent, final long priorityFeePercent, final boolean replaces) {
+    final Transaction frameTransaction = createFrameTransaction(0);
+    final Transaction replacement =
+        createFrameTransaction(
+            FRAME_SENDER,
+            0,
+            frameTransaction.getFrames().orElseThrow(),
+            frameTransaction.getFrameSignatures().orElseThrow(),
+            frameTransaction.getMaxFee().orElseThrow().multiply(maxFeePercent).divide(100),
+            FRAME_PRIORITY_FEE.multiply(priorityFeePercent).divide(100));
+    givenTransactionIsValid(frameTransaction);
+    givenTransactionIsValid(replacement);
+    addAndAssertRemoteTransactionsValid(frameTransaction);
+
+    final ValidationResult<TransactionInvalidReason> result = addRemoteTransaction(replacement);
+
+    if (replaces) {
+      assertThat(result).isEqualTo(valid());
+      assertTransactionPending(replacement);
+      assertTransactionNotPending(frameTransaction);
+    } else {
+      assertThat(result.getInvalidReason()).isEqualTo(TRANSACTION_REPLACEMENT_UNDERPRICED);
+      assertTransactionPending(frameTransaction);
+      assertTransactionNotPending(replacement);
+    }
+  }
+
+  @Test
+  @EnabledIf("isLayeredBaseFeeMarket")
+  public void shouldNotReplaceFrameTransactionWithEip1559Transaction() {
+    final Transaction frameTransaction = createFrameTransaction(0);
+    final Transaction eip1559Transaction =
+        new TransactionTestFixture()
+            .type(TransactionType.EIP1559)
+            .chainId(Optional.of(BigInteger.ONE))
+            .nonce(0)
+            .gasLimit(21_000L)
+            .maxFeePerGas(Optional.of(FRAME_FEE_PER_GAS.multiply(10)))
+            .maxPriorityFeePerGas(Optional.of(FRAME_PRIORITY_FEE.multiply(10)))
+            .createTransaction(FRAME_SENDER_KEY_PAIR);
+    assertThat(eip1559Transaction.getSender()).isEqualTo(FRAME_SENDER);
+    givenTransactionIsValid(frameTransaction);
+    givenTransactionIsValid(eip1559Transaction);
+    addAndAssertRemoteTransactionsValid(frameTransaction);
+
+    assertThat(addRemoteTransaction(eip1559Transaction).getInvalidReason())
+        .isEqualTo(TRANSACTION_REPLACEMENT_UNDERPRICED);
+    assertTransactionPending(frameTransaction);
+    assertTransactionNotPending(eip1559Transaction);
+  }
+
+  private ValidationResult<TransactionInvalidReason> addRemoteTransaction(
+      final Transaction transaction) {
+    return transactionPool.addRemoteTransactions(List.of(transaction)).get(transaction.getHash());
+  }
+
+  /** {@code [self_verify, user_op]} from the funded, codeless frame sender. */
+  private static Transaction createFrameTransaction(final long nonce) {
+    return createFrameTransaction(
+        FRAME_SENDER,
+        nonce,
+        List.of(selfVerifyFrame(), userOpFrame(50_000L, 0L)),
+        List.of(frameSenderSignature()),
+        FRAME_PRIORITY_FEE);
+  }
+
+  /** A frame transaction whose max fee pays {@link #FRAME_FEE_PER_GAS} on all of its gas. */
+  private static Transaction createFrameTransaction(
+      final Address sender,
+      final long nonce,
+      final List<Frame> frames,
+      final List<FrameSignature> signatures,
+      final Wei maxPriorityFeePerGas) {
+    final long gasLimit =
+        FrameTransactionGas.maxGas(
+            frames, signatures, sender, KeyedNonces.LEGACY_NONCE_KEYS, nonce);
+    return createFrameTransaction(
+        sender,
+        nonce,
+        frames,
+        signatures,
+        FRAME_FEE_PER_GAS.multiply(gasLimit),
+        maxPriorityFeePerGas);
+  }
+
+  private static Transaction createFrameTransaction(
+      final Address sender,
+      final long nonce,
+      final List<Frame> frames,
+      final List<FrameSignature> signatures,
+      final Wei maxFee,
+      final Wei maxPriorityFeePerGas) {
     return Transaction.builder()
         .type(TransactionType.FRAME)
         .chainId(BigInteger.ONE)
-        .nonce(0)
-        .gasLimit(100_000L)
-        .sender(Address.fromHexString("0x1111111111111111111111111111111111111111"))
-        .frames(
-            List.of(
-                new Frame(
-                    Frame.MODE_VERIFY,
-                    Frame.APPROVE_SCOPE_MASK,
-                    Optional.empty(),
-                    100_000L,
-                    0L,
-                    Wei.ZERO,
-                    Bytes.EMPTY)))
-        .frameSignatures(List.of())
-        .maxPriorityFeePerGas(Wei.ONE)
+        .nonce(nonce)
+        .sender(sender)
+        .frames(frames)
+        .frameSignatures(signatures)
+        .maxPriorityFeePerGas(maxPriorityFeePerGas)
         .maxFee(maxFee)
         .build();
+  }
+
+  private static Frame selfVerifyFrame() {
+    return new Frame(
+        Frame.MODE_VERIFY,
+        Frame.APPROVE_SCOPE_MASK,
+        Optional.empty(),
+        5_000L,
+        0L,
+        Wei.ZERO,
+        Bytes.EMPTY);
+  }
+
+  private static Frame userOpFrame(final long executionGasLimit, final long stateGasLimit) {
+    return new Frame(
+        Frame.MODE_SENDER,
+        0,
+        Optional.of(Address.fromHexString("0x2000000000000000000000000000000000000002")),
+        executionGasLimit,
+        stateGasLimit,
+        Wei.ZERO,
+        Bytes.EMPTY);
+  }
+
+  /** A secp256k1 entry by the sender over the canonical hash; the validator is mocked. */
+  private static FrameSignature frameSenderSignature() {
+    return new FrameSignature(
+        FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, Bytes.repeat((byte) 1, 65));
   }
 
   @Test

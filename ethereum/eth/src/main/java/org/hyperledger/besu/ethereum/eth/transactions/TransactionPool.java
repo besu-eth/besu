@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -170,7 +171,21 @@ public class TransactionPool implements BlockAddedObserver {
       final Transaction transaction) {
 
     final boolean hasPriority = isPriorityTransaction(transaction, true);
-    final var outcome = addTransaction(transaction, true, hasPriority, MAX_SCORE);
+    final AdditionOutcome outcome;
+    try {
+      outcome = addTransaction(transaction, true, hasPriority, MAX_SCORE);
+    } catch (final RuntimeException e) {
+      LOG.warn(
+          "Unexpected error validating transaction {}, treating as invalid",
+          transaction.getHash(),
+          e);
+      final ValidationResult<TransactionInvalidReason> result =
+          ValidationResult.invalid(
+              INTERNAL_ERROR, "unexpected error during validation: " + e.getMessage());
+      metrics.incrementRejected(true, hasPriority, result.getInvalidReason(), "txpool");
+      logInvalid(transaction, result, true, hasPriority);
+      return result;
+    }
     final var result = outcome.result();
     if (result.isValid()) {
       localSenders.add(transaction.getSender());
@@ -525,16 +540,21 @@ public class TransactionPool implements BlockAddedObserver {
       return ValidationResultAndAccount.invalid(EXCEEDS_MAX_TX_BYTES);
     }
 
-    if (transaction.getType().supportsFrames()) {
-      // The EIP-8141 mempool validation rules (validation prefix simulation, paymaster
-      // accounting) are not implemented yet, so frame transactions are only accepted in blocks.
-      return ValidationResultAndAccount.invalid(
-          TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
-          "Frame transactions are not yet supported by the transaction pool");
+    final ProtocolSpec chainHeadSpec = protocolSchedule.getByBlockHeader(chainHeadBlockHeader);
+    final boolean isFrameTransaction = transaction.getType().supportsFrames();
+    if (isFrameTransaction) {
+      // Runs before the transaction validator, which verifies every signature entry.
+      final ValidationResult<TransactionInvalidReason> policyResult =
+          FrameTransactionPoolPolicy.checkStatic(
+              transaction,
+              configuration.getTxPoolImplementation(),
+              chainHeadSpec.getGasCalculator());
+      if (!policyResult.isValid()) {
+        return new ValidationResultAndAccount(policyResult);
+      }
     }
 
-    final FeeMarket feeMarket =
-        protocolSchedule.getByBlockHeader(chainHeadBlockHeader).getFeeMarket();
+    final FeeMarket feeMarket = chainHeadSpec.getFeeMarket();
     final TransactionInvalidReason priceInvalidReason =
         validatePrice(transaction, isLocal, hasPriority, feeMarket);
     if (priceInvalidReason != null) {
@@ -562,7 +582,27 @@ public class TransactionPool implements BlockAddedObserver {
       return ValidationResultAndAccount.invalid(
           TransactionInvalidReason.REPLAY_PROTECTED_SIGNATURE_REQUIRED);
     }
-    if (transaction.getGasLimit() > chainHeadBlockHeader.getGasLimit()) {
+    if (isFrameTransaction) {
+      // A frame transaction's gas limit sums its execution and state budgets, which a block
+      // bounds separately.
+      if (!chainHeadSpec
+          .getBlockGasAccountingStrategy()
+          .hasBlockCapacity(
+              transaction,
+              chainHeadSpec
+                  .getGasCalculator()
+                  .stateGasCostCalculator()
+                  .transactionExecutionGasLimit(),
+              0L,
+              0L,
+              chainHeadBlockHeader.getGasLimit())) {
+        return ValidationResultAndAccount.invalid(
+            TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT,
+            String.format(
+                "Frame transaction execution or state gas reservation exceeds block gas limit of %s",
+                chainHeadBlockHeader.getGasLimit()));
+      }
+    } else if (transaction.getGasLimit() > chainHeadBlockHeader.getGasLimit()) {
       return ValidationResultAndAccount.invalid(
           TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT,
           String.format(
@@ -599,12 +639,19 @@ public class TransactionPool implements BlockAddedObserver {
         bonsaiWorldState.disableCacheMerkleTrieLoader();
       }
       final Account senderAccount = worldState.get(transaction.getSender());
-      return new ValidationResultAndAccount(
-          senderAccount,
-          chainHeadBlockHeader.getHash(),
+      final ValidationResult<TransactionInvalidReason> senderResult =
           getTransactionValidator()
               .validateForSender(
-                  transaction, senderAccount, TransactionValidationParams.transactionPool()));
+                  transaction, senderAccount, TransactionValidationParams.transactionPool());
+      if (isFrameTransaction && senderResult.isValid()) {
+        return new ValidationResultAndAccount(
+            senderAccount,
+            chainHeadBlockHeader.getHash(),
+            FrameTransactionPoolPolicy.checkSender(
+                transaction, senderAccount, chainHeadSpec.getGasCalculator()));
+      }
+      return new ValidationResultAndAccount(
+          senderAccount, chainHeadBlockHeader.getHash(), senderResult);
     } catch (MerkleTrieException ex) {
       LOG.debug(
           "MerkleTrieException while validating transaction for sender {}",

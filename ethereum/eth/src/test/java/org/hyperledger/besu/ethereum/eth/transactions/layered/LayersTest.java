@@ -21,6 +21,7 @@ import static org.hyperledger.besu.datatypes.TransactionType.ACCESS_LIST;
 import static org.hyperledger.besu.datatypes.TransactionType.BLOB;
 import static org.hyperledger.besu.datatypes.TransactionType.DELEGATE_CODE;
 import static org.hyperledger.besu.datatypes.TransactionType.EIP1559;
+import static org.hyperledger.besu.datatypes.TransactionType.FRAME;
 import static org.hyperledger.besu.datatypes.TransactionType.FRONTIER;
 import static org.hyperledger.besu.ethereum.core.TransactionTestFixture.createSignedCodeDelegation;
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason.INVALIDATED;
@@ -118,6 +119,12 @@ public class LayersTest extends BaseTransactionPoolTest {
                           new BaseTransactionPoolTest().createEIP4844Transaction(0, KEYS1, 1, 1))
                       .memorySize()
                   * 3L)
+          .build();
+
+  private static final TransactionPoolConfiguration FRAME_TX_POOL_CONFIG =
+      ImmutableTransactionPoolConfiguration.builder()
+          .from(DEFAULT_TX_POOL_CONFIG)
+          .maxPrioritizedTransactionsByType(Map.of(FRAME, 1))
           .build();
 
   @ParameterizedTest
@@ -1045,7 +1052,23 @@ public class LayersTest extends BaseTransactionPoolTest {
                 .expectedPrioritizedForSenders()
                 .expectedReadyForSenders()
                 .expectedSparseForSenders()
-                .expectedSelectedTransactions()));
+                .expectedSelectedTransactions()),
+        Arguments.of(
+            new Scenario("frame transaction added, promoted, selected, replaced and confirmed")
+                .addForSender(S2, 0, 1, 2)
+                .addForSender(S1, FRAME, 0)
+                .expectedPrioritizedForSender(S2, 0, 1, 2)
+                .expectedReadyForSender(S1, 0)
+                .confirmedForSenders(S2, 0)
+                .expectedPrioritizedForSenders(S2, 1, S2, 2, S1, 0)
+                .expectedReadyForSenders()
+                .expectedSelectedTransactions(S2, 1, S2, 2, S1, 0)
+                // the replacement's fees tie with S2's, and the lower nonce goes first
+                .replaceForSender(S1, 0)
+                .expectedPrioritizedForSenders(S1, 0, S2, 1, S2, 2)
+                .confirmedForSenders(S1, 0)
+                .expectedPrioritizedForSender(S2, 1, 2)
+                .expectedSelectedTransactions(S2, 1, S2, 2)));
   }
 
   static Stream<Arguments> providerReorg() {
@@ -1284,7 +1307,17 @@ public class LayersTest extends BaseTransactionPoolTest {
                 .confirmedForSenders(S1, 3)
                 .expectedPrioritizedForSender(S1, 4)
                 .expectedReadyForSender(S1, 5, 6)
-                .expectedSparseForSenders()));
+                .expectedSparseForSenders()),
+        Arguments.of(
+            new Scenario("frame txs beyond the frame cap stay ready", FRAME_TX_POOL_CONFIG)
+                .addForSender(S1, FRAME, 0)
+                .addForSender(S2, FRAME, 0)
+                .addForSender(S3, 0)
+                .expectedPrioritizedForSenders(S3, 0, S1, 0)
+                .expectedReadyForSender(S2, 0)
+                .confirmedForSenders(S1, 0)
+                .expectedPrioritizedForSenders(S3, 0, S2, 0)
+                .expectedReadyForSenders()));
   }
 
   static Stream<Arguments> providerPenalized() {
@@ -1898,7 +1931,7 @@ public class LayersTest extends BaseTransactionPoolTest {
             case EIP1559 -> createEIP1559PendingTransaction(sender, nonce);
             case BLOB -> createBlobPendingTransaction(sender, nonce);
             case DELEGATE_CODE -> createEIP7702PendingTransaction(sender, nonce, inputDelegations);
-            case FRAME -> throw new IllegalArgumentException("Frame transactions are not pooled");
+            case FRAME -> createFramePendingTransaction(sender, nonce);
           };
       final LiveTransactionMetadata liveTransactionMetadata =
           new LiveTransactionMetadata(newPendingTx, inputDelegations);
@@ -1951,6 +1984,14 @@ public class LayersTest extends BaseTransactionPoolTest {
         final Sender sender, final long nonce) {
       return createRemotePendingTransaction(
           createEIP1559Transaction(nonce, sender.key, sender.gasFeeMultiplier), sender.hasPriority);
+    }
+
+    private PendingTransaction createFramePendingTransaction(
+        final Sender sender, final long nonce) {
+      final Wei maxGasPrice = Wei.of(5000L).multiply(sender.gasFeeMultiplier);
+      return createRemotePendingTransaction(
+          createFrameTransaction(nonce, maxGasPrice, maxGasPrice.divide(10), sender.key),
+          sender.hasPriority);
     }
 
     private PendingTransaction createBlobPendingTransaction(final Sender sender, final long nonce) {

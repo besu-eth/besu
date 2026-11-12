@@ -169,8 +169,8 @@ public abstract class PendingTransaction
   }
 
   private int computeFrameMemorySize() {
-    // Approximation: frame transactions are not pooled today; account for the encoded size plus
-    // the base shallow size so the value is safely conservative if they ever are.
+    // Approximation: the encoded size plus the base shallow size. It leaves out the object
+    // overhead of the decoded frames and signature entries.
     return EIP1559_AND_EIP4844_SHALLOW_SIZE + transaction.getSizeForAnnouncement();
   }
 

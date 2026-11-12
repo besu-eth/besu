@@ -103,8 +103,10 @@ public interface TransactionPoolConfiguration {
   // 75 MB expressed in decimal bytes (75 * 10^6), not 75 MiB
   long DEFAULT_PENDING_TRANSACTIONS_LAYER_MAX_CAPACITY_BYTES = 75L * 1_000_000L;
   int DEFAULT_MAX_PRIORITIZED_TRANSACTIONS = 10000;
+  // FRAME bounds the frame transactions a block builder tries, and so the unpaid validation work
+  // it does when their validation prefix fails to approve.
   EnumMap<TransactionType, Integer> DEFAULT_MAX_PRIORITIZED_TRANSACTIONS_BY_TYPE =
-      new EnumMap<>(Map.of(TransactionType.BLOB, 21));
+      new EnumMap<>(Map.of(TransactionType.BLOB, 21, TransactionType.FRAME, 64));
   int DEFAULT_MAX_FUTURE_BY_SENDER = 200;
   Implementation DEFAULT_TX_POOL_IMPLEMENTATION = Implementation.LAYERED;
   Set<Address> DEFAULT_PRIORITY_SENDERS = Set.of();
