@@ -158,6 +158,32 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
         .hasMessageContaining("mergeCoordinator must not be null");
   }
 
+  @Test
+  public void shouldNotWaitForEarlierNewPayloadsWhenHeadIsTheChainHead() {
+    when(blockchain.getChainHeadHash()).thenReturn(mockHash);
+
+    assertThat(method.needsEarlierNewPayloads(requestContext(mockFcuParam))).isFalse();
+  }
+
+  @Test
+  public void shouldWaitForEarlierNewPayloadsWhenHeadIsNotTheChainHead() {
+    when(blockchain.getChainHeadHash()).thenReturn(Hash.ZERO);
+
+    assertThat(method.needsEarlierNewPayloads(requestContext(mockFcuParam))).isTrue();
+  }
+
+  @Test
+  public void shouldWaitForEarlierNewPayloadsWhenForkchoiceStateIsInvalid() {
+    when(blockchain.getChainHeadHash()).thenReturn(mockHash);
+
+    assertThat(method.needsEarlierNewPayloads(requestContext("not a forkchoice state"))).isTrue();
+  }
+
+  private JsonRpcRequestContext requestContext(final Object forkchoiceParam) {
+    return new JsonRpcRequestContext(
+        new JsonRpcRequest("2.0", getMethodName(), new Object[] {forkchoiceParam}));
+  }
+
   protected long getMinSupportedTimestamp() {
     return parisHardfork.milestone();
   }

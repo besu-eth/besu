@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod.Series;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -45,18 +46,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 /**
- * Verifies the concurrency/ordering guarantee that {@link OrderedExecutionJsonRpcMethod} provides
- * via its internal single-threaded {@code WorkerExecutor}: at most one engine_* call body can ever
- * be executing at once, whether calls land on the same method instance or two different ones
- * sharing the same Vertx instance. This covers {@code engine_forkchoiceUpdated} and {@code
- * engine_newPayload}, which the Engine API spec requires to be processed serially in arrival order.
+ * Verifies the concurrency/ordering guarantee that {@link OrderedExecutionJsonRpcMethod} provides:
+ * at most one engine_* call body can ever be executing at once, whether calls land on the same
+ * method instance or on a forkchoiceUpdated and a newPayload method sharing the same Vertx
+ * instance, as long as every forkchoiceUpdated call needs the newPayload calls received before it.
  */
 class ExecutionEngineConcurrencySafetyTest {
 
-  // A shared real Vertx instance; the serialization guarantee comes from
-  // OrderedExecutionJsonRpcMethod's
-  // internal createSharedWorkerExecutor("engine-ordered-execution", 1), not from the Vertx pool
-  // size.
+  // A shared real Vertx instance; the serialization guarantee comes from the single-threaded
+  // executors of OrderedExecutionJsonRpcMethod, not from the Vertx pool size.
   private static final Vertx vertx = Vertx.vertx(new VertxOptions());
 
   @AfterAll
@@ -70,13 +68,18 @@ class ExecutionEngineConcurrencySafetyTest {
     private final long workMillis;
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicInteger maxObservedConcurrency = new AtomicInteger();
+    private final AtomicInteger inFlightAcrossMethods;
+    private final AtomicInteger maxObservedConcurrencyAcrossMethods;
     private final List<String> completionOrder = new CopyOnWriteArrayList<>();
 
     RecordingEngineMethod(
         final Vertx vertx,
         final ProtocolContext protocolContext,
         final String name,
-        final long workMillis) {
+        final Series series,
+        final long workMillis,
+        final AtomicInteger inFlightAcrossMethods,
+        final AtomicInteger maxObservedConcurrencyAcrossMethods) {
       super(
           new ExecutionEngineJsonRpcMethod.ConstructorArguments(
               null,
@@ -89,9 +92,12 @@ class ExecutionEngineConcurrencySafetyTest {
               null,
               0),
           null,
-          null);
+          null,
+          series);
       this.name = name;
       this.workMillis = workMillis;
+      this.inFlightAcrossMethods = inFlightAcrossMethods;
+      this.maxObservedConcurrencyAcrossMethods = maxObservedConcurrencyAcrossMethods;
     }
 
     @Override
@@ -103,11 +109,15 @@ class ExecutionEngineConcurrencySafetyTest {
     public JsonRpcResponse syncResponse(final JsonRpcRequestContext request) {
       final int concurrentNow = inFlight.incrementAndGet();
       maxObservedConcurrency.updateAndGet(prev -> Math.max(prev, concurrentNow));
+      final int concurrentAcrossMethodsNow = inFlightAcrossMethods.incrementAndGet();
+      maxObservedConcurrencyAcrossMethods.updateAndGet(
+          prev -> Math.max(prev, concurrentAcrossMethodsNow));
       try {
         Thread.sleep(workMillis);
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
       } finally {
+        inFlightAcrossMethods.decrementAndGet();
         inFlight.decrementAndGet();
       }
       final String callId = name + ":" + request.getRequest().getParams()[0];
@@ -137,7 +147,14 @@ class ExecutionEngineConcurrencySafetyTest {
   void singleMethodConcurrentCallsObservedConcurrency() throws Exception {
     final int callers = 20;
     final RecordingEngineMethod method =
-        new RecordingEngineMethod(vertx, mockProtocolContext(), "engine_test", 50);
+        new RecordingEngineMethod(
+            vertx,
+            mockProtocolContext(),
+            "engine_test",
+            Series.FORKCHOICE_UPDATED,
+            50,
+            new AtomicInteger(),
+            new AtomicInteger());
 
     final List<String> completionOrder =
         fireConcurrently(callers, id -> method.response(request("engine_test", id)));
@@ -145,7 +162,7 @@ class ExecutionEngineConcurrencySafetyTest {
     assertThat(method.maxObservedConcurrency.get())
         .as(
             "engine_test calls dispatched concurrently to a single method instance must still be "
-                + "serialized by OrderedExecutionJsonRpcMethod's single-thread WorkerExecutor; "
+                + "serialized by OrderedExecutionJsonRpcMethod's single-threaded executor; "
                 + "completion order was: %s",
             completionOrder)
         .isEqualTo(1);
@@ -160,10 +177,26 @@ class ExecutionEngineConcurrencySafetyTest {
   @Timeout(30)
   void crossMethodConcurrentCallsObservedConcurrency() throws Exception {
     final int callersPerMethod = 10;
+    final AtomicInteger inFlightAcrossMethods = new AtomicInteger();
+    final AtomicInteger maxObservedConcurrencyAcrossMethods = new AtomicInteger();
     final RecordingEngineMethod methodA =
-        new RecordingEngineMethod(vertx, mockProtocolContext(), "engine_newPayload", 50);
+        new RecordingEngineMethod(
+            vertx,
+            mockProtocolContext(),
+            "engine_newPayload",
+            Series.NEW_PAYLOAD,
+            50,
+            inFlightAcrossMethods,
+            maxObservedConcurrencyAcrossMethods);
     final RecordingEngineMethod methodB =
-        new RecordingEngineMethod(vertx, mockProtocolContext(), "engine_forkchoiceUpdated", 50);
+        new RecordingEngineMethod(
+            vertx,
+            mockProtocolContext(),
+            "engine_forkchoiceUpdated",
+            Series.FORKCHOICE_UPDATED,
+            50,
+            inFlightAcrossMethods,
+            maxObservedConcurrencyAcrossMethods);
 
     final ExecutorService pool = Executors.newFixedThreadPool(callersPerMethod * 2);
     final CountDownLatch ready = new CountDownLatch(callersPerMethod * 2);
@@ -221,6 +254,12 @@ class ExecutionEngineConcurrencySafetyTest {
         .as(
             "engine_forkchoiceUpdated body must never overlap with itself or engine_newPayload "
                 + "(callers dispatched at once: %s)",
+            maxCrossMethodConcurrency.get())
+        .isEqualTo(1);
+    assertThat(maxObservedConcurrencyAcrossMethods.get())
+        .as(
+            "engine_newPayload and engine_forkchoiceUpdated bodies must never overlap (callers "
+                + "dispatched at once: %s)",
             maxCrossMethodConcurrency.get())
         .isEqualTo(1);
   }
