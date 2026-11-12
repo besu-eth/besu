@@ -147,7 +147,8 @@ public class BftBlockCreatorTest {
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
             blockchain::getChainHeadHeader,
-            transactionEventNotifier.newEmitter());
+            transactionEventNotifier.newEmitter(),
+            new DeterministicEthScheduler());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -299,7 +300,8 @@ public class BftBlockCreatorTest {
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
             blockchain::getChainHeadHeader,
-            transactionEventNotifier.newEmitter());
+            transactionEventNotifier.newEmitter(),
+            new DeterministicEthScheduler());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -437,7 +439,8 @@ public class BftBlockCreatorTest {
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
             blockchain::getChainHeadHeader,
-            transactionEventNotifier.newEmitter());
+            transactionEventNotifier.newEmitter(),
+            new DeterministicEthScheduler());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
@@ -576,7 +579,8 @@ public class BftBlockCreatorTest {
             TestClock.system(ZoneId.systemDefault()),
             metricsSystem,
             blockchain::getChainHeadHeader,
-            transactionEventNotifier.newEmitter());
+            transactionEventNotifier.newEmitter(),
+            new DeterministicEthScheduler());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);

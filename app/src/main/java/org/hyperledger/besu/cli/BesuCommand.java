@@ -124,6 +124,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.pluginadapter.BlockchainServiceImpl;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningParametersMetrics;
 import org.hyperledger.besu.ethereum.core.VersionMetadata;
@@ -2220,7 +2221,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    */
   public BesuController buildController() {
     try {
-      return setupControllerBuilder().build();
+      final BesuController controller = setupControllerBuilder().build();
+      // the chain id is fixed for the life of the node: register it, so that every chain id with
+      // the same value, like the ones of the decoded transactions, shares the same instance
+      ChainId.initNetworkChainId(controller.getProtocolSchedule().getChainId());
+      return controller;
     } catch (final Exception e) {
       throw new ExecutionException(this.commandLine, e.getMessage(), e);
     }
