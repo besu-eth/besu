@@ -131,6 +131,8 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
     JournaledAccount journaledAccount =
         new JournaledAccount(rootWorld.createAccount(address, nonce, balance));
     accounts.put(address, journaledAccount);
+    // commit deletes every address left in deleted, which would drop the new account
+    deleted.remove(address);
     return new JournaledAccount(journaledAccount);
   }
 
