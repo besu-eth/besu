@@ -1668,24 +1668,30 @@ public abstract class AbstractBlockTransactionSelectorTest {
     await().until(() -> !results.getNotSelectedTransactions().isEmpty());
     assertThat(results.getNotSelectedTransactions())
         .containsOnly(entry(lateTx, longProcessingTxResult));
-    assertThat(transactionPool.getTransactionByHash(lateTx.getHash()).isEmpty())
-        .isEqualTo(isLongProcessingTxDropped);
-
-    // the evaluation of the late tx was still running when the selection returned, and the txpool
-    // processes its result when it completes, so the tx is penalized only if it took too long
-    // itself, and not when it was just the one running when the block ran out of time
-    final byte expectedScore =
-        longProcessingTxResult.penalize() ? (byte) (MAX_SCORE - 1) : MAX_SCORE;
+    // the evaluation of the late tx was still running when the selection returned, so the txpool
+    // processes its result only when the evaluation completes
     await()
         .untilAsserted(
             () ->
-                assertThat(
-                        transactionPool.getPendingTransactions().stream()
-                            .filter(pt -> pt.getHash().equals(lateTx.getHash()))
-                            .findFirst()
-                            .orElseThrow()
-                            .getScore())
-                    .isEqualTo(expectedScore));
+                assertThat(transactionPool.getTransactionByHash(lateTx.getHash()).isEmpty())
+                    .isEqualTo(isLongProcessingTxDropped));
+
+    if (!isLongProcessingTxDropped) {
+      // the tx is penalized only if it took too long itself, and not when it was just the one
+      // running when the block ran out of time
+      final byte expectedScore =
+          longProcessingTxResult.penalize() ? (byte) (MAX_SCORE - 1) : MAX_SCORE;
+      await()
+          .untilAsserted(
+              () ->
+                  assertThat(
+                          transactionPool.getPendingTransactions().stream()
+                              .filter(pt -> pt.getHash().equals(lateTx.getHash()))
+                              .findFirst()
+                              .orElseThrow()
+                              .getScore())
+                      .isEqualTo(expectedScore));
+    }
   }
 
   @Disabled("flaky #7150")

@@ -517,6 +517,24 @@ public abstract class AbstractPendingTransactionsTestBase {
   }
 
   @Test
+  public void invalidTransactionIsDeletedWhenItsLateSelectionResultCompletes() {
+    transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
+
+    // the evaluation of the tx is still running when the selection returns
+    final var lateResult = new CompletableFuture<TransactionSelectionResult>();
+    transactions.selectTransactions(pendingTxs -> Map.of(pendingTxs.getFirst(), lateResult));
+
+    assertThat(transactions.size()).isEqualTo(1);
+
+    // the tx is removed only once its evaluation completes
+    lateResult.complete(
+        TransactionSelectionResult.invalid(
+            TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
+
+    assertThat(transactions.size()).isZero();
+  }
+
+  @Test
   public void shouldReturnEmptyOptionalAsMaximumNonceWhenNoTransactionsPresent() {
     assertThat(transactions.getNextNonceForSender(SENDER1)).isEmpty();
   }
