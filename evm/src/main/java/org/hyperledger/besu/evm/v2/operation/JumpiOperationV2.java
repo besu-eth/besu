@@ -32,6 +32,9 @@ public class JumpiOperationV2 extends AbstractFixedCostOperationV2 {
       new OperationResult(10L, ExceptionalHaltReason.INVALID_JUMP_DESTINATION);
   private static final OperationResult JUMPI_RESPONSE = new OperationResult(10L, null, 0);
   private static final OperationResult NO_JUMP_RESPONSE = new OperationResult(10L, null);
+  // JUMPI and the JUMPDEST it lands on: 10 + 1 gas, and the pc moves past the JUMPDEST
+  private static final OperationResult JUMPI_AND_JUMPDEST_RESPONSE =
+      new OperationResult(11L, null, 1);
 
   /**
    * Instantiates a new Jumpi operation.
@@ -67,5 +70,35 @@ public class JumpiOperationV2 extends AbstractFixedCostOperationV2 {
     }
     return JumpOperationV2.performJump(
         frame, stack, (top - 1) << 2, JUMPI_RESPONSE, INVALID_JUMP_RESPONSE);
+  }
+
+  /**
+   * Execute the JUMPI opcode, and the JUMPDEST a taken jump lands on, for the untraced loop. That
+   * saves the loop a dispatch for the JUMPDEST. Only when the gas covers both: otherwise this jumps
+   * as {@link #staticOperation(MessageFrame)} does, and the loop runs the JUMPDEST, which then
+   * halts for the gas as it would in a traced run.
+   *
+   * @param frame the message frame
+   * @param gas the gas left, which the untraced loop holds outside the frame
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(final MessageFrame frame, final long gas) {
+    // the body of staticOperation(frame), not a call to a shared helper, to keep the inlining
+    // depth of the untraced loop as it was
+    if (!frame.stackHasItemsV2(2)) return haltPoppingAll(frame, UNDERFLOW_RESPONSE);
+    final long[] stack = frame.stackDataV2();
+    final int top = frame.stackTopV2();
+    frame.setTopV2(top - 2);
+    // A zero condition does not jump, so the destination is not checked.
+    if (isZeroAt(stack, top, 1)) {
+      return NO_JUMP_RESPONSE;
+    }
+    // the gas is checked only for a jump, so that a JUMPI that does not jump costs what it did
+    return JumpOperationV2.performJump(
+        frame,
+        stack,
+        (top - 1) << 2,
+        gas >= 11L ? JUMPI_AND_JUMPDEST_RESPONSE : JUMPI_RESPONSE,
+        INVALID_JUMP_RESPONSE);
   }
 }
