@@ -26,10 +26,13 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -58,6 +61,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.io.Writer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -70,6 +75,7 @@ import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes32;
@@ -142,8 +148,11 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
   @Option(
       names = {"--json-array"},
-      description = "Output results as a JSON array: name, pass, fork, lastBlockHash, error.")
+      description =
+          "Output results as a JSON array: name, pass, fork, lastBlockHash, error, rejections.")
   private boolean jsonArray = false;
+
+  private static final PrintWriter DISCARDED_OUTPUT = new PrintWriter(Writer.nullWriter());
 
   private final List<ObjectNode> jsonArrayResults = Collections.synchronizedList(new ArrayList<>());
 
@@ -155,18 +164,35 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
   private Boolean enablePrecompileCache = false;
 
   @Option(
-      names = {"--block-access-list"},
-      description =
-          "Import each block with the access list its fixture carries (default: ${DEFAULT-VALUE})."
-              + " --noblock-access-list imports without one, as full sync does, so post-Amsterdam"
-              + " blocks take the accumulator state root path rather than the access list one.",
-      negatable = true)
-  private Boolean useBlockAccessList = true;
-
-  @Option(
       names = {"--verbose"},
       description = "Verbose logs, listing all skipped tests")
   private final Boolean verbose = false;
+
+  @Option(
+      names = {"--bal-sequential"},
+      description =
+          "Run every block on the sequential block processor. By default the parallel block"
+              + " processor runs, as on a Bonsai node, scheduling transactions from the block's block"
+              + " access list. The list is validated either way.")
+  private boolean balSequential = false;
+
+  @Option(
+      names = {"--bal-report"},
+      description =
+          "Print one JSON line to stderr for each block executed, naming the executor that ran it,"
+              + " and one more when the parallel block processor failed it and re-ran it"
+              + " sequentially. Off by default.")
+  private boolean balReport = false;
+
+  @Option(
+      names = {"--bal-withhold"},
+      description =
+          "Import every block without the access list its fixture carries, as full sync does, so"
+              + " Besu builds the list itself, post-Amsterdam blocks take the accumulator state root"
+              + " path, and the parallel block processor schedules optimistically. Off by default.")
+  private boolean balWithhold = false;
+
+  private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
 
   @ParentCommand private final EvmToolCommand parentCommand;
 
@@ -197,7 +223,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     AbstractPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     AbstractBLS12PrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     KZGPointEvalPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
-    final ObjectMapper blockchainTestMapper = JsonUtils.createObjectMapper();
+    final ObjectMapper blockchainTestMapper = JsonUtils.createFixtureMapper();
     final FixtureRunner.TestResults results = new FixtureRunner.TestResults();
 
     final JavaType javaType =
@@ -210,12 +236,19 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         nameFilter = TestNameFilter.fromOptions(testName, testNameRegex);
       } catch (final IllegalArgumentException e) {
         parentCommand.out.println(e.getMessage());
-        exitCode = 1;
+        // A filter that cannot be compiled is input the runner cannot run.
+        exitCode = 2;
         return;
       }
     }
 
     boolean setupFailed = false;
+    if (balReport) {
+      executionPathListener = new BalExecutionReporter(System.err);
+    }
+    if (jsonArray) {
+      RejectionReasons.install();
+    }
     try {
       if (blockchainTestFiles.isEmpty()) {
         // if no files were specified, use standard input to get filenames
@@ -231,7 +264,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             // No stdin: these are file names, and the stream is the list still being read.
             runFile(file.toPath(), null, blockchainTestMapper, javaType, results);
           } else {
-            parentCommand.out.println("File not found: " + fileName);
+            System.err.println("File not found: " + fileName);
+            // A listed fixture that does not exist means not every fixture ran.
+            setupFailed = true;
           }
         }
       } else {
@@ -253,6 +288,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
     } finally {
+      if (jsonArray) {
+        RejectionReasons.uninstall();
+      }
       // Fail an empty run, so a typo in --test-name or a fixture tree that did not materialise
       // cannot be mistaken for a clean sweep. Not printed under --json-array, where that output is
       // parsed and only the array belongs.
@@ -261,15 +299,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             "No blockchain test was executed%s.%n",
             TestNameFilter.describe(testName, testNameRegex));
       }
-      exitCode =
-          results.failed() > 0
-                  || setupFailed
-                  || !results.hasTests()
-                  || results.unaccountedCases() > 0
-              ? 1
-              : 0;
+      exitCode = results.exitCode(setupFailed);
       if (jsonArray) {
-        results.addNotRunRows(jsonArrayResults, "fork", "lastBlockHash");
+        results.printNotRun(System.err);
         FixtureRunner.printJsonArray(parentCommand.out, jsonArrayResults);
       } else if (results.hasTests() || results.unaccountedCases() > 0) {
         results.printSummary(parentCommand.out);
@@ -290,12 +322,12 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
                   if (nameFilter != null && !matchesTestName(test)) {
                     results.recordFiltered();
                     if (verbose) {
-                      parentCommand.out.println("Skipping test: " + test);
+                      progressOut().println("Skipping test: " + test);
                     }
                     return false;
                   }
                   if (verbose) {
-                    parentCommand.out.println("Considering " + test);
+                    progressOut().println("Considering " + test);
                   }
                   return true;
                 })
@@ -341,6 +373,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     executeBlockchainTest(blockchainTests, results);
   }
 
+  /**
+   * Where per-test progress goes: stdout, except under {@code --json-array}, whose stdout is the
+   * array alone so that it parses.
+   */
+  private PrintWriter progressOut() {
+    return jsonArray ? DISCARDED_OUTPUT : parentCommand.out;
+  }
+
   private boolean matchesTestName(final String test) {
     return requireNonNull(nameFilter).matches(test);
   }
@@ -371,7 +411,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     // test is validated against the wrong parameters.
     final ProtocolSchedule schedule =
         ReferenceTestProtocolSchedules.cached(
-                parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                parentCommand.getEvmConfiguration(),
+                spec.getBlobScheduleOptions().orElse(null),
+                !balSequential,
+                executionPathListener)
             .getByName(spec.getNetwork());
     if (schedule == null) {
       // Recorded against this test, as engine-test does. Left to throw, it escaped the whole file,
@@ -381,7 +424,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         if (!jsonArray) {
           printBlockchainImportResult(reason);
         }
-        recordResult(test, spec, blockchain, false, reason, results);
+        recordResult(test, spec, blockchain, false, reason, FixtureRunner.newRejections(), results);
       }
       return;
     }
@@ -416,6 +459,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
     int totalTxCount = 0;
     int blockCount = 0;
     long testStartTime = System.currentTimeMillis();
+    final ArrayNode rejections = FixtureRunner.newRejections();
 
     final BlockchainReferenceTestCaseSpec.CandidateBlock[] candidateBlocks =
         spec.getCandidateBlocks();
@@ -444,13 +488,30 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
         final Stopwatch timer = Stopwatch.createStarted();
 
+        // A delivered access list passes the gate a peer's list does: used only when it hashes to
+        // the header's commitment, otherwise dropped and the block judged on its header.
+        final Optional<BlockAccessList> fixtureList = candidateBlock.getBlockAccessList();
+        final Optional<BlockAccessList> delivered = balWithhold ? Optional.empty() : fixtureList;
+        final Optional<BlockAccessList> accessList =
+            accessListMatchingHeader(delivered, block.getHeader());
+        final String accessListMissing;
+        if (balWithhold && fixtureList.isPresent()) {
+          accessListMissing = BalExecutionReporter.WITHHELD;
+        } else if (delivered.isPresent() && accessList.isEmpty()) {
+          accessListMissing = BalExecutionReporter.BAD_ACCESS_LIST;
+        } else {
+          accessListMissing = "";
+        }
+        final List<String> reasons = new ArrayList<>();
         final BlockImportResult importResult =
-            blockImporter.importBlock(
-                context,
-                block,
-                validationMode,
-                validationMode,
-                useBlockAccessList ? candidateBlock.getBlockAccessList() : Optional.empty());
+            RejectionReasons.capturing(
+                reasons,
+                () ->
+                    BalExecutionReporter.importing(
+                        accessListMissing,
+                        () ->
+                            blockImporter.importBlock(
+                                context, block, validationMode, validationMode, accessList)));
 
         timer.stop();
 
@@ -461,6 +522,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         if (parentCommand.showJsonResults) {
           totalGasUsed += block.getHeader().getGasUsed();
           totalTxCount += block.getBody().getTransactions().size();
+        }
+
+        if (!importResult.isImported()) {
+          FixtureRunner.addRejection(
+              rejections,
+              blockIndex,
+              Optional.of(block.getHash()),
+              RejectionReasons.append(importResult.getErrorMessage().orElse(""), reasons));
         }
 
         final String blockFailureReason =
@@ -477,6 +546,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       } catch (final RLPException e) {
         // Do not call getBlock() again here: decoding already failed, and a second call rethrows
         // and drops this test from --json-array output (see #11328).
+        if (isLastIteration) {
+          FixtureRunner.addRejection(
+              rejections, blockIndex, Optional.empty(), String.valueOf(e.getMessage()));
+        }
         if (candidateBlock.isValid()) {
           testPassed = false;
           final String rlpFailureReason =
@@ -488,6 +561,18 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
             parentCommand.out.println(rlpFailureReason);
           }
         }
+      } catch (final RuntimeException e) {
+        // Anything else escaping import is a defect, not a rejection: a node rejects a block with
+        // a result, never an exception. Charged to this test, so the rest of the run still runs.
+        testPassed = false;
+        final String exceptionFailureReason = "Unexpected exception importing block: " + e;
+        if (failureReason == null) {
+          failureReason = exceptionFailureReason;
+        }
+        if (!jsonArray) {
+          parentCommand.out.println(exceptionFailureReason);
+        }
+        break;
       }
     }
 
@@ -519,7 +604,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               blockCount);
     }
 
-    recordResult(test, spec, blockchain, testPassed, failureReason, results);
+    recordResult(test, spec, blockchain, testPassed, failureReason, rejections, results);
   }
 
   private static @Nullable String getBlockImportFailureReason(
@@ -573,6 +658,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       final MutableBlockchain blockchain,
       final boolean testPassed,
       final @Nullable String failureReason,
+      final ArrayNode rejections,
       final FixtureRunner.TestResults results) {
     if (testPassed) {
       results.recordPass();
@@ -587,6 +673,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       result.put("fork", spec.getNetwork());
       result.put("lastBlockHash", blockchain.getChainHeadHash().getBytes().toHexString());
       result.put("error", failureReason);
+      result.set("rejections", rejections);
       jsonArrayResults.add(result);
     }
   }
@@ -606,14 +693,23 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       if (worldState
           .streamAccounts(Bytes32.ZERO, Integer.MAX_VALUE)
           .anyMatch(AccountState::isEmpty)) {
-        parentCommand.out.println("Journaled account configured and empty account detected");
+        progressOut().println("Journaled account configured and empty account detected");
       }
 
       if (EvmSpecVersion.SPURIOUS_DRAGON.compareTo(evm.getEvmVersion()) > 0) {
-        parentCommand.out.println(
-            "Journaled account configured and fork prior to the merge specified");
+        progressOut().println("Journaled account configured and fork prior to the merge specified");
       }
     }
+  }
+
+  /**
+   * Returns the delivered access list when it hashes to the header's commitment, as
+   * GetBlockAccessListsFromPeerTask checks a peer's list, and empty otherwise.
+   */
+  private static Optional<BlockAccessList> accessListMatchingHeader(
+      final Optional<BlockAccessList> delivered, final BlockHeader header) {
+    return delivered.filter(
+        list -> header.getBalHash().equals(Optional.of(BodyValidation.balHash(list))));
   }
 
   /**

@@ -14,9 +14,12 @@
  */
 package org.hyperledger.besu.evmtool;
 
+import org.hyperledger.besu.datatypes.Hash;
+
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,6 +28,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,6 +42,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.jspecify.annotations.Nullable;
 
@@ -73,7 +78,8 @@ final class FixtureRunner {
    *
    * @param paths the paths given on the command line
    * @return the {@code .json} fixture files to run, directories expanded and sorted
-   * @throws IOException if a path resolves to nothing, or a directory cannot be walked
+   * @throws IOException if a path resolves to nothing, a directory cannot be walked, or a file
+   *     cannot be read
    */
   static List<Path> collectFiles(final List<Path> paths) throws IOException {
     final List<Path> files = new ArrayList<>();
@@ -94,6 +100,12 @@ final class FixtureRunner {
         // An empty file list means "read filenames from stdin", so dropping an unresolvable path
         // here would leave the command blocked on stdin instead of reporting the bad path.
         throw new FileNotFoundException("File not found: " + path);
+      }
+    }
+    // Fail before any test runs rather than skip a file mid-run.
+    for (final Path file : files) {
+      if (!"stdin".equals(file.toString()) && !Files.isReadable(file)) {
+        throw new IOException("File not readable: " + file);
       }
     }
     return files;
@@ -298,6 +310,34 @@ final class FixtureRunner {
   }
 
   /**
+   * Creates the {@code rejections} array of a result row: one entry per block or payload the client
+   * rejected, carrying the client's own error text. Checking that error against the fixture's
+   * expected exception is left to the consumer, which maps each client's messages.
+   *
+   * @return an empty array node
+   */
+  static ArrayNode newRejections() {
+    return JSON_ARRAY_MAPPER.createArrayNode();
+  }
+
+  /**
+   * Adds a rejected block or payload to a result row's {@code rejections}.
+   *
+   * @param rejections the row's rejections
+   * @param index the block's position in the fixture's {@code blocks}, or the payload's in {@code
+   *     engineNewPayloads}
+   * @param hash the rejected block's hash, when the client computed one
+   * @param error the client's error, verbatim
+   */
+  static void addRejection(
+      final ArrayNode rejections, final int index, final Optional<Hash> hash, final String error) {
+    final ObjectNode rejection = rejections.addObject();
+    rejection.put("index", index);
+    hash.ifPresent(h -> rejection.put("hash", h.toHexString()));
+    rejection.put("error", error);
+  }
+
+  /**
    * Pass/fail tallies and the end-of-run summary block.
    *
    * <p>Unreadable fixtures are counted separately from failures. A file we cannot build a test from
@@ -352,20 +392,19 @@ final class FixtureRunner {
     }
 
     /**
-     * Appends a failing {@code --json-array} row for each unreadable fixture and for the declared
-     * cases that never ran, so the array accounts for a non-zero exit on its own.
+     * Prints each unreadable fixture and the declared cases that never ran, for {@code
+     * --json-array}, whose results hold fixtures only: a file name is not a fixture name, and the
+     * exit status already says that not every fixture ran.
      *
-     * @param rows the array being built
-     * @param emptyFields the command's other row fields
+     * @param err where to print, the command's standard error
      */
-    void addNotRunRows(final List<ObjectNode> rows, final String... emptyFields) {
+    void printNotRun(final PrintStream err) {
       synchronized (unreadable) {
-        unreadable.forEach((file, reason) -> rows.add(notRunRow(file, reason, emptyFields)));
+        unreadable.forEach((file, reason) -> err.printf("Unreadable file %s: %s%n", file, reason));
       }
       final int unaccounted = unaccountedCases();
       if (unaccounted > 0) {
-        rows.add(
-            notRunRow("NOT RUN", notRunMessage(unaccounted, declaredCases.get()), emptyFields));
+        err.printf("NOT RUN: %s%n", notRunMessage(unaccounted, declaredCases.get()));
       }
     }
 
@@ -385,6 +424,21 @@ final class FixtureRunner {
 
     int failed() {
       return failedTests.get();
+    }
+
+    /**
+     * The runner's exit status under the client test runner interface: 2 when not every fixture ran
+     * (a path that is missing or cannot be read, a file that cannot be parsed, or a run that
+     * stopped early), otherwise 1 when a test failed or none ran, and 0 when every test passed.
+     *
+     * @param inputNotRun whether the runner already knows part of its input did not run
+     * @return the exit status
+     */
+    int exitCode(final boolean inputNotRun) {
+      if (inputNotRun || unaccountedCases() > 0) {
+        return 2;
+      }
+      return failed() > 0 || !hasTests() ? 1 : 0;
     }
 
     void printSummary(final PrintWriter out) {

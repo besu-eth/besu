@@ -22,10 +22,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
+
+import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,5 +67,27 @@ public class MainnetBlockImporterTest {
         .validateAndProcessBlock(
             context, block, HeaderValidationMode.FULL, HeaderValidationMode.FULL);
     verify(blockchain, never()).appendBlock(eq(block), any(), any());
+  }
+
+  @Test
+  public void rejectedBlockCarriesTheValidationError() {
+    when(blockchain.contains(hash)).thenReturn(false);
+    when(blockValidator.validateAndProcessBlock(
+            context,
+            block,
+            HeaderValidationMode.FULL,
+            HeaderValidationMode.FULL,
+            Optional.empty(),
+            InclusionListTransactions.EMPTY,
+            false))
+        .thenReturn(new BlockProcessingResult("World State Root does not match expected value"));
+
+    final BlockImportResult result =
+        blockImporter.importBlock(
+            context, block, HeaderValidationMode.FULL, HeaderValidationMode.FULL);
+
+    assertThat(result.isImported()).isFalse();
+    assertThat(result.getErrorMessage())
+        .isEqualTo(Optional.of("World State Root does not match expected value"));
   }
 }

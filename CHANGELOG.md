@@ -8,6 +8,7 @@
 - `trace_block`, `trace_replayBlockTransactions`, `trace_call` and `trace_callMany` no longer evaluate `pending` as `latest`, and reject it with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
 - The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
 - `trace_rawTransaction` returns the validation error for a signed transaction that fails validation, such as a nonce ahead of the sender's or a sender who cannot pay the up-front gas cost, instead of a successful response. It also applies the EIP-7825 transaction gas limit cap, the intrinsic gas limit cap and the EIP-3607 check against senders with deployed code, which it skipped, and rejects a gas limit above the RPC gas cap instead of clamping it. [#11395](https://github.com/besu-eth/besu/pull/11395)
+- `evmtool block-test --block-access-list` and `--noblock-access-list`, added in 26.10.2, are removed. Use `--bal-withhold` to import blocks without their access lists, the name the client test runner interface gives the flag; access lists are delivered by default. [#11842](https://github.com/besu-eth/besu/pull/11842)
 
 ### Upcoming Breaking Changes
 - Plugin API
@@ -72,6 +73,7 @@
 - `--Xmempool-prewarm-enabled` prewarms the state for the next block from the transaction pool. [#11759](https://github.com/besu-eth/besu/pull/11759)
 - The chain id is represented by the new `ChainId` value object, that shares one instance for the chain id of the running network, so a pooled transaction uses 80 bytes and 3 objects fewer, plus 3 objects fewer for each EIP-7702 authorization, and a legacy transaction is decoded about 15% faster. The plugin API is unchanged, apart from a new read-only `ChainId` interface in `datatypes`. [#11866](https://github.com/besu-eth/besu/pull/11866)
 - The transaction pools process the result of a transaction that is still executing when the block selection time runs out once its execution completes, so the layered pool penalises a transaction that took too long, and both pools remove it if invalid, instead of missing its result. Selection results are processed asynchronously in both pools.
+- `evmtool block-test` and `engine-test` follow the client test runner interface shared by execution clients: `engine-test` runs through the node's `MergeCoordinator`, both run blocks on the parallel block processor unless `--bal-sequential` is given, `--json-array` results list each rejected block with Besu's own error, `--bal-report` prints which executor ran each block, and `block-test --bal-withhold` imports blocks without their access lists. [#11842](https://github.com/besu-eth/besu/pull/11842)
 
 ## 26.11.0
 
