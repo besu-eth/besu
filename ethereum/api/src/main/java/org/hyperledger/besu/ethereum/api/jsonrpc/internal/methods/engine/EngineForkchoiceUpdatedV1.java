@@ -67,7 +67,8 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Extends {@link OrderedExecutionJsonRpcMethod} because the Engine API spec mandates that
  * forkchoiceUpdated calls are processed in the order they have been received; this applies to the
- * whole sealed V1-V4 hierarchy.
+ * whole sealed V1-V4 hierarchy. A call whose head is already the chain head does not wait for the
+ * newPayload calls received before it, see {@link #needsEarlierNewPayloads}.
  *
  * @param <PA> the payload-attributes type this version accepts
  * @param <FRP> the request-parameters type this version reads
@@ -90,7 +91,7 @@ public sealed class EngineForkchoiceUpdatedV1<
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
+    super(constructorArguments, minSupportedFork, firstUnsupportedFork, Series.FORKCHOICE_UPDATED);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
   }
@@ -98,6 +99,23 @@ public sealed class EngineForkchoiceUpdatedV1<
   @Override
   public String getName() {
     return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V1.getMethodName();
+  }
+
+  /**
+   * A head that is already the chain head is stored, and so are the blocks before it, so the call
+   * needs nothing from the payloads still being validated. Waiting for them would hold up the build
+   * of the next block for as long as a slow payload takes.
+   */
+  @Override
+  protected boolean needsEarlierNewPayloads(final JsonRpcRequestContext requestContext) {
+    try {
+      final Hash headBlockHash =
+          requestContext.getRequiredParameter(0, ForkchoiceStateV1.class).getHeadBlockHash();
+      return !headBlockHash.equals(protocolContext.getBlockchain().getChainHeadHash());
+    } catch (final JsonRpcParameter.JsonRpcParameterException | RuntimeException e) {
+      // the call itself reports the invalid parameters
+      return true;
+    }
   }
 
   @SuppressWarnings("unchecked")
