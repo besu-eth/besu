@@ -16,7 +16,6 @@ package org.hyperledger.besu.cli.options;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Collections.singletonList;
-import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_MEMPOOL_PREWARM_ENABLED;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_PLUGIN_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
@@ -42,7 +41,6 @@ import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.util.List;
 import java.util.OptionalInt;
-import java.util.function.BooleanSupplier;
 
 import jakarta.validation.constraints.Positive;
 import org.apache.tuweni.bytes.Bytes;
@@ -132,8 +130,6 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
       arity = "0..1")
   private Boolean mempoolPrewarmEnabled = null;
 
-  private BooleanSupplier mempoolPrewarmEnabledByDefault = () -> DEFAULT_MEMPOOL_PREWARM_ENABLED;
-
   @CommandLine.ArgGroup(validate = false)
   private final Unstable unstableOptions = new Unstable();
 
@@ -185,6 +181,7 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
   }
 
   private TransactionSelectionService transactionSelectionService;
+  private boolean mempoolPrewarmEnabledByDefault = false;
 
   private MiningOptions() {}
 
@@ -210,10 +207,9 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
   /**
    * Sets the default for mempool prewarming when {@code --mempool-prewarm-enabled} is not set.
    *
-   * @param enabledByDefault gives the default for the node's network and storage format; it is
-   *     asked each time the setting is read, so the answer does not depend on when that happens
+   * @param enabledByDefault the default for the node's network and storage format
    */
-  public void setMempoolPrewarmEnabledByDefault(final BooleanSupplier enabledByDefault) {
+  public void setMempoolPrewarmEnabledByDefault(final boolean enabledByDefault) {
     this.mempoolPrewarmEnabledByDefault = enabledByDefault;
   }
 
@@ -222,10 +218,8 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
    *
    * @return the value of {@code --mempool-prewarm-enabled}, or the default when it is not set
    */
-  public boolean isMempoolPrewarmEnabled() {
-    return mempoolPrewarmEnabled != null
-        ? mempoolPrewarmEnabled
-        : mempoolPrewarmEnabledByDefault.getAsBoolean();
+  private boolean isMempoolPrewarmEnabled() {
+    return mempoolPrewarmEnabled != null ? mempoolPrewarmEnabled : mempoolPrewarmEnabledByDefault;
   }
 
   /**
@@ -336,6 +330,7 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
         .getMaxBlobsPerTransaction()
         .ifPresent(v -> miningOptions.maxBlobsPerTransaction = v);
     miningConfiguration.getMaxBlobsPerBlock().ifPresent(v -> miningOptions.maxBlobsPerBlock = v);
+    miningOptions.mempoolPrewarmEnabled = miningConfiguration.isMempoolPrewarmEnabled();
 
     miningOptions.unstableOptions.posBlockCreationMaxTime =
         miningConfiguration.getUnstable().getPosBlockCreationMaxTime();
@@ -345,7 +340,6 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
         miningConfiguration.getUnstable().getPosSlotDuration();
     miningOptions.unstableOptions.posBlockFinalizationTimeoutMs =
         miningConfiguration.getUnstable().getPosBlockFinalizationTimeoutMs();
-    miningOptions.mempoolPrewarmEnabled = miningConfiguration.isMempoolPrewarmEnabled();
     miningOptions.unstableOptions.mempoolPrewarmThreads =
         miningConfiguration.getUnstable().getMempoolPrewarmThreads();
     miningOptions.unstableOptions.mempoolPrewarmGasLimitMultiplier =
