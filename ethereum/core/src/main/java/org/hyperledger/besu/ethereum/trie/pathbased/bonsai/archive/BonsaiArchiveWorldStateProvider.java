@@ -118,10 +118,12 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   }
 
   private void requireCoverageFromGenesis(final Blockchain blockchain) {
-    // History always starts at genesis, so an existing chain without progress was synced without
-    // it.
-    if (blockchain.getChainHeadBlockNumber() > 0
-        && archiveHistoryStore.getArchivedBlock().isEmpty()) {
+    // A persisted world state without proof history was synced without proofs; history starts at
+    // genesis.
+    final boolean statePersisted =
+        blockchain.getChainHeadBlockNumber() > 0
+            || worldStateKeyValueStorage.getWorldStateBlockHash().isPresent();
+    if (statePersisted && archiveHistoryStore.getArchivedBlock().isEmpty()) {
       throw new IllegalStateException(
           "Bonsai archive state proofs need trie-node history from genesis, but this database has"
               + " no proof history. Proofs require a full sync from genesis with archive state"
