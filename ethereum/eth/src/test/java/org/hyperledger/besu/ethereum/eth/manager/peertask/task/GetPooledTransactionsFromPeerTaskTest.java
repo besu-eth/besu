@@ -14,20 +14,43 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.CellsOnlyBlobTransactionFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.FrameTransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
+import org.hyperledger.besu.ethereum.core.kzg.Blob;
+import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
+import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerSelector;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskRequestSender;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
@@ -35,15 +58,19 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
+import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-public class GetPooledTransactionsFromPeerTaskTest {
+public class GetPooledTransactionsFromPeerTaskTest extends TrustedSetupClassLoaderExtension {
   private static final BlockDataGenerator GENERATOR = new BlockDataGenerator();
   private static final Set<Capability> AGREED_CAPABILITIES = Set.of(EthProtocol.LATEST);
 
@@ -226,5 +253,60 @@ public class GetPooledTransactionsFromPeerTaskTest {
     Assertions.assertEquals(
         PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
         task.validateResult(List.of(first, first)));
+  }
+
+  @Test
+  public void wrappedBlobFrameTransactionInResponseDecodesAndKeepsPeer() throws Exception {
+    final BlobProofBundle blob =
+        new BlobTestFixture().createBlobProofBundle(BlobType.KZG_CELL_PROOFS);
+    final Transaction frameTransaction =
+        new TransactionTestFixture()
+            .type(TransactionType.FRAME)
+            .versionedHashes(Optional.of(List.of(blob.getVersionedHash())))
+            .createTransaction(SignatureAlgorithmFactory.getInstance().generateKeyPair());
+    final GetPooledTransactionsFromPeerTask task =
+        new GetPooledTransactionsFromPeerTask(List.of(frameTransaction.getHash()));
+
+    final EthPeer peer = mock(EthPeer.class);
+    when(peer.getAgreedCapabilities()).thenReturn(AGREED_CAPABILITIES);
+    final PeerTaskRequestSender requestSender = mock(PeerTaskRequestSender.class);
+    when(requestSender.sendRequest(any(), any(), eq(peer)))
+        .thenReturn(
+            PooledTransactionsMessage.createUnsafe(
+                pooledTransactionsWithBlobWrapper(frameTransaction, blob)));
+
+    final PeerTaskExecutorResult<List<Transaction>> result =
+        new PeerTaskExecutor(mock(PeerSelector.class), requestSender, new NoOpMetricsSystem())
+            .executeAgainstPeer(task, peer);
+
+    verify(peer, never()).disconnect(any());
+    assertThat(result.responseCode()).isEqualTo(PeerTaskExecutorResponseCode.SUCCESS);
+    final Transaction received = result.result().orElseThrow().getFirst();
+    assertThat(received.getHash()).isEqualTo(frameTransaction.getHash());
+    assertThat(received.getBlobsWithCommitments().orElseThrow().getBlobProofBundles())
+        .containsExactly(blob);
+  }
+
+  /**
+   * Encodes a PooledTransactions body holding one frame transaction in the EIP-8141 blob network
+   * form, {@code type || rlp([tx_payload_body, wrapper_version, blobs, commitments, cell_proofs])}.
+   */
+  private static Bytes pooledTransactionsWithBlobWrapper(
+      final Transaction frameTransaction, final BlobProofBundle blob) {
+    final BytesValueRLPOutput wrapper = new BytesValueRLPOutput();
+    wrapper.startList();
+    FrameTransactionEncoder.encode(frameTransaction, wrapper);
+    wrapper.writeIntScalar(BlobType.KZG_CELL_PROOFS.getVersionId());
+    wrapper.writeList(List.of(blob.getBlob().orElseThrow()), Blob::writeTo);
+    wrapper.writeList(List.of(blob.getKzgCommitment()), KZGCommitment::writeTo);
+    wrapper.writeList(blob.getKzgProof(), KZGProof::writeTo);
+    wrapper.endList();
+
+    final BytesValueRLPOutput message = new BytesValueRLPOutput();
+    message.startList();
+    message.writeBytes(
+        Bytes.concatenate(Bytes.of(TransactionType.FRAME.getSerializedType()), wrapper.encoded()));
+    message.endList();
+    return message.encoded();
   }
 }

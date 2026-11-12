@@ -49,8 +49,14 @@ public class TransactionDecoder {
     Transaction decode(Bytes input, boolean elidedBlobs);
   }
 
+  // A frame transaction's blobs travel in full: its decoder has no eth/72 elided form.
   private static final EnumMap<TransactionType, PooledDecoder> POOLED_TRANSACTION_DECODERS =
-      new EnumMap<>(Map.of(TransactionType.BLOB, BlobPooledTransactionDecoder::decode));
+      new EnumMap<>(
+          Map.of(
+              TransactionType.BLOB,
+              BlobPooledTransactionDecoder::decode,
+              TransactionType.FRAME,
+              (input, elidedBlobs) -> FramePooledTransactionDecoder.decode(input)));
 
   /**
    * Decodes an RLP input into a transaction. If the input represents a typed transaction, it uses
