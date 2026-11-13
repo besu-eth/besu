@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcPara
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -121,8 +120,8 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod
       return errorResponse;
     }
     final DebugTraceBlockStreamer streamer = (DebugTraceBlockStreamer) result;
-    return new JsonRpcSuccessResponse(
-        requestContext.getRequest().getId(), streamer.accumulateAll(requestContext::isAlive));
+    return AbstractDebugTraceBlock.tracedResponse(
+        requestContext.getRequest().getId(), streamer, requestContext::isAlive);
   }
 
   private TraceOptions getTraceOptions(final JsonRpcRequestContext request) {
