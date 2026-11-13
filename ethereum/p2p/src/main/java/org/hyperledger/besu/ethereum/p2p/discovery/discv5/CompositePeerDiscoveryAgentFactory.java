@@ -170,7 +170,13 @@ public final class CompositePeerDiscoveryAgentFactory implements PeerDiscoveryAg
 
     // Shared NodeRecordManager so both agents see the same local ENR state
     final NodeRecordManager nodeRecordManager =
-        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService);
+        new NodeRecordManager(
+            storageProvider,
+            nodeKey,
+            forkIdManager,
+            natService,
+            config.discoveryConfiguration().isSnapServerEnabled(),
+            config.discoveryConfiguration().isSnap2ServerEnabled());
 
     final PeerDiscoveryAgent agentV5;
     if (v5Enabled) {

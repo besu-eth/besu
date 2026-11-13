@@ -190,6 +190,101 @@ class NodeRecordManagerTest {
   }
 
   @Test
+  void snapFieldAbsentWhenSnapServerDisabled() {
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+
+    assertThat(getNodeRecord().get("snap")).isNull();
+  }
+
+  @Test
+  void snapFieldMatchesGethEncodingWhenSnapServerEnabled() {
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, false);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+
+    final NodeRecord record = getNodeRecord();
+
+    assertThat(record.get("snap")).isNotNull();
+    // go-ethereum encodes the snap entry as the key followed by an empty list.
+    assertThat(record.serialize().toHexString()).contains("84736e6170c0");
+  }
+
+  @Test
+  void restartWithSnapServerEnabled_doesNotIncrementSeq() {
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, false);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord beforeRestart = getNodeRecord();
+
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, false);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+
+    assertThat(getNodeRecord().getSeq()).isEqualTo(beforeRestart.getSeq());
+  }
+
+  @Test
+  void snapFieldListsBothVersionsWhenSnap2Served() {
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, true);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+
+    // The value is the list of served versions, [1, 2].
+    assertThat(getNodeRecord().serialize().toHexString()).contains("84736e6170c20102");
+  }
+
+  @Test
+  void restartWithSnap2Served_doesNotIncrementSeq() {
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, true);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord beforeRestart = getNodeRecord();
+
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, true);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+
+    assertThat(getNodeRecord().getSeq()).isEqualTo(beforeRestart.getSeq());
+  }
+
+  @Test
+  void restartWithSnap2Toggled_rewritesEnr() {
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, false);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord snap1Only = getNodeRecord();
+
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, true);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord bothVersions = getNodeRecord();
+
+    assertThat(snap1Only.serialize().toHexString()).contains("84736e6170c0");
+    assertThat(bothVersions.serialize().toHexString()).contains("84736e6170c20102");
+    assertThat(bothVersions.getSeq()).isEqualTo(snap1Only.getSeq().add(1));
+  }
+
+  @Test
+  void restartWithSnapServerToggled_rewritesEnr() {
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord withoutSnap = getNodeRecord();
+
+    manager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService, true, false);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord withSnap = getNodeRecord();
+
+    manager = new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord snapRemoved = getNodeRecord();
+
+    assertThat(withSnap.get("snap")).isNotNull();
+    assertThat(withSnap.getSeq()).isEqualTo(withoutSnap.getSeq().add(1));
+    assertThat(snapRemoved.get("snap")).isNull();
+    assertThat(snapRemoved.getSeq()).isEqualTo(withSnap.getSeq().add(1));
+  }
+
+  @Test
   void dualStackDifferentPorts() {
     manager.initializeLocalNode(
         new HostEndpoint("10.0.0.1", 30303, 30304),
