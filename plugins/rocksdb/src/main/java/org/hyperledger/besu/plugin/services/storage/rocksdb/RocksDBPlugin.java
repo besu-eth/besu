@@ -22,8 +22,8 @@ import org.hyperledger.besu.plugin.services.StorageService;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
+import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,21 +38,11 @@ public class RocksDBPlugin implements BesuPlugin {
   private static final String NAME = "rocksdb";
 
   private final RocksDBCLIOptions options;
-  private final List<SegmentIdentifier> ignorableSegments = new ArrayList<>();
   private @Nullable RocksDBKeyValueStorageFactory factory;
 
   /** Instantiates a newRocksDb plugin. */
   public RocksDBPlugin() {
     this.options = RocksDBCLIOptions.create();
-  }
-
-  /**
-   * Add ignorable segment identifier.
-   *
-   * @param ignorable the ignorable
-   */
-  public void addIgnorableSegmentIdentifier(final SegmentIdentifier ignorable) {
-    ignorableSegments.add(ignorable);
   }
 
   @Override
@@ -63,7 +53,9 @@ public class RocksDBPlugin implements BesuPlugin {
   @Override
   public void register(final RegistrationContext context) {
     LOG.debug("Registering plugin");
-    createAndRegister(context.getBesuService(StorageService.class));
+    createAndRegister(
+        context.getBesuService(StorageService.class),
+        context.getBesuService(StorageConfiguration.class).getIgnorableSegments());
     LOG.debug("Plugin registered.");
   }
 
@@ -78,64 +70,44 @@ public class RocksDBPlugin implements BesuPlugin {
   @Override
   public void stop() {
     LOG.debug("Stopping plugin.");
+    // Besu closes the storages it opened through the factory, after the plugins have stopped; the
+    // plugin only lets go of the factory, so that register() creates a fresh one on a restart
+    factory = null;
+  }
 
-    try {
-      if (factory != null) {
-        factory.close();
-        factory = null;
-      }
-    } catch (final IOException e) {
-      LOG.error("Failed to stop plugin: {}", e.getMessage(), e);
+  @Override
+  public List<String> configurationOverviewLines() {
+    final List<String> lines = new ArrayList<>();
+    lines.add(
+        "RocksDB max open files: "
+            + options.getResolvedMaxOpenFiles()
+            + (options.isMaxOpenFilesExplicitlySet()
+                ? " (set)"
+                : " (derived from available resources)"));
+    if (options.isHighSpec()) {
+      lines.add("Experimental high spec configuration enabled");
     }
-  }
-
-  /** Resets the factory for Ephemery automatic restart. */
-  public void reset() {
-    if (factory != null) {
-      factory.reset();
+    final RocksDBCLIOptions.BlobDBSettings blobDBSettings = options.getBlobDBSettings();
+    if (blobDBSettings.isBlockchainGarbageCollectionEnabled()) {
+      lines.add("Experimental BlobDB BLOCKCHAIN Garbage Collection enabled");
     }
+    if (blobDBSettings.blobGarbageCollectionAgeCutoff().isPresent()
+        || blobDBSettings.blobGarbageCollectionForceThreshold().isPresent()) {
+      final StringBuilder blobDBString = new StringBuilder("Experimental BlobDB GC ");
+      blobDBSettings
+          .blobGarbageCollectionAgeCutoff()
+          .ifPresent(cutoff -> blobDBString.append("age cutoff: ").append(cutoff).append("; "));
+      blobDBSettings
+          .blobGarbageCollectionForceThreshold()
+          .ifPresent(threshold -> blobDBString.append("force threshold: ").append(threshold));
+      lines.add(blobDBString.toString());
+    }
+    return lines;
   }
 
-  /**
-   * Is high spec enabled.
-   *
-   * @return the boolean
-   */
-  public boolean isHighSpecEnabled() {
-    return options.isHighSpec();
-  }
-
-  /**
-   * Gets blob db settings.
-   *
-   * @return the blob db settings
-   */
-  public RocksDBCLIOptions.BlobDBSettings getBlobDBSettings() {
-    return options.getBlobDBSettings();
-  }
-
-  /**
-   * Returns the max open files value that will be used, either explicitly set or derived from
-   * available memory.
-   *
-   * @return the resolved max open files value
-   */
-  public int getResolvedMaxOpenFiles() {
-    return options.getResolvedMaxOpenFiles();
-  }
-
-  /**
-   * Returns whether max open files was explicitly set via CLI.
-   *
-   * @return true if max open files was set via CLI, false if derived from available memory
-   */
-  public boolean isMaxOpenFilesExplicitlySet() {
-    return options.isMaxOpenFilesExplicitlySet();
-  }
-
-  private void createAndRegister(final StorageService service) {
+  private void createAndRegister(
+      final StorageService service, final List<SegmentIdentifier> ignorableSegments) {
     final List<SegmentIdentifier> segments = service.getAllSegmentIdentifiers();
-
     final RocksDBFactoryConfiguration configuration = options.toDomainObject();
     factory =
         new RocksDBKeyValueStorageFactory(
@@ -143,7 +115,6 @@ public class RocksDBPlugin implements BesuPlugin {
             segments,
             ignorableSegments,
             RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);
-
     service.registerKeyValueStorage(factory);
   }
 }

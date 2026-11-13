@@ -29,7 +29,6 @@ import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
-import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationProvider;
 
 import java.nio.file.Path;
@@ -74,7 +73,7 @@ public class BesuNodeConfiguration {
   private final boolean strictTxReplayProtectionEnabled;
   private final Map<String, String> environment;
   private final SynchronizerConfiguration synchronizerConfiguration;
-  private final Optional<KeyValueStorageFactory> storageFactory;
+  private final Optional<String> storageImplementation;
   private final PluginConfiguration pluginConfiguration;
 
   BesuNodeConfiguration(
@@ -113,7 +112,7 @@ public class BesuNodeConfiguration {
       final boolean strictTxReplayProtectionEnabled,
       final Map<String, String> environment,
       final SynchronizerConfiguration synchronizerConfiguration,
-      final Optional<KeyValueStorageFactory> storageFactory,
+      final Optional<String> storageImplementation,
       final PluginConfiguration pluginConfiguration) {
     this.name = name;
     this.miningConfiguration = miningConfiguration;
@@ -150,7 +149,7 @@ public class BesuNodeConfiguration {
     this.strictTxReplayProtectionEnabled = strictTxReplayProtectionEnabled;
     this.environment = environment;
     this.synchronizerConfiguration = synchronizerConfiguration;
-    this.storageFactory = storageFactory;
+    this.storageImplementation = storageImplementation;
     this.pluginConfiguration = pluginConfiguration;
   }
 
@@ -294,8 +293,8 @@ public class BesuNodeConfiguration {
     return synchronizerConfiguration;
   }
 
-  public Optional<KeyValueStorageFactory> storageImplementation() {
-    return storageFactory;
+  public Optional<String> storageImplementation() {
+    return storageImplementation;
   }
 
   public PluginConfiguration getPluginConfiguration() {

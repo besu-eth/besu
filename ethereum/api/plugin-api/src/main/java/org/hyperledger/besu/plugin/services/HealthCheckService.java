@@ -22,14 +22,14 @@ import java.util.Optional;
 
 /**
  * This service lets plugins provide custom implementations for Besu's built-in health check
- * endpoints. Registering a provider for {@code /liveness} or {@code /readiness} overrides that
- * endpoint's default implementation.
+ * endpoints. Besu's own health plugins register the default checks first; a plugin that registers a
+ * provider for {@code /liveness} or {@code /readiness} replaces that endpoint's default.
  */
 public interface HealthCheckService extends RegistrationService {
 
   /**
-   * Registers a health check provider for one of the built-in endpoints, overriding its default
-   * implementation. The supported endpoints are {@code /liveness} and {@code /readiness}.
+   * Registers a health check provider for one of the built-in endpoints, replacing the provider
+   * registered before it. The supported endpoints are {@code /liveness} and {@code /readiness}.
    *
    * @param endpoint the built-in endpoint path to override ({@code /liveness} or {@code
    *     /readiness})
@@ -40,7 +40,7 @@ public interface HealthCheckService extends RegistrationService {
   void registerHealthCheck(String endpoint, HealthCheckProvider provider);
 
   /**
-   * Unregisters a health check provider for a specific endpoint.
+   * Unregisters the health check provider of an endpoint, leaving it to Besu's core check.
    *
    * <p>Like registration, this is only accepted during {@link
    * org.hyperledger.besu.plugin.BesuPlugin#register}, so an override cannot be removed once

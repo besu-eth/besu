@@ -107,7 +107,7 @@ public class PluginDiscoveryTest extends AcceptanceTestBase {
           " - ",
           "Plugin Registration Summary:",
           "Registered Plugins:",
-          "No plugins have been registered.",
+          "No external plugins have been registered.",
           "Detected but not registered:",
           "Detected but not selected:",
           "TOTAL = ");
