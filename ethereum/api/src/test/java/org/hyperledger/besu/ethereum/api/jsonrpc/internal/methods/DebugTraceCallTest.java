@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -25,7 +24,9 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -41,6 +42,8 @@ import org.mockito.Answers;
 
 class DebugTraceCallTest {
 
+  private static final String BLOCK_OVERRIDES_MESSAGE =
+      "Block overrides are not supported in the trace config; use eth_simulateV1";
   private static final Map<String, Object> CALL = Map.of("to", "0x" + "11".repeat(20));
 
   private final BlockchainQueries blockchainQueries = mock(BlockchainQueries.class);
@@ -62,15 +65,12 @@ class DebugTraceCallTest {
     final JsonRpcRequestContext request =
         request(Map.of("blockOverrides", Map.of("time", "0x80000000")));
 
-    assertThatThrownBy(() -> method.response(request))
-        .isInstanceOfSatisfying(
-            InvalidJsonRpcParameters.class,
-            e -> {
-              assertThat(e.getRpcErrorType())
-                  .isEqualTo(RpcErrorType.INVALID_TRANSACTION_TRACE_PARAMS);
-              assertThat(e.getRpcErrorType().getCode()).isEqualTo(-32602);
-              assertThat(e).hasMessageContaining("Block overrides are not supported");
-            });
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcError error = ((JsonRpcErrorResponse) response).getError();
+    assertThat(error.getCode()).isEqualTo(RpcErrorType.INVALID_PARAMS.getCode());
+    assertThat(error.getMessage()).isEqualTo(BLOCK_OVERRIDES_MESSAGE);
     verifyNoInteractions(transactionSimulator);
   }
 

@@ -25,6 +25,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.RejectedParametersException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
@@ -69,10 +70,10 @@ class CallParameterUtilTest {
                 "eth_call",
                 new Object[] {Map.of(), "latest", Map.of(), Map.of("time", "0x80000000")}));
 
-    assertThatThrownBy(() -> CallParameterUtil.rejectBlockOverrides(request))
+    assertThatThrownBy(() -> CallParameterUtil.rejectExtraParams(request))
         .hasMessage("Too many arguments: expected at most 3")
         .isInstanceOfSatisfying(
-            InvalidJsonRpcParameters.class,
+            RejectedParametersException.class,
             e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
   }
 
@@ -82,7 +83,7 @@ class CallParameterUtilTest {
         new JsonRpcRequestContext(
             new JsonRpcRequest("2.0", "eth_call", new Object[] {Map.of(), "latest", Map.of()}));
 
-    assertThatNoException().isThrownBy(() -> CallParameterUtil.rejectBlockOverrides(request));
+    assertThatNoException().isThrownBy(() -> CallParameterUtil.rejectExtraParams(request));
   }
 
   @Test
