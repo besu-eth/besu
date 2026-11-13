@@ -19,6 +19,7 @@
       "stateDiff" : null,
       "trace" : [ {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
           "gas" : "0xff2f9e",
           "init" : "0x60fd600053600160006000f05060f3600053600160006000f000",
@@ -34,6 +35,7 @@
         "type" : "create"
       }, {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
           "gas" : "0xfab7bf",
           "init" : "0xfd",
@@ -45,6 +47,7 @@
         "type" : "create"
       }, {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x3d49d1ef2ade060a33c6e6aa213513a7ee9a6241",
           "gas" : "0x36fc0",
           "init" : "0xf3",
