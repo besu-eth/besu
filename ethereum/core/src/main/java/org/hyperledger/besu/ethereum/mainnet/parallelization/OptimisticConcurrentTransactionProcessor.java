@@ -77,6 +77,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       lateChainFutures = new AtomicReferenceArray<>(0);
   // senders recovered per task, few enough to spread over the executor's threads
   private static final int SENDER_RECOVERY_BATCH = 8;
+  // A member's result holds everything the members before it changed, which the serial loop
+  // checks and merges again, so a chain costs the square of its length. Members past the cap run
+  // alone.
+  @VisibleForTesting static final int MAX_CHAIN_LENGTH = 64;
 
   // a warm-up runs before the member's predecessors, which may pay its nonce and gas
   @VisibleForTesting
@@ -154,8 +158,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         recoverSenders(transactions, unknownSenders, executor);
     for (int i = 0; i < transactions.size(); i++) {
       final Transaction transaction = transactions.get(i);
-      final List<Integer> chain = senders[i] == null ? null : bySender.get(senders[i]);
-      if (chain == null || chain.size() == 1) {
+      final List<Integer> chain = senders[i] == null ? null : capped(bySender.get(senders[i]), 0);
+      if (chain == null || chain.size() == 1 || i > chain.get(chain.size() - 1)) {
         final int txIndex = i;
         futures[i] =
             CompletableFuture.supplyAsync(
@@ -300,9 +304,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
             while (senders[transactionsOfSender.get(firstUnknown)] != null) {
               firstUnknown++;
             }
-            final List<Integer> chain =
-                transactionsOfSender.subList(
-                    Math.max(0, firstUnknown - 1), transactionsOfSender.size());
+            final List<Integer> chain = capped(transactionsOfSender, Math.max(0, firstUnknown - 1));
             if (chain.size() > 1) {
               lateChains.add(chain);
             }
@@ -338,6 +340,12 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                     executor);
           }
         });
+  }
+
+  /** The chain of a sender's transactions from the given one on, at most the maximum length. */
+  private static List<Integer> capped(final List<Integer> transactionsOfSender, final int from) {
+    return transactionsOfSender.subList(
+        from, Math.min(transactionsOfSender.size(), from + MAX_CHAIN_LENGTH));
   }
 
   private static void recoverSender(final Transaction transaction) {

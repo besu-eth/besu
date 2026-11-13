@@ -1080,6 +1080,85 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("Transactions of a sender past the maximum chain length run alone")
+    void chainIsCappedAtTheMaximumLength() {
+      final int cap = OptimisticConcurrentTransactionProcessor.MAX_CHAIN_LENGTH;
+      final List<Transaction> transactions = new ArrayList<>();
+      for (int i = 0; i < cap + 2; i++) {
+        transactions.add(mockTransactionFrom(sender));
+      }
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(transactions, tasks::add);
+      assertThat(tasks).as("the chain and the two past it alone").hasSize(3);
+      tasks.forEach(Runnable::run);
+
+      final Transaction lastChained = transactions.get(cap - 1);
+      final Transaction firstAlone = transactions.get(cap);
+      processor.getProcessingResult(
+          env.worldState(),
+          MINING_BENEFICIARY,
+          lastChained,
+          cap - 1,
+          Optional.empty(),
+          Optional.empty());
+      processor.getProcessingResult(
+          env.worldState(),
+          MINING_BENEFICIARY,
+          firstAlone,
+          cap,
+          Optional.empty(),
+          Optional.empty());
+      verify(collisionDetector)
+          .hasCollision(
+              eq(lastChained),
+              any(),
+              argThat(context -> context.chainPredecessorAccumulator() != null),
+              any());
+      verify(collisionDetector)
+          .hasCollision(
+              eq(firstAlone),
+              any(),
+              argThat(context -> context.chainPredecessorAccumulator() == null),
+              any());
+    }
+
+    @Test
+    @DisplayName("A recovered sender's late chain stops at the maximum chain length")
+    void lateChainIsCappedAtTheMaximumLength() {
+      final int cap = OptimisticConcurrentTransactionProcessor.MAX_CHAIN_LENGTH;
+      final List<Transaction> transactions = new ArrayList<>();
+      for (int i = 0; i < cap + 2; i++) {
+        transactions.add(mockTransactionOfUnknownSender(sender));
+      }
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(transactions, tasks::add);
+      final int recoveries = tasks.size() - transactions.size();
+      // the recoveries, then the runs alone, after the first of which the late chain is queued
+      List.copyOf(tasks).forEach(Runnable::run);
+      assertThat(tasks).hasSize(recoveries + transactions.size() + 1);
+      tasks.getLast().run();
+
+      verify(transactionProcessor, times(2))
+          .processTransaction(
+              any(),
+              any(),
+              eq(transactions.get(cap - 1)),
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              any());
+      verify(transactionProcessor, times(1))
+          .processTransaction(
+              any(), any(), eq(transactions.get(cap)), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("The later members of a chain are warmed up against the parent state meanwhile")
     void laterChainMembersAreWarmedUp() {
       final List<Runnable> warmUps = new ArrayList<>();
