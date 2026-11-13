@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -52,7 +51,6 @@ import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -136,9 +134,7 @@ class ValidatedBlockCacheFastPathTest {
             eq(Optional.empty()),
             eq(InclusionListTransactions.EMPTY),
             eq(false)))
-        .thenReturn(
-            new BlockProcessingResult(
-                Optional.of(new BlockProcessingOutputs(mock(MutableWorldState.class), receipts))));
+        .thenReturn(new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(receipts))));
     assertThat(
             validator()
                 .validateBlock(new QbftBlockAdaptor(proposedBlock), Optional.empty())

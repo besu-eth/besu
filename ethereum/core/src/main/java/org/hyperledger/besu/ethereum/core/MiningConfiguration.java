@@ -351,6 +351,7 @@ public abstract class MiningConfiguration {
     int DEFAULT_MEMPOOL_PREWARM_THREADS =
         Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
     int DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER = 4;
+    long DEFAULT_POS_VALIDATED_BLOCK_CACHE_SIZE = 4L;
 
     MiningConfiguration.Unstable DEFAULT = ImmutableMiningConfiguration.Unstable.builder().build();
 
@@ -387,6 +388,11 @@ public abstract class MiningConfiguration {
     @Value.Default
     default int getMempoolPrewarmGasLimitMultiplier() {
       return DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER;
+    }
+
+    @Value.Default
+    default long getPosValidatedBlockCacheSize() {
+      return DEFAULT_POS_VALIDATED_BLOCK_CACHE_SIZE;
     }
   }
 }

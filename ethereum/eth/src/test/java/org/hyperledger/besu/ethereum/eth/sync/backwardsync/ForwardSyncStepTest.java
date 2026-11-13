@@ -56,7 +56,6 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
@@ -175,10 +174,7 @@ public class ForwardSyncStepTest {
               final Object[] arguments = invocation.getArguments();
               Block block = (Block) arguments[1];
               return new BlockProcessingResult(
-                  Optional.of(
-                      new BlockProcessingOutputs(
-                          ForestReferenceTestWorldState.create(Collections.emptyMap()),
-                          blockDataGenerator.receipts(block))));
+                  Optional.of(new BlockProcessingOutputs(blockDataGenerator.receipts(block))));
             });
 
     when(peerTaskExecutor.execute(any(GetBodiesFromPeerTask.class)))

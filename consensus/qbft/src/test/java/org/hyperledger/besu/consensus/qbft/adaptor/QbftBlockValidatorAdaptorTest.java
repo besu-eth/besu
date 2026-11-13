@@ -16,7 +16,6 @@ package org.hyperledger.besu.consensus.qbft.adaptor;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -44,7 +43,6 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
@@ -233,8 +231,7 @@ class QbftBlockValidatorAdaptorTest {
   }
 
   private BlockProcessingResult successWith(final List<TransactionReceipt> receipts) {
-    return new BlockProcessingResult(
-        Optional.of(new BlockProcessingOutputs(mock(MutableWorldState.class), receipts)));
+    return new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(receipts)));
   }
 
   // the validator processes the on-chain view of the proposal

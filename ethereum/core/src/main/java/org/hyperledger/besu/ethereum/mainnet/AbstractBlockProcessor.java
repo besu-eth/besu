@@ -538,7 +538,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       return new BlockProcessingResult(
           Optional.of(
               new BlockProcessingOutputs(
-                  worldState,
                   receipts,
                   maybeRequests,
                   maybeBlockAccessList,

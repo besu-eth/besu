@@ -211,7 +211,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     BlockHeader mockHeader =
         setupPayloadV1(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))));
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
 
     assertValidResponse(mockHeader, resp);
@@ -374,7 +374,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     BlockHeader mockHeader =
         setupPayloadV1(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))));
     when(mergeContext.isSyncing()).thenReturn(Boolean.TRUE);
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
 
@@ -475,7 +475,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
                   setupPayloadV1(
                       maxSupportedTimestamp + 1,
                       new BlockProcessingResult(
-                          Optional.of(new BlockProcessingOutputs(null, List.of()))));
+                          Optional.of(new BlockProcessingOutputs(List.of()))));
 
               var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
 
@@ -492,7 +492,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     final BlockHeader mockHeader =
         setupPayloadV1(
             TIMESTAMP_ABOVE_LONG_MAX_VALUE,
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(List.of()))));
 
     var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList())));
 
