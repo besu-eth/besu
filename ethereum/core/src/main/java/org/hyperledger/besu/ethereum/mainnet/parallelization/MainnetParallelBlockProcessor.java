@@ -62,6 +62,10 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
   private final Optional<Counter> confirmedParallelizedTransactionCounter;
   private final Optional<Counter> conflictingButCachedTransactionCounter;
 
+  private final TransactionCollisionDetector transactionCollisionDetector;
+
+  private final MainnetTransactionProcessor speculativeTransactionProcessor;
+
   public MainnetParallelBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionReceiptFactory transactionReceiptFactory,
@@ -96,6 +100,12 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
         balConfiguration,
         metricsSystem);
     this.executor = executor;
+    this.transactionCollisionDetector = new TransactionCollisionDetector();
+    this.speculativeTransactionProcessor =
+        MainnetTransactionProcessor.builder()
+            .populateFrom(transactionProcessor)
+            .transactionCollisionDetector(transactionCollisionDetector)
+            .build();
     this.confirmedParallelizedTransactionCounter =
         Optional.of(
             metricsSystem.createCounter(
@@ -178,7 +188,9 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
           new BalConcurrentTransactionProcessor(
               transactionProcessor, blockAccessList.get(), balConfiguration);
     } else {
-      parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
+      parallelProcessor =
+          new OptimisticConcurrentTransactionProcessor(
+              speculativeTransactionProcessor, transactionCollisionDetector);
     }
 
     parallelProcessor.runAsyncBlock(

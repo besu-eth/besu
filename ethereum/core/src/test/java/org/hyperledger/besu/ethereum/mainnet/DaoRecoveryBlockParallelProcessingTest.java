@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.OptimisticConcurrentTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -328,7 +329,7 @@ class DaoRecoveryBlockParallelProcessingTest {
     private final long gasUsed;
 
     OverBudgetResults(final MainnetTransactionProcessor transactionProcessor, final long gasUsed) {
-      super(transactionProcessor);
+      super(transactionProcessor, new TransactionCollisionDetector());
       this.gasUsed = gasUsed;
     }
 

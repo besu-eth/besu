@@ -118,7 +118,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
@@ -147,7 +147,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
@@ -176,7 +176,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
@@ -217,7 +217,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
@@ -257,7 +257,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertFalse(
@@ -298,7 +298,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertFalse(hasCollision, "Expected no collision for a transfer that touches no storage slots");
@@ -344,7 +344,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected collision when one of many block slots overlaps");
@@ -381,7 +381,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertFalse(
@@ -421,7 +421,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(
@@ -456,7 +456,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected collision when tx read a slot of storage the block cleared");
@@ -482,7 +482,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertFalse(
@@ -501,7 +501,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             miningBeneficiary,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected collision with the mining beneficiary address as sender");
@@ -524,7 +524,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             miningBeneficiary,
-            new ParallelizedTransactionContext(trxUpdater, null, true, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected collision with the read mining beneficiary address");
@@ -547,7 +547,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected a collision with the deleted address");
@@ -573,7 +573,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertTrue(hasCollision, "Expected a collision with the address the transaction deleted");
@@ -600,7 +600,7 @@ class TransactionCollisionDetectorTest {
         collisionDetector.hasCollision(
             transaction,
             Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            new ParallelizedTransactionContext(trxUpdater, null),
             bonsaiUpdater);
 
     assertFalse(hasCollision, "Expected no collision with the read address");

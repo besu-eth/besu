@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.processing.MiningBeneficiaryReward;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -31,7 +32,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
-import org.hyperledger.besu.evm.worldstate.WorldView;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -64,14 +64,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
    * processor is responsible for the individual processing of transactions.
    *
    * @param transactionProcessor The transaction processor for processing individual transactions.
+   * @param transactionCollisionDetector The detector confirming the speculative results.
    */
-  public OptimisticConcurrentTransactionProcessor(
-      final MainnetTransactionProcessor transactionProcessor) {
-    this.transactionProcessor = transactionProcessor;
-    this.transactionCollisionDetector = new TransactionCollisionDetector();
-  }
-
-  @VisibleForTesting
   public OptimisticConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionCollisionDetector transactionCollisionDetector) {
@@ -105,8 +99,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       ws.disableCacheMerkleTrieLoader();
       final ParallelizedTransactionContext.Builder contextBuilder =
           new ParallelizedTransactionContext.Builder();
-      final PathBasedWorldStateUpdateAccumulator<?> roundWorldStateUpdater =
-          (PathBasedWorldStateUpdateAccumulator<?>) ws.updater();
+      final PathBasedWorldStateUpdateAccumulator<?> roundWorldStateUpdater = ws.updater();
       final WorldUpdater transactionUpdater = roundWorldStateUpdater.updater();
       final Optional<AccessLocationTracker> transactionLocationTracker =
           blockAccessListBuilder.map(
@@ -119,30 +112,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               blockHeader,
               transaction.detachedCopy(),
               miningBeneficiary,
-              new OperationTracer() {
-                @Override
-                public boolean tracesOperations() {
-                  return false;
-                }
-
-                @Override
-                public void traceBeforeRewardTransaction(
-                    final WorldView worldView,
-                    final org.hyperledger.besu.datatypes.Transaction tx,
-                    final Wei miningReward) {
-                  /*
-                   * This part checks if the mining beneficiary's account was accessed before increasing its balance for rewards.
-                   * Indeed, if the transaction has interacted with the address to read or modify it,
-                   * it means that the value is necessary for the proper execution of the transaction and will therefore be considered in collision detection.
-                   * If this is not the case, we can ignore this address during conflict detection.
-                   */
-                  if (transactionCollisionDetector.isAddressTouchedByTransaction(
-                      transaction, roundWorldStateUpdater, miningBeneficiary)) {
-                    contextBuilder.isMiningBeneficiaryTouchedPreRewardByTransaction(true);
-                  }
-                  contextBuilder.miningBeneficiaryReward(miningReward);
-                }
-              },
+              OperationTracer.NO_TRACING,
               blockHashLookup.forkForParallelWorker(),
               TransactionValidationParams.processingBlock(),
               blobGasPrice,
@@ -157,7 +127,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           .transactionProcessingResult(result);
 
       final ParallelizedTransactionContext parallelizedTransactionContext = contextBuilder.build();
-      if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()) {
+      final MiningBeneficiaryReward miningBeneficiaryReward = result.getMiningBeneficiaryReward();
+      if (miningBeneficiaryReward != null
+          && !miningBeneficiaryReward.addressTouchedByTransaction()) {
         /*
          * If the address of the mining beneficiary has been touched only for adding rewards,
          * we remove it from the accumulator to avoid a false positive collision. Its code and
@@ -227,8 +199,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       }
 
       final PathBasedWorldState pathBasedWorldState = (PathBasedWorldState) worldState;
-      final PathBasedWorldStateUpdateAccumulator blockAccumulator =
-          (PathBasedWorldStateUpdateAccumulator) pathBasedWorldState.updater();
+      final PathBasedWorldStateUpdateAccumulator blockAccumulator = pathBasedWorldState.updater();
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
           parallelizedTransactionContext.transactionAccumulator();
       final TransactionProcessingResult transactionProcessingResult =
@@ -238,7 +209,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       if (!transactionProcessingResult.isInvalid()
           && !transactionCollisionDetector.hasCollision(
               transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator)) {
-        final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
+        final MiningBeneficiaryReward miningReward =
+            transactionProcessingResult.getMiningBeneficiaryReward();
+        final Wei reward = miningReward == null ? Wei.ZERO : miningReward.amount();
         if (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts()) {
           final MutableAccount miningBeneficiaryAccount =
               blockAccumulator.getOrCreate(miningBeneficiary);

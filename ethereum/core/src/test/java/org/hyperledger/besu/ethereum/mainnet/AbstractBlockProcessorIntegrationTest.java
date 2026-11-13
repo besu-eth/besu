@@ -48,6 +48,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBloc
 import org.hyperledger.besu.ethereum.mainnet.parallelization.NoFallbackParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.OptimisticConcurrentTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
@@ -752,7 +753,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     OverBudgetSecondTransaction(
         final MainnetTransactionProcessor transactionProcessor, final long gasUsed) {
-      super(transactionProcessor);
+      super(transactionProcessor, new TransactionCollisionDetector());
       this.gasUsed = gasUsed;
     }
 
@@ -789,7 +790,7 @@ class AbstractBlockProcessorIntegrationTest {
       extends OptimisticConcurrentTransactionProcessor {
 
     StorageFaultSecondTransaction(final MainnetTransactionProcessor transactionProcessor) {
-      super(transactionProcessor);
+      super(transactionProcessor, new TransactionCollisionDetector());
     }
 
     @Override
