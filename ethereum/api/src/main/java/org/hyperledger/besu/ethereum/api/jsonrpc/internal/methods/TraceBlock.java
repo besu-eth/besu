@@ -113,76 +113,87 @@ public class TraceBlock extends AbstractBlockParameterMethod {
     if (maybeBlock.isEmpty()) {
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND);
     }
-    return traceBlock(maybeBlock.get(), Optional.empty()).getArrayNode();
+    return traceBlockResult(request, maybeBlock.get());
   }
 
-  protected ArrayNodeWrapper traceBlock(
+  private Object traceBlockResult(final JsonRpcRequestContext request, final Block block) {
+    final Optional<ArrayNodeWrapper> traced = traceBlock(block, Optional.empty());
+    if (traced.isEmpty()) {
+      return new JsonRpcErrorResponse(
+          request.getRequest().getId(),
+          WorldStateUnavailable.error(
+              getBlockchainQueries().getBlockchain(),
+              getBlockchainQueries().getWorldStateArchive()));
+    }
+    return traced.get().getArrayNode();
+  }
+
+  protected Optional<ArrayNodeWrapper> traceBlock(
       final Block block, final Optional<FilterParameter> filterParameter) {
 
     if (block == null) {
-      return emptyResult();
+      return Optional.of(emptyResult());
     }
     final BlockHeader header = block.getHeader();
 
     return Tracer.processTracing(
-            getBlockchainQueries(),
-            Optional.of(header),
-            traceableState -> {
-              ArrayNodeWrapper resultArrayNode = new ArrayNodeWrapper(MAPPER.createArrayNode());
-              final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
-              final MainnetTransactionProcessor transactionProcessor =
-                  protocolSpec.getTransactionProcessor();
-              final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
+        getBlockchainQueries(),
+        Optional.of(header),
+        traceableState -> {
+          ArrayNodeWrapper resultArrayNode = new ArrayNodeWrapper(MAPPER.createArrayNode());
+          final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
+          final MainnetTransactionProcessor transactionProcessor =
+              protocolSpec.getTransactionProcessor();
+          final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
 
-              TransactionSource transactionSource = new TransactionSource(block);
-              DebugOperationTracer debugOperationTracer =
-                  new DebugOperationTracer(
-                      OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                          .traceStorage(false)
-                          .traceMemory(false)
-                          .traceStack(true)
-                          .build(),
-                      false);
-              ExecuteTransactionStep executeTransactionStep =
-                  new ExecuteTransactionStep(
-                      chainUpdater,
-                      transactionProcessor,
-                      getBlockchainQueries().getBlockchain(),
-                      debugOperationTracer,
-                      protocolSpec,
-                      block);
-              TraceFlatTransactionStep traceFlatTransactionStep =
-                  new TraceFlatTransactionStep(protocolSchedule, block, filterParameter);
-              BuildArrayNodeCompleterStep buildArrayNodeStep =
-                  new BuildArrayNodeCompleterStep(resultArrayNode);
-              Pipeline<TransactionTrace> traceBlockPipeline =
-                  createPipelineFrom(
-                          "getTransactions",
-                          transactionSource,
-                          4,
-                          outputCounter,
-                          false,
-                          "trace_block_transactions")
-                      .thenProcess("executeTransaction", executeTransactionStep)
-                      .thenProcessAsyncOrdered("traceFlatTransaction", traceFlatTransactionStep, 4)
-                      .andFinishWith(
-                          "buildArrayNode",
-                          traceStream -> traceStream.forEachOrdered(buildArrayNodeStep));
+          TransactionSource transactionSource = new TransactionSource(block);
+          DebugOperationTracer debugOperationTracer =
+              new DebugOperationTracer(
+                  OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                      .traceStorage(false)
+                      .traceMemory(false)
+                      .traceStack(true)
+                      .build(),
+                  false);
+          ExecuteTransactionStep executeTransactionStep =
+              new ExecuteTransactionStep(
+                  chainUpdater,
+                  transactionProcessor,
+                  getBlockchainQueries().getBlockchain(),
+                  debugOperationTracer,
+                  protocolSpec,
+                  block);
+          TraceFlatTransactionStep traceFlatTransactionStep =
+              new TraceFlatTransactionStep(protocolSchedule, block, filterParameter);
+          BuildArrayNodeCompleterStep buildArrayNodeStep =
+              new BuildArrayNodeCompleterStep(resultArrayNode);
+          Pipeline<TransactionTrace> traceBlockPipeline =
+              createPipelineFrom(
+                      "getTransactions",
+                      transactionSource,
+                      4,
+                      outputCounter,
+                      false,
+                      "trace_block_transactions")
+                  .thenProcess("executeTransaction", executeTransactionStep)
+                  .thenProcessAsyncOrdered("traceFlatTransaction", traceFlatTransactionStep, 4)
+                  .andFinishWith(
+                      "buildArrayNode",
+                      traceStream -> traceStream.forEachOrdered(buildArrayNodeStep));
 
-              try {
-                ethScheduler.startPipeline(traceBlockPipeline).get();
-              } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
-              } catch (ExecutionException e) {
-                throw new RuntimeException(e);
-              }
+          try {
+            ethScheduler.startPipeline(traceBlockPipeline).get();
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+          } catch (ExecutionException e) {
+            throw new RuntimeException(e);
+          }
 
-              resultArrayNode = buildArrayNodeStep.getResultArrayNode();
-              generateRewardsFromBlock(filterParameter, block, resultArrayNode);
-              return Optional.of(resultArrayNode);
-            })
-        .orElse(emptyResult());
+          resultArrayNode = buildArrayNodeStep.getResultArrayNode();
+          generateRewardsFromBlock(filterParameter, block, resultArrayNode);
+          return Optional.of(resultArrayNode);
+        });
   }
 
   protected void generateRewardsFromBlock(

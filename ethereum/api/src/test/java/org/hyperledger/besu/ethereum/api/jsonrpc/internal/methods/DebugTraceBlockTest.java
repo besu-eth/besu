@@ -16,6 +16,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -41,6 +44,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.io.ByteArrayOutputStream;
@@ -420,5 +425,94 @@ public class DebugTraceBlockTest {
     assertThat(response.has("error")).isTrue();
     assertThat(response.get("error").get("message").asText())
         .contains("Block transaction count exceeds trace limit");
+  }
+
+  @Test
+  public void shouldReturnPrunedHistoryWhenParentStateIsUnavailableAndHeadStateIsAvailable()
+      throws IOException {
+    assertUnavailableParentState(true, 4444, "Pruned history unavailable");
+  }
+
+  @Test
+  public void shouldReturnWorldStateUnavailableWhenHeadStateIsAlsoUnavailable() throws IOException {
+    assertUnavailableParentState(false, -32000, "World state unavailable");
+  }
+
+  @Test
+  public void shouldTraceBlockWhenParentStateIsAvailable() throws IOException {
+    final Object[] params = new Object[] {testBlock.toRlp().toString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+
+    final JsonRpcResponse batch = debugTraceBlock.response(request);
+    assertThat(batch).isInstanceOf(JsonRpcSuccessResponse.class);
+    final JsonNode batchResult =
+        mapper.readTree(mapper.writeValueAsBytes(((JsonRpcSuccessResponse) batch).getResult()));
+    assertThat(batchResult).hasSize(1);
+    assertThat(batchResult.get(0).get("txHash").asText())
+        .isEqualTo(testTransaction.getHash().toHexString());
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlock.streamResponse(request, out, mapper);
+    final JsonNode streamed = mapper.readTree(out.toByteArray());
+    assertThat(streamed.has("error")).isFalse();
+    assertThat(streamed.get("result")).hasSize(1);
+  }
+
+  @Test
+  public void genesisBlockStillReturnsEmptyTrace() throws IOException {
+    final BlockchainQueries queries =
+        new BlockchainQueries(
+            fixture.getProtocolSchedule(),
+            fixture.getBlockchain(),
+            fixture.getStateArchive(),
+            MiningConfiguration.MINING_DISABLED);
+    final Block genesis = fixture.getBlockchain().getGenesisBlock();
+    final DebugTraceBlockStreamer streamer =
+        new DebugTraceBlockStreamer(
+            genesis, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), queries);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    streamer.streamTo(out, mapper, () -> true);
+    assertThat(out.toString(UTF_8)).isEqualTo("[]");
+    assertThat(streamer.accumulateAll(() -> true)).isEmpty();
+  }
+
+  private void assertUnavailableParentState(
+      final boolean headStateAvailable, final int code, final String message) throws IOException {
+    final DebugTraceBlock method = traceBlockWithParentStateUnavailable(headStateAvailable);
+    final Object[] params = new Object[] {testBlock.toRlp().toString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+
+    final JsonRpcResponse batch = method.response(request);
+    assertThat(batch)
+        .as("block with transactions and no parent state")
+        .isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse batchError = (JsonRpcErrorResponse) batch;
+    assertThat(batchError.getErrorType().getCode()).isEqualTo(code);
+    assertThat(batchError.getErrorType().getMessage()).isEqualTo(message);
+
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(request, out, mapper);
+    final JsonNode streamed = mapper.readTree(out.toByteArray());
+    assertThat(streamed.has("result")).isFalse();
+    assertThat(streamed.get("error").get("code").asInt()).isEqualTo(code);
+    assertThat(streamed.get("error").get("message").asText()).isEqualTo(message);
+  }
+
+  private DebugTraceBlock traceBlockWithParentStateUnavailable(final boolean headStateAvailable) {
+    final WorldStateArchive archive = spy(fixture.getStateArchive());
+    doReturn(Optional.empty()).when(archive).getWorldState(any());
+    if (!headStateAvailable) {
+      doReturn(false).when(archive).isWorldStateAvailable(any(Hash.class), any(Hash.class));
+    }
+    final BlockchainQueries queries =
+        new BlockchainQueries(
+            fixture.getProtocolSchedule(),
+            fixture.getBlockchain(),
+            archive,
+            MiningConfiguration.MINING_DISABLED);
+    return new DebugTraceBlock(fixture.getProtocolSchedule(), queries);
   }
 }
