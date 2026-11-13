@@ -16,6 +16,8 @@ package org.hyperledger.besu.consensus.qbft.adaptor;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -35,6 +37,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -46,10 +49,13 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -59,10 +65,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class QbftBlockValidatorAdaptorTest {
   @Mock private BlockValidator blockValidator;
   @Mock private ProtocolContext protocolContext;
+  @Mock private MutableBlockchain blockchain;
   private final QbftExtraDataCodec codec = new QbftExtraDataCodec();
   private final BlockDataGenerator generator = new BlockDataGenerator();
   private final BlockBody body = new BlockBody(List.of(generator.transaction()), emptyList());
   private final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
+
+  @BeforeEach
+  void setUp() {
+    lenient().when(protocolContext.getBlockchain()).thenReturn(blockchain);
+  }
 
   @Test
   void validateSuccessfullyWhenBesuValidatorSuccessful() {
@@ -96,7 +108,7 @@ class QbftBlockValidatorAdaptorTest {
 
     validate(block, Optional.empty());
 
-    assertThat(validatedBlockCache.take(onchainHash(block), block.getHeader().getNumber()))
+    assertThat(validatedBlockCache.get(onchainHash(block)))
         .contains(
             new ValidatedBlockCache.ValidatedBlock(
                 block.getHeader().getNumber(), body, receipts, Optional.empty()));
@@ -109,8 +121,7 @@ class QbftBlockValidatorAdaptorTest {
 
     validate(block, Optional.empty());
 
-    assertThat(validatedBlockCache.take(onchainHash(block), block.getHeader().getNumber()))
-        .isEmpty();
+    assertThat(validatedBlockCache.get(onchainHash(block))).isEmpty();
   }
 
   @Test
@@ -126,8 +137,7 @@ class QbftBlockValidatorAdaptorTest {
     assertThat(validationResult.success()).isTrue();
     assertThat(validationResult.errorMessage()).isEmpty();
     verifyNoInteractions(blockValidator);
-    assertThat(validatedBlockCache.take(onchainHash(block), block.getHeader().getNumber()))
-        .contains(validatedBlock);
+    assertThat(validatedBlockCache.get(onchainHash(block))).contains(validatedBlock);
   }
 
   @Test
@@ -211,15 +221,91 @@ class QbftBlockValidatorAdaptorTest {
   }
 
   @Test
-  void validatingABlockDoesNotMakeConsensusOwnIt() {
-    // e.g. the prepared block of a round change: only proposals are claimed, by ProposalValidator
+  void doesNotExecuteBlockAlreadyImportedFromTheNetwork() {
+    // NewBlock received and imported before the proposal, decoded on its own
     final Block block = proposal(0, body);
-    stubValidation(block, Optional.empty(), successWith(generator.receipts(block)));
+    when(blockchain.getBlockBody(onchainHash(block)))
+        .thenReturn(
+            Optional.of(
+                new BlockBody(body.getTransactions(), body.getOmmers(), body.getWithdrawals())));
 
-    validate(block, Optional.empty());
+    final QbftBlockValidator.ValidationResult validationResult = validate(block, Optional.empty());
 
+    assertThat(validationResult.success()).isTrue();
+    verifyNoInteractions(blockValidator);
+  }
+
+  @Test
+  void executesBlockImportedWithAnotherBody() {
+    final Block block = proposal(0, body);
+    when(blockchain.getBlockBody(onchainHash(block)))
+        .thenReturn(Optional.of(new BlockBody(List.of(generator.transaction()), emptyList())));
+    stubValidation(block, Optional.empty(), new BlockProcessingResult("failed"));
+
+    assertThat(validate(block, Optional.empty()).success()).isFalse();
+  }
+
+  @Test
+  void recordsTheExecutionWhileValidating() {
+    final Block block = proposal(0, body);
+    when(blockValidator.validateAndProcessBlock(
+            protocolContext,
+            onchainBlock(block),
+            HeaderValidationMode.LIGHT,
+            HeaderValidationMode.FULL,
+            Optional.empty(),
+            InclusionListTransactions.EMPTY,
+            false))
+        .thenAnswer(
+            invocation -> {
+              // a network import of this block now would wait for this validation
+              assertThat(validatedBlockCache.tryStartExecution(onchainHash(block))).isFalse();
+              return successWith(List.of());
+            });
+
+    assertThat(validate(block, Optional.empty()).success()).isTrue();
+
+    assertThat(validatedBlockCache.tryStartExecution(onchainHash(block))).isTrue();
+  }
+
+  @Test
+  void waitsForTheNetworkImportOfTheSameBlock() throws InterruptedException {
+    final Block block = proposal(0, body);
+    // NewBlock received before the proposal: the network is importing the block
+    assertThat(validatedBlockCache.tryStartExecution(onchainHash(block))).isTrue();
+    final AtomicReference<QbftBlockValidator.ValidationResult> result = new AtomicReference<>();
+    final Thread validation = new Thread(() -> result.set(validate(block, Optional.empty())));
+
+    validation.start();
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .until(() -> validation.getState() == Thread.State.TIMED_WAITING);
+
+    when(blockchain.getBlockBody(onchainHash(block))).thenReturn(Optional.of(body));
+    validatedBlockCache.endExecution(onchainHash(block));
+    validation.join(Duration.ofSeconds(10));
+
+    assertThat(result.get().success()).isTrue();
+    verifyNoInteractions(blockValidator);
+  }
+
+  @Test
+  void executesBlockWhenTheNetworkImportOfTheSameBlockFails() throws InterruptedException {
+    final Block block = proposal(0, body);
+    assertThat(validatedBlockCache.tryStartExecution(onchainHash(block))).isTrue();
+    stubValidation(block, Optional.empty(), successWith(List.of()));
+    final AtomicReference<QbftBlockValidator.ValidationResult> result = new AtomicReference<>();
+    final Thread validation = new Thread(() -> result.set(validate(block, Optional.empty())));
+
+    validation.start();
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .until(() -> validation.getState() == Thread.State.TIMED_WAITING);
+    validatedBlockCache.endExecution(onchainHash(block));
+    validation.join(Duration.ofSeconds(10));
+
+    assertThat(result.get().success()).isTrue();
     assertThat(validatedBlockCache.get(onchainHash(block))).isPresent();
-    assertThat(validatedBlockCache.isOwnedByConsensus(onchainHash(block))).isFalse();
   }
 
   // a proposal of the given round, hashed like proposals are

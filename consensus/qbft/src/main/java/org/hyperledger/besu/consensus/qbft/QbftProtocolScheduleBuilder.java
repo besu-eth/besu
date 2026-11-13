@@ -23,7 +23,11 @@ import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.consensus.common.bft.BaseBftProtocolScheduleBuilder;
 import org.hyperledger.besu.consensus.common.bft.BftExtraDataCodec;
 import org.hyperledger.besu.consensus.common.bft.BftProtocolSchedule;
+import org.hyperledger.besu.consensus.qbft.adaptor.ValidatedBlockCache;
+import org.hyperledger.besu.consensus.qbft.adaptor.ValidatedBlockImporter;
+import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
@@ -38,8 +42,16 @@ import java.util.Optional;
 /** Defines the protocol behaviours for a blockchain using a QBFT consensus mechanism. */
 public class QbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder {
 
+  private final Optional<ValidatedBlockCache> validatedBlockCache;
+
   /** Default constructor */
-  QbftProtocolScheduleBuilder() {}
+  QbftProtocolScheduleBuilder() {
+    this(Optional.empty());
+  }
+
+  private QbftProtocolScheduleBuilder(final Optional<ValidatedBlockCache> validatedBlockCache) {
+    this.validatedBlockCache = validatedBlockCache;
+  }
 
   /**
    * Create protocol schedule.
@@ -72,6 +84,55 @@ public class QbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
       final MetricsSystem metricsSystem,
       final long blockGasLimit) {
     return new QbftProtocolScheduleBuilder()
+        .createProtocolSchedule(
+            config,
+            qbftForksSchedule,
+            isRevertReasonEnabled,
+            bftExtraDataCodec,
+            evmConfiguration,
+            miningConfiguration,
+            badBlockManager,
+            isParallelTxProcessingEnabled,
+            balConfiguration,
+            metricsSystem,
+            blockGasLimit);
+  }
+
+  /**
+   * Create a protocol schedule whose block importers import the blocks that QBFT created or
+   * validated without executing them again, whether the QBFT round or the network imports them.
+   *
+   * @param config the config
+   * @param qbftForksSchedule the qbft forks schedule
+   * @param isRevertReasonEnabled the is revert reason enabled
+   * @param bftExtraDataCodec the bft extra data codec
+   * @param evmConfiguration the evm configuration
+   * @param miningConfiguration The mining parameters
+   * @param badBlockManager the cache to use to keep invalid blocks
+   * @param isParallelTxProcessingEnabled indicates whether parallel transaction is enabled.
+   * @param balConfiguration configuration related to block-level access lists
+   * @param metricsSystem A metricSystem instance to be able to expose metrics in the underlying
+   *     calls
+   * @param blockGasLimit the genesis block gas limit, to compare against any configured per-tx gas
+   *     limit
+   * @param validatedBlockCache outputs of blocks created and validated by QBFT, shared with its
+   *     block creator and validator
+   * @return the protocol schedule
+   */
+  public static BftProtocolSchedule create(
+      final GenesisConfigOptions config,
+      final ForksSchedule<QbftConfigOptions> qbftForksSchedule,
+      final boolean isRevertReasonEnabled,
+      final BftExtraDataCodec bftExtraDataCodec,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final BadBlockManager badBlockManager,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem,
+      final long blockGasLimit,
+      final ValidatedBlockCache validatedBlockCache) {
+    return new QbftProtocolScheduleBuilder(Optional.of(validatedBlockCache))
         .createProtocolSchedule(
             config,
             qbftForksSchedule,
@@ -170,6 +231,13 @@ public class QbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
         isParallelTxProcessingEnabled,
         balConfiguration,
         metricsSystem);
+  }
+
+  @Override
+  protected BlockImporter createBlockImporter(final BlockValidator blockValidator) {
+    return validatedBlockCache
+        .<BlockImporter>map(cache -> new ValidatedBlockImporter(blockValidator, cache))
+        .orElseGet(() -> super.createBlockImporter(blockValidator));
   }
 
   @Override

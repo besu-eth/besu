@@ -14,144 +14,48 @@
  */
 package org.hyperledger.besu.consensus.qbft.adaptor;
 
-import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
-
-import org.hyperledger.besu.consensus.common.bft.BftBlockHeaderFunctions;
-import org.hyperledger.besu.consensus.common.bft.BftExtraDataCodec;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImporter;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
-import org.hyperledger.besu.ethereum.core.Block;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
-import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 
 import java.util.Optional;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-/** Adaptor class to allow a {@link BlockImporter} to be used as a {@link QbftBlockImporter}. */
+/**
+ * Adaptor class to allow a {@link BlockImporter} to be used as a {@link QbftBlockImporter}. The
+ * importer of QBFT protocol specs is a {@link ValidatedBlockImporter}, which does not execute again
+ * a block this node created or validated.
+ */
 public class QbftBlockImporterAdaptor implements QbftBlockImporter {
 
-  private static final Logger LOG = LoggerFactory.getLogger(QbftBlockImporterAdaptor.class);
-
   private final BlockImporter blockImporter;
-  private final BlockHeaderValidator blockHeaderValidator;
   private final ProtocolContext context;
-  private final BftExtraDataCodec bftExtraDataCodec;
-  private final ValidatedBlockCache validatedBlockCache;
 
   /**
    * Constructs a new Qbft block importer.
    *
    * @param blockImporter The Besu block importer
-   * @param blockHeaderValidator The header validator applied to blocks imported from the cache
    * @param context The protocol context
-   * @param bftExtraDataCodec the codec to compute the on-chain hash of claimed proposals
-   * @param validatedBlockCache outputs of created and validated blocks
    */
   public QbftBlockImporterAdaptor(
-      final BlockImporter blockImporter,
-      final BlockHeaderValidator blockHeaderValidator,
-      final ProtocolContext context,
-      final BftExtraDataCodec bftExtraDataCodec,
-      final ValidatedBlockCache validatedBlockCache) {
+      final BlockImporter blockImporter, final ProtocolContext context) {
     this.blockImporter = blockImporter;
-    this.blockHeaderValidator = blockHeaderValidator;
     this.context = context;
-    this.bftExtraDataCodec = bftExtraDataCodec;
-    this.validatedBlockCache = validatedBlockCache;
   }
 
   @Override
   public boolean importBlock(
       final QbftBlock block, final Optional<BlockAccessList> blockAccessList) {
-    final Block besuBlock = AdaptorUtil.toBesuBlock(block);
-    // removed even if the fast path fails: block is imported only once, regular import is the
-    // fallback, so no later attempt can use the entry
-    final Optional<ValidatedBlockCache.ValidatedBlock> validatedBlock =
-        validatedBlockCache.take(besuBlock.getHash(), besuBlock.getHeader().getNumber());
-    if (validatedBlock.isPresent() && importValidatedBlock(besuBlock, validatedBlock.get())) {
-      return true;
-    }
     final BlockImportResult blockImportResult =
         blockImporter.importBlock(
             context,
-            besuBlock,
+            AdaptorUtil.toBesuBlock(block),
             HeaderValidationMode.FULL,
             HeaderValidationMode.FULL,
             blockAccessList);
     return blockImportResult.isImported();
-  }
-
-  @Override
-  public void claim(final QbftBlock proposal) {
-    validatedBlockCache.claim(
-        onchainHash(proposal), proposal.getHash(), proposal.getHeader().getNumber());
-  }
-
-  @Override
-  public void releaseClaim(final QbftBlock proposal) {
-    validatedBlockCache.release(onchainHash(proposal), proposal.getHash());
-  }
-
-  // NewBlock announcements carry the on-chain hash, which ignores round and commit seals
-  private Hash onchainHash(final QbftBlock proposal) {
-    return BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec)
-        .hash(AdaptorUtil.toBesuBlockHeader(proposal.getHeader()));
-  }
-
-  /**
-   * Imports a block whose proposal was already processed, without executing it again. Block
-   * creation or validation saved its trie log, used to move the head world state after append, like
-   * {@link org.hyperledger.besu.ethereum.mainnet.MainnetBlockImporter}.
-   *
-   * @return false when the block must go through the regular import instead
-   */
-  private boolean importValidatedBlock(
-      final Block block, final ValidatedBlockCache.ValidatedBlock validatedBlock) {
-    if (!validatedBlock.isExecutedBody(block.getBody())) {
-      return false;
-    }
-    final MutableBlockchain blockchain = context.getBlockchain();
-    final BlockHeader header = block.getHeader();
-    // MainnetBlockImporter.importBlock is synchronized on the importer, which is shared with full
-    // sync. Take the same lock so the head check, append and world state move are not interleaved
-    // with another import. The adaptor itself is created per import, so it cannot be the lock.
-    synchronized (blockImporter) {
-      if (!header.getParentHash().equals(blockchain.getChainHeadHash())
-          || !hasTrieLog(context.getWorldStateArchive(), header)) {
-        return false;
-      }
-      final Optional<BlockHeader> parentHeader = blockchain.getBlockHeader(header.getParentHash());
-      if (parentHeader.isEmpty()
-          || !blockHeaderValidator.validateHeader(
-              header, parentHeader.get(), context, HeaderValidationMode.FULL)) {
-        return false;
-      }
-
-      blockchain.appendBlock(block, validatedBlock.receipts(), validatedBlock.blockAccessList());
-      // like MainnetBlockValidator: an imported block is not bad
-      context.getBadBlockManager().removeBadBlock(block.getHash());
-      // result ignored like MainnetBlockImporter: if head world state can't move, the provider
-      // logs why, and next import rolls it forward from the trie logs
-      context.getWorldStateArchive().getWorldState(withBlockHeaderAndUpdateNodeHead(header));
-    }
-    LOG.debug("Imported block {} without executing it again", block.toLogString());
-    return true;
-  }
-
-  private static boolean hasTrieLog(
-      final WorldStateArchive worldStateArchive, final BlockHeader header) {
-    return worldStateArchive instanceof PathBasedWorldStateProvider provider
-        && provider.getWorldStateKeyValueStorage().getTrieLog(header.getHash()).isPresent();
   }
 }

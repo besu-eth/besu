@@ -63,6 +63,7 @@
 - Support sub-hour TX pool retention for the sequenced transaction pool via `--tx-pool-retention-seconds` [#11588](https://github.com/besu-eth/besu/pull/11588)
 - Block import computes logs blooms on the transaction workers and the transactions root only once. [#11529](https://github.com/besu-eth/besu/pull/11529)
 - Faster lookups of which peers have seen a transaction, reducing CPU use and lock contention in transaction gossip. [#11886](https://github.com/besu-eth/besu/pull/11886)
+- QBFT validators import a block announced by peers (`NewBlock`) or downloaded by full sync without executing it again when they created it or validated its proposal. If the proposal is still being validated, the import waits for the validation instead of executing the block in parallel, and a proposal for a block being imported from peers waits for that import. [#11583](https://github.com/besu-eth/besu/pull/11583)
 
 ## 26.11.0
 
@@ -108,7 +109,6 @@
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - QBFT validators import a committed block without executing it again when they created it or validated it as a proposal, including after a round change, removing one block execution from the critical path of every block. A proposer no longer executes its own proposal again to validate it. [#11469](https://github.com/besu-eth/besu/pull/11469) [#11817](https://github.com/besu-eth/besu/pull/11817)
 - `--sync-mode=SNAP2` downloads the chain and the state together, the state following the chain head through block access lists. [#11803](https://github.com/besu-eth/besu/pull/11803)
-- QBFT validators no longer import a block announced by peers (`NewBlock`) while their current round is validating or committing it, avoiding a second execution under the block import lock. The block is still validated and relayed, and is imported from the network if the round changes or the consensus import fails. [#11583](https://github.com/besu-eth/besu/pull/11583)
 
 ## 26.10.2
 

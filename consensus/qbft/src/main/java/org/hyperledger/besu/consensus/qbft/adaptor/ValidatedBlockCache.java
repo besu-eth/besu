@@ -21,27 +21,43 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
-import java.util.HashSet;
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.function.Consumer;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Outputs of blocks created or validated by this node, to not execute them again for validation or
  * import.
  *
- * <p>Block creation and proposal validation both save the block trie log. On commit, the importer
- * only needs the receipts, and moves the head world state with the trie log.
+ * <p>Block creation and proposal validation both save the block trie log. On import, whether by the
+ * QBFT round or from the network, the importer only needs the receipts, and moves the head world
+ * state with the trie log.
+ *
+ * <p>Also tracks the blocks being executed, so that a block is not executed by two threads at once:
+ * importing a block waits for the validation of its proposal, and validating a proposal waits for
+ * the import of the same block from the network.
  *
  * <p>Keyed by the on-chain hash, which ignores round and commit seals, so a proposal of any round
  * and its committed block share the entry.
  */
 public class ValidatedBlockCache {
 
+  private static final Logger LOG = LoggerFactory.getLogger(ValidatedBlockCache.class);
+
   /** Blocks of current height, plus few from round changes. */
   private static final int MAX_ENTRIES = 4;
+
+  /** Waiting longer for another execution of a block than executing it is not useful. */
+  private static final Duration MAX_EXECUTION_WAIT = Duration.ofSeconds(10);
 
   /**
    * Outputs needed by the import.
@@ -58,104 +74,41 @@ public class ValidatedBlockCache {
       Optional<BlockAccessList> blockAccessList) {
 
     /**
-     * Check the body is the one executed. A block received again from a peer, re-proposed or in a
-     * round change, is decoded again. Transactions are compared by hash, which covers their whole
-     * encoding, unlike {@code Transaction.equals}.
+     * Check the body is the one executed.
      *
      * @param blockBody the body of the block to validate or import
      * @return true if it is the executed body
      */
     public boolean isExecutedBody(final BlockBody blockBody) {
-      return transactionHashes(body).equals(transactionHashes(blockBody))
-          && body.getOmmers().equals(blockBody.getOmmers())
-          && body.getWithdrawals().equals(blockBody.getWithdrawals());
-    }
-
-    private static List<Hash> transactionHashes(final BlockBody blockBody) {
-      return blockBody.getTransactions().stream().map(Transaction::getHash).toList();
+      return isSameBody(body, blockBody);
     }
   }
 
   private final Map<Hash, ValidatedBlock> entries = new SizeLimitedMap<>(MAX_ENTRIES);
 
-  /**
-   * Claims of the current QBFT round, by on-chain hash. Kept apart from {@link #entries}: outputs
-   * outlive the round that produced them, a claim does not.
-   */
-  private final Map<Hash, Claim> claimed = new SizeLimitedMap<>(MAX_ENTRIES);
-
-  /**
-   * Proposals of different rounds share the on-chain hash, so a claim holds until all of them are
-   * released.
-   */
-  private record Claim(long blockNumber, Set<Hash> proposalHashes) {}
-
-  /** Told about released claims, so that block propagation imports a block consensus did not. */
-  private volatile Consumer<Hash> releaseListener = hash -> {};
+  /** Blocks being executed, by on-chain hash, completed when the execution ends. */
+  private final Map<Hash, CompletableFuture<Void>> executions = new HashMap<>();
 
   /** Creates an empty cache. */
   public ValidatedBlockCache() {}
 
   /**
-   * Set the listener told about every released claim, outside of this cache's lock.
+   * Check two bodies have the same content. A block received again from a peer, re-proposed or
+   * announced with {@code NewBlock}, is decoded again. Transactions are compared by hash, which
+   * covers their whole encoding, unlike {@code Transaction.equals}.
    *
-   * @param releaseListener receives the hash of each released claim
+   * @param body a block body
+   * @param otherBody another block body
+   * @return true if both bodies have the same transactions, ommers and withdrawals
    */
-  public void setReleaseListener(final Consumer<Hash> releaseListener) {
-    this.releaseListener = releaseListener;
+  public static boolean isSameBody(final BlockBody body, final BlockBody otherBody) {
+    return transactionHashes(body).equals(transactionHashes(otherBody))
+        && body.getOmmers().equals(otherBody.getOmmers())
+        && body.getWithdrawals().equals(otherBody.getWithdrawals());
   }
 
-  /**
-   * Record that the current QBFT round is validating this proposal, or has accepted it and will
-   * import it if the round commits. Until {@link #release}, {@link #isOwnedByConsensus} returns
-   * true, so a {@code NewBlock} announcement for that block is not imported by the ETH layer at the
-   * same time. Claims of lower heights are dropped, their blocks are already decided.
-   *
-   * @param blockHash the on-chain hash, the one {@code NewBlock} announcements carry
-   * @param proposalHash the proposal hash, which includes the round
-   * @param blockNumber the block number
-   */
-  public synchronized void claim(
-      final Hash blockHash, final Hash proposalHash, final long blockNumber) {
-    claimed.values().removeIf(claim -> claim.blockNumber() < blockNumber);
-    claimed
-        .computeIfAbsent(blockHash, hash -> new Claim(blockNumber, new HashSet<>()))
-        .proposalHashes()
-        .add(proposalHash);
-  }
-
-  /**
-   * Release the claim of a proposal: it was rejected, its round ended, or its import was attempted.
-   * The block stays claimed while a proposal of another round still claims it.
-   *
-   * @param blockHash the on-chain hash
-   * @param proposalHash the proposal hash
-   */
-  public void release(final Hash blockHash, final Hash proposalHash) {
-    final boolean released;
-    synchronized (this) {
-      final Claim claim = claimed.get(blockHash);
-      released =
-          claim != null
-              && claim.proposalHashes().remove(proposalHash)
-              && claim.proposalHashes().isEmpty();
-      if (released) {
-        claimed.remove(blockHash);
-      }
-    }
-    if (released) {
-      releaseListener.accept(blockHash);
-    }
-  }
-
-  /**
-   * Whether the current QBFT round claimed this block and will import it itself if it commits.
-   *
-   * @param blockHash the on-chain hash
-   * @return true if consensus owns the import of this block
-   */
-  public synchronized boolean isOwnedByConsensus(final Hash blockHash) {
-    return claimed.containsKey(blockHash);
+  private static List<Hash> transactionHashes(final BlockBody blockBody) {
+    return blockBody.getTransactions().stream().map(Transaction::getHash).toList();
   }
 
   /**
@@ -169,7 +122,8 @@ public class ValidatedBlockCache {
   }
 
   /**
-   * Get outputs of a block, without removing them.
+   * Get outputs of a block, without removing them: the QBFT round and the network can both try to
+   * import the block.
    *
    * @param blockHash the block hash
    * @return outputs if the block was created or validated
@@ -179,16 +133,67 @@ public class ValidatedBlockCache {
   }
 
   /**
-   * Removes and returns the outputs recorded for a block, dropping any entry at or below its
-   * height, as no other block can be imported at those heights afterwards.
+   * Drop the outputs of blocks at or below the height of an imported block, as no other block can
+   * be imported at those heights afterwards.
    *
-   * @param blockHash the hash of the block being imported
-   * @param blockNumber the number of the block being imported
-   * @return outputs if the block was created or validated
+   * @param blockNumber the number of the imported block
    */
-  public synchronized Optional<ValidatedBlock> take(final Hash blockHash, final long blockNumber) {
-    final ValidatedBlock validatedBlock = entries.remove(blockHash);
+  public synchronized void pruneUpTo(final long blockNumber) {
     entries.values().removeIf(entry -> entry.blockNumber() <= blockNumber);
-    return Optional.ofNullable(validatedBlock);
+  }
+
+  /**
+   * Record that the calling thread starts executing a block, unless another thread already does.
+   *
+   * @param blockHash the on-chain hash
+   * @return true if the caller must execute the block and then call {@link #endExecution}, false if
+   *     another thread is executing it, see {@link #awaitExecution}
+   */
+  public synchronized boolean tryStartExecution(final Hash blockHash) {
+    if (executions.containsKey(blockHash)) {
+      return false;
+    }
+    executions.put(blockHash, new CompletableFuture<>());
+    return true;
+  }
+
+  /**
+   * Record the end of an execution started with {@link #tryStartExecution}, successful or not, and
+   * wake up the threads waiting for it.
+   *
+   * @param blockHash the on-chain hash
+   */
+  public void endExecution(final Hash blockHash) {
+    final CompletableFuture<Void> execution;
+    synchronized (this) {
+      execution = executions.remove(blockHash);
+    }
+    if (execution != null) {
+      execution.complete(null);
+    }
+  }
+
+  /**
+   * Wait for another thread executing a block, if any, so that its outputs can be used instead of
+   * executing the block again. Returns after 10 seconds at most, or when interrupted, after which
+   * the caller executes the block itself.
+   *
+   * @param blockHash the on-chain hash
+   */
+  public void awaitExecution(final Hash blockHash) {
+    final CompletableFuture<Void> execution;
+    synchronized (this) {
+      execution = executions.get(blockHash);
+    }
+    if (execution == null) {
+      return;
+    }
+    try {
+      execution.get(MAX_EXECUTION_WAIT.toMillis(), TimeUnit.MILLISECONDS);
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+    } catch (final ExecutionException | TimeoutException e) {
+      LOG.debug("Stopped waiting for another execution of block {}", blockHash, e);
+    }
   }
 }

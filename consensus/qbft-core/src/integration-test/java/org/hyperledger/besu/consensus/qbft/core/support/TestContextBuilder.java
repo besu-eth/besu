@@ -466,10 +466,13 @@ public class TestContextBuilder {
     final ForksSchedule<QbftConfigOptions> forksSchedule =
         QbftForksSchedulesFactory.create(genesisConfigOptions);
 
+    // shared by block creation, validation and import, like QbftBesuControllerBuilder
+    final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
     final BftProtocolSchedule protocolSchedule =
         QbftProtocolScheduleBuilder.create(
             genesisConfigOptions,
             forksSchedule,
+            false,
             BFT_EXTRA_DATA_ENCODER,
             EvmConfiguration.DEFAULT,
             MiningConfiguration.MINING_DISABLED,
@@ -477,7 +480,8 @@ public class TestContextBuilder {
             false,
             BalConfiguration.DEFAULT,
             new NoOpMetricsSystem(),
-            Long.MAX_VALUE);
+            Long.MAX_VALUE,
+            validatedBlockCache);
 
     final BftValidatorOverrides validatorOverrides = convertBftForks(qbftForks);
     final TransactionSimulator transactionSimulator =
@@ -550,8 +554,6 @@ public class TestContextBuilder {
 
     final ProposerSelector proposerSelector =
         new BftProposerSelector(blockChain, BFT_BLOCK_INTERFACE, true, validatorProvider);
-
-    final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
 
     final BftExecutors bftExecutors =
         BftExecutors.create(new NoOpMetricsSystem(), BftExecutors.ConsensusType.QBFT);

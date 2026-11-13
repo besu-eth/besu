@@ -18,6 +18,7 @@ import org.hyperledger.besu.consensus.common.bft.BftExtraDataCodec;
 import org.hyperledger.besu.consensus.common.bft.BftHelpers;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockValidator;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -64,20 +65,48 @@ public class QbftBlockValidatorAdaptor implements QbftBlockValidator {
         new Block(
             BftHelpers.toOnchainHeader(bftExtraDataCodec, proposedBlock.getHeader()),
             proposedBlock.getBody());
-    // proposal or round-change block already created or validated with same body and BAL
-    if (validatedBlockCache
-        .get(besuBlock.getHash())
-        .filter(
-            validatedBlock ->
-                validatedBlock.isExecutedBody(besuBlock.getBody())
-                    && validatedBlock.blockAccessList().equals(blockAccessList))
-        .isPresent()) {
+    final Hash blockHash = besuBlock.getHash();
+    if (isExecuted(besuBlock, blockAccessList)) {
       return new ValidationResult(true, Optional.empty());
     }
+    if (!validatedBlockCache.tryStartExecution(blockHash)) {
+      // e.g. NewBlock received before the proposal: the network is importing this block, wait for
+      // the import instead of executing the block a second time
+      validatedBlockCache.awaitExecution(blockHash);
+      return isExecuted(besuBlock, blockAccessList)
+          ? new ValidationResult(true, Optional.empty())
+          : execute(besuBlock, blockAccessList);
+    }
+    try {
+      return execute(besuBlock, blockAccessList);
+    } finally {
+      validatedBlockCache.endExecution(blockHash);
+    }
+  }
+
+  // created or validated before with the same body and BAL, or imported from the network, which
+  // validated it fully
+  private boolean isExecuted(final Block block, final Optional<BlockAccessList> blockAccessList) {
+    return validatedBlockCache
+            .get(block.getHash())
+            .filter(
+                validatedBlock ->
+                    validatedBlock.isExecutedBody(block.getBody())
+                        && validatedBlock.blockAccessList().equals(blockAccessList))
+            .isPresent()
+        || protocolContext
+            .getBlockchain()
+            .getBlockBody(block.getHash())
+            .filter(importedBody -> ValidatedBlockCache.isSameBody(importedBody, block.getBody()))
+            .isPresent();
+  }
+
+  private ValidationResult execute(
+      final Block block, final Optional<BlockAccessList> blockAccessList) {
     final BlockProcessingResult blockProcessingResult =
         blockValidator.validateAndProcessBlock(
             protocolContext,
-            besuBlock,
+            block,
             HeaderValidationMode.LIGHT,
             HeaderValidationMode.FULL,
             blockAccessList,
@@ -89,10 +118,10 @@ public class QbftBlockValidatorAdaptor implements QbftBlockValidator {
           .ifPresent(
               outputs ->
                   validatedBlockCache.put(
-                      besuBlock.getHash(),
+                      block.getHash(),
                       new ValidatedBlockCache.ValidatedBlock(
-                          besuBlock.getHeader().getNumber(),
-                          besuBlock.getBody(),
+                          block.getHeader().getNumber(),
+                          block.getBody(),
                           outputs.getReceipts(),
                           outputs.getBlockAccessList())));
     }

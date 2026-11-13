@@ -19,9 +19,11 @@ import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.JsonBftConfigOptions;
 import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.MainnetBlockValidatorBuilder;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
+import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
@@ -127,6 +129,16 @@ public abstract class BaseBftProtocolScheduleBuilder {
   protected abstract BlockHeaderValidator.Builder createBlockHeaderRuleset(
       final BftConfigOptions config, final FeeMarket feeMarket);
 
+  /**
+   * Create the block importer of each protocol spec.
+   *
+   * @param blockValidator the block validator of the protocol spec
+   * @return the block importer
+   */
+  protected BlockImporter createBlockImporter(final BlockValidator blockValidator) {
+    return new MainnetBlockImporter(blockValidator);
+  }
+
   private ProtocolSpecBuilder applyBftChanges(
       final ProtocolSpecBuilder builder,
       final BftConfigOptions configOptions,
@@ -147,7 +159,7 @@ public abstract class BaseBftProtocolScheduleBuilder {
                 createBlockHeaderRuleset(configOptions, feeMarket))
         .blockBodyValidatorBuilder(MainnetBlockBodyValidator::new)
         .blockValidatorBuilder(MainnetBlockValidatorBuilder::frontier)
-        .blockImporterBuilder(MainnetBlockImporter::new)
+        .blockImporterBuilder(this::createBlockImporter)
         .difficultyCalculator((time, parent) -> BigInteger.ONE)
         // BFT is a PoA consensus, so specs must not be marked as PoS even when the network is
         // configured with an execution fork that is PoS on mainnet (Paris and later). Otherwise

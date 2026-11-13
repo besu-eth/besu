@@ -225,12 +225,6 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   }
 
   @Override
-  protected void configureSynchronizer(final DefaultSynchronizer synchronizer) {
-    preMergeBesuControllerBuilder.configureSynchronizer(synchronizer);
-    mergeBesuControllerBuilder.configureSynchronizer(synchronizer);
-  }
-
-  @Override
   protected DefaultSynchronizer createSynchronizer(
       final ProtocolSchedule protocolSchedule,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
