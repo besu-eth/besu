@@ -3111,8 +3111,19 @@ public class BesuCommandTest extends CommandTestAbstract {
     verifyNoInteractions(mockRunnerBuilder);
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
-            "Cannot enable --Xbonsai-archive-state-proofs-enabled with --sync-mode=SNAP and"
-                + " --data-storage-format=X_BONSAI_ARCHIVE. You must use --sync-mode=FULL");
+            "--Xbonsai-archive-state-proofs-enabled needs --sync-mode=FULL, not X_BONSAI_ARCHIVE");
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsRejectDefaultSnapSync() {
+    parseCommand(
+        "--network=sepolia",
+        "--data-storage-format=X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-enabled");
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "--Xbonsai-archive-state-proofs-enabled needs --sync-mode=FULL, not X_BONSAI_ARCHIVE");
   }
 
   @Test

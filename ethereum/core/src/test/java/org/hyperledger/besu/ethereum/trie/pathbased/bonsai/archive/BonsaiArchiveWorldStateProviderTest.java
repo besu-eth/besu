@@ -221,6 +221,84 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void archiveProof_blockBelowCoverageIsServedFromArchive() {
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    archiveThrough(new BlockHeaderTestFixture().number(queryBlockNumber + 1).buildHeader());
+
+    final RuntimeException served = new RuntimeException("served from archive");
+    assertThatThrownBy(
+            () ->
+                provider.getAccountProof(
+                    historicalHeader,
+                    Address.ZERO,
+                    List.of(),
+                    proof -> {
+                      throw served;
+                    }))
+        .isSameAs(served);
+  }
+
+  @Test
+  void archiveProof_blockAboveCoverageFallsBackToRollback() {
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    archiveThrough(new BlockHeaderTestFixture().number(queryBlockNumber - 1).buildHeader());
+
+    // The archived path would run the mapper; the rollback fallback can't reach this block.
+    final Optional<Object> result =
+        provider.getAccountProof(
+            historicalHeader,
+            Address.ZERO,
+            List.of(),
+            proof -> {
+              throw new AssertionError("archived proof served past coverage");
+            });
+
+    assertThat(result).isEmpty();
+  }
+
+  private void archiveThrough(final BlockHeader last) {
+    final var liveStorage = worldStateStorage.getComposedWorldStateStorage();
+    final var tx = liveStorage.startTransaction();
+    new ArchiveNodeHistoryStore(liveStorage)
+        .saveArchiveProgress(tx, new ArchivedBlock(last.getNumber(), last.getHash()));
+    tx.commit();
+    when(blockchain.getBlockHashByNumber(last.getNumber())).thenReturn(Optional.of(last.getHash()));
+  }
+
+  @Test
+  void archiveProof_notServedOnceLastArchivedBlockIsReorgedOut() {
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    final BlockHeader archived =
+        new BlockHeaderTestFixture().number(queryBlockNumber + 1).buildHeader();
+    final BlockHeader replacement =
+        new BlockHeaderTestFixture()
+            .number(queryBlockNumber + 1)
+            .extraData(Bytes.of(1))
+            .buildHeader();
+    archiveThrough(archived);
+    when(blockchain.getBlockHashByNumber(archived.getNumber()))
+        .thenReturn(Optional.of(replacement.getHash()));
+
+    // The archived path would run the mapper; the rollback fallback can't reach this block.
+    final Optional<Object> result =
+        provider.getAccountProof(
+            historicalHeader,
+            Address.ZERO,
+            List.of(),
+            proof -> {
+              throw new AssertionError("archived proof served for a reorged-out history");
+            });
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
   void recentQuery_beforeMigrationComplete_returnsBonsaiWorldStateBackedByMainStorage() {
     // Migration not yet complete: falls through to super.getWorldState() which serves
     // recent blocks normally via trie-log rollback from the cached head state.

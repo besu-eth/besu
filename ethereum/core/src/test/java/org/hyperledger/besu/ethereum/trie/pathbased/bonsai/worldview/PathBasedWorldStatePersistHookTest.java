@@ -96,6 +96,18 @@ class PathBasedWorldStatePersistHookTest {
   }
 
   @Test
+  void persistOnFrozenStorageDoesNotCallHook() {
+    worldState.freezeStorage();
+    worldState.persist(
+        new BlockHeaderTestFixture()
+            .number(7L)
+            .stateRoot(worldState.frontierRootHash())
+            .buildHeader());
+
+    verify(trieNodeStrategy, never()).onBlockPersist(any(), any(), any());
+  }
+
+  @Test
   void persistWithNullHeaderDoesNotCallHook() {
     worldState.persist(null);
 

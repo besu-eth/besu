@@ -167,9 +167,10 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
         .isPresent();
   }
 
-  // Loads are only collected for the persisted state, which this block replaces; genesis has none.
+  // Loads are priors only if their root is the state this block replaces; genesis has none.
   private Map<Bytes, Bytes> priorNodes() {
-    return loadedNodes.get().nodes().orElse(Map.of());
+    final LoadedNodes loaded = loadedNodes.get();
+    return isPersistedRoot(loaded.root()) ? loaded.nodes().orElse(Map.of()) : Map.of();
   }
 
   @Override
