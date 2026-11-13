@@ -46,6 +46,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -95,6 +96,18 @@ class FramePooledTransactionCodecTest extends TrustedSetupClassLoaderExtension {
     assertThat(decoded.getBlobsWithCommitments()).isEmpty();
     assertThat(decoded.getHash()).isEqualTo(transaction.getHash());
     assertThat(decoded.getSizeForAnnouncement()).isEqualTo(canonical.size());
+  }
+
+  @ParameterizedTest
+  @EnumSource(EncodingContext.class)
+  void frameTransactionWithoutBlobsIsEncodableInEveryContext(final EncodingContext context) {
+    final Transaction decoded =
+        TransactionDecoder.decodeOpaqueBytes(
+            TransactionEncoder.encodeOpaqueBytes(
+                frameTransaction(List.of()).build(), EncodingContext.POOLED_TRANSACTION),
+            EncodingContext.POOLED_TRANSACTION);
+
+    assertThat(context.canEncode(decoded)).isTrue();
   }
 
   @ParameterizedTest(name = "{0}")

@@ -23,7 +23,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -32,6 +34,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.CellsOnlyBlobTransactionFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.BogotaDevnet1FrameReceipts;
@@ -371,6 +374,24 @@ public class EthServerTest {
         .contains(
             createPooledTransactionsMessage(
                 List.of(cellsOnly), EncodingContext.POOLED_TRANSACTION_ETH_72));
+  }
+
+  @Test
+  public void shouldServeAFrameTransactionWithoutBlobsToAPreEth72Peer() {
+    final Transaction frameTransaction =
+        new TransactionTestFixture()
+            .type(TransactionType.FRAME)
+            .createTransaction(SignatureAlgorithmFactory.getInstance().generateKeyPair());
+    when(transactionPool.getTransactionByHash(frameTransaction.getHash()))
+        .thenReturn(Optional.of(frameTransaction));
+    setupEthServer();
+
+    final EthMessage request =
+        new EthMessage(
+            ethPeer, GetPooledTransactionsMessage.create(List.of(frameTransaction.getHash())));
+
+    assertThat(ethMessages.dispatch(request, EthProtocolVersion.V68.getCapability()))
+        .contains(createPooledTransactionsMessage(List.of(frameTransaction)));
   }
 
   @Test

@@ -86,7 +86,8 @@ public enum EncodingContext {
       // a block body carries no sidecar at all, so the transaction body is always enough
       return true;
     }
-    if (!transaction.getType().supportsBlob()) {
+    // EIP-8141: a frame transaction may carry blobs but need not, and one without has no sidecar.
+    if (!transaction.getType().supportsBlob() || transaction.getBlobCount() == 0) {
       return true;
     }
     final var sidecar = transaction.getBlobsWithCommitments();
