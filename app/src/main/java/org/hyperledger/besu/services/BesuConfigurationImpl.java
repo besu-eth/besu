@@ -25,9 +25,11 @@ import org.hyperledger.besu.plugin.CoreConfiguration;
 import org.hyperledger.besu.plugin.rpc.RpcConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /** A concrete implementation of BesuConfiguration which is used in Besu plugin framework. */
 public class BesuConfigurationImpl
@@ -35,6 +37,7 @@ public class BesuConfigurationImpl
   private Path storagePath;
   private Path dataPath;
   private DataStorageConfiguration dataStorageConfiguration;
+  private List<SegmentIdentifier> ignorableSegments = List.of();
 
   // defaults
   private MiningConfiguration miningConfiguration;
@@ -60,6 +63,18 @@ public class BesuConfigurationImpl
     this.dataPath = dataPath;
     this.storagePath = storagePath;
     this.dataStorageConfiguration = dataStorageConfiguration;
+    return this;
+  }
+
+  /**
+   * Set the segments the node does not use in its configuration
+   *
+   * @param ignorableSegments the segments a storage factory need not create
+   * @return BesuConfigurationImpl instance
+   */
+  public BesuConfigurationImpl withIgnorableSegments(
+      final List<SegmentIdentifier> ignorableSegments) {
+    this.ignorableSegments = List.copyOf(ignorableSegments);
     return this;
   }
 
@@ -114,6 +129,11 @@ public class BesuConfigurationImpl
   @Override
   public Path getDataPath() {
     return dataPath;
+  }
+
+  @Override
+  public List<SegmentIdentifier> getIgnorableSegments() {
+    return ignorableSegments;
   }
 
   @Override

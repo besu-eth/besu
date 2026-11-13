@@ -49,7 +49,6 @@ import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -85,11 +84,11 @@ import org.hyperledger.besu.evm.precompile.AbstractAltBnPrecompiledContract;
 import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.metrics.StandardMetricCategory;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.mining.MiningService;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
-import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
 import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.number.Fraction;
@@ -136,7 +135,6 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine;
@@ -377,6 +375,17 @@ public class BesuCommandTest extends CommandTestAbstract {
     inOrder.verify(getBesuPluginContext()).beginRegistration();
     inOrder.verify(getBesuPluginContext()).registerPlugins();
     inOrder.verify(getBesuPluginContext()).endRegistration();
+    // the previous cycle's plugins were stopped by stopEphemery(), not here
+    verify(getBesuPluginContext(), never()).stopPluginsForRestart();
+  }
+
+  @Test
+  public void stopPluginsForRestartHandsOverToTheContext() {
+    final TestBesuCommand command = parseCommand();
+
+    command.stopPluginsForRestart();
+
+    verify(getBesuPluginContext()).stopPluginsForRestart();
   }
 
   @Test
@@ -391,6 +400,68 @@ public class BesuCommandTest extends CommandTestAbstract {
     // once for the first registration, once for the failed re-registration
     verify(getBesuPluginContext(), times(2)).beginRegistration();
     verify(getBesuPluginContext(), times(2)).endRegistration();
+  }
+
+  @Test
+  public void builtInPluginsAreHandedToTheContextBeforeTheOptionsAreDefined() {
+    parseCommand();
+
+    final ArgumentCaptor<BesuPlugin> builtIns = ArgumentCaptor.forClass(BesuPlugin.class);
+    final InOrder inOrder = inOrder(getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext(), times(4)).addBuiltInPlugin(builtIns.capture());
+    inOrder.verify(getBesuPluginContext()).defineOptions(any());
+    assertThat(builtIns.getAllValues())
+        .extracting(plugin -> plugin.getClass().getSimpleName())
+        .containsExactly(
+            "RocksDBPlugin",
+            "InMemoryStoragePlugin",
+            "LivenessCheckPlugin",
+            "ReadinessCheckPlugin");
+  }
+
+  @Test
+  public void chainPrunerStateIsIgnorableWhenNothingPrunes() {
+    parseCommand("--Xchain-pruning-enabled=NONE");
+
+    assertThat(commonPluginConfiguration.getIgnorableSegments())
+        .containsExactly(CHAIN_PRUNER_STATE, SNAPSYNC_FLAT_ACCOUNTS, SNAPSYNC_FLAT_STORAGE);
+  }
+
+  @Test
+  public void chainPrunerStateIsNotIgnorableWhenTheChainPrunerRuns() {
+    parseCommand();
+
+    assertThat(commonPluginConfiguration.getIgnorableSegments())
+        .containsExactly(SNAPSYNC_FLAT_ACCOUNTS, SNAPSYNC_FLAT_STORAGE);
+  }
+
+  @Test
+  public void chainPrunerStateIsNotIgnorableWhenHistoryExpiryPrunes() {
+    parseCommand("--Xchain-pruning-enabled=NONE", "--history-expiry-prune=true");
+
+    assertThat(commonPluginConfiguration.getIgnorableSegments())
+        .containsExactly(SNAPSYNC_FLAT_ACCOUNTS, SNAPSYNC_FLAT_STORAGE);
+  }
+
+  @Test
+  public void ignorableSegmentsAreOnTheConfigurationViewBeforePluginsRegister() {
+    parseCommand("--Xchain-pruning-enabled=NONE");
+
+    final InOrder inOrder = inOrder(commonPluginConfiguration, getBesuPluginContext());
+    inOrder.verify(commonPluginConfiguration).withIgnorableSegments(any());
+    inOrder.verify(getBesuPluginContext()).registerPlugins();
+  }
+
+  @Test
+  public void reRegisterPluginsRebuildsTheStorageProviderFromTheNewRegistration() {
+    final TestBesuCommand command = parseCommand();
+    command.getStorageProvider();
+    verify(storageService, times(1)).getByName("rocksdb");
+
+    command.reRegisterPlugins();
+    command.getStorageProvider();
+
+    verify(storageService, times(2)).getByName("rocksdb");
   }
 
   @Test
@@ -420,17 +491,6 @@ public class BesuCommandTest extends CommandTestAbstract {
     inOrder.verify(getBesuPluginContext()).startPlugins();
     inOrder.verify(mockRunner).startExternalServices();
     inOrder.verify(mockRunner).startEthereumMainLoop();
-  }
-
-  @Test
-  public void readinessGetsTheRunningServicesBeforeThirdPartyPlugins() {
-    parseCommand();
-
-    final InOrder inOrder = inOrder(mockRunner, getBesuPluginContext());
-    inOrder.verify(mockRunner).startEthereumMainLoop();
-    // only the built-in readiness plugin asks for a running context on this path
-    inOrder.verify(getBesuPluginContext()).runningContextFor(any());
-    inOrder.verify(getBesuPluginContext()).afterMainLoop();
   }
 
   @Test
@@ -1519,20 +1579,17 @@ public class BesuCommandTest extends CommandTestAbstract {
   // any other node leaves them out, so that it can still go back to an older version
   @Test
   public void syncMode_snap2OnForestCreatesTheSegmentsItStagesTheStateIn() {
-    try (MockedConstruction<RocksDBPlugin> plugins = mockConstruction(RocksDBPlugin.class)) {
-      parseCommand(
-          "--sync-mode",
-          "SNAP2",
-          "--data-storage-format",
-          "FOREST",
-          "--Xchain-pruning-enabled",
-          "NONE");
+    parseCommand(
+        "--sync-mode",
+        "SNAP2",
+        "--data-storage-format",
+        "FOREST",
+        "--Xchain-pruning-enabled",
+        "NONE");
 
-      final RocksDBPlugin plugin = plugins.constructed().getFirst();
-      verify(plugin).addIgnorableSegmentIdentifier(CHAIN_PRUNER_STATE);
-      verify(plugin, never()).addIgnorableSegmentIdentifier(SNAPSYNC_FLAT_ACCOUNTS);
-      verify(plugin, never()).addIgnorableSegmentIdentifier(SNAPSYNC_FLAT_STORAGE);
-    }
+    assertThat(commonPluginConfiguration.getIgnorableSegments())
+        .containsExactly(CHAIN_PRUNER_STATE)
+        .doesNotContain(SNAPSYNC_FLAT_ACCOUNTS, SNAPSYNC_FLAT_STORAGE);
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
