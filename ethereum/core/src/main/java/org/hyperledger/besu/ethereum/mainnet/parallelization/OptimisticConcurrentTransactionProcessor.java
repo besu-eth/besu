@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
@@ -82,10 +83,15 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // alone.
   @VisibleForTesting static final int MAX_CHAIN_LENGTH = 64;
 
-  // a warm-up runs before the member's predecessors, which may pay its nonce and gas
+  // A warm-up runs before the member's predecessors, which may pay its nonce and gas. Every other
+  // check of a block stays, so that the transaction gas cap bounds a warm-up in an invalid block.
   @VisibleForTesting
   static final TransactionValidationParams WARM_UP_VALIDATION =
-      TransactionValidationParams.transactionSimulatorAllowUnderpricedAndFutureNonce();
+      ImmutableTransactionValidationParams.builder()
+          .from(TransactionValidationParams.processingBlock())
+          .isAllowFutureNonce(true)
+          .allowUnderpricedGas(true)
+          .build();
 
   /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
@@ -405,7 +411,14 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Optional<BlockHeader> maybeParentHeader) {
     // a member dropped from its chain is executed by the serial loop, which the warm-up still helps
     final boolean ranInChain = future.state() == Future.State.SUCCESS && future.resultNow() != null;
-    if (ranInChain || serialLoopHasPassed(transactionLocation) || maybeParentHeader.isEmpty()) {
+    // Without the upfront gas check the sender's balance no longer bounds a warm-up's gas, and a
+    // running warm-up cannot be stopped. No transaction of a valid block exceeds its gas limit.
+    final boolean exceedsBlockGasLimit =
+        Long.compareUnsigned(transaction.getGasLimit(), blockHeader.getGasLimit()) > 0;
+    if (ranInChain
+        || exceedsBlockGasLimit
+        || serialLoopHasPassed(transactionLocation)
+        || maybeParentHeader.isEmpty()) {
       return;
     }
     try {
