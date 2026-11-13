@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -69,7 +70,7 @@ class PrecompileFlatTraceTest {
   private static final String INITIALIZE_MEMORY = "602a600052";
   // Return the call's success bit as deployed code, independently checking EVM execution.
   private static final String RETURN_SUCCESS = "60405260206040f3";
-  private ExecutionContextTestFixture fixture;
+  ExecutionContextTestFixture fixture;
   private Block block;
 
   @BeforeEach
@@ -77,7 +78,12 @@ class PrecompileFlatTraceTest {
     fixture =
         ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_RESOURCE))
             .dataStorageFormat(DataStorageFormat.BONSAI)
+            .evmConfiguration(evmConfiguration())
             .build();
+  }
+
+  EvmConfiguration evmConfiguration() {
+    return EvmConfiguration.DEFAULT;
   }
 
   @ParameterizedTest
