@@ -36,6 +36,7 @@ dependencies {
   implementation project(':ethereum:core')
   implementation project(':ethereum:eth')
   implementation project(':evm')
+  implementation project(':metrics:core')
   implementation project(':services:kvstore')
   implementation project(':util')
 
@@ -52,6 +53,7 @@ dependencies {
   testImplementation project(path: ':ethereum:core', configuration: 'testSupportArtifacts')
   testImplementation project(':ethereum:referencetests')
   testImplementation project(':metrics:core')
+  testImplementation project(path: ':metrics:core', configuration: 'testSupportArtifacts')
   testImplementation project(':testutil')
 
   testImplementation 'com.fasterxml.jackson.core:jackson-databind'
