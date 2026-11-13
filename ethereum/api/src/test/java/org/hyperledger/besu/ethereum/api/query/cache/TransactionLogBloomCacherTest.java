@@ -405,6 +405,67 @@ public class TransactionLogBloomCacherTest {
     assertThat(readsAfterStop).hasValue(0);
   }
 
+  @Test
+  public void shouldRewriteABlockReplacedByAReorgDroppedWhileCachingIsInProgress()
+      throws IOException {
+    final File logBloom = cacheDir.resolve("logBloom-0.cache").toFile();
+    final List<BlockHeader> firstBranch = new ArrayList<>();
+    for (int i = 0; i < 6; i++) {
+      firstBranch.add(createBlock(i));
+    }
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        firstBranch.get(5), Optional.empty(), Optional.of(logBloom));
+    assertThat(readLogBloomCache(logBloom, 5))
+        .containsExactly(firstBranch.get(5).getLogsBloom().getBytes().toArray());
+
+    // a reorg replaces block 5 while a cache generation holds the cacher
+    final BlockHeader forkBlock5 = createBlock(5, Optional.of("111111111111111111111111"));
+    transactionLogBloomCacher.getCachingStatus().cachingCount.incrementAndGet();
+    try {
+      transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+          forkBlock5, Optional.of(firstBranch.get(4)), Optional.of(logBloom));
+    } finally {
+      transactionLogBloomCacher.getCachingStatus().cachingCount.decrementAndGet();
+    }
+
+    // the next block builds on the fork and is the first event the cacher processes again
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        createBlock(6), Optional.of(forkBlock5), Optional.of(logBloom));
+
+    assertThat(readLogBloomCache(logBloom, 5))
+        .containsExactly(forkBlock5.getLogsBloom().getBytes().toArray());
+    assertThat(logBloom.length()).isEqualTo(BLOOM_BITS_LENGTH * 7);
+  }
+
+  @Test
+  public void shouldRebuildTheSegmentOfTheLastBlockOfASegmentAfterADroppedReorg()
+      throws IOException {
+    // createBlock needs block numbers with an even number of hex digits
+    final long lastBlock = 11L * BLOCKS_PER_BLOOM_CACHE - 1;
+    final File logBloom = cacheDir.resolve("logBloom-10.cache").toFile();
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        createBlock(lastBlock - 1), Optional.empty(), Optional.empty());
+
+    // a reorg replaces the block before the last one while a cache generation holds the cacher
+    final BlockHeader forkBlock =
+        createBlock(lastBlock - 1, Optional.of("111111111111111111111111"));
+    transactionLogBloomCacher.getCachingStatus().cachingCount.incrementAndGet();
+    try {
+      transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+          forkBlock, Optional.of(createBlock(lastBlock - 2)), Optional.empty());
+    } finally {
+      transactionLogBloomCacher.getCachingStatus().cachingCount.decrementAndGet();
+    }
+
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        createBlock(lastBlock), Optional.of(forkBlock), Optional.empty());
+
+    assertThat(readLogBloomCache(logBloom, (lastBlock - 1) % BLOCKS_PER_BLOOM_CACHE))
+        .containsExactly(forkBlock.getLogsBloom().getBytes().toArray());
+    assertThat(logBloom.length()).isEqualTo((long) BLOCKS_PER_BLOOM_CACHE * BLOOM_BITS_LENGTH);
+    assertThat(cacheDir.resolve("logBloom-11.cache")).doesNotExist();
+  }
+
   private void createLogBloomCache(final File logBloom) throws IOException {
     try (final RandomAccessFile randomAccessFile = new RandomAccessFile(logBloom, "rws")) {
       writeThreeEntries(testLogsBloomFilter, randomAccessFile);
