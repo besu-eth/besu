@@ -21,15 +21,20 @@ import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.util.HexUtils;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.stream.IntStream;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntFunction;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import com.fasterxml.jackson.databind.ser.std.StdSerializer;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 
 public final class TransactionJson {
@@ -76,7 +81,7 @@ public final class TransactionJson {
    */
   public static class BlockBodyListDeserializer extends StdDeserializer<List<Transaction>> {
 
-    private static final int MIN_TRANSACTIONS_TO_DECODE_IN_PARALLEL = 64;
+    @VisibleForTesting static final int MIN_TRANSACTIONS_TO_DECODE_IN_PARALLEL = 64;
 
     public BlockBodyListDeserializer() {
       super(List.class);
@@ -85,14 +90,45 @@ public final class TransactionJson {
     @Override
     public List<Transaction> deserialize(
         final JsonParser jsonParser, final DeserializationContext context) throws IOException {
-      final String[] encoded = jsonParser.getCodec().readValue(jsonParser, String[].class);
-      final IntStream indices = IntStream.range(0, encoded.length);
-      return (encoded.length >= MIN_TRANSACTIONS_TO_DECODE_IN_PARALLEL
-              ? indices.parallel()
-              : indices)
-          .mapToObj(i -> encoded[i] == null ? null : decode(encoded[i]))
-          .toList();
+      final String[] encoded = context.readValue(jsonParser, String[].class);
+      final Transaction[] decoded = new Transaction[encoded.length];
+      final AtomicReference<Failure> firstFailure = new AtomicReference<>();
+      final IntFunction<Transaction> decodeAt = i -> decodeAt(encoded, i, firstFailure);
+      if (encoded.length >= MIN_TRANSACTIONS_TO_DECODE_IN_PARALLEL) {
+        Arrays.parallelSetAll(decoded, decodeAt);
+      } else {
+        Arrays.setAll(decoded, decodeAt);
+      }
+      final Failure failure = firstFailure.get();
+      if (failure != null) {
+        throw JsonMappingException.wrapWithPath(failure.cause(), List.class, failure.index());
+      }
+      return new ArrayList<>(Arrays.asList(decoded));
     }
+
+    // A failure is recorded rather than thrown: an exception thrown on a pool worker reaches the
+    // caller re-wrapped, and the error reported has to be the first in the list, not the first in
+    // time.
+    private static Transaction decodeAt(
+        final String[] encoded, final int index, final AtomicReference<Failure> firstFailure) {
+      final Failure failure = firstFailure.get();
+      if (failure != null && failure.index() < index) {
+        return null;
+      }
+      try {
+        if (encoded[index] == null) {
+          throw new IllegalArgumentException("Null transaction");
+        }
+        return decode(encoded[index]);
+      } catch (final RuntimeException e) {
+        firstFailure.accumulateAndGet(
+            new Failure(index, e),
+            (current, next) -> current == null || next.index() < current.index() ? next : current);
+        return null;
+      }
+    }
+
+    private record Failure(int index, RuntimeException cause) {}
   }
 
   private static Transaction decode(final String encoded) {

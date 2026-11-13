@@ -370,6 +370,23 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldReportTheFirstMalformedTransactionOfALongList() {
+    BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
+    final List<String> txs = new ArrayList<>(encoded(signedTransactions(200)));
+    txs.set(180, "0xDEAD");
+    txs.set(150, "0x");
+
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, txs)));
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getLatestValidHash()).isNull();
+    assertThat(res.getStatus()).isEqualTo(INVALID);
+    assertThat(res.getError())
+        .isEqualTo("Failed to decode transactions from block parameter (Empty opaque bytes)");
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
   public void shouldReturnValidDuringForwardSync() {
     BlockHeader mockHeader =
         setupPayloadV1(
