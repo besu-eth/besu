@@ -25,8 +25,9 @@ final class StacksV2 {
   // that a deep call chain does not leave megabytes of stacks on every thread that ran one.
   static final int CACHED_DEPTHS = 21;
 
-  // The stacks of two full call chains. Without them, a transaction calling in a loop past the
-  // cached depths, or recursing through them again and again, allocates 32 KB for every frame.
+  // The stacks of two full call chains, up to 64 MB, which stay allocated once used. Without them,
+  // a transaction calling in a loop past the cached depths, or recursing through them again and
+  // again, allocates 32 KB for every frame.
   static final int SHARED_STACKS = 2 * 1024;
 
   // A thread moves half of these to or from the shared stacks at a time, so a deep call chain

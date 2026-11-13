@@ -103,22 +103,26 @@ class StacksV2Test {
 
   @Test
   void sharedStacksAreCapped() {
+    final int held = StacksV2.SHARED_STACKS + StacksV2.THREAD_DEEP_STACKS;
+    // empties the thread's and the shared stacks that other tests left behind
+    for (int i = 0; i < held; i++) {
+      StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+    }
+
     final Set<long[]> released = Collections.newSetFromMap(new IdentityHashMap<>());
-    for (int i = 0; i <= StacksV2.SHARED_STACKS; i++) {
+    for (int i = 0; i < held + StacksV2.THREAD_DEEP_STACKS; i++) {
       final long[] stack = new long[LENGTH];
       released.add(stack);
       StacksV2.release(StacksV2.CACHED_DEPTHS, stack);
     }
 
     int kept = 0;
-    for (int i = 0; i <= StacksV2.SHARED_STACKS; i++) {
+    for (int i = 0; i < released.size(); i++) {
       if (released.contains(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH))) {
         kept++;
       }
     }
-    assertThat(kept)
-        .isPositive()
-        .isLessThanOrEqualTo(StacksV2.SHARED_STACKS + StacksV2.THREAD_DEEP_STACKS);
+    assertThat(kept).isEqualTo(held);
   }
 
   @Test
