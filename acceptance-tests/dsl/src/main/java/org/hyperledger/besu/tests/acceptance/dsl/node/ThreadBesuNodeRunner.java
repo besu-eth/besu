@@ -98,6 +98,7 @@ import java.io.File;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -240,14 +241,20 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         besuController.getMiningParameters(),
         inProcessRpcConfiguration.isEnabled());
 
-    besuPluginContext.startPlugins();
+    try {
+      besuPluginContext.startPlugins();
 
-    runner.startExternalServices();
+      runner.startExternalServices();
 
-    runner.startEthereumMainLoop();
+      runner.startEthereumMainLoop();
 
-    BesuPluginServiceRegistrar.registerRunningServices(besuPluginContext, besuController, runner);
-    besuPluginContext.afterMainLoop();
+      BesuPluginServiceRegistrar.registerRunningServices(besuPluginContext, besuController, runner);
+      besuPluginContext.afterMainLoop();
+    } catch (final Exception | LinkageError e) {
+      // as BesuCommand.initialProcess(): the plugins that started do not outlive a failed start
+      besuPluginContext.stopPluginsForRestart();
+      throw e;
+    }
 
     besuRunners.put(node.getName(), runner);
     MDC.remove("node");
@@ -255,22 +262,32 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
 
   @Override
   public void stopNode(final BesuNode node) {
+    // the order of BesuCommand's shutdown hook: plugins, then the runner, then the class loader
     final BesuPluginContextImpl pluginContext = besuPluginContextMap.remove(node);
     if (pluginContext != null) {
       pluginContext.stopPlugins();
     }
-    node.stop();
-    killRunner(node.getName());
+    try {
+      node.stop();
+      killRunner(node.getName());
+    } finally {
+      if (pluginContext != null) {
+        pluginContext.closePluginClassLoader();
+      }
+    }
   }
 
   @Override
   public void shutdown() {
-    // stop all plugins from pluginContext
-    besuPluginContextMap.values().forEach(BesuPluginContextImpl::stopPlugins);
+    final List<BesuPluginContextImpl> pluginContexts =
+        new ArrayList<>(besuPluginContextMap.values());
     besuPluginContextMap.clear();
+    pluginContexts.forEach(BesuPluginContextImpl::stopPlugins);
 
     // iterate over a copy of the set so that besuRunner can be updated when a runner is killed
     new HashSet<>(besuRunners.keySet()).forEach(this::killRunner);
+
+    pluginContexts.forEach(BesuPluginContextImpl::closePluginClassLoader);
   }
 
   @Override
