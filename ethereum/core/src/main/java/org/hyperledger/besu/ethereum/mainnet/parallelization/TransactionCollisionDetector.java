@@ -124,12 +124,18 @@ public class TransactionCollisionDetector {
       final BonsaiValue<? extends T> inPredecessor,
       final BiPredicate<T, T> equal) {
     if (inPredecessor == null) {
-      return inBlock == null || equal.test(inBlock.getPrior(), inBlock.getUpdated());
+      return inBlock == null || holdsItsPrior(inBlock, equal);
     }
     if (inBlock == null) {
-      return equal.test(inPredecessor.getPrior(), inPredecessor.getUpdated());
+      return holdsItsPrior(inPredecessor, equal);
     }
     return equal.test(inBlock.getUpdated(), inPredecessor.getUpdated());
+  }
+
+  /** A value only read is unchanged without loading it, as its prior and update share a loader. */
+  private static <T> boolean holdsItsPrior(
+      final BonsaiValue<? extends T> value, final BiPredicate<T, T> equal) {
+    return !value.isChanged() || equal.test(value.getPrior(), value.getUpdated());
   }
 
   private static boolean areSlotValuesEqual(final UInt256 a, final UInt256 b) {

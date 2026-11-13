@@ -33,6 +33,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.math.BigInteger;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -806,6 +807,38 @@ class TransactionCollisionDetectorTest {
     assertFalse(
         hasChainedCollision(createTransaction(sender, contract)),
         "Expected no collision when an absent slot was written as zero");
+  }
+
+  @Test
+  void chainedCheckDoesNotLoadASlotTheBlockOnlyRead() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address contract = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    final BonsaiAccount contractAccount = createAccount(contract, 1, 0);
+    for (final BonsaiWorldStateUpdateAccumulator accumulator :
+        new BonsaiWorldStateUpdateAccumulator[] {bonsaiUpdater, predecessorUpdater, trxUpdater}) {
+      accumulator
+          .getAccountsToUpdate()
+          .put(contract, new BonsaiValue<>(contractAccount, contractAccount));
+      accumulator
+          .getAccountsToUpdate()
+          .put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    }
+    final Supplier<UInt256> notLoaded =
+        () -> {
+          throw new AssertionError("loaded a slot the block only read");
+        };
+    bonsaiUpdater
+        .getStorageToUpdate()
+        .computeIfAbsent(
+            contract,
+            __ -> new StorageConsumingMap<>(contract, new ConcurrentHashMap<>(), (___, ____) -> {}))
+        .put(new StorageSlotKey(UInt256.valueOf(7)), BonsaiValue.withLazy(notLoaded, notLoaded));
+    putSlot(trxUpdater, contract, 7, UInt256.valueOf(4), UInt256.valueOf(4));
+
+    assertFalse(
+        hasChainedCollision(createTransaction(sender, contract)),
+        "Expected no collision when the block only read the slot");
   }
 
   @Test
