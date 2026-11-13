@@ -731,15 +731,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private Optional<PermissioningConfiguration> permissioningConfiguration;
   private DataStorageConfiguration dataStorageConfiguration;
   private Collection<EnodeURLImpl> staticNodes;
-  private BesuController besuController;
+  // read by the shutdown hook thread, written by the thread running a startup
+  private volatile BesuController besuController;
   private BesuConfigurationImpl pluginCommonConfiguration;
 
   private Optional<Checkpoint> checkpoint = Optional.empty();
 
   private Vertx vertx;
-  private Runner runner;
+  private volatile Runner runner;
   private EnodeDnsConfiguration enodeDnsConfiguration;
-  private KeyValueStorageProvider keyValueStorageProvider;
+  private volatile KeyValueStorageProvider keyValueStorageProvider;
   private KeyPair keyPair;
   private BigInteger ephemeryNextCycleId = BigInteger.ZERO;
 
@@ -1159,6 +1160,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
       validateOptions();
 
+      // installed once, before storage opens: a startup that fails at any point, or a signal during
+      // it, still closes what was opened; the Ephemery restart re-enters initialProcess() without
+      // passing here again
+      addShutdownHook();
       initialProcess();
       // A trusted setup loading in the background may still be loading: wait for it, so that a
       // failed load stops the node now rather than at its first KZG operation. No-op otherwise.
@@ -1207,15 +1212,28 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     runner = buildRunner();
 
-    startPlugins(runner);
-    runner.startExternalServices();
-    setReleaseMetrics();
-    preSynchronization();
+    try {
+      startPlugins(runner);
+      runner.startExternalServices();
+      setReleaseMetrics();
+      preSynchronization();
 
-    runner.startEthereumMainLoop();
+      runner.startEthereumMainLoop();
 
-    BesuPluginServiceRegistrar.registerRunningServices(besuPluginContext, besuController, runner);
-    besuPluginContext.afterMainLoop();
+      BesuPluginServiceRegistrar.registerRunningServices(besuPluginContext, besuController, runner);
+      besuPluginContext.afterMainLoop();
+    } catch (final Exception | LinkageError e) {
+      // the plugins that started are stopped, newest first, before the failure propagates: on a
+      // first start the process then exits through the hook, which finds nothing left to stop; an
+      // Ephemery cycle that failed to start stays up, and must not leave its plugins running
+      try {
+        besuPluginContext.stopPluginsForRestart();
+      } catch (final IllegalStateException alreadyStopped) {
+        // the shutdown hook stopped them first: a signal arrived during the failing startup
+        logger.debug("The plugins were already stopped when the startup failed", alreadyStopped);
+      }
+      throw e;
+    }
   }
 
   private void configurePrecompileCaching() {
@@ -2700,8 +2718,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .transactionValidatorService(transactionValidatorServiceImpl)
             .build();
 
-    addShutdownHook(runner);
-
     return runner;
   }
 
@@ -2719,20 +2735,69 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .build();
   }
 
-  private void addShutdownHook(final Runner runner) {
-    Runtime.getRuntime()
-        .addShutdownHook(
-            new Thread(
-                () -> {
-                  try {
-                    besuPluginContext.stopPlugins();
-                    runner.close();
-                    LogConfigurator.shutdown();
-                  } catch (final Exception e) {
-                    logger.error("Failed to stop Besu");
-                  }
-                },
-                "BesuCommand-Shutdown-Hook"));
+  private void addShutdownHook() {
+    Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "BesuCommand-Shutdown-Hook"));
+  }
+
+  /**
+   * The work of the shutdown hook, on whatever startup reached: the plugins that started are
+   * stopped, then the runner is closed, which saves the transaction pool and closes the controller
+   * and with it the database. A controller the runner does not own is closed next, one built before
+   * its runner on a first start or an Ephemery restart that failed or is still under way, and then
+   * a storage provider no controller owns, one opened by a controller build that failed. The plugin
+   * class loader is closed last, once nothing can call into plugin code. Each step runs whatever
+   * the one before it threw.
+   */
+  @VisibleForTesting
+  void shutdown() {
+    final Runner runnerToClose = runner;
+    final BesuController controllerToClose = besuController;
+    final KeyValueStorageProvider storageToClose = keyValueStorageProvider;
+    shutdownStep("stop the plugins", besuPluginContext::stopPlugins);
+    shutdownStep(
+        "stop Besu",
+        () -> {
+          if (runnerToClose != null) {
+            runnerToClose.close();
+          }
+        });
+    // the runner closes its own controller; a controller no runner owns is one whose startup
+    // failed before its runner was built, or is still under way: the Ephemery restart replaces the
+    // controller before the runner, so the runner field may still be the previous cycle's
+    shutdownStep(
+        "close the controller",
+        () -> {
+          if (controllerToClose != null
+              && (runnerToClose == null
+                  || runnerToClose.getBesuController() != controllerToClose)) {
+            controllerToClose.close();
+          }
+        });
+    // the controller closes its own storage provider; one no controller owns was opened by a
+    // controller build that failed, and is closed by itself
+    shutdownStep(
+        "close the storage",
+        () -> {
+          if (storageToClose != null
+              && (controllerToClose == null
+                  || controllerToClose.getStorageProvider() != storageToClose)) {
+            storageToClose.close();
+          }
+        });
+    shutdownStep("close the plugin class loader", besuPluginContext::closePluginClassLoader);
+    LogConfigurator.shutdown();
+  }
+
+  private void shutdownStep(final String action, final ShutdownStep step) {
+    try {
+      step.run();
+    } catch (final Throwable t) {
+      logger.error("Failed to {}", action, t);
+    }
+  }
+
+  private interface ShutdownStep {
+    void run() throws Exception;
   }
 
   private EthNetworkConfig updateNetworkConfig(final NetworkDefinition network) {
