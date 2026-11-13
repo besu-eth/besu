@@ -17,8 +17,10 @@ package org.hyperledger.besu.tests.acceptance.plugins;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.config.JsonUtil;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
+import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationFactory;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -35,8 +37,9 @@ import org.junit.jupiter.api.Test;
 
 public class InProcessRpcServicePluginTest extends AcceptanceTestBase {
   private static final long MIN_GAS_PRICE = 123456;
-  private static final String FUNDED = "0xfe3b557e8fb62b89f4916b721be55ceb828dbd73";
-  private static final String TO = "0x627306090abaB3A6e1400e9345bC60c78a8BEf57";
+  private static final String FUNDED = "0x8da48afC965480220a3dB9244771bd3afcB5d895";
+  private static final String TO = "0xa05b21E5186Ce93d2a226722b85D6e550Ac7D6E3";
+  private static final String UNFUNDED = "0x1111111111111111111111111111111111111111";
 
   protected static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
   private OkHttpClient client;
@@ -45,15 +48,26 @@ public class InProcessRpcServicePluginTest extends AcceptanceTestBase {
 
   @BeforeEach
   public void setUp() throws Exception {
+    final JsonRpcConfiguration rpcConfig = JsonRpcConfiguration.createDefault();
+    rpcConfig.addRpcApi("TESTS");
     node =
         besu.createPluginsNode(
             "node1",
             List.of("testPlugins"),
-            List.of(
-                "--Xin-process-rpc-enabled=true",
-                "--Xin-process-rpc-apis=MINER,ETH",
-                "--plugin-test-set-min-gas-price=" + MIN_GAS_PRICE),
-            "MINER", "TESTS");
+            builder ->
+                builder
+                    .devMode(false)
+                    .genesisConfigProvider(
+                        ignore ->
+                            GenesisConfigurationFactory.createFromResource("/dev/dev_prague.json"))
+                    .jsonRpcConfiguration(rpcConfig)
+                    .jsonRpcEnabled()
+                    .miningEnabled(false)
+                    .extraCLIOptions(
+                        List.of(
+                            "--Xin-process-rpc-enabled=true",
+                            "--Xin-process-rpc-apis=MINER,ETH",
+                            "--plugin-test-set-min-gas-price=" + MIN_GAS_PRICE)));
     cluster.start(node);
     client = new OkHttpClient();
   }
@@ -62,20 +76,14 @@ public class InProcessRpcServicePluginTest extends AcceptanceTestBase {
     final String json =
         String.format(
             "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":[%s],\"id\":42}",
-            method,
-            params.stream().map(p -> "\"" + p + "\"").collect(Collectors.joining(",")));
+            method, params.stream().map(p -> "\"" + p + "\"").collect(Collectors.joining(",")));
     final RequestBody body = RequestBody.create(json, JSON);
     final String resultString =
         client
             .newCall(
                 new Request.Builder()
                     .post(body)
-                    .url(
-                        "http://"
-                            + node.getHostName()
-                            + ":"
-                            + node.getJsonRpcPort().get()
-                            + "/")
+                    .url("http://" + node.getHostName() + ":" + node.getJsonRpcPort().get() + "/")
                     .build())
             .execute()
             .body()
@@ -89,21 +97,31 @@ public class InProcessRpcServicePluginTest extends AcceptanceTestBase {
     assertThat(currMinGasPrice).isEqualTo(BigInteger.valueOf(MIN_GAS_PRICE));
   }
 
-  @Test
-  public void estimateGasStrictFundedSender() throws IOException {
-    final var result = callPlugin("tests_estimateGas", List.of(FUNDED, TO, "true", "false"));
-    assertThat(result.get("result").asText()).startsWith("SUCCESS");
+  private String estimateGas(
+      final String from, final String to, final String strict, final String gasPrice)
+      throws IOException {
+    final var result = callPlugin("tests_estimateGas", List.of(from, to, strict, gasPrice));
+    assertThat(result.has("result")).as("response: %s", result).isTrue();
+    return result.get("result").asText();
   }
 
+  // 1. funded sender, no fee fields, strict: true -> an estimate
   @Test
-  public void estimateGasStrictZeroBalanceFails() throws IOException {
-    final var result = callPlugin("tests_estimateGas", List.of(FUNDED, TO, "true", "true"));
-    assertThat(result.get("result").asText()).contains("-32004");
+  public void strictFundedSenderWithoutFeeFieldsGetsEstimate() throws IOException {
+    assertThat(estimateGas(FUNDED, TO, "true", "none")).isEqualTo("SUCCESS 0x5208");
   }
 
+  // 2. sender with no balance, gasPrice 7 (the base fee), strict: true -> -32004
   @Test
-  public void estimateGasWithoutStrictCurrentBehavior() throws IOException {
-    final var result = callPlugin("tests_estimateGas", List.of(FUNDED, TO, "false", "false"));
-    System.out.println("no-strict result today: " + result.get("result").asText());
+  public void strictUnfundedSenderWithGasPriceIsRejected() throws IOException {
+    assertThat(estimateGas(UNFUNDED, TO, "true", "7"))
+        .isEqualTo("ERROR -32004 Upfront gas cost exceeds account balance");
+  }
+
+  // 3. same call as 2 without strict: records today's behavior (strict defaults to true)
+  @Test
+  public void unfundedSenderWithGasPriceWithoutStrictIsAlsoRejectedToday() throws IOException {
+    assertThat(estimateGas(UNFUNDED, TO, "unset", "7"))
+        .isEqualTo("ERROR -32004 Upfront gas cost exceeds account balance");
   }
 }

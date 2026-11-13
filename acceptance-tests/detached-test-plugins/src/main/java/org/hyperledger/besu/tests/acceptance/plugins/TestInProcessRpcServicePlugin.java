@@ -14,18 +14,16 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
+import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.RpcEndpointService;
-import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
-import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.StateOverride;
-import org.hyperledger.besu.datatypes.StateOverrideMap;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
-import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
+import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import com.google.auto.service.AutoService;
 import org.slf4j.Logger;
@@ -87,26 +85,26 @@ public class TestInProcessRpcServicePlugin implements BesuPlugin {
     }
   }
 
+  // params: [from, to, strict, gasPrice]
+  //   strict:   "true", "false", or "unset" (do not set the strict field at all)
+  //   gasPrice: "none" (set no fee field) or a decimal wei amount, for example "7"
   private String estimateGas(final PluginRpcRequest request) {
     final Object[] params = request.getParams();
     final Address from = Address.fromHexString(params[0].toString());
     final Address to = Address.fromHexString(params[1].toString());
-    final boolean strict = Boolean.parseBoolean(params[2].toString());
-    final boolean zeroBalance = Boolean.parseBoolean(params[3].toString());
+    final String strictArg = params[2].toString();
+    final String gasPriceArg = params[3].toString();
 
-    final var callParam =
-        ImmutableCallParameter.builder().sender(from).to(to).strict(strict).build();
-
-    final Object[] callParams;
-    if (zeroBalance) {
-      final var overrides = new StateOverrideMap();
-      overrides.put(from, StateOverride.builder().withBalance(Wei.ZERO).build());
-      callParams = new Object[] {callParam, "pending", overrides};
-    } else {
-      callParams = new Object[] {callParam, "pending"};
+    final var builder = ImmutableCallParameter.builder().sender(from).to(to);
+    if (!strictArg.equals("unset")) {
+      builder.strict(Boolean.parseBoolean(strictArg));
+    }
+    if (!gasPriceArg.equals("none")) {
+      builder.gasPrice(Wei.of(Long.parseLong(gasPriceArg)));
     }
 
-    final var resp = rpcEndpointService.call("eth_estimateGas", callParams);
+    final var resp =
+        rpcEndpointService.call("eth_estimateGas", new Object[] {builder.build(), "pending"});
 
     if (resp.getType() == RpcResponseType.ERROR) {
       final var err = (JsonRpcError) resp.getResult();
