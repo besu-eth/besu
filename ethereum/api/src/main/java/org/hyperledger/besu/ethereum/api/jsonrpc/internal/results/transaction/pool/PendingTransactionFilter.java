@@ -14,11 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool;
 
+import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory.STRICT_ADDRESS_MESSAGE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool.Predicate.ACTION;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool.Predicate.EQ;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
@@ -97,7 +99,12 @@ public class PendingTransactionFilter {
         .getOperator()
         .apply(
             pendingTransaction.getTransaction().getSender().getBytes(),
-            Address.fromHexString(value).getBytes());
+            JsonRpcObjectMapperFactory.parseStrictAddress(value)
+                .orElseThrow(
+                    () ->
+                        new InvalidJsonRpcParameters(
+                            "Invalid 'from' address: %s".formatted(STRICT_ADDRESS_MESSAGE)))
+                .getBytes());
   }
 
   private boolean validateTo(
@@ -107,7 +114,14 @@ public class PendingTransactionFilter {
     if (maybeTo.isPresent() && predicate.equals(EQ)) {
       return predicate
           .getOperator()
-          .apply(maybeTo.get().getBytes(), Address.fromHexString(value).getBytes());
+          .apply(
+              maybeTo.get().getBytes(),
+              JsonRpcObjectMapperFactory.parseStrictAddress(value)
+                  .orElseThrow(
+                      () ->
+                          new InvalidJsonRpcParameters(
+                              "Invalid 'to' address: %s".formatted(STRICT_ADDRESS_MESSAGE)))
+                  .getBytes());
     } else if (predicate.equals(ACTION)) {
       return pendingTransaction.getTransaction().isContractCreation();
     }
