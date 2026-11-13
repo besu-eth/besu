@@ -70,6 +70,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   private final Executor warmUpExecutor;
 
+  // runs queued ahead of the sender recoveries, enough to keep the workers busy meanwhile
+  private final int runsAheadOfRecovery;
+
   // Index the serial loop has reached. A speculative run for that index or an earlier one can no
   // longer be used, so workers skip it instead of competing with the import for cores.
   private final AtomicInteger serialLoopPosition = new AtomicInteger(-1);
@@ -104,7 +107,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     this(
         transactionProcessor,
         new TransactionCollisionDetector(),
-        BlockProcessingExecutors.ioExecutor());
+        BlockProcessingExecutors.ioExecutor(),
+        2 * BlockProcessingExecutors.cpuThreads());
   }
 
   @VisibleForTesting
@@ -119,9 +123,19 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionCollisionDetector transactionCollisionDetector,
       final Executor warmUpExecutor) {
+    this(transactionProcessor, transactionCollisionDetector, warmUpExecutor, 0);
+  }
+
+  @VisibleForTesting
+  OptimisticConcurrentTransactionProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final TransactionCollisionDetector transactionCollisionDetector,
+      final Executor warmUpExecutor,
+      final int runsAheadOfRecovery) {
     this.transactionProcessor = transactionProcessor;
     this.transactionCollisionDetector = transactionCollisionDetector;
     this.warmUpExecutor = warmUpExecutor;
+    this.runsAheadOfRecovery = runsAheadOfRecovery;
   }
 
   /**
@@ -129,7 +143,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
    * left by the previous one; run alone against the parent state they would fail the nonce check
    * before touching any state. A chained result is reused when the block, at its turn, holds the
    * state the chain assumed; otherwise it still turns a cold re-execution into a warm one. Senders
-   * the transaction pool did not know are recovered first, in parallel.
+   * the transaction pool did not know are recovered in parallel, behind the first runs.
    */
   @Override
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -159,10 +173,14 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
     futures = new CompletableFuture[transactions.size()];
     lateChainFutures = new AtomicReferenceArray<>(transactions.size());
-    // queued ahead of the runs, as chaining the unknown senders waits for every recovery
-    final CompletableFuture<Void> recovered =
-        recoverSenders(transactions, unknownSenders, executor);
+    // The serial loop needs the first runs at once. The recoveries go right behind them, ahead of
+    // the other runs, as chaining the unknown senders waits for every recovery.
+    final int recoverAt = Math.min(runsAheadOfRecovery, transactions.size());
+    CompletableFuture<Void> recovered = null;
     for (int i = 0; i < transactions.size(); i++) {
+      if (i == recoverAt) {
+        recovered = recoverSenders(transactions, unknownSenders, executor);
+      }
       final Transaction transaction = transactions.get(i);
       final List<Integer> chain = senders[i] == null ? null : capped(bySender.get(senders[i]), 0);
       if (chain == null || chain.size() == 1 || i > chain.get(chain.size() - 1)) {
@@ -224,6 +242,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                       maybeParentHeader));
         }
       }
+    }
+    if (recovered == null) {
+      recovered = recoverSenders(transactions, unknownSenders, executor);
     }
     if (!unknownSenders.isEmpty()) {
       chainUnknownSenders(
