@@ -77,7 +77,7 @@ public class JsonRpcHttpOptions {
       names = {"--rpc-http-max-active-connections"},
       description =
           "Maximum number of HTTP connections allowed for JSON-RPC. Must be >= 0. 0 specifies no limit (default: ${DEFAULT-VALUE}). Once this limit is reached, incoming connections will be rejected.")
-  private final Integer rpcHttpMaxConnections = DefaultCommandValues.DEFAULT_HTTP_MAX_CONNECTIONS;
+  private Integer rpcHttpMaxConnections = DefaultCommandValues.DEFAULT_HTTP_MAX_CONNECTIONS;
 
   // A list of origins URLs that are accepted by the JsonRpcHttpServer (CORS)
   @CommandLine.Option(
