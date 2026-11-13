@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.ImmutableTransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -1185,6 +1186,44 @@ class OptimisticTransactionProcessorUnitTest {
               eq(OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION),
               any(),
               any());
+    }
+
+    @Test
+    @DisplayName("A warm-up relaxes only the nonce and the gas payment checks of a block")
+    void warmUpRelaxesOnlyTheNonceAndGasPaymentChecks() {
+      final TransactionValidationParams warmUp =
+          OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION;
+
+      assertThat(warmUp.isAllowFutureNonce()).isTrue();
+      assertThat(warmUp.allowUnderpricedGas()).isTrue();
+      assertThat(
+              ImmutableTransactionValidationParams.builder()
+                  .from(warmUp)
+                  .isAllowFutureNonce(false)
+                  .allowUnderpricedGas(false)
+                  .build())
+          .as("the transaction gas caps and the sender checks stay")
+          .isEqualTo(TransactionValidationParams.processingBlock());
+    }
+
+    @Test
+    @DisplayName("A chain member above the block's gas limit is not warmed up")
+    void memberAboveTheBlockGasLimitIsNotWarmedUp() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      when(env.blockHeader().getGasLimit()).thenReturn(30_000_000L);
+      when(tx2.getGasLimit()).thenReturn(30_000_001L);
+
+      runBlock(List.of(tx1, tx2), task -> {});
+      assertThat(warmUps).hasSize(1);
+      warmUps.forEach(Runnable::run);
+
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
