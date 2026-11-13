@@ -132,6 +132,7 @@ public class ExecutionContextTestFixture {
     private KeyValueStorage variablesKeyValueStorage;
     private KeyValueStorage blockchainKeyValueStorage;
     private ProtocolSchedule protocolSchedule;
+    private EvmConfiguration evmConfiguration = EvmConfiguration.DEFAULT;
     private Optional<DataStorageFormat> dataStorageFormat = Optional.empty();
     private BonsaiCodeCache codeCache = new BonsaiCodeCache();
     private DataStorageConfiguration dataStorageConfiguration =
@@ -153,6 +154,11 @@ public class ExecutionContextTestFixture {
 
     public Builder protocolSchedule(final ProtocolSchedule protocolSchedule) {
       this.protocolSchedule = protocolSchedule;
+      return this;
+    }
+
+    public Builder evmConfiguration(final EvmConfiguration evmConfiguration) {
+      this.evmConfiguration = evmConfiguration;
       return this;
     }
 
@@ -180,7 +186,7 @@ public class ExecutionContextTestFixture {
                     Optional.of(BigInteger.valueOf(42)),
                     ProtocolSpecAdapters.create(0, Function.identity()),
                     false,
-                    EvmConfiguration.DEFAULT,
+                    evmConfiguration,
                     MiningConfiguration.MINING_DISABLED,
                     new BadBlockManager(),
                     false,

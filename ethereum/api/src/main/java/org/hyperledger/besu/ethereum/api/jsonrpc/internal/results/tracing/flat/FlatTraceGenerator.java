@@ -45,6 +45,7 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.Streams;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 public class FlatTraceGenerator {
 
@@ -147,6 +148,12 @@ public class FlatTraceGenerator {
               || "STATICCALL".equals(opcodeString);
       if (isCall) {
 
+        if (traceFrame.isPrecompile()) {
+          handlePrecompile(traceFrame, tracesContexts, flatTraces);
+          // Its halt/revert belongs to the child, including when its zero-value frame is omitted.
+          continue;
+        }
+
         currentContext =
             handleCall(
                 traceFrame,
@@ -197,9 +204,7 @@ public class FlatTraceGenerator {
       }
 
       // A halted RETURN or REVERT, including a failed code deposit, ends only its own frame.
-      // A precompile's halt is recorded on the caller's CALL opcode, but the caller continues.
-      if (traceFrame.getExceptionalHaltReason().isPresent()
-          && !(isCall && traceFrame.isPrecompile())) {
+      if (traceFrame.getExceptionalHaltReason().isPresent()) {
         currentContext = handleHalt(flatTraces, tracesContexts, currentContext, traceFrame);
       }
 
@@ -266,6 +271,50 @@ public class FlatTraceGenerator {
         new AtomicInteger(),
         builder ->
             addAdditionalTransactionInformationToFlatTrace(builder, transactionTrace, block));
+  }
+
+  private static void handlePrecompile(
+      final TraceFrame frame,
+      final Deque<FlatTrace.Context> contexts,
+      final List<FlatTrace.Builder> flatTraces) {
+    final Bytes[] stack = frame.getStack().orElseThrow();
+    final Wei value =
+        switch (frame.getOpcode()) {
+          case "CALL", "CALLCODE" -> Wei.of(UInt256.fromBytes(stack[stack.length - 3]));
+          case "DELEGATECALL" -> frame.getValue();
+          default -> Wei.ZERO;
+        };
+    // Parity omits only nested precompiles with zero transferred or apparent value.
+    if (value.isZero()) {
+      return;
+    }
+
+    final FlatTrace.Builder child =
+        FlatTrace.builder()
+            .traceAddress(calculateTraceAddress(contexts))
+            .actionBuilder(
+                Action.builder()
+                    .callType(frame.getOpcode().toLowerCase(Locale.ROOT))
+                    .from(frame.getRecipient().toHexString())
+                    .to(toAddress(stack[stack.length - 2]).toHexString())
+                    .value(Quantity.create(value))
+                    .gas("0x" + Long.toHexString(frame.getGasAvailableForChildCall().orElseThrow()))
+                    .input(frame.getPrecompileInputData().orElseThrow().toHexString()))
+            .resultBuilder(
+                Result.builder()
+                    .gasUsed("0x" + Long.toHexString(frame.getPrecompiledGasCost().orElseThrow()))
+                    .output(frame.getPrecompileOutputData().orElse(Bytes.EMPTY).toHexString()))
+            .error(frame.getExceptionalHaltReason().map(ExceptionalHaltReason::getDescription));
+    // A precompile that halts can also record a revert reason (the altbn128 contracts do); the
+    // halt names its error, so only a precompile that reverted without halting is Reverted.
+    if (frame.getExceptionalHaltReason().isEmpty()) {
+      frame
+          .getRevertReason()
+          .ifPresent(
+              reason -> child.error(Optional.of("Reverted")).revertReason(reason.toHexString()));
+    }
+    flatTraces.add(child);
+    contexts.peekLast().getBuilder().incSubTraces();
   }
 
   private static FlatTrace.Context handleCall(
