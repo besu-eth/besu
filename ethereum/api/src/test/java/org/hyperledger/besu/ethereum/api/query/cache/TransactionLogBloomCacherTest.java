@@ -437,6 +437,35 @@ public class TransactionLogBloomCacherTest {
     assertThat(logBloom.length()).isEqualTo(BLOOM_BITS_LENGTH * 7);
   }
 
+  @Test
+  public void shouldRebuildTheSegmentOfTheLastBlockOfASegmentAfterADroppedReorg()
+      throws IOException {
+    // createBlock needs block numbers with an even number of hex digits
+    final long lastBlock = 11L * BLOCKS_PER_BLOOM_CACHE - 1;
+    final File logBloom = cacheDir.resolve("logBloom-10.cache").toFile();
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        createBlock(lastBlock - 1), Optional.empty(), Optional.empty());
+
+    // a reorg replaces the block before the last one while a cache generation holds the cacher
+    final BlockHeader forkBlock =
+        createBlock(lastBlock - 1, Optional.of("111111111111111111111111"));
+    transactionLogBloomCacher.getCachingStatus().cachingCount.incrementAndGet();
+    try {
+      transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+          forkBlock, Optional.of(createBlock(lastBlock - 2)), Optional.empty());
+    } finally {
+      transactionLogBloomCacher.getCachingStatus().cachingCount.decrementAndGet();
+    }
+
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        createBlock(lastBlock), Optional.of(forkBlock), Optional.empty());
+
+    assertThat(readLogBloomCache(logBloom, (lastBlock - 1) % BLOCKS_PER_BLOOM_CACHE))
+        .containsExactly(forkBlock.getLogsBloom().getBytes().toArray());
+    assertThat(logBloom.length()).isEqualTo((long) BLOCKS_PER_BLOOM_CACHE * BLOOM_BITS_LENGTH);
+    assertThat(cacheDir.resolve("logBloom-11.cache")).doesNotExist();
+  }
+
   private void createLogBloomCache(final File logBloom) throws IOException {
     try (final RandomAccessFile randomAccessFile = new RandomAccessFile(logBloom, "rws")) {
       writeThreeEntries(testLogsBloomFilter, randomAccessFile);

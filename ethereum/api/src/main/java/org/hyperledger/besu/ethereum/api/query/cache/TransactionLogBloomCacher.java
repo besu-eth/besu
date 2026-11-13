@@ -260,7 +260,7 @@ public class TransactionLogBloomCacher {
       }
       Files.move(
           currentFile.toPath(),
-          calculateCacheFileName(blockNumber, cacheDir).toPath(),
+          calculateCacheFileName(eventBlockNumber, cacheDir).toPath(),
           StandardCopyOption.REPLACE_EXISTING,
           StandardCopyOption.ATOMIC_MOVE);
       return true;
