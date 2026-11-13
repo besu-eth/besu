@@ -28,6 +28,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -102,5 +104,16 @@ class MessageFrameTest {
     assertThat(messageFrame.runsOnEvmV2()).isTrue();
     assertThat(StacksV2.take(0, stack.length)).isSameAs(stack);
     assertThat(StacksV2.take(0, stack.length)).isNotSameAs(stack);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void childFrameRunsOnTheEvmOfItsParent(final boolean parentOnEvmV2) {
+    final MessageFrame parent = messageFrameBuilder.enableEvmV2(parentOnEvmV2).build();
+
+    final MessageFrame child =
+        messageFrameBuilder.parentMessageFrame(parent).enableEvmV2(!parentOnEvmV2).build();
+
+    assertThat(child.runsOnEvmV2()).isEqualTo(parentOnEvmV2);
   }
 }
