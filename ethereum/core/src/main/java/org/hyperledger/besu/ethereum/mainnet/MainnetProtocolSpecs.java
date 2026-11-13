@@ -1535,7 +1535,11 @@ public abstract class MainnetProtocolSpecs {
       return blobSchedule -> baseFeeMarket;
     }
     if (isFixedBaseFee) {
-      return blobSchedule -> FeeMarket.fixedBaseFee(londonForkBlockNumber, minTransactionGasPrice);
+      var baseFeeMarket =
+          supportsBlobs
+              ? FeeMarket.fixedBlobFee(londonForkBlockNumber, minTransactionGasPrice)
+              : FeeMarket.fixedBaseFee(londonForkBlockNumber, minTransactionGasPrice);
+      return blobSchedule -> baseFeeMarket;
     }
     return feeMarketBuilder;
   }
