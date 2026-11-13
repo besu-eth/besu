@@ -105,7 +105,7 @@ public abstract class AbstractTraceByBlock extends AbstractBlockParameterMethod
 
     if (traceTypes.contains(TraceType.TRACE)) {
       FlatTraceGenerator.generateFromTransactionTrace(
-              protocolSchedule, transactionTrace, block, new AtomicInteger(), false)
+              protocolSchedule, transactionTrace, block, new AtomicInteger())
           .forEachOrdered(trace -> builder.addTrace((FlatTrace) trace));
     }
 
