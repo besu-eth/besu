@@ -11,7 +11,7 @@
         "blockStateCalls": [
           {
             "stateOverrides": {
-              "a05b21E5186Ce93d2a226722b85D6e550Ac7D6E3": {
+              "0xa05b21E5186Ce93d2a226722b85D6e550Ac7D6E3": {
                 "balance": "0x90000000000000000000000"
               },
               "0x8da48afc965480220a3db9244771bd3afcb5d895": {

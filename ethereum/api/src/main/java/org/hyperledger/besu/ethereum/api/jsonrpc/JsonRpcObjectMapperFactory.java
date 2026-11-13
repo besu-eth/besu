@@ -14,17 +14,23 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.json.BesuJsonModule;
 
 import java.io.IOException;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.KeyDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 
 public final class JsonRpcObjectMapperFactory {
@@ -46,7 +52,11 @@ public final class JsonRpcObjectMapperFactory {
     // copy() so configuring this mapper does not mutate the shared base/response mapper
     return getBaseMapper()
         .copy()
-        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
+        .registerModule(
+            new SimpleModule("json-rpc-parameters")
+                .addDeserializer(Address.class, new StrictAddressDeserializer())
+                .addKeyDeserializer(Address.class, new StrictAddressKeyDeserializer()));
   }
 
   private static ObjectMapper createParameterMapperIgnoringUnknownNulls() {
@@ -80,6 +90,67 @@ public final class JsonRpcObjectMapperFactory {
 
   public static ObjectMapper getResponseMapper() {
     return RESPONSE_MAPPER;
+  }
+
+  /**
+   * Accepts only the execution-apis address form, {@code 0x} (or {@code 0X}) followed by exactly 40
+   * hex digits, as geth's {@code hexutil.UnmarshalFixedText} does, so a truncated address is
+   * rejected instead of being left-padded to a different account.
+   */
+  private static final Pattern STRICT_ADDRESS = Pattern.compile("0[xX][0-9a-fA-F]{40}");
+
+  /** Describes the address form {@link #parseStrictAddress(String)} accepts. */
+  public static final String STRICT_ADDRESS_MESSAGE =
+      "expected 0x or 0X followed by 40 hexadecimal digits";
+
+  /**
+   * Parses a strict address, for address inputs that are read as strings rather than through the
+   * parameter mappers.
+   *
+   * @param value the address string
+   * @return the address, or empty if {@code value} is null or not a strict address
+   */
+  public static Optional<Address> parseStrictAddress(final String value) {
+    if (value == null || !STRICT_ADDRESS.matcher(value).matches()) {
+      return Optional.empty();
+    }
+    return Optional.of(Address.fromHexStringStrict("0x" + value.substring(2)));
+  }
+
+  private static class StrictAddressDeserializer extends StdDeserializer<Address> {
+    private StrictAddressDeserializer() {
+      super(Address.class);
+    }
+
+    @Override
+    public Address deserialize(final JsonParser p, final DeserializationContext ctxt)
+        throws IOException {
+      if (p.currentToken() != JsonToken.VALUE_STRING) {
+        return (Address) ctxt.handleUnexpectedToken(Address.class, p);
+      }
+      final String value = p.getText();
+      final Optional<Address> address = parseStrictAddress(value);
+      if (address.isEmpty()) {
+        return (Address) ctxt.handleWeirdStringValue(Address.class, value, STRICT_ADDRESS_MESSAGE);
+      }
+      return address.get();
+    }
+  }
+
+  /**
+   * Applies the same rule to address map keys, such as the accounts of a state override, which
+   * Jackson would otherwise build through the lenient {@link Address#fromHexString(String)}.
+   */
+  private static class StrictAddressKeyDeserializer extends KeyDeserializer {
+    @Override
+    public Object deserializeKey(final String key, final DeserializationContext ctxt)
+        throws IOException {
+      final Optional<Address> address = parseStrictAddress(key);
+      if (address.isEmpty()) {
+        return ctxt.handleWeirdKey(Address.class, key, STRICT_ADDRESS_MESSAGE);
+      }
+      return address.get();
+    }
   }
 
   private static class IgnoreNullUnknownHandler extends DeserializationProblemHandler {
