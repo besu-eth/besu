@@ -129,6 +129,18 @@ public class EthSendRawTransaction implements JsonRpcMethod {
         return new JsonRpcErrorResponse(
             requestContext.getRequest().getId(),
             new JsonRpcError(rpcErrorType.getCode(), validationResult.getErrorMessage(), null));
+      } else if (errorReason == TransactionInvalidReason.NONCE_TOO_LOW) {
+        final RpcErrorType rpcErrorType =
+            JsonRpcErrorConverter.convertTransactionInvalidReason(errorReason);
+        // getErrorMessage() falls back to the enum name when no detail message was supplied
+        final String details = validationResult.getErrorMessage();
+        final String message =
+            details.equals(errorReason.toString())
+                ? "nonce too low"
+                : "nonce too low (%s)".formatted(details);
+        return new JsonRpcErrorResponse(
+            requestContext.getRequest().getId(),
+            new JsonRpcError(rpcErrorType.getCode(), message, null));
       } else {
         return new JsonRpcErrorResponse(
             requestContext.getRequest().getId(),
