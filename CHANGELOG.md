@@ -130,6 +130,10 @@
 
 ## 26.10.2
 
+### Security Fixes
+- [GHSA-hhgq-3gvc-4jhp](https://github.com/besu-eth/besu/security/advisories/GHSA-hhgq-3gvc-4jhp): QBFT RoundChange executes the piggybacked block before the free hash check, letting a non-validator replay one captured signature with substituted blocks
+- [GHSA-6pcq-hcgg-5q76](https://github.com/besu-eth/besu/security/advisories/GHSA-6pcq-hcgg-5q76): IBFT Accepts Oversized Base Fees that can stop block production
+
 ### Breaking Changes
 - `eth_getProof` now rejects a request with more than 1024 storage keys with `Invalid storage keys params` (`-32602`), the same limit as geth, Nethermind and Erigon. [#11697](https://github.com/besu-eth/besu/pull/11697)
 - `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `trace_call` and `trace_callMany` now reject a call that sets `maxFeePerBlobGas` without blob versioned hashes, or that sets an empty `blobVersionedHashes` list, with `Invalid blob count` (`-32602`) at every fork. Previously a `maxFeePerBlobGas` without hashes was accepted and the call ran without blobs, and a `maxFeePerBlobGas` of 0 also set the blob base fee the call saw to 0. An empty list failed with `Internal error` (`-32603`). Each call in a `trace_callMany` bundle gets the same rule. `debug_traceCall` and `eth_simulateV1` reject only an empty `blobVersionedHashes` list, and still accept a `maxFeePerBlobGas` without hashes. [#11556](https://github.com/besu-eth/besu/pull/11556)
@@ -194,10 +198,8 @@ This release is identical to 26.10.0 but will not activate Glamsterdam on Hoodi 
 
 ## 26.10.0
 
-This release contains security fixes. Operators are advised to upgrade promptly.
-Details will be published in security advisories on
-https://github.com/besu-eth/besu/security/advisories after operators have had an
-opportunity to upgrade.
+### Security Fixes
+- [GHSA-x2jm-6mc4-8g78](https://github.com/besu-eth/besu/security/advisories/GHSA-x2jm-6mc4-8g78): QBFT/IBFT validator forgets its prepared certificate when the round advances by any route other than its own timer, weakening the quorum-intersection argument 
 
 ### Breaking Changes
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` has been removed; it was deprecated as a no-op since 26.6.1. [#11499](https://github.com/besu-eth/besu/pull/11499)
