@@ -18,8 +18,10 @@ import org.hyperledger.besu.plugin.RegistrationService;
 import org.hyperledger.besu.plugin.StartService;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * Storage configuration of the Besu node.
@@ -46,4 +48,15 @@ public interface StorageConfiguration extends RegistrationService, StartService 
    * @return Database storage configuration.
    */
   DataStorageConfiguration getDataStorageConfiguration();
+
+  /**
+   * Segments the node does not use in its current configuration, for example the chain pruner state
+   * while chain pruning is off. A storage factory need not create them, but keeps serving them
+   * where they already exist.
+   *
+   * @return the segments that may be absent from the database; empty by default
+   */
+  default List<SegmentIdentifier> getIgnorableSegments() {
+    return List.of();
+  }
 }

@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -80,6 +81,7 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.CoreConfiguration;
 import org.hyperledger.besu.plugin.RegistrationContext;
 import org.hyperledger.besu.plugin.RegistrationService;
@@ -96,6 +98,8 @@ import org.hyperledger.besu.plugin.services.TransactionSelectionService;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
+import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
+import org.hyperledger.besu.plugin.storage.StorageConfiguration;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.services.StorageServiceImpl;
@@ -245,6 +249,13 @@ public abstract class CommandTestAbstract {
   @Mock protected SecurityModuleServiceImpl securityModuleService;
   @Mock protected SecurityModule securityModule;
   @Spy protected BesuConfigurationImpl commonPluginConfiguration = new BesuConfigurationImpl();
+
+  /** The built-in plugins the command under test handed to the mocked plugin context. */
+  private final List<BesuPlugin> builtInPlugins = new ArrayList<>();
+
+  /** The events service the built-in readiness check subscribes to in start(). */
+  protected final BesuEvents besuEvents = mock(BesuEvents.class);
+
   @Mock protected KeyValueStorageFactory rocksDBStorageFactory;
   @Mock protected NodeKey nodeKey;
   @Mock private BesuPluginContextImpl mockBesuPluginContext;
@@ -322,6 +333,28 @@ public abstract class CommandTestAbstract {
     // the plugin context, a mock here and a spy in some subclasses, hands the built-in plugins
     // contexts backed by the mocked services; doReturn() keeps a spy from running the real method
     lenient().doReturn(true).when(getBesuPluginContext()).isRegistering();
+    // a mock still defines the options of the built-in plugins the command hands over, as the
+    // real context does, so the tests can parse the RocksDB options; a spy runs the real methods
+    final boolean realContext = mockingDetails(getBesuPluginContext()).isSpy();
+    lenient()
+        .doAnswer(
+            invocation -> {
+              builtInPlugins.add(invocation.getArgument(0));
+              return realContext ? invocation.callRealMethod() : null;
+            })
+        .when(getBesuPluginContext())
+        .addBuiltInPlugin(any());
+    lenient()
+        .doAnswer(
+            invocation -> {
+              if (realContext) {
+                return invocation.callRealMethod();
+              }
+              builtInPlugins.forEach(plugin -> plugin.defineOptions(invocation.getArgument(0)));
+              return null;
+            })
+        .when(getBesuPluginContext())
+        .defineOptions(any());
     lenient()
         .doReturn(fakePluginServices.registrationContext())
         .when(getBesuPluginContext())
@@ -337,10 +370,12 @@ public abstract class CommandTestAbstract {
     fakePluginServices.add(StorageService.class, storageService);
     fakePluginServices.add(TransactionSelectionService.class, txSelectionService);
     fakePluginServices.add(CoreConfiguration.class, commonPluginConfiguration);
+    fakePluginServices.add(StorageConfiguration.class, commonPluginConfiguration);
     // what the built-in health check plugins look up in each phase
     fakePluginServices.add(HealthCheckService.class, new HealthCheckServiceImpl());
-    fakePluginServices.add(BesuEvents.class, mock(BesuEvents.class));
+    fakePluginServices.add(BesuEvents.class, besuEvents);
     fakePluginServices.add(P2PService.class, mock(P2PService.class));
+    fakePluginServices.add(SynchronizationService.class, mock(SynchronizationService.class));
   }
 
   @BeforeEach
@@ -419,6 +454,8 @@ public abstract class CommandTestAbstract {
       throw new RuntimeException(e);
     }
 
+    // each parsed command hands its own built-in plugins over; the previous command's go
+    builtInPlugins.clear();
     // parse using Ansi.OFF to be able to assert on non-formatted output results
     besuCommand.parse(
         new RunLast(),
@@ -533,7 +570,7 @@ public abstract class CommandTestAbstract {
     return mockBesuPluginContext;
   }
 
-  /** Per-phase contexts over a plain map, for the built-in plugins the command drives itself. */
+  /** Per-phase contexts over a plain map, for the built-in plugins the command hands over. */
   protected static final class FakePluginServices {
     private final Map<Class<?>, BesuService> services = new HashMap<>();
 

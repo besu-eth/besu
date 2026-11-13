@@ -16,6 +16,7 @@ package org.hyperledger.besu.plugin;
 
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -152,5 +153,16 @@ public interface BesuPlugin {
             .filter(version -> !version.isBlank())
             .orElse("<Unknown Version>");
     return implTitle + "/" + implVersion;
+  }
+
+  /**
+   * Lines about this plugin's configuration for the configuration overview Besu logs at startup.
+   * Besu asks every registered plugin once registration has closed, so the option values bound by
+   * the parse are available, and prints the lines under the plugin's id, its class name.
+   *
+   * @return the lines to print, in order; empty, the default, prints nothing for this plugin
+   */
+  default List<String> configurationOverviewLines() {
+    return List.of();
   }
 }

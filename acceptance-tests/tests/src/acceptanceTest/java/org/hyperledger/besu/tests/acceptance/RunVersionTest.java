@@ -26,10 +26,19 @@ import java.io.IOException;
 import java.util.List;
 import java.util.ServiceLoader;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 
 public class RunVersionTest extends AcceptanceTestBase {
+
+  /** The built-in plugins and the jar each ships in, in the order Besu adds them. */
+  private static final List<String> BUILT_IN_PLUGINS =
+      List.of(
+          "org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin/besu-plugins-rocksdb",
+          "org.hyperledger.besu.services.kvstore.InMemoryStoragePlugin/besu-services-kvstore",
+          "org.hyperledger.besu.plugin.services.health.LivenessCheckPlugin/besu-plugins-health",
+          "org.hyperledger.besu.plugin.services.health.ReadinessCheckPlugin/besu-plugins-health");
 
   @Test
   public void testShowsVersionAndExits() throws IOException {
@@ -45,11 +54,13 @@ public class RunVersionTest extends AcceptanceTestBase {
     final var pluginIds =
         serviceLoader.stream().map(provider -> provider.type().getName()).toList();
 
+    // the built-in plugins define their options first, so they are listed first
     final var versionOutput =
         BesuVersionUtils.version()
             + System.lineSeparator()
-            + pluginIds.stream()
-                .map(id -> id + "/testPlugins/" + BesuVersionUtils.shortVersion())
+            + Stream.concat(
+                    BUILT_IN_PLUGINS.stream(), pluginIds.stream().map(id -> id + "/testPlugins"))
+                .map(line -> line + "/" + BesuVersionUtils.shortVersion())
                 .collect(Collectors.joining(System.lineSeparator()));
 
     WaitUtils.waitFor(5000, () -> node.verify(exitedSuccessfully));

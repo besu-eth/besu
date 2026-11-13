@@ -36,7 +36,6 @@ import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
-import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.condition.Condition;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.NodeConfiguration;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationProvider;
@@ -143,7 +142,7 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   private final boolean isStrictTxReplayProtectionEnabled;
   private final Map<String, String> environment;
   private SynchronizerConfiguration synchronizerConfiguration;
-  private final Optional<KeyValueStorageFactory> storageFactory;
+  private final Optional<String> storageImplementation;
   private final PluginConfiguration pluginConfiguration;
 
   public BesuNode(
@@ -181,7 +180,7 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
       final Optional<KeyPair> keyPair,
       final boolean isStrictTxReplayProtectionEnabled,
       final Map<String, String> environment,
-      final Optional<KeyValueStorageFactory> maybeStorageFactory,
+      final Optional<String> storageImplementation,
       final PluginConfiguration pluginConfiguration)
       throws IOException {
     this.homeDirectory = dataPath.orElseGet(BesuNode::createTmpDataDirectory);
@@ -224,7 +223,7 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
     this.secp256k1Native = secp256k1Native;
     this.altbn128Native = altbn128Native;
     this.runCommand = runCommand;
-    this.storageFactory = maybeStorageFactory;
+    this.storageImplementation = storageImplementation;
     plugins.forEach(
         pluginName -> {
           try {
@@ -977,8 +976,8 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
     return this;
   }
 
-  public Optional<KeyValueStorageFactory> getStorageFactory() {
-    return storageFactory;
+  public Optional<String> getStorageImplementation() {
+    return storageImplementation;
   }
 
   public PluginConfiguration getPluginConfiguration() {

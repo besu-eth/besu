@@ -14,11 +14,6 @@
  */
 package org.hyperledger.besu.tests.acceptanceqbft.bootstrap;
 
-import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
-import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
-import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBKeyValueStorageFactory;
-import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
-import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions;
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.account.Account;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
@@ -49,12 +44,7 @@ public class ClusterThreadNodeRunnerAcceptanceTest extends AcceptanceTestBase {
         besu.createQbftNode(
             "minerNode",
             (builder) -> {
-              KeyValueStorageFactory persistentStorageFactory =
-                  new RocksDBKeyValueStorageFactory(
-                      RocksDBCLIOptions.create()::toDomainObject,
-                      List.of(KeyValueSegmentIdentifier.values()),
-                      RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS);
-              builder.storageImplementation(persistentStorageFactory);
+              builder.storageImplementation("rocksdb");
               return builder;
             });
     noDiscoveryCluster.start(miner);

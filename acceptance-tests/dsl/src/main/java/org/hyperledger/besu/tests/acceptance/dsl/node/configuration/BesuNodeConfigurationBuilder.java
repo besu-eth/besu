@@ -41,7 +41,6 @@ import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
-import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationProvider;
 
 import java.io.File;
@@ -99,7 +98,7 @@ public class BesuNodeConfigurationBuilder {
   private Boolean strictTxReplayProtectionEnabled = false;
   private Map<String, String> environment = new HashMap<>();
   private SynchronizerConfiguration synchronizerConfiguration;
-  private Optional<KeyValueStorageFactory> storageImplementation = Optional.empty();
+  private Optional<String> storageImplementation = Optional.empty();
   private PluginConfiguration pluginConfiguration;
 
   public BesuNodeConfigurationBuilder() {}
@@ -450,9 +449,12 @@ public class BesuNodeConfigurationBuilder {
     return this;
   }
 
-  public BesuNodeConfigurationBuilder storageImplementation(
-      final KeyValueStorageFactory storageFactory) {
-    this.storageImplementation = Optional.of(storageFactory);
+  /**
+   * Selects the storage the in-process runner builds the node on, by the name a storage plugin
+   * registered its factory under; "memory" unless set. The process runner always runs on RocksDB.
+   */
+  public BesuNodeConfigurationBuilder storageImplementation(final String storageName) {
+    this.storageImplementation = Optional.of(storageName);
     return this;
   }
 

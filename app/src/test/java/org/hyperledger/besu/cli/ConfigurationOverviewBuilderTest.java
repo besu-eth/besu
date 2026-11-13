@@ -27,6 +27,9 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -163,13 +166,36 @@ class ConfigurationOverviewBuilderTest {
   }
 
   @Test
-  void setHighSpecEnabled() {
-    final String highSpecNotEnabled = builder.build();
-    assertThat(highSpecNotEnabled).doesNotContain("Experimental high spec configuration enabled");
+  void setPluginConfigurationOverview() {
+    final String noPluginLines = builder.build();
+    assertThat(noPluginLines).doesNotContain("rocksdb:");
 
-    builder.setHighSpecEnabled();
-    final String highSpecEnabled = builder.build();
-    assertThat(highSpecEnabled).contains("Experimental high spec configuration enabled");
+    builder.setPluginConfigurationOverview(
+        Map.of(
+            "rocksdb",
+            List.of(
+                "RocksDB max open files: 4096 (set)",
+                "Experimental high spec configuration enabled")));
+    final String pluginLines = builder.build();
+    assertThat(pluginLines)
+        .contains("rocksdb:")
+        .contains("RocksDB max open files: 4096 (set)")
+        .contains("Experimental high spec configuration enabled");
+  }
+
+  @Test
+  void pluginConfigurationOverviewPrintsEachPluginUnderItsNameInOrder() {
+    final Map<String, List<String>> overview = new LinkedHashMap<>();
+    overview.put("first", List.of("one"));
+    overview.put("second", List.of("two", "three"));
+    builder.setPluginConfigurationOverview(overview);
+
+    final String built = builder.build();
+
+    assertThat(built.indexOf("first:")).isLessThan(built.indexOf("one"));
+    assertThat(built.indexOf("one")).isLessThan(built.indexOf("second:"));
+    assertThat(built.indexOf("second:")).isLessThan(built.indexOf("two"));
+    assertThat(built.indexOf("two")).isLessThan(built.indexOf("three"));
   }
 
   @Test
@@ -354,20 +380,5 @@ class ConfigurationOverviewBuilderTest {
         .contains("BAL pruning enabled (retained BALs: 50000)")
         .doesNotContain("blocks:")
         .doesNotContain(";");
-  }
-
-  @Test
-  void setRocksDbMaxOpenFilesDerived() {
-    builder.setRocksDbMaxOpenFiles(4096, false);
-    final String overview = builder.build();
-    assertThat(overview)
-        .contains("RocksDB max open files: 4096 (derived from available resources)");
-  }
-
-  @Test
-  void setRocksDbMaxOpenFilesSet() {
-    builder.setRocksDbMaxOpenFiles(2048, true);
-    final String overview = builder.build();
-    assertThat(overview).contains("RocksDB max open files: 2048 (set)");
   }
 }
