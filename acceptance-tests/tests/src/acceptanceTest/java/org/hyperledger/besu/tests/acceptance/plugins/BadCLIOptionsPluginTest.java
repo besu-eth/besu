@@ -24,7 +24,6 @@ import java.util.Collections;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -68,7 +67,6 @@ public class BadCLIOptionsPluginTest extends AcceptanceTestBase {
   }
 
   @Test
-  @Disabled("No way to do a graceful shutdown of Besu at the moment.")
   public void shouldNotStop() {
     cluster.stopNode(node);
     waitForFile(node.homeDirectory().resolve("plugins/pluginLifecycle.stopped"));
