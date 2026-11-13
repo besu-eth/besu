@@ -464,7 +464,7 @@ public class JsonUtil {
 
   private static ObjectNode objectNodeFromParser(
       final JsonParser baseParser, final boolean allowComments, final String... excludeFields) {
-    try {
+    try (baseParser) {
       final var parser =
           excludeFields.length > 0
               ? new FilteringParserDelegate(

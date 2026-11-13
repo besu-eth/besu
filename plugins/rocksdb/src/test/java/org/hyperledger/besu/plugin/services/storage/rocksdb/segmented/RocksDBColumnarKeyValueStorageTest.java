@@ -653,7 +653,6 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     STATIC_DATA(new byte[] {4}, true, false);
 
     private final byte[] id;
-    private final String nameAsUtf8;
     private final boolean containsStaticData;
     private final boolean eligibleToHighSpecFlag;
 
@@ -664,14 +663,13 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     TestSegment(
         final byte[] id, final boolean containsStaticData, final boolean eligibleToHighSpecFlag) {
       this.id = id;
-      this.nameAsUtf8 = new String(id, StandardCharsets.UTF_8);
       this.containsStaticData = containsStaticData;
       this.eligibleToHighSpecFlag = eligibleToHighSpecFlag;
     }
 
     @Override
     public String getName() {
-      return nameAsUtf8;
+      return name();
     }
 
     @Override
