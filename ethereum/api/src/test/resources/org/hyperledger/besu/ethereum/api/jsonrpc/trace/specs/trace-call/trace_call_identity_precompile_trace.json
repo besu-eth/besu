@@ -1,0 +1,51 @@
+{
+  "comment": "Identity precompile output is preserved in the root call frame",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_call",
+    "params": [
+      {
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "to": "0x0000000000000000000000000000000000000004",
+        "gas": "0xfffff2",
+        "gasPrice": "0xef",
+        "value": "0x0",
+        "data": "0x123456"
+      },
+      [
+        "trace"
+      ],
+      "latest"
+    ],
+    "id": 0
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "result": {
+      "output": "0x123456",
+      "stateDiff": null,
+      "trace": [
+        {
+          "action": {
+            "callType": "call",
+            "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+            "gas": "0xffadba",
+            "input": "0x123456",
+            "to": "0x0000000000000000000000000000000000000004",
+            "value": "0x0"
+          },
+          "result": {
+            "gasUsed": "0x12",
+            "output": "0x123456"
+          },
+          "subtraces": 0,
+          "traceAddress": [],
+          "type": "call"
+        }
+      ],
+      "vmTrace": null
+    },
+    "id": 0
+  },
+  "statusCode": 200
+}
