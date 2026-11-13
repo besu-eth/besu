@@ -27,15 +27,24 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** Collects the RPC endpoints plugins register, for the JSON-RPC method tables to pick up. */
 public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
 
-  private final Map<String, Function<PluginRpcRequest, ?>> rpcMethods = new HashMap<>();
+  /** The registrant of an entry Besu registered itself, outside any plugin's register(). */
+  private static final String BESU = "Besu";
+
+  /** A registered method with the id of the plugin that registered it. */
+  private record Registered(String registrant, Function<PluginRpcRequest, ?> function) {}
+
+  private final Map<String, Registered> rpcMethods = new HashMap<>();
   private final BooleanSupplier registrationOpen;
+  private final Supplier<Optional<String>> currentRegistrant;
 
   /** Creates a registry that accepts endpoints at any time. */
   public RpcEndpointRegistryImpl() {
@@ -43,13 +52,27 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
   }
 
   /**
-   * Creates the registry.
+   * Creates a registry whose registrations all count as Besu's own.
    *
    * @param registrationOpen whether plugin registration is currently open; endpoints registered
    *     while it is closed are rejected
    */
   public RpcEndpointRegistryImpl(final BooleanSupplier registrationOpen) {
+    this(registrationOpen, Optional::empty);
+  }
+
+  /**
+   * Creates the registry.
+   *
+   * @param registrationOpen whether plugin registration is currently open; endpoints registered
+   *     while it is closed are rejected
+   * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
+   *     itself is registering; a method name already registered by another registrant is rejected
+   */
+  public RpcEndpointRegistryImpl(
+      final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
     this.registrationOpen = registrationOpen;
+    this.currentRegistrant = currentRegistrant;
   }
 
   @Override
@@ -64,7 +87,22 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
     checkArgument(functionName.matches("\\p{Alnum}+"), "Function Name must be only alpha numeric");
     checkNotNull(function);
 
-    rpcMethods.put(namespace + "_" + functionName, function);
+    final String name = namespace + "_" + functionName;
+    final String registrant = currentRegistrant.get().orElse(BESU);
+    final Registered previous = rpcMethods.get(name);
+    if (previous != null && !previous.registrant().equals(registrant)) {
+      throw new IllegalStateException(
+          "cannot register RPC method "
+              + name
+              + ": "
+              + owner(previous.registrant())
+              + " already registered it");
+    }
+    rpcMethods.put(name, new Registered(registrant, function));
+  }
+
+  private static String owner(final String registrant) {
+    return BESU.equals(registrant) ? BESU : "plugin " + registrant;
   }
 
   /**
@@ -85,7 +123,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
                                 .getKey()
                                 .toUpperCase(Locale.ROOT)
                                 .startsWith(namespace.toUpperCase(Locale.ROOT))))
-        .map(entry -> new PluginJsonRpcMethod(entry.getKey(), entry.getValue()))
+        .map(entry -> new PluginJsonRpcMethod(entry.getKey(), entry.getValue().function()))
         .collect(Collectors.toMap(PluginJsonRpcMethod::getName, e -> e));
   }
 

@@ -152,6 +152,11 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private PluginConfiguration config;
   private URLClassLoader pluginClassLoader;
 
+  /**
+   * The id of the plugin whose {@code register()} is running; null outside a plugin's register().
+   */
+  private volatile String currentRegistrant;
+
   /** Instantiates a new Besu plugin context. */
   public BesuPluginContextImpl() {}
 
@@ -179,6 +184,18 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
    */
   public boolean isRegistering() {
     return state == Lifecycle.REGISTERING;
+  }
+
+  /**
+   * The id of the plugin whose {@code register()} is running. The registration-tier services record
+   * it with each named entry a plugin registers, so a second registration of the same name can be
+   * told apart as the same plugin registering again or another plugin colliding with it.
+   *
+   * @return the registering plugin's id; empty when Besu itself is registering, outside any
+   *     plugin's register()
+   */
+  public Optional<String> currentRegistrant() {
+    return Optional.ofNullable(currentRegistrant);
   }
 
   /**
@@ -239,6 +256,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
    */
   public RegistrationContext registrationContextFor(final BesuPlugin plugin) {
     final String pluginName = pluginId(plugin);
+    currentRegistrant = pluginName;
     return new RegistrationContext() {
       @Override
       public <T extends RegistrationService> T getBesuService(final Class<T> type) {
@@ -630,6 +648,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         "BesuContext should be in state %s but it was in %s",
         Lifecycle.REGISTERING,
         state);
+    currentRegistrant = null;
     state = Lifecycle.REGISTERED;
   }
 
@@ -711,6 +730,8 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         throw new RuntimeException(fatalFailure(failure, plugin), e);
       }
       return false;
+    } finally {
+      currentRegistrant = null;
     }
     return true;
   }

@@ -42,6 +42,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -1435,6 +1436,37 @@ public class BesuPluginContextImplTest {
     assertThat(failing.registerCalled).isFalse();
     assertThat(good.registerCalled).isTrue();
     assertThat(context.getRegisteredPlugins()).containsExactly(good);
+  }
+
+  @Test
+  void currentRegistrantIsThePluginInsideItsRegisterAndEmptyOutside() {
+    final List<Optional<String>> seen = new ArrayList<>();
+    final RecordingPlugin plugin = new RecordingPlugin("plugin");
+    final BesuPluginContextImpl context = contextReadyToRegister(false, plugin);
+    plugin.onRegister = registrationContext -> seen.add(context.currentRegistrant());
+
+    assertThat(context.currentRegistrant()).isEmpty();
+    context.beginRegistration();
+    assertThat(context.currentRegistrant()).isEmpty();
+    context.registerPlugins();
+    assertThat(context.currentRegistrant()).isEmpty();
+    context.endRegistration();
+
+    assertThat(seen).containsExactly(Optional.of(RecordingPlugin.class.getName()));
+  }
+
+  @Test
+  void currentRegistrantIsClearedWhenAPluginFailsToRegister() {
+    final BesuPluginContextImpl[] holder = new BesuPluginContextImpl[1];
+    final List<Optional<String>> seenByGood = new ArrayList<>();
+    final RecordingPlugin good = new RecordingPlugin("good");
+    good.onRegister = registrationContext -> seenByGood.add(holder[0].currentRegistrant());
+    holder[0] = contextReadyToRegister(true, new FailingRegisterPlugin(), good);
+
+    register(holder[0]);
+
+    assertThat(seenByGood).containsExactly(Optional.of(RecordingPlugin.class.getName()));
+    assertThat(holder[0].currentRegistrant()).isEmpty();
   }
 
   @Test

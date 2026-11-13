@@ -20,13 +20,29 @@ import org.hyperledger.besu.plugin.services.HealthCheckService;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
-/** The health check service implementation. */
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * The health check service implementation. Unlike the other named registrations, a health check
+ * replaces the one registered before it for the same endpoint: that is how a plugin takes over a
+ * default check. The replacement is logged with both registrants so a plugin never loses its check
+ * silently.
+ */
 public class HealthCheckServiceImpl implements HealthCheckService {
+  private static final Logger LOG = LoggerFactory.getLogger(HealthCheckServiceImpl.class);
 
-  private final ConcurrentHashMap<String, HealthCheckProvider> healthChecks =
-      new ConcurrentHashMap<>();
+  /** The registrant of an entry Besu registered itself, outside any plugin's register(). */
+  private static final String BESU = "Besu";
+
+  /** A registered provider with the id of the plugin that registered it. */
+  private record Registered(String registrant, HealthCheckProvider provider) {}
+
+  private final ConcurrentHashMap<String, Registered> healthChecks = new ConcurrentHashMap<>();
   private final BooleanSupplier registrationOpen;
+  private final Supplier<Optional<String>> currentRegistrant;
 
   /** Instantiates a health check service that accepts registrations at any time. */
   public HealthCheckServiceImpl() {
@@ -34,13 +50,27 @@ public class HealthCheckServiceImpl implements HealthCheckService {
   }
 
   /**
-   * Instantiates a new health check service implementation.
+   * Instantiates a health check service whose registrations all count as Besu's own.
    *
    * @param registrationOpen whether plugin registration is currently open; health checks registered
    *     or unregistered while it is closed are rejected
    */
   public HealthCheckServiceImpl(final BooleanSupplier registrationOpen) {
+    this(registrationOpen, Optional::empty);
+  }
+
+  /**
+   * Instantiates a new health check service implementation.
+   *
+   * @param registrationOpen whether plugin registration is currently open; health checks registered
+   *     or unregistered while it is closed are rejected
+   * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
+   *     itself is registering; named in the log when a check replaces another registrant's
+   */
+  public HealthCheckServiceImpl(
+      final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
     this.registrationOpen = registrationOpen;
+    this.currentRegistrant = currentRegistrant;
   }
 
   @Override
@@ -48,7 +78,19 @@ public class HealthCheckServiceImpl implements HealthCheckService {
     if (!registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException("HealthCheckService", "registerHealthCheck");
     }
-    healthChecks.put(endpoint, provider);
+    final String registrant = currentRegistrant.get().orElse(BESU);
+    final Registered previous = healthChecks.put(endpoint, new Registered(registrant, provider));
+    if (previous != null && !previous.registrant().equals(registrant)) {
+      LOG.warn(
+          "Health check {} is now served by {}, replacing the check {} registered",
+          endpoint,
+          owner(registrant),
+          owner(previous.registrant()));
+    }
+  }
+
+  private static String owner(final String registrant) {
+    return BESU.equals(registrant) ? BESU : "plugin " + registrant;
   }
 
   @Override
@@ -61,6 +103,6 @@ public class HealthCheckServiceImpl implements HealthCheckService {
 
   @Override
   public Optional<HealthCheckProvider> getHealthCheck(final String endpoint) {
-    return Optional.ofNullable(healthChecks.get(endpoint));
+    return Optional.ofNullable(healthChecks.get(endpoint)).map(Registered::provider);
   }
 }

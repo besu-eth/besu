@@ -28,9 +28,15 @@ import javax.inject.Inject;
 /** The Security module service implementation. */
 public class SecurityModuleServiceImpl implements SecurityModuleService {
 
-  private final Map<String, Supplier<SecurityModule>> securityModuleSuppliers =
-      new ConcurrentHashMap<>();
+  /** The registrant of an entry Besu registered itself, outside any plugin's register(). */
+  private static final String BESU = "Besu";
+
+  /** A registered module supplier with the id of the plugin that registered it. */
+  private record Registered(String registrant, Supplier<SecurityModule> supplier) {}
+
+  private final Map<String, Registered> securityModuleSuppliers = new ConcurrentHashMap<>();
   private final BooleanSupplier registrationOpen;
+  private final Supplier<Optional<String>> currentRegistrant;
 
   /** Creates a service that accepts registrations at any time. */
   @Inject
@@ -39,13 +45,27 @@ public class SecurityModuleServiceImpl implements SecurityModuleService {
   }
 
   /**
-   * Creates the service.
+   * Creates a service whose registrations all count as Besu's own.
    *
    * @param registrationOpen whether plugin registration is currently open; registrations made while
    *     it is closed are rejected
    */
   public SecurityModuleServiceImpl(final BooleanSupplier registrationOpen) {
+    this(registrationOpen, Optional::empty);
+  }
+
+  /**
+   * Creates the service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; registrations made while
+   *     it is closed are rejected
+   * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
+   *     itself is registering; a module name already registered by another registrant is rejected
+   */
+  public SecurityModuleServiceImpl(
+      final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
     this.registrationOpen = registrationOpen;
+    this.currentRegistrant = currentRegistrant;
   }
 
   @Override
@@ -53,11 +73,25 @@ public class SecurityModuleServiceImpl implements SecurityModuleService {
     if (!registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException("SecurityModuleService", "register");
     }
-    securityModuleSuppliers.put(name, securityModuleSupplier);
+    final String registrant = currentRegistrant.get().orElse(BESU);
+    final Registered previous = securityModuleSuppliers.get(name);
+    if (previous != null && !previous.registrant().equals(registrant)) {
+      throw new IllegalStateException(
+          "cannot register security module "
+              + name
+              + ": "
+              + owner(previous.registrant())
+              + " already registered it");
+    }
+    securityModuleSuppliers.put(name, new Registered(registrant, securityModuleSupplier));
+  }
+
+  private static String owner(final String registrant) {
+    return BESU.equals(registrant) ? BESU : "plugin " + registrant;
   }
 
   @Override
   public Optional<Supplier<SecurityModule>> getByName(final String name) {
-    return Optional.ofNullable(securityModuleSuppliers.get(name));
+    return Optional.ofNullable(securityModuleSuppliers.get(name)).map(Registered::supplier);
   }
 }

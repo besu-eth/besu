@@ -30,6 +30,9 @@ public interface HealthCheckService extends RegistrationService {
   /**
    * Registers a health check provider for one of the built-in endpoints, replacing the provider
    * registered before it. The supported endpoints are {@code /liveness} and {@code /readiness}.
+   * Overriding an endpoint is this service's purpose, so a provider another plugin registered is
+   * replaced as well, with a warning naming both plugins; unlike the other keyed registration
+   * services, a duplicate here is not an error.
    *
    * @param endpoint the built-in endpoint path to override ({@code /liveness} or {@code
    *     /readiness})
