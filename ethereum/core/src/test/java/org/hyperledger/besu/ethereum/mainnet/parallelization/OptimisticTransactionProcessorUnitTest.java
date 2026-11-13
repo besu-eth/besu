@@ -987,6 +987,29 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("Taking a late-chained result cancels the run it replaces")
+    void lateChainedResultCancelsTheRunItReplaces() {
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(sender);
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2), tasks::add);
+      final CompletableFuture<ParallelizedTransactionContext> runAlone = processor.futures[1];
+      // the recovery and the first run alone, after which the late chain is queued
+      tasks.get(0).run();
+      tasks.get(1).run();
+      tasks.get(3).run();
+      processor.getProcessingResult(
+          env.worldState(), MINING_BENEFICIARY, tx2, 1, Optional.empty(), Optional.empty());
+
+      assertThat(runAlone).isCancelled();
+      tasks.get(2).run();
+      verify(transactionProcessor, times(1))
+          .processTransaction(any(), any(), eq(tx2), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("An unrecoverable sender does not keep the others of its batch from being chained")
     void unrecoverableSenderDoesNotStopChaining() {
       final Transaction unrecoverable = mockTransaction();

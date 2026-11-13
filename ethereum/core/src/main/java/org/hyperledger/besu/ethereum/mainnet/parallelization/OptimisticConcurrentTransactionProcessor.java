@@ -708,6 +708,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
             : null;
     final CompletableFuture<ParallelizedTransactionContext> future =
         lateChained != null ? lateChained : aloneOrChained;
+    if (lateChained != null && aloneOrChained != null) {
+      // nothing else holds the run it replaces, which abort() would otherwise miss
+      aloneOrChained.cancel(true);
+    }
 
     if (future != null && future.state() == Future.State.FAILED) {
       LOG.debug(
