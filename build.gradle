@@ -110,6 +110,7 @@ def _strListCmdArg(name) {
 
 // set the shell command to use according to os
 def shell = org.gradle.internal.os.OperatingSystem.current().isWindows() ? "${projectDir}\\wslsh.bat" : '/bin/bash'
+ext.gradleWrapperCommand = org.gradle.internal.os.OperatingSystem.current().isWindows() ? '.\\gradlew.bat' : './gradlew'
 
 licenseReport {
   // This is for the allowed-licenses-file in checkLicense Task
@@ -654,7 +655,7 @@ task resolveSourceArtifacts {
 // cannot set for its own build, so this only checks they were passed and fails fast otherwise,
 // instead of silently producing an incomplete file. See "Dependency Verification" in README.md.
 ext.updateVerificationMetadataCommand =
-  './gradlew --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks --no-parallel updateVerificationMetadata'
+  "${gradleWrapperCommand} --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks --no-parallel updateVerificationMetadata"
 
 task updateVerificationMetadata {
   group = 'verification'

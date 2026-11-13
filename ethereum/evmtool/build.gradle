@@ -186,7 +186,7 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
       if (!fixturesDir.exists()) {
         throw new GradleException(
         "Fixtures not found at ${fixturesDir}.\n" +
-        "Run ./gradlew :ethereum:referencetests:${extractTask}, or check the " +
+        "Run ${rootProject.gradleWrapperCommand} :ethereum:referencetests:${extractTask}, or check the " +
         "${versionDecl} version in ethereum/referencetests/build.gradle.")
       }
       def runDir = subPath ? new File(fixturesDir, subPath) : fixturesDir
