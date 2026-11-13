@@ -481,6 +481,12 @@ public class RlpxAgent {
   }
 
   public static class Builder {
+    /**
+     * Lower bound for the number of inbound connections allowed in the RLPx handshake at once, so
+     * that a small --max-peers still tolerates bursts of honest inbound handshakes.
+     */
+    private static final int PENDING_INBOUND_CONNECTIONS_CAP_FLOOR = 50;
+
     private NodeKey nodeKey;
     private LocalNode localNode;
     private RlpxConfiguration config;
@@ -506,7 +512,13 @@ public class RlpxAgent {
         LOG.debug("Using default NettyConnectionInitializer");
         connectionInitializer =
             new NettyConnectionInitializer(
-                nodeKey, config, localNode, connectionEvents, metricsSystem, peerLookup);
+                nodeKey,
+                config,
+                localNode,
+                connectionEvents,
+                metricsSystem,
+                peerLookup,
+                Math.max(2 * maxPeers, PENDING_INBOUND_CONNECTIONS_CAP_FLOOR));
       }
 
       final PeerRlpxPermissions rlpxPermissions =
