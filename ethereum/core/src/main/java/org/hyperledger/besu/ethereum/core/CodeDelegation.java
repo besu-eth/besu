@@ -31,6 +31,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -199,7 +200,8 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
     return signature.getS();
   }
 
-  private Optional<Address> computeAuthority() {
+  @VisibleForTesting
+  Optional<Address> computeAuthority() {
     BytesValueRLPOutput rlpOutput = new BytesValueRLPOutput();
     CodeDelegationTransactionEncoder.encodeSingleCodeDelegationWithoutSignature(this, rlpOutput);
 
