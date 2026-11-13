@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,8 +45,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeAll;
@@ -340,6 +346,63 @@ public class TransactionLogBloomCacherTest {
     assertThat(logBloom.length()).isEqualTo(BLOOM_BITS_LENGTH * 2);
 
     assertThat(cacheDir.toFile().list().length).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldStopCachingPreviousSegmentsWhenTheSchedulerStops() throws Exception {
+    final long chainHead = 2L * BLOCKS_PER_BLOOM_CACHE + 5;
+    assertNoStorageReadsAfterTheSchedulerStops(
+        chainHead, cacher -> cacher.ensurePreviousSegmentsArePresent(chainHead, false));
+
+    // the cacher works down from the segment below the head and must not start the next one
+    assertThat(cacheDir.resolve("logBloom-0.cache")).doesNotExist();
+  }
+
+  @Test
+  public void shouldStopRequestedCachingWhenTheSchedulerStops() throws Exception {
+    final long chainHead = 2L * BLOCKS_PER_BLOOM_CACHE + 5;
+    assertNoStorageReadsAfterTheSchedulerStops(
+        chainHead, cacher -> cacher.requestCaching(0, chainHead));
+
+    assertThat(cacheDir.resolve("logBloom-1.cache")).doesNotExist();
+  }
+
+  /**
+   * Stops the scheduler in the order Runner.stopServices uses: EthScheduler.stop() and awaitStop()
+   * run before the storage is closed, so a caching task still reading after that point hits a
+   * closed storage once per remaining segment.
+   */
+  private void assertNoStorageReadsAfterTheSchedulerStops(
+      final long chainHead, final Consumer<TransactionLogBloomCacher> startCaching)
+      throws InterruptedException {
+    final BlockHeader header = createBlock(0);
+    final CountDownLatch readInProgress = new CountDownLatch(1);
+    final CountDownLatch schedulerStopped = new CountDownLatch(1);
+    final AtomicLong readsAfterStop = new AtomicLong();
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(chainHead);
+    when(blockchain.getBlockHeader(anyLong()))
+        .thenAnswer(
+            invocation -> {
+              if (schedulerStopped.getCount() == 0) {
+                readsAfterStop.incrementAndGet();
+              }
+              if (readInProgress.getCount() > 0) {
+                readInProgress.countDown();
+                // a RocksDB read does not react to the interrupt from EthScheduler.stop()
+                Uninterruptibles.awaitUninterruptibly(schedulerStopped);
+              }
+              return Optional.of(header);
+            });
+
+    final EthScheduler ethScheduler = new EthScheduler(1, 1, 1, 1, new NoOpMetricsSystem());
+    startCaching.accept(new TransactionLogBloomCacher(blockchain, cacheDir, ethScheduler));
+    assertThat(readInProgress.await(10, TimeUnit.SECONDS)).isTrue();
+
+    ethScheduler.stop();
+    schedulerStopped.countDown();
+    ethScheduler.awaitStop();
+
+    assertThat(readsAfterStop).hasValue(0);
   }
 
   private void createLogBloomCache(final File logBloom) throws IOException {
