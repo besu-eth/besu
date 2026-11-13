@@ -495,6 +495,32 @@ public class RpcWebsocketOptionsTest extends CommandTestAbstract {
   }
 
   @Test
+  public void rpcWsSslPasswordInConfigAndPasswordFileInCliMustBeRejected() throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "fileKeystorePassword");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            rpc-ws-ssl-keystore-file = '/tmp/keystore.p12'
+            rpc-ws-ssl-keystore-password = 'tomlKeystorePassword'
+            """);
+
+    parseCommand(
+        "--config-file",
+        toml.toString(),
+        "--rpc-ws-enabled",
+        "--rpc-ws-ssl-enabled",
+        "--rpc-ws-ssl-keystore-password-file",
+        keystorePasswordFile.toString());
+
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "rpc-ws-ssl-keystore-password and rpc-ws-ssl-keystore-password-file options for JSON-RPC websocket cannot be used at the same time");
+  }
+
+  @Test
   public void rpcWsSslPasswordsAndPasswordFileInTomlMustBeRejected() throws IOException {
     final Path keystorePasswordFile = createTempFile("keystore-password", "fileKeystorePassword");
     final Path truststorePasswordFile =
