@@ -187,5 +187,8 @@ class ExtCodeCopyOperationTest {
     assertThat(frame.readMemory(0, 9)).isEqualTo(code);
     assertThat(frame.memoryWordSize()).isEqualTo(1);
     assertThat(result.getGasCost()).isEqualTo(106);
+    assertThat(frame.getMaybeUpdatedMemory()).isPresent();
+    assertThat(frame.getMaybeUpdatedMemory().get().getOffset()).isZero();
+    assertThat(frame.getMaybeUpdatedMemory().get().getValue()).isEqualTo(code);
   }
 }
