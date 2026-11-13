@@ -15,8 +15,10 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -91,7 +93,7 @@ class ParallelBlockTransactionProcessorTest {
     final CodeDelegation unrecoverable = mock(CodeDelegation.class);
     final CodeDelegation recoverable = mock(CodeDelegation.class);
     when(transaction.getSender()).thenThrow(new IllegalStateException("no public key"));
-    when(unrecoverable.authorizer()).thenThrow(new IllegalArgumentException("invalid point"));
+    when(unrecoverable.authorizer()).thenReturn(Optional.empty());
     when(transaction.getCodeDelegationList())
         .thenReturn(Optional.of(List.of(unrecoverable, recoverable)));
     when(transaction.detachedCopy()).thenReturn(copy);
@@ -99,5 +101,15 @@ class ParallelBlockTransactionProcessorTest {
     assertThat(ParallelBlockTransactionProcessor.detachedCopyWithSigners(transaction))
         .isSameAs(copy);
     verify(recoverable).authorizer();
+  }
+
+  @Test
+  void leavesAnUnexpectedRecoveryFailureToTheWorker() {
+    final Transaction transaction = mock(Transaction.class);
+    when(transaction.getSender()).thenThrow(new IllegalArgumentException("unexpected"));
+
+    assertThatThrownBy(() -> ParallelBlockTransactionProcessor.detachedCopyWithSigners(transaction))
+        .isInstanceOf(IllegalArgumentException.class);
+    verify(transaction, never()).detachedCopy();
   }
 }
