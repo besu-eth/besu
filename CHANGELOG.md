@@ -3,10 +3,11 @@
 ## Unreleased
 
 ### Breaking Changes
+- The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
 - `eth_createAccessList` now returns an error for a transaction that is not valid at the target block, as `eth_estimateGas` does. This includes a block before Berlin, where an access list transaction is not valid, and fee fields before London. Previously the method returned an empty access list, or an `execution reverted` result with the gas cap as `gasUsed`. [#11631](https://github.com/besu-eth/besu/pull/11631)
+- In a call that runs with zero fees, the `BLOBBASEFEE` opcode now returns the block's blob base fee instead of 1, as in Geth. A call runs with zero fees in `eth_call`, `debug_traceCall`, `trace_call`, `trace_callMany` and GraphQL `call` when it has no fee fields, all fee fields are zero, or it sets `strict: false`, and in `eth_estimateGas` and `eth_createAccessList` when it sets `strict: false`. Plugins that call `TransactionSimulationService` with `ALLOW_EXCEEDING_BALANCE` are also affected. A blob call without a positive `maxFeePerBlobGas` still runs with a blob base fee of 0, and `eth_simulateV1` is unchanged. A result changes only if the called code reads `BLOBBASEFEE`. [#11890](https://github.com/besu-eth/besu/pull/11890)
 - `trace_filter` rejects a single address string as `fromAddress` or `toAddress`, and a negative `after` or `count`, with `Invalid filter params` (`-32602`). A legacy call with another chain's `chainId` fails with `Wrong chainId` instead of running with the `chainId` dropped. [#11439](https://github.com/besu-eth/besu/pull/11439)
 - `trace_block`, `trace_replayBlockTransactions`, `trace_call` and `trace_callMany` no longer evaluate `pending` as `latest`, and reject it with `Invalid block number params` (`-32602`). [#11441](https://github.com/besu-eth/besu/pull/11441)
-- The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
 - `trace_rawTransaction` returns the validation error for a signed transaction that fails validation, such as a nonce ahead of the sender's or a sender who cannot pay the up-front gas cost, instead of a successful response. It also applies the EIP-7825 transaction gas limit cap, the intrinsic gas limit cap and the EIP-3607 check against senders with deployed code, which it skipped, and rejects a gas limit above the RPC gas cap instead of clamping it. [#11395](https://github.com/besu-eth/besu/pull/11395)
 
 ### Upcoming Breaking Changes
@@ -70,9 +71,9 @@
 - Support sub-hour TX pool retention for the sequenced transaction pool via `--tx-pool-retention-seconds` [#11588](https://github.com/besu-eth/besu/pull/11588)
 - Block import computes logs blooms on the transaction workers and the transactions root only once. [#11529](https://github.com/besu-eth/besu/pull/11529)
 - Faster lookups of which peers have seen a transaction, reducing CPU use and lock contention in transaction gossip. [#11886](https://github.com/besu-eth/besu/pull/11886)
-- `--Xmempool-prewarm-enabled` prewarms the state for the next block from the transaction pool. [#11759](https://github.com/besu-eth/besu/pull/11759)
 - The chain id is represented by the new `ChainId` value object, that shares one instance for the chain id of the running network, so a pooled transaction uses 80 bytes and 3 objects fewer, plus 3 objects fewer for each EIP-7702 authorization, and a legacy transaction is decoded about 15% faster. The plugin API is unchanged, apart from a new read-only `ChainId` interface in `datatypes`. [#11866](https://github.com/besu-eth/besu/pull/11866)
 - The transaction pools process the result of a transaction that is still executing when the block selection time runs out once its execution completes, so the layered pool penalises a transaction that took too long, and both pools remove it if invalid, instead of missing its result. Selection results are processed asynchronously in both pools.
+- Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
 
 ## 26.11.0
 
