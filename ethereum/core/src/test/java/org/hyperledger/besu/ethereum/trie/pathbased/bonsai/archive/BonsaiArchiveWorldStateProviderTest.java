@@ -226,6 +226,7 @@ public class BonsaiArchiveWorldStateProviderTest {
     final BlockHeader historicalHeader =
         new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
     archiveThrough(new BlockHeaderTestFixture().number(queryBlockNumber + 1).buildHeader());
+    canonical(historicalHeader);
 
     final RuntimeException served = new RuntimeException("served from archive");
     assertThatThrownBy(
@@ -266,7 +267,33 @@ public class BonsaiArchiveWorldStateProviderTest {
     new ArchiveNodeHistoryStore(liveStorage)
         .saveArchiveProgress(tx, new ArchivedBlock(last.getNumber(), last.getHash()));
     tx.commit();
-    when(blockchain.getBlockHashByNumber(last.getNumber())).thenReturn(Optional.of(last.getHash()));
+    canonical(last);
+  }
+
+  private void canonical(final BlockHeader header) {
+    when(blockchain.getBlockHashByNumber(header.getNumber()))
+        .thenReturn(Optional.of(header.getHash()));
+  }
+
+  @Test
+  void archiveProof_forkBlockAtArchivedHeightIsNotServedFromArchive() {
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader fork =
+        new BlockHeaderTestFixture().number(queryBlockNumber).extraData(Bytes.of(9)).buildHeader();
+    archiveThrough(new BlockHeaderTestFixture().number(queryBlockNumber + 1).buildHeader());
+    canonical(new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader());
+
+    // The archived path would run the mapper; the rollback fallback can't reach this block.
+    final Optional<Object> result =
+        provider.getAccountProof(
+            fork,
+            Address.ZERO,
+            List.of(),
+            proof -> {
+              throw new AssertionError("canonical archived proof served for a fork block");
+            });
+
+    assertThat(result).isEmpty();
   }
 
   @Test
@@ -282,8 +309,8 @@ public class BonsaiArchiveWorldStateProviderTest {
             .extraData(Bytes.of(1))
             .buildHeader();
     archiveThrough(archived);
-    when(blockchain.getBlockHashByNumber(archived.getNumber()))
-        .thenReturn(Optional.of(replacement.getHash()));
+    canonical(historicalHeader);
+    canonical(replacement);
 
     // The archived path would run the mapper; the rollback fallback can't reach this block.
     final Optional<Object> result =

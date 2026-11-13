@@ -233,7 +233,9 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
     final long blockNumber = blockHeader.getNumber();
     final Optional<ArchivedBlock> last = archiveHistoryStore.getArchivedBlock();
+    // Archived nodes are the canonical chain's, so a fork block at an archived height isn't served.
     if (last.filter(archived -> blockNumber <= archived.number()).isEmpty()
+        || !isCanonicalBlock(blockHeader)
         || !isCanonical(last.get())) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
@@ -247,6 +249,13 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             blockHeader.getBlockHash(),
             accountAddress,
             accountStorageKeys));
+  }
+
+  private boolean isCanonicalBlock(final BlockHeader blockHeader) {
+    return blockchain
+        .getBlockHashByNumber(blockHeader.getNumber())
+        .filter(blockHeader.getBlockHash()::equals)
+        .isPresent();
   }
 
   // A reorg deeper than the confirmation depth replaced archived blocks, so archived nodes may
