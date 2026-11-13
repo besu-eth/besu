@@ -43,8 +43,11 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -79,6 +82,13 @@ public class NearestKeyValueStorageTest {
     Utils.createDatabaseMetadataV2(tempDir, DataStorageFormat.BONSAI, 2);
 
     mockCommonConfiguration(tempDir);
+  }
+
+  @AfterAll
+  public static void tearDown() throws IOException {
+    if (rocksdbStorageFactory != null) {
+      rocksdbStorageFactory.close();
+    }
   }
 
   @Test
@@ -117,63 +127,60 @@ public class NearestKeyValueStorageTest {
     inMemoryDBTransaction.commit();
 
     // compare rocksdb implementation with inmemory implementation
-    rockdDBKeyValueStorage.stream(TRIE_BRANCH_STORAGE)
-        .forEach(
-            pair -> {
-              final Bytes key = Bytes.of(pair.getKey());
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          inMemoryDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, key),
-                          rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, key)))
-                  .isTrue();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          inMemoryDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, key),
-                          rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, key)))
-                  .isTrue();
+    try (final Stream<Pair<byte[], byte[]>> entries =
+        rockdDBKeyValueStorage.stream(TRIE_BRANCH_STORAGE)) {
+      entries.forEach(
+          pair -> {
+            final Bytes key = Bytes.of(pair.getKey());
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        inMemoryDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, key),
+                        rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, key)))
+                .isTrue();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        inMemoryDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, key),
+                        rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, key)))
+                .isTrue();
 
-              final Bytes biggerKey = Bytes.concatenate(key, Bytes.of(0x01));
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          inMemoryDBKeyValueStorage.getNearestBefore(
-                              TRIE_BRANCH_STORAGE, biggerKey),
-                          rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, biggerKey)))
-                  .isTrue();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          inMemoryDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, biggerKey),
-                          rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, biggerKey)))
-                  .isTrue();
+            final Bytes biggerKey = Bytes.concatenate(key, Bytes.of(0x01));
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        inMemoryDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, biggerKey),
+                        rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, biggerKey)))
+                .isTrue();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        inMemoryDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, biggerKey),
+                        rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, biggerKey)))
+                .isTrue();
 
-              final Bytes smallerKey = key.slice(0, key.size() - 1);
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          inMemoryDBKeyValueStorage.getNearestBefore(
-                              TRIE_BRANCH_STORAGE, smallerKey),
-                          rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, smallerKey)))
-                  .isTrue();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          inMemoryDBKeyValueStorage.getNearestAfter(
-                              TRIE_BRANCH_STORAGE, smallerKey),
-                          rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, smallerKey)))
-                  .isTrue();
+            final Bytes smallerKey = key.slice(0, key.size() - 1);
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        inMemoryDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, smallerKey),
+                        rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, smallerKey)))
+                .isTrue();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        inMemoryDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, smallerKey),
+                        rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, smallerKey)))
+                .isTrue();
 
-              final Bytes reversedKey = key.reverse();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          inMemoryDBKeyValueStorage.getNearestBefore(
-                              TRIE_BRANCH_STORAGE, reversedKey),
-                          rockdDBKeyValueStorage.getNearestBefore(
-                              TRIE_BRANCH_STORAGE, reversedKey)))
-                  .isTrue();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          inMemoryDBKeyValueStorage.getNearestAfter(
-                              TRIE_BRANCH_STORAGE, reversedKey),
-                          rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, reversedKey)))
-                  .isTrue();
-            });
+            final Bytes reversedKey = key.reverse();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        inMemoryDBKeyValueStorage.getNearestBefore(
+                            TRIE_BRANCH_STORAGE, reversedKey),
+                        rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, reversedKey)))
+                .isTrue();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        inMemoryDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, reversedKey),
+                        rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, reversedKey)))
+                .isTrue();
+          });
+    }
   }
 
   @Test
@@ -243,61 +250,59 @@ public class NearestKeyValueStorageTest {
     layeredDBTransaction.commit();
 
     // compare rocksdb implementation with inmemory implementation
-    rockdDBKeyValueStorage.stream(TRIE_BRANCH_STORAGE)
-        .forEach(
-            pair -> {
-              final Bytes key = Bytes.of(pair.getKey());
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          layeredDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, key),
-                          rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, key)))
-                  .isTrue();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          layeredDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, key),
-                          rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, key)))
-                  .isTrue();
+    try (final Stream<Pair<byte[], byte[]>> entries =
+        rockdDBKeyValueStorage.stream(TRIE_BRANCH_STORAGE)) {
+      entries.forEach(
+          pair -> {
+            final Bytes key = Bytes.of(pair.getKey());
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        layeredDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, key),
+                        rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, key)))
+                .isTrue();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        layeredDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, key),
+                        rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, key)))
+                .isTrue();
 
-              final Bytes biggerKey = Bytes.concatenate(key, Bytes.of(0x01));
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          layeredDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, biggerKey),
-                          rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, biggerKey)))
-                  .isTrue();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          layeredDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, biggerKey),
-                          rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, biggerKey)))
-                  .isTrue();
+            final Bytes biggerKey = Bytes.concatenate(key, Bytes.of(0x01));
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        layeredDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, biggerKey),
+                        rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, biggerKey)))
+                .isTrue();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        layeredDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, biggerKey),
+                        rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, biggerKey)))
+                .isTrue();
 
-              final Bytes smallerKey = key.slice(0, key.size() - 1);
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          layeredDBKeyValueStorage.getNearestBefore(
-                              TRIE_BRANCH_STORAGE, smallerKey),
-                          rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, smallerKey)))
-                  .isTrue();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          layeredDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, smallerKey),
-                          rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, smallerKey)))
-                  .isTrue();
+            final Bytes smallerKey = key.slice(0, key.size() - 1);
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        layeredDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, smallerKey),
+                        rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, smallerKey)))
+                .isTrue();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        layeredDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, smallerKey),
+                        rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, smallerKey)))
+                .isTrue();
 
-              final Bytes reversedKey = key.reverse();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          layeredDBKeyValueStorage.getNearestBefore(
-                              TRIE_BRANCH_STORAGE, reversedKey),
-                          rockdDBKeyValueStorage.getNearestBefore(
-                              TRIE_BRANCH_STORAGE, reversedKey)))
-                  .isTrue();
-              assertThat(
-                      isNearestKeyValueTheSame(
-                          layeredDBKeyValueStorage.getNearestAfter(
-                              TRIE_BRANCH_STORAGE, reversedKey),
-                          rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, reversedKey)))
-                  .isTrue();
-            });
+            final Bytes reversedKey = key.reverse();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        layeredDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, reversedKey),
+                        rockdDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, reversedKey)))
+                .isTrue();
+            assertThat(
+                    isNearestKeyValueTheSame(
+                        layeredDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, reversedKey),
+                        rockdDBKeyValueStorage.getNearestAfter(TRIE_BRANCH_STORAGE, reversedKey)))
+                .isTrue();
+          });
+    }
   }
 
   private SegmentedKeyValueStorage getRocksDBKeyValueStorage(final SegmentIdentifier segment) {

@@ -724,6 +724,30 @@ public class JsonUtilTest {
   }
 
   @Test
+  public void objectNodeFromURL_closesSource(@TempDir final Path folder) throws IOException {
+    final Path source = Files.writeString(folder.resolve("genesis.json"), "{\"a\":1,\"b\":2}");
+
+    assertThat(JsonUtil.objectNodeFromURL(source.toUri().toURL(), false, "b").get("a").asInt())
+        .isEqualTo(1);
+
+    Files.delete(source);
+    assertThat(source).doesNotExist();
+  }
+
+  @Test
+  public void objectNodeFromURL_closesMalformedSource(@TempDir final Path folder)
+      throws IOException {
+    final Path source = Files.writeString(folder.resolve("genesis.json"), "{\"a\":");
+
+    assertThatThrownBy(() -> JsonUtil.objectNodeFromURL(source.toUri().toURL(), false, "b"))
+        .isInstanceOf(RuntimeException.class)
+        .hasCauseInstanceOf(JsonParseException.class);
+
+    Files.delete(source);
+    assertThat(source).doesNotExist();
+  }
+
+  @Test
   public void getJson() throws JsonProcessingException {
     final String jsonStr = "{\"a\":1, \"b\":2}";
     final ObjectNode objectNode = JsonUtil.objectNodeFromString(jsonStr);
