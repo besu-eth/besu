@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.BonsaiWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.FailurePolicy;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.ServiceManager;
@@ -151,7 +152,8 @@ public class BonsaiWorldStateProvider extends PathBasedWorldStateProvider {
               .flatMap(number -> blockchain.getBlockHeader(number - 1))
               .map(BlockHeader.class::cast);
       if (parent.isEmpty()
-          || rollFullWorldStateToBlockHash(headWorldState, parent.get().getBlockHash(), Level.WARN)
+          || rollFullWorldStateToBlockHash(
+                  headWorldState, parent.get().getBlockHash(), Level.WARN, FailurePolicy.LEGACY)
               .isEmpty()) {
         warnUnstoredBlockNotRolledBack(unstoredBlockHash, null);
         return Optional.empty();
