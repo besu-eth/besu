@@ -51,6 +51,9 @@ import org.slf4j.LoggerFactory;
  * A {@link TrieNodeStrategy} that archives trie-node writes into {@code
  * TRIE_BRANCH_STORAGE_ARCHIVE} for historical {@code eth_getProof}.
  *
+ * <p>A block is captured only when it is final, persisted in one step from its parent, and directly
+ * follows the last archived block.
+ *
  * <p>Each put takes the prior node from the nodes the block's state-root computation loaded and
  * queues the history entry for async encoding; {@link #onBeforeCommit} writes the entries into the
  * block's transaction.
@@ -178,14 +181,30 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
       final BlockHeader blockHeader) {
-    final long block = blockHeader.getNumber();
-    if (storage == captureStorage
-        && isFinal.test(block)
-        && isSingleBlockPersist(blockHeader)
-        && extendsCoverage(blockHeader)) {
-      trieNodeWriter.beginBlock(transaction, blockHeader);
-      capturedBlocks.put(transaction, priorNodes());
+    if (storage != captureStorage || !isSingleBlockPersist(blockHeader)) {
+      return;
     }
+    final long block = blockHeader.getNumber();
+    final Optional<ArchivedBlock> last = historyStore.getArchivedBlock();
+    final boolean extendsCoverage = extendsCoverage(blockHeader, last);
+    if (!isFinal.test(block)) {
+      // only the block right after coverage gets here, so this logs once each time capture stops
+      if (extendsCoverage) {
+        LOG.info(
+            "Stopped capturing trie nodes: block {} ({}) is not final yet, so proof history ends at"
+                + " block {}",
+            block,
+            blockHeader.getBlockHash(),
+            block - 1);
+      }
+      return;
+    }
+    if (!extendsCoverage) {
+      last.filter(l -> block > l.number()).ifPresent(l -> logSkippedBlock(blockHeader, l));
+      return;
+    }
+    trieNodeWriter.beginBlock(transaction, blockHeader);
+    capturedBlocks.put(transaction, priorNodes());
   }
 
   private boolean isSingleBlockPersist(final BlockHeader blockHeader) {
@@ -195,20 +214,13 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
         : persisted.isPresent() && persisted.get().equals(blockHeader.getParentHash().getBytes());
   }
 
-  private boolean extendsCoverage(final BlockHeader blockHeader) {
-    final long block = blockHeader.getNumber();
-    final Optional<ArchivedBlock> current = historyStore.getArchivedBlock();
-    if (current.isEmpty()) {
-      return block == 0L;
-    }
-    final ArchivedBlock last = current.get();
-    if (block == last.number() + 1 && last.hash().equals(blockHeader.getParentHash())) {
-      return true;
-    }
-    if (block > last.number()) {
-      logSkippedBlock(blockHeader, last);
-    }
-    return false;
+  private boolean extendsCoverage(
+      final BlockHeader blockHeader, final Optional<ArchivedBlock> last) {
+    return last.map(
+            l ->
+                blockHeader.getNumber() == l.number() + 1
+                    && l.hash().equals(blockHeader.getParentHash()))
+        .orElse(blockHeader.getNumber() == 0L);
   }
 
   private void logSkippedBlock(final BlockHeader blockHeader, final ArchivedBlock last) {
