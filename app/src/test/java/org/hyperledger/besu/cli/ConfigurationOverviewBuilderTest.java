@@ -97,6 +97,16 @@ class ConfigurationOverviewBuilderTest {
   }
 
   @Test
+  void setMempoolPrewarmEnabled() {
+    final String notSet = builder.build();
+    assertThat(notSet).contains("Mempool prewarming disabled");
+
+    builder.setMempoolPrewarmEnabled(true);
+    final String enabled = builder.build();
+    assertThat(enabled).contains("Mempool prewarming enabled");
+  }
+
+  @Test
   void setSyncMinPeers() {
     final String noSyncMinPeersSet = builder.build();
     assertThat(noSyncMinPeersSet).doesNotContain("Sync min peers:");
