@@ -39,6 +39,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -47,6 +48,7 @@ import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -415,8 +417,8 @@ public class BesuPluginContextImplTest {
             "external.start",
             "builtIn.afterMainLoop",
             "external.afterMainLoop",
-            "builtIn.stop",
-            "external.stop");
+            "external.stop",
+            "builtIn.stop");
   }
 
   @Test
@@ -651,7 +653,7 @@ public class BesuPluginContextImplTest {
     context.startPlugins();
 
     assertThat(events)
-        .containsExactly("builtIn.stop", "external.stop", "builtIn.register", "external.register");
+        .containsExactly("external.stop", "builtIn.stop", "builtIn.register", "external.register");
     assertThat(context.getRegisteredPlugins()).containsExactly(builtIn, external);
   }
 
@@ -690,22 +692,45 @@ public class BesuPluginContextImplTest {
         contextWithBuiltIns(false, List.of(started, failing), external);
     register(context);
     assertThatThrownBy(context::startPlugins).hasMessageContaining("start failed");
+
+    // the failed start already stopped the one plugin whose start() returned
+    assertThat(events).containsExactly("started.start", "started.stop");
     events.clear();
 
-    // the next cycle: only the plugin whose start() returned is stopped, then the cycle proceeds
+    // the next cycle: nothing is left to stop, and the cycle proceeds
     context.stopPluginsForRestart();
-    assertThat(events).containsExactly("started.stop");
+    assertThat(events).isEmpty();
     failing.onStart = startContext -> events.add("failing.start");
     context.resetState();
     register(context);
     context.startPlugins();
 
-    assertThat(events)
-        .containsExactly("started.stop", "started.start", "failing.start", "external.start");
+    assertThat(events).containsExactly("started.start", "failing.start", "external.start");
   }
 
   @Test
-  void restartDoesNotStopAPluginDroppedAfterTheMainLoop() {
+  void restartStopsAPluginDroppedAfterTheMainLoop() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin dropped = new RecordingPlugin("dropped");
+    dropped.onAfterMainLoop =
+        context -> {
+          throw new RuntimeException("afterMainLoop failed");
+        };
+    dropped.onStop = () -> events.add("dropped.stop");
+    final BesuPluginContextImpl context = contextWithBuiltIns(true, List.of(), dropped);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+    assertThat(context.getRegisteredPlugins()).isEmpty();
+
+    // its start() returned, so a restart stops it like any started plugin
+    context.stopPluginsForRestart();
+
+    assertThat(events).containsExactly("dropped.stop");
+  }
+
+  @Test
+  void shutdownStopsAPluginDroppedAfterTheMainLoop() {
     final List<String> events = new ArrayList<>();
     final RecordingPlugin dropped = new RecordingPlugin("dropped");
     dropped.onAfterMainLoop =
@@ -718,9 +743,9 @@ public class BesuPluginContextImplTest {
     context.startPlugins();
     context.afterMainLoop();
 
-    context.stopPluginsForRestart();
+    context.stopPlugins();
 
-    assertThat(events).isEmpty();
+    assertThat(events).containsExactly("dropped.stop");
   }
 
   @Test
@@ -790,7 +815,7 @@ public class BesuPluginContextImplTest {
     // both started, so both are stopped: the failure came after their start() returned
     context.stopPluginsForRestart();
 
-    assertThat(events).containsExactly("builtIn.stop", "failing.stop");
+    assertThat(events).containsExactly("failing.stop", "builtIn.stop");
   }
 
   @Test
@@ -881,6 +906,233 @@ public class BesuPluginContextImplTest {
     context.afterMainLoop();
     context.stopPluginsForRestart();
     assertThat(events).containsExactly("builtIn.stop", "builtIn.stop");
+  }
+
+  @Test
+  void shutdownStopsThePluginsInTheReverseOfTheirStartOrder() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin first = new RecordingPlugin("first");
+    first.onStop = () -> events.add("first.stop");
+    final RecordingPlugin second = new RecordingPlugin("second");
+    second.onStop = () -> events.add("second.stop");
+    final RecordingPlugin third = new RecordingPlugin("third");
+    third.onStop = () -> events.add("third.stop");
+    final BesuPluginContextImpl context = contextReadyToRegister(false, first, second, third);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+
+    context.stopPlugins();
+
+    assertThat(events).containsExactly("third.stop", "second.stop", "first.stop");
+  }
+
+  @Test
+  void aFailedStartStopsThePluginsStartedBeforeItNewestFirst() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin first = new RecordingPlugin("first");
+    first.onStop = () -> events.add("first.stop");
+    final RecordingPlugin second = new RecordingPlugin("second");
+    second.onStop = () -> events.add("second.stop");
+    final RecordingPlugin failing = new RecordingPlugin("failing");
+    failing.onStart =
+        context -> {
+          throw new IllegalStateException("start failed");
+        };
+    failing.onStop = () -> events.add("failing.stop");
+    final RecordingPlugin never = new RecordingPlugin("never");
+    never.onStart = context -> events.add("never.start");
+    never.onStop = () -> events.add("never.stop");
+    final BesuPluginContextImpl context =
+        contextReadyToRegister(false, first, second, failing, never);
+    register(context);
+
+    assertThatThrownBy(context::startPlugins).hasMessageContaining("start failed");
+
+    assertThat(events).containsExactly("second.stop", "first.stop");
+  }
+
+  @Test
+  void shutdownIsANoOpBeforeAnyPluginStartedAndWhenCalledAgain() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin plugin = new RecordingPlugin("plugin");
+    plugin.onStop = () -> events.add("plugin.stop");
+    final BesuPluginContextImpl context = contextReadyToRegister(false, plugin);
+    register(context);
+
+    // nothing started: nothing to stop, and no complaint about the state
+    context.stopPlugins();
+    assertThat(events).isEmpty();
+
+    final BesuPluginContextImpl running = contextReadyToRegister(false, plugin);
+    register(running);
+    running.startPlugins();
+    running.afterMainLoop();
+
+    running.stopPlugins();
+    running.stopPlugins();
+
+    assertThat(events).containsExactly("plugin.stop");
+  }
+
+  @Test
+  void shutdownIsAcceptedBeforeThePluginsAreInitialized() {
+    final BesuPluginContextImpl context = new BesuPluginContextImpl();
+
+    context.stopPlugins();
+    context.closePluginClassLoader();
+  }
+
+  @Test
+  void anErrorFromOneStopDoesNotSkipTheRemainingPlugins() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin first = new RecordingPlugin("first");
+    first.onStop = () -> events.add("first.stop");
+    final RecordingPlugin failing = new RecordingPlugin("failing");
+    failing.onStop =
+        () -> {
+          throw new NoClassDefFoundError("gone/Missing");
+        };
+    final BesuPluginContextImpl context = contextReadyToRegister(false, first, failing);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+
+    // the failing plugin stops first, in reverse order, and its Error costs a log line only
+    context.stopPlugins();
+
+    assertThat(events).containsExactly("first.stop");
+  }
+
+  @Test
+  void anInterruptOfTheStoppingThreadCutsOneWaitShortAndIsHandedBackAfterTheRest()
+      throws Exception {
+    final List<String> events = new ArrayList<>();
+    final CountDownLatch blockedStopEntered = new CountDownLatch(1);
+    final CountDownLatch blockedStopInterrupted = new CountDownLatch(1);
+    final RecordingPlugin first = new RecordingPlugin("first");
+    first.onStop =
+        () -> {
+          try {
+            Thread.sleep(200);
+            events.add("first.stop");
+          } catch (final InterruptedException e) {
+            events.add("first.interrupted");
+          }
+        };
+    final RecordingPlugin blocked = new RecordingPlugin("blocked");
+    blocked.onStop =
+        () -> {
+          blockedStopEntered.countDown();
+          try {
+            new CountDownLatch(1).await();
+          } catch (final InterruptedException e) {
+            blockedStopInterrupted.countDown();
+          }
+        };
+    final BesuPluginContextImpl context = contextReadyToRegister(false, first, blocked);
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+    final AtomicBoolean interruptedAfterwards = new AtomicBoolean();
+    final Thread stopping =
+        new Thread(
+            () -> {
+              context.stopPlugins();
+              interruptedAfterwards.set(Thread.currentThread().isInterrupted());
+            });
+
+    stopping.start();
+    assertThat(blockedStopEntered.await(10, TimeUnit.SECONDS)).isTrue();
+    // blocked stops first, in reverse order, and never returns: the stopping thread is interrupted
+    // while it waits for it
+    stopping.interrupt();
+    stopping.join(TimeUnit.SECONDS.toMillis(10));
+
+    // the interrupt ends the wait for blocked only; first still gets its own full wait, and the
+    // interrupt is handed back to the caller once the loop is done
+    assertThat(stopping.isAlive()).isFalse();
+    assertThat(blockedStopInterrupted.await(10, TimeUnit.SECONDS)).isTrue();
+    assertThat(events).containsExactly("first.stop");
+    assertThat(interruptedAfterwards).isTrue();
+  }
+
+  @Test
+  void aStopThatExceedsTheTimeoutIsAbandonedAndTheNextPluginIsStopped() throws Exception {
+    final List<String> events = new ArrayList<>();
+    final CountDownLatch release = new CountDownLatch(1);
+    final RecordingPlugin first = new RecordingPlugin("first");
+    first.onStop = () -> events.add("first.stop");
+    final RecordingPlugin hanging = new RecordingPlugin("hanging");
+    hanging.onStop =
+        () -> {
+          try {
+            release.await();
+            events.add("hanging.stop.released");
+          } catch (final InterruptedException e) {
+            events.add("hanging.stop.interrupted");
+          }
+        };
+    final BesuPluginContextImpl context = contextReadyToRegister(false, first, hanging);
+    context.setStopTimeout(Duration.ofMillis(200));
+    register(context);
+    context.startPlugins();
+    context.afterMainLoop();
+
+    context.stopPlugins();
+
+    // the hanging stop was interrupted and left behind; the plugin before it was still stopped
+    assertThat(events).contains("first.stop");
+    assertThat(events).doesNotContain("hanging.stop.released");
+    release.countDown();
+  }
+
+  @Test
+  void aShutdownDuringTheStartLoopStopsWhatStartedAndStartsNothingMore() throws Exception {
+    final List<String> events = new ArrayList<>();
+    final CountDownLatch startEntered = new CountDownLatch(1);
+    final CountDownLatch startMayReturn = new CountDownLatch(1);
+    final RecordingPlugin first = new RecordingPlugin("first");
+    first.onStart = context -> events.add("first.start");
+    first.onStop = () -> events.add("first.stop");
+    final RecordingPlugin slow = new RecordingPlugin("slow");
+    slow.onStart =
+        context -> {
+          events.add("slow.start");
+          startEntered.countDown();
+          try {
+            startMayReturn.await();
+          } catch (final InterruptedException e) {
+            throw new IllegalStateException(e);
+          }
+        };
+    slow.onStop = () -> events.add("slow.stop");
+    final RecordingPlugin never = new RecordingPlugin("never");
+    never.onStart = context -> events.add("never.start");
+    never.onStop = () -> events.add("never.stop");
+    final BesuPluginContextImpl context = contextReadyToRegister(false, first, slow, never);
+    register(context);
+    final ExecutorService startup = Executors.newSingleThreadExecutor();
+    try {
+      final Future<?> starting = startup.submit(context::startPlugins);
+      assertThat(startEntered.await(10, TimeUnit.SECONDS)).isTrue();
+
+      // the hook fires while slow.start() is still running: it stops first, which had started
+      context.stopPlugins();
+      startMayReturn.countDown();
+      // the startup is abandoned, so the caller starts nothing else while the hook closes the node
+      assertThatThrownBy(() -> starting.get(10, TimeUnit.SECONDS))
+          .isInstanceOf(ExecutionException.class)
+          .cause()
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("Shutdown requested while the plugins were starting");
+    } finally {
+      startup.shutdownNow();
+    }
+
+    // slow returned after the hook took the list, so the start loop stopped it itself; never
+    // was not started
+    assertThat(events).containsExactly("first.start", "slow.start", "first.stop", "slow.stop");
   }
 
   @Test
