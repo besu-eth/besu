@@ -1160,6 +1160,42 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("A late chain continuing a known chain ends at the maximum chain length too")
+    void lateChainAfterAKnownChainEndsAtTheMaximumLength() {
+      final int cap = OptimisticConcurrentTransactionProcessor.MAX_CHAIN_LENGTH;
+      final List<Transaction> transactions = new ArrayList<>();
+      for (int i = 0; i < cap - 2; i++) {
+        transactions.add(mockTransactionFrom(sender));
+      }
+      for (int i = cap - 2; i < cap + 2; i++) {
+        transactions.add(mockTransactionOfUnknownSender(sender));
+      }
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(transactions, tasks::add);
+      // the recovery, the known chain and the unknown ones alone, then the late chain
+      List.copyOf(tasks).forEach(Runnable::run);
+      assertThat(tasks).hasSize(1 + 1 + 4 + 1);
+      tasks.getLast().run();
+
+      verify(transactionProcessor, times(2))
+          .processTransaction(
+              any(),
+              any(),
+              eq(transactions.get(cap - 1)),
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+              any());
+      verify(transactionProcessor, times(1))
+          .processTransaction(
+              any(), any(), eq(transactions.get(cap)), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("The later members of a chain are warmed up against the parent state meanwhile")
     void laterChainMembersAreWarmedUp() {
       final List<Runnable> warmUps = new ArrayList<>();
