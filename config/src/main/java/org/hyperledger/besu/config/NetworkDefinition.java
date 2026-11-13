@@ -29,7 +29,8 @@ public enum NetworkDefinition {
       1, // network id
       true, // can snap sync
       true, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      true), // mempool prewarming on by default
   /** Sepolia network name. */
   SEPOLIA(
       "/sepolia.json",
@@ -37,7 +38,8 @@ public enum NetworkDefinition {
       11155111, // network id
       true, // can snap sync
       true, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      true), // mempool prewarming on by default
   /** Hoodi network name. */
   HOODI(
       "/hoodi.json",
@@ -45,7 +47,8 @@ public enum NetworkDefinition {
       560048, // network id
       true, // can snap sync
       true, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      true), // mempool prewarming on by default
   /**
    * EPHEMERY network name. The actual networkId used is calculated based on this default value and
    * the current time. <a href="https://ephemery.dev/">Ephemery developer info</a>
@@ -56,7 +59,8 @@ public enum NetworkDefinition {
       39438135, // network id
       true, // can snap sync
       true, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      true), // mempool prewarming on by default
   /**
    * Linea mainnet network name <a
    * href="https://docs.linea.build/get-started/how-to/run-a-node/besu">Linea Besu developer
@@ -68,7 +72,8 @@ public enum NetworkDefinition {
       59144, // network id
       true, // can snap sync
       true, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      false), // mempool prewarming on by default
   /** Linea sepolia network name */
   LINEA_SEPOLIA(
       "/linea-sepolia.json",
@@ -76,7 +81,8 @@ public enum NetworkDefinition {
       59141, // network id
       true, // can snap sync
       true, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      false), // mempool prewarming on by default
   /** LUKSO mainnet network name. */
   LUKSO(
       "/lukso.json",
@@ -84,7 +90,8 @@ public enum NetworkDefinition {
       42, // network id
       true, // can snap sync
       false, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      false), // mempool prewarming on by default
   /** Dev network name. */
   DEV(
       "/dev.json",
@@ -93,6 +100,7 @@ public enum NetworkDefinition {
       false, // can snap sync
       false, // native required
       60_000_000L, // target gas limit
+      false, // mempool prewarming on by default
       "2026-12-31",
       "--network=dev is no longer supported and Besu will not start.\n"
           + "PoW mining has been removed; this network cannot produce blocks.\n"
@@ -107,7 +115,8 @@ public enum NetworkDefinition {
       2022, // network id
       false, // can snap sync
       false, // native required
-      60_000_000L), // target gas limit
+      60_000_000L, // target gas limit
+      false), // mempool prewarming on by default
   /** Experimental EIPs network name. */
   EXPERIMENTAL_EIPS(
       "/experimental.json",
@@ -115,7 +124,8 @@ public enum NetworkDefinition {
       2023, // network id
       false, // can snap sync
       false, // native required
-      60_000_000L); // target gas limit
+      60_000_000L, // target gas limit
+      false); // mempool prewarming on by default
 
   private final String genesisFile;
   private final long chainId;
@@ -126,6 +136,7 @@ public enum NetworkDefinition {
   private final boolean removed;
   private final boolean nativeRequired;
   private final long targetGasLimit;
+  private final boolean mempoolPrewarmEnabledByDefault;
 
   NetworkDefinition(
       final String genesisFile,
@@ -133,7 +144,8 @@ public enum NetworkDefinition {
       final long networkId,
       final boolean canSnapSync,
       final boolean nativeRequired,
-      final long targetGasLimit) {
+      final long targetGasLimit,
+      final boolean mempoolPrewarmEnabledByDefault) {
     this(
         genesisFile,
         chainId,
@@ -141,6 +153,7 @@ public enum NetworkDefinition {
         canSnapSync,
         nativeRequired,
         targetGasLimit,
+        mempoolPrewarmEnabledByDefault,
         null,
         null,
         false);
@@ -153,6 +166,7 @@ public enum NetworkDefinition {
       final boolean canSnapSync,
       final boolean nativeRequired,
       final long targetGasLimit,
+      final boolean mempoolPrewarmEnabledByDefault,
       final @Nullable String deprecationDate,
       final @Nullable String deprecationMessage,
       final boolean removed) {
@@ -162,6 +176,7 @@ public enum NetworkDefinition {
     this.canSnapSync = canSnapSync;
     this.nativeRequired = nativeRequired;
     this.targetGasLimit = targetGasLimit;
+    this.mempoolPrewarmEnabledByDefault = mempoolPrewarmEnabledByDefault;
     this.deprecationDate = deprecationDate;
     this.deprecationMessage = deprecationMessage;
     this.removed = removed;
@@ -270,6 +285,16 @@ public enum NetworkDefinition {
    */
   public long getTargetGasLimit() {
     return targetGasLimit;
+  }
+
+  /**
+   * Whether mempool prewarming is on by default for this network. It is on where it was measured,
+   * mainnet and Sepolia, and on the other public Ethereum testnets.
+   *
+   * @return {@code true} if mempool prewarming is on by default
+   */
+  public boolean isMempoolPrewarmEnabledByDefault() {
+    return mempoolPrewarmEnabledByDefault;
   }
 
   /**

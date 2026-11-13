@@ -20,10 +20,10 @@ import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,7 +34,7 @@ public class AccessListTransactionEncoder {
   public static void encode(final Transaction transaction, final RLPOutput rlpOutput) {
     rlpOutput.startList();
     encodeAccessListInner(
-        transaction.getChainId(),
+        transaction.getChainIdentifier(),
         transaction.getNonce(),
         transaction.getGasPrice().orElseThrow(),
         transaction.getGasLimit(),
@@ -54,7 +54,7 @@ public class AccessListTransactionEncoder {
   }
 
   public static void encodeAccessListInner(
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final long nonce,
       final Wei gasPrice,
       final long gasLimit,
@@ -63,7 +63,7 @@ public class AccessListTransactionEncoder {
       final Bytes payload,
       final List<AccessListEntry> accessList,
       final RLPOutput rlpOutput) {
-    rlpOutput.writeBigIntegerScalar(chainId.orElseThrow());
+    chainId.writeTo(rlpOutput);
     rlpOutput.writeLongScalar(nonce);
     rlpOutput.writeUInt256Scalar(gasPrice);
     rlpOutput.writeLongScalar(gasLimit);

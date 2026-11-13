@@ -20,12 +20,14 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.isNotNull;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.cli.CommandTestAbstract;
 import org.hyperledger.besu.controller.BesuController;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.util.BesuVersionUtils;
 
 import java.io.File;
@@ -39,6 +41,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 import picocli.CommandLine.Model.CommandSpec;
 
@@ -233,6 +236,28 @@ public class BlocksSubCommandTest extends CommandTestAbstract {
         .importBlockchain(pathArgumentCaptor.capture(), any(), anyBoolean(), anyLong(), anyLong());
 
     assertThat(pathArgumentCaptor.getValue()).isEqualByComparingTo(fileToImport.toPath());
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void blocksImportWithRunStartsTheNodeWithMempoolPrewarmingOnMainnet(
+      final @TempDir File fileToImport) {
+    parseCommand(
+        BLOCK_SUBCOMMAND_NAME,
+        BLOCK_IMPORT_SUBCOMMAND_NAME,
+        "--format",
+        "RLP",
+        "--from",
+        fileToImport.getPath(),
+        "--run");
+
+    final ArgumentCaptor<MiningConfiguration> miningArg =
+        ArgumentCaptor.forClass(MiningConfiguration.class);
+    verify(mockControllerBuilder, atLeastOnce()).miningParameters(miningArg.capture());
+    // the last controller built is the node that --run starts
+    assertThat(miningArg.getValue().isMempoolPrewarmEnabled()).isTrue();
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();

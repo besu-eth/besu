@@ -53,6 +53,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
 import org.hyperledger.besu.cli.config.NativeRequirement;
@@ -69,6 +70,7 @@ import org.hyperledger.besu.ethereum.api.graphql.GraphQLConfiguration;
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
@@ -284,6 +286,22 @@ public class BesuCommandTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void nodeDoesNotStartIfTheNetworkChainIdIsAlreadyRegistered() {
+    // like a plugin registering it before the node does
+    when(mockControllerBuilder.build())
+        .thenAnswer(
+            invocation -> {
+              ChainId.initNetworkChainId(ChainId.of(1));
+              return mockController;
+            });
+
+    parseCommand();
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Network chain id already initialized to 1");
   }
 
   @Test
@@ -1561,7 +1579,7 @@ public class BesuCommandTest extends CommandTestAbstract {
 
   @Test
   public void balPrefetchReadingDisabledDoesNotForceBonsaiCrossBlockCache() {
-    parseCommand("--Xbal-prefetch-reading-enabled=false");
+    parseCommand("--Xbal-prefetch-reading-enabled=false", "--mempool-prewarm-enabled=false");
     verify(mockControllerBuilder)
         .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
 
@@ -1578,8 +1596,32 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void mempoolPrewarmingAutoEnablesBonsaiCrossBlockCache() {
-    parseCommand("--Xbal-prefetch-reading-enabled=false", "--Xmempool-prewarm-enabled=true");
+  public void mempoolPrewarmingOnByDefaultAutoEnablesBonsaiCrossBlockCache() {
+    parseCommand("--Xbal-prefetch-reading-enabled=false");
+    verify(mockControllerBuilder)
+        .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
+
+    final DataStorageConfiguration dataStorageConfiguration =
+        dataStorageConfigurationArgumentCaptor.getValue();
+    assertThat(
+            dataStorageConfiguration
+                .getExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiCrossBlockCacheEnabled())
+        .isTrue();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void mempoolPrewarmingEnabledWithGenesisFileAutoEnablesBonsaiCrossBlockCache()
+      throws IOException {
+    final Path genesisFile = createFakeGenesisFile(GENESIS_VALID_JSON);
+    parseCommand(
+        "--genesis-file",
+        genesisFile.toString(),
+        "--Xbal-prefetch-reading-enabled=false",
+        "--mempool-prewarm-enabled");
     verify(mockControllerBuilder)
         .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
 
