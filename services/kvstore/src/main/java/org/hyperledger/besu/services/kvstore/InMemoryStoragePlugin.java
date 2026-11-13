@@ -60,11 +60,9 @@ public class InMemoryStoragePlugin implements BesuPlugin {
   @Override
   public void stop() {
     LOG.debug("Stopping plugin.");
-
-    if (factory != null) {
-      factory.close();
-      factory = null;
-    }
+    // Besu closes the storages it opened through the factory, after the plugins have stopped; the
+    // plugin only lets go of the factory, so that register() creates a fresh one on a restart
+    factory = null;
   }
 
   private void createAndRegister(final StorageService service) {

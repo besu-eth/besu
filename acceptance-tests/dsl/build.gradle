@@ -33,6 +33,7 @@ dependencies {
   implementation project(':ethereum:rlp')
   implementation project(':metrics:core')
   implementation project(':plugin-api')
+  implementation project(':plugins:health')
   implementation project(':plugins:rocksdb')
   implementation project(':services:kvstore')
   implementation project(':testutil')

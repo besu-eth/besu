@@ -19,7 +19,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.config.NetworkDefinition.EPHEMERY;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.calls;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -83,6 +88,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -96,6 +102,8 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,6 +112,15 @@ import org.slf4j.LoggerFactory;
 @ExtendWith(MockitoExtension.class)
 public class EphemeryTest extends CommandTestAbstract {
   private static final Logger LOG = LoggerFactory.getLogger(EphemeryTest.class);
+
+  // the real context, so the restart runs the built-ins through the real stop, register and start
+  // loops; the per-phase contexts the plugins see stay the fakes of the base class
+  @Spy private BesuPluginContextImpl besuPluginContextSpy;
+
+  @Override
+  protected BesuPluginContextImpl getBesuPluginContext() {
+    return besuPluginContextSpy;
+  }
 
   private TestBesuCommand besuCommand;
   private Runner runner;
@@ -261,8 +278,44 @@ public class EphemeryTest extends CommandTestAbstract {
   }
 
   @Test
+  public void testRestartStopsThePluginsBeforeStartingThemAgain() throws Exception {
+    runner.stopEphemery(besuCommand);
+    runner.startEphemery(besuCommand);
+
+    // the built-in readiness check subscribes its sync listener in start() and removes it in
+    // stop(): the first cycle's subscription is removed before the second cycle subscribes
+    final InOrder inOrder = inOrder(besuEvents);
+    inOrder.verify(besuEvents, calls(1)).addSyncStatusListener(any());
+    inOrder.verify(besuEvents).removeSyncStatusListener(anyLong());
+    inOrder.verify(besuEvents).addSyncStatusListener(any());
+    verify(besuEvents, times(2)).addSyncStatusListener(any());
+  }
+
+  @Test
+  public void testRestartStopsThePluginsBeforeTheServices() throws Exception {
+    // the built-in readiness check removes its sync listener in stop(): the network is still up
+    // at that moment, as on a shutdown, where the plugins stop before the runner closes
+    final AtomicBoolean networkUpWhenPluginsStopped = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              networkUpWhenPluginsStopped.set(!runner.getP2PNetwork().isStopped());
+              return null;
+            })
+        .when(besuEvents)
+        .removeSyncStatusListener(anyLong());
+
+    runner.stopEphemery(besuCommand);
+
+    verify(besuEvents).removeSyncStatusListener(anyLong());
+    assertThat(networkUpWhenPluginsStopped).isTrue();
+    assertThat(runner.getP2PNetwork().isStopped()).isTrue();
+  }
+
+  @Test
   public void testInitialProcessWithEphemeryNetwork() throws Exception {
     runner.stopEphemery(besuCommand);
+    // what startEphemery() does before initialProcess(): the plugins register again for the cycle
+    besuCommand.reRegisterPlugins();
     besuCommand.initialProcess();
 
     assertThat(besuCommand.dataPath.toString()).contains(ephemeryDataPathPrefix);
