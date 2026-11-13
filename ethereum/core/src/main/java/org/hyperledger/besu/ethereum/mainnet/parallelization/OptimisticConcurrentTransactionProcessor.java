@@ -348,10 +348,14 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         });
   }
 
-  /** The chain of a sender's transactions from the given one on, at most the maximum length. */
+  /**
+   * The chain of a sender's transactions from the given one on. It ends at the sender's transaction
+   * of the maximum length wherever it starts, as a chain starting later continues from the result
+   * of the transactions before it.
+   */
   private static List<Integer> capped(final List<Integer> transactionsOfSender, final int from) {
     return transactionsOfSender.subList(
-        from, Math.min(transactionsOfSender.size(), from + MAX_CHAIN_LENGTH));
+        from, Math.max(from, Math.min(transactionsOfSender.size(), MAX_CHAIN_LENGTH)));
   }
 
   private static void recoverSender(final Transaction transaction) {
