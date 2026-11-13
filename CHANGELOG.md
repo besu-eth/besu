@@ -27,6 +27,7 @@
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
 - `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated (since 26.8.1) and will be removed in a future release; the flag is now a silent no-op.
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
+- JSON-RPC methods will reject a malformed address parameter with `Invalid params` (`-32602`). An address must be `0x` or `0X` followed by exactly 40 hex digits. Today a shorter value is left-padded with zeros, so a call can read or act on a different account than intended. This also applies to the account keys of state overrides in `eth_call`, `eth_estimateGas` and `eth_simulateV1`. Clients that send short or unprefixed addresses should send the full 20-byte address. [#11888](https://github.com/besu-eth/besu/pull/11888)
 
 ### Bug fixes
 - `evmtool t8n` and `b11r` report a missing, `null` or empty required input (`alloc` or `env` for `t8n`, `header` for `b11r`) as a usage error naming the `--input` option, instead of failing with a `NullPointerException`. `b11r` also accepts an empty stdin when the header comes from a file. [#11938](https://github.com/besu-eth/besu/pull/11938)
