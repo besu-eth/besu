@@ -618,15 +618,33 @@ public class MessageFrame {
   }
 
   /**
-   * As {@link #readMutableMemory(long, long, boolean)} for a memory opcode, recording the read only
-   * for a tracer that traces operations.
+   * Reads one 256-bit word directly into a v2 stack slot, recording the memory read for operation
+   * tracers only when required.
    *
-   * @param offset The offset in memory
-   * @param length The length of the bytes to read
-   * @return The bytes in the specified range
+   * @param location the memory byte offset
+   * @param stack the v2 operand stack
+   * @param slot the destination 256-bit stack slot index
    */
-  public MutableBytes readMutableMemoryV2(final long offset, final long length) {
-    return readMutableMemory(offset, length, recordsUpdatesForTracerV2);
+  public void readMemoryWordV2(final long location, final long[] stack, final int slot) {
+    memory.readWordV2(location, stack, slot << 2);
+    if (recordsUpdatesForTracerV2) {
+      setUpdatedMemory(location, memory.getBytes(location, Bytes32.SIZE));
+    }
+  }
+
+  /**
+   * Writes one 256-bit v2 stack slot directly to memory, recording the stored bytes for tracers
+   * only when required.
+   *
+   * @param location the memory byte offset
+   * @param stack the v2 operand stack
+   * @param slot the source 256-bit stack slot index
+   */
+  public void writeMemoryWordV2(final long location, final long[] stack, final int slot) {
+    memory.writeWordV2(location, stack, slot << 2);
+    if (recordsUpdatesForTracerV2) {
+      setUpdatedMemory(location, memory.getBytes(location, Bytes32.SIZE));
+    }
   }
 
   /**
@@ -650,18 +668,6 @@ public class MessageFrame {
    */
   public void writeMemoryV2(final long offset, final long length, final Bytes value) {
     writeMemory(offset, length, value, recordsUpdatesForTracerV2);
-  }
-
-  /**
-   * As {@link #writeMemoryRightAligned(long, long, Bytes, boolean)} for a memory opcode, recording
-   * the update only for a tracer that traces operations.
-   *
-   * @param offset The offset in memory
-   * @param length The length of the bytes to write
-   * @param value The value to write
-   */
-  public void writeMemoryRightAlignedV2(final long offset, final long length, final Bytes value) {
-    writeMemoryRightAligned(offset, length, value, recordsUpdatesForTracerV2);
   }
 
   /**
@@ -938,10 +944,10 @@ public class MessageFrame {
 
   private void setUpdatedMemory(
       final long offset, final long sourceOffset, final long length, final Bytes value) {
-    final long endIndex = sourceOffset + length;
-    if (sourceOffset >= 0 && endIndex > 0) {
+    if (sourceOffset >= 0 && length > 0) {
       final int srcSize = value.size();
-      if (endIndex > srcSize) {
+      // sourceOffset + length can overflow, as the source offset is clamped to Long.MAX_VALUE
+      if (sourceOffset >= srcSize || length > srcSize - sourceOffset) {
         final MutableBytes paddedAnswer = MutableBytes.create((int) length);
         if (sourceOffset < srcSize) {
           value.slice((int) sourceOffset, (int) (srcSize - sourceOffset)).copyTo(paddedAnswer, 0);

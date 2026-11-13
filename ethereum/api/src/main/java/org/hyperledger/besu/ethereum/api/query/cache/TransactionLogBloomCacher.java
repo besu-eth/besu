@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
@@ -130,6 +131,8 @@ public class TransactionLogBloomCacher {
                           blockHeader, Optional.empty(), Optional.of(cacheFile)));
           fillCacheFile(blockNum, blockNum + BLOCKS_PER_BLOOM_CACHE, cacheFile);
         }
+      } catch (final InterruptedIOException e) {
+        LOG.debug("Transaction log bloom caching stopped: {}", e.getMessage());
       } catch (final Exception e) {
         LOG.error("Unhandled caching exception", e);
       } finally {
@@ -146,6 +149,10 @@ public class TransactionLogBloomCacher {
     long blockNum = startBlock;
     try (final OutputStream out = new FileOutputStream(currentFile)) {
       while (blockNum < stopBlock) {
+        // EthScheduler.stop() interrupts this thread, and the storage is closed right after it
+        if (Thread.currentThread().isInterrupted()) {
+          throw new InterruptedIOException("interrupted at block " + blockNum);
+        }
         final Optional<BlockHeader> maybeHeader = blockchain.getBlockHeader(blockNum);
         if (maybeHeader.isEmpty()) {
           break;
@@ -255,6 +262,8 @@ public class TransactionLogBloomCacher {
           StandardCopyOption.REPLACE_EXISTING,
           StandardCopyOption.ATOMIC_MOVE);
       return true;
+    } catch (final InterruptedIOException e) {
+      LOG.debug("Transaction log bloom caching stopped: {}", e.getMessage());
     } catch (final IOException e) {
       if (isDiskFull(e)) {
         LOG.error(e.getMessage());
@@ -339,7 +348,7 @@ public class TransactionLogBloomCacher {
               scheduler.scheduleComputationTask(
                   () -> {
                     long currentSegment = (blockNumber / BLOCKS_PER_BLOOM_CACHE) - 1;
-                    while (currentSegment >= 0) {
+                    while (currentSegment >= 0 && !Thread.currentThread().isInterrupted()) {
                       try {
                         if (overrideCacheCheck
                             || !cachedSegments.getOrDefault(currentSegment, false)) {
