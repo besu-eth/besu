@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.RejectedParametersException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
@@ -152,7 +153,12 @@ public class EthCall extends AbstractBlockParameterOrBlockHashMethod {
 
   @Override
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
-    return (JsonRpcResponse) handleParamTypes(requestContext);
+    try {
+      return (JsonRpcResponse) handleParamTypes(requestContext);
+    } catch (final RejectedParametersException e) {
+      return errorResponse(
+          requestContext, new JsonRpcError(e.getRpcErrorType().getCode(), e.getMessage(), null));
+    }
   }
 
   private JsonRpcErrorResponse errorResponse(

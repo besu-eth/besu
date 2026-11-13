@@ -15,7 +15,9 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.RejectedParametersException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -99,7 +101,14 @@ public abstract class AbstractBlockParameterMethod implements JsonRpcMethod {
 
   @Override
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
-    Object response = findResultByParamType(requestContext);
+    final Object response;
+    try {
+      response = findResultByParamType(requestContext);
+    } catch (final RejectedParametersException e) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(),
+          new JsonRpcError(e.getRpcErrorType().getCode(), e.getMessage(), null));
+    }
 
     if (response instanceof JsonRpcErrorResponse jsonRpcErrorResponse) {
       return new JsonRpcErrorResponse(
