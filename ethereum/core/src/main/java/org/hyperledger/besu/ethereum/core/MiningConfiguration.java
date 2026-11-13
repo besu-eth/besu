@@ -47,6 +47,7 @@ public abstract class MiningConfiguration {
       PositiveNumber.fromInt(75);
   public static final PositiveNumber DEFAULT_PLUGIN_BLOCK_TXS_SELECTION_MAX_TIME =
       PositiveNumber.fromInt(50);
+  public static final boolean DEFAULT_MEMPOOL_PREWARM_ENABLED = false;
   public static final MiningConfiguration MINING_DISABLED =
       ImmutableMiningConfiguration.builder()
           .mutableInitValues(
@@ -162,6 +163,11 @@ public abstract class MiningConfiguration {
   @Value.Default
   public PositiveNumber getPluginBlockTxsSelectionMaxTime() {
     return DEFAULT_PLUGIN_BLOCK_TXS_SELECTION_MAX_TIME;
+  }
+
+  @Value.Default
+  public boolean isMempoolPrewarmEnabled() {
+    return DEFAULT_MEMPOOL_PREWARM_ENABLED;
   }
 
   @Value.Default
@@ -342,6 +348,9 @@ public abstract class MiningConfiguration {
     long DEFAULT_POS_BLOCK_CREATION_REPETITION_MIN_DURATION = Duration.ofMillis(500).toMillis();
     long DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS = 0L;
     Integer DEFAULT_POS_SLOT_DURATION_SECS = 12;
+    int DEFAULT_MEMPOOL_PREWARM_THREADS =
+        Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
+    int DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER = 4;
 
     MiningConfiguration.Unstable DEFAULT = ImmutableMiningConfiguration.Unstable.builder().build();
 
@@ -368,6 +377,16 @@ public abstract class MiningConfiguration {
     @Value.Default
     default long getPosBlockFinalizationTimeoutMs() {
       return DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS;
+    }
+
+    @Value.Default
+    default int getMempoolPrewarmThreads() {
+      return DEFAULT_MEMPOOL_PREWARM_THREADS;
+    }
+
+    @Value.Default
+    default int getMempoolPrewarmGasLimitMultiplier() {
+      return DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER;
     }
   }
 }

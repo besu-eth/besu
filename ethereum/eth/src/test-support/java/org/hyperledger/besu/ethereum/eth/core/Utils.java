@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.core;
 
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
@@ -28,9 +29,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 
-import java.math.BigInteger;
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -87,8 +86,7 @@ public class Utils {
     block.getBody().writeWrappedBodyTo(rlpOutput);
     final BytesValueRLPInput input = new BytesValueRLPInput(rlpOutput.encoded(), false);
     final SyncBlockBody syncBlockBody =
-        SyncBlockBody.readWrappedBodyFrom(
-            input, false, new DefaultProtocolSchedule(Optional.of(BigInteger.ONE)));
+        SyncBlockBody.readWrappedBodyFrom(input, false, new DefaultProtocolSchedule(ChainId.of(1)));
     return new SyncBlock(block.getHeader(), syncBlockBody);
   }
 
