@@ -59,6 +59,7 @@
 - `trace_rawTransaction` validates and executes the original signed transaction. Invalid signatures and empty EIP-7702 authorization lists are rejected. `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_sendRawTransaction`, `trace_call` and `trace_callMany` return `-32602` instead of `Internal error` (`-32603`) when they reject a transaction for an init code above the size limit or an up-front cost above 2^256, and `eth_sendRawTransaction` also does for an empty EIP-7702 authorization list. [#11395](https://github.com/besu-eth/besu/pull/11395)
 - A node stopped while importing a block no longer gets stuck after a restart, failing to process the next block because the parent world state is not available. [#11882](https://github.com/besu-eth/besu/pull/11882)
 - Shutting down while the log bloom cache is being generated no longer waits 30 seconds and logs two errors for every cache segment not generated yet. [#11931](https://github.com/besu-eth/besu/pull/11931)
+- `eth_getLogs` no longer misses the logs of a block that replaced a cached block in a reorg while the log bloom cache was being generated. [#11932](https://github.com/besu-eth/besu/pull/11932)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
