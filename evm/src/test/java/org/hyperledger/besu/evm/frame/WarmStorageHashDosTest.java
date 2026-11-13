@@ -24,12 +24,15 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.toy.ToyBlockValues;
 import org.hyperledger.besu.evm.toy.ToyWorld;
+import org.hyperledger.besu.evm.v2.worldstate.JournalAccountV2;
+import org.hyperledger.besu.evm.v2.worldstate.JournaledWorldUpdaterV2;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -131,6 +134,35 @@ class WarmStorageHashDosTest {
 
       for (final Bytes32 slot : slots) {
         assertThat(frame.getWarmedUpStorage().contains(Address.ZERO, slot)).isTrue();
+      }
+    }
+  }
+
+  static class JournalStorage {
+    @Test
+    void journalSlotsResistHashCollisionFlood() {
+      final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(new ToyWorld());
+      journal.createAccount(Address.ZERO);
+      final JournalAccountV2 account = (JournalAccountV2) journal.getAccount(Address.ZERO);
+      final List<UInt256> slots = new ArrayList<>(SLOT_COUNT);
+      for (int i = 0; i < SLOT_COUNT; i++) {
+        slots.add(UInt256.fromBytes(Eip2929Storage.collidingSlot(i)));
+      }
+
+      assertTimeoutPreemptively(
+          ofSeconds(10),
+          () -> {
+            for (final UInt256 slot : slots) {
+              account.warmUpStorage(slot);
+              account.setStorageValue(slot, UInt256.ONE);
+            }
+            for (final UInt256 slot : slots) {
+              account.getStorageValue(slot);
+            }
+          });
+
+      for (final UInt256 slot : slots) {
+        assertThat(account.warmUpStorage(slot)).isTrue();
       }
     }
   }

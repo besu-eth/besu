@@ -74,6 +74,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -205,6 +206,30 @@ class OptimisticTransactionProcessorUnitTest {
               eq(TransactionValidationParams.processingBlock()),
               eq(BLOB_GAS_PRICE),
               eq(Optional.empty()));
+    }
+
+    @Test
+    @DisplayName("Transactions run with a tracer that lets EVM v2 share a journal between frames")
+    void tracerAllowsTheJournal() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final ArgumentCaptor<OperationTracer> tracer = ArgumentCaptor.forClass(OperationTracer.class);
+      verify(transactionProcessor)
+          .processTransaction(
+              any(), any(), any(), any(), tracer.capture(), any(), any(), any(), any());
+      assertThat(tracer.getValue().allowsJournal()).isTrue();
     }
 
     @Test
