@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -178,6 +179,86 @@ public class SECP256K1Test {
 
     // The x-coordinate in the compressed point (bytes 1-32) should match the uncompressed result
     assertThat(compressed.slice(1, 32)).isEqualTo(xOnly);
+  }
+
+  @Test
+  public void nativeRecoveryMatchesJavaRecovery() {
+    assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
+    final SECP256K1 javaSecp256K1 = new SECP256K1();
+    javaSecp256K1.disableNative();
+
+    for (int i = 0; i < 100; i++) {
+      final KeyPair keyPair = secp256K1.generateKeyPair();
+      final Bytes32 dataHash = keccak256(Bytes.ofUnsignedInt(i));
+      final SECPSignature signature = secp256K1.sign(dataHash, keyPair);
+
+      assertThat(secp256K1.recoverPublicKeyFromSignature(dataHash, signature))
+          .contains(keyPair.getPublicKey())
+          .isEqualTo(javaSecp256K1.recoverPublicKeyFromSignature(dataHash, signature));
+    }
+  }
+
+  @Test
+  public void nativeRecoveryOfAnRThatIsNotACurvePointIsEmpty() {
+    assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
+    final Bytes32 dataHash = keccak256(Bytes.wrap("test".getBytes(UTF_8)));
+    // 5 is below the curve order, so the signature reaches the native call, but it is not the
+    // x-coordinate of a curve point
+    final SECPSignature signature =
+        new SECPSignature(BigInteger.valueOf(5), BigInteger.ONE, (byte) 0);
+
+    assertThat(secp256K1.recoverPublicKeyFromSignature(dataHash, signature)).isEmpty();
+  }
+
+  @Test
+  public void nativeRecoveryMatchesJavaRecoveryForEveryRecoveryId() {
+    assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
+    final SECP256K1 javaSecp256K1 = new SECP256K1();
+    javaSecp256K1.disableNative();
+    final Bytes32 dataHash = keccak256(Bytes.wrap("test".getBytes(UTF_8)));
+
+    // ids 2 and 3 use r + n as the x-coordinate; for some small r it is a curve point, for others
+    // not
+    int recoveredWithIdTwoOrThree = 0;
+    for (int r = 1; r <= 20; r++) {
+      for (byte recId = 0; recId <= 3; recId++) {
+        final SECPSignature signature =
+            new SECPSignature(BigInteger.valueOf(r), BigInteger.ONE, recId);
+        final Optional<SECPPublicKey> recovered =
+            secp256K1.recoverPublicKeyFromSignature(dataHash, signature);
+
+        assertThat(recovered)
+            .as("r = %d, recovery id %d", r, recId)
+            .isEqualTo(javaSecp256K1.recoverPublicKeyFromSignature(dataHash, signature));
+        if (recId >= 2 && recovered.isPresent()) {
+          recoveredWithIdTwoOrThree++;
+        }
+      }
+    }
+    assertThat(recoveredWithIdTwoOrThree).isPositive();
+  }
+
+  @Test
+  public void nativeNormaliseSignatureMatchesJava() {
+    assumeThat(secp256K1.isNativeJniEnabled()).isTrue();
+    final SECP256K1 javaSecp256K1 = new SECP256K1();
+    javaSecp256K1.disableNative();
+    final BigInteger n = secp256K1.getCurve().getN();
+
+    for (int i = 0; i < 20; i++) {
+      final KeyPair keyPair = secp256K1.generateKeyPair();
+      final Bytes32 dataHash = keccak256(Bytes.ofUnsignedInt(i));
+      final SECPSignature signature = secp256K1.sign(dataHash, keyPair);
+      final BigInteger highS = n.subtract(signature.getS());
+
+      assertThat(
+              secp256K1.normaliseSignature(
+                  signature.getR(), highS, keyPair.getPublicKey(), dataHash))
+          .isEqualTo(signature)
+          .isEqualTo(
+              javaSecp256K1.normaliseSignature(
+                  signature.getR(), highS, keyPair.getPublicKey(), dataHash));
+    }
   }
 
   @Test
