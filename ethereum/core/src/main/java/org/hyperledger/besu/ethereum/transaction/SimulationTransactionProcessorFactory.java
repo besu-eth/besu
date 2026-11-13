@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
-import org.hyperledger.besu.evm.processor.SimulationMessageCallProcessor;
 
 import java.util.Map;
 import java.util.Optional;
@@ -112,13 +111,14 @@ public class SimulationTransactionProcessorFactory {
     return MainnetTransactionProcessor.builder()
         .populateFrom(baseProcessor)
         .messageCallProcessor(
-            new SimulationMessageCallProcessor(
-                baseProcessor.getMessageCallProcessor(),
-                originalPrecompileRegistry ->
-                    overridePrecompileAddresses(
-                        originalPrecompileRegistry,
-                        precompileAddressOverrides,
-                        precompileCodeOverrides)))
+            baseProcessor
+                .getMessageCallProcessor()
+                .withPrecompiles(
+                    originalPrecompileRegistry ->
+                        overridePrecompileAddresses(
+                            originalPrecompileRegistry,
+                            precompileAddressOverrides,
+                            precompileCodeOverrides)))
         .build();
   }
 

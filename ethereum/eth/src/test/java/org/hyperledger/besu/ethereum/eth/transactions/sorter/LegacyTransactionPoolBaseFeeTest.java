@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.time.ZoneId;
@@ -45,7 +46,8 @@ public class LegacyTransactionPoolBaseFeeTest extends AbstractTransactionPoolTes
         TestClock.system(ZoneId.systemDefault()),
         metricsSystem,
         protocolContext.getBlockchain()::getChainHeadHeader,
-        transactionEventNotifier.newEmitter());
+        transactionEventNotifier.newEmitter(),
+        new DeterministicEthScheduler());
   }
 
   @Override

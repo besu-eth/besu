@@ -163,7 +163,7 @@ public class JsonRpcTestMethodsFactory {
   }
 
   public BigInteger getChainId() {
-    return protocolSchedule.getChainId().get();
+    return protocolSchedule.getChainId().toBigInteger();
   }
 
   public ProtocolSchedule getProtocolSchedule() {
