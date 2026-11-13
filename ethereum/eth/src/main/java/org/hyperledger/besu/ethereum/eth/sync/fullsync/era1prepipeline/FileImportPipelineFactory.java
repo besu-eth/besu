@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.fullsync.era1prepipeline;
 import org.hyperledger.besu.services.pipeline.Pipeline;
 
 /** A factory for constructing Pipeline objects handling file import */
-public interface FileImportPipelineFactory {
+public interface FileImportPipelineFactory extends AutoCloseable {
   /**
    * Creates a FileImportPipeline starting from the supplied currentHeadBlockNumber + 1
    *
@@ -25,4 +25,7 @@ public interface FileImportPipelineFactory {
    * @return a FileImportPipeline starting from the supplied currentHeadBlockNumber + 1
    */
   Pipeline<?> createFileImportPipelineForCurrentBlockNumber(final long currentHeadBlockNumber);
+
+  @Override
+  default void close() {}
 }

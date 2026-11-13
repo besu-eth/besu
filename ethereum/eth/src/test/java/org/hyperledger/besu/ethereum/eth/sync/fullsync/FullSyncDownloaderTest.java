@@ -15,6 +15,14 @@
 package org.hyperledger.besu.ethereum.eth.sync.fullsync;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -26,8 +34,10 @@ import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestBuilder;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
+import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.fullsync.era1prepipeline.FileImportChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -35,9 +45,13 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.io.IOException;
+import java.net.URI;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -91,6 +105,11 @@ public class FullSyncDownloaderTest {
   }
 
   private FullSyncDownloader downloader(final SynchronizerConfiguration syncConfig) {
+    return downloader(syncConfig, SyncTerminationCondition.never());
+  }
+
+  private FullSyncDownloader downloader(
+      final SynchronizerConfiguration syncConfig, final SyncTerminationCondition termination) {
     return new FullSyncDownloader(
         syncConfig,
         protocolSchedule,
@@ -98,9 +117,114 @@ public class FullSyncDownloaderTest {
         ethContext,
         syncState,
         metricsSystem,
-        SyncTerminationCondition.never(),
+        termination,
         null,
         SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+  }
+
+  @Test
+  void waitsForEreImportThenPropagatesNetworkSyncFailure() {
+    setupTest(DataStorageFormat.BONSAI);
+    final var fileFuture = new CompletableFuture<Void>();
+    final var networkFuture = new CompletableFuture<Void>();
+    final var network = mock(ChainDownloader.class);
+    when(network.start()).thenReturn(networkFuture);
+    try (var creation = mockStatic(FullSyncChainDownloader.class);
+        var imports =
+            mockConstruction(
+                FileImportChainDownloader.class,
+                (mock, context) -> when(mock.start()).thenReturn(fileFuture))) {
+      creation
+          .when(
+              () ->
+                  FullSyncChainDownloader.create(
+                      any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(network);
+      final var synchronizer =
+          downloader(
+              SynchronizerConfiguration.builder()
+                  .ereImportPrepipelineEnabled(true)
+                  .ereDataUri(URI.create("file:///unused/"))
+                  .build());
+      final var result = synchronizer.start();
+      assertThat(syncState.isInitialSyncPhaseDone()).isFalse();
+      assertThat(imports.constructed()).hasSize(1);
+      verify(network, never()).start();
+      fileFuture.complete(null);
+      assertThat(syncState.isInitialSyncPhaseDone()).isTrue();
+      verify(network).start();
+      assertThat(result).isNotDone();
+      networkFuture.completeExceptionally(new IOException("network sync failed"));
+      assertThatThrownBy(result::join).hasRootCauseMessage("network sync failed");
+      synchronizer.stop();
+      verify(imports.constructed().getFirst()).cancel();
+      verify(network).cancel();
+    }
+  }
+
+  @Test
+  void doesNotStartNetworkSyncWhenEreImportFails() {
+    setupTest(DataStorageFormat.BONSAI);
+    final var fileFuture = new CompletableFuture<Void>();
+    final var network = mock(ChainDownloader.class);
+    try (var creation = mockStatic(FullSyncChainDownloader.class);
+        var imports =
+            mockConstruction(
+                FileImportChainDownloader.class,
+                (mock, context) -> when(mock.start()).thenReturn(fileFuture))) {
+      creation
+          .when(
+              () ->
+                  FullSyncChainDownloader.create(
+                      any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(network);
+      final var result =
+          downloader(
+                  SynchronizerConfiguration.builder()
+                      .ereImportPrepipelineEnabled(true)
+                      .ereDataUri(URI.create("file:///unused/"))
+                      .build())
+              .start();
+      fileFuture.completeExceptionally(new IOException("archive import failed"));
+      assertThatThrownBy(result::join).hasRootCauseMessage("archive import failed");
+      verify(network, never()).start();
+      assertThat(imports.constructed()).hasSize(1);
+      assertThat(syncState.isInitialSyncPhaseDone()).isFalse();
+    }
+  }
+
+  @Test
+  void completesEreImportAfterTerminalDifficultyWithoutStartingNetworkDownload() {
+    setupTest(DataStorageFormat.BONSAI);
+    final var fileFuture = new CompletableFuture<Void>();
+    final var network = mock(ChainDownloader.class);
+    try (var creation = mockStatic(FullSyncChainDownloader.class);
+        var imports =
+            mockConstruction(
+                FileImportChainDownloader.class,
+                (mock, context) -> when(mock.start()).thenReturn(fileFuture))) {
+      creation
+          .when(
+              () ->
+                  FullSyncChainDownloader.create(
+                      any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(network);
+      final var result =
+          downloader(
+                  SynchronizerConfiguration.builder()
+                      .ereImportPrepipelineEnabled(true)
+                      .ereDataUri(URI.create("file:///unused/"))
+                      .build(),
+                  () -> true)
+              .start();
+      assertThat(imports.constructed()).hasSize(1);
+      assertThat(syncState.isInitialSyncPhaseDone()).isFalse();
+      assertThat(result).isNotDone();
+      fileFuture.complete(null);
+      assertThat(result).isCompleted();
+      assertThat(syncState.isInitialSyncPhaseDone()).isTrue();
+      verify(network, never()).start();
+    }
   }
 
   @ParameterizedTest

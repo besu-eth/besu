@@ -37,16 +37,32 @@ public class FullImportBlockStep implements Consumer<Block> {
   private long gasAccumulator = 0;
   private long lastReportMillis = 0;
   private final SyncTerminationCondition fullSyncTerminationCondition;
+  private final HeaderValidationMode headerValidationMode;
 
   public FullImportBlockStep(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final EthContext ethContext,
       final SyncTerminationCondition syncTerminationCondition) {
+    this(
+        protocolSchedule,
+        protocolContext,
+        ethContext,
+        syncTerminationCondition,
+        HeaderValidationMode.SKIP_DETACHED);
+  }
+
+  public FullImportBlockStep(
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final EthContext ethContext,
+      final SyncTerminationCondition syncTerminationCondition,
+      final HeaderValidationMode headerValidationMode) {
     this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
     this.ethContext = ethContext;
     this.fullSyncTerminationCondition = syncTerminationCondition;
+    this.headerValidationMode = headerValidationMode;
   }
 
   @Override
@@ -60,7 +76,7 @@ public class FullImportBlockStep implements Consumer<Block> {
     final BlockImporter importer =
         protocolSchedule.getByBlockHeader(block.getHeader()).getBlockImporter();
     final BlockImportResult blockImportResult =
-        importer.importBlock(protocolContext, block, HeaderValidationMode.SKIP_DETACHED);
+        importer.importBlock(protocolContext, block, headerValidationMode);
     if (!blockImportResult.isImported()) {
       throw InvalidBlockException.fromInvalidBlock(block.getHeader());
     }

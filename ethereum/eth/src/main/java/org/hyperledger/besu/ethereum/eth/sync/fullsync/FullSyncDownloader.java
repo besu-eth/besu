@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.era1prepipeline.Era1ImportPrepipelineFactory;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.era1prepipeline.FileImportChainDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.fullsync.ereprepipeline.EreImportPrepipelineFactory;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -38,10 +39,11 @@ public class FullSyncDownloader {
 
   private static final Logger LOG = LoggerFactory.getLogger(FullSyncDownloader.class);
   private final ChainDownloader chainDownloader;
-  private final Optional<ChainDownloader> era1PrepipelineChainDownloader;
+  private final Optional<ChainDownloader> fileImportPrepipelineChainDownloader;
   private final SynchronizerConfiguration syncConfig;
   private final ProtocolContext protocolContext;
   private final SyncState syncState;
+  private final SyncTerminationCondition terminationCondition;
 
   public FullSyncDownloader(
       final SynchronizerConfiguration syncConfig,
@@ -56,9 +58,25 @@ public class FullSyncDownloader {
     this.syncConfig = syncConfig;
     this.protocolContext = protocolContext;
     this.syncState = syncState;
+    this.terminationCondition = terminationCondition;
 
-    if (syncConfig.getSyncMode() == SyncMode.FULL && syncConfig.era1ImportPrepipelineEnabled()) {
-      this.era1PrepipelineChainDownloader =
+    if (syncConfig.ereImportPrepipelineEnabled()) {
+      this.fileImportPrepipelineChainDownloader =
+          Optional.of(
+              new FileImportChainDownloader(
+                  new EreImportPrepipelineFactory(
+                      metricsSystem,
+                      syncConfig.ereDataUri().orElseThrow(),
+                      syncConfig.era1ImportPrepipelineConcurrency(),
+                      protocolSchedule,
+                      protocolContext,
+                      ethContext,
+                      terminationCondition),
+                  protocolContext.getBlockchain(),
+                  ethContext.getScheduler()));
+    } else if (syncConfig.getSyncMode() == SyncMode.FULL
+        && syncConfig.era1ImportPrepipelineEnabled()) {
+      this.fileImportPrepipelineChainDownloader =
           Optional.of(
               new FileImportChainDownloader(
                   new Era1ImportPrepipelineFactory(
@@ -72,7 +90,7 @@ public class FullSyncDownloader {
                   protocolContext.getBlockchain(),
                   ethContext.getScheduler()));
     } else {
-      this.era1PrepipelineChainDownloader = Optional.empty();
+      this.fileImportPrepipelineChainDownloader = Optional.empty();
     }
 
     this.chainDownloader =
@@ -89,14 +107,25 @@ public class FullSyncDownloader {
   }
 
   public CompletableFuture<Void> start() {
-    if (era1PrepipelineChainDownloader.isPresent()) {
+    if (fileImportPrepipelineChainDownloader.isPresent()) {
+      if (syncConfig.ereImportPrepipelineEnabled()) {
+        syncState.markInitialSyncRestart();
+      }
       LOG.info(
-          "Starting ERA1 file import prepipeline. Full sync will start after prepipeline completion");
-      CompletableFuture<Void> era1PipelineFuture = era1PrepipelineChainDownloader.get().start();
-      return era1PipelineFuture.thenAccept(
+          "Starting {} file import prepipeline. Full sync will start after prepipeline completion",
+          syncConfig.ereImportPrepipelineEnabled() ? "Ere" : "ERA1");
+      CompletableFuture<Void> pipelineFuture = fileImportPrepipelineChainDownloader.get().start();
+      return pipelineFuture.thenCompose(
           (v) -> {
+            if (syncConfig.ereImportPrepipelineEnabled()) {
+              syncState.markInitialSyncPhaseAsDone();
+              if (terminationCondition.shouldStopDownload()) {
+                LOG.info("Ere import complete; waiting for consensus-client forkchoice.");
+                return CompletableFuture.completedFuture(null);
+              }
+            }
             LOG.info("Starting full sync.");
-            chainDownloader.start();
+            return chainDownloader.start();
           });
 
     } else {
@@ -106,7 +135,7 @@ public class FullSyncDownloader {
   }
 
   public void stop() {
-    era1PrepipelineChainDownloader.ifPresent((p) -> p.cancel());
+    fileImportPrepipelineChainDownloader.ifPresent((p) -> p.cancel());
     chainDownloader.cancel();
   }
 
