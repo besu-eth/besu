@@ -163,8 +163,13 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
     return recovered;
   }
 
-  @Override
-  public CodeDelegation detachedCopy() {
+  /**
+   * Creates a copy of this authorization that does not share the address's byte array, and keeps
+   * its authority if that is already recovered.
+   *
+   * @return a copy of the authorization
+   */
+  CodeDelegation detachedCopy() {
     final CodeDelegation copy =
         new CodeDelegation(chainId, Address.wrap(address.getBytes().copy()), nonce, signature);
     copy.authorizer = authorizer;

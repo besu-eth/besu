@@ -1329,7 +1329,8 @@ public class Transaction
             withCommitments -> withCommitments.detachedCopy(detachedVersionedHashes.get()));
     final Optional<List<CodeDelegation>> detachedCodeDelegationList =
         maybeCodeDelegationList.map(
-            codeDelegations -> codeDelegations.stream().map(CodeDelegation::detachedCopy).toList());
+            codeDelegations ->
+                codeDelegations.stream().map(this::codeDelegationDetachedCopy).toList());
 
     final var copiedTx =
         new Transaction(
@@ -1368,6 +1369,18 @@ public class Transaction
     final Address detachedAddress = Address.wrap(accessListEntry.address().getBytes().copy());
     final var detachedStorage = accessListEntry.storageKeys().stream().map(Bytes32::copy).toList();
     return new AccessListEntry(detachedAddress, detachedStorage);
+  }
+
+  private CodeDelegation codeDelegationDetachedCopy(final CodeDelegation codeDelegation) {
+    if (codeDelegation instanceof org.hyperledger.besu.ethereum.core.CodeDelegation recoverable) {
+      return recoverable.detachedCopy();
+    }
+    final Address detachedAddress = Address.wrap(codeDelegation.address().getBytes().copy());
+    return new org.hyperledger.besu.ethereum.core.CodeDelegation(
+        ChainId.fromCodeDelegation(codeDelegation),
+        detachedAddress,
+        codeDelegation.nonce(),
+        codeDelegation.signature());
   }
 
   public static class Builder {
