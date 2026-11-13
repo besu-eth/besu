@@ -55,6 +55,7 @@
 - Struct logs from `debug_traceTransaction` and `debug_traceCall`, and from `debug_traceBlock*` in JSON-RPC batch requests, report a failed code deposit's `error` on the creation's last operation, usually its `RETURN`, instead of the last operation that was not a `RETURN`. [#11345](https://github.com/besu-eth/besu/pull/11345)
 - `trace_rawTransaction` validates and executes the original signed transaction. Invalid signatures and empty EIP-7702 authorization lists are rejected. `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_sendRawTransaction`, `trace_call` and `trace_callMany` return `-32602` instead of `Internal error` (`-32603`) when they reject a transaction for an init code above the size limit or an up-front cost above 2^256, and `eth_sendRawTransaction` also does for an empty EIP-7702 authorization list. [#11395](https://github.com/besu-eth/besu/pull/11395)
 - A node stopped while importing a block no longer gets stuck after a restart, failing to process the next block because the parent world state is not available. [#11882](https://github.com/besu-eth/besu/pull/11882)
+- `trace_*` results include a precompile's return data in the call's `result.output`, instead of `0x`, when the transaction calls the precompile directly. [#11346](https://github.com/besu-eth/besu/pull/11346)
 - Shutting down while the log bloom cache is being generated no longer waits 30 seconds and logs two errors for every cache segment not generated yet. [#11931](https://github.com/besu-eth/besu/pull/11931)
 
 ### Additions and Improvements
