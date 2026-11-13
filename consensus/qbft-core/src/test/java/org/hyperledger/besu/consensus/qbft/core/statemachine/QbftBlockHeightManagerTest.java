@@ -144,6 +144,8 @@ public class QbftBlockHeightManagerTest {
     when(finalState.getClock()).thenReturn(clock);
     when(blockCreator.createBlock(anyLong(), any()))
         .thenReturn(new QbftBlockCreator.BlockCreationResult(createdBlock, Optional.empty()));
+    // a round replaced by a new one releases the claim on its proposal through the importer
+    when(protocolSchedule.getBlockImporter(any())).thenReturn(blockImporter);
 
     when(futureRoundProposalMessageValidator.validateProposalMessage(any())).thenReturn(true);
     when(messageValidatorFactory.createFutureRoundProposalMessageValidator(anyLong(), any()))
@@ -523,6 +525,34 @@ public class QbftBlockHeightManagerTest {
     verify(roundFactory).createNewRound(any(), eq(0));
 
     manager.roundExpired(new RoundExpiry(roundIdentifier));
+    verify(roundFactory).createNewRound(any(), eq(1));
+  }
+
+  @Test
+  public void startingANewRoundReleasesTheClaimOfTheReplacedRound() {
+    when(blockTimer.checkEmptyBlockExpired(any(), anyLong())).thenReturn(true);
+    when(qbftRound.getRoundIdentifier()).thenReturn(roundIdentifier);
+    when(qbftRound.createBlock(anyLong()))
+        .thenReturn(new BlockCreationResult(createdBlock, Optional.empty()));
+    when(roundFactory.createNewRound(any(), eq(0))).thenReturn(qbftRound);
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+    manager.handleBlockTimerExpiry(roundIdentifier);
+    verify(qbftRound, never()).releaseClaim();
+
+    // round 0 can no longer import its proposal once round 1 starts
+    manager.roundExpired(new RoundExpiry(roundIdentifier));
+
+    verify(qbftRound).releaseClaim();
     verify(roundFactory).createNewRound(any(), eq(1));
   }
 

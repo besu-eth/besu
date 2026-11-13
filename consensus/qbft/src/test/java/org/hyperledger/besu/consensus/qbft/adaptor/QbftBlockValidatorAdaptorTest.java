@@ -210,6 +210,18 @@ class QbftBlockValidatorAdaptorTest {
     assertThat(validationResult.success()).isFalse();
   }
 
+  @Test
+  void validatingABlockDoesNotMakeConsensusOwnIt() {
+    // e.g. the prepared block of a round change: only proposals are claimed, by ProposalValidator
+    final Block block = proposal(0, body);
+    stubValidation(block, Optional.empty(), successWith(generator.receipts(block)));
+
+    validate(block, Optional.empty());
+
+    assertThat(validatedBlockCache.get(onchainHash(block))).isPresent();
+    assertThat(validatedBlockCache.isOwnedByConsensus(onchainHash(block))).isFalse();
+  }
+
   // a proposal of the given round, hashed like proposals are
   private Block proposal(final int round, final BlockBody blockBody) {
     final BftExtraData extraData =

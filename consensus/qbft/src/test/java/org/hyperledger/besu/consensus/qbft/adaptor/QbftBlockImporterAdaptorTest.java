@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.consensus.qbft.adaptor;
 
+import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.hyperledger.besu.ethereum.mainnet.BlockImportResult.BlockImportStatus.ALREADY_IMPORTED;
@@ -26,13 +27,19 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.consensus.common.bft.BftBlockHeaderFunctions;
+import org.hyperledger.besu.consensus.common.bft.BftExtraData;
+import org.hyperledger.besu.consensus.qbft.QbftExtraDataCodec;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
@@ -47,6 +54,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -72,6 +80,7 @@ class QbftBlockImporterAdaptorTest {
   private final List<TransactionReceipt> receipts = generator.receipts(besuBlock);
   private final QbftBlock block = new QbftBlockAdaptor(besuBlock);
   private final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
+  private final QbftExtraDataCodec codec = new QbftExtraDataCodec();
 
   @Test
   void importsBlockSuccessfullyWhenBesuBlockImports() {
@@ -85,8 +94,38 @@ class QbftBlockImporterAdaptorTest {
 
     QbftBlockImporterAdaptor qbftBlockImporter =
         new QbftBlockImporterAdaptor(
-            blockImporter, blockHeaderValidator, protocolContext, validatedBlockCache);
+            blockImporter, blockHeaderValidator, protocolContext, codec, validatedBlockCache);
     assertThat(qbftBlockImporter.importBlock(block, Optional.empty())).isEqualTo(true);
+  }
+
+  @Test
+  void claimsAndReleasesProposalInSharedCache() {
+    // round 1, so the proposal hash is not the on-chain hash that NewBlock announcements carry
+    final QbftBlock proposal = new QbftBlockAdaptor(proposal(1));
+    final Hash onchainHash =
+        BftBlockHeaderFunctions.forOnchainBlock(codec)
+            .hash(AdaptorUtil.toBesuBlockHeader(proposal.getHeader()));
+    assertThat(onchainHash).isNotEqualTo(proposal.getHash());
+
+    newImporter().claim(proposal);
+    assertThat(validatedBlockCache.isOwnedByConsensus(onchainHash)).isTrue();
+
+    // any adaptor instance releases it, they are created per call but share the cache
+    newImporter().releaseClaim(proposal);
+    assertThat(validatedBlockCache.isOwnedByConsensus(onchainHash)).isFalse();
+  }
+
+  private Block proposal(final int round) {
+    final BftExtraData extraData =
+        new BftExtraData(
+            Bytes.wrap(new byte[32]), emptyList(), Optional.empty(), round, List.of(Address.ZERO));
+    return new Block(
+        new BlockHeaderTestFixture()
+            .number(2)
+            .extraData(codec.encode(extraData))
+            .blockHeaderFunctions(BftBlockHeaderFunctions.forCommittedSeal(codec))
+            .buildHeader(),
+        besuBlock.getBody());
   }
 
   @Test
@@ -101,7 +140,7 @@ class QbftBlockImporterAdaptorTest {
 
     QbftBlockImporterAdaptor qbftBlockImporter =
         new QbftBlockImporterAdaptor(
-            blockImporter, blockHeaderValidator, protocolContext, validatedBlockCache);
+            blockImporter, blockHeaderValidator, protocolContext, codec, validatedBlockCache);
     assertThat(qbftBlockImporter.importBlock(block, Optional.empty())).isEqualTo(true);
   }
 
@@ -117,7 +156,7 @@ class QbftBlockImporterAdaptorTest {
 
     QbftBlockImporterAdaptor qbftBlockImporter =
         new QbftBlockImporterAdaptor(
-            blockImporter, blockHeaderValidator, protocolContext, validatedBlockCache);
+            blockImporter, blockHeaderValidator, protocolContext, codec, validatedBlockCache);
     assertThat(qbftBlockImporter.importBlock(block, Optional.empty())).isEqualTo(false);
   }
 
@@ -260,7 +299,7 @@ class QbftBlockImporterAdaptorTest {
 
   private QbftBlockImporterAdaptor newImporter() {
     return new QbftBlockImporterAdaptor(
-        blockImporter, blockHeaderValidator, protocolContext, validatedBlockCache);
+        blockImporter, blockHeaderValidator, protocolContext, codec, validatedBlockCache);
   }
 
   private void recordValidation() {

@@ -280,6 +280,18 @@ public class QbftRound {
     return roundState.constructPreparedCertificate();
   }
 
+  /**
+   * Release the claim on the proposal this round accepted, when the height moves on to another
+   * round: this round can no longer import it, so block propagation may.
+   */
+  public void releaseClaim() {
+    roundState
+        .getProposedBlock()
+        .ifPresent(
+            proposal ->
+                protocolSchedule.getBlockImporter(proposal.getHeader()).releaseClaim(proposal));
+  }
+
   private boolean updateStateWithProposedBlock(final Proposal msg) {
     final boolean wasPrepared = roundState.isPrepared();
     final boolean wasCommitted = roundState.isCommitted();
@@ -370,8 +382,14 @@ public class QbftRound {
 
     final QbftBlockImporter blockImporter =
         protocolSchedule.getBlockImporter(blockToImport.getHeader());
-    final boolean result =
-        blockImporter.importBlock(blockToImport, roundState.getProposedBlockAccessList());
+    final boolean result;
+    try {
+      result = blockImporter.importBlock(blockToImport, roundState.getProposedBlockAccessList());
+    } finally {
+      // imported or not, the round is done with the block: if the import failed, block
+      // propagation can import it from the network
+      blockImporter.releaseClaim(roundState.getProposedBlock().get());
+    }
     if (!result) {
       LOG.error(
           "Failed to import proposed block to chain. block={} blockHeader={}",
