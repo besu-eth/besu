@@ -41,11 +41,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -131,11 +131,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   final RocksDBLevel0Drain level0Drain = new RocksDBLevel0Drain(this);
 
+  final RocksDBSmallFileMerge smallFileMerge = new RocksDBSmallFileMerge(this);
+
   // the segments whose bulk load, or the merge after it, was interrupted when the database closed
   private final Set<SegmentIdentifier> interruptedBulkLoads;
 
-  // the segments in a bulk load that has not ended for them, under columnFamilyWork
-  final Set<SegmentIdentifier> segmentsInBulkLoad = new HashSet<>();
+  // the segments in a bulk load that has not ended for them, changed under columnFamilyWork; the
+  // merges of small files read it without
+  final Set<SegmentIdentifier> segmentsInBulkLoad = ConcurrentHashMap.newKeySet();
 
   // an interrupted bulk load opens its column family with other options
   private final Map<SegmentIdentifier, ColumnFamilyOptions> configuredColumnFamilyOptions =
@@ -479,6 +482,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       throw e;
     }
     level0Drain.resumeInterrupted(interruptedBulkLoads);
+    interruptedBulkLoads.forEach(
+        segment -> smallFileMerge.mergeWhenDrained(segment, level0Drain.whenDrained(segment)));
   }
 
   // a new native handle, which the caller has to close
@@ -752,14 +757,20 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   @Override
   public void clear(final SegmentIdentifier segmentIdentifier) {
-    // the new column family takes over the options the old one has at the time
-    columnFamilyWork.lock();
-    try {
-      Optional.ofNullable(getColumnHandlesBySegmentIdentifier().get(segmentIdentifier))
-          .ifPresent(RocksDbSegmentIdentifier::reset);
-    } finally {
-      columnFamilyWork.unlock();
-    }
+    // a merge of small files under way uses the handle the reset closes; it is waited for first,
+    // so that the work on the other column families goes on meanwhile
+    smallFileMerge.excludingMerges(
+        segmentIdentifier,
+        () -> {
+          // the new column family takes over the options the old one has at the time
+          columnFamilyWork.lock();
+          try {
+            Optional.ofNullable(getColumnHandlesBySegmentIdentifier().get(segmentIdentifier))
+                .ifPresent(RocksDbSegmentIdentifier::reset);
+          } finally {
+            columnFamilyWork.unlock();
+          }
+        });
   }
 
   @Override
@@ -776,6 +787,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     if (closed.compareAndSet(false, true)) {
       // waits for the work on the column families, which finds the storage closed from now on
       level0Drain.close();
+      smallFileMerge.close();
       txOptions.close();
       tryDeleteOptions.close();
       getColumnHandlesBySegmentIdentifier().values().stream()

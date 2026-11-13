@@ -41,10 +41,11 @@ import org.slf4j.LoggerFactory;
  * the sorted files were meant to avoid. With it off the files stay where they were placed.
  *
  * <p>When the load is closed the column families go back to compacting on their own, and {@link
- * RocksDBLevel0Drain} lets RocksDB merge their level 0 down in the background. Nothing is compacted
- * by hand: a manual compaction of a whole column family merges every level into the next and so
- * rewrites the bottom level, which holds nearly all of the load, for the sake of the few files
- * above it.
+ * RocksDBLevel0Drain} lets RocksDB merge their level 0 down in the background. A manual compaction
+ * of a whole column family would merge every level into the next and so rewrite the bottom level,
+ * which holds nearly all of the load, for the sake of the few files above it. Only the small files
+ * of the bottom level are merged by hand, by {@link RocksDBSmallFileMerge} once level 0 is merged
+ * down: RocksDB never rewrites a file there on its own.
  *
  * <p>A column family can be let go before the others, when it is read much before the load ends and
  * its regular writes piled up in level 0, where a read checks every file.
@@ -64,6 +65,8 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
   private final List<SegmentIdentifier> separateValues;
   // the segments whose load has ended, under columnFamilyWork
   private final Set<SegmentIdentifier> ended = new HashSet<>();
+  // the segments whose small files the load handed to be merged, under columnFamilyWork
+  private final Set<SegmentIdentifier> merging = new HashSet<>();
 
   RocksDBSegmentBulkLoad(
       final RocksDBColumnarKeyValueStorage storage,
@@ -92,6 +95,9 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
     } finally {
       storage.columnFamilyWork.unlock();
     }
+    // a sorted file cannot go to the bottom level where a merge writes, and the merges after this
+    // find the segment in the load
+    storage.smallFileMerge.awaitMergesUnderWay(this.segments);
   }
 
   private void start() {
@@ -139,7 +145,11 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
       }
       for (final SegmentIdentifier segment : allSegments()) {
         try {
-          endSegment(segment);
+          final CompletableFuture<Void> drained = endSegment(segment);
+          // also those let go before, whose reads during the load are over
+          if (segments.contains(segment) && merging.add(segment)) {
+            storage.smallFileMerge.mergeWhenDrained(segment, drained);
+          }
         } catch (final RuntimeException e) {
           // the other segments still have to be ended
           LOG.warn(
@@ -154,7 +164,9 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
   }
 
   /**
-   * Lets one segment go before the load is closed, in the way {@link #close()} does.
+   * Lets one segment go before the load is closed, in the way {@link #close()} does, but leaves the
+   * small files of its bottom level until the load is closed: it is let go to be read while the
+   * load goes on, and their merge would compete with those reads.
    *
    * <p>The merge of its level 0 that follows is not stopped by cancelling the returned future, and
    * the limits it lifted are put back once it is done whatever happened to the future.
