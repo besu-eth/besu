@@ -38,8 +38,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -60,13 +60,14 @@ public class TransactionLogBloomCacher {
   public static final int BLOCKS_PER_BLOOM_CACHE = 100_000;
   public static final int BLOOM_BITS_LENGTH = 256;
   private static final int EXPECTED_BLOOM_FILE_SIZE = BLOCKS_PER_BLOOM_CACHE * BLOOM_BITS_LENGTH;
+  private static final long NO_DROPPED_BLOCK = Long.MAX_VALUE;
   public static final String CURRENT = "current";
   private final Map<Long, Boolean> cachedSegments;
 
   private final Lock submissionLock = new ReentrantLock();
 
-  // set when a block event arrives while another caching job holds the cacher
-  private final AtomicBoolean blockEventDropped = new AtomicBoolean(false);
+  // first block changed by the block events that arrived while another caching job held the cacher
+  private final AtomicLong firstDroppedBlock = new AtomicLong(NO_DROPPED_BLOCK);
 
   private final EthScheduler scheduler;
   private final Blockchain blockchain;
@@ -175,16 +176,21 @@ public class TransactionLogBloomCacher {
     try {
       if (cachingStatus.cachingCount.incrementAndGet() != 1) {
         // the dropped block can replace a block that is already in the cache file
-        blockEventDropped.set(true);
+        firstDroppedBlock.accumulateAndGet(
+            firstChangedBlock(blockHeader, commonAncestorBlockHeader), Math::min);
         return;
       }
       final long blockNumber = blockHeader.getNumber();
+      final long firstDropped = firstDroppedBlock.getAndSet(NO_DROPPED_BLOCK);
+      rewritePreviousSegments(
+          Math.min(firstDropped, firstChangedBlock(blockHeader, commonAncestorBlockHeader)),
+          blockNumber - blockNumber % BLOCKS_PER_BLOOM_CACHE);
       LOG.atTrace()
           .setMessage("Caching logs bloom for block {}")
           .addArgument(() -> "0x" + Long.toHexString(blockNumber))
           .log();
       final File cacheFile = reusedCacheFile.orElse(calculateCacheFileName(blockNumber, cacheDir));
-      final boolean rebuild = blockEventDropped.getAndSet(false);
+      final boolean rebuild = firstDropped != NO_DROPPED_BLOCK;
       if (cacheFile.exists() && !rebuild) {
         try {
           final Optional<Long> ancestorBlockNumber =
@@ -207,7 +213,7 @@ public class TransactionLogBloomCacher {
         }
       } else if (!populateLatestSegment(blockNumber) && rebuild) {
         // the file still holds the blocks of the dropped events, so retry with the next block
-        blockEventDropped.set(true);
+        firstDroppedBlock.accumulateAndGet(firstDropped, Math::min);
       }
     } catch (final IOException e) {
       if (isDiskFull(e)) {
@@ -217,6 +223,35 @@ public class TransactionLogBloomCacher {
       LOG.error("Unhandled caching exception.", e);
     } finally {
       cachingStatus.cachingCount.decrementAndGet();
+    }
+  }
+
+  private static long firstChangedBlock(
+      final BlockHeader blockHeader, final Optional<BlockHeader> commonAncestorBlockHeader) {
+    return commonAncestorBlockHeader
+        .map(ancestor -> ancestor.getNumber() + 1)
+        .orElse(blockHeader.getNumber());
+  }
+
+  // a reorg can replace blocks of a complete segment, and the size check never rewrites those
+  private void rewritePreviousSegments(final long fromBlock, final long segmentStart)
+      throws IOException {
+    long number = fromBlock;
+    while (number < segmentStart) {
+      final long nextSegment = number - number % BLOCKS_PER_BLOOM_CACHE + BLOCKS_PER_BLOOM_CACHE;
+      final File segmentFile = calculateCacheFileName(number, cacheDir);
+      try {
+        for (; segmentFile.isFile() && number < nextSegment; number++) {
+          final Optional<BlockHeader> header = blockchain.getBlockHeader(number);
+          if (header.isEmpty()) {
+            break;
+          }
+          cacheSingleBlock(header.get(), segmentFile, true);
+        }
+      } catch (final InvalidCacheException e) {
+        // the file ends before this block, so eth_getLogs reads the rest from the chain
+      }
+      number = nextSegment;
     }
   }
 
