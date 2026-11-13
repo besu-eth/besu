@@ -377,8 +377,9 @@ def executionSpecBogotaDevnetTests = tasks.register("executionSpecBogotaDevnetTe
     delete generatedTestsDir
   }
   doLast {
+    final fixturePaths = fixturePathsInDir(referenceTestsDir.get().asFile)
     generateTestFilesGroupedByDirectory(
-      referenceTestsDir.get().asFile,
+      fixturePaths,
       file("src/reference-test/templates/BlockchainReferenceTest.java.template"),
       "fixtures",
       "blockchain_tests",
@@ -388,7 +389,7 @@ def executionSpecBogotaDevnetTests = tasks.register("executionSpecBogotaDevnetTe
       )
 
     generateTestFilesGroupedByDirectory(
-      referenceTestsDir.get().asFile,
+      fixturePaths,
       file("src/reference-test/templates/GeneralStateReferenceTest.java.template"),
       "fixtures",
       "state_tests",
