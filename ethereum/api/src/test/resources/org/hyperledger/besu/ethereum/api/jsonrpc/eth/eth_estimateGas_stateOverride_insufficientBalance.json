@@ -1,0 +1,36 @@
+{
+  "comment": "A value transfer larger than the sender balance set by a state override, with gasPrice set",
+  "request": {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "method": "eth_estimateGas",
+    "params": [
+      {
+        "to": "0x6295ee1b4f6dd65047762f924ecd367c17eabf8f",
+        "from": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+        "gasPrice": "0x3b9aca00",
+        "value": "0x000002"
+      },
+      "latest",
+      {
+        "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+          "balance": "0x000001"
+        },
+        "0xb9741079a300Cb3B8f324CdDB847c0d1d273a05E": {
+          "stateDiff": {
+            "0x1cf7945003fc5b59d2f6736f0704557aa805c4f2844084ccd1173b8d56946962": "0x000000000000000000000000000000000000000000000000000000110ed03bf7"
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "error": {
+      "code": -32004,
+      "message": "Insufficient funds for transfer (transfer value 0x2 exceeds transaction sender account balance 0x1 for sender 0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b)"
+    }
+  },
+  "statusCode": 200
+}
