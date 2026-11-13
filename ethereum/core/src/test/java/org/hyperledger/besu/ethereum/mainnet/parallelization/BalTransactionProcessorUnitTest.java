@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -79,6 +80,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -199,6 +201,31 @@ class BalTransactionProcessorUnitTest {
   @Nested
   @DisplayName("Transaction Processing")
   class TransactionProcessingTests {
+
+    @Test
+    @DisplayName("The sender is recovered on the block's transaction before it is copied")
+    void recoversTheSenderBeforeCopyingTheTransaction() {
+      final TestEnvironment env = createTestEnvironment();
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction();
+
+      new BalConcurrentTransactionProcessor(
+              transactionProcessor, mockEmptyBlockAccessList(), BalConfiguration.DEFAULT)
+          .runAsyncBlock(
+              env.protocolContext(),
+              env.blockHeader(),
+              Collections.singletonList(transaction),
+              MINING_BENEFICIARY,
+              EMPTY_BLOCK_HASH_LOOKUP,
+              BLOB_GAS_PRICE,
+              sameThreadExecutor,
+              Optional.empty(),
+              env.maybeParentHeader());
+
+      final InOrder order = inOrder(transaction);
+      order.verify(transaction).getSender();
+      order.verify(transaction).detachedCopy();
+    }
 
     @Test
     @DisplayName("Transaction processor is called with correct parameters")
