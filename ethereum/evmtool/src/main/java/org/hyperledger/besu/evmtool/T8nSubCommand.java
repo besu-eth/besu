@@ -219,7 +219,8 @@ public class T8nSubCommand implements Runnable {
       if (env.equals(stdinPath) || alloc.equals(stdinPath) || txs.equals(stdinPath)) {
         try (InputStreamReader reader =
             new InputStreamReader(parentCommand.in, StandardCharsets.UTF_8)) {
-          config = (ObjectNode) t8nReader.readTree(reader);
+          JsonNode stdin = t8nReader.readTree(reader);
+          config = stdin.isMissingNode() ? objectMapper.createObjectNode() : (ObjectNode) stdin;
         }
       } else {
         config = objectMapper.createObjectNode();
@@ -247,12 +248,12 @@ public class T8nSubCommand implements Runnable {
           objectMapper.convertValue(requiredInput(config, "alloc"), new TypeReference<>() {});
       initialWorldState = ReferenceTestWorldState.create(accounts, EvmConfiguration.DEFAULT);
       initialWorldState.persist(null);
-      var node = config.get("txs");
+      var node = config.path("txs");
       Iterator<JsonNode> it;
-      if (node.isArray()) {
-        it = config.get("txs").elements();
-      } else if (node == null || node.isNull()) {
+      if (node.isMissingNode() || node.isNull()) {
         it = Collections.emptyIterator();
+      } else if (node.isArray()) {
+        it = node.elements();
       } else {
         it = List.of(node).iterator();
       }
