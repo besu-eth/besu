@@ -23,6 +23,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import org.hyperledger.besu.cli.CommandTestAbstract;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.JwtAlgorithm;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -300,6 +301,289 @@ public class RpcWebsocketOptionsTest extends CommandTestAbstract {
     verify(mockRunnerBuilder).build();
 
     assertThat(wsRpcConfigArgumentCaptor.getValue().isEnabled()).isFalse();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsSslPasswordFilesFromTomlMustBeUsed() throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "keystorePassword");
+    final Path truststorePasswordFile = createTempFile("truststore-password", "truststorePassword");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            rpc-ws-enabled = true
+            rpc-ws-ssl-enabled = true
+            rpc-ws-ssl-client-auth-enabled = true
+            rpc-ws-ssl-keystore-file = '/tmp/keystore.p12'
+            rpc-ws-ssl-keystore-password-file = '%s'
+            rpc-ws-ssl-truststore-file = '/tmp/truststore.p12'
+            rpc-ws-ssl-truststore-password-file = '%s'
+            """
+                .formatted(keystorePasswordFile, truststorePasswordFile));
+
+    parseCommand("--config-file", toml.toString());
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    final WebSocketConfiguration webSocketConfiguration = wsRpcConfigArgumentCaptor.getValue();
+    assertThat(webSocketConfiguration.getKeyStorePath()).contains("/tmp/keystore.p12");
+    assertThat(webSocketConfiguration.getKeyStorePasswordFile())
+        .contains(keystorePasswordFile.toString());
+    assertThat(webSocketConfiguration.getKeyStorePassword()).contains("keystorePassword");
+    assertThat(webSocketConfiguration.getTrustStorePath()).contains("/tmp/truststore.p12");
+    assertThat(webSocketConfiguration.getTrustStorePasswordFile())
+        .contains(truststorePasswordFile.toString());
+    assertThat(webSocketConfiguration.getTrustStorePassword()).contains("truststorePassword");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsSslPasswordFilesFromCommandLineMustBeUsed() throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "keystorePassword");
+    final Path truststorePasswordFile = createTempFile("truststore-password", "truststorePassword");
+
+    parseCommand(
+        "--rpc-ws-enabled",
+        "--rpc-ws-ssl-enabled",
+        "--rpc-ws-ssl-client-auth-enabled",
+        "--rpc-ws-ssl-keystore-file",
+        "/tmp/keystore.p12",
+        "--rpc-ws-ssl-keystore-password-file",
+        keystorePasswordFile.toString(),
+        "--rpc-ws-ssl-truststore-file",
+        "/tmp/truststore.p12",
+        "--rpc-ws-ssl-truststore-password-file",
+        truststorePasswordFile.toString());
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    final WebSocketConfiguration webSocketConfiguration = wsRpcConfigArgumentCaptor.getValue();
+    assertThat(webSocketConfiguration.getKeyStorePasswordFile())
+        .contains(keystorePasswordFile.toString());
+    assertThat(webSocketConfiguration.getKeyStorePassword()).contains("keystorePassword");
+    assertThat(webSocketConfiguration.getTrustStorePasswordFile())
+        .contains(truststorePasswordFile.toString());
+    assertThat(webSocketConfiguration.getTrustStorePassword()).contains("truststorePassword");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsSslPasswordsFromCommandLineMustBeUsed() throws IOException {
+    parseCommand(
+        "--rpc-ws-enabled",
+        "--rpc-ws-ssl-enabled",
+        "--rpc-ws-ssl-client-auth-enabled",
+        "--rpc-ws-ssl-keystore-file",
+        "/tmp/keystore.p12",
+        "--rpc-ws-ssl-keystore-password",
+        "keystorePassword",
+        "--rpc-ws-ssl-truststore-file",
+        "/tmp/truststore.p12",
+        "--rpc-ws-ssl-truststore-password",
+        "truststorePassword");
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    final WebSocketConfiguration webSocketConfiguration = wsRpcConfigArgumentCaptor.getValue();
+    assertThat(webSocketConfiguration.isSslEnabled()).isTrue();
+    assertThat(webSocketConfiguration.isClientAuthEnabled()).isTrue();
+    assertThat(webSocketConfiguration.getKeyStorePath()).contains("/tmp/keystore.p12");
+    assertThat(webSocketConfiguration.getKeyStorePassword()).contains("keystorePassword");
+    assertThat(webSocketConfiguration.getKeyStorePasswordFile()).isEmpty();
+    assertThat(webSocketConfiguration.getTrustStorePath()).contains("/tmp/truststore.p12");
+    assertThat(webSocketConfiguration.getTrustStorePassword()).contains("truststorePassword");
+    assertThat(webSocketConfiguration.getTrustStorePasswordFile()).isEmpty();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcWsSslKeystorePasswordsAndPasswordFileFromCommandLineMustBeRejected()
+      throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "keystorePassword");
+
+    parseCommand(
+        "--rpc-ws-enabled",
+        "--rpc-ws-ssl-enabled",
+        "--rpc-ws-ssl-client-auth-enabled",
+        "--rpc-ws-ssl-keystore-file",
+        "/tmp/keystore.p12",
+        "--rpc-ws-ssl-keystore-password",
+        "keystorePassword",
+        "--rpc-ws-ssl-keystore-password-file",
+        keystorePasswordFile.toString(),
+        "--rpc-ws-ssl-truststore-file",
+        "/tmp/truststore.p12",
+        "--rpc-ws-ssl-truststore-password",
+        "truststorePassword");
+
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "rpc-ws-ssl-keystore-password and rpc-ws-ssl-keystore-password-file options for JSON-RPC websocket cannot be used at the same time");
+  }
+
+  @Test
+  public void rpcWsSslTruststorePasswordsAndPasswordFileFromCommandLineMustBeRejected()
+      throws IOException {
+    final Path truststorePasswordFile = createTempFile("truststore-password", "truststorePassword");
+
+    parseCommand(
+        "--rpc-ws-enabled",
+        "--rpc-ws-ssl-enabled",
+        "--rpc-ws-ssl-client-auth-enabled",
+        "--rpc-ws-ssl-keystore-file",
+        "/tmp/keystore.p12",
+        "--rpc-ws-ssl-keystore-password",
+        "keystorePassword",
+        "--rpc-ws-ssl-truststore-file",
+        "/tmp/truststore.p12",
+        "--rpc-ws-ssl-truststore-password",
+        "truststorePassword",
+        "--rpc-ws-ssl-truststore-password-file",
+        truststorePasswordFile.toString());
+
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "rpc-ws-ssl-truststore-password and rpc-ws-ssl-truststore-password-file options for JSON-RPC websocket cannot be used at the same time");
+  }
+
+  @Test
+  public void rpcWsSslPasswordInCliAndPasswordFileInConfigMustBeRejected() throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "fileKeystorePassword");
+    final Path truststorePasswordFile =
+        createTempFile("truststore-password", "fileTruststorePassword");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            rpc-ws-ssl-keystore-file = '/tmp/keystore.p12'
+            rpc-ws-ssl-keystore-password-file = '%s'
+            rpc-ws-ssl-truststore-file = '/tmp/truststore.p12'
+            rpc-ws-ssl-truststore-password-file = '%s'
+            """
+                .formatted(keystorePasswordFile, truststorePasswordFile));
+
+    parseCommand(
+        "--config-file",
+        toml.toString(),
+        "--rpc-ws-enabled",
+        "--rpc-ws-ssl-enabled",
+        "--rpc-ws-ssl-client-auth-enabled",
+        "--rpc-ws-ssl-keystore-password",
+        "keystorePassword");
+
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "rpc-ws-ssl-keystore-password and rpc-ws-ssl-keystore-password-file options for JSON-RPC websocket cannot be used at the same time");
+  }
+
+  @Test
+  public void rpcWsSslPasswordInConfigAndPasswordFileInCliMustBeRejected() throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "fileKeystorePassword");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            rpc-ws-ssl-keystore-file = '/tmp/keystore.p12'
+            rpc-ws-ssl-keystore-password = 'tomlKeystorePassword'
+            """);
+
+    parseCommand(
+        "--config-file",
+        toml.toString(),
+        "--rpc-ws-enabled",
+        "--rpc-ws-ssl-enabled",
+        "--rpc-ws-ssl-keystore-password-file",
+        keystorePasswordFile.toString());
+
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "rpc-ws-ssl-keystore-password and rpc-ws-ssl-keystore-password-file options for JSON-RPC websocket cannot be used at the same time");
+  }
+
+  @Test
+  public void rpcWsSslPasswordsAndPasswordFileInTomlMustBeRejected() throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "fileKeystorePassword");
+    final Path truststorePasswordFile =
+        createTempFile("truststore-password", "fileTruststorePassword");
+
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            rpc-ws-enabled = true
+            rpc-ws-ssl-enabled = true
+            rpc-ws-ssl-client-auth-enabled = true
+            rpc-ws-ssl-keystore-file = '/tmp/keystore.p12'
+            rpc-ws-ssl-keystore-password = 'keystorePassword'
+            rpc-ws-ssl-keystore-password-file = '%s'
+            rpc-ws-ssl-truststore-file = '/tmp/truststore.p12'
+            rpc-ws-ssl-truststore-password = 'truststorePassword'
+            rpc-ws-ssl-truststore-password-file = '%s'
+            """
+                .formatted(keystorePasswordFile, truststorePasswordFile));
+
+    parseCommand("--config-file", toml.toString());
+
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains(
+            "rpc-ws-ssl-keystore-password and rpc-ws-ssl-keystore-password-file options for JSON-RPC websocket cannot be used at the same time");
+  }
+
+  @Test
+  public void rpcWsSslMixedConfigInCommandLineAndTomlMustbeOk() throws IOException {
+    final Path truststorePasswordFile =
+        createTempFile("truststore-password", "fileTruststorePassword");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            rpc-ws-ssl-keystore-file = '/tmp/keystore.p12'
+            rpc-ws-ssl-truststore-file = '/tmp/truststore.p12'
+            rpc-ws-ssl-truststore-password-file = '%s'
+            """
+                .formatted(truststorePasswordFile));
+
+    parseCommand(
+        "--config-file",
+        toml.toString(),
+        "--rpc-ws-enabled",
+        "--rpc-ws-ssl-enabled",
+        "--rpc-ws-ssl-client-auth-enabled",
+        "--rpc-ws-ssl-keystore-password",
+        "cliKeystorePassword");
+
+    verify(mockRunnerBuilder).webSocketConfiguration(wsRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    final WebSocketConfiguration webSocketConfiguration = wsRpcConfigArgumentCaptor.getValue();
+    assertThat(webSocketConfiguration.getKeyStorePath()).contains("/tmp/keystore.p12");
+    assertThat(webSocketConfiguration.getKeyStorePassword()).contains("cliKeystorePassword");
+    assertThat(webSocketConfiguration.getTrustStorePath()).contains("/tmp/truststore.p12");
+    assertThat(webSocketConfiguration.getTrustStorePasswordFile())
+        .contains(truststorePasswordFile.toString());
+    assertThat(webSocketConfiguration.getTrustStorePassword()).contains("fileTruststorePassword");
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
