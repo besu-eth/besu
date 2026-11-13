@@ -26,19 +26,39 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import org.jspecify.annotations.Nullable;
 
 /** The Metric category registry implementation. */
 public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
-  private final Map<String, MetricCategory> metricCategories = new HashMap<>();
+  /** The registrant of a category Besu added itself, outside any plugin's register(). */
+  private static final String BESU = "Besu";
+
+  /** A registered category with the id of the plugin that registered it. */
+  private record Registered(String registrant, MetricCategory category) {}
+
+  private final Map<String, Registered> metricCategories = new HashMap<>();
   private @Nullable MetricsConfiguration metricsConfiguration;
   private final BooleanSupplier registrationOpen;
+  private final Supplier<Optional<String>> currentRegistrant;
 
   /** Creates a registry that accepts plugin categories at any time. */
   public MetricCategoryRegistryImpl() {
     this(() -> true);
+  }
+
+  /**
+   * Creates a registry whose plugin categories all count as Besu's own.
+   *
+   * @param registrationOpen whether plugin registration is currently open; plugin categories added
+   *     while it is closed are rejected. Besu's own categories, added through {@link
+   *     #addCategories(Class)}, are not subject to it.
+   */
+  public MetricCategoryRegistryImpl(final BooleanSupplier registrationOpen) {
+    this(registrationOpen, Optional::empty);
   }
 
   /**
@@ -47,9 +67,14 @@ public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
    * @param registrationOpen whether plugin registration is currently open; plugin categories added
    *     while it is closed are rejected. Besu's own categories, added through {@link
    *     #addCategories(Class)}, are not subject to it.
+   * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
+   *     itself is registering; a category name already registered by another registrant, Besu's own
+   *     categories included, is rejected
    */
-  public MetricCategoryRegistryImpl(final BooleanSupplier registrationOpen) {
+  public MetricCategoryRegistryImpl(
+      final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
     this.registrationOpen = registrationOpen;
+    this.currentRegistrant = currentRegistrant;
   }
 
   /**
@@ -60,7 +85,7 @@ public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
    */
   public <T extends Enum<T> & MetricCategory> void addCategories(final Class<T> categoryEnum) {
     EnumSet.allOf(categoryEnum)
-        .forEach(category -> metricCategories.put(category.name(), category));
+        .forEach(category -> metricCategories.put(category.name(), new Registered(BESU, category)));
   }
 
   /**
@@ -73,7 +98,22 @@ public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
     if (!registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException("MetricCategoryRegistry", "addMetricCategory");
     }
-    metricCategories.put(metricCategory.getName().toUpperCase(Locale.ROOT), metricCategory);
+    final String name = metricCategory.getName().toUpperCase(Locale.ROOT);
+    final String registrant = currentRegistrant.get().orElse(BESU);
+    final Registered previous = metricCategories.get(name);
+    if (previous != null && !previous.registrant().equals(registrant)) {
+      throw new IllegalStateException(
+          "cannot register metric category "
+              + metricCategory.getName()
+              + ": "
+              + owner(previous.registrant())
+              + " already registered it");
+    }
+    metricCategories.put(name, new Registered(registrant, metricCategory));
+  }
+
+  private static String owner(final String registrant) {
+    return BESU.equals(registrant) ? BESU : "plugin " + registrant;
   }
 
   @Override
@@ -102,7 +142,8 @@ public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
    * @return the metric category or null if not registered
    */
   public @Nullable MetricCategory getMetricCategory(final String name) {
-    return metricCategories.get(name.toUpperCase(Locale.ROOT));
+    final Registered registered = metricCategories.get(name.toUpperCase(Locale.ROOT));
+    return registered == null ? null : registered.category();
   }
 
   /**

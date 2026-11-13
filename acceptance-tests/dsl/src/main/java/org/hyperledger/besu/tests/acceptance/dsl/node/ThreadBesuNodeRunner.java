@@ -354,27 +354,31 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     @Singleton
     RpcEndpointRegistryImpl provideRpcEndpointRegistry(
         final BesuPluginContextImpl besuPluginContext) {
-      return new RpcEndpointRegistryImpl(besuPluginContext::isRegistering);
+      return new RpcEndpointRegistryImpl(
+          besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
     }
 
     @Provides
     @Singleton
     HealthCheckServiceImpl provideHealthCheckService(
         final BesuPluginContextImpl besuPluginContext) {
-      return new HealthCheckServiceImpl(besuPluginContext::isRegistering);
+      return new HealthCheckServiceImpl(
+          besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
     }
 
     @Provides
     @Singleton
     StorageServiceImpl provideStorageService(final BesuPluginContextImpl besuPluginContext) {
-      return new StorageServiceImpl(besuPluginContext::isRegistering);
+      return new StorageServiceImpl(
+          besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
     }
 
     @Provides
     @Singleton
     SecurityModuleServiceImpl provideSecurityModuleService(
         final BesuPluginContextImpl besuPluginContext) {
-      return new SecurityModuleServiceImpl(besuPluginContext::isRegistering);
+      return new SecurityModuleServiceImpl(
+          besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
     }
 
     @Provides
@@ -467,7 +471,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     @Singleton
     MetricCategoryRegistryImpl provideMetricCategoryRegistry(
         final BesuPluginContextImpl besuPluginContext) {
-      return new MetricCategoryRegistryImpl(besuPluginContext::isRegistering);
+      return new MetricCategoryRegistryImpl(
+          besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
     }
   }
 

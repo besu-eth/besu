@@ -778,10 +778,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         controllerBuilder,
         besuPluginContext,
         environment,
-        new StorageServiceImpl(besuPluginContext::isRegistering),
-        new SecurityModuleServiceImpl(besuPluginContext::isRegistering),
+        new StorageServiceImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant),
+        new SecurityModuleServiceImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant),
         new PermissioningServiceImpl(besuPluginContext::isRegistering),
-        new RpcEndpointRegistryImpl(besuPluginContext::isRegistering),
+        new RpcEndpointRegistryImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant),
         new TransactionSelectionServiceImpl(besuPluginContext::isRegistering),
         new TransactionPoolValidatorServiceImpl(besuPluginContext::isRegistering),
         new TransactionValidatorServiceImpl(besuPluginContext::isRegistering),
@@ -842,8 +845,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     this.storageService = storageService;
     this.securityModuleService = securityModuleService;
     this.permissioningService = permissioningService;
-    this.metricCategoryRegistry = new MetricCategoryRegistryImpl(besuPluginContext::isRegistering);
-    this.healthCheckService = new HealthCheckServiceImpl(besuPluginContext::isRegistering);
+    this.metricCategoryRegistry =
+        new MetricCategoryRegistryImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
+    this.healthCheckService =
+        new HealthCheckServiceImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
     this.pluginCommonConfiguration = new BesuConfigurationImpl();
     besuPluginContext.addService(BesuConfiguration.class, this.pluginCommonConfiguration);
     besuPluginContext.addService(CoreConfiguration.class, this.pluginCommonConfiguration);

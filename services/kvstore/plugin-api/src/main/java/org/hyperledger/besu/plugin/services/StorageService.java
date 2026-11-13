@@ -27,11 +27,15 @@ import java.util.Optional;
 public interface StorageService extends RegistrationService {
 
   /**
-   * Registers a factory as available for creating key-value storage instances.
+   * Registers a factory as available for creating key-value storage instances. The factory's name
+   * must be free: a name another plugin or Besu itself already registered fails the registration,
+   * and with it the plugin's startup; a plugin may register its own name again, replacing its
+   * factory.
    *
    * @param factory creates instances providing key-value storage.
    * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
    *     has closed
+   * @throws IllegalStateException if another registrant already registered a factory of that name
    */
   void registerKeyValueStorage(KeyValueStorageFactory factory);
 
