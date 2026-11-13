@@ -22,6 +22,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.BiPredicate;
 
 import org.apache.tuweni.units.bigints.UInt256;
 
@@ -33,7 +35,9 @@ public class TransactionCollisionDetector {
    *
    * <p>The transaction collides when it touched the mining beneficiary, an account whose nonce,
    * balance or code the block changed, or a slot of an account whose slot the block changed or
-   * whose storage the block cleared.
+   * whose storage the block cleared. A transaction chained on its sender's previous one executed on
+   * the state that one left instead, and collides when the block does not hold that state for
+   * something it touched.
    *
    * @param transaction the transaction that executed speculatively, with a result that is not
    *     invalid
@@ -52,6 +56,12 @@ public class TransactionCollisionDetector {
     if (isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)) {
       return true;
     }
+    final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
+        parallelizedTransactionContext.chainPredecessorAccumulator();
+    if (chainPredecessor != null) {
+      return hasCollisionWithChainedState(
+          transactionAccumulator, chainPredecessor, blockAccumulator);
+    }
     // an executed transaction loaded its sender and recipient, and the commit added the accounts
     // it deleted
     for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
@@ -60,6 +70,77 @@ public class TransactionCollisionDetector {
       }
     }
     return false;
+  }
+
+  /**
+   * A chained transaction ran on the state its predecessor left rather than on the parent state.
+   * Its result holds if, for everything it touched, the block now has the value it started from:
+   * the predecessor's where the predecessor touched it, the parent's otherwise.
+   */
+  private boolean hasCollisionWithChainedState(
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor,
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
+    // a cleared storage is not visible slot by slot
+    if (!transactionAccumulator.getStorageToClear().isEmpty()) {
+      return true;
+    }
+    for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
+      if (blockAccumulator.getStorageToClear().contains(address)
+          || !holdsStartingValue(
+              blockAccumulator.getAccountsToUpdate().get(address),
+              chainPredecessor.getAccountsToUpdate().get(address),
+              TransactionCollisionDetector::areAccountDetailsEqualExcludingStorage)) {
+        return true;
+      }
+    }
+    for (final var slots : transactionAccumulator.getStorageToUpdate().entrySet()) {
+      final Address address = slots.getKey();
+      if (blockAccumulator.getStorageToClear().contains(address)) {
+        return true;
+      }
+      final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> blockSlots =
+          blockAccumulator.getStorageToUpdate().get(address);
+      final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> predecessorSlots =
+          chainPredecessor.getStorageToUpdate().get(address);
+      for (final StorageSlotKey slot : slots.getValue().keySet()) {
+        if (!holdsStartingValue(
+            blockSlots == null ? null : blockSlots.get(slot),
+            predecessorSlots == null ? null : predecessorSlots.get(slot),
+            TransactionCollisionDetector::areSlotValuesEqual)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether the block's current value equals the one a chained transaction started from. An absent
+   * entry means the value is still the parent's, which is also the prior of any present entry.
+   */
+  private static <T> boolean holdsStartingValue(
+      final BonsaiValue<? extends T> inBlock,
+      final BonsaiValue<? extends T> inPredecessor,
+      final BiPredicate<T, T> equal) {
+    if (inPredecessor == null) {
+      return inBlock == null || holdsItsPrior(inBlock, equal);
+    }
+    if (inBlock == null) {
+      return holdsItsPrior(inPredecessor, equal);
+    }
+    return equal.test(inBlock.getUpdated(), inPredecessor.getUpdated());
+  }
+
+  /** A value only read is unchanged without loading it, as its prior and update share a loader. */
+  private static <T> boolean holdsItsPrior(
+      final BonsaiValue<? extends T> value, final BiPredicate<T, T> equal) {
+    return !value.isChanged() || equal.test(value.getPrior(), value.getUpdated());
+  }
+
+  private static boolean areSlotValuesEqual(final UInt256 a, final UInt256 b) {
+    // an absent slot is read as null and a cleared one written as zero
+    return Objects.equals(a == null ? UInt256.ZERO : a, b == null ? UInt256.ZERO : b);
   }
 
   /**
@@ -131,7 +212,7 @@ public class TransactionCollisionDetector {
    * @param next The second account to compare (could be null).
    * @return true if the account state properties are equal excluding storage, false otherwise.
    */
-  private boolean areAccountDetailsEqualExcludingStorage(
+  private static boolean areAccountDetailsEqualExcludingStorage(
       final BonsaiAccount prior, final BonsaiAccount next) {
     return (prior == null && next == null)
         || (prior != null
