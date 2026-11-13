@@ -22,7 +22,6 @@ import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.TraceBlock.ChainUpdater;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -52,7 +51,13 @@ import java.util.stream.LongStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** The Trace service implementation. */
+/**
+ * The Trace service implementation.
+ *
+ * <p>Open the parent state directly, not through {@code Tracer.processTracing}: plugin tracers must
+ * see the state before pre-execution in {@code traceStartBlock}. The block-aware path runs
+ * pre-execution afterwards with the plugin tracer.
+ */
 @Unstable
 public class TraceServiceImpl implements TraceService {
   private static final Logger LOG = LoggerFactory.getLogger(TraceServiceImpl.class);
@@ -155,17 +160,17 @@ public class TraceServiceImpl implements TraceService {
                         .getBlockByNumber(number)
                         .orElseThrow(() -> new RuntimeException("Block not found " + number)))
             .toList();
-    Tracer.processTracing(
-        blockchainQueries,
-        blocks.getFirst().getHash(),
-        traceableState -> {
-          final WorldUpdater worldStateUpdater = traceableState.updater();
-          final ChainUpdater chainUpdater = new ChainUpdater(traceableState, worldStateUpdater);
+    blockchainQueries.getAndMapWorldState(
+        blocks.getFirst().getHeader().getParentHash(),
+        mutableWorldState -> {
+          final WorldUpdater worldStateUpdater = mutableWorldState.updater();
+          final ChainUpdater chainUpdater = new ChainUpdater(mutableWorldState, worldStateUpdater);
           beforeTracing.accept(worldStateUpdater);
           final List<TransactionProcessingResult> results = new ArrayList<>();
           blocks.forEach(
               block ->
-                  results.addAll(trace(blockchain, block, traceableState, chainUpdater, tracer)));
+                  results.addAll(
+                      trace(blockchain, block, mutableWorldState, chainUpdater, tracer)));
           afterTracing.accept(chainUpdater.getNextUpdater());
           return Optional.of(results);
         });
@@ -177,16 +182,15 @@ public class TraceServiceImpl implements TraceService {
     final Blockchain blockchain = blockchainQueries.getBlockchain();
 
     final Optional<List<TransactionProcessingResult>> results =
-        Tracer.processTracing(
-            blockchainQueries,
-            block.getHash(),
-            traceableState ->
+        blockchainQueries.getAndMapWorldState(
+            block.getHeader().getParentHash(),
+            mutableWorldState ->
                 Optional.of(
                     trace(
                         blockchain,
                         block,
-                        traceableState,
-                        new ChainUpdater(traceableState),
+                        mutableWorldState,
+                        new ChainUpdater(mutableWorldState),
                         tracer)));
 
     return results;
