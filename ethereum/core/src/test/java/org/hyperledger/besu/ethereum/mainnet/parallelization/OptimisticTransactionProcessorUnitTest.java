@@ -1031,14 +1031,43 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
-    @DisplayName("Unknown senders are recovered before the block's runs")
-    void unknownSendersAreRecoveredBeforeTheRuns() {
+    @DisplayName("Unknown senders are recovered behind the first runs, ahead of the others")
+    void unknownSendersAreRecoveredBehindTheFirstRuns() {
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUp -> {}, 1);
+      final Transaction tx1 = mockTransactionOfUnknownSender(sender);
+      final Transaction tx2 = mockTransactionOfUnknownSender(Address.fromHexString("0xdef"));
+      final Transaction tx3 = mockTransactionFrom(Address.fromHexString("0x123"));
+      stubSuccessfulTransaction(Optional.empty());
+      final List<Runnable> tasks = new ArrayList<>();
+
+      runBlock(List.of(tx1, tx2, tx3), tasks::add);
+      assertThat(tasks).as("the first run, the recovery, the other runs").hasSize(4);
+      tasks.get(1).run();
+      verify(tx1).getSender();
+      verify(tx2).getSender();
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+      tasks.get(0).run();
+
+      verify(transactionProcessor)
+          .processTransaction(any(), any(), eq(tx1), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("The senders of a block within the first runs are recovered behind all its runs")
+    void sendersOfASmallBlockAreRecoveredBehindItsRuns() {
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUp -> {}, 4);
       final Transaction tx1 = mockTransactionOfUnknownSender(sender);
       final Transaction tx2 = mockTransactionOfUnknownSender(Address.fromHexString("0xdef"));
       final List<Runnable> tasks = new ArrayList<>();
 
       runBlock(List.of(tx1, tx2), tasks::add);
-      tasks.get(0).run();
+      assertThat(tasks).hasSize(3);
+      tasks.get(2).run();
 
       verify(tx1).getSender();
       verify(tx2).getSender();
