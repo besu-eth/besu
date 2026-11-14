@@ -19,6 +19,7 @@ import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.cli.options.ChainPruningOptions.CHAIN_DATA_PRUNING_RETAINED_MINIMUM;
 import static org.hyperledger.besu.config.NetworkDefinition.EPHEMERY;
 import static org.hyperledger.besu.config.NetworkDefinition.EXPERIMENTAL_EIPS;
@@ -643,6 +644,49 @@ public class BesuCommandTest extends CommandTestAbstract {
     verify(getBesuPluginContext()).stopPluginsForRestart();
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains("Shutdown requested while the plugins were starting");
+  }
+
+  @Test
+  public void theShutdownHookIsInstalledBeforeTheControllerOpensStorage() {
+    final TestBesuCommand command = parseCommand();
+
+    // a failure inside the controller build, or a signal during it, already finds the hook in place
+    assertThat(command.startupEvents)
+        .containsExactly("shutdown hook installed", "controller built");
+  }
+
+  @Test
+  public void aStartupFailureIsReportedEvenWhenTheHookStoppedThePluginsFirst() {
+    doThrow(new IllegalStateException("Service jsonRpc failed to start"))
+        .when(mockRunner)
+        .startExternalServices();
+    // the hook ran stopPlugins() meanwhile, so the context refuses the restart stop
+    doThrow(new IllegalStateException("BesuContext should be in state REGISTERED"))
+        .when(getBesuPluginContext())
+        .stopPluginsForRestart();
+
+    parseCommand();
+
+    // the state complaint is swallowed; the startup failure is the one reported
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Service jsonRpc failed to start")
+        .doesNotContain("should be in state");
+  }
+
+  @Test
+  public void aStartupBeginningAfterTheHookRanBuildsNothing() {
+    final TestBesuCommand command = parseCommand();
+    command.shutdown();
+    // the startup thread re-entering (as the Ephemery restart does) finds the shutdown under way
+    command.clearAllocatedPorts();
+
+    assertThatThrownBy(command::initialProcess)
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Shutdown requested while the node was starting");
+
+    // only the first startup built a controller and a runner
+    verify(mockControllerBuilder, times(1)).build();
+    verify(mockRunnerBuilder, times(1)).build();
   }
 
   @Test

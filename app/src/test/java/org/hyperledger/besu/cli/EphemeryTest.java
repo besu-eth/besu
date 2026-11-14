@@ -16,12 +16,15 @@ package org.hyperledger.besu.cli;
 
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.config.NetworkDefinition.EPHEMERY;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.calls;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -52,6 +55,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguratio
 import org.hyperledger.besu.ethereum.api.pluginadapter.RpcEndpointRegistryImpl;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.GenesisState;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -309,6 +313,32 @@ public class EphemeryTest extends CommandTestAbstract {
     verify(besuEvents).removeSyncStatusListener(anyLong());
     assertThat(networkUpWhenPluginsStopped).isTrue();
     assertThat(runner.getP2PNetwork().isStopped()).isTrue();
+  }
+
+  @Test
+  public void testAFailedRestartStopsItsPluginsAndTheNextRestartSucceeds() throws Exception {
+    runner.stopEphemery(besuCommand);
+    doThrow(new IllegalStateException("Service jsonRpc failed to start"))
+        .when(mockRunner)
+        .startExternalServices();
+
+    assertThatThrownBy(() -> runner.startEphemery(besuCommand))
+        .hasMessageContaining("Service jsonRpc failed to start");
+
+    // the failed cycle's readiness check subscribed in start(); the process stays up, so the
+    // startup unwind stopped it rather than leave its listener behind
+    verify(besuEvents, times(2)).addSyncStatusListener(any());
+    verify(besuEvents, times(2)).removeSyncStatusListener(anyLong());
+
+    // the scheduled restart runs stopEphemery() first, which resets the chain id, the data path
+    // and the ports before the next cycle
+    ChainId.resetNetworkChainId();
+    besuCommand.setDataPathToParent();
+    besuCommand.clearAllocatedPorts();
+    doNothing().when(mockRunner).startExternalServices();
+    runner.startEphemery(besuCommand);
+
+    verify(besuEvents, times(3)).addSyncStatusListener(any());
   }
 
   @Test
