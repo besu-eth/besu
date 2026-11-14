@@ -68,8 +68,9 @@ public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
    *     while it is closed are rejected. Besu's own categories, added through {@link
    *     #addCategories(Class)}, are not subject to it.
    * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
-   *     itself is registering; a category name already registered by another registrant, Besu's own
-   *     categories included, is rejected
+   *     itself is registering; a category name already registered by another registrant is
+   *     rejected. Besu's own categories are keyed by their enum constant name, so a plugin category
+   *     collides with one when its upper-cased name matches that constant, as {@code process} does
    */
   public MetricCategoryRegistryImpl(
       final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {

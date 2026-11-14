@@ -646,6 +646,33 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void theShutdownHookIsInstalledBeforeTheControllerOpensStorage() {
+    final TestBesuCommand command = parseCommand();
+
+    // a failure inside the controller build, or a signal during it, already finds the hook in place
+    assertThat(command.startupEvents)
+        .containsExactly("shutdown hook installed", "controller built");
+  }
+
+  @Test
+  public void aStartupFailureIsReportedEvenWhenTheHookStoppedThePluginsFirst() {
+    doThrow(new IllegalStateException("Service jsonRpc failed to start"))
+        .when(mockRunner)
+        .startExternalServices();
+    // the hook ran stopPlugins() meanwhile, so the context refuses the restart stop
+    doThrow(new IllegalStateException("BesuContext should be in state REGISTERED"))
+        .when(getBesuPluginContext())
+        .stopPluginsForRestart();
+
+    parseCommand();
+
+    // the state complaint is swallowed; the startup failure is the one reported
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Service jsonRpc failed to start")
+        .doesNotContain("should be in state");
+  }
+
+  @Test
   @SuppressWarnings("removal") // MiningService is deprecated for removal; drop it from here with it
   public void runningServicesAreAddedOnceTheMainLoopIsUp() {
     parseCommand();

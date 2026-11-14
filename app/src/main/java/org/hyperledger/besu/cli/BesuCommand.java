@@ -2735,7 +2735,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .build();
   }
 
-  private void addShutdownHook() {
+  @VisibleForTesting
+  void addShutdownHook() {
     Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "BesuCommand-Shutdown-Hook"));
   }
 

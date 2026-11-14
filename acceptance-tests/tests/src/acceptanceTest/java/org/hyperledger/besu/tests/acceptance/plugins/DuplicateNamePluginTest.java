@@ -29,10 +29,12 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Two registrants claiming the same name in a keyed registration service. {@code
- * TestDuplicateNamePlugin} registers, on request, the RPC method another test plugin registers or a
- * storage factory with the built-in RocksDB plugin's name; by default the node stops and the error
- * names both registrants, and with {@code --plugin-continue-on-error} the plugin whose registration
- * collided is dropped and the node starts.
+ * TestDuplicateNamePlugin} registers, on request, the RPC method another test plugin registers, a
+ * storage factory with the built-in RocksDB plugin's name, or a security module with the name of
+ * Besu's default; by default the node stops and the error names both registrants, and with {@code
+ * --plugin-continue-on-error} the plugin whose registration collided is dropped and the node
+ * starts. Health checks are the exception: a plugin's {@code /liveness} check replaces the built-in
+ * one, with a warning naming both.
  */
 public class DuplicateNamePluginTest extends AcceptanceTestBase {
   private static final String DUPLICATE_PLUGIN =
@@ -41,6 +43,8 @@ public class DuplicateNamePluginTest extends AcceptanceTestBase {
       "org.hyperledger.besu.tests.acceptance.plugins.TestStartBeforeServingPlugin";
   private static final String ROCKSDB_PLUGIN =
       "org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin";
+  private static final String LIVENESS_PLUGIN =
+      "org.hyperledger.besu.plugin.services.health.LivenessCheckPlugin";
 
   private BesuNode node;
 
@@ -100,5 +104,34 @@ public class DuplicateNamePluginTest extends AcceptanceTestBase {
                 + DUPLICATE_PLUGIN
                 + " already registered it",
             "start and stop will not be called");
+  }
+
+  @Test
+  public void aPluginClaimingTheDefaultSecurityModuleNameStopsTheNodeNamingBesu()
+      throws IOException {
+    node = nodeWith("--Xplugin-duplicate-name-test=localfile");
+    // Besu registers its default module ahead of the plugins, under its own name
+    assertStartupFails(
+        "Error registering plugin of type " + DUPLICATE_PLUGIN,
+        "cannot register security module localfile: Besu already registered it");
+  }
+
+  @Test
+  public void aPluginOverridingAnotherPluginsHealthCheckReplacesItWithAWarning()
+      throws IOException {
+    node = nodeWith("--Xplugin-duplicate-name-test=liveness");
+    cluster.startConsoleCapture();
+    cluster.start(node);
+    node.verify(net.netServicesAllActive());
+
+    // health checks are the one keyed service where a duplicate replaces instead of failing: the
+    // built-in liveness plugin registered first and is replaced, with both plugins named
+    assertThat(cluster.getConsoleContents())
+        .contains(
+            "Health check /liveness is now served by plugin "
+                + DUPLICATE_PLUGIN
+                + ", replacing the check plugin "
+                + LIVENESS_PLUGIN
+                + " registered");
   }
 }

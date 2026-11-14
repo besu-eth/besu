@@ -974,6 +974,11 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     return false;
   }
 
+  @VisibleForTesting
+  URLClassLoader pluginClassLoader() {
+    return pluginClassLoader;
+  }
+
   /**
    * Closes the plugin class loader, releasing the jar file handles. Called last at shutdown, after
    * the node's services have stopped: a class or resource the plugins have not loaded yet cannot be

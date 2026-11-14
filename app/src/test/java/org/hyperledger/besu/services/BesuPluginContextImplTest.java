@@ -953,6 +953,31 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
+  void anUnrecoverableStartFailureStopsThePluginsStartedBeforeItNewestFirst() {
+    final List<String> events = new ArrayList<>();
+    final RecordingPlugin first = new RecordingPlugin("first");
+    first.onStop = () -> events.add("first.stop");
+    final RecordingPlugin second = new RecordingPlugin("second");
+    second.onStop = () -> events.add("second.stop");
+    final RecordingPlugin failing = new RecordingPlugin("failing");
+    failing.onStart =
+        context -> {
+          throw new UnrecoverablePluginException("start misused the API");
+        };
+    failing.onStop = () -> events.add("failing.stop");
+    // fatal even when the operator chose to continue on plugin errors
+    final BesuPluginContextImpl context = contextReadyToRegister(true, first, second, failing);
+    register(context);
+
+    assertThatThrownBy(context::startPlugins)
+        .hasMessageStartingWith("Plugin " + RecordingPlugin.class.getName() + ":")
+        .hasMessageContaining("start misused the API")
+        .hasCauseInstanceOf(UnrecoverablePluginException.class);
+
+    assertThat(events).containsExactly("second.stop", "first.stop");
+  }
+
+  @Test
   void shutdownIsANoOpBeforeAnyPluginStartedAndWhenCalledAgain() {
     final List<String> events = new ArrayList<>();
     final RecordingPlugin plugin = new RecordingPlugin("plugin");
@@ -1061,6 +1086,7 @@ public class BesuPluginContextImplTest {
   void aStopThatExceedsTheTimeoutIsAbandonedAndTheNextPluginIsStopped() throws Exception {
     final List<String> events = new ArrayList<>();
     final CountDownLatch release = new CountDownLatch(1);
+    final CountDownLatch hangingStopInterrupted = new CountDownLatch(1);
     final RecordingPlugin first = new RecordingPlugin("first");
     first.onStop = () -> events.add("first.stop");
     final RecordingPlugin hanging = new RecordingPlugin("hanging");
@@ -1070,7 +1096,7 @@ public class BesuPluginContextImplTest {
             release.await();
             events.add("hanging.stop.released");
           } catch (final InterruptedException e) {
-            events.add("hanging.stop.interrupted");
+            hangingStopInterrupted.countDown();
           }
         };
     final BesuPluginContextImpl context = contextReadyToRegister(false, first, hanging);
@@ -1082,8 +1108,8 @@ public class BesuPluginContextImplTest {
     context.stopPlugins();
 
     // the hanging stop was interrupted and left behind; the plugin before it was still stopped
-    assertThat(events).contains("first.stop");
-    assertThat(events).doesNotContain("hanging.stop.released");
+    assertThat(events).containsExactly("first.stop");
+    assertThat(hangingStopInterrupted.await(10, TimeUnit.SECONDS)).isTrue();
     release.countDown();
   }
 
@@ -1713,12 +1739,16 @@ public class BesuPluginContextImplTest {
     final List<Optional<String>> seenByGood = new ArrayList<>();
     final RecordingPlugin good = new RecordingPlugin("good");
     good.onRegister = registrationContext -> seenByGood.add(holder[0].currentRegistrant());
-    holder[0] = contextReadyToRegister(true, new FailingRegisterPlugin(), good);
+    // the failing plugin registers last, so no later register() overwrites the registrant and the
+    // registration window is still open when it is read: only the failure path can have cleared it
+    holder[0] = contextReadyToRegister(true, good, new FailingRegisterPlugin());
+    holder[0].beginRegistration();
 
-    register(holder[0]);
+    holder[0].registerPlugins();
 
     assertThat(seenByGood).containsExactly(Optional.of(RecordingPlugin.class.getName()));
     assertThat(holder[0].currentRegistrant()).isEmpty();
+    holder[0].endRegistration();
   }
 
   @Test
@@ -2150,6 +2180,32 @@ public class BesuPluginContextImplTest {
             " - " + Third.Plugin.class.getName() + " (" + new Third.Plugin().getVersion() + ")",
             " - " + Fourth.Plugin.class.getName() + " (" + new Fourth.Plugin().getVersion() + ")",
             "TOTAL = 0 of 4 plugins successfully registered.");
+  }
+
+  @Test
+  void thePluginClassLoaderStaysOpenAfterTheStopUntilItIsClosed(@TempDir final Path tempDir)
+      throws IOException {
+    final Path pluginsDir = Files.createDirectory(tempDir.resolve("plugins"));
+    writeJarDeclaring(pluginsDir.resolve("plugin.jar"), First.Plugin.class.getName());
+    try (JarOutputStream out =
+        new JarOutputStream(Files.newOutputStream(pluginsDir.resolve("resources.jar")))) {
+      out.putNextEntry(new ZipEntry("late-loaded.txt"));
+      out.write("read after the plugins stopped".getBytes(StandardCharsets.UTF_8));
+      out.closeEntry();
+    }
+    final BesuPluginContextImpl context = contextScanning(pluginsDir);
+    // discovery, which opens the loader over the jars, runs with the options phase
+    context.defineOptions(freshPicoCLIOptions());
+    final ClassLoader loader = context.pluginClassLoader();
+
+    // the node's services may still reach into plugin code after the plugins stopped
+    context.stopPlugins();
+    assertThat(loader.getResource("late-loaded.txt")).isNotNull();
+
+    // the loader is closed last, by its own call, and no new class or resource loads afterwards
+    context.closePluginClassLoader();
+    assertThat(loader.getResource("late-loaded.txt")).isNull();
+    context.closePluginClassLoader();
   }
 
   @Test
