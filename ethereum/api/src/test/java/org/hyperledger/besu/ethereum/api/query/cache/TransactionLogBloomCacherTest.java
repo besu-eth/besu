@@ -59,6 +59,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -211,6 +213,35 @@ public class TransactionLogBloomCacherTest {
     assertThat(cacheDir.toFile().list().length).isEqualTo(0);
     transactionLogBloomCacher.cacheAll();
     assertThat(cacheDir.toFile().list().length).isEqualTo(2);
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "99999, 100000, 0, 1",
+    "150000, 300000, 1, 3",
+    "100000, 200000, 1, 2",
+    "100001, 199999, 1, 1",
+    "100000, 100000, 1, 1",
+    "199999, 199999, 1, 1",
+    "0, 0, 0, 0"
+  })
+  public void shouldRemoveOnlySegmentsIntersectingBlockRange(
+      final long startBlock, final long stopBlock, final int firstSegment, final int lastSegment)
+      throws IOException {
+    final List<Path> segments = new ArrayList<>();
+    for (int segment = 0; segment < 5; segment++) {
+      segments.add(Files.createFile(cacheDir.resolve("logBloom-" + segment + ".cache")));
+    }
+
+    assertThat(transactionLogBloomCacher.removeSegments(startBlock, stopBlock)).isTrue();
+
+    for (int segment = 0; segment < segments.size(); segment++) {
+      if (segment >= firstSegment && segment <= lastSegment) {
+        assertThat(segments.get(segment)).doesNotExist();
+      } else {
+        assertThat(segments.get(segment)).exists();
+      }
+    }
   }
 
   @Test
