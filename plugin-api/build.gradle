@@ -60,17 +60,21 @@ def apiBaselineJar = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}") { transitive = false })
 def apiBaselineClasspath = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}"))
+// datatypes is exposed through the Plugin API (an api dependency), so its released jar is compared too
+def apiBaselineDatatypesJar = configurations.detachedConfiguration(
+  dependencies.create("org.hyperledger.besu:besu-datatypes:${apiBaselineVersion}") { transitive = false })
 // Detached configurations are invisible to the root build's source artifact tasks unless listed here.
 ext.verificationMetadataConfigurations = [
   apiBaselineJar,
-  apiBaselineClasspath
+  apiBaselineClasspath,
+  apiBaselineDatatypesJar
 ]
 
 tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) {
-  description = "Checks that the Plugin API remains binary and source compatible with the last released version, allowing only additions"
+  description = "Checks that the Plugin API, including the datatypes it exposes, remains binary and source compatible with the last released version, allowing only additions"
   group = 'verification'
 
-  oldArchives.from(apiBaselineJar)
+  oldArchives.from(apiBaselineJar, apiBaselineDatatypesJar)
   oldClasspath.from(apiBaselineClasspath)
   // When the Plugin API is split into modules, each new jar is added here so the union is checked
   newArchives.from(
@@ -89,11 +93,13 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
     project(':ethereum:core:plugin-api-worldstate-backend').tasks.named('jar'),
     project(':ethereum:core:plugin-api-execution').tasks.named('jar'),
     project(':ethereum:blockcreation:plugin-api').tasks.named('jar'),
-    project(':ethereum:core:plugin-api-validation').tasks.named('jar'))
+    project(':ethereum:core:plugin-api-validation').tasks.named('jar'),
+    project(':datatypes').tasks.named('jar'))
   newClasspath.from(sourceSets.main.runtimeClasspath)
 
   packageIncludes = [
-    'org.hyperledger.besu.plugin*'
+    'org.hyperledger.besu.plugin*',
+    'org.hyperledger.besu.datatypes*'
   ]
   onlyModified = true
   failOnModification = true
@@ -102,7 +108,7 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   accessModifier = 'protected'
   // Track compiler-generated bridge methods, whose removal is a real binary break
   includeSynthetic = true
-  // Baseline signatures reference types outside the API jar (evm, datatypes, tuweni, ...)
+  // Baseline signatures reference types outside the compared jars (evm, tuweni, ...)
   ignoreMissingClasses = true
 
   // An intentional breaking change is recorded here in the same PR, as the narrowest
