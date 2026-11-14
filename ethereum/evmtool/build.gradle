@@ -238,7 +238,7 @@ registerHiveEquivalentTask(project, 'stateTestsDevnet', 'state-test', 'state_tes
   ['--summary-only'])
 
 
-// rename the top level dir from besu-<version> to besu and this makes it really
+// rename the top level dir from evmtool-<version> to besu-evmtool and this makes it really
 // simple for use in docker
 tasks.register("dockerDistUntar") {
   dependsOn distTar
@@ -248,12 +248,17 @@ tasks.register("dockerDistUntar") {
   def distTarFileName = distTar.outputs.files.singleFile.name.replace(".tar", "")
 
   doFirst {
-    new File(dockerBuildDir).mkdir()
+    // Start from an empty directory. File.renameTo fails when besu-evmtool already exists, which
+    // left the image built from the first distribution ever unpacked here.
+    project.delete(dockerBuildDir)
+    new File(dockerBuildDir).mkdirs()
     copy {
       from tarTree(distTarFile)
       into(dockerBuildDir)
     }
-    file("${dockerBuildDir}/${distTarFileName}").renameTo("${dockerBuildDir}/besu-evmtool")
+    if (!file("${dockerBuildDir}/${distTarFileName}").renameTo("${dockerBuildDir}/besu-evmtool")) {
+      throw new GradleException("Could not rename ${distTarFileName} to besu-evmtool in ${dockerBuildDir}")
+    }
   }
 }
 
