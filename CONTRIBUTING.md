@@ -2,71 +2,38 @@
 
 ## :tada: Thanks for taking the time to contribute! :tada:
 
-Welcome to the Besu repository! The following is a set of guidelines for contributing to this repo and its packages. These are mostly guidelines, not rules. Use your best judgement, and feel free to propose changes to this document in a pull request. Contributions come in the form of code submissions, writing documentation, raising issues, helping others in chat, and any other actions that help develop Besu.
+Welcome to the Besu repository! The following is a set of guidelines for contributing to this repo and its packages. These are mostly guidelines, not rules. Use your best judgment, and feel free to propose changes to this document in a pull request. Contributions come in the form of code submissions, writing documentation, raising issues, helping others in chat, and any other actions that help develop Besu.
 
 This document covers everything you need to know to decide whether and how you want to contribute. For deeper, area-specific guides, we link out to the [Besu wiki](https://github.com/besu-eth/besu/wiki).
 
 ## Contents
 
-- [GitHub and Discord accounts](#github-and-discord-accounts)
-- [I just have a quick question](#i-just-have-a-quick-question)
 - [Where to start?](#where-to-start)
-- [Contribution workflow](#contribution-workflow)
 - [Reporting bugs](#reporting-bugs)
 - [Suggesting enhancements](#suggesting-enhancements)
 - [Pull requests](#pull-requests)
 - [Changelog](#changelog)
 - [Code reviews](#code-reviews)
 - [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
+- [AI-assisted contributions](#ai-assisted-contributions)
 - [Copyright and license](#copyright-and-license)
 - [Security contributions](#security-contributions)
-- [Guidelines for non-code and other trivial contributions](#guidelines-for-non-code-and-other-trivial-contributions)
 - [Other important information](#other-important-information)
 - [Contributing to specific areas](#contributing-to-specific-areas)
 
-## GitHub and Discord accounts
-
-A GitHub account is required for code and issue contributions. Discord is optional, but useful for asking questions and coordinating with maintainers.
-
-- Create a [GitHub account](https://github.com) if you don't already have one.
-- Join our [Discord](https://discord.com/invite/hyperledger) to ask questions or chat with us.
-
-## I just have a quick question
-
-You might find the answer in the [Besu documentation](https://docs.besu-eth.org/), or you can ask in the [Besu Discord](https://discord.com/invite/hyperledger) or browse the [wiki](https://github.com/besu-eth/besu/wiki).
-
-> [!NOTE]
-> Please don't file an issue to ask a question. You'll get faster results by using the resources above.
-
 ## Where to start?
+A [GitHub account](https://github.com) is required for code and issue contributions. Join our [Discord](https://discord.com/invite/hyperledger) to ask questions or chat with maintainers, contributors, operators, and the broader Besu community.
 
-The first step is deciding what to work on! We use the "good first issue" label to identify issues that we think are [a good place to start](https://github.com/besu-eth/besu/contribute).
+Questions? You might find the answer in the [Besu documentation](https://docs.besu-eth.org/), or you can ask in the [Besu Discord](https://discord.com/invite/hyperledger) or browse the [wiki](https://github.com/besu-eth/besu/wiki). Please don't file an issue to ask a question. You'll get faster results by using the resources above.
+
+The first step is deciding what to work on! We use labels to identify issues that we think are [a good place to start](https://github.com/besu-eth/besu/contribute).
+
+First-time contributors should start with smaller PRs to understand the process and build trust.
 
 - Browse the [good first issues](https://github.com/besu-eth/besu/labels/good%20first%20issue). These should only require a few lines of code or documentation, and maybe a test or two.
 - Browse the [help wanted issues](https://github.com/besu-eth/besu/labels/help%20wanted). These are a bit more involved than good first issues.
 
-If you find an issue you'd like to work on, reach out on [Discord](https://discord.com/invite/hyperledger) in the **#besu** channel and we can assign it to you. If you have a different idea, reach out and we can discuss it.
-
-## Contribution workflow
-
-The codebase and documentation are maintained using the same _contributor workflow_, where everyone without exception contributes change proposals using pull requests (PRs). This facilitates social contribution, easy testing, and peer review.
-
-To contribute changes, use the following workflow:
-
-1. [**Fork the repository**](https://github.com/besu-eth/besu/fork). Make sure you also [add an upstream remote](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/syncing-a-fork) so you can keep your fork up to date.
-2. **Clone your fork** to your computer.
-3. **Create a topic branch** and name it appropriately. Starting the branch name with the issue number is a good practice and a reminder to fix only one issue per PR.
-4. **Make your changes** adhering to the coding conventions described in the [Besu wiki](https://github.com/besu-eth/besu/wiki). In general a commit serves a single purpose, and diffs should be easily comprehensible. For this reason, do not mix formatting fixes or code moves with actual code changes.
-5. **Commit your changes**. See the [How to Write a Git Commit Message](https://cbea.ms/git-commit/) article by Chris Beams. Make sure to add a DCO sign-off to each commit (for example, `git commit -s -m "..."`); see [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco) below.
-6. **Test your changes** locally before pushing to ensure you are not breaking another part of the software. Running `./gradlew clean check test` locally helps you be confident that your changes will pass CI once pushed as a PR.
-7. **Push your changes** to your remote fork (usually labeled `origin`).
-8. **Create a pull request** on the Besu repository. If it's not ready for review, make it a `Draft` PR. If the PR addresses an existing issue, link it in the PR description using GitHub keywords such as `fixes #1234` or `refs #1234`.
-9. **Add labels** to identify the type of your PR, if you have permission. For example, if your PR fixes a bug, add the "bug" label. If you don't have permission, maintainers will label the PR during triage.
-10. **Ensure your changes are reviewed**. Let us know on Discord that your PR is ready for review. If you are a maintainer, you can choose reviewers; otherwise this is done by one of the maintainers.
-11. **Make any required changes** based on reviewer feedback. Make the changes, commit to your branch, and push to your remote fork.
-12. **When your PR is approved and validated**, all tests pass, and your branch has no conflicts, it can be merged. This is done by a maintainer, usually the same person who approves also merges it.
-
-You contributed to Besu! Thanks!
+If you find an issue you'd like to work on, reach out on [Discord](https://discord.com/invite/hyperledger) in the **#besu** channel, and we can assign it to you. If you have a different idea, reach out, and we can discuss it.
 
 ## Reporting bugs
 
@@ -127,36 +94,49 @@ The pull request process has several goals:
 - Engage the community in working toward the best possible product.
 - Enable a sustainable system for maintainers to review contributions.
 
-Please follow these steps to have your contribution considered by the approvers:
-
+The basics:
 1. Ensure all commits have a sign-off for the DCO, as described in [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco).
 2. Follow all instructions in the [pull request template](https://github.com/besu-eth/besu/blob/main/.github/pull_request_template.md).
-3. Include appropriate test coverage. Testing is 100% automated; all submissions must be testable in an automated fashion.
-4. Follow the coding conventions in the [Developing and Conventions](https://github.com/besu-eth/besu/wiki/Developing-and-Conventions) wiki page.
-5. After you submit your pull request, verify that all [status checks](https://docs.github.com/articles/about-status-checks) are passing.
+3. Follow the coding conventions in the [Developing and Conventions](https://github.com/besu-eth/besu/wiki/Developing-and-Conventions) wiki page.
 
 ### What makes a good pull request?
+There's a lot more to a PR than just the code: starting with a clear description of the change, and including testing, verification, evidence that there was a problem and the PR is addressing it. Writing the code is often the quickest part of the PR to produce.
+Look at your PR through the eyes of a reviewer. Human review is without doubt the bottleneck in this process right now. If you make life easier for reviewers, this will expedite review of your PR.
 
-#### One pull request, one change
+### Pitch your PR
+- The PR title should be short and descriptive.
+- The PR description should succinctly describe the changes. If there is a related issue, link to it with a GitHub keyword such as `fixes #1234` so the issue closes when the PR is merged, or `refs #1234` if it doesn't fully resolve it. If there is no issue, for example for a test-only change or a small refactor, the pitch below should explain the motivation instead.
+- A short one sentence "pitch" at the top of the PR description, explaining why reviewers should prioritize your PR is helpful. What's the impact, what's the problem you're solving?
+- Then also include evidence to justify your PR
+  - evidence that the problem exists - logs, errors, metrics - this adds weight to your PR.
+  - evidence that you have fixed the problem - tests run (auto or manual), reproduction steps, any steps you have done to verify that the fix is correct.
+- We prioritize PRs that have impact on production scenarios.
 
-- This limits the surface area of the change and makes it easier to identify root causes when issues arise.
-- Make sure your PR doesn't include commits that are not part of it. This can happen if [your fork is not up to date](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/syncing-a-fork).
+Please keep in mind that we reserve the right to reject trivial PRs, such as fixing comments, typos, or other trivial fixes. Although we appreciate the extra help, managing lots of these small contributions is unfeasible and puts extra pressure on our continuous delivery systems (running all tests, and so on). Feel free to open an issue pointing out any of these errors, and we will batch them into a single change.
 
-#### Minimize lines of code (LOC) per PR
+#### Keep it simple
+- One pull request, one change - this limits the surface area of the change and makes it easier to identify root causes when issues arise.
+- Don't mix formatting fixes or code moves with actual code changes; they make the diff hard to review. Put them in a separate PR.
+- Make sure your PR doesn't include unrelated commits. This can happen if [your fork is not up to date](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/syncing-a-fork).
+- Minimize lines of code (LOC) per PR. Ideally, keep your changes under 300 LOC. Break up larger changes into smaller PRs for reviewers to review sequentially.
+- Your commit messages should be meaningful.
 
-- PRs get near-exponentially longer to review as the number of lines of code increases. Ideally, keep your changes under 300 LOC. If that's not possible, try to break your PR into smaller ones for reviewers to review sequentially.
+#### Engage in the process
+- We expect you to be accountable for the changes you are proposing. Be ready to answer questions and address feedback.
+- Include appropriate test coverage. Testing is 100% automated; all submissions must be testable in an automated fashion.
+- Run relevant [status checks](https://docs.github.com/articles/about-status-checks) locally: at a minimum, run spotless and the tests related to your change. Don't let a reviewer find that your code doesn't pass basic checks.
+- If a status check fails and you believe the failure is unrelated to your change, say so in a PR comment, and a maintainer will re-run it.
+- If your PR is not ready for review, open it as a draft.
+- Don't let a PR sit idle with unaddressed comments until it needs a complex rebase. If you are pausing work on an issue, indicate it in the PR comments or change the PR to draft status.
+- Once review has started, prefer merging `main` into your branch over rebasing and force-pushing: after a force-push it's harder for reviewers to tell which changes they have already reviewed.
+- If you allow maintainers to push to your branch, this makes merging easier once your PR has been approved.
 
-#### Write meaningful commit messages
-
-- Your commit messages should be meaningful, and the PR description should link to the related issue and comprehensively describe the changes.
-
-#### Be responsive
-
-- Don't let a PR sit idle with unaddressed comments until it needs a full rebase. If you are pausing work on an issue, indicate it in the PR comments or change the PR to draft status.
-
-#### What if the status checks are failing?
-
-- If a status check is failing and you believe the failure is unrelated to your change, leave a comment on the pull request explaining why. A maintainer will re-run the status check for you. If we conclude that the failure was a false positive, we will open an issue to track the problem with our status check suite.
+### Further considerations
+- Security - please consider security implications of your PR e.g. if you're adding a new RPC, make sure limits are bounded. Reviewers will be looking for this.
+- Performance - if your PR potentially improves performance, provide justification for any claims. Refer to [benchmarking](BENCHMARKING.md) for docs on running benchmarks.
+- Performance - on the other hand, if your PR could detrimentally affect performance, provide proof that there is no regression.
+- If you want to work on something more involved than a good first issue, reach out to us on Discord. The [Ethereum Protocol Fellowship (EPF)](https://epf.wiki/#/wiki/epf) and the [LF Decentralized Trust Mentorship Program](https://lf-decentralized-trust-mentorships.github.io/mentorship-program/latest/) are opportunities for project-based work.
+- Issues labeled P1 or P2 are urgent and are handled by maintainers, so please pick a different issue.
 
 ## Changelog
 
@@ -170,11 +150,23 @@ Add your entry under the `## Unreleased` section, in the appropriate subsection 
 
 ## Code reviews
 
-All changes must be code reviewed, preferably (and, for non-trivial changes, obligatorily) from someone who knows the areas the change touches. For non-trivial changes we may want two reviewers. The primary reviewer makes this decision and nominates a second reviewer if needed. Except for trivial changes, PRs should not be merged until relevant parties (for example, owners of the affected subsystem) have had a reasonable chance to look at the PR in their local business hours.
+All changes must be code reviewed, preferably from someone who knows the areas the change touches. For non-trivial changes we may want multiple reviewers. The primary reviewer can make this decision and nominates a second reviewer if needed. We also have CODEOWNERS which mandates specific reviewers for specific parts of the codebase.
+
+Except for trivial or urgent changes, PRs should not be merged until all relevant parties have had a reasonable chance to look at the PR in their local business hours. As a general rule, PRs remain open for at least 24 hours.
 
 Most PRs will find reviewers organically. If an approver intends to be the primary reviewer of a PR, they should set themselves as the assignee on GitHub. Only the primary approver of a change should do the merge, except in rare cases (for example, they are unavailable in a reasonable timeframe).
 
 If a PR has gone five working days without a reviewer emerging, you can ask on [Discord](https://discord.com/invite/hyperledger), however please don't ping or message individual maintainers.
+
+Expect your PR to go through automated agentic checks and code reviews, and respond to these comments as you would for a human reviewer. This helps reduce the review burden on maintainers.
+
+Reviewers (maintainers) will give feedback, ask questions, make suggestions, and can also convert PRs to draft, request changes and/or assign PRs back to the author. This is all public and makes the status of the PRs transparent for you as the author and other reviewers.
+
+Reviewers will be using AI to assist code reviews, but we do also expect that reviewers develop an understanding of the code they are reviewing.
+
+Note that a maintainer must approve the status checks workflows to run in CI, this normally happens as part of PR review.
+
+Some parts of the codebase require more scrutiny than others, e.g. the EVM hot path and GitHub Actions. If your PR touches these areas, you can expect the review process to be more thorough and time-consuming.
 
 ## Developer Certificate of Origin (DCO)
 
@@ -191,9 +183,13 @@ The sign-off must use your legal name, not a pseudonym. If you use the GitHub we
 
 For a git alias to sign off automatically, and for what to do when the DCO check fails on your PR, see [Working with DCO](https://github.com/besu-eth/besu/wiki/Contributing-Working-with-DCO) in the wiki.
 
-### Guidelines for submitting agentic contributions
+## AI-assisted contributions
 
-DCO sign-offs are required for all contributions, and only a human may sign off on a commit. Agents are encouraged to use the `Co-Authored-By` or `Assisted-By` keys in DCO statements, and to include their model name, version, and context size. Example:
+At this point we assume all contributors are using AI to assist in implementation and review tasks. We do still expect that you are a human in the loop who is adding value, and you are taking responsibility for the code that you as the PR author have submitted.
+
+Use AI as a tool to produce quality output (as opposed to quantity). For example, run an adversarial agentic code review, and fix any findings, before pushing your PR.
+
+DCO sign-offs are required for all contributions, and only a human may sign off on a commit. Agents are encouraged to add a `Co-Authored-By` or `Assisted-By` trailer to the commit message, and to include their model name, version, and context size. Example:
 
 ```text
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
@@ -234,11 +230,7 @@ Example header:
 
 ## Security contributions
 
-If you think you have discovered a security issue in Besu, please follow the responsible disclosure process described in [SECURITY.md](SECURITY.md). Please do not open a public issue for security vulnerabilities.
-
-## Guidelines for non-code and other trivial contributions
-
-Please keep in mind that we do not accept non-code contributions like fixing comments, typos, or other trivial fixes. Although we appreciate the extra help, managing lots of these small contributions is unfeasible and puts extra pressure on our continuous delivery systems (running all tests, and so on). Feel free to open an issue pointing out any of these errors, and we will batch them into a single change.
+If you think you have discovered a security issue in Besu, please follow the responsible disclosure process described in [SECURITY.md](SECURITY.md). Please do not open a public issue or PR for security vulnerabilities.
 
 ## Other important information
 
@@ -254,3 +246,5 @@ For deeper, area-specific guides, see the [Besu wiki](https://github.com/besu-et
 - [Logging](https://github.com/besu-eth/besu/wiki/Developing-and-Conventions-Logging)
 - [Building from source](https://github.com/besu-eth/besu/wiki/Developing-and-Conventions-Building-from-Source)
 - [Working with DCO](https://github.com/besu-eth/besu/wiki/Contributing-Working-with-DCO)
+
+You contributed to Besu! Thanks!
