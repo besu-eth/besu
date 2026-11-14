@@ -86,24 +86,16 @@ class ArchiveHistoryReaderTest {
   private void putFull(final Bytes nk, final long block, final Bytes node) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     store.putEncoded(
-        tx,
-        ArchiveNodeKey.historyKey(nk, block),
-        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeFull(node)));
+        tx, ArchiveNodeKey.historyKey(nk, block), ArchiveTrieNodeCodec.encodeFull(node));
     tx.commit();
   }
 
-  private void putDiff(
-      final Bytes nk,
-      final long block,
-      final int counter,
-      final Bytes oldNode,
-      final Bytes newNode) {
+  private void putDiff(final Bytes nk, final long block, final Bytes oldNode, final Bytes newNode) {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     store.putEncoded(
         tx,
         ArchiveNodeKey.historyKey(nk, block),
-        ArchiveNodeHistoryStore.encodeStoredValue(
-            counter, ArchiveTrieNodeCodec.encodeDiff(oldNode, newNode)));
+        ArchiveTrieNodeCodec.encodeDiff(oldNode, newNode));
     tx.commit();
   }
 
@@ -123,7 +115,7 @@ class ArchiveHistoryReaderTest {
     final Bytes nk = ArchiveNodeKey.account(Bytes.of(0x01));
 
     putFull(nk, 100L, nodeV1);
-    putDiff(nk, 101L, 1, nodeV1, nodeV2);
+    putDiff(nk, 101L, nodeV1, nodeV2);
 
     assertThat(reader.nodeAt(nk, 100L)).contains(nodeV1);
     assertThat(reader.nodeAt(nk, 101L)).contains(nodeV2);
@@ -138,7 +130,7 @@ class ArchiveHistoryReaderTest {
     final Bytes v2 = branchRlpWithChild(0, dummyChildRlp());
 
     putFull(nk, 100L, v1);
-    putDiff(nk, 101L, 1, v1, v2);
+    putDiff(nk, 101L, v1, v2);
 
     assertThat(reader.nodeAt(nk, 100L)).contains(v1);
     assertThat(reader.nodeAt(nk, 101L)).contains(v2);
@@ -154,7 +146,7 @@ class ArchiveHistoryReaderTest {
     final Bytes v2 = branchRlpWithChild(1, dummyChildRlp());
 
     putFull(nk, 50L, v1);
-    putDiff(nk, 51L, 1, v1, v2);
+    putDiff(nk, 51L, v1, v2);
 
     assertThat(reader.nodeAt(nk, 50L)).contains(v1);
     assertThat(reader.nodeAt(nk, 51L)).contains(v2);
@@ -168,7 +160,7 @@ class ArchiveHistoryReaderTest {
     final int chainLength = DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL - 1;
     for (int i = 1; i <= chainLength; i++) {
       final Bytes next = branchRlpWithChild(i % 16, dummyChildRlp());
-      putDiff(nk, i, i, prev, next);
+      putDiff(nk, i, prev, next);
       prev = next;
     }
     assertThat(reader.nodeAt(nk, chainLength)).contains(prev);
@@ -182,9 +174,7 @@ class ArchiveHistoryReaderTest {
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     store.putEncoded(
-        tx,
-        ArchiveNodeKey.historyKey(nk, 11L),
-        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeDiff(node, null)));
+        tx, ArchiveNodeKey.historyKey(nk, 11L), ArchiveTrieNodeCodec.encodeDiff(node, null));
     tx.commit();
 
     assertThat(reader.nodeAt(nk, 11L)).isEmpty();
@@ -204,7 +194,7 @@ class ArchiveHistoryReaderTest {
     putFull(nk, 0L, prev);
     for (int i = 1; i <= ArchiveNodeHistoryStore.MAX_COUNTER; i++) {
       final Bytes next = branchRlpWithChild(i % 16, dummyChildRlp());
-      putDiff(nk, i, i, prev, next);
+      putDiff(nk, i, prev, next);
       prev = next;
     }
     assertThat(reader.nodeAt(nk, ArchiveNodeHistoryStore.MAX_COUNTER)).contains(prev);
@@ -220,7 +210,7 @@ class ArchiveHistoryReaderTest {
     final int shallowInterval = DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
     for (int i = 1; i < shallowInterval; i++) {
       final Bytes next = branchRlpWithChild(i % 16, dummyChildRlp());
-      putDiff(nk, i, i, prev, next);
+      putDiff(nk, i, prev, next);
       prev = next;
     }
     // The last DIFF in the shallow run (block shallowInterval - 1) must be reconstructible.
@@ -229,8 +219,8 @@ class ArchiveHistoryReaderTest {
 
   @Test
   void treatsMissingFullCheckpointAsCorruption() {
-    // A DIFF whose counter claims a FULL some steps back, but the chain runs out (no FULL exists),
-    // must reconstruct to empty rather than returning a wrong value.
+    // A DIFF chain that runs out before reaching a FULL must reconstruct to empty rather than
+    // returning a wrong value.
     final Bytes nk = ArchiveNodeKey.account(Bytes.of(0x07));
     final int nodeSize = 100;
     final byte[] baseBytes = new byte[nodeSize];
@@ -241,9 +231,32 @@ class ArchiveHistoryReaderTest {
       final byte[] nextBytes = baseBytes.clone();
       nextBytes[0] = (byte) i;
       final Bytes next = Bytes.wrap(nextBytes);
-      putDiff(nk, i, i, prev, next);
+      putDiff(nk, i, prev, next);
       prev = next;
     }
+    assertThat(reader.nodeAt(nk, chainLength)).isEmpty();
+  }
+
+  @Test
+  void treatsDiffChainLongerThanMaxCounterAsCorruption() {
+    // 100-byte values differing in two bytes, so every entry is a real DIFF (no FULL fallback)
+    final Bytes nk = ArchiveNodeKey.account(Bytes.of(0x08));
+    final byte[] baseBytes = new byte[100];
+    Bytes prev = Bytes.wrap(baseBytes.clone());
+    putFull(nk, 0L, prev);
+    final int chainLength = ArchiveNodeHistoryStore.MAX_COUNTER + 1;
+    for (int i = 1; i <= chainLength; i++) {
+      final byte[] nextBytes = baseBytes.clone();
+      nextBytes[0] = (byte) i;
+      nextBytes[1] = (byte) (i >> 8);
+      final Bytes next = Bytes.wrap(nextBytes);
+      putDiff(nk, i, prev, next);
+      prev = next;
+    }
+    // MAX_COUNTER DIFFs after the FULL still reconstruct; one more is corruption
+    final byte[] atMax = baseBytes.clone();
+    atMax[0] = (byte) ArchiveNodeHistoryStore.MAX_COUNTER;
+    assertThat(reader.nodeAt(nk, ArchiveNodeHistoryStore.MAX_COUNTER)).contains(Bytes.wrap(atMax));
     assertThat(reader.nodeAt(nk, chainLength)).isEmpty();
   }
 }

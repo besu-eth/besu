@@ -98,9 +98,10 @@ class BonsaiArchiveStateProofIntegrationTest {
             historyStore,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            storage::startBatchTransaction);
     archiveStrategy =
-        new ArchiveTrieNodeStrategy(baseStrategy, capture, historyStore, storage, () -> false);
+        new ArchiveTrieNodeStrategy(baseStrategy, capture, historyStore, storage, b -> true);
   }
 
   private BlockHeader header(final long block) {
@@ -409,6 +410,7 @@ class BonsaiArchiveStateProofIntegrationTest {
       loadStored(TrieNodeKey.of(accountA, location));
       final SegmentedKeyValueStorageTransaction tx = startBlock(block);
       final Bytes aNode = block == 0 ? aV0 : aV1;
+      loadStored(TrieNodeKey.of(accountA, location));
       archiveStrategy.putTrieNode(
           storage, tx, TrieNodeKey.of(accountA, location), hash(aNode), aNode);
       if (block == 0) {
@@ -460,11 +462,17 @@ class BonsaiArchiveStateProofIntegrationTest {
     final ArchiveNodeHistoryStore liveHistory = new ArchiveNodeHistoryStore(liveStorage);
 
     try (ArchiveTrieNodeStrategy strategy =
-        ArchiveTrieNodeStrategy.createArchiveStrategy(
+        new ArchiveTrieNodeStrategy(
+            new BonsaiTrieNodeStrategy(),
+            new ArchiveTrieNodeWriter(
+                liveHistory,
+                Executors.newFixedThreadPool(2),
+                DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
+                DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+                liveStorage::startBatchTransaction),
+            liveHistory,
             liveStorage,
-            Executors.newFixedThreadPool(2),
-            DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL)) {
+            b -> true)) {
       worldStateStorage.setTrieNodeStrategy(strategy);
       final BonsaiWorldState worldState = (BonsaiWorldState) provider.getWorldState();
 
@@ -493,11 +501,9 @@ class BonsaiArchiveStateProofIntegrationTest {
       assertArchivedTrie(liveHistory, 1L, block1.getStateRoot(), Function.identity());
       assertArchivedTrie(liveHistory, 1L, storageRoot1, storageKey);
       // Block 1 diffs the storage root against the node the state-root trie loaded, not FULL.
-      assertThat(
-              liveHistory
-                  .getLatestBefore(ArchiveNodeKey.of(storageKey.apply(Bytes.EMPTY)), 1L)
-                  .map(ArchiveNodeHistoryStore.HistoryEntry::counter))
-          .contains(1);
+      final Bytes storageRootKey = ArchiveNodeKey.of(storageKey.apply(Bytes.EMPTY));
+      assertThat(liveHistory.getLatestCounters(List.of(storageRootKey)))
+          .containsEntry(storageRootKey, 1);
     }
   }
 

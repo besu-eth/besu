@@ -470,21 +470,6 @@ public class BonsaiWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     cacheManager.clear(ACCOUNT_STORAGE_STORAGE);
   }
 
-  public void upgradeToArchiveFlatDbMode() {
-    flatDbStrategyProvider.upgradeToArchiveFlatDbMode(composedWorldStateStorage);
-    // Invalidate cached world state snapshots that were created under the previous strategy.
-    // Snapshots share the flatDbStrategyProvider, so after the switch they would use the new
-    // ARCHIVE read path against stale snapshot data that lacks complete archive-keyed entries.
-    subscribers.forEach(
-        subscriber -> {
-          try {
-            subscriber.onClearFlatDatabaseStorage();
-          } catch (final Exception e) {
-            LOG.error("Error notifying subscriber of flat database storage upgrade", e);
-          }
-        });
-  }
-
   @Override
   public void clear() {
     subscribers.forEach(StorageSubscriber::onClearStorage);

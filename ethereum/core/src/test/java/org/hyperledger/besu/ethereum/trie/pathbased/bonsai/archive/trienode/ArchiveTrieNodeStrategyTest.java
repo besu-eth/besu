@@ -43,8 +43,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executors;
-import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.LongPredicate;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -73,7 +73,8 @@ class ArchiveTrieNodeStrategyTest {
             historyStore,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            storage::startBatchTransaction);
     chain = buildChain(BlockHeaderTestFixture::new, 6);
   }
 
@@ -102,16 +103,16 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   private ArchiveTrieNodeStrategy strategy() {
-    return strategy(() -> false);
+    return strategy(b -> true);
   }
 
-  private ArchiveTrieNodeStrategy strategy(final BooleanSupplier hasChainEstimate) {
+  private ArchiveTrieNodeStrategy strategy(final LongPredicate isFinal) {
     return new ArchiveTrieNodeStrategy(
-        new BonsaiTrieNodeStrategy(), capture, historyStore, storage, hasChainEstimate);
+        new BonsaiTrieNodeStrategy(), capture, historyStore, storage, isFinal);
   }
 
   private ArchiveTrieNodeStrategy strategyOver(final BonsaiTrieNodeStrategy base) {
-    return new ArchiveTrieNodeStrategy(base, capture, historyStore, storage, () -> false);
+    return new ArchiveTrieNodeStrategy(base, capture, historyStore, storage, b -> true);
   }
 
   // A state-root trie rooted at {@code stateRoot} loading {@code node} at {@code location}.
@@ -264,58 +265,14 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
-  void genesisIsCapturedWhenGateClosed() {
-    final ArchiveTrieNodeStrategy strategy = strategy();
-    final Bytes location = Bytes.of(0x01);
-
-    strategy.setArchiving(false);
-    persistBlock(strategy, 0, put(location, Bytes.fromHexString("0xaabb")));
-
-    assertThat(latest(location, 0L)).isPresent();
-    assertThat(coverage()).contains(coverageThrough(0));
-  }
-
-  @Test
-  void peerlessInSyncKeepsCapturing() {
-    final ArchiveTrieNodeStrategy strategy = strategy(() -> false);
+  void nonFinalBlockIsNotCaptured() {
+    final ArchiveTrieNodeStrategy strategy = strategy(b -> b <= 0);
     final Bytes location = Bytes.of(0x0e);
     persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
 
-    strategy.onInSyncStatusChange(true);
-    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
-
-    assertThat(latest(location, 1L)).isPresent();
-    assertThat(coverage()).contains(coverageThrough(1));
-  }
-
-  @Test
-  void inSyncWithRemoteEstimateStopsCapturing() {
-    final ArchiveTrieNodeStrategy strategy = strategy(() -> true);
-    final Bytes location = Bytes.of(0x0e);
-    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
-
-    strategy.onInSyncStatusChange(true);
     persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
 
     assertThat(latest(location, 1L)).isEmpty();
-    assertThat(coverage()).contains(coverageThrough(0));
-  }
-
-  @Test
-  void reopenedGateDoesNotCaptureAcrossTheGap() {
-    final ArchiveTrieNodeStrategy strategy = strategy();
-    final Bytes location = Bytes.of(0x0e);
-    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
-    strategy.setArchiving(false);
-    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
-
-    assertThat(latest(location, 1L)).isEmpty();
-    assertThat(coverage()).contains(coverageThrough(0));
-
-    strategy.setArchiving(true);
-    persistBlock(strategy, 2, put(location, Bytes.fromHexString("0xcccc")));
-
-    assertThat(latest(location, 2L)).isEmpty();
     assertThat(coverage()).contains(coverageThrough(0));
   }
 
@@ -513,16 +470,6 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
-  void loaderIsNotDecoratedWhileGateClosed() {
-    final ArchiveTrieNodeStrategy strategy = strategy();
-    final NodeLoader loader = (location, hash) -> Optional.empty();
-
-    strategy.setArchiving(false);
-
-    assertThat(strategy.wrapNodeLoader(rootOf(0), loader, Function.identity())).isSameAs(loader);
-  }
-
-  @Test
   void emptyTrieNodeIsNotAPrior() {
     final BonsaiTrieNodeStrategy base = spy(new BonsaiTrieNodeStrategy());
     final ArchiveTrieNodeStrategy strategy = strategyOver(base);
@@ -580,7 +527,7 @@ class ArchiveTrieNodeStrategyTest {
   void loadsPastTheCapAreNotPriors() {
     final ArchiveTrieNodeStrategy strategy =
         new ArchiveTrieNodeStrategy(
-            new BonsaiTrieNodeStrategy(), capture, historyStore, storage, () -> false, 1);
+            new BonsaiTrieNodeStrategy(), capture, historyStore, storage, b -> true, 1);
     final Bytes first = Bytes.of(0x07);
     final Bytes second = Bytes.of(0x08);
     final Bytes node = Bytes.fromHexString("0xfeed");

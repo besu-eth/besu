@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_ARCHIVE_LATEST;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
@@ -29,9 +30,16 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -72,14 +80,15 @@ class ArchiveTrieNodeWriterTest {
   void setUp() {
     storage =
         new SegmentedInMemoryKeyValueStorage(
-            List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
+            List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE, TRIE_BRANCH_ARCHIVE_LATEST));
     historyStore = new ArchiveNodeHistoryStore(storage);
     trieNodeWriter =
         new ArchiveTrieNodeWriter(
             historyStore,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            storage::startBatchTransaction);
   }
 
   private void enqueueAndCommit(
@@ -95,6 +104,10 @@ class ArchiveTrieNodeWriterTest {
     tx.commit();
   }
 
+  private Optional<Integer> latestCounter(final Bytes naturalKey) {
+    return Optional.ofNullable(historyStore.getLatestCounters(List.of(naturalKey)).get(naturalKey));
+  }
+
   @Test
   void creationIsStoredAsFull() {
     final Bytes node = branchNode(0);
@@ -103,10 +116,8 @@ class ArchiveTrieNodeWriterTest {
 
     final var entry = historyStore.getLatestBefore(nk, 0L).orElseThrow();
     assertThat(entry.codecEntry().isFull()).isTrue();
-    assertThat(entry.counter()).isZero();
-    assertThat(historyStore.getArchivedBlock())
-        .map(ArchiveNodeHistoryStore.ArchivedBlock::number)
-        .contains(0L);
+    assertThat(latestCounter(nk)).contains(0);
+    assertThat(historyStore.isArchived(0L)).isTrue();
   }
 
   @Test
@@ -117,7 +128,7 @@ class ArchiveTrieNodeWriterTest {
 
     final var diff = historyStore.getLatestBefore(nk, 1L).orElseThrow();
     assertThat(diff.block()).isEqualTo(1L);
-    assertThat(diff.counter()).isEqualTo(1);
+    assertThat(latestCounter(nk)).contains(1);
     assertThat(diff.codecEntry().isFull()).isFalse();
     assertThat(diff.codecEntry().isDeletion()).isFalse();
   }
@@ -131,6 +142,7 @@ class ArchiveTrieNodeWriterTest {
     final var tombstone = historyStore.getLatestBefore(nk, 1L).orElseThrow();
     assertThat(tombstone.block()).isEqualTo(1L);
     assertThat(tombstone.codecEntry().isDeletion()).isTrue();
+    assertThat(latestCounter(nk)).isEmpty();
   }
 
   @Test
@@ -147,6 +159,145 @@ class ArchiveTrieNodeWriterTest {
   }
 
   @Test
+  void archiveTransactionReceivesEntriesAndCoverageInsteadOfPersistTransaction() {
+    final ArchiveTrieNodeWriter writer = trieNodeWriter;
+    final SegmentedKeyValueStorage persistStorage =
+        new SegmentedInMemoryKeyValueStorage(
+            List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+
+    final SegmentedKeyValueStorageTransaction tx = persistStorage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, branchNode(0), null, tx);
+    writer.onBeforeCommit(tx);
+
+    assertThat(historyStore.getLatestBefore(nk, 0L)).isPresent();
+    assertThat(latestCounter(nk)).contains(0);
+    assertThat(historyStore.isArchived(0L)).isTrue();
+    tx.commit();
+    assertThat(persistStorage.stream(TRIE_BRANCH_STORAGE_ARCHIVE)).isEmpty();
+  }
+
+  @Test
+  void entriesCommitBeforeTheBlockTransaction() {
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    trieNodeWriter.beginBlock(tx, header(0L));
+    trieNodeWriter.capture(nk, LOCATION, branchNode(0), null, tx);
+    trieNodeWriter.onBeforeCommit(tx);
+    tx.rollback();
+
+    assertThat(historyStore.getLatestBefore(nk, 0L)).isPresent();
+    assertThat(historyStore.isArchived(0L)).isTrue();
+  }
+
+  private ArchiveTrieNodeWriter writerWith(
+      final Supplier<SegmentedKeyValueStorageTransaction> archiveTransactions) {
+    return new ArchiveTrieNodeWriter(
+        historyStore,
+        Executors.newFixedThreadPool(2),
+        DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
+        DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+        archiveTransactions);
+  }
+
+  @Test
+  void coverageIsNotRecordedWhenAnEntryBatchFails() {
+    final AtomicInteger transactions = new AtomicInteger();
+    final ArchiveTrieNodeWriter writer =
+        writerWith(
+            () -> {
+              if (transactions.incrementAndGet() == 1) {
+                throw new IllegalStateException("storage unavailable");
+              }
+              return storage.startBatchTransaction();
+            });
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, branchNode(0), null, tx);
+    assertThatThrownBy(() -> writer.onBeforeCommit(tx))
+        .hasMessageContaining("trie-node capture failed");
+
+    assertThat(historyStore.getArchivedBlock()).isEmpty();
+  }
+
+  @Test
+  void entriesAreCommittedBeforeCoverageIsOpened() {
+    final AtomicInteger transactions = new AtomicInteger();
+    final AtomicBoolean entriesVisible = new AtomicBoolean();
+    final AtomicBoolean coverageVisible = new AtomicBoolean();
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    final ArchiveTrieNodeWriter writer =
+        writerWith(
+            () -> {
+              // the second transaction is the block's coverage
+              if (transactions.incrementAndGet() == 2) {
+                entriesVisible.set(historyStore.getLatestBefore(nk, 0L).isPresent());
+                coverageVisible.set(historyStore.isArchived(0L));
+              }
+              return storage.startBatchTransaction();
+            });
+
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, branchNode(0), null, tx);
+    writer.onBeforeCommit(tx);
+
+    assertThat(transactions).hasValue(2);
+    assertThat(entriesVisible).isTrue();
+    assertThat(coverageVisible).isFalse();
+    assertThat(historyStore.isArchived(0L)).isTrue();
+  }
+
+  @Test
+  void interruptedWhileWaitingForEntriesFailsTheBlockWithoutCoverage() throws Exception {
+    final CountDownLatch batchStarted = new CountDownLatch(1);
+    final CountDownLatch releaseBatch = new CountDownLatch(1);
+    final ArchiveTrieNodeWriter writer =
+        writerWith(
+            () -> {
+              batchStarted.countDown();
+              try {
+                releaseBatch.await(10, TimeUnit.SECONDS);
+              } catch (final InterruptedException e) {
+                throw new IllegalStateException(e);
+              }
+              return storage.startBatchTransaction();
+            });
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    writer.beginBlock(tx, header(0L));
+    writer.capture(nk, LOCATION, branchNode(0), null, tx);
+
+    final AtomicReference<Throwable> failure = new AtomicReference<>();
+    final AtomicBoolean interruptRestored = new AtomicBoolean();
+    final Thread importThread =
+        new Thread(
+            () -> {
+              try {
+                writer.onBeforeCommit(tx);
+              } catch (final Throwable t) {
+                failure.set(t);
+                interruptRestored.set(Thread.currentThread().isInterrupted());
+              }
+            });
+    importThread.start();
+    assertThat(batchStarted.await(10, TimeUnit.SECONDS)).isTrue();
+    importThread.interrupt();
+    importThread.join(10_000);
+    releaseBatch.countDown();
+
+    assertThat(importThread.isAlive()).isFalse();
+    assertThat(failure.get())
+        .isInstanceOf(RuntimeException.class)
+        .hasCauseInstanceOf(InterruptedException.class);
+    assertThat(interruptRestored).isTrue();
+    assertThat(historyStore.getArchivedBlock()).isEmpty();
+  }
+
+  @Test
   void restartedWriterDiffsAgainstArchivedHistory() {
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     enqueueAndCommit(0L, nk, LOCATION, branchNode(0), null);
@@ -157,7 +308,8 @@ class ArchiveTrieNodeWriterTest {
             historyStore,
             Executors.newFixedThreadPool(2),
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            storage::startBatchTransaction);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     restarted.beginBlock(tx, header(1L));
     restarted.capture(nk, LOCATION, branchNode(1), branchNode(0), tx);
@@ -167,7 +319,7 @@ class ArchiveTrieNodeWriterTest {
     final var entry = historyStore.getLatestBefore(nk, 1L).orElseThrow();
     assertThat(entry.block()).isEqualTo(1L);
     assertThat(entry.codecEntry().isFull()).isFalse();
-    assertThat(entry.counter()).isEqualTo(1);
+    assertThat(latestCounter(nk)).contains(1);
   }
 
   @Test
@@ -196,12 +348,11 @@ class ArchiveTrieNodeWriterTest {
 
     final var creation = historyStore.getLatestBefore(nk, 0L).orElseThrow();
     assertThat(creation.codecEntry().isFull()).isTrue();
-    assertThat(creation.counter()).isZero();
 
     final var diff = historyStore.getLatestBefore(nk, 1L).orElseThrow();
     assertThat(diff.codecEntry().isFull()).isFalse();
     assertThat(diff.codecEntry().isDeletion()).isFalse();
-    assertThat(diff.counter()).isEqualTo(1);
+    assertThat(latestCounter(nk)).contains(1);
   }
 
   @Test
@@ -228,9 +379,9 @@ class ArchiveTrieNodeWriterTest {
     assertThat(entry1.codecEntry().isFull())
         .as("drastic change must produce a FULL entry")
         .isTrue();
-    assertThat(entry1.counter())
-        .as("FULL entry produced by encodeDiff fallback must have counter == 0")
-        .isZero();
+    assertThat(latestCounter(nk))
+        .as("FULL entry produced by encodeDiff fallback must reset the counter")
+        .contains(0);
   }
 
   @Test
@@ -309,7 +460,12 @@ class ArchiveTrieNodeWriterTest {
     final int shallow = 24;
     final int deep = 8;
     final ArchiveTrieNodeWriter writer =
-        new ArchiveTrieNodeWriter(historyStore, Executors.newFixedThreadPool(1), shallow, deep);
+        new ArchiveTrieNodeWriter(
+            historyStore,
+            Executors.newFixedThreadPool(1),
+            shallow,
+            deep,
+            storage::startBatchTransaction);
     assertThat(writer.checkpointIntervalForDepth(0)).isEqualTo(shallow);
     assertThat(writer.checkpointIntervalForDepth(1)).isEqualTo(shallow);
     assertThat(writer.checkpointIntervalForDepth(2)).isEqualTo(shallow);
@@ -325,7 +481,11 @@ class ArchiveTrieNodeWriterTest {
     final int deepInterval = 4;
     final ArchiveTrieNodeWriter writer =
         new ArchiveTrieNodeWriter(
-            historyStore, Executors.newFixedThreadPool(1), shallowInterval, deepInterval);
+            historyStore,
+            Executors.newFixedThreadPool(1),
+            shallowInterval,
+            deepInterval,
+            storage::startBatchTransaction);
 
     final Bytes nk = ArchiveNodeKey.account(LOCATION);
     Bytes prior = null;
@@ -346,6 +506,35 @@ class ArchiveTrieNodeWriterTest {
             historyStore.getLatestBefore(nk, shallowInterval).orElseThrow().codecEntry().isFull())
         .as("shallow node must checkpoint at the shallow interval (%d)", shallowInterval)
         .isTrue();
+    assertThat(latestCounter(nk)).contains(0);
+  }
+
+  @Test
+  void missingLatestCounterWritesFullEvenWithPriorHistory() {
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    enqueueAndCommit(0L, nk, LOCATION, branchNode(0), null);
+    final SegmentedKeyValueStorageTransaction clear = storage.startTransaction();
+    historyStore.removeLatestCounter(clear, nk);
+    clear.commit();
+
+    enqueueAndCommit(1L, nk, LOCATION, branchNode(1), branchNode(0));
+
+    assertThat(historyStore.getLatestBefore(nk, 1L).orElseThrow().codecEntry().isFull()).isTrue();
+    assertThat(latestCounter(nk)).contains(0);
+  }
+
+  @Test
+  void latestCounterAtIntervalWritesFull() {
+    final Bytes nk = ArchiveNodeKey.account(LOCATION);
+    enqueueAndCommit(0L, nk, LOCATION, branchNode(0), null);
+    final SegmentedKeyValueStorageTransaction seed = storage.startTransaction();
+    historyStore.putLatestCounter(seed, nk, DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL - 1);
+    seed.commit();
+
+    enqueueAndCommit(1L, nk, LOCATION, branchNode(1), branchNode(0));
+
+    assertThat(historyStore.getLatestBefore(nk, 1L).orElseThrow().codecEntry().isFull()).isTrue();
+    assertThat(latestCounter(nk)).contains(0);
   }
 
   // ~530-byte node in which exactly one byte changes per block — a small, diff-friendly per-block
@@ -390,13 +579,19 @@ class ArchiveTrieNodeWriterTest {
   private long replayAndSumStoredBytes(
       final Bytes location, final int blocks, final IntFunction<Bytes> nodeAt) {
     final Bytes nk = ArchiveNodeKey.account(location);
+    // Fresh storage and coverage per replay: coverage must restart contiguously from block 0.
+    final SegmentedKeyValueStorage storage =
+        new SegmentedInMemoryKeyValueStorage(
+            List.of(TRIE_BRANCH_STORAGE, TRIE_BRANCH_STORAGE_ARCHIVE));
+    final ArchiveNodeHistoryStore historyStore = new ArchiveNodeHistoryStore(storage);
     final ExecutorService pool = Executors.newFixedThreadPool(2);
     final ArchiveTrieNodeWriter localCapture =
         new ArchiveTrieNodeWriter(
             historyStore,
             pool,
             DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL,
-            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL);
+            DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL,
+            storage::startBatchTransaction);
     Bytes prior = null;
     for (int block = 0; block < blocks; block++) {
       final Bytes node = nodeAt.apply(block);

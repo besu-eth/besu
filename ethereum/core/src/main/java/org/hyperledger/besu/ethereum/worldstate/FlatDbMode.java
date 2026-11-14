@@ -19,8 +19,8 @@ import java.util.stream.Stream;
 import org.apache.tuweni.bytes.Bytes;
 
 /**
- * The FlatDbMode enum represents the different modes of the flat database. It has three modes:
- * PARTIAL, FULL, and ARCHIVE.
+ * The FlatDbMode enum represents the different modes of the flat database. It has two modes:
+ * PARTIAL and FULL.
  *
  * <p>- PARTIAL: Not all the leaves are present inside the flat database. The trie serves as a
  * fallback to retrieve missing data. The PARTIAL mode is primarily used for backward compatibility
@@ -30,16 +30,11 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>- FULL: The flat database contains the complete representation of the world state, and there
  * is no need for a fallback mechanism. The FULL mode represents a fully synchronized state where
  * the flat database encompasses all the necessary data.
- *
- * <p>- ARCHIVE: The flat database contains the complete representation of the world state, and
- * historical states as well. The ARCHIVE mode is an extension of FULL, which has a complete flat
- * database and no need for a fallback mechanism.
  */
 public enum FlatDbMode {
   NO_FLATTENED(Bytes.EMPTY),
   PARTIAL(Bytes.of(0x00)),
-  FULL(Bytes.of(0x01)),
-  ARCHIVE(Bytes.of(0x02));
+  FULL(Bytes.of(0x01));
 
   final Bytes version;
 

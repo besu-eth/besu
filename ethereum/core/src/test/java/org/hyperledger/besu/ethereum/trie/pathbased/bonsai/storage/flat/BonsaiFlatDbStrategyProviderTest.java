@@ -50,9 +50,6 @@ class FlatDbStrategyProviderTest {
   private final BonsaiFlatDbStrategyProvider flatDbStrategyProvider =
       new BonsaiFlatDbStrategyProvider(
           new NoOpMetricsSystem(), DataStorageConfiguration.DEFAULT_CONFIG);
-  private final BonsaiFlatDbStrategyProvider archiveFlatDbStrategyProvider =
-      new BonsaiFlatDbStrategyProvider(
-          new NoOpMetricsSystem(), DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG);
   private final SegmentedKeyValueStorage composedWorldStateStorage =
       new SegmentedInMemoryKeyValueStorage(
           List.of(
@@ -84,21 +81,6 @@ class FlatDbStrategyProviderTest {
     assertThat(flatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
         .isInstanceOf(BonsaiFullFlatDbStrategy.class);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
-        .isExactlyInstanceOf(JumpDestCodeStorageStrategy.class);
-  }
-
-  @Test
-  void upgradesFlatDbStrategyToArchiveFlatDbMode() {
-    updateFlatDbMode(FlatDbMode.PARTIAL);
-
-    archiveFlatDbStrategyProvider.upgradeToArchiveFlatDbMode(composedWorldStateStorage);
-    assertThat(archiveFlatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.ARCHIVE);
-    assertThat(archiveFlatDbStrategyProvider.flatDbStrategy).isNotNull();
-    // ARCHIVE mode uses BonsaiFullFlatDbStrategy for main storage (O(1) lookup);
-    // archive reads go through BonsaiArchiveReadFlatDbStrategyProvider.
-    assertThat(archiveFlatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
-        .isExactlyInstanceOf(BonsaiFullFlatDbStrategy.class);
-    assertThat(archiveFlatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
         .isExactlyInstanceOf(JumpDestCodeStorageStrategy.class);
   }
 
@@ -155,6 +137,8 @@ class FlatDbStrategyProviderTest {
             ? JumpDestCodeStorageStrategy.class
             : AccountHashCodeStorageStrategy.class;
     assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
+    assertThat(flatDbStrategyProvider.flatDbStrategy)
+        .isExactlyInstanceOf(BonsaiFullFlatDbStrategy.class);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
         .isExactlyInstanceOf(expectedCodeStorageClass);
   }
