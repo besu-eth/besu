@@ -245,6 +245,10 @@ public abstract class PathBasedWorldState
     try {
       final StateRootComputation computation = committer.compute(this, blockHeader, accumulator);
       if (!isStorageFrozen()) {
+        // Trie-disabled persists write no trie nodes, so skip the trie-node strategy hook.
+        if (blockHeader != null && !isTrieDisabled()) {
+          stateUpdater.beginBlockPersist(blockHeader);
+        }
         computation.applyTo(stateUpdater);
       }
       final Hash calculatedRootHash = computation.root();

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.transactions.sorter;
 
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.time.Clock;
@@ -31,6 +32,7 @@ public class GasPricePendingTransactionsTest extends AbstractPendingTransactions
         clock.orElse(TestClock.system(ZoneId.systemDefault())),
         metricsSystem,
         AbstractPendingTransactionsTestBase::mockBlockHeader,
-        transactionEventNotifier.newEmitter());
+        transactionEventNotifier.newEmitter(),
+        new DeterministicEthScheduler());
   }
 }
