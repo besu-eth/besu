@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
+import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive;
+import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryWorldStateArchive;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -29,8 +31,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.BlockReplay;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugStorageRangeAtResult;
 import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -42,6 +46,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.AccountStorageEntry;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -84,15 +90,43 @@ public class DebugStorageRangeAtTest {
   private final Hash transactionHash =
       Hash.fromHexString("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   private final Address accountAddress = Address.MODEXP;
+  private final ForestWorldStateArchive forestArchive = createInMemoryWorldStateArchive();
+  private final BonsaiWorldStateProvider bonsaiArchive =
+      createBonsaiInMemoryWorldStateArchive(blockchain);
 
   @BeforeEach
   public void setUp() {
     when(transaction.getHash()).thenReturn(transactionHash);
+    when(blockchainQueries.getWorldStateArchive()).thenReturn(forestArchive);
   }
 
   @Test
   public void nameShouldBeDebugStorageRangeAt() {
     assertThat(debugStorageRangeAt.getName()).isEqualTo("debug_storageRangeAt");
+  }
+
+  @Test
+  public void shouldReturnMethodNotEnabledOnBonsaiArchive() {
+    when(blockchainQueries.getWorldStateArchive()).thenReturn(bonsaiArchive);
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0",
+                "debug_storageRangeAt",
+                new Object[] {
+                  blockHash.toString(),
+                  TRANSACTION_INDEX,
+                  accountAddress,
+                  START_KEY_HASH.toString(),
+                  10
+                }));
+
+    final JsonRpcResponse response = debugStorageRangeAt.response(request);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.METHOD_NOT_ENABLED);
   }
 
   @Test
