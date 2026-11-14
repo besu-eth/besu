@@ -1637,12 +1637,24 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private void validateDataStorageOptions() {
     dataStorageOptions.validate(commandLine);
     // the SNAP2 sync storage is on Bonsai and Forest, not on an archive
-    final DataStorageFormat format = dataStorageOptions.toDomainObject().getDataStorageFormat();
+    final DataStorageConfiguration storageConfig = dataStorageOptions.toDomainObject();
+    final DataStorageFormat format = storageConfig.getDataStorageFormat();
     if (getDefaultSyncModeIfNotSet() == SyncMode.SNAP2
         && format == DataStorageFormat.X_BONSAI_ARCHIVE) {
       throw new ParameterException(
           commandLine,
           "--sync-mode=SNAP2 needs --data-storage-format=BONSAI or FOREST, not " + format);
+    }
+    // proof history starts at genesis, which snap sync skips
+    if (getDefaultSyncModeIfNotSet() == SyncMode.SNAP
+        && format == DataStorageFormat.X_BONSAI_ARCHIVE
+        && storageConfig
+            .getExtraStorageConfiguration()
+            .getUnstable()
+            .getBonsaiArchiveStateProofsEnabled()) {
+      throw new ParameterException(
+          commandLine,
+          ExtraStorageOptions.STATE_PROOFS_ENABLED + " needs --sync-mode=FULL, not " + format);
     }
   }
 
@@ -2548,6 +2560,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             DataStorageFormat.BONSAI);
       }
     }
+
     return dataStorageConfiguration;
   }
 
