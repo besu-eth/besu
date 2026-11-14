@@ -20,6 +20,8 @@ import org.hyperledger.besu.plugin.services.HealthCheckService;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,6 +58,23 @@ public class HealthCheckServiceImplTest {
 
     assertThat(healthCheckService.getHealthCheck("/test")).isPresent();
     assertThat(healthCheckService.getHealthCheck("/test").get()).isSameAs(provider2);
+  }
+
+  @Test
+  void aCheckRegisteredByAnotherPluginReplacesTheExistingOne() {
+    final AtomicReference<String> registrant = new AtomicReference<>("pluginA");
+    final HealthCheckServiceImpl service =
+        new HealthCheckServiceImpl(() -> true, () -> Optional.ofNullable(registrant.get()));
+    final HealthCheckService.HealthCheckProvider first =
+        params -> HealthCheckService.HealthCheckResult.of(true);
+    final HealthCheckService.HealthCheckProvider second =
+        params -> HealthCheckService.HealthCheckResult.of(false);
+
+    service.registerHealthCheck("/liveness", first);
+    registrant.set("pluginB");
+    service.registerHealthCheck("/liveness", second);
+
+    assertThat(service.getHealthCheck("/liveness")).containsSame(second);
   }
 
   @Test

@@ -39,6 +39,7 @@ import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -54,6 +55,7 @@ import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -145,12 +147,29 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
 
   private final List<BesuPlugin> registeredPlugins = new ArrayList<>();
 
-  /** Plugins whose {@code start()} returned in the current cycle: the ones a stop reaches. */
+  /**
+   * Plugins whose {@code start()} returned in the current cycle: the ones a stop reaches. Guarded
+   * by itself, since the start loop appends to it while a shutdown hook may be taking it to stop
+   * them.
+   */
   private final List<BesuPlugin> startedPlugins = new ArrayList<>();
+
+  /** Set once a shutdown has begun, so the start loop starts nothing more. */
+  private volatile boolean stopRequested;
+
+  /**
+   * How long a plugin's {@code stop()} may run before it is abandoned; what the core services get.
+   */
+  private Duration stopTimeout = Duration.ofSeconds(30);
 
   private final Map<String, String> pluginVersions = new LinkedHashMap<>();
   private PluginConfiguration config;
   private URLClassLoader pluginClassLoader;
+
+  /**
+   * The id of the plugin whose {@code register()} is running; null outside a plugin's register().
+   */
+  private volatile String currentRegistrant;
 
   /** Instantiates a new Besu plugin context. */
   public BesuPluginContextImpl() {}
@@ -179,6 +198,18 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
    */
   public boolean isRegistering() {
     return state == Lifecycle.REGISTERING;
+  }
+
+  /**
+   * The id of the plugin whose {@code register()} is running. The registration-tier services record
+   * it with each named entry a plugin registers, so a second registration of the same name can be
+   * told apart as the same plugin registering again or another plugin colliding with it.
+   *
+   * @return the registering plugin's id; empty when Besu itself is registering, outside any
+   *     plugin's register()
+   */
+  public Optional<String> currentRegistrant() {
+    return Optional.ofNullable(currentRegistrant);
   }
 
   /**
@@ -239,6 +270,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
    */
   public RegistrationContext registrationContextFor(final BesuPlugin plugin) {
     final String pluginName = pluginId(plugin);
+    currentRegistrant = pluginName;
     return new RegistrationContext() {
       @Override
       public <T extends RegistrationService> T getBesuService(final Class<T> type) {
@@ -630,6 +662,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         "BesuContext should be in state %s but it was in %s",
         Lifecycle.REGISTERING,
         state);
+    currentRegistrant = null;
     state = Lifecycle.REGISTERED;
   }
 
@@ -711,11 +744,19 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         throw new RuntimeException(fatalFailure(failure, plugin), e);
       }
       return false;
+    } finally {
+      currentRegistrant = null;
     }
     return true;
   }
 
-  /** Calls {@link BesuPlugin#start(StartContext)} on every registered plugin. */
+  /**
+   * Calls {@link BesuPlugin#start(StartContext)} on every registered plugin. When a start() fails
+   * and the failure is fatal, the plugins started before it are stopped, in reverse order, before
+   * the failure propagates. A shutdown that begins while the plugins are starting abandons the
+   * startup with an {@link IllegalStateException}: nothing more is started, and what had started is
+   * stopped by the shutdown.
+   */
   public void startPlugins() {
     checkState(
         state == Lifecycle.REGISTERED,
@@ -723,21 +764,23 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         Lifecycle.REGISTERED,
         state);
     state = Lifecycle.BEFORE_MAIN_LOOP_STARTED;
-    startedPlugins.clear();
+    synchronized (startedPlugins) {
+      startedPlugins.clear();
+    }
     final Iterator<BesuPlugin> pluginsIterator = registeredPlugins.iterator();
 
     while (pluginsIterator.hasNext()) {
       final BesuPlugin plugin = pluginsIterator.next();
+      if (stopRequested) {
+        throw shutdownDuringStart();
+      }
 
       try {
         plugin.start(startContextFor(plugin));
-        startedPlugins.add(plugin);
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Started plugin of type {}.", pluginId(plugin));
-        }
       } catch (final Exception | LinkageError e) {
         final Optional<Throwable> unrecoverable = unrecoverableCause(e);
         if (unrecoverable.isPresent()) {
+          stopStartedPlugins();
           throw new RuntimeException(
               "Plugin " + pluginId(plugin) + ": " + unrecoverable.get().getMessage(), e);
         }
@@ -745,14 +788,47 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         if (continuesOnFailureOf(plugin)) {
           LOG.error("{}, stop will not be called.", failure, e);
           pluginsIterator.remove();
-        } else {
-          throw new RuntimeException(fatalFailure(failure, plugin), e);
+          continue;
         }
+        stopStartedPlugins();
+        throw new RuntimeException(fatalFailure(failure, plugin), e);
+      }
+      if (!recordStarted(plugin)) {
+        // the shutdown took the started list while this start() ran, so it is the one it missed
+        stopPlugin(plugin);
+        throw shutdownDuringStart();
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Started plugin of type {}.", pluginId(plugin));
       }
     }
 
     LOG.debug("Plugin startup complete.");
     state = Lifecycle.BEFORE_MAIN_LOOP_FINISHED;
+  }
+
+  /**
+   * The failure a startup ends with when a shutdown began while the plugins were starting: the
+   * caller abandons the startup, so nothing else starts while the shutdown closes the node.
+   */
+  private static IllegalStateException shutdownDuringStart() {
+    return new IllegalStateException(
+        "Shutdown requested while the plugins were starting; the startup is abandoned");
+  }
+
+  /**
+   * Records that the plugin's start() returned, unless a shutdown has begun meanwhile.
+   *
+   * @return false if the shutdown took the started list before this plugin could join it
+   */
+  private boolean recordStarted(final BesuPlugin plugin) {
+    synchronized (startedPlugins) {
+      if (stopRequested) {
+        return false;
+      }
+      startedPlugins.add(plugin);
+      return true;
+    }
   }
 
   /**
@@ -779,9 +855,11 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         }
         final String failure = failureMessage("calling `afterMainLoop` on", pluginId(plugin), e);
         if (continuesOnFailureOf(plugin)) {
-          LOG.error("{}, stop will not be called.", failure, e);
+          LOG.error(
+              "{}; it stays started and receives stop() when the node shuts down or restarts.",
+              failure,
+              e);
           pluginsIterator.remove();
-          startedPlugins.remove(plugin);
         } else {
           throw new RuntimeException(fatalFailure(failure, plugin), e);
         }
@@ -789,37 +867,33 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     }
   }
 
-  /** Stop plugins. */
+  /**
+   * Stops the plugins that started, in the reverse of their start order, for the shutdown of the
+   * node. Callable from any state and more than once: it stops whatever started since the last stop
+   * and nothing otherwise, so the shutdown hook can run after a startup that failed at any point,
+   * and after a failed startup already stopped the plugins. Each stop() gets the stop timeout; one
+   * that exceeds it or throws is logged and the next plugin is stopped. The plugin class loader
+   * stays open until {@link #closePluginClassLoader()}, once nothing can call into plugin code.
+   */
   public void stopPlugins() {
-    checkState(
-        state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
-        "BesuContext should be in state %s but it was in %s",
-        Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
-        state);
+    // the state first, then the volatile flag that publishes it: a start loop that sees the flag
+    // and abandons its startup finds the context stopping, so its own restart stop is refused
     state = Lifecycle.STOPPING;
+    stopRequested = true;
     stopStartedPlugins();
-
-    // Close the plugin classloader to release file handles
-    if (pluginClassLoader != null) {
-      try {
-        pluginClassLoader.close();
-        LOG.debug("Closed plugin classloader");
-      } catch (final IOException e) {
-        LOG.debug("Error closing plugin classloader", e);
-      }
-    }
-
     LOG.debug("Plugin shutdown complete.");
     state = Lifecycle.STOPPED;
   }
 
   /**
-   * Stops the plugins the current cycle started, for an Ephemery restart, before the node's
-   * services stop, in the order of a shutdown. Accepted after registration whether the start phase
-   * ran to the end, failed part way or never ran, so a cycle that failed to start does not block
-   * the next one: only the plugins whose {@code start()} returned are stopped. Unlike {@link
-   * #stopPlugins()} this keeps the plugin class loader open and returns to the registered state,
-   * since the same plugins register and run again.
+   * Stops the plugins the current cycle started, in the reverse of their start order, and returns
+   * to the registered state so the same plugins can register and start again: the Ephemery restart
+   * calls it before the node's services stop, in the order of a shutdown, and a startup that fails
+   * after the plugins started calls it before the failure propagates. Accepted after registration
+   * whether the start phase ran to the end, failed part way or never ran, so a cycle that failed to
+   * start does not block the next one: only the plugins whose {@code start()} returned are stopped.
+   * Unlike {@link #stopPlugins()} it returns to the registered state instead of the stopped one,
+   * and a later start is allowed.
    *
    * @throws IllegalStateException if the context is not in the REGISTERED, the
    *     BEFORE_MAIN_LOOP_STARTED or the BEFORE_MAIN_LOOP_FINISHED state.
@@ -834,27 +908,97 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         Lifecycle.BEFORE_MAIN_LOOP_STARTED,
         Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
         state);
-    if (state == Lifecycle.BEFORE_MAIN_LOOP_STARTED) {
-      LOG.warn(
-          "The previous cycle failed while starting its plugins; stopping the {} it had started",
-          startedPlugins.size());
-    }
     stopStartedPlugins();
     state = Lifecycle.REGISTERED;
   }
 
+  /** Stops the started plugins, newest first, and empties the list. */
   private void stopStartedPlugins() {
-    for (final BesuPlugin plugin : startedPlugins) {
+    final List<BesuPlugin> toStop;
+    synchronized (startedPlugins) {
+      toStop = new ArrayList<>(startedPlugins);
+      startedPlugins.clear();
+    }
+    Collections.reverse(toStop);
+    // an interrupt of this thread ends the wait for one plugin only: the flag is cleared for the
+    // loop, so the remaining plugins keep their own wait, and set again for the caller afterwards
+    boolean interrupted = Thread.interrupted();
+    for (final BesuPlugin plugin : toStop) {
+      interrupted |= stopPlugin(plugin);
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  /**
+   * Calls the plugin's stop() on its own thread and waits for it up to the stop timeout. A stop()
+   * that throws, an {@link Error} included, costs a log line; one that exceeds the timeout is
+   * interrupted, logged and left behind on its daemon thread, so neither can hold up the plugins
+   * after it or the rest of the shutdown. Returns whether the wait was interrupted; the interrupt
+   * flag is left clear so the next plugin's wait is not cut short.
+   */
+  private boolean stopPlugin(final BesuPlugin plugin) {
+    final AtomicReference<Throwable> failure = new AtomicReference<>();
+    final Thread stopper =
+        new Thread(
+            () -> {
+              try {
+                plugin.stop();
+              } catch (final Throwable t) {
+                failure.set(t);
+              }
+            },
+            "plugin-stop-" + plugin.getClass().getSimpleName());
+    stopper.setDaemon(true);
+    stopper.start();
+    try {
+      stopper.join(stopTimeout.toMillis());
+    } catch (final InterruptedException e) {
+      // the interrupt is reported to the loop, which hands it on once the other plugins stopped
+      stopper.interrupt();
+      LOG.warn("Interrupted while stopping plugin of type {}", pluginId(plugin));
+      return true;
+    }
+    if (stopper.isAlive()) {
+      stopper.interrupt();
+      LOG.error(
+          "Plugin of type {} did not stop within {} seconds and is abandoned",
+          pluginId(plugin),
+          stopTimeout.toSeconds());
+    } else if (failure.get() != null) {
+      LOG.error("Error stopping plugin of type " + pluginId(plugin), failure.get());
+    } else if (LOG.isDebugEnabled()) {
+      LOG.debug("Stopped plugin of type {}.", pluginId(plugin));
+    }
+    return false;
+  }
+
+  @VisibleForTesting
+  URLClassLoader pluginClassLoader() {
+    return pluginClassLoader;
+  }
+
+  /**
+   * Closes the plugin class loader, releasing the jar file handles. Called last at shutdown, after
+   * the node's services have stopped: a class or resource the plugins have not loaded yet cannot be
+   * loaded afterwards. Safe when no loader was opened, and more than once.
+   */
+  public void closePluginClassLoader() {
+    final URLClassLoader loader = pluginClassLoader;
+    if (loader != null) {
       try {
-        plugin.stop();
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Stopped plugin of type {}.", pluginId(plugin));
-        }
-      } catch (final Exception e) {
-        LOG.error("Error stopping plugin of type " + pluginId(plugin), e);
+        loader.close();
+        LOG.debug("Closed plugin classloader");
+      } catch (final IOException e) {
+        LOG.debug("Error closing plugin classloader", e);
       }
     }
-    startedPlugins.clear();
+  }
+
+  @VisibleForTesting
+  void setStopTimeout(final Duration stopTimeout) {
+    this.stopTimeout = stopTimeout;
   }
 
   private static URL pathToURIOrNull(final Path p) {
@@ -918,9 +1062,9 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     }
     final URL[] pluginJarURLs =
         jars.stream().map(BesuPluginContextImpl::pathToURIOrNull).toArray(URL[]::new);
-    // The URLClassLoader must remain open for the entire application lifecycle
-    // as plugins may load classes lazily during their operation. The classloader
-    // will be closed in stopPlugins() during shutdown.
+    // The URLClassLoader must remain open for the entire application lifecycle as plugins may
+    // load classes lazily during their operation. closePluginClassLoader() closes it at shutdown,
+    // after the node's services have stopped.
     this.pluginClassLoader = new URLClassLoader(pluginJarURLs, this.getClass().getClassLoader());
 
     // One provider at a time: a class that cannot be loaded makes the service loader throw, a

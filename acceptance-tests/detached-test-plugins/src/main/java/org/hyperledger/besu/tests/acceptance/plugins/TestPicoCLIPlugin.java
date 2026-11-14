@@ -120,7 +120,10 @@ public class TestPicoCLIPlugin implements BesuPlugin {
       throw new RuntimeException("I was told to fail at stop");
     }
 
-    writeSignal("stopped");
+    // written from the shutdown hook: a file registered for deletion at exit would be gone before
+    // the test can look at it
+    PluginCallbackDir.writeKept(
+        callbackDir, PLUGIN_LIFECYCLE_PREFIX + "stopped", signalLines("stopped"));
     state = "stopped";
   }
 
@@ -131,9 +134,10 @@ public class TestPicoCLIPlugin implements BesuPlugin {
 
   /** This is used to signal to the acceptance test that certain tasks were completed. */
   private void writeSignal(final String signal) {
-    PluginCallbackDir.write(
-        callbackDir,
-        PLUGIN_LIFECYCLE_PREFIX + signal,
-        List.of(signal, "testOption=" + testOption, "id=" + System.identityHashCode(this)));
+    PluginCallbackDir.write(callbackDir, PLUGIN_LIFECYCLE_PREFIX + signal, signalLines(signal));
+  }
+
+  private List<String> signalLines(final String signal) {
+    return List.of(signal, "testOption=" + testOption, "id=" + System.identityHashCode(this));
   }
 }

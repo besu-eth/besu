@@ -319,6 +319,7 @@ public abstract class CommandTestAbstract {
     when(mockController.getStorageProvider()).thenReturn(storageProvider);
 
     when(mockRunnerBuilder.build()).thenReturn(mockRunner);
+    lenient().when(mockRunner.getBesuController()).thenReturn(mockController);
     when(mockBesuComponent.getMetricsSystem()).thenReturn(new NoOpMetricsSystem());
 
     lenient().when(nodeKey.getPublicKey()).thenReturn(keyPair.getPublicKey());
@@ -637,6 +638,9 @@ public abstract class CommandTestAbstract {
     @CommandLine.Spec CommandLine.Model.CommandSpec spec;
     private Vertx vertx;
 
+    /** The startup steps whose order the tests check, as they ran. */
+    public final List<String> startupEvents = new ArrayList<>();
+
     TestBesuCommand(
         final Supplier<RlpBlockImporter> mockBlockImporter,
         final Function<BesuController, JsonBlockImporter> jsonBlockImporterFactory,
@@ -674,6 +678,18 @@ public abstract class CommandTestAbstract {
     protected P2PDiscoveryOptions.NetworkInterfaceChecker getNetworkInterfaceChecker() {
       // For testing, don't actually query for networking interfaces to validate this option
       return (networkInterface) -> true;
+    }
+
+    @Override
+    void addShutdownHook() {
+      // recorded, not installed: a test JVM must not accumulate one hook per parsed command
+      startupEvents.add("shutdown hook installed");
+    }
+
+    @Override
+    public BesuController buildController() {
+      startupEvents.add("controller built");
+      return super.buildController();
     }
 
     @Override

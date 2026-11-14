@@ -25,14 +25,22 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import javax.inject.Inject;
 
 /** The Storage service implementation. */
 public class StorageServiceImpl implements StorageService {
 
+  /** The registrant of an entry Besu registered itself, outside any plugin's register(). */
+  private static final String BESU = "Besu";
+
+  /** A registered factory with the id of the plugin that registered it. */
+  private record Registered(String registrant, KeyValueStorageFactory factory) {}
+
   private final List<SegmentIdentifier> segments;
-  private final Map<String, KeyValueStorageFactory> factories;
+  private final Map<String, Registered> factories;
   private final BooleanSupplier registrationOpen;
+  private final Supplier<Optional<String>> currentRegistrant;
 
   /** Instantiates a new Storage service that accepts registrations at any time. */
   @Inject
@@ -41,15 +49,29 @@ public class StorageServiceImpl implements StorageService {
   }
 
   /**
-   * Instantiates a new Storage service.
+   * Instantiates a new Storage service whose registrations all count as Besu's own.
    *
    * @param registrationOpen whether plugin registration is currently open; registrations made while
    *     it is closed are rejected
    */
   public StorageServiceImpl(final BooleanSupplier registrationOpen) {
+    this(registrationOpen, Optional::empty);
+  }
+
+  /**
+   * Instantiates a new Storage service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; registrations made while
+   *     it is closed are rejected
+   * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
+   *     itself is registering; a factory name already registered by another registrant is rejected
+   */
+  public StorageServiceImpl(
+      final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
     this.segments = List.of(KeyValueSegmentIdentifier.values());
     this.factories = new ConcurrentHashMap<>();
     this.registrationOpen = registrationOpen;
+    this.currentRegistrant = currentRegistrant;
   }
 
   @Override
@@ -57,7 +79,21 @@ public class StorageServiceImpl implements StorageService {
     if (!registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException("StorageService", "registerKeyValueStorage");
     }
-    factories.put(factory.getName(), factory);
+    final String registrant = currentRegistrant.get().orElse(BESU);
+    final Registered previous = factories.get(factory.getName());
+    if (previous != null && !previous.registrant().equals(registrant)) {
+      throw new IllegalStateException(
+          "cannot register storage factory "
+              + factory.getName()
+              + ": "
+              + owner(previous.registrant())
+              + " already registered it");
+    }
+    factories.put(factory.getName(), new Registered(registrant, factory));
+  }
+
+  private static String owner(final String registrant) {
+    return BESU.equals(registrant) ? BESU : "plugin " + registrant;
   }
 
   @Override
@@ -67,6 +103,6 @@ public class StorageServiceImpl implements StorageService {
 
   @Override
   public Optional<KeyValueStorageFactory> getByName(final String name) {
-    return Optional.ofNullable(factories.get(name));
+    return Optional.ofNullable(factories.get(name)).map(Registered::factory);
   }
 }

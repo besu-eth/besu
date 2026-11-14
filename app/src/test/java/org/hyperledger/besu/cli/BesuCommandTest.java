@@ -41,14 +41,17 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.plugin.services.storage.DataStorageFormat.BONSAI;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNotNull;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -62,6 +65,7 @@ import org.hyperledger.besu.cli.options.LoggingFormat;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.config.NetworkDefinition;
+import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -79,6 +83,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryMode;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
+import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.precompile.AbstractAltBnPrecompiledContract;
 import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
@@ -89,6 +94,7 @@ import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.mining.MiningService;
 import org.hyperledger.besu.plugin.services.p2p.P2PService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.number.Fraction;
@@ -491,6 +497,179 @@ public class BesuCommandTest extends CommandTestAbstract {
     inOrder.verify(getBesuPluginContext()).startPlugins();
     inOrder.verify(mockRunner).startExternalServices();
     inOrder.verify(mockRunner).startEthereumMainLoop();
+  }
+
+  @Test
+  public void startedPluginsAreStoppedWhenAServerFailsToStart() {
+    doThrow(new IllegalStateException("Service jsonRpc failed to start"))
+        .when(mockRunner)
+        .startExternalServices();
+
+    parseCommand();
+
+    // the plugins had started when the servers failed, so they are stopped before the failure
+    // propagates; the runner is left to the shutdown hook, which closes it on exit
+    final InOrder inOrder = inOrder(mockRunner, getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).startPlugins();
+    inOrder.verify(mockRunner).startExternalServices();
+    inOrder.verify(getBesuPluginContext()).stopPluginsForRestart();
+    verify(mockRunner, never()).startEthereumMainLoop();
+    verify(mockRunner, never()).close();
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("Service jsonRpc failed to start");
+  }
+
+  @Test
+  public void shutdownClosesTheRunnerAndTheClassLoaderWhenStoppingThePluginsThrows() {
+    final TestBesuCommand command = parseCommand();
+    doThrow(new NoClassDefFoundError("gone/Missing")).when(getBesuPluginContext()).stopPlugins();
+
+    command.shutdown();
+
+    final InOrder inOrder = inOrder(mockRunner, getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).stopPlugins();
+    inOrder.verify(mockRunner).close();
+    inOrder.verify(getBesuPluginContext()).closePluginClassLoader();
+    verify(mockController, never()).close();
+  }
+
+  @Test
+  public void shutdownClosesTheControllerWhenTheRunnerCouldNotBeBuilt() {
+    when(mockRunnerBuilder.build())
+        .thenThrow(new RuntimeException("You can not override built in methods [eth_blockNumber]"));
+    final TestBesuCommand command = parseCommand();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("You can not override built in methods");
+
+    command.shutdown();
+
+    // storage opened with the controller before the runner build failed: the controller is closed
+    final InOrder inOrder = inOrder(mockController, getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).stopPlugins();
+    inOrder.verify(mockController).close();
+    inOrder.verify(getBesuPluginContext()).closePluginClassLoader();
+    verify(mockRunner, never()).close();
+  }
+
+  @Test
+  public void shutdownClosesAControllerTheRunnerDoesNotOwn() {
+    final TestBesuCommand command = parseCommand();
+    // the Ephemery restart assigns the new cycle's controller before it builds that cycle's
+    // runner: until then the runner field is the previous cycle's, whose controller it closes
+    final BesuController previousController = mock(BesuController.class);
+    when(mockRunner.getBesuController()).thenReturn(previousController);
+
+    command.shutdown();
+
+    final InOrder inOrder = inOrder(mockRunner, mockController, getBesuPluginContext());
+    inOrder.verify(getBesuPluginContext()).stopPlugins();
+    inOrder.verify(mockRunner).close();
+    inOrder.verify(mockController).close();
+    inOrder.verify(getBesuPluginContext()).closePluginClassLoader();
+  }
+
+  @Test
+  public void shutdownClosesTheStorageWhenTheControllerCouldNotBeBuilt() throws Exception {
+    final SegmentedKeyValueStorage openedStorage = mock(SegmentedKeyValueStorage.class);
+    when(rocksDBStorageFactory.create(anyList(), any(), any())).thenReturn(openedStorage);
+    final StorageProvider[] provider = new StorageProvider[1];
+    doAnswer(
+            invocation -> {
+              provider[0] = invocation.getArgument(0);
+              return mockControllerBuilder;
+            })
+        .when(mockControllerBuilder)
+        .storageProvider(any());
+    // the controller build opens storage, then fails on the genesis block it reads from it
+    when(mockControllerBuilder.build())
+        .thenAnswer(
+            invocation -> {
+              provider[0].createVariablesStorage();
+              throw new IllegalStateException(
+                  "Supplied genesis block does not match chain data stored in the data directory");
+            });
+    final TestBesuCommand command = parseCommand();
+    assertThat(commandErrorOutput.toString(UTF_8)).contains("does not match chain data");
+
+    command.shutdown();
+
+    // no controller was built to own the storage provider, so the hook closes it by itself
+    verify(openedStorage).close();
+    verify(mockRunner, never()).close();
+    verify(mockController, never()).close();
+  }
+
+  @Test
+  public void shutdownLeavesTheStorageToTheControllerThatOwnsIt() throws Exception {
+    final SegmentedKeyValueStorage openedStorage = mock(SegmentedKeyValueStorage.class);
+    when(rocksDBStorageFactory.create(anyList(), any(), any())).thenReturn(openedStorage);
+    final StorageProvider[] provider = new StorageProvider[1];
+    doAnswer(
+            invocation -> {
+              provider[0] = invocation.getArgument(0);
+              return mockControllerBuilder;
+            })
+        .when(mockControllerBuilder)
+        .storageProvider(any());
+    when(mockControllerBuilder.build())
+        .thenAnswer(
+            invocation -> {
+              provider[0].createVariablesStorage();
+              return mockController;
+            });
+    when(mockController.getStorageProvider()).thenAnswer(invocation -> provider[0]);
+    when(mockRunnerBuilder.build())
+        .thenThrow(new RuntimeException("You can not override built in methods [eth_blockNumber]"));
+    final TestBesuCommand command = parseCommand();
+
+    command.shutdown();
+
+    // the controller closes the storage provider it was built from; the hook does not close it
+    // a second time
+    verify(mockController).close();
+    verify(openedStorage, never()).close();
+  }
+
+  @Test
+  public void aShutdownDuringThePluginStartAbandonsTheStartup() {
+    doThrow(new IllegalStateException("Shutdown requested while the plugins were starting"))
+        .when(getBesuPluginContext())
+        .startPlugins();
+
+    parseCommand();
+
+    // the hook is closing the node: the startup starts nothing else on the runner it is closing
+    verify(mockRunner, never()).startExternalServices();
+    verify(mockRunner, never()).startEthereumMainLoop();
+    verify(getBesuPluginContext()).stopPluginsForRestart();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Shutdown requested while the plugins were starting");
+  }
+
+  @Test
+  public void theShutdownHookIsInstalledBeforeTheControllerOpensStorage() {
+    final TestBesuCommand command = parseCommand();
+
+    // a failure inside the controller build, or a signal during it, already finds the hook in place
+    assertThat(command.startupEvents)
+        .containsExactly("shutdown hook installed", "controller built");
+  }
+
+  @Test
+  public void aStartupFailureIsReportedEvenWhenTheHookStoppedThePluginsFirst() {
+    doThrow(new IllegalStateException("Service jsonRpc failed to start"))
+        .when(mockRunner)
+        .startExternalServices();
+    // the hook ran stopPlugins() meanwhile, so the context refuses the restart stop
+    doThrow(new IllegalStateException("BesuContext should be in state REGISTERED"))
+        .when(getBesuPluginContext())
+        .stopPluginsForRestart();
+
+    parseCommand();
+
+    // the state complaint is swallowed; the startup failure is the one reported
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Service jsonRpc failed to start")
+        .doesNotContain("should be in state");
   }
 
   @Test
