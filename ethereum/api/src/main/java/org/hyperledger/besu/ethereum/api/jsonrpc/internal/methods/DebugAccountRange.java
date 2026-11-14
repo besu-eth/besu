@@ -133,6 +133,10 @@ public class DebugAccountRange implements JsonRpcMethod {
           .get()
           .latestBlockWithTxHashes()
           .map(block -> block.getHeader().getHash());
+    } else if (blockParameter.isFinalized()) {
+      return blockchainQueries.get().finalizedBlockHeader().map(BlockHeader::getHash);
+    } else if (blockParameter.isSafe()) {
+      return blockchainQueries.get().safeBlockHeader().map(BlockHeader::getHash);
     } else if (blockParameter.isNumeric()) {
       return blockchainQueries.get().getBlockHashByNumber(blockParameter.getNumber().getAsLong());
     } else {

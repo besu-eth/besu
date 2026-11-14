@@ -20,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -169,6 +170,24 @@ public class DebugStorageRangeAtTest {
             entry(
                 entries.get(2).getKeyHash().toString(),
                 new DebugStorageRangeAtResult.StorageEntry(entries.get(2), false)));
+  }
+
+  @Test
+  public void shouldResolveFinalizedToTheFinalizedBlock() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0",
+                "debug_storageRangeAt",
+                new Object[] {
+                  "finalized", TRANSACTION_INDEX, accountAddress, START_KEY_HASH.toString(), 10
+                }));
+    when(blockHeader.getHash()).thenReturn(blockHash);
+    when(blockchainQueries.finalizedBlockHeader()).thenReturn(Optional.of(blockHeader));
+
+    debugStorageRangeAt.response(request);
+
+    verify(blockchainQueries).blockByHash(blockHash);
   }
 
   private Object callAction(final InvocationOnMock invocation) {
