@@ -161,7 +161,7 @@ public class DebugAccountAt extends AbstractBlockParameterOrBlockHashMethod {
                       account.get().getCode(),
                       Quantity.create(account.get().getNonce()),
                       Quantity.create(account.get().getBalance()),
-                      Quantity.create(account.get().getCodeHash().getBytes())));
+                      account.get().getCodeHash().getBytes().toHexString()));
             })
         .orElse(
             new JsonRpcErrorResponse(
