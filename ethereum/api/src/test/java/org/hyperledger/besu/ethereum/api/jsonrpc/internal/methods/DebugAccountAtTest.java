@@ -17,16 +17,14 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static org.hyperledger.besu.evm.account.Account.MAX_NONCE;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.BlockTrace;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.BlockTracer;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.BlockReplay;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -35,14 +33,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugAccountAt
 import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.tracing.TraceFrame;
-import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -58,19 +57,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class DebugAccountAtTest {
-  @Mock private BlockTracer blockTracer;
+  @Mock private BlockReplay blockReplay;
   @Mock private BlockchainQueries blockchainQueries;
 
   @Mock(answer = Answers.RETURNS_DEEP_STUBS)
   private BlockWithMetadata<TransactionWithMetadata, Hash> blockWithMetadata;
 
   @Mock private BlockHeader blockHeader;
+  @Mock private Block block;
+  @Mock private BlockBody blockBody;
   @Mock private TransactionWithMetadata transactionWithMetadata;
-  @Mock private BlockTrace blockTrace;
-  @Mock private TransactionTrace transactionTrace;
-  @Mock private TraceFrame traceFrame;
   @Mock private Transaction transaction;
-  @Mock private WorldUpdater worldUpdater;
   @Mock private MutableWorldState worldState;
 
   @Mock private Account account;
@@ -79,7 +76,7 @@ class DebugAccountAtTest {
 
   @BeforeEach
   void init() {
-    debugAccountAt = new DebugAccountAt(blockchainQueries, () -> blockTracer);
+    debugAccountAt = new DebugAccountAt(blockchainQueries, blockReplay);
   }
 
   @Test
@@ -185,6 +182,9 @@ class DebugAccountAtTest {
     setupMockBlock();
     Mockito.when(blockWithMetadata.getTransactions())
         .thenReturn(Collections.singletonList(transactionWithMetadata));
+    Mockito.when(transactionWithMetadata.getTransaction()).thenReturn(transaction);
+    Mockito.when(transaction.getHash()).thenReturn(Hash.ZERO);
+    doReturn(Optional.empty()).when(blockReplay).performActionWithBlock(any(), any());
 
     final Object[] params =
         new Object[] {Hash.ZERO.getBytes().toHexString(), 0, Address.ZERO.getBytes().toHexString()};
@@ -266,10 +266,7 @@ class DebugAccountAtTest {
   }
 
   private void setupMockAccount() {
-    Mockito.when(transactionTrace.getTraceFrames())
-        .thenReturn(Collections.singletonList(traceFrame));
-    Mockito.when(traceFrame.getWorldUpdater()).thenReturn(worldUpdater);
-    Mockito.when(worldUpdater.get(any())).thenReturn(account);
+    Mockito.when(worldState.get(any())).thenReturn(account);
     Mockito.when(account.getAddress()).thenReturn(Address.ZERO);
   }
 
@@ -277,13 +274,17 @@ class DebugAccountAtTest {
     Mockito.when(blockchainQueries.blockByHash(any())).thenReturn(Optional.of(blockWithMetadata));
     Mockito.when(blockWithMetadata.getTransactions())
         .thenReturn(Collections.singletonList(transactionWithMetadata));
-    Mockito.when(blockTracer.trace(any(Tracer.TraceableState.class), any(Hash.class), any()))
-        .thenReturn(Optional.of(blockTrace));
-    Mockito.when(blockTrace.getTransactionTraces())
-        .thenReturn(Collections.singletonList(transactionTrace));
-    Mockito.when(transactionTrace.getTransaction()).thenReturn(transaction);
     Mockito.when(transactionWithMetadata.getTransaction()).thenReturn(transaction);
     Mockito.when(transaction.getHash()).thenReturn(Hash.ZERO);
+    Mockito.when(block.getBody()).thenReturn(blockBody);
+    Mockito.when(blockBody.getTransactions()).thenReturn(List.of(transaction));
+    doAnswer(
+            invocation -> {
+              final BlockReplay.BlockAction<?> action = invocation.getArgument(1);
+              return action.perform(block, null, null, null);
+            })
+        .when(blockReplay)
+        .performActionWithBlock(any(), any());
   }
 
   private void setupMockBlock() {
