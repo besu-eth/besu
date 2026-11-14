@@ -60,6 +60,7 @@
 - A node stopped while importing a block no longer gets stuck after a restart, failing to process the next block because the parent world state is not available. [#11882](https://github.com/besu-eth/besu/pull/11882)
 - Shutting down while the log bloom cache is being generated no longer waits 30 seconds and logs two errors for every cache segment not generated yet. [#11931](https://github.com/besu-eth/besu/pull/11931)
 - `eth_getLogs` no longer misses the logs of a block that replaced a cached block in a reorg while the log bloom cache was being generated. [#11932](https://github.com/besu-eth/besu/pull/11932)
+- `debug_standardTraceBlockToFile` and `debug_standardTraceBadBlockToFile` stop writing a transaction's trace at `--rpc-max-trace-steps`, as the `debug_trace*` methods do, and log a warning when a trace is cut off. [#11452](https://github.com/besu-eth/besu/pull/11452)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
