@@ -24,6 +24,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import org.hyperledger.besu.cli.CommandTestAbstract;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.JwtAlgorithm;
 import org.hyperledger.besu.ethereum.api.tls.TlsConfiguration;
@@ -230,6 +231,23 @@ public class JsonRpcHttpOptionsTest extends CommandTestAbstract {
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcHttpMaxActiveConnectionsAcceptsZero() {
+    parseCommand("--rpc-http-max-active-connections", "0");
+
+    verify(mockRunnerBuilder).jsonRpcConfiguration(jsonRpcConfigArgumentCaptor.capture());
+    assertThat(jsonRpcConfigArgumentCaptor.getValue().getMaxActiveConnections()).isEqualTo(0);
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcHttpMaxActiveConnectionsNegativeValueMustFail() {
+    parseCommand("--rpc-http-max-active-connections", "-1");
+
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--rpc-http-max-active-connections must be >= 0 (0 specifies no limit)");
   }
 
   @Test
@@ -468,6 +486,44 @@ public class JsonRpcHttpOptionsTest extends CommandTestAbstract {
         .isEqualTo(Optional.of(Path.of(truststoreFile)));
     assertThat(tlsConfiguration.get().getClientAuthConfiguration().get().getTrustStorePassword())
         .isEqualTo(Files.readString(Path.of(truststorePasswordFile)));
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void rpcHttpTlsPasswordFilesFromTomlMustBeUsed() throws IOException {
+    final Path keystorePasswordFile = createTempFile("keystore-password", "keystorePassword");
+    final Path truststorePasswordFile = createTempFile("truststore-password", "truststorePassword");
+    final Path toml =
+        createTempFile(
+            "toml",
+            """
+            rpc-http-enabled = true
+            rpc-http-tls-enabled = true
+            rpc-http-tls-keystore-file = '/tmp/keystore.p12'
+            rpc-http-tls-keystore-password-file = '%s'
+            rpc-http-tls-client-auth-enabled = true
+            rpc-http-tls-truststore-file = '/tmp/truststore.p12'
+            rpc-http-tls-truststore-password-file = '%s'
+            """
+                .formatted(keystorePasswordFile, truststorePasswordFile));
+
+    parseCommand("--config-file", toml.toString());
+
+    verify(mockRunnerBuilder).jsonRpcConfiguration(jsonRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    final Optional<TlsConfiguration> tlsConfiguration =
+        jsonRpcConfigArgumentCaptor.getValue().getTlsConfiguration();
+    assertThat(tlsConfiguration).isPresent();
+    assertThat(tlsConfiguration.get().getKeyStorePath()).isEqualTo(Path.of("/tmp/keystore.p12"));
+    assertThat(tlsConfiguration.get().getKeyStorePassword()).isEqualTo("keystorePassword");
+    assertThat(tlsConfiguration.get().getClientAuthConfiguration()).isPresent();
+    assertThat(tlsConfiguration.get().getClientAuthConfiguration().get().getTruststorePath())
+        .contains(Path.of("/tmp/truststore.p12"));
+    assertThat(tlsConfiguration.get().getClientAuthConfiguration().get().getTrustStorePassword())
+        .isEqualTo("truststorePassword");
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -907,6 +963,38 @@ public class JsonRpcHttpOptionsTest extends CommandTestAbstract {
 
     assertThat(jsonRpcConfigArgumentCaptor.getValue().getRpcApis())
         .containsExactlyInAnyOrder("BOB");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void engineMaxRequestContentLengthDefaultsToTheEngineDefault() {
+    parseCommand("--engine-rpc-enabled");
+
+    verify(mockRunnerBuilder).engineJsonRpcConfiguration(jsonRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(jsonRpcConfigArgumentCaptor.getValue().getMaxRequestContentLength())
+        .isEqualTo(JsonRpcConfiguration.createEngineDefault().getMaxRequestContentLength());
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void engineMaxRequestContentLengthUsesALowerValueTheOperatorSet() {
+    final long rpcHttpMaxRequestContentLength = 1024;
+    parseCommand(
+        "--engine-rpc-enabled",
+        "--rpc-http-max-request-content-length",
+        Long.toString(rpcHttpMaxRequestContentLength));
+
+    verify(mockRunnerBuilder).engineJsonRpcConfiguration(jsonRpcConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(jsonRpcConfigArgumentCaptor.getValue().getMaxRequestContentLength())
+        .isEqualTo(rpcHttpMaxRequestContentLength);
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();

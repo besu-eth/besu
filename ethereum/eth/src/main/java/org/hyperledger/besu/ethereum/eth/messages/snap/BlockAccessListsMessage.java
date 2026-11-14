@@ -48,6 +48,12 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
         BlockAccessListsMessageData.encodeSnapResponse(blockAccessLists));
   }
 
+  public static BlockAccessListsMessage createFromRlp(
+      final Iterable<Optional<Bytes>> blockAccessLists) {
+    return new BlockAccessListsMessage(
+        BlockAccessListsMessageData.encodeSnapResponseFromRlp(blockAccessLists));
+  }
+
   public static BlockAccessListsMessage createFromBlockAccessLists(
       final Iterable<BlockAccessList> blockAccessLists) {
     return create(

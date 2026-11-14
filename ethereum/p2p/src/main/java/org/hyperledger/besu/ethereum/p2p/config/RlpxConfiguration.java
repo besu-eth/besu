@@ -25,7 +25,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 public class RlpxConfiguration {
-  public static final int DEFAULT_MAX_MESSAGE_SIZE = 10 * ByteUnits.MEGABYTE;
+  public static final int DEFAULT_MAX_MESSAGE_SIZE = 10 * ByteUnits.MEBIBYTE;
   public static final float DEFAULT_FRACTION_REMOTE_CONNECTIONS_ALLOWED = 0.6f;
   private String clientId = "TestClient/1.0.0";
   private String bindHost = NetworkUtility.INADDR_ANY;

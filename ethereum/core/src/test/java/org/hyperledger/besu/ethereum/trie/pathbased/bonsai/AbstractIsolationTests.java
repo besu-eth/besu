@@ -52,6 +52,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolCo
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -159,15 +160,7 @@ public abstract class AbstractIsolationTests {
         // (whereas a full db strategy will not, since the worldstates are frozen/cached)
         createKeyValueStorageProvider()
             .createWorldStateStorage(DataStorageConfiguration.DEFAULT_BONSAI_PARTIAL_DB_CONFIG);
-    archive =
-        new BonsaiWorldStateProvider(
-            (BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage,
-            blockchain,
-            ImmutableExtraStorageConfiguration.builder().maxLayersToLoad(16L).build(),
-            new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
-            null,
-            EvmConfiguration.DEFAULT,
-            new BonsaiCodeCache());
+    archive = createArchive();
     var ws = archive.getWorldState();
     genesisState.writeStateTo(ws);
     protocolContext =
@@ -177,6 +170,8 @@ public abstract class AbstractIsolationTests {
             .build();
     ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(ethScheduler);
 
     sorter =
         new LayeredPendingTransactions(
@@ -184,13 +179,13 @@ public abstract class AbstractIsolationTests {
             poolConfiguration,
             new GasPricePrioritizedTransactions(
                 poolConfiguration,
-                ethScheduler,
-                new EndLayer(txPoolMetrics),
+                new EndLayer(txPoolMetrics, transactionEventNotifier.newEmitter()),
                 txPoolMetrics,
                 transactionReplacementTester,
                 new BlobCache(),
                 MiningConfiguration.newDefault(),
-                senderBalanceChecker),
+                senderBalanceChecker,
+                transactionEventNotifier.newEmitter()),
             ethScheduler);
 
     transactionPool =
@@ -202,7 +197,8 @@ public abstract class AbstractIsolationTests {
             ethContext,
             txPoolMetrics,
             poolConfiguration,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
     transactionPool.setEnabled();
   }
 
@@ -363,20 +359,36 @@ public abstract class AbstractIsolationTests {
         .getBlock();
   }
 
+  /** Creates a world state archive on the storage, as a restarted node does. */
+  protected BonsaiWorldStateProvider createArchive() {
+    return new BonsaiWorldStateProvider(
+        (BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage,
+        blockchain,
+        ImmutableExtraStorageConfiguration.builder().maxLayersToLoad(16L).build(),
+        new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem()),
+        null,
+        EvmConfiguration.DEFAULT,
+        new BonsaiCodeCache());
+  }
+
   protected BlockProcessingResult executeBlock(final MutableWorldState ws, final Block block) {
-    var res =
-        protocolSchedule
-            .getByBlockHeader(blockHeader(0))
-            .getBlockProcessor()
-            .processBlock(
-                BlockExecutionContext.builder()
-                    .protocolContext(protocolContext)
-                    .worldState(ws)
-                    .block(block)
-                    .blockAccessList(Optional.empty())
-                    .build());
+    var res = processBlock(ws, block);
     blockchain.appendBlock(block, res.getReceipts());
     return res;
+  }
+
+  /** Processes the block and persists the world state at it, without storing the block. */
+  protected BlockProcessingResult processBlock(final MutableWorldState ws, final Block block) {
+    return protocolSchedule
+        .getByBlockHeader(blockHeader(0))
+        .getBlockProcessor()
+        .processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(ws)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
   }
 
   private BlockHeader blockHeader(final long number) {

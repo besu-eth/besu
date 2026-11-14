@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 
 import java.time.ZoneId;
@@ -65,7 +66,9 @@ public class BlobV1TransactionPoolTest extends AbstractTransactionPoolTestBase {
         poolConfig,
         TestClock.system(ZoneId.systemDefault()),
         metricsSystem,
-        protocolContext.getBlockchain()::getChainHeadHeader);
+        protocolContext.getBlockchain()::getChainHeadHeader,
+        transactionEventNotifier.newEmitter(),
+        new DeterministicEthScheduler());
   }
 
   @Override
@@ -109,6 +112,26 @@ public class BlobV1TransactionPoolTest extends AbstractTransactionPoolTestBase {
 
     expectedBlobProofBundles.forEach(
         bq -> assertThat(transactionPool.getBlobProofBundle(bq.getVersionedHash())).isEqualTo(bq));
+  }
+
+  @Test
+  public void shouldNotMapBlobsOfTransactionsAddedToThePendingTransactionsOfADisabledPool() {
+    final PendingTransactions disabledPendingTransactions = lastCreatedPendingTransactions;
+    transactionPool.setDisabled();
+
+    // a late add to the pending transactions instance that was discarded when disabling the pool
+    assertThat(
+            disabledPendingTransactions.addTransaction(
+                new PendingTransaction.Remote(transactionWithBlobs), Optional.empty()))
+        .isEqualTo(TransactionAddedResult.ADDED);
+    transactionPool.setEnabled();
+
+    transactionWithBlobs
+        .getBlobsWithCommitments()
+        .get()
+        .getBlobProofBundles()
+        .forEach(
+            bq -> assertThat(transactionPool.getBlobProofBundle(bq.getVersionedHash())).isNull());
   }
 
   @Test

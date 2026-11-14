@@ -18,8 +18,10 @@ import static org.hyperledger.besu.ethereum.mainnet.AbstractGasLimitSpecificatio
 import static org.hyperledger.besu.ethereum.mainnet.AbstractGasLimitSpecification.DEFAULT_MIN_GAS_LIMIT;
 
 import org.hyperledger.besu.consensus.common.bft.BftHelpers;
+import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftBaseFeeFitsLongValidationRule;
 import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftCoinbaseValidationRule;
 import org.hyperledger.besu.consensus.common.bft.headervalidationrules.BftCommitSealsValidationRule;
+import org.hyperledger.besu.consensus.qbft.headervalidationrules.GoQuorumGasLimitRangeValidationRule;
 import org.hyperledger.besu.consensus.qbft.headervalidationrules.QbftValidatorsValidationRule;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
@@ -47,30 +49,47 @@ public class QbftBlockHeaderValidationRulesetFactory {
    *
    * @param minimumTimeBetweenBlocks the minimum amount of time that must elapse between blocks.
    * @param useValidatorContract whether validator selection is using a validator contract
+   * @param isGoQuorumCompatibilityMode whether GoQuorum compatibility mode is enabled, in which
+   *     case only the per-block gas-limit delta validation is skipped (the min/max range check is
+   *     still enforced).
    * @param baseFeeMarket an {@link Optional} wrapping {@link BaseFeeMarket} class if appropriate.
    * @return BlockHeaderValidator configured for assessing bft block headers
    */
   public static BlockHeaderValidator.Builder blockHeaderValidator(
       final Duration minimumTimeBetweenBlocks,
       final boolean useValidatorContract,
+      final boolean isGoQuorumCompatibilityMode,
       final Optional<BaseFeeMarket> baseFeeMarket) {
     BlockHeaderValidator.Builder ruleBuilder =
         new BlockHeaderValidator.Builder()
             .addRule(new AncestryValidationRule())
-            .addRule(new GasUsageValidationRule())
-            .addRule(
-                new GasLimitRangeAndDeltaValidationRule(
-                    DEFAULT_MIN_GAS_LIMIT, DEFAULT_MAX_GAS_LIMIT, baseFeeMarket))
-            .addRule(new TimestampBoundedByFutureParameter(1))
-            .addRule(
-                new ConstantFieldValidationRule<>(
-                    "MixHash", BlockHeader::getMixHash, BftHelpers.EXPECTED_MIX_HASH))
-            .addRule(
-                new ConstantFieldValidationRule<>(
-                    "Difficulty", BlockHeader::getDifficulty, UInt256.ONE))
-            .addRule(new QbftValidatorsValidationRule(useValidatorContract))
-            .addRule(new BftCoinbaseValidationRule())
-            .addRule(new BftCommitSealsValidationRule());
+            .addRule(new GasUsageValidationRule());
+
+    // GoQuorum's QBFT permits proposers to change the gas limit by an arbitrary amount per block.
+    // In goQuorum compatibility mode we therefore apply a rule that keeps the min/max range check
+    // but omits the per-block delta bound, allowing such chains to be imported (see issue #10723).
+    if (isGoQuorumCompatibilityMode) {
+      ruleBuilder.addRule(
+          new GoQuorumGasLimitRangeValidationRule(
+              DEFAULT_MIN_GAS_LIMIT, DEFAULT_MAX_GAS_LIMIT, baseFeeMarket));
+    } else {
+      ruleBuilder.addRule(
+          new GasLimitRangeAndDeltaValidationRule(
+              DEFAULT_MIN_GAS_LIMIT, DEFAULT_MAX_GAS_LIMIT, baseFeeMarket));
+    }
+
+    ruleBuilder
+        .addRule(new BftBaseFeeFitsLongValidationRule())
+        .addRule(new TimestampBoundedByFutureParameter(1))
+        .addRule(
+            new ConstantFieldValidationRule<>(
+                "MixHash", BlockHeader::getMixHash, BftHelpers.EXPECTED_MIX_HASH))
+        .addRule(
+            new ConstantFieldValidationRule<>(
+                "Difficulty", BlockHeader::getDifficulty, UInt256.ONE))
+        .addRule(new QbftValidatorsValidationRule(useValidatorContract))
+        .addRule(new BftCoinbaseValidationRule())
+        .addRule(new BftCommitSealsValidationRule());
 
     // Currently the minimum acceptable time between blocks is 1 second. The timestamp of an
     // Ethereum header is stored as seconds since Unix epoch so blocks being produced more

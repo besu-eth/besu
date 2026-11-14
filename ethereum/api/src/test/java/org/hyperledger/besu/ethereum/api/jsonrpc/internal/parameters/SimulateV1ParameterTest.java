@@ -15,15 +15,18 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -94,6 +97,41 @@ public class SimulateV1ParameterTest {
     assertThat(simulateV1Parameter.validate(VALID_PRECOMPILE_ADDRESSES)).isEmpty();
   }
 
+  @Test
+  public void shouldRejectUnknownStateOverrideField() {
+    final Map<String, Object> param =
+        Map.of(
+            "blockStateCalls",
+            List.of(
+                Map.of(
+                    "stateOverrides",
+                    Map.of(
+                        "0xc100000000000000000000000000000000000000",
+                        Map.of("balance", "0x1", "bogusField", "0x1")))));
+
+    assertThatThrownBy(
+            () ->
+                new JsonRpcParameter().required(new Object[] {param}, 0, SimulateV1Parameter.class))
+        .isInstanceOf(JsonRpcParameterException.class)
+        .rootCause()
+        .hasMessageContaining("bogusField");
+  }
+
+  @Test
+  public void shouldRejectUnknownBlockOverrideField() {
+    final Map<String, Object> param =
+        Map.of(
+            "blockStateCalls",
+            List.of(Map.of("blockOverrides", Map.of("number", "0x1", "bogusField", "0x1"))));
+
+    assertThatThrownBy(
+            () ->
+                new JsonRpcParameter().required(new Object[] {param}, 0, SimulateV1Parameter.class))
+        .isInstanceOf(JsonRpcParameterException.class)
+        .rootCause()
+        .hasMessageContaining("bogusField");
+  }
+
   private JsonBlockStateCallParameter createBlockStateCallParameter(
       final Long blockNumber, final Long timestamp, final StateOverrideMap stateOverrideMap) {
 
@@ -101,6 +139,7 @@ public class SimulateV1ParameterTest {
         new BlockOverridesParameter(
             Optional.of(new UnsignedLongParameter(timestamp)),
             Optional.of(new UnsignedLongParameter(blockNumber)),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),

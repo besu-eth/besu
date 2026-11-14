@@ -101,7 +101,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
                     getWorldStateStorage(), worldStateRootHash, addr),
             (addr, value) ->
                 this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                    getWorldStateStorage(), addr, value),
+                    getWorldStateStorage(), addr, startingStorageRoot(addr), value),
             evmConfiguration,
             codeCache);
     this.setAccumulator(acc);
@@ -131,6 +131,23 @@ public class BonsaiWorldState extends PathBasedWorldState {
     this.codeCache = codeCache;
   }
 
+  /**
+   * The root of the storage trie the block's slot changes apply to: the storage root the
+   * accumulator loaded, or the empty root if the account did not exist or the block cleared its
+   * storage. Null if the accumulator has not loaded the account.
+   */
+  private Hash startingStorageRoot(final Address address) {
+    if (accumulator.getStorageToClear().contains(address)) {
+      return Hash.EMPTY_TRIE_HASH;
+    }
+    final var accountValue = accumulator.getAccountsToUpdate().get(address);
+    if (accountValue == null) {
+      return null;
+    }
+    final BonsaiAccount prior = accountValue.getPrior();
+    return prior == null ? Hash.EMPTY_TRIE_HASH : prior.getStorageRoot();
+  }
+
   @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
     frontierRootHashTracker.reset();
@@ -151,7 +168,20 @@ public class BonsaiWorldState extends PathBasedWorldState {
 
   @Override
   public Optional<Code> getCode(@NotNull final Address address, final Hash codeHash) {
-    return getWorldStateStorage().getCode(codeHash, address.addressHash());
+    final Optional<Code> code = getWorldStateStorage().getCode(codeHash, address.addressHash());
+    if (code.isPresent()) {
+      return code;
+    }
+    // a stored account always has its code, running empty code instead would fork
+    if (isStoredCodeHash(address, codeHash)) {
+      throw new MissingCodeException(address, codeHash);
+    }
+    return Optional.empty();
+  }
+
+  private boolean isStoredCodeHash(final Address address, final Hash codeHash) {
+    final Account account = get(address);
+    return account != null && account.getCodeHash().equals(codeHash);
   }
 
   @Override
@@ -234,9 +264,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
   /** Account state trie rooted at the current world state root. */
   public MerkleTrie<Bytes, Bytes> createAccountStateTrie() {
     return createTrie(
-        (location, hash) ->
-            bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
-                getWorldStateStorage(), location, hash),
+        wrapNodeLoader(
+            (location, hash) ->
+                bonsaiCachedMerkleTrieLoader.getAccountStateTrieNode(
+                    getWorldStateStorage(), location, hash),
+            Function.identity()),
         Bytes32.wrap(worldStateRootHash.getBytes()),
         BlockProcessingExecutors.accountTrieForkJoinPool());
   }
@@ -245,11 +277,19 @@ public class BonsaiWorldState extends PathBasedWorldState {
   public MerkleTrie<Bytes, Bytes> createStorageTrie(
       final Hash accountHash, final Hash storageRoot) {
     return createTrie(
-        (location, key) ->
-            bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
-                getWorldStateStorage(), accountHash, location, key),
+        wrapNodeLoader(
+            (location, key) ->
+                bonsaiCachedMerkleTrieLoader.getAccountStorageTrieNode(
+                    getWorldStateStorage(), accountHash, location, key),
+            location -> TrieNodeKey.of(accountHash, location)),
         Bytes32.wrap(storageRoot.getBytes()),
         BlockProcessingExecutors.storageTrieForkJoinPool());
+  }
+
+  private NodeLoader wrapNodeLoader(final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
+    return getWorldStateStorage()
+        .getTrieNodeStrategy()
+        .wrapNodeLoader(worldStateRootHash, loader, keyOf);
   }
 
   private MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {

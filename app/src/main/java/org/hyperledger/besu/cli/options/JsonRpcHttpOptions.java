@@ -76,8 +76,8 @@ public class JsonRpcHttpOptions {
   @CommandLine.Option(
       names = {"--rpc-http-max-active-connections"},
       description =
-          "Maximum number of HTTP connections allowed for JSON-RPC (default: ${DEFAULT-VALUE}). Once this limit is reached, incoming connections will be rejected.")
-  private final Integer rpcHttpMaxConnections = DefaultCommandValues.DEFAULT_HTTP_MAX_CONNECTIONS;
+          "Maximum number of HTTP connections allowed for JSON-RPC. Must be >= 0. 0 specifies no limit (default: ${DEFAULT-VALUE}). Once this limit is reached, incoming connections will be rejected.")
+  private Integer rpcHttpMaxConnections = DefaultCommandValues.DEFAULT_HTTP_MAX_CONNECTIONS;
 
   // A list of origins URLs that are accepted by the JsonRpcHttpServer (CORS)
   @CommandLine.Option(
@@ -261,6 +261,11 @@ public class JsonRpcHttpOptions {
       throw new CommandLine.ParameterException(
           commandLine,
           "Unable to authenticate JSON-RPC HTTP endpoint without a supplied credentials file or authentication public key file");
+    }
+
+    if (rpcHttpMaxConnections < 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, "--rpc-http-max-active-connections must be >= 0 (0 specifies no limit)");
     }
 
     checkDependencies(logger, commandLine);

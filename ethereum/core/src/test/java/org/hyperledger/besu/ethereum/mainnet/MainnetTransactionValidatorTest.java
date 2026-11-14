@@ -41,6 +41,7 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
@@ -110,7 +111,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         gasLimitCalculator,
         feeMarket,
         checkSignatureMalleability,
-        chainId,
+        ChainId.fromOptional(chainId),
         acceptedTransactionTypes,
         Set.of(BlobType.KZG_PROOF),
         maxInitcodeSize);
@@ -621,7 +622,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             GasLimitCalculator.constant(),
             FeeMarket.london(0L),
             false,
-            Optional.of(BigInteger.ONE),
+            ChainId.of(1),
             Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
             Set.of(BlobType.KZG_PROOF),
             Integer.MAX_VALUE);
@@ -1012,6 +1013,48 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
       assertThat(validationResult.getErrorMessage())
           .isEqualTo("Transaction gas limit must be at most 4294967295");
     }
+  }
+
+  @Test
+  public void shouldCapIntrinsicGasInStrictButNotInNonStrictBlockSimulation_EIP_8037() {
+    final var feeMarket = FeeMarket.london(0L);
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            new AmsterdamTargetingGasLimitCalculator(
+                0L, feeMarket, gasCalculator, 6, 3, OptionalInt.of(6), OptionalInt.empty()),
+            feeMarket,
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.FRONTIER, TransactionType.EIP1559),
+            Integer.MAX_VALUE);
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .maxPriorityFeePerGas(Optional.of(Wei.of(1)))
+            .maxFeePerGas(Optional.of(Wei.of(150000L)))
+            .type(TransactionType.EIP1559)
+            .chainId(Optional.of(BigInteger.ONE))
+            .gasLimit(30_000_000L)
+            .createTransaction(senderKeys);
+    final Optional<Wei> basefee = Optional.of(Wei.of(150000L));
+    when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(16_777_217L);
+
+    assertThat(
+            validator
+                .validate(
+                    transaction,
+                    basefee,
+                    Optional.empty(),
+                    TransactionValidationParams.blockSimulatorStrict())
+                .getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT);
+    assertThat(
+            validator.validate(
+                transaction,
+                basefee,
+                Optional.empty(),
+                TransactionValidationParams.blockSimulatorNonStrict()))
+        .isEqualTo(ValidationResult.valid());
   }
 
   private enum ValidationParamsVariant {

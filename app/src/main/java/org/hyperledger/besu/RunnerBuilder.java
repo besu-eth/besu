@@ -1056,7 +1056,10 @@ public class RunnerBuilder {
     Optional<GraphQLHttpService> graphQLHttpService = Optional.empty();
     if (graphQLConfiguration.isEnabled()) {
       final GraphQLDataFetchers fetchers =
-          new GraphQLDataFetchers(supportedCapabilities, graphQLConfiguration.getMaxBlockRange());
+          new GraphQLDataFetchers(
+              supportedCapabilities,
+              graphQLConfiguration.getMaxBlockRange(),
+              apiConfiguration.getMaxFilterAddresses());
       final Map<GraphQLContextType, Object> graphQlContextMap = new ConcurrentHashMap<>();
       graphQlContextMap.putIfAbsent(GraphQLContextType.BLOCKCHAIN_QUERIES, blockchainQueries);
       graphQlContextMap.putIfAbsent(GraphQLContextType.PROTOCOL_SCHEDULE, protocolSchedule);
@@ -1064,7 +1067,8 @@ public class RunnerBuilder {
       graphQlContextMap.putIfAbsent(GraphQLContextType.MINING_COORDINATOR, miningCoordinator);
       graphQlContextMap.putIfAbsent(GraphQLContextType.SYNCHRONIZER, synchronizer);
       graphQlContextMap.putIfAbsent(
-          GraphQLContextType.CHAIN_ID, protocolSchedule.getChainId().map(UInt256::valueOf));
+          GraphQLContextType.CHAIN_ID,
+          protocolSchedule.getChainId().toOptionalBigInteger().map(UInt256::valueOf));
       graphQlContextMap.putIfAbsent(GraphQLContextType.TRANSACTION_SIMULATOR, transactionSimulator);
       final GraphQL graphQL;
       try {

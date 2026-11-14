@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResu
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult.CallLog;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -30,6 +31,7 @@ import org.hyperledger.besu.evm.frame.SoftFailureReason;
 import org.hyperledger.besu.evm.internal.Words;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.tracing.TracedStack;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 
 import java.nio.charset.StandardCharsets;
@@ -51,7 +53,7 @@ import org.apache.tuweni.bytes.Bytes;
  * tree, gas accounting, inputs/outputs and error/revert information are read directly - no
  * opcode-level stack, memory or storage trace is ever allocated.
  *
- * <p>Failed CALL/CREATE attempts with valid operands become synthetic leaves for Geth parity.
+ * <p>CALL/CREATE attempts that fail the depth, balance or nonce check become synthetic leaves.
  *
  * <p>One instance traces exactly one transaction and is not thread-safe; {@link
  * #traceStartTransaction} resets all per-transaction state so an instance may be reused
@@ -76,6 +78,7 @@ public class CallTracer implements OperationTracer {
   private final boolean onlyTopCall;
   private final boolean withLog;
   private final int logIndexOffset;
+  private final boolean createPrecheckInParent;
   private final Deque<Node> callStack = new ArrayDeque<>();
   // Identity-keyed: TransactionProcessingResult.getLogs() holds the same Log instances the frames
   // emitted, and equal logs from a reverted and a successful frame must not be confused.
@@ -99,37 +102,40 @@ public class CallTracer implements OperationTracer {
    * Instantiates a new Call tracer.
    *
    * @param onlyTopCall whether to trace only the top-level call
+   * @param protocolSpec the protocol spec for the current block
    */
-  public CallTracer(final boolean onlyTopCall) {
-    this(onlyTopCall, false, 0);
+  public CallTracer(final boolean onlyTopCall, final ProtocolSpec protocolSpec) {
+    this(onlyTopCall, false, 0, protocolSpec);
   }
 
   /**
    * Instantiates a new Call tracer.
    *
    * @param traceOptions the trace options containing the tracer configuration
-   */
-  public CallTracer(final TraceOptions traceOptions) {
-    this(traceOptions, 0);
-  }
-
-  /**
-   * Instantiates a new Call tracer.
-   *
-   * @param traceOptions the trace options containing the tracer configuration
+   * @param protocolSpec the protocol spec for the current block
    * @param logIndexOffset the number of logs the preceding transactions of the block emitted
    */
-  public CallTracer(final TraceOptions traceOptions, final int logIndexOffset) {
+  public CallTracer(
+      final TraceOptions traceOptions, final ProtocolSpec protocolSpec, final int logIndexOffset) {
     this(
         traceOptions.tracerConfigFlag("onlyTopCall"),
         traceOptions.tracerConfigFlag("withLog"),
-        logIndexOffset);
+        logIndexOffset,
+        protocolSpec);
   }
 
-  private CallTracer(final boolean onlyTopCall, final boolean withLog, final int logIndexOffset) {
+  private CallTracer(
+      final boolean onlyTopCall,
+      final boolean withLog,
+      final int logIndexOffset,
+      final ProtocolSpec protocolSpec) {
     this.onlyTopCall = onlyTopCall;
     this.withLog = withLog;
     this.logIndexOffset = logIndexOffset;
+    this.createPrecheckInParent =
+        protocolSpec != null
+            && protocolSpec.getGasCalculator() != null
+            && protocolSpec.getGasCalculator().stateGasCostCalculator().isActive();
   }
 
   @Override
@@ -440,14 +446,14 @@ public class CallTracer implements OperationTracer {
   }
 
   /**
-   * Only reached when a CALL/CREATE opcode failed before spawning a child frame (soft: insufficient
-   * balance / max depth; hard: out of gas, static-context violation, initcode too large). Geth
-   * still emits a leaf for these; see specs 30, 32, 34.
+   * Only reached when a CALL/CREATE opcode failed before spawning a child frame. Only a failed
+   * depth, balance or nonce check gets a leaf; an opcode that halts never made the call. Since
+   * EIP-8037 a CREATE fails these checks in the parent opcode, so it gets no leaf either.
    */
   private void addFailedCallOrCreateLeaf(
       final MessageFrame frame, final Operation.OperationResult result, final String opcode) {
-    if (result.getHaltReason() == ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS) {
-      // Operand validation failed before a child call was attempted.
+    final Optional<SoftFailureReason> soft = result.getSoftFailureReason();
+    if (soft.isEmpty() || (createPrecheckInParent && isCreateType(opcode))) {
       pendingBuilder = null;
       return;
     }
@@ -475,25 +481,15 @@ public class CallTracer implements OperationTracer {
       cb.input(data.toHexString());
     }
 
-    final Optional<SoftFailureReason> soft = result.getSoftFailureReason();
-    if (soft.isPresent()) {
-      // CALL-family soft failures carry the gas that would have been forwarded; CREATE-family
-      // soft failures do not, so fall back to the standard 63/64 approximation like hard failures.
-      final long gasAfterSoft = Math.max(0L, frame.getRemainingGas());
-      cb.gas(
-          result
-              .getGasAvailableForChildCall()
-              .orElse(Math.max(0L, gasAfterSoft - gasAfterSoft / GAS_CALL_STIPEND_DIVISOR)));
-      cb.gasUsed(0L);
-      cb.error(soft.get().getDescription());
-    } else {
-      final ExceptionalHaltReason halt = result.getHaltReason();
-      final long gasAfter = Math.max(0L, frame.getRemainingGas());
-      cb.gas(Math.max(0L, gasAfter - gasAfter / GAS_CALL_STIPEND_DIVISOR));
-      cb.gasUsed(
-          halt == ExceptionalHaltReason.INSUFFICIENT_GAS ? Math.max(0L, result.getGasCost()) : 0L);
-      cb.error(halt != null ? halt.getDescription() : EXECUTION_REVERTED);
-    }
+    // CALL-family soft failures carry the gas that would have been forwarded; CREATE-family soft
+    // failures do not, so fall back to the standard 63/64 approximation.
+    final long gasAfterSoft = Math.max(0L, frame.getRemainingGas());
+    cb.gas(
+        result
+            .getGasAvailableForChildCall()
+            .orElse(Math.max(0L, gasAfterSoft - gasAfterSoft / GAS_CALL_STIPEND_DIVISOR)));
+    cb.gasUsed(0L);
+    cb.error(soft.get().getDescription());
     if (!callStack.isEmpty()) {
       callStack.peek().builder.addCall(cb.build());
     }
@@ -526,7 +522,7 @@ public class CallTracer implements OperationTracer {
   // ------------------------------------------------------------------------------------------
 
   private void capturePendingCall(final MessageFrame frame, final Operation op) {
-    if (frame.stackSize() < op.getStackItemsConsumed()) {
+    if (TracedStack.size(frame) < op.getStackItemsConsumed()) {
       pendingBuilder = null;
       pendingInOffset = 0L;
       pendingInLength = 0L;
@@ -534,21 +530,21 @@ public class CallTracer implements OperationTracer {
     }
     final String opcode = op.getName();
     final boolean hasValue = CALL.equals(opcode) || CALLCODE.equals(opcode);
-    final String toHex = Words.toAddress(frame.getStackItem(1)).getBytes().toHexString();
+    final String toHex = Words.toAddress(TracedStack.item(frame, 1)).getBytes().toHexString();
     pendingBuilder = CallTracerResult.builder().type(opcode).to(toHex);
     if (CALL.equals(opcode) || CALLCODE.equals(opcode)) {
-      pendingBuilder.value(Wei.wrap(frame.getStackItem(2)).toShortHexString());
+      pendingBuilder.value(Wei.wrap(TracedStack.item(frame, 2)).toShortHexString());
     } else if (DELEGATECALL.equals(opcode)) {
       pendingBuilder.value(frame.getApparentValue().toShortHexString());
     }
     final int offsetIdx = hasValue ? 3 : 2;
     final int lengthIdx = hasValue ? 4 : 3;
-    pendingInOffset = Words.clampedToLong(frame.getStackItem(offsetIdx));
-    pendingInLength = Words.clampedToLong(frame.getStackItem(lengthIdx));
+    pendingInOffset = Words.clampedToLong(TracedStack.item(frame, offsetIdx));
+    pendingInLength = Words.clampedToLong(TracedStack.item(frame, lengthIdx));
   }
 
   private void capturePendingCreate(final MessageFrame frame, final Operation op) {
-    if (frame.stackSize() < op.getStackItemsConsumed()) {
+    if (TracedStack.size(frame) < op.getStackItemsConsumed()) {
       pendingBuilder = null;
       pendingInOffset = 0L;
       pendingInLength = 0L;
@@ -558,19 +554,19 @@ public class CallTracer implements OperationTracer {
     pendingBuilder =
         CallTracerResult.builder()
             .type(opcode)
-            .value(Wei.wrap(frame.getStackItem(0)).toShortHexString());
-    pendingInOffset = Words.clampedToLong(frame.getStackItem(1));
-    pendingInLength = Words.clampedToLong(frame.getStackItem(2));
+            .value(Wei.wrap(TracedStack.item(frame, 0)).toShortHexString());
+    pendingInOffset = Words.clampedToLong(TracedStack.item(frame, 1));
+    pendingInLength = Words.clampedToLong(TracedStack.item(frame, 2));
   }
 
   private void capturePendingSelfDestruct(final MessageFrame frame, final Operation op) {
-    if (frame.stackSize() < op.getStackItemsConsumed()) {
+    if (TracedStack.size(frame) < op.getStackItemsConsumed()) {
       pendingBuilder = null;
       pendingInOffset = 0L;
       pendingInLength = 0L;
       return;
     }
-    final Address beneficiary = Words.toAddress(frame.getStackItem(0));
+    final Address beneficiary = Words.toAddress(TracedStack.item(frame, 0));
     pendingBuilder =
         CallTracerResult.builder().type(SELFDESTRUCT).to(beneficiary.getBytes().toHexString());
   }

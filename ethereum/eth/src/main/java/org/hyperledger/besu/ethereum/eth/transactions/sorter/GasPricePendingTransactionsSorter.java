@@ -17,7 +17,9 @@ package org.hyperledger.besu.ethereum.eth.transactions.sorter;
 import static java.util.Comparator.comparing;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -47,8 +49,10 @@ public class GasPricePendingTransactionsSorter extends AbstractPendingTransactio
       final TransactionPoolConfiguration poolConfig,
       final Clock clock,
       final MetricsSystem metricsSystem,
-      final Supplier<BlockHeader> chainHeadHeaderSupplier) {
-    super(poolConfig, clock, metricsSystem, chainHeadHeaderSupplier);
+      final Supplier<BlockHeader> chainHeadHeaderSupplier,
+      final TransactionEventNotifier.Emitter eventEmitter,
+      final EthScheduler ethScheduler) {
+    super(poolConfig, clock, metricsSystem, chainHeadHeaderSupplier, eventEmitter, ethScheduler);
   }
 
   @Override

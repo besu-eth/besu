@@ -104,14 +104,14 @@ public class ApiConfigurationOptions {
           "Specifies the maximum number of concurrently-active RPC filters (eth_newFilter, "
               + "eth_newBlockFilter, eth_newPendingTransactionFilter). Must be >=0. 0 specifies no "
               + "limit  (default: ${DEFAULT-VALUE})")
-  private final Integer rpcMaxActiveFilters = ApiConfiguration.DEFAULT_MAX_FILTER_COUNT;
+  private Integer rpcMaxActiveFilters = ApiConfiguration.DEFAULT_MAX_FILTER_COUNT;
 
   @CommandLine.Option(
       names = {"--rpc-filter-timeout-seconds"},
       description =
           "Specifies the duration in seconds that an RPC filter remains active without being polled "
               + "before it is removed. Must be >0  (default: ${DEFAULT-VALUE})")
-  private final Long rpcFilterTimeoutSeconds = ApiConfiguration.DEFAULT_FILTER_TIMEOUT.toSeconds();
+  private Long rpcFilterTimeoutSeconds = ApiConfiguration.DEFAULT_FILTER_TIMEOUT.toSeconds();
 
   @CommandLine.Option(
       names = {"--rpc-max-trace-steps"},
@@ -122,9 +122,10 @@ public class ApiConfigurationOptions {
   @CommandLine.Option(
       names = {"--rpc-max-log-filter-addresses"},
       description =
-          "Maximum number of addresses permitted in a single eth_newFilter or eth_subscribe logs "
-              + "request. Must be >=0. 0 specifies no limit (default: ${DEFAULT-VALUE})")
-  private final Integer rpcMaxLogFilterAddresses = ApiConfiguration.DEFAULT_MAX_FILTER_ADDRESSES;
+          "Maximum number of addresses permitted in a single eth_newFilter, eth_subscribe, "
+              + "eth_getLogs or GraphQL logs request. Must be >=0. 0 specifies no limit (default: "
+              + "${DEFAULT-VALUE})")
+  private Integer rpcMaxLogFilterAddresses = ApiConfiguration.DEFAULT_MAX_FILTER_ADDRESSES;
 
   /**
    * Validates the API options.

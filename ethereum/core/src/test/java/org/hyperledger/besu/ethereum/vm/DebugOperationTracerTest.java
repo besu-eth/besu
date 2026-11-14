@@ -15,6 +15,11 @@
 package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -36,7 +41,9 @@ import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -72,6 +79,15 @@ class DebugOperationTracerTest {
         public OperationResult execute(final MessageFrame frame, final EVM evm) {
           // explicitMemoryUpdate=true simulates what MSTORE does in the real EVM
           frame.writeMemory(0L, 32, WORD_2, true);
+          return new OperationResult(3L, null);
+        }
+      };
+
+  private final Operation MLOAD_OPERATION =
+      new AbstractOperation(0x51, "MLOAD", 1, 1, null) {
+        @Override
+        public OperationResult execute(final MessageFrame frame, final EVM evm) {
+          frame.readMutableMemory(0L, 32, true);
           return new OperationResult(3L, null);
         }
       };
@@ -253,6 +269,64 @@ class DebugOperationTracerTest {
   }
 
   @Test
+  void shouldRecordCumulativeStorageOnlyForSloadAndSstore() {
+    final MessageFrame frame = validMessageFrame();
+    final UInt256 sstoreKey = UInt256.fromHexString("0x01");
+    final UInt256 sstoreValue = UInt256.fromHexString("0xdeadbeef");
+    final UInt256 sloadKey = UInt256.fromHexString("0x02");
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceStorage(true)
+                .traceMemory(false)
+                .traceStack(false)
+                .build(),
+            false);
+
+    frame.pushStackItem(sstoreValue);
+    frame.pushStackItem(sstoreKey);
+    traceFrame(frame, tracer, SSTORE_OPERATION);
+    traceFrame(frame, tracer, anOperation);
+    frame.pushStackItem(sloadKey);
+    traceFrame(frame, tracer, SLOAD_OPERATION);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(3);
+    assertThat(frames.get(0).getStorage()).contains(Map.of(sstoreKey, sstoreValue));
+    assertThat(frames.get(1).getStorage()).isEmpty();
+    assertThat(frames.get(2).getStorage())
+        .contains(Map.of(sstoreKey, sstoreValue, sloadKey, SLOAD_RETURNED_VALUE));
+  }
+
+  @Test
+  void shouldIncludeSlotsOfFilteredOutOpcodesInStorageSnapshot() {
+    final MessageFrame frame = validMessageFrame();
+    final UInt256 sstoreKey = UInt256.fromHexString("0x01");
+    final UInt256 sstoreValue = UInt256.fromHexString("0xdeadbeef");
+    final UInt256 sloadKey = UInt256.fromHexString("0x02");
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceStorage(true)
+                .traceMemory(false)
+                .traceStack(false)
+                .traceOpcodes(Set.of("SLOAD"))
+                .build(),
+            false);
+
+    frame.pushStackItem(sstoreValue);
+    frame.pushStackItem(sstoreKey);
+    traceFrame(frame, tracer, SSTORE_OPERATION);
+    frame.pushStackItem(sloadKey);
+    traceFrame(frame, tracer, SLOAD_OPERATION);
+
+    final TraceFrame traceFrame = getOnlyTraceFrame(tracer);
+    assertThat(traceFrame.getOpcode()).isEqualTo("SLOAD");
+    assertThat(traceFrame.getStorage())
+        .contains(Map.of(sstoreKey, sstoreValue, sloadKey, SLOAD_RETURNED_VALUE));
+  }
+
+  @Test
   void shouldNotRecordStorageForNonStorageOpcodeWhenEnabled() {
     // storage is only emitted for SLOAD/SSTORE; non-storage opcodes produce empty storage
     final TraceFrame traceFrame =
@@ -424,6 +498,19 @@ class DebugOperationTracerTest {
   }
 
   @Test
+  void shouldUseLastSnapshotAfterMload() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    traceFrame(frame, tracer, MLOAD_OPERATION);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    assertThat(frames.get(1).getMemory().get()).isSameAs(frames.get(0).getMemory().get());
+  }
+
+  @Test
   void shouldTakeNewMemorySnapshotWhenMemorySizeGrowsWithoutExplicitWrite() {
     final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
     final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
@@ -454,8 +541,8 @@ class DebugOperationTracerTest {
     final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
     final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
 
-    traceFrame(frame, tracer, anOperation);
     traceFrame(frame, tracer, MSTORE_OPERATION);
+    traceFrame(frame, tracer, anOperation);
 
     final List<TraceFrame> frames = tracer.getTraceFrames();
     assertThat(frames).hasSize(2);
@@ -470,6 +557,102 @@ class DebugOperationTracerTest {
         .isNotSameAs(before);
     assertThat(before[0]).isEqualTo(WORD_1);
     assertThat(after[0]).isEqualTo(WORD_2);
+  }
+
+  @Test
+  void shouldRecordMemoryBeforeOperationExecutes() {
+    final MessageFrame frame = validMessageFrame();
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    traceFrame(frame, tracer, MSTORE_OPERATION);
+    traceFrame(frame, tracer, MSTORE_OPERATION);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    assertThat(frames.get(0).getMemory()).isEmpty();
+    assertThat(frames.get(1).getMemory()).isPresent();
+    assertThat(frames.get(1).getMemory().get()).containsExactly(WORD_2);
+  }
+
+  @Test
+  void shouldTakeNewMemorySnapshotAfterExplicitWriteBetweenOperations() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    traceFrame(frame, tracer, anOperation);
+    // a returning child call writes its output to the parent memory outside any parent opcode
+    frame.writeMemory(0L, 32, WORD_2, true);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    assertThat(frames.get(0).getMemory().get()).containsExactly(WORD_1);
+    assertThat(frames.get(1).getMemory().get()).containsExactly(WORD_2);
+  }
+
+  @Test
+  void shouldTakeNewMemorySnapshotForSiblingFrameAtSameDepth() {
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+    final MessageFrame firstCall = validMessageFrameWithInitiatedMemory(WORD_1);
+    final MessageFrame secondCall = validMessageFrameWithInitiatedMemory(WORD_2);
+
+    traceFrame(firstCall, tracer, anOperation);
+    traceFrame(secondCall, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    assertThat(frames.get(0).getMemory().get()).containsExactly(WORD_1);
+    assertThat(frames.get(1).getMemory().get()).containsExactly(WORD_2);
+  }
+
+  @Test
+  void shouldRecordGasRefundBeforeOperationExecutes() {
+    final Operation refundingSstore =
+        new AbstractOperation(0x55, "SSTORE", 0, 0, null) {
+          @Override
+          public OperationResult execute(final MessageFrame frame, final EVM evm) {
+            frame.incrementGasRefund(4800L);
+            return new OperationResult(5000L, null);
+          }
+        };
+    final DebugOperationTracer tracer = new DebugOperationTracer(OpCodeTracerConfig.DEFAULT, false);
+    final MessageFrame frame = validMessageFrame();
+
+    traceFrame(frame, tracer, refundingSstore);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames.get(0).getGasRefund()).isZero();
+    assertThat(frames.get(1).getGasRefund()).isEqualTo(4800L);
+  }
+
+  @Test
+  void shouldRecordReturnDataBeforeOperationExecutes() {
+    final Bytes previousReturnData = Bytes.fromHexString("0xdeadbeef");
+    final Bytes callOutput = Bytes.fromHexString("0xcafe");
+    final Operation call =
+        new AbstractOperation(0xf1, "CALL", 0, 0, null) {
+          @Override
+          public OperationResult execute(final MessageFrame frame, final EVM evm) {
+            frame.setReturnData(callOutput);
+            return new OperationResult(100L, null);
+          }
+        };
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceReturnData(true)
+                .build(),
+            false);
+    final MessageFrame frame = validMessageFrame();
+    frame.setReturnData(previousReturnData);
+
+    traceFrame(frame, tracer, call);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames.get(0).getReturnData()).contains(previousReturnData);
+    assertThat(frames.get(1).getReturnData()).contains(callOutput);
   }
 
   @Test
@@ -558,6 +741,58 @@ class DebugOperationTracerTest {
     assertThat(tracer.getTraceFrames()).hasSize(1);
     assertThat(tracer.getTraceFrames().get(0).getGasRemainingPostExecution())
         .isNotEqualTo(OptionalLong.empty());
+  }
+
+  @Test
+  void shouldKeepTheGasAfterTheLastCapturedFrameWhenOperationsRunPastTheLimit() {
+    final OpCodeTracerConfig config =
+        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+            .traceStorage(false)
+            .traceMemory(false)
+            .traceStack(false)
+            .limit(1)
+            .build();
+    final DebugOperationTracer tracer = new DebugOperationTracer(config, false);
+    final MessageFrame frame = validMessageFrame();
+
+    traceFrame(frame, tracer, anOperation);
+    frame.decrementRemainingGas(3);
+    final long gasAfterCapturedFrame = frame.getRemainingGas();
+    traceFrame(frame, tracer, anOperation);
+    frame.decrementRemainingGas(3);
+    traceFrame(frame, tracer, anOperation);
+
+    assertThat(tracer.getTraceFrames()).hasSize(1);
+    assertThat(tracer.getTraceFrames().get(0).getGasRemainingPostExecution())
+        .isEqualTo(gasAfterCapturedFrame);
+  }
+
+  @Test
+  void shouldNotReadTheStackOfOperationsPastTheLimit() {
+    final OpCodeTracerConfig config =
+        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+            .traceStorage(false)
+            .traceMemory(true)
+            .traceStack(true)
+            .limit(1)
+            .build();
+    final DebugOperationTracer tracer = new DebugOperationTracer(config, false);
+    final MessageFrame frame = spy(validMessageFrame());
+    frame.pushStackItem(UInt256.ONE);
+    frame.pushStackItem(UInt256.valueOf(2));
+    clearInvocations(frame);
+
+    for (int i = 0; i < 5; i++) {
+      traceFrame(frame, tracer, anOperation);
+    }
+
+    assertThat(tracer.getTraceFrames()).hasSize(1);
+    final TraceFrame recorded = tracer.getTraceFrames().get(0);
+    assertThat(recorded.getStack()).hasValueSatisfying(stack -> assertThat(stack).hasSize(2));
+    assertThat(recorded.getStackPostExecution())
+        .hasValueSatisfying(stack -> assertThat(stack).hasSize(2));
+    // only the recorded operation's stack is read: two items before and two after it
+    verify(frame, times(4)).getStackItem(anyInt());
   }
 
   @Test

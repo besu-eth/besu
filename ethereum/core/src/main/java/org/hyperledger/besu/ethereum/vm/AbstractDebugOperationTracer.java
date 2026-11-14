@@ -14,17 +14,23 @@
  */
 package org.hyperledger.besu.ethereum.vm;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.AbstractCallOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.tracing.TracedStack;
 
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * Base class for opcode-level operation tracers. Manages the per-frame state that must be captured
@@ -49,7 +55,10 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   /** Pre-execution stack snapshot, set in {@link #tracePreExecution}. */
   protected Optional<Bytes[]> preExecutionStack;
 
-  /** Gas remaining before the operation executed, set in {@link #tracePreExecution}. */
+  /**
+   * Gas remaining before the operation executed, set in {@link #tracePreExecution} for every
+   * operation, traced or not.
+   */
   protected long gasRemaining;
 
   /** Program counter before the operation executed, set in {@link #tracePreExecution}. */
@@ -60,11 +69,25 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
 
   /**
    * Whether the current opcode should be traced (respects the {@code traceOpcodes} filter). Set by
-   * {@link #tracePreExecution}; checked by {@link #tracePostExecution} in subclasses.
+   * {@link #tracePreExecution}, cleared by a subclass's {@link #capturePreExecutionState} to skip
+   * the operation, and checked by {@link #tracePostExecution} in subclasses.
    */
   protected boolean traceOpcode;
 
+  /** The frame the current memory snapshot was taken on, set by subclasses when they snapshot. */
+  protected MessageFrame memorySnapshotFrame;
+
+  /**
+   * Whether memory has been written since the current snapshot was taken. Subclasses set it through
+   * {@link #markMemoryDirty} at the start of {@link #tracePostExecution} for every operation,
+   * traced or not.
+   */
+  protected boolean memoryDirty;
+
   private Operation previousOpcode = null;
+
+  private Optional<UInt256> preExecutionStorageKey = Optional.empty();
+  private final Map<Address, Map<UInt256, UInt256>> accessedStorage = new HashMap<>();
 
   protected AbstractDebugOperationTracer(
       final OpCodeTracerConfig options, final boolean recordChildCallGas) {
@@ -80,20 +103,29 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   @Override
   public void tracePreExecution(final MessageFrame frame) {
     final Operation currentOperation = frame.getCurrentOperation();
+    gasRemaining = frame.getRemainingGas();
+    if (options.traceStorage()
+        && "SLOAD".equals(currentOperation.getName())
+        && TracedStack.size(frame) > 0) {
+      preExecutionStorageKey = Optional.of(UInt256.fromBytes(TracedStack.item(frame, 0)));
+    } else {
+      preExecutionStorageKey = Optional.empty();
+    }
     traceOpcode = shouldTraceOpcode(currentOperation);
     if (!traceOpcode) {
       return;
     }
-    preExecutionStack = captureStack(frame);
-    gasRemaining = frame.getRemainingGas();
     pc = frame.getPC();
     depth = frame.getDepth();
     capturePreExecutionState(frame);
+    preExecutionStack = traceOpcode ? captureStack(frame) : Optional.empty();
   }
 
   /**
    * Hook for subclasses to capture additional pre-execution state. Called only when {@link
-   * #traceOpcode} is {@code true}, after the common fields have been populated.
+   * #traceOpcode} is {@code true}, after the gas, program counter and depth have been populated and
+   * before the stack is captured. Clearing {@link #traceOpcode} here, for example past a step
+   * limit, skips the operation without taking its snapshots.
    */
   protected void capturePreExecutionState(final MessageFrame frame) {}
 
@@ -124,11 +156,62 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
     if (!options.traceStack()) {
       return Optional.empty();
     }
-    final Bytes[] stackContents = new Bytes[frame.stackSize()];
+    final Bytes[] stackContents = new Bytes[TracedStack.size(frame)];
     for (int i = 0; i < stackContents.length; i++) {
-      stackContents[i] = frame.getStackItem(stackContents.length - i - 1);
+      stackContents[i] = TracedStack.item(frame, stackContents.length - i - 1);
     }
     return Optional.of(stackContents);
+  }
+
+  /**
+   * Records the slot touched by a successful SLOAD or SSTORE and returns the live map of all slots
+   * the current contract accessed so far in the transaction. Returns {@link Optional#empty()} for
+   * all other opcodes, per the execution-apis opcode tracer spec. Subclasses call it for every
+   * operation, traced or not, so that the map also holds slots of filtered-out opcodes, and copy
+   * the map only for a step they emit and keep.
+   */
+  protected Optional<Map<UInt256, UInt256>> recordStorage(
+      final MessageFrame frame,
+      final Operation currentOperation,
+      final OperationResult operationResult) {
+    if (!options.traceStorage() || operationResult.getHaltReason() != null) {
+      return Optional.empty();
+    }
+    final String opName = currentOperation.getName();
+    final UInt256 key;
+    final UInt256 value;
+    if ("SSTORE".equals(opName) && frame.getMaybeUpdatedStorage().isPresent()) {
+      key = frame.getMaybeUpdatedStorage().get().getOffset();
+      value = UInt256.fromBytes(frame.getMaybeUpdatedStorage().get().getValue());
+    } else if ("SLOAD".equals(opName)
+        && preExecutionStorageKey.isPresent()
+        && TracedStack.size(frame) > 0) {
+      // after SLOAD executes the loaded value sits at the top of the stack
+      key = preExecutionStorageKey.get();
+      value = UInt256.fromBytes(TracedStack.item(frame, 0));
+    } else {
+      return Optional.empty();
+    }
+    final Map<UInt256, UInt256> storage =
+        accessedStorage.computeIfAbsent(frame.getRecipientAddress(), a -> new TreeMap<>());
+    storage.put(key, value);
+    return Optional.of(storage);
+  }
+
+  protected void markMemoryDirty(final MessageFrame frame, final Operation operation) {
+    // MLOAD records the word it reads, which does not change memory
+    if (frame.getMaybeUpdatedMemory().isPresent() && !"MLOAD".equals(operation.getName())) {
+      memoryDirty = true;
+    }
+  }
+
+  protected boolean memoryUnchangedSinceSnapshot(final MessageFrame frame) {
+    return memorySnapshotFrame == frame && !memoryDirty && frame.getMaybeUpdatedMemory().isEmpty();
+  }
+
+  protected void resetStorage() {
+    preExecutionStorageKey = Optional.empty();
+    accessedStorage.clear();
   }
 
   private boolean shouldTraceOpcode(final Operation currentOpcode) {

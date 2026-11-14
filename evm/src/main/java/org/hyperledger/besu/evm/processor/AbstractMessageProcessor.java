@@ -71,7 +71,7 @@ public abstract class AbstractMessageProcessor {
 
   // List of addresses to force delete when they are touched but empty
   // when the state changes in the message are were not meant to be committed.
-  private final Set<? super Address> forceDeleteAccountsWhenEmpty;
+  final Set<Address> forceDeleteAccountsWhenEmpty;
   final EVM evm;
 
   /**
@@ -83,6 +83,16 @@ public abstract class AbstractMessageProcessor {
   AbstractMessageProcessor(final EVM evm, final Set<Address> forceDeleteAccountsWhenEmpty) {
     this.evm = evm;
     this.forceDeleteAccountsWhenEmpty = forceDeleteAccountsWhenEmpty;
+  }
+
+  /**
+   * Returns whether EVM v2 runs the frames of this processor. A frame built for it from the start
+   * does not allocate the EVM v1 stack.
+   *
+   * @return true if EVM v2 is enabled
+   */
+  public boolean runsOnEvmV2() {
+    return evm.getEvmConfiguration().enableEvmV2();
   }
 
   /**
@@ -182,6 +192,7 @@ public abstract class AbstractMessageProcessor {
     traceFrameExit(frame, "SUCCESS");
     frame.getMessageFrameStack().removeFirst();
     frame.notifyCompletion();
+    frame.releaseStackV2();
   }
 
   private static void traceFrameExit(final MessageFrame frame, final String status) {
@@ -206,6 +217,7 @@ public abstract class AbstractMessageProcessor {
   private void completedFailed(final MessageFrame frame) {
     frame.getMessageFrameStack().removeFirst();
     frame.notifyCompletion();
+    frame.releaseStackV2();
   }
 
   /**

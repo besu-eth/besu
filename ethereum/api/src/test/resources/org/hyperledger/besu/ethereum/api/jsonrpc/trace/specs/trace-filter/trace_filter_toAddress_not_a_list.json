@@ -1,0 +1,24 @@
+{
+  "comment": "toAddress is a list of addresses, so a single address string is rejected",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [
+      {
+        "fromBlock": "0x1",
+        "toBlock": "0x1",
+        "toAddress": "0x0010000000000000000000000000000000000000"
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid filter params"
+    }
+  },
+  "statusCode": 200
+}

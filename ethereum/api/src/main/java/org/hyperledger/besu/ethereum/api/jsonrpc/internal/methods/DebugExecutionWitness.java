@@ -14,6 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
+
+import org.hyperledger.besu.datatypes.HardforkId;
+import org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
@@ -32,9 +36,12 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiExecutionWitnessBuilder;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Map;
 import java.util.Optional;
@@ -44,7 +51,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Implements {@code debug_executionWitness}: reconstructs the EIP-8025 execution witness for a
- * previously-imported block by re-executing it against the persisted parent world state.
+ * previously-imported block by re-executing it against the persisted parent world state. Only
+ * blocks from Osaka on are supported.
  */
 public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMethod {
 
@@ -86,7 +94,8 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
    * {@link BonsaiExecutionWitnessBuilder}. Returns a {@link
    * org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ExecutionWitnessResult} on success,
    * or a {@link org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse}
-   * if the block or parent is missing, re-execution fails, or the witness is empty.
+   * if the block or parent is missing, the block predates Osaka, re-execution fails, or the witness
+   * is empty.
    */
   @Override
   protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
@@ -98,10 +107,13 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
       return new JsonRpcErrorResponse(reqId, RpcErrorType.BLOCK_NOT_FOUND);
     }
 
-    // The parent block must be present in order to re-execute the block against its parent state.
     final Block block = maybeBlock.get();
     final BlockHeader blockHeader = block.getHeader();
+    if (!isWitnessSupported(blockHeader)) {
+      return new JsonRpcErrorResponse(reqId, RpcErrorType.UNSUPPORTED_FORK);
+    }
 
+    // The parent block must be present in order to re-execute the block against its parent state.
     final Optional<BlockHeader> parentHeader =
         blockchain.getBlockHeader(blockHeader.getParentHash());
     if (parentHeader.isEmpty()) {
@@ -116,19 +128,7 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
     try (final var worldState =
         protocolContext.getWorldStateArchive().getWorldState(worldStateQueryParams).orElse(null)) {
 
-      // Re-execute against the parent state to collect the BAL and BLOCKHASH ancestors required for
-      // the witness.
-      final BlockProcessingResult result =
-          protocolSchedule
-              .getByBlockHeader(blockHeader)
-              .getBlockProcessor()
-              .processBlock(
-                  BlockExecutionContext.builder()
-                      .protocolContext(protocolContext)
-                      .worldState(worldState)
-                      .block(block)
-                      .blockAccessList(Optional.empty())
-                      .build());
+      final BlockProcessingResult result = processBlock(block, worldState);
 
       if (!result.isSuccessful() || result.getYield().isEmpty()) {
         return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
@@ -158,5 +158,58 @@ public class DebugExecutionWitness extends AbstractBlockParameterOrBlockHashMeth
       LOG.error("Failed to build execution witness for block {}", blockHeader.getHash(), ex);
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
     }
+  }
+
+  /**
+   * Re-executes {@code block} on its parent's state to collect what the witness is built from: the
+   * block access list, which records the accounts, storage and code the block touched, and the
+   * ancestors its BLOCKHASH calls resolved.
+   *
+   * @param block the block to re-execute
+   * @param worldState the state of the block's parent, which the execution modifies
+   * @return the result of the execution, whose outputs carry the block access list and the accessed
+   *     ancestors
+   */
+  private BlockProcessingResult processBlock(
+      final Block block, final MutableWorldState worldState) {
+    return protocolSchedule
+        .getByBlockHeader(block.getHeader())
+        .getBlockProcessor()
+        .processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .blockAccessListFactoryProvider(DebugExecutionWitness::blockAccessListFactory)
+                .build());
+  }
+
+  /**
+   * Returns the block access list factory to re-execute a block of {@code protocolSpec} with. The
+   * witness needs a block access list, which forks before Amsterdam do not define, so they get a
+   * default factory; a fork that defines one keeps its own.
+   *
+   * @param protocolSpec the protocol spec of the block
+   * @return the fork's block access list factory, or a default one
+   */
+  private static Optional<BlockAccessListFactory> blockAccessListFactory(
+      final ProtocolSpec protocolSpec) {
+    return protocolSpec
+        .getBlockAccessListFactory()
+        .or(() -> Optional.of(new BlockAccessListFactory()));
+  }
+
+  /**
+   * Returns whether this method serves a witness for {@code blockHeader}: only blocks of Osaka or a
+   * later fork are supported. The block's own fork decides, so a chain that schedules a later fork
+   * without Osaka, such as Amsterdam alone, is still supported.
+   *
+   * @param blockHeader the header of the block
+   * @return {@code true} if the block runs under Osaka or a later mainnet fork
+   */
+  private boolean isWitnessSupported(final BlockHeader blockHeader) {
+    final HardforkId fork = protocolSchedule.getByBlockHeader(blockHeader).getHardforkId();
+    return fork instanceof MainnetHardforkId mainnetFork && mainnetFork.compareTo(OSAKA) >= 0;
   }
 }

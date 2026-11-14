@@ -24,6 +24,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.crypto.MessageDigestFactory;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.ethereum.p2p.rlpx.handshake.HandshakeSecrets;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
@@ -31,6 +33,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
@@ -101,6 +104,16 @@ public class FramerTest {
     assertThatExceptionOfType(FramingException.class)
         .isThrownBy(() -> deframer.deframe(framedMessage))
         .withMessageContaining("Message size 16777216 in excess of maximum length.");
+  }
+
+  @Test
+  public void frameCipherIsTheOneOfTheJdk() throws NoSuchAlgorithmException {
+    // Besu registers BouncyCastle as a security provider as well. Its AES runs in plain Java, so it
+    // has to stay behind the JDK's, which uses the AES instructions of the processor.
+    SignatureAlgorithmFactory.getInstance();
+    MessageDigestFactory.create(MessageDigestFactory.KECCAK256_ALG);
+
+    assertThat(Framer.aesCounterMode(new byte[32]).getProvider().getName()).isEqualTo("SunJCE");
   }
 
   @Test
@@ -327,6 +340,56 @@ public class FramerTest {
     assertThat(receivingFramer.deframe(out)).isNotNull();
     assertThat(receivingFramer.isCompressionEnabled()).isTrue();
     assertThat(receivingFramer.isCompressionSuccessful()).isTrue();
+  }
+
+  @Test
+  public void roundTripsMessagesOfEveryPaddingLength() {
+    final HandshakeSecrets secrets =
+        new HandshakeSecrets(
+            Bytes.fromHexString(
+                    "0x75b3ee95adff0c529a05efd7612aa1dbe5057eb9facdde0dfc837ad143da1d43")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0x030dfd1566f4800c4842c177f7d476b64ae2b99a2aa0ab5600aa2f41a8710575")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0xc9d3385b1588a5969cba312f8c29bedb4cb9d56ec0cf825436addc1ec644f1d6")
+                .toArray());
+    final Framer sendingFramer = new Framer(secrets);
+    final Framer receivingFramer = new Framer(secrets);
+    final Random random = new Random(42);
+
+    for (final boolean compressed : new boolean[] {false, true}) {
+      if (compressed) {
+        sendingFramer.enableCompression();
+        receivingFramer.enableCompression();
+      }
+      // The id and the data are encrypted separately from the padding, which is 0 to 15 bytes long.
+      for (int size = 0; size <= 40; size++) {
+        assertRoundTrip(sendingFramer, receivingFramer, size % 2 == 0 ? 0 : 0x13, random, size);
+      }
+      assertRoundTrip(sendingFramer, receivingFramer, 0x13, random, 1 << 20);
+    }
+  }
+
+  private static void assertRoundTrip(
+      final Framer sendingFramer,
+      final Framer receivingFramer,
+      final int code,
+      final Random random,
+      final int size) {
+    final byte[] bytes = new byte[size];
+    random.nextBytes(bytes);
+    final Bytes data = Bytes.wrap(bytes);
+
+    final ByteBuf out = Unpooled.buffer();
+    sendingFramer.frame(new RawMessage(code, data), out);
+    final MessageData received = receivingFramer.deframe(out);
+
+    assertThat(received).isNotNull();
+    assertThat(received.getCode()).isEqualTo(code);
+    assertThat(received.getData()).isEqualTo(data);
+    assertThat(out.readableBytes()).isZero();
   }
 
   @Test

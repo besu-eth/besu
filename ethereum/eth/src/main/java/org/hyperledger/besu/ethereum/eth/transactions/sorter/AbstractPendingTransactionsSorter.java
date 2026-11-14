@@ -27,13 +27,13 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
@@ -45,10 +45,8 @@ import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
-import org.hyperledger.besu.util.Subscribers;
 
 import java.time.Clock;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -88,30 +86,29 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   protected final Map<Address, PendingTransactionsForSender> transactionsBySender =
       new ConcurrentHashMap<>();
 
-  protected final Subscribers<PendingTransactionAddedListener> pendingTransactionSubscribers =
-      Subscribers.create();
-
-  protected final Subscribers<PendingTransactionDroppedListener> transactionDroppedListeners =
-      Subscribers.create();
-
   protected final LabelledMetric<Counter> transactionRemovedCounter;
   protected final Counter localTransactionAddedCounter;
   protected final Counter remoteTransactionAddedCounter;
 
   protected final TransactionPoolReplacementHandler transactionReplacementHandler;
   protected final Supplier<BlockHeader> chainHeadHeaderSupplier;
-
+  private final TransactionEventNotifier.Emitter eventEmitter;
   private final BlobCache blobCache;
+  private final EthScheduler ethScheduler;
 
   public AbstractPendingTransactionsSorter(
       final TransactionPoolConfiguration poolConfig,
       final Clock clock,
       final MetricsSystem metricsSystem,
-      final Supplier<BlockHeader> chainHeadHeaderSupplier) {
+      final Supplier<BlockHeader> chainHeadHeaderSupplier,
+      final TransactionEventNotifier.Emitter eventEmitter,
+      final EthScheduler ethScheduler) {
     this.poolConfig = poolConfig;
     this.pendingTransactions = new ConcurrentHashMap<>(poolConfig.getTxPoolMaxSize());
     this.clock = clock;
     this.chainHeadHeaderSupplier = chainHeadHeaderSupplier;
+    this.eventEmitter = eventEmitter;
+    this.ethScheduler = ethScheduler;
     this.transactionReplacementHandler =
         new TransactionPoolReplacementHandler(
             poolConfig.getPriceBump(), poolConfig.getBlobPriceBump());
@@ -150,10 +147,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   @Override
   public void evictOldTransactions() {
     final long removeTransactionsBefore =
-        clock
-            .instant()
-            .minus(poolConfig.getPendingTxRetentionPeriod(), ChronoUnit.HOURS)
-            .toEpochMilli();
+        clock.instant().minus(poolConfig.getPendingTxRetentionDuration()).toEpochMilli();
 
     pendingTransactions.values().stream()
         .filter(transaction -> transaction.getAddedAt() < removeTransactionsBefore)
@@ -163,7 +157,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                   .setMessage("Evicted {} due to age")
                   .addArgument(transactionInfo::toTraceLog)
                   .log();
-              removeTransaction(transactionInfo.getTransaction(), TIMED_EVICTION);
+              removeTransaction(transactionInfo, TIMED_EVICTION);
             });
   }
 
@@ -199,9 +193,17 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     return transactionAddedStatus;
   }
 
-  void removeTransaction(final Transaction transaction, final SequencedRemovalReason reason) {
-    removeTransaction(transaction, false);
-    notifyTransactionDropped(transaction, reason);
+  void removeTransaction(
+      final PendingTransaction pendingTransaction, final SequencedRemovalReason reason) {
+    // notify while holding the lock, so that the events are notified in the order they happen, and
+    // only if this pending tx is still in the pool, since it could have been removed already, and
+    // the same tx added again, like after a timed eviction scan
+    synchronized (lock) {
+      if (pendingTransaction.equals(pendingTransactions.get(pendingTransaction.getHash()))) {
+        removeTransaction(pendingTransaction.getTransaction(), false);
+        eventEmitter.notifyPendingTransactionDropped(pendingTransaction, reason);
+      }
+    }
   }
 
   @Override
@@ -258,16 +260,31 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
     final var selectionResults = selector.evaluatePendingTransactions(candidateTxs);
 
-    for (final var selectionResult : selectionResults.entrySet()) {
-      final var pendingTransaction = selectionResult.getKey();
-      final var result = selectionResult.getValue();
+    // results are processed asynchronously, and the result of a tx whose evaluation is still
+    // running after a timeout or a cancellation, only once it completes
+    selectionResults.forEach(
+        (pendingTransaction, futureResult) ->
+            futureResult
+                .thenAcceptAsync(
+                    result -> processSelectionResult(pendingTransaction, result),
+                    ethScheduler::executeServiceTask)
+                .exceptionally(
+                    throwable -> {
+                      LOG.warn(
+                          "Selection result of transaction {} not processed",
+                          pendingTransaction.getHash(),
+                          throwable);
+                      return null;
+                    }));
+  }
 
-      if (result.discard()) {
-        synchronized (lock) {
-          removeTransaction(pendingTransaction.getTransaction(), INVALID);
-        }
-        logDiscardedTransaction(pendingTransaction, result);
+  private void processSelectionResult(
+      final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
+    if (result.discard()) {
+      synchronized (lock) {
+        removeTransaction(pendingTransaction, INVALID);
       }
+      logDiscardedTransaction(pendingTransaction, result);
     }
   }
 
@@ -304,7 +321,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     PendingTransaction existingPendingTx =
         pendingTxsForSender.getPendingTransactionForNonce(pendingTransaction.getNonce());
 
-    final Optional<Transaction> maybeReplacedTransaction;
+    final Optional<PendingTransaction> maybeReplacedPendingTransaction;
     if (existingPendingTx != null) {
       if (!transactionReplacementHandler.shouldReplace(
           existingPendingTx, pendingTransaction, chainHeadHeaderSupplier.get())) {
@@ -319,9 +336,9 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
           .addArgument(existingPendingTx::toTraceLog)
           .addArgument(pendingTransaction::toTraceLog)
           .log();
-      maybeReplacedTransaction = Optional.of(existingPendingTx.getTransaction());
+      maybeReplacedPendingTransaction = Optional.of(existingPendingTx);
     } else {
-      maybeReplacedTransaction = Optional.empty();
+      maybeReplacedPendingTransaction = Optional.empty();
     }
 
     pendingTxsForSender.updateSenderAccount(maybeSenderAccount);
@@ -330,7 +347,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
         .setMessage("Tracked transaction by sender {}")
         .addArgument(pendingTxsForSender::toTraceLog)
         .log();
-    maybeReplacedTransaction.ifPresent(tx -> removeTransaction(tx, REPLACED));
+    maybeReplacedPendingTransaction.ifPresent(ptx -> removeTransaction(ptx, REPLACED));
     return ADDED;
   }
 
@@ -354,16 +371,6 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                     .log();
               }
             });
-  }
-
-  private void notifyTransactionAdded(final Transaction transaction) {
-    pendingTransactionSubscribers.forEach(listener -> listener.onTransactionAdded(transaction));
-  }
-
-  private void notifyTransactionDropped(
-      final Transaction transaction, final SequencedRemovalReason reason) {
-    transactionDroppedListeners.forEach(
-        listener -> listener.onTransactionDropped(transaction, reason));
   }
 
   @Override
@@ -417,26 +424,6 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                         entry.getKey(),
                         entry.getValue().maybeCurrentNonce().orElse(0),
                         entry.getValue().getPendingTransactions())));
-  }
-
-  @Override
-  public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
-    return pendingTransactionSubscribers.subscribe(listener);
-  }
-
-  @Override
-  public void unsubscribePendingTransactions(final long id) {
-    pendingTransactionSubscribers.unsubscribe(id);
-  }
-
-  @Override
-  public long subscribeDroppedTransactions(final PendingTransactionDroppedListener listener) {
-    return transactionDroppedListeners.subscribe(listener);
-  }
-
-  @Override
-  public void unsubscribeDroppedTransactions(final long id) {
-    transactionDroppedListeners.unsubscribe(id);
   }
 
   @Override
@@ -507,12 +494,14 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
       pendingTransactions.put(pendingTransaction.getHash(), pendingTransaction);
       prioritizeTransaction(pendingTransaction);
+      // notify while holding the lock and before evicting, since the eviction could drop the added
+      // tx itself, so that the events are notified in the order they happen
+      eventEmitter.notifyPendingTransactionAdded(pendingTransaction);
 
       if (pendingTransactions.size() > poolConfig.getTxPoolMaxSize()) {
         evictLessPriorityTransactions();
       }
     }
-    notifyTransactionAdded(pendingTransaction.getTransaction());
     return ADDED;
   }
 
@@ -526,7 +515,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
     // remove backward to avoid gaps
     for (int i = txsToEvict.size() - 1; i >= 0; i--) {
-      removeTransaction(txsToEvict.get(i).getTransaction(), EVICTED);
+      removeTransaction(txsToEvict.get(i), EVICTED);
     }
   }
 

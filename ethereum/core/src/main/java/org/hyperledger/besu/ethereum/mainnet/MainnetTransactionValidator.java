@@ -26,6 +26,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
@@ -56,7 +57,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
   private final boolean disallowSignatureMalleability;
 
-  private final Optional<BigInteger> chainId;
+  private final ChainId chainId;
 
   private final Set<TransactionType> acceptedTransactionTypes;
 
@@ -68,7 +69,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
       final GasLimitCalculator gasLimitCalculator,
       final FeeMarket feeMarket,
       final boolean checkSignatureMalleability,
-      final Optional<BigInteger> chainId,
+      final ChainId chainId,
       final Set<TransactionType> acceptedTransactionTypes,
       final Set<BlobType> acceptedBlobVersions,
       final int maxInitcodeSize) {
@@ -169,10 +170,12 @@ public class MainnetTransactionValidator implements TransactionValidator {
     }
 
     for (CodeDelegation codeDelegation : transaction.getCodeDelegationList().orElseThrow()) {
-      if (codeDelegation.chainId().compareTo(TWO_POW_256) >= 0) {
+      final ChainId codeDelegationChainId = ChainId.fromCodeDelegation(codeDelegation);
+      if (!codeDelegationChainId.fitsLong()
+          && codeDelegationChainId.toBigInteger().compareTo(TWO_POW_256) >= 0) {
         return ValidationResult.invalid(
             TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
-            "Invalid 'chainId' value, should be < 2^256 but got " + codeDelegation.chainId());
+            "Invalid 'chainId' value, should be < 2^256 but got " + codeDelegationChainId);
       }
 
       if (codeDelegation.r().compareTo(TWO_POW_256) >= 0) {
@@ -263,7 +266,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
     // EIP-8037: cap max(intrinsic_execution, calldata_floor) rather than tx.gas itself.
     final long intrinsicGasLimitCap = gasLimitCalculator.transactionIntrinsicGasLimitCap();
-    if (!transactionValidationParams.isAllowExceedingGasLimit()
+    if (!transactionValidationParams.isAllowExceedingIntrinsicGasLimit()
         && Long.compareUnsigned(intrinsicGasCostOrFloor, intrinsicGasLimitCap) > 0) {
       return ValidationResult.invalid(
           TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
@@ -370,16 +373,17 @@ public class MainnetTransactionValidator implements TransactionValidator {
 
   private ValidationResult<TransactionInvalidReason> validateTransactionSignature(
       final Transaction transaction) {
+    final ChainId transactionChainId = transaction.getChainIdentifier();
     if (chainId.isPresent()
-        && (transaction.getChainId().isPresent() && !transaction.getChainId().equals(chainId))) {
+        && (transactionChainId.isPresent() && !transactionChainId.equals(chainId))) {
       return ValidationResult.invalid(
           TransactionInvalidReason.WRONG_CHAIN_ID,
           String.format(
               "transaction was meant for chain id %s and not this chain id %s",
-              transaction.getChainId().get(), chainId.get()));
+              transactionChainId, chainId));
     }
 
-    if (chainId.isEmpty() && transaction.getChainId().isPresent()) {
+    if (chainId.isAbsent() && transactionChainId.isPresent()) {
       return ValidationResult.invalid(
           TransactionInvalidReason.REPLAY_PROTECTED_SIGNATURES_NOT_SUPPORTED,
           "replay protected signatures is not supported");

@@ -29,6 +29,7 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -39,6 +40,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
+import org.hyperledger.besu.consensus.merge.UnverifiedPayloadListener;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
@@ -48,6 +50,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.blockcreation.MempoolPrewarmer;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
@@ -58,6 +61,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
@@ -72,6 +76,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -85,6 +90,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.number.Fraction;
 
@@ -117,6 +123,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -190,12 +197,16 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
           .txPoolMaxSize(10)
           .txPoolLimitByAccountPercentage(Fraction.fromPercentage(100))
           .build();
+  private final TransactionEventNotifier transactionEventNotifier =
+      new TransactionEventNotifier(new DeterministicEthScheduler());
   private final BaseFeePendingTransactionsSorter transactions =
       new BaseFeePendingTransactionsSorter(
           poolConf,
           TestClock.system(ZoneId.systemDefault()),
           metricsSystem,
-          MergeCoordinatorTest::mockBlockHeader);
+          MergeCoordinatorTest::mockBlockHeader,
+          transactionEventNotifier.newEmitter(),
+          new DeterministicEthScheduler());
 
   private TransactionPool transactionPool;
 
@@ -242,7 +253,8 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             ethContext,
             new TransactionPoolMetrics(metricsSystem),
             poolConf,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier);
 
     this.transactionPool.setEnabled();
 
@@ -317,6 +329,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                   eq(Optional.empty()),
                   eq(Optional.empty()),
                   eq(Optional.empty()),
+                  any(),
                   any());
           return beingSpiedOn;
         };
@@ -409,7 +422,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                       parentHeader,
                       ethScheduler));
 
-          // First call (empty block, synchronous in preparePayload): run normally so that
+          // First call (minimal block, synchronous in preparePayload): run normally so that
           // preparePayload completes and the retry loop is started.
           // Second call (inside the retry loop): cancel block creation first so that
           // isBlockCreationCancelled is true when the RuntimeException reaches the catch block.
@@ -432,6 +445,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
                   eq(Optional.empty()),
                   eq(Optional.empty()),
                   eq(Optional.empty()),
+                  any(),
                   any());
           return beingSpiedOn;
         };
@@ -1044,6 +1058,96 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
+  public void prewarmsFromANewHeadUntilTheNextBlockOrBlockBuilding() {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+    final BlockHeader terminalHeader = terminalPowBlock();
+    final Block terminal = new Block(terminalHeader, BlockBody.empty());
+
+    sendNewPayloadAndForkchoiceUpdate(terminal, Optional.empty(), Hash.ZERO);
+    coordinator.preparePayload(
+        new PreparePayloadArgsBuilder()
+            .parentHeader(terminalHeader)
+            .timestamp(terminalHeader.getTimestamp() + 1)
+            .prevRandao(Bytes32.ZERO)
+            .feeRecipient(suggestedFeeRecipient)
+            .build());
+
+    final InOrder inOrder = inOrder(prewarmer);
+    inOrder.verify(prewarmer).stop(Optional.of(terminal));
+    inOrder.verify(prewarmer).start(terminalHeader);
+    inOrder.verify(prewarmer).stopForBlockBuilding();
+  }
+
+  @Test
+  public void stopsPrewarmingWhenAPayloadArrives() {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+    final ArgumentCaptor<UnverifiedPayloadListener> listener =
+        ArgumentCaptor.forClass(UnverifiedPayloadListener.class);
+    verify(mergeContext).addNewUnverifiedPayloadListener(listener.capture());
+
+    listener.getValue().onNewUnverifiedPayload();
+
+    verify(prewarmer).stopForPayload();
+  }
+
+  @Test
+  public void stopsPrewarmingForAPayloadThatGoesToBackwardSync() {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+
+    coordinator.appendNewPayloadToSync(
+        new Block(terminalPowBlock(), BlockBody.empty()), Optional.empty());
+
+    verify(prewarmer).stop(Optional.empty());
+  }
+
+  @Test
+  public void closesThePrewarmerOnceMiningHasStopped() throws InterruptedException {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+
+    coordinator.stop();
+    verify(prewarmer, never()).close();
+    coordinator.awaitStop();
+
+    verify(prewarmer).close();
+  }
+
+  @Test
   public void childTimestampExceedsParentsFails() {
     BlockHeader terminalHeader = terminalPowBlock();
     sendNewPayloadAndForkchoiceUpdate(
@@ -1405,7 +1509,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     final MiningConfiguration mockMiningConfiguration = mock(MiningConfiguration.class);
     when(mockMiningConfiguration.getTargetGasLimit()).thenReturn(OptionalLong.empty());
-    when(protocolSchedule.getChainId()).thenReturn(Optional.of(BigInteger.valueOf(chainId)));
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.of(chainId));
     doNothing().when(backwardSyncContext).subscribeBadChainListener(any());
 
     MergeCoordinator testTargetGasLimitCoordinator =

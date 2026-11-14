@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
@@ -83,8 +84,7 @@ class Eip8037GasLimitTest {
         .feeMarket(FeeMarket.legacy())
         .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.frontier())
         .codeDelegationProcessor(
-            new CodeDelegationProcessor(
-                Optional.of(BigInteger.ONE), BigInteger.TEN, new CodeDelegationService()))
+            new CodeDelegationProcessor(ChainId.of(1), BigInteger.TEN, new CodeDelegationService()))
         .build();
   }
 
@@ -187,6 +187,39 @@ class Eip8037GasLimitTest {
                 Wei.ZERO);
 
     assertThat(result.isSuccessful()).isTrue();
+  }
+
+  @Test
+  void executionGasAboveTxMaxGasLimitSucceedsWhenTheCapIsLifted() {
+    setupCommonMocks(20_000_000L);
+
+    doAnswer(
+            invocation -> {
+              final MessageFrame frame = invocation.getArgument(0);
+              assertThat(frame.getStateGasReservoir()).isZero();
+              frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
+              frame.setGasRemaining(2_000_000L);
+              frame.getMessageFrameStack().pop();
+              return null;
+            })
+        .when(messageCallProcessor)
+        .process(any(), any());
+
+    final TransactionProcessingResult result =
+        createProcessor()
+            .processTransaction(
+                worldState,
+                blockHeader,
+                transaction,
+                Address.fromHexString("0x4242424242424242424242424242424242424242"),
+                blockHashLookup,
+                ImmutableTransactionValidationParams.builder()
+                    .isAllowExceedingExecutionGasLimit(true)
+                    .build(),
+                Wei.ZERO);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(result.getEstimateGasUsedByTransaction()).isEqualTo(18_000_000L);
   }
 
   @Test

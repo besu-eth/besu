@@ -28,8 +28,10 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason.REPLACED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.INVALID_TX_EVALUATION_TOO_LONG;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -51,6 +53,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedL
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.RemovalReason;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
@@ -66,12 +69,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.SequencedMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
@@ -132,6 +137,8 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   private CreatedLayers createLayers(final TransactionPoolConfiguration poolConfig) {
+    final TransactionEventNotifier transactionEventNotifier =
+        new TransactionEventNotifier(ethScheduler);
 
     final BiFunction<PendingTransaction, PendingTransaction, Boolean> transactionReplacementTester =
         (t1, t2) ->
@@ -139,40 +146,45 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
                     poolConf.getPriceBump(), poolConfig.getBlobPriceBump())
                 .shouldReplace(t1, t2, mockBlockHeader());
 
-    final EvictCollectorLayer evictCollector = new EvictCollectorLayer(txPoolMetrics);
+    final EvictCollectorLayer evictCollector =
+        new EvictCollectorLayer(txPoolMetrics, transactionEventNotifier.newEmitter());
 
     final SparseTransactions sparseTransactions =
         new SparseTransactions(
             poolConfig,
-            ethScheduler,
             evictCollector,
             txPoolMetrics,
             transactionReplacementTester,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier.newEmitter());
 
     final ReadyTransactions readyTransactions =
         new ReadyTransactions(
             poolConfig,
-            ethScheduler,
             sparseTransactions,
             txPoolMetrics,
             transactionReplacementTester,
-            new BlobCache());
+            new BlobCache(),
+            transactionEventNotifier.newEmitter());
 
     final BaseFeePrioritizedTransactions prioritizedTransactions =
         new BaseFeePrioritizedTransactions(
             poolConfig,
             LayeredPendingTransactionsTest::mockBlockHeader,
-            ethScheduler,
             readyTransactions,
             txPoolMetrics,
             transactionReplacementTester,
             FeeMarket.london(0L),
             new BlobCache(),
             MiningConfiguration.newDefault().setMinTransactionGasPrice(DEFAULT_MIN_GAS_PRICE),
-            senderBalanceChecker);
+            senderBalanceChecker,
+            transactionEventNotifier.newEmitter());
     return new CreatedLayers(
-        prioritizedTransactions, readyTransactions, sparseTransactions, evictCollector);
+        prioritizedTransactions,
+        readyTransactions,
+        sparseTransactions,
+        evictCollector,
+        transactionEventNotifier);
   }
 
   @BeforeEach
@@ -254,7 +266,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   public void evictTransactionsWhenSizeLimitExceeded() {
     final List<Transaction> firstTxs = new ArrayList<>(MAX_TRANSACTIONS);
 
-    smallPendingTransactions.subscribeDroppedTransactions(droppedListener);
+    smallLayers.eventNotifier().subscribePendingTransactionDropped(droppedListener);
 
     for (int i = 0; i < MAX_TRANSACTIONS; i++) {
       final Account sender = mock(Account.class);
@@ -303,10 +315,43 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  public void notifyAddedBeforeDroppedWhenAddedTransactionIsEvicted() {
+    smallLayers.eventNotifier().subscribePendingTransactionAdded(listener);
+    smallLayers.eventNotifier().subscribePendingTransactionDropped(droppedListener);
+
+    // the nonce gap makes the tx go to the sparse layer, where it does not fit, so it evicts itself
+    final Account sender = mock(Account.class);
+    when(sender.getNonce()).thenReturn(0L);
+    final Transaction evictedOnAdd =
+        createTransactionOfSize(
+            1,
+            DEFAULT_BASE_FEE,
+            (int) smallPoolConfig.getPendingTransactionsLayerMaxCapacityBytes() + 1,
+            SIGNATURE_ALGORITHM.generateKeyPair());
+    assertThat(
+            smallPendingTransactions.addTransaction(
+                createRemotePendingTransaction(evictedOnAdd), Optional.of(sender)))
+        .isEqualTo(ADDED);
+    assertTransactionNotPending(smallPendingTransactions, evictedOnAdd);
+
+    final InOrder inOrder = inOrder(listener, droppedListener);
+    inOrder.verify(listener).onTransactionAdded(evictedOnAdd);
+    inOrder.verify(droppedListener).onTransactionDropped(evictedOnAdd, DROPPED);
+    verifyNoMoreInteractions(listener, droppedListener);
+
+    assertThat(getAddedCount(REMOTE, NO_PRIORITY, NEW, smallLayers.sparseTransactions.name()))
+        .isEqualTo(1);
+    assertThat(
+            getRemovedCount(
+                REMOTE, NO_PRIORITY, DROPPED.label(), smallLayers.evictedCollector.name()))
+        .isEqualTo(1);
+  }
+
+  @Test
   public void txsMovingToNextLayerWhenFirstIsFull() {
     final List<Transaction> txs = new ArrayList<>(MAX_TRANSACTIONS + 1);
 
-    pendingTransactions.subscribeDroppedTransactions(droppedListener);
+    layers.eventNotifier().subscribePendingTransactionDropped(droppedListener);
 
     for (int i = 0; i < MAX_TRANSACTIONS + 1; i++) {
       final Account sender = mock(Account.class);
@@ -400,7 +445,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
   @Test
   public void notifyListenerWhenRemoteTransactionAdded() {
-    pendingTransactions.subscribePendingTransactions(listener);
+    layers.eventNotifier().subscribePendingTransactionAdded(listener);
 
     pendingTransactions.addTransaction(
         createRemotePendingTransaction(transaction0), Optional.empty());
@@ -410,7 +455,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
   @Test
   public void notifyListenerWhenLocalTransactionAdded() {
-    pendingTransactions.subscribePendingTransactions(listener);
+    layers.eventNotifier().subscribePendingTransactionAdded(listener);
 
     pendingTransactions.addTransaction(
         createLocalPendingTransaction(transaction0), Optional.empty());
@@ -420,14 +465,14 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
   @Test
   public void notNotifyListenerAfterUnsubscribe() {
-    final long id = pendingTransactions.subscribePendingTransactions(listener);
+    final long id = layers.eventNotifier().subscribePendingTransactionAdded(listener);
 
     pendingTransactions.addTransaction(
         createRemotePendingTransaction(transaction0), Optional.empty());
 
     verify(listener).onTransactionAdded(transaction0);
 
-    pendingTransactions.unsubscribePendingTransactions(id);
+    layers.eventNotifier().unsubscribePendingTransactionAdded(id);
 
     pendingTransactions.addTransaction(
         createRemotePendingTransaction(transaction1), Optional.empty());
@@ -446,12 +491,13 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
         createRemotePendingTransaction(transaction1b), Optional.empty());
 
     pendingTransactions.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs)
-              .map(PendingTransaction::getTransaction)
-              .containsExactly(transaction1b);
-          return Map.of(pendingTxs.get(0), SELECTED);
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs)
+                  .map(PendingTransaction::getTransaction)
+                  .containsExactly(transaction1b);
+              return Map.of(pendingTxs.get(0), SELECTED);
+            }));
   }
 
   @Test
@@ -469,12 +515,14 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
         createLocalPendingTransaction(transaction0), Optional.empty());
 
     pendingTransactions.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs)
-              .map(PendingTransaction::getTransaction)
-              .containsExactly(transaction0, transaction1, transaction2);
-          return pendingTxs.stream().collect(Collectors.toMap(Function.identity(), pt -> SELECTED));
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs)
+                  .map(PendingTransaction::getTransaction)
+                  .containsExactly(transaction0, transaction1, transaction2);
+              return pendingTxs.stream()
+                  .collect(Collectors.toMap(Function.identity(), pt -> SELECTED));
+            }));
   }
 
   @Test
@@ -493,13 +541,15 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
         createLocalPendingTransaction(transactionSender2), Optional.of(sender2));
 
     pendingTransactions.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs)
-              .map(PendingTransaction::getTransaction)
-              .containsExactly(transactionSender2, transactionSender1);
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs)
+                  .map(PendingTransaction::getTransaction)
+                  .containsExactly(transactionSender2, transactionSender1);
 
-          return pendingTxs.stream().collect(Collectors.toMap(Function.identity(), pt -> SELECTED));
-        });
+              return pendingTxs.stream()
+                  .collect(Collectors.toMap(Function.identity(), pt -> SELECTED));
+            }));
   }
 
   @Test
@@ -508,15 +558,16 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     pendingTransactions.addTransaction(pendingTx0, Optional.empty());
 
     final var droppedTxCollector = new DroppedTransactionCollector();
-    pendingTransactions.subscribeDroppedTransactions(droppedTxCollector);
+    layers.eventNotifier().subscribePendingTransactionDropped(droppedTxCollector);
 
     pendingTransactions.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs).containsExactly(pendingTx0);
-          return Map.of(
-              pendingTx0,
-              TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs).containsExactly(pendingTx0);
+              return Map.of(
+                  pendingTx0,
+                  TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
+            }));
 
     // assert that first tx is removed from the pool
     assertThat(droppedTxCollector.droppedTransactions)
@@ -525,17 +576,36 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  public void lateInvalidResultIsProcessedWhenTheEvaluationCompletes() {
+    final var pendingTx0 = createRemotePendingTransaction(transaction0);
+    pendingTransactions.addTransaction(pendingTx0, Optional.empty());
+
+    // the evaluation of the tx is still running when the selection returns
+    final var lateResult = new CompletableFuture<TransactionSelectionResult>();
+    pendingTransactions.selectTransactions(pendingTxs -> Map.of(pendingTx0, lateResult));
+
+    assertThat(pendingTransactions.getTransactionByHash(transaction0.getHash())).isPresent();
+
+    // the tx is removed only once its evaluation completes
+    lateResult.complete(INVALID_TX_EVALUATION_TOO_LONG);
+
+    assertThat(pendingTransactions.getTransactionByHash(transaction0.getHash())).isEmpty();
+  }
+
+  @Test
   public void temporarilyInvalidTransactionIsKeptInPendingTransactions() {
     final var pendingTx0 = createRemotePendingTransaction(transaction0);
     pendingTransactions.addTransaction(pendingTx0, Optional.empty());
 
     pendingTransactions.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs).containsExactly(pendingTx0);
-          return Map.of(
-              pendingTx0,
-              TransactionSelectionResult.invalidPenalized(GAS_PRICE_BELOW_CURRENT_BASE_FEE.name()));
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs).containsExactly(pendingTx0);
+              return Map.of(
+                  pendingTx0,
+                  TransactionSelectionResult.invalidPenalized(
+                      GAS_PRICE_BELOW_CURRENT_BASE_FEE.name()));
+            }));
 
     assertThat(pendingTransactions.getPendingTransactions())
         .map(PendingTransaction::getTransaction)
@@ -549,18 +619,19 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     pendingTransactions.addTransaction(createRemotePendingTransaction(tx), Optional.empty());
 
     pendingTransactions.selectTransactions(
-        pendingTxs -> {
-          // replace the tx before the result
-          final TransactionAddedResult addResult =
-              pendingTransactions.addTransaction(
-                  createRemotePendingTransaction(replacementTx), Optional.empty());
-          assertThat(addResult.isReplacement()).isTrue();
+        completedResults(
+            pendingTxs -> {
+              // replace the tx before the result
+              final TransactionAddedResult addResult =
+                  pendingTransactions.addTransaction(
+                      createRemotePendingTransaction(replacementTx), Optional.empty());
+              assertThat(addResult.isReplacement()).isTrue();
 
-          // the result for the evaluated tx arrives after it has been replaced
-          return Map.of(
-              pendingTxs.getFirst(),
-              TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
-        });
+              // the result for the evaluated tx arrives after it has been replaced
+              return Map.of(
+                  pendingTxs.getFirst(),
+                  TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
+            }));
 
     // there should be no tx with the first hash in the pool
     assertThat(pendingTransactions.getTransactionByHash(tx.getHash())).isEmpty();
@@ -582,22 +653,24 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     pendingTransactions.addTransaction(createRemotePendingTransaction(tx1), Optional.empty());
 
     pendingTransactions.selectTransactions(
-        pendingTxs -> {
-          pendingTransactions.manageBlockAdded(
-              mockBlockHeader(), List.of(tx0), List.of(), FeeMarket.london(0L));
+        completedResults(
+            pendingTxs -> {
+              pendingTransactions.manageBlockAdded(
+                  mockBlockHeader(), List.of(tx0), List.of(), FeeMarket.london(0L));
 
-          assertThat(pendingTxs.getFirst().getTransaction()).isEqualTo(tx0);
+              assertThat(pendingTxs.getFirst().getTransaction()).isEqualTo(tx0);
 
-          // there should be no tx with the first hash in the pool
-          assertThat(pendingTransactions.getTransactionByHash(tx0.getHash())).isEmpty();
+              // there should be no tx with the first hash in the pool
+              assertThat(pendingTransactions.getTransactionByHash(tx0.getHash())).isEmpty();
 
-          // the result for the evaluated tx arrives after its block has been processed
-          // this will cause a removal of a non-existing tx, since already removed by the confirmed
-          // block
-          return Map.of(
-              pendingTxs.getFirst(),
-              TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
-        });
+              // the result for the evaluated tx arrives after its block has been processed
+              // this will cause a removal of a non-existing tx, since already removed by the
+              // confirmed
+              // block
+              return Map.of(
+                  pendingTxs.getFirst(),
+                  TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
+            }));
 
     assertThat(layers.prioritizedTransactions.getByScore())
         .map(PendingTransaction::getTransaction)
@@ -612,17 +685,19 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
     final List<PendingTransaction> evaluatedTxs = new ArrayList<>();
     pendingTransactions.selectTransactions(
-        pendingTxs -> {
-          evaluatedTxs.addAll(pendingTxs);
-          return Map.of();
-        });
+        completedResults(
+            pendingTxs -> {
+              evaluatedTxs.addAll(pendingTxs);
+              return Map.of();
+            }));
 
     // the evaluated tx is removed, then added again as a new instance that lands in ready
     pendingTransactions.selectTransactions(
-        pendingTxs ->
-            Map.of(
-                pendingTxs.getFirst(),
-                TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name())));
+        completedResults(
+            pendingTxs ->
+                Map.of(
+                    pendingTxs.getFirst(),
+                    TransactionSelectionResult.invalid(UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()))));
     final List<Transaction> highFeeTxs = new ArrayList<>(MAX_TRANSACTIONS);
     for (int nonce = 0; nonce < MAX_TRANSACTIONS; nonce++) {
       final Transaction highFeeTx = createEIP1559Transaction(nonce, KEYS2, 3);
@@ -639,11 +714,12 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
 
     // the penalty for the evaluated instance arrives after it has been re-added
     pendingTransactions.selectTransactions(
-        unused ->
-            Map.of(
-                evaluatedTxs.getFirst(),
-                TransactionSelectionResult.invalidPenalized(
-                    GAS_PRICE_BELOW_CURRENT_BASE_FEE.name())));
+        completedResults(
+            unused ->
+                Map.of(
+                    evaluatedTxs.getFirst(),
+                    TransactionSelectionResult.invalidPenalized(
+                        GAS_PRICE_BELOW_CURRENT_BASE_FEE.name()))));
 
     // confirming the re-added tx empties its sender in ready, while the freed prioritized slots
     // make ready promote
@@ -797,7 +873,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
                 createRemotePendingTransaction(transaction1), Optional.empty()))
         .isEqualTo(ADDED);
 
-    pendingTransactions.subscribePendingTransactions(listener);
+    layers.eventNotifier().subscribePendingTransactionAdded(listener);
     assertThat(
             pendingTransactions.addTransaction(
                 createRemotePendingTransaction(transaction1b), Optional.empty()))
@@ -1142,13 +1218,25 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     return addedTransactions.toArray(TransactionAndAccount[]::new);
   }
 
+  private static PendingTransactions.PendingTransactionsSelector completedResults(
+      final Function<List<PendingTransaction>, Map<PendingTransaction, TransactionSelectionResult>>
+          selector) {
+    return candidateTxs ->
+        selector.apply(candidateTxs).entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    entry -> CompletableFuture.completedFuture(entry.getValue())));
+  }
+
   record TransactionAndAccount(Transaction transaction, Account account) {}
 
   record CreatedLayers(
       AbstractPrioritizedTransactions prioritizedTransactions,
       ReadyTransactions readyTransactions,
       SparseTransactions sparseTransactions,
-      EvictCollectorLayer evictedCollector) {}
+      EvictCollectorLayer evictedCollector,
+      TransactionEventNotifier eventNotifier) {}
 
   static class DroppedTransactionCollector implements PendingTransactionDroppedListener {
     final SequencedMap<Transaction, RemovalReason> droppedTransactions = new LinkedHashMap<>();

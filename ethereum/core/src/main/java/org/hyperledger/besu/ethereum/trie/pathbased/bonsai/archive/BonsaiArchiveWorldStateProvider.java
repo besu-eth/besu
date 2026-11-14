@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
@@ -58,7 +57,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final WorldStateConfig archiveWorldStateConfig;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
 
-  private final ArchiveCoverageTracker archiveCoverageTracker;
+  private final ArchiveNodeHistoryStore archiveHistoryStore;
   private final ArchiveHistoryReader archiveHistoryReader;
 
   public BonsaiArchiveWorldStateProvider(
@@ -116,8 +115,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             worldStateKeyValueStorage.getCurrentVersion());
     final SegmentedKeyValueStorage liveStorage =
         worldStateKeyValueStorage.getComposedWorldStateStorage();
-    final ArchiveNodeHistoryStore archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
-    this.archiveCoverageTracker = new ArchiveCoverageTracker(liveStorage);
+    this.archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
     this.archiveHistoryReader = new ArchiveHistoryReader(archiveHistoryStore);
   }
 
@@ -170,25 +168,19 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
     final long blockNumber = blockHeader.getNumber();
-    if (!archiveCoverageTracker.hasArchiveBlock(blockNumber)) {
+    if (!archiveHistoryStore.isArchived(blockNumber)) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
-    try {
-      final WorldStateStorageCoordinator coordinator =
-          new BonsaiArchiveReadWorldStateStorageCoordinator(
-              archiveReadStorage, archiveHistoryReader, blockNumber);
-      final WorldStateProofProvider proofProvider = new WorldStateProofProvider(coordinator);
-      return mapper.apply(
-          proofProvider.getAccountProof(
-              blockHeader.getStateRoot(), accountAddress, accountStorageKeys));
-    } catch (final Exception ex) {
-      LOG.error(
-          "failed archive proof query for block {} ({})",
-          blockHeader.getNumber(),
-          blockHeader.getBlockHash().toShortLogString(),
-          ex);
-      return Optional.empty();
-    }
+    final WorldStateStorageCoordinator coordinator =
+        new BonsaiArchiveReadWorldStateStorageCoordinator(
+            archiveReadStorage, archiveHistoryReader, blockNumber);
+    final WorldStateProofProvider proofProvider = new WorldStateProofProvider(coordinator);
+    return mapper.apply(
+        proofProvider.getAccountProof(
+            blockHeader.getStateRoot(),
+            blockHeader.getBlockHash(),
+            accountAddress,
+            accountStorageKeys));
   }
 
   // Archive-specific rollback behaviour. There is no trie-log roll forward/backward, we just roll

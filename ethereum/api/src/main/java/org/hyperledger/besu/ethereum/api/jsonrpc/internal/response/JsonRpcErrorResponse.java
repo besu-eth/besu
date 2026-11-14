@@ -17,9 +17,11 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.response;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -43,6 +45,23 @@ public class JsonRpcErrorResponse implements JsonRpcResponse {
 
   // Encoding of "Error(string)" to check for at the start of the revert reason
   static final String errorMethodABI = "0x08c379a0";
+
+  // Encoding of "Panic(uint256)" to check for at the start of the revert reason
+  static final String panicMethodABI = "0x4e487b71";
+
+  // The reasons geth's abi.UnpackRevert gives for the Solidity panic codes
+  private static final Map<BigInteger, String> PANIC_REASONS =
+      Map.of(
+          BigInteger.valueOf(0x00), "generic panic",
+          BigInteger.valueOf(0x01), "assert(false)",
+          BigInteger.valueOf(0x11), "arithmetic underflow or overflow",
+          BigInteger.valueOf(0x12), "division or modulo by zero",
+          BigInteger.valueOf(0x21), "enum overflow",
+          BigInteger.valueOf(0x22), "invalid encoded storage byte array accessed",
+          BigInteger.valueOf(0x31), "out-of-bounds array access; popping on an empty array",
+          BigInteger.valueOf(0x32), "out-of-bounds access of an array or bytesN",
+          BigInteger.valueOf(0x41), "out of memory",
+          BigInteger.valueOf(0x51), "uninitialized function");
 
   public JsonRpcErrorResponse(final Object id, final JsonRpcError error) {
     this.id = id;
@@ -135,6 +154,11 @@ public class JsonRpcErrorResponse implements JsonRpcResponse {
       } catch (StringIndexOutOfBoundsException exception) {
         return Optional.of("ABI decode error");
       }
+    }
+    if (revertReason.toHexString().startsWith(panicMethodABI) && revertReason.size() >= 36) {
+      final BigInteger code = revertReason.slice(4, 32).toUnsignedBigInteger();
+      return Optional.of(
+          PANIC_REASONS.getOrDefault(code, "unknown panic code: 0x" + code.toString(16)));
     }
     return Optional.empty();
   }

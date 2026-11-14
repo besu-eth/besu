@@ -332,7 +332,8 @@ public class EvmToolCommand implements Runnable {
     commandLine.setExecutionStrategy(
         parseResult -> {
           if (daggerOptions.isEvmV2Enabled()) {
-            out.println("EVM v2 (long[] stack) enabled");
+            // stdout carries the JSON results t8n, b11r and the test runners read
+            commandLine.getErr().println("EVM v2 (long[] stack) enabled");
           }
           return new CommandLine.RunLast().execute(parseResult);
         });
@@ -516,6 +517,7 @@ public class EvmToolCommand implements Runnable {
             createTransaction ? Address.contractAddress(receiver, 0) : receiver;
         MessageFrame initialMessageFrame =
             MessageFrame.builder()
+                .enableEvmV2(evm.getEvmConfiguration().enableEvmV2())
                 .type(
                     createTransaction
                         ? MessageFrame.Type.CONTRACT_CREATION
