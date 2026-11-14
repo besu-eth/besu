@@ -69,6 +69,7 @@ class RequestSchedulerTest {
   private RespondingEthPeer peer;
   private TestLoop loop;
   private RequestScheduler scheduler;
+  private RequestSender sender;
   // a clock that only moves when a test moves it
   private final AtomicLong clock = new AtomicLong();
 
@@ -92,7 +93,7 @@ class RequestSchedulerTest {
   @Test
   void deliversTheResponseOfAPeer() throws Exception {
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submit(headers(1, 5));
+        sender.submit(headers(1, 5));
 
     peer.respondWhileOtherThreadsWork(
         RespondingEthPeer.blockchainResponder(blockchain), () -> !response.isDone());
@@ -107,7 +108,7 @@ class RequestSchedulerTest {
     // the request is abandoned one timeout after it timed out: held, it waits for the test
     loop.hold();
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> late =
-        scheduler.submit(headers(1, 2));
+        sender.submit(headers(1, 2));
     await().until(() -> loop.heldCount() == 1);
     loop.release();
     assertFailure(() -> late.get(5, TimeUnit.SECONDS), Reason.TIMEOUT);
@@ -119,7 +120,7 @@ class RequestSchedulerTest {
 
     // and the peer keeps serving
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> next =
-        scheduler.submit(headers(3, 2));
+        sender.submit(headers(3, 2));
     peer.respondWhileOtherThreadsWork(
         RespondingEthPeer.blockchainResponder(blockchain), () -> !next.isDone());
 
@@ -132,13 +133,13 @@ class RequestSchedulerTest {
   @Test
   void givesBackTheSlotOfARequestNeverAnswered() throws Exception {
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> lost =
-        scheduler.submit(headers(1, 2));
+        sender.submit(headers(1, 2));
     assertFailure(() -> lost.get(5, TimeUnit.SECONDS), Reason.TIMEOUT);
     // the peer drops it without ever answering
     peer.respond((capability, ethPeer, message) -> Optional.empty());
 
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> next =
-        scheduler.submit(headers(3, 2));
+        sender.submit(headers(3, 2));
     peer.respondWhileOtherThreadsWork(
         RespondingEthPeer.blockchainResponder(blockchain), () -> !next.isDone());
 
@@ -150,11 +151,11 @@ class RequestSchedulerTest {
   @Test
   void sendsTheMostUrgentRequestFirst() {
     // two requests take the two slots the peer starts with
-    scheduler.submit(headers(1, 1));
-    scheduler.submit(headers(2, 1));
+    sender.submit(headers(1, 1));
+    sender.submit(headers(2, 1));
     await().until(() -> peer.streamPendingOutgoingRequests().count() == 2);
-    scheduler.submit(headers(3, 1));
-    scheduler.submit(headers(4, 1, Priority.PIVOT));
+    sender.submit(headers(3, 1));
+    sender.submit(headers(4, 1, Priority.PIVOT));
 
     peer.respond(RespondingEthPeer.blockchainResponder(blockchain));
 
@@ -166,11 +167,94 @@ class RequestSchedulerTest {
   }
 
   @Test
+  void stoppingAScopeFailsOnlyItsRequests() throws Exception {
+    final RequestSender first = scheduler.scope();
+    final RequestSender second = scheduler.scope();
+    // two requests take the two slots the peer starts with
+    second.submit(headers(1, 1));
+    second.submit(headers(2, 1));
+    await().until(() -> peer.streamPendingOutgoingRequests().count() == 2);
+    final CompletableFuture<RequestSender.Response<List<BlockHeader>>> stopped =
+        first.submit(headers(3, 1));
+    final CompletableFuture<RequestSender.Response<List<BlockHeader>>> waiting =
+        second.submit(headers(4, 1));
+
+    first.stop();
+
+    assertFailure(() -> stopped.get(5, TimeUnit.SECONDS), Reason.STOPPED);
+    // the stopped request is never sent: the next one the peer is asked is the other scope's
+    peer.respond(RespondingEthPeer.blockchainResponder(blockchain));
+    await().until(() -> nextRequestedHeader().equals(OptionalLong.of(4)));
+    peer.respondWhileOtherThreadsWork(
+        RespondingEthPeer.blockchainResponder(blockchain), () -> !waiting.isDone());
+    assertThat(waiting.get(5, TimeUnit.SECONDS).value())
+        .extracting(BlockHeader::getNumber)
+        .containsExactly(4L);
+  }
+
+  @Test
+  void aStoppedScopeFailsLaterRequestsAtOnce() throws Exception {
+    final RequestSender scope = scheduler.scope();
+    scope.stop();
+
+    assertFailure(() -> scope.submit(headers(1, 2)).get(5, TimeUnit.SECONDS), Reason.STOPPED);
+    assertFailure(
+        () -> scope.submitWithRetries(headers(1, 2), 2).get(5, TimeUnit.SECONDS), Reason.STOPPED);
+
+    // the scheduler runs on for the others
+    final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
+        sender.submit(headers(1, 2));
+    peer.respondWhileOtherThreadsWork(
+        RespondingEthPeer.blockchainResponder(blockchain), () -> !response.isDone());
+    assertThat(response.get(5, TimeUnit.SECONDS).value())
+        .extracting(BlockHeader::getNumber)
+        .containsExactly(1L, 2L);
+  }
+
+  @Test
+  void aRetryOfAStoppedScopeIsNeverSent() throws Exception {
+    loop.hold();
+    final RequestSender scope = scheduler.scope();
+    final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
+        scope.submitWithRetries(headers(1, 2), 5);
+    await().until(() -> loop.heldCount() == 1);
+    // the peer has nothing: the only peer is left out, so the retry waits a pause, held next to
+    // the cancelled timeout of the first attempt
+    peer.respond(
+        (capability, ethPeer, message) -> Optional.of(BlockHeadersMessage.create(List.of())));
+    await().until(() -> loop.heldCount() == 2);
+
+    scope.stop();
+    assertFailure(() -> response.get(5, TimeUnit.SECONDS), Reason.STOPPED);
+    loop.release();
+    // the pause ended, its retry enqueued and dispatched
+    for (int i = 0; i < 4; i++) {
+      loop.submit(() -> {}).get(5, TimeUnit.SECONDS);
+    }
+
+    assertThat(peer.streamPendingOutgoingRequests().count()).isZero();
+  }
+
+  @Test
+  void hasServerOnlyWithAPeerThatServesTheRequest() {
+    assertThat(sender.hasServer(headers(1, 1))).isTrue();
+    assertThat(
+            sender.hasServer(
+                new Forwarding<>(headers(1, 1)) {
+                  @Override
+                  public boolean canServe(final EthPeer ethPeer) {
+                    return false;
+                  }
+                }))
+        .isFalse();
+  }
+
+  @Test
   void keepsAskingAPeerThatHadNothingForAnEarlierRequest() throws Exception {
     // the clock stands still: a back-off would hold the peer for ever
     newScheduler(TIMEOUT, 4, clock::get);
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> pruned =
-        scheduler.submit(headers(1, 2));
+        sender.submit(headers(1, 2));
     await().until(peer::hasOutstandingRequests);
     peer.respond(
         (capability, ethPeer, message) -> Optional.of(BlockHeadersMessage.create(List.of())));
@@ -178,7 +262,7 @@ class RequestSchedulerTest {
 
     // the empty answer is recorded before the next request is dispatched, and asked to the peer
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> next =
-        scheduler.submit(headers(3, 2));
+        sender.submit(headers(3, 2));
     await().until(() -> nextRequestedHeader().equals(OptionalLong.of(3)));
     peer.respondWhileOtherThreadsWork(
         RespondingEthPeer.blockchainResponder(blockchain), () -> !next.isDone());
@@ -192,7 +276,7 @@ class RequestSchedulerTest {
     // a clock that never reaches the queue timeout: the request fails at once
     newScheduler(TIMEOUT, 4, clock::get);
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submit(headers(1, 2), Set.of(peer.getEthPeer()));
+        sender.submit(headers(1, 2), Set.of(peer.getEthPeer()));
 
     assertFailure(() -> response.get(10, TimeUnit.SECONDS), Reason.NO_PEER);
     assertThat(peer.hasOutstandingRequests()).isFalse();
@@ -201,7 +285,7 @@ class RequestSchedulerTest {
   @Test
   void failsARequestOnceItsAttemptsRunOut() {
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submitWithRetries(headers(1, 2), 2);
+        sender.submitWithRetries(headers(1, 2), 2);
 
     // the peer never answers: each attempt goes to it, the one left out only waits a pause
     assertFailure(() -> response.get(10, TimeUnit.SECONDS), Reason.TIMEOUT);
@@ -213,7 +297,7 @@ class RequestSchedulerTest {
     // a queue timeout of a minute
     newScheduler(Duration.ofSeconds(10), 4, System::nanoTime);
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submitWithRetries(headers(1, 2), 5);
+        sender.submitWithRetries(headers(1, 2), 5);
     await().until(peer::hasOutstandingRequests);
     peer.respond(
         (capability, ethPeer, message) -> Optional.of(BlockHeadersMessage.create(List.of())));
@@ -233,12 +317,12 @@ class RequestSchedulerTest {
   void keepsARequestThatOnlyWaitsForABusyPeer() throws Exception {
     newScheduler(TIMEOUT, 4, clock::get);
     loop.hold();
-    scheduler.submit(headers(1, 1));
-    scheduler.submit(headers(2, 1));
+    sender.submit(headers(1, 1));
+    sender.submit(headers(2, 1));
     await().until(() -> peer.streamPendingOutgoingRequests().count() == 2);
     final CountDownLatch queued = new CountDownLatch(1);
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> waiting =
-        scheduler.submit(
+        sender.submit(
             new Forwarding<>(headers(3, 1)) {
               @Override
               public Protocol protocolFor(final EthPeer ethPeer) {
@@ -251,7 +335,7 @@ class RequestSchedulerTest {
     // far past the queue timeout, a later request shows a dispatch saw the waiting one
     clock.addAndGet(TimeUnit.MINUTES.toNanos(1));
     final CountDownLatch dispatched = new CountDownLatch(1);
-    scheduler.submit(
+    sender.submit(
         new Forwarding<>(headers(4, 1)) {
           @Override
           public Protocol protocolFor(final EthPeer ethPeer) {
@@ -282,7 +366,7 @@ class RequestSchedulerTest {
     // two small answers that take 200 ms each
     for (int i = 0; i < 2; i++) {
       final CompletableFuture<RequestSender.Response<List<BlockHeader>>> slow =
-          scheduler.submit(headers(1, 2), Set.of(other.getEthPeer()));
+          sender.submit(headers(1, 2), Set.of(other.getEthPeer()));
       await().until(peer::hasOutstandingRequests);
       clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(200));
       peer.respond(RespondingEthPeer.blockchainResponder(blockchain));
@@ -292,7 +376,7 @@ class RequestSchedulerTest {
     // a timeout of the other peer, whose late answer gives its slot back
     loop.hold();
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> lost =
-        scheduler.submit(headers(1, 2), Set.of(peer.getEthPeer()));
+        sender.submit(headers(1, 2), Set.of(peer.getEthPeer()));
     await().until(() -> loop.heldCount() == 1);
     loop.release();
     assertFailure(() -> lost.get(5, TimeUnit.SECONDS), Reason.TIMEOUT);
@@ -300,7 +384,7 @@ class RequestSchedulerTest {
 
     // once its back-off is over, the peer that answered is still preferred
     clock.addAndGet(TimeUnit.SECONDS.toNanos(5));
-    scheduler.submit(headers(3, 2));
+    sender.submit(headers(3, 2));
     await().until(() -> peer.hasOutstandingRequests() || other.hasOutstandingRequests());
     assertThat(peer.hasOutstandingRequests()).isTrue();
     assertThat(other.hasOutstandingRequests()).isFalse();
@@ -316,7 +400,7 @@ class RequestSchedulerTest {
 
     // an answer of the peer that fails our check, after 5 s
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> failed =
-        scheduler.submit(
+        sender.submit(
             new Forwarding<>(headers(1, 2)) {
               @Override
               public List<BlockHeader> decode(final MessageData message, final EthPeer ethPeer) {
@@ -330,7 +414,7 @@ class RequestSchedulerTest {
     assertFailure(() -> failed.get(5, TimeUnit.SECONDS), Reason.INVALID);
 
     // the peer stays the faster one
-    scheduler.submit(headers(3, 2));
+    sender.submit(headers(3, 2));
     await().until(() -> peer.hasOutstandingRequests() || other.hasOutstandingRequests());
     assertThat(peer.hasOutstandingRequests()).isTrue();
     assertThat(other.hasOutstandingRequests()).isFalse();
@@ -341,9 +425,9 @@ class RequestSchedulerTest {
     newScheduler(TIMEOUT, 4, clock::get);
     loop.hold();
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> first =
-        scheduler.submit(headers(1, 1));
+        sender.submit(headers(1, 1));
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> second =
-        scheduler.submit(headers(2, 1));
+        sender.submit(headers(2, 1));
     await().until(() -> loop.heldCount() == 2);
 
     // both time out a second after they went out, and their late answers give the slots back
@@ -356,7 +440,7 @@ class RequestSchedulerTest {
     // a single back-off of a second, not one per timeout
     clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(1_500));
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> next =
-        scheduler.submit(headers(3, 1));
+        sender.submit(headers(3, 1));
     await().until(peer::hasOutstandingRequests);
     peer.respond(RespondingEthPeer.blockchainResponder(blockchain));
     assertThat(next.get(5, TimeUnit.SECONDS).value())
@@ -368,7 +452,7 @@ class RequestSchedulerTest {
   void failsARequestWhoseCodeThrowsWithoutHoldingTheOthers() throws Exception {
     final IllegalStateException bug = new IllegalStateException("bug");
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> broken =
-        scheduler.submit(
+        sender.submit(
             new Forwarding<>(headers(1, 2)) {
               @Override
               public boolean canServe(final EthPeer ethPeer) {
@@ -378,7 +462,7 @@ class RequestSchedulerTest {
 
     assertThatThrownBy(() -> broken.get(5, TimeUnit.SECONDS)).hasCause(bug);
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> next =
-        scheduler.submit(headers(3, 2));
+        sender.submit(headers(3, 2));
     peer.respondWhileOtherThreadsWork(
         RespondingEthPeer.blockchainResponder(blockchain), () -> !next.isDone());
     assertThat(next.get(5, TimeUnit.SECONDS).value()).hasSize(2);
@@ -390,7 +474,7 @@ class RequestSchedulerTest {
     newScheduler(TIMEOUT, 4, clock::get);
     final IllegalStateException bug = new IllegalStateException("bug");
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> broken =
-        scheduler.submitWithRetries(
+        sender.submitWithRetries(
             new Forwarding<>(headers(1, 2)) {
               @Override
               public MessageData message(final EthPeer ethPeer) {
@@ -401,7 +485,7 @@ class RequestSchedulerTest {
     // not retried: it would fail on any peer
     assertThatThrownBy(() -> broken.get(5, TimeUnit.SECONDS)).hasCause(bug);
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> next =
-        scheduler.submit(headers(3, 2));
+        sender.submit(headers(3, 2));
     peer.respondWhileOtherThreadsWork(
         RespondingEthPeer.blockchainResponder(blockchain), () -> !next.isDone());
     assertThat(next.get(5, TimeUnit.SECONDS).value()).hasSize(2);
@@ -410,7 +494,7 @@ class RequestSchedulerTest {
   @Test
   void keepsAPeerWhoseAnswerFailsALocalCheck() {
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submit(
+        sender.submit(
             new Forwarding<>(headers(1, 2)) {
               @Override
               public List<BlockHeader> decode(final MessageData message, final EthPeer ethPeer) {
@@ -427,7 +511,7 @@ class RequestSchedulerTest {
   @Test
   void disconnectsAPeerThatSendsAMalformedAnswer() {
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submit(
+        sender.submit(
             new Forwarding<>(headers(1, 2)) {
               @Override
               public List<BlockHeader> decode(final MessageData message, final EthPeer ethPeer) {
@@ -446,12 +530,12 @@ class RequestSchedulerTest {
     // a single slot, held until the answer is recorded
     newScheduler(TIMEOUT, 1, System::nanoTime);
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> first =
-        scheduler.submit(headers(1, 2));
+        sender.submit(headers(1, 2));
     // the continuation runs on the worker and blocks it until the next request goes out
     final CompletableFuture<Boolean> nextSent =
         first.thenApply(
             response -> {
-              scheduler.submit(headers(3, 2));
+              sender.submit(headers(3, 2));
               try {
                 await()
                     .atMost(Duration.ofSeconds(5))
@@ -472,16 +556,39 @@ class RequestSchedulerTest {
     // what a concurrent stop leaves to a submit: the loop shut down, the stop not seen yet
     loop.shutdownNow();
 
-    assertFailure(() -> scheduler.submit(headers(1, 1)).get(5, TimeUnit.SECONDS), Reason.STOPPED);
+    assertFailure(() -> sender.submit(headers(1, 1)).get(5, TimeUnit.SECONDS), Reason.STOPPED);
     assertFailure(
-        () -> scheduler.submitWithRetries(headers(1, 1)).get(5, TimeUnit.SECONDS), Reason.STOPPED);
+        () -> sender.submitWithRetries(headers(1, 1)).get(5, TimeUnit.SECONDS), Reason.STOPPED);
+  }
+
+  @Test
+  void stoppingTheSchedulerStopsItsScopes() {
+    final RequestSender first = scheduler.scope();
+    final RequestSender second = scheduler.scope();
+    final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
+        first.submitWithRetries(headers(1, 2), 5);
+    await().until(peer::hasOutstandingRequests);
+
+    scheduler.stop();
+
+    assertFailure(() -> response.get(5, TimeUnit.SECONDS), Reason.STOPPED);
+    assertFailure(() -> first.submit(headers(1, 1)).get(5, TimeUnit.SECONDS), Reason.STOPPED);
+    assertFailure(() -> second.submit(headers(1, 1)).get(5, TimeUnit.SECONDS), Reason.STOPPED);
+  }
+
+  @Test
+  void aScopeCreatedAfterTheStopIsStopped() {
+    scheduler.stop();
+
+    assertFailure(
+        () -> scheduler.scope().submit(headers(1, 1)).get(5, TimeUnit.SECONDS), Reason.STOPPED);
   }
 
   @Test
   void failsARetryStoppedDuringItsPause() {
     loop.hold();
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submitWithRetries(headers(1, 2), 5);
+        sender.submitWithRetries(headers(1, 2), 5);
     await().until(() -> loop.heldCount() == 1);
     // the timeout, then the only peer is left out: the retry waits a pause
     loop.release();
@@ -496,7 +603,7 @@ class RequestSchedulerTest {
   void closesTheStreamsOfUnansweredRequestsWhenStopped() {
     loop.hold();
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submit(headers(1, 2));
+        sender.submit(headers(1, 2));
     await().until(peer::hasOutstandingRequests);
     assertThat(peer.getEthPeer().outstandingRequests()).isEqualTo(1);
 
@@ -518,10 +625,10 @@ class RequestSchedulerTest {
               Thread.currentThread().interrupt();
             }
           },
-          scheduler.workers());
+          sender.workers());
     }
     final CompletableFuture<Integer> queued =
-        CompletableFuture.supplyAsync(() -> 1, scheduler.workers());
+        CompletableFuture.supplyAsync(() -> 1, sender.workers());
 
     scheduler.stop();
     release.countDown();
@@ -548,6 +655,7 @@ class RequestSchedulerTest {
     scheduler =
         new RequestScheduler(
             ethPeers, new NoOpMetricsSystem(), timeout, 4, maxEthRequests, 2, loop, nanoTime);
+    sender = scheduler.scope();
     return scheduler;
   }
 
@@ -565,7 +673,7 @@ class RequestSchedulerTest {
       final RespondingEthPeer answering, final RespondingEthPeer leftOut, final long millis)
       throws Exception {
     final CompletableFuture<RequestSender.Response<List<BlockHeader>>> response =
-        scheduler.submit(headers(1, 2), Set.of(leftOut.getEthPeer()));
+        sender.submit(headers(1, 2), Set.of(leftOut.getEthPeer()));
     await().until(answering::hasOutstandingRequests);
     clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(millis));
     answering.respond(RespondingEthPeer.blockchainResponder(blockchain));

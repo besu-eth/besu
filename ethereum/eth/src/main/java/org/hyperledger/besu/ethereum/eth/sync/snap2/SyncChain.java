@@ -458,7 +458,9 @@ final class SyncChain {
             top,
             settings.headersPerRequest(),
             settings.headerParallelism(),
-            metricsSystem);
+            metricsSystem,
+            "SNAP2",
+            "snap2");
     headerDownload = download;
     download.run(executor).whenComplete((unused, error) -> downloaded(download, error));
   }

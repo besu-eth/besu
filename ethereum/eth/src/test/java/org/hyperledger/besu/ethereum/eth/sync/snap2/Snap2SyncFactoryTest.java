@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.core.ProtocolScheduleFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
@@ -142,6 +143,7 @@ class Snap2SyncFactoryTest {
         protocolContext,
         new NoOpMetricsSystem(),
         mock(EthPeers.class),
+        mock(RequestScheduler.class),
         worldState,
         storageProvider,
         syncState,
