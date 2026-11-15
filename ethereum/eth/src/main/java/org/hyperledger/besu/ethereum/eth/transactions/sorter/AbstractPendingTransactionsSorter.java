@@ -27,6 +27,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
@@ -93,18 +94,21 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   protected final Supplier<BlockHeader> chainHeadHeaderSupplier;
   private final TransactionEventNotifier.Emitter eventEmitter;
   private final BlobCache blobCache;
+  private final EthScheduler ethScheduler;
 
   public AbstractPendingTransactionsSorter(
       final TransactionPoolConfiguration poolConfig,
       final Clock clock,
       final MetricsSystem metricsSystem,
       final Supplier<BlockHeader> chainHeadHeaderSupplier,
-      final TransactionEventNotifier.Emitter eventEmitter) {
+      final TransactionEventNotifier.Emitter eventEmitter,
+      final EthScheduler ethScheduler) {
     this.poolConfig = poolConfig;
     this.pendingTransactions = new ConcurrentHashMap<>(poolConfig.getTxPoolMaxSize());
     this.clock = clock;
     this.chainHeadHeaderSupplier = chainHeadHeaderSupplier;
     this.eventEmitter = eventEmitter;
+    this.ethScheduler = ethScheduler;
     this.transactionReplacementHandler =
         new TransactionPoolReplacementHandler(
             poolConfig.getPriceBump(), poolConfig.getBlobPriceBump());
@@ -256,16 +260,31 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
     final var selectionResults = selector.evaluatePendingTransactions(candidateTxs);
 
-    for (final var selectionResult : selectionResults.entrySet()) {
-      final var pendingTransaction = selectionResult.getKey();
-      final var result = selectionResult.getValue();
+    // results are processed asynchronously, and the result of a tx whose evaluation is still
+    // running after a timeout or a cancellation, only once it completes
+    selectionResults.forEach(
+        (pendingTransaction, futureResult) ->
+            futureResult
+                .thenAcceptAsync(
+                    result -> processSelectionResult(pendingTransaction, result),
+                    ethScheduler::executeServiceTask)
+                .exceptionally(
+                    throwable -> {
+                      LOG.warn(
+                          "Selection result of transaction {} not processed",
+                          pendingTransaction.getHash(),
+                          throwable);
+                      return null;
+                    }));
+  }
 
-      if (result.discard()) {
-        synchronized (lock) {
-          removeTransaction(pendingTransaction, INVALID);
-        }
-        logDiscardedTransaction(pendingTransaction, result);
+  private void processSelectionResult(
+      final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
+    if (result.discard()) {
+      synchronized (lock) {
+        removeTransaction(pendingTransaction, INVALID);
       }
+      logDiscardedTransaction(pendingTransaction, result);
     }
   }
 

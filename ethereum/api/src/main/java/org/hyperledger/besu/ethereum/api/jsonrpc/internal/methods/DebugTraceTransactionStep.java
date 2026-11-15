@@ -73,7 +73,8 @@ public interface DebugTraceTransactionStep {
     return switch (traceOptions.tracerType()) {
       case CALL_TRACER ->
           new DebugTraceTransactionStep() {
-            private final CallTracer tracer = new CallTracer(traceOptions, logIndexOffset);
+            private final CallTracer tracer =
+                new CallTracer(traceOptions, protocolSpec, logIndexOffset);
 
             @Override
             public OperationTracer getOperationTracer() {

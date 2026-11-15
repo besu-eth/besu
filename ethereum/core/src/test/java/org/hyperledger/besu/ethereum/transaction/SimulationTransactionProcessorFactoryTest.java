@@ -34,7 +34,6 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.precompile.PrecompiledContract;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
-import org.hyperledger.besu.evm.processor.SimulationMessageCallProcessor;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -65,18 +64,19 @@ public class SimulationTransactionProcessorFactoryTest {
   private final Address newPrecompileAddress = Address.fromHexString("0x2");
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
   private final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+  private MainnetTransactionProcessor baseTransactionProcessor;
 
   @BeforeEach
   void setUp() {
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     PrecompileContractRegistry precompileContractRegistry = new PrecompileContractRegistry();
     precompileContractRegistry.put(originalPrecompileAddress, mock(PrecompiledContract.class));
-    MainnetTransactionProcessor mainnetTransactionProcessor =
+    baseTransactionProcessor =
         MainnetTransactionProcessor.builder()
             .messageCallProcessor(
                 new MessageCallProcessor(mock(EVM.class), precompileContractRegistry))
             .build();
-    when(protocolSpec.getTransactionProcessor()).thenReturn(mainnetTransactionProcessor);
+    when(protocolSpec.getTransactionProcessor()).thenReturn(baseTransactionProcessor);
     factory = new SimulationTransactionProcessorFactory(protocolSchedule);
 
     originalPrecompiledContract = mock(PrecompiledContract.class);
@@ -116,8 +116,8 @@ public class SimulationTransactionProcessorFactoryTest {
   @Test
   void shouldPreserveOriginalPrecompilesWhenNoOverridesProvided() {
     HashMap<Address, Address> precompileOverrides = new HashMap<>();
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(processor.getPrecompileAddresses())
@@ -131,8 +131,8 @@ public class SimulationTransactionProcessorFactoryTest {
     Map<Address, Address> precompileOverrides = new HashMap<>();
     precompileOverrides.put(ORIGINAL_ADDRESS_1, OVERRIDE_ADDRESS);
 
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(
@@ -150,8 +150,8 @@ public class SimulationTransactionProcessorFactoryTest {
     Map<Address, Address> precompileOverrides = new HashMap<>();
     precompileOverrides.put(ORIGINAL_ADDRESS_1, NON_EXISTENT_ADDRESS);
 
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(
@@ -171,9 +171,7 @@ public class SimulationTransactionProcessorFactoryTest {
     BlockStateCallException exception =
         assertThrows(
             BlockStateCallException.class,
-            () ->
-                new SimulationMessageCallProcessor(
-                    originalProcessor, createSupplier(precompileOverrides)));
+            () -> originalProcessor.withPrecompiles(createSupplier(precompileOverrides)));
 
     assertThat(exception.getError()).isEqualTo(BlockStateCallError.INVALID_PRECOMPILE_ADDRESS);
     Assertions.assertThat(exception.getMessage())
@@ -189,8 +187,8 @@ public class SimulationTransactionProcessorFactoryTest {
     precompileOverrides.put(ORIGINAL_ADDRESS_1, OVERRIDE_ADDRESS);
     precompileOverrides.put(ORIGINAL_ADDRESS_2, OVERRIDE_ADDRESS); // Duplicate target allowed
 
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(processor.getPrecompiles().getPrecompileAddresses())
@@ -202,12 +200,68 @@ public class SimulationTransactionProcessorFactoryTest {
     Map<Address, Address> precompileOverrides = new HashMap<>();
     precompileOverrides.put(ORIGINAL_ADDRESS_1, ORIGINAL_ADDRESS_2);
 
-    SimulationMessageCallProcessor processor =
-        new SimulationMessageCallProcessor(originalProcessor, createSupplier(precompileOverrides));
+    MessageCallProcessor processor =
+        originalProcessor.withPrecompiles(createSupplier(precompileOverrides));
 
     assertNotNull(processor);
     Assertions.assertThat(processor.getPrecompiles().getPrecompileAddresses())
         .contains(ORIGINAL_ADDRESS_2);
+  }
+
+  @Test
+  void shouldRemovePrecompileWhenCodeOverrideSetWithoutMovePrecompileToAddress() {
+    StateOverrideMap stateOverrideMap = new StateOverrideMap();
+    stateOverrideMap.put(
+        originalPrecompileAddress, new StateOverride.Builder().withCode("0x60006000fd").build());
+
+    MainnetTransactionProcessor processor =
+        factory.getTransactionProcessor(null, Optional.of(stateOverrideMap));
+    Set<Address> precompileAddresses = processor.getMessageCallProcessor().getPrecompileAddresses();
+
+    assertThat(precompileAddresses).doesNotContain(originalPrecompileAddress);
+  }
+
+  @Test
+  void shouldKeepOtherPrecompilesWhenOneIsRemovedByCodeOverride() {
+    PrecompileContractRegistry twoPrecompileRegistry = new PrecompileContractRegistry();
+    twoPrecompileRegistry.put(ORIGINAL_ADDRESS_1, originalPrecompiledContract);
+    twoPrecompileRegistry.put(ORIGINAL_ADDRESS_2, originalPrecompiledContract);
+
+    Set<Address> result =
+        overridePrecompileAddresses(twoPrecompileRegistry, Map.of(), Set.of(ORIGINAL_ADDRESS_1))
+            .getPrecompileAddresses();
+
+    assertThat(result).containsExactly(ORIGINAL_ADDRESS_2);
+  }
+
+  @Test
+  void shouldReturnBaseProcessorWhenCodeOverrideIsOnNonPrecompileAddress() {
+    StateOverrideMap stateOverrideMap = new StateOverrideMap();
+    stateOverrideMap.put(
+        NON_EXISTENT_ADDRESS, new StateOverride.Builder().withCode("0x60006000fd").build());
+
+    MainnetTransactionProcessor processor =
+        factory.getTransactionProcessor(null, Optional.of(stateOverrideMap));
+    Set<Address> precompileAddresses = processor.getMessageCallProcessor().getPrecompileAddresses();
+
+    assertThat(precompileAddresses).containsExactly(originalPrecompileAddress);
+    assertThat(processor).isSameAs(baseTransactionProcessor);
+  }
+
+  @Test
+  void shouldRemovePrecompileAndMoveAnotherInTheSameOverrideMap() {
+    PrecompileContractRegistry twoPrecompileRegistry = new PrecompileContractRegistry();
+    twoPrecompileRegistry.put(originalPrecompileAddress, mock(PrecompiledContract.class));
+    twoPrecompileRegistry.put(newPrecompileAddress, mock(PrecompiledContract.class));
+
+    Set<Address> result =
+        overridePrecompileAddresses(
+                twoPrecompileRegistry,
+                Map.of(newPrecompileAddress, OVERRIDE_ADDRESS),
+                Set.of(originalPrecompileAddress))
+            .getPrecompileAddresses();
+
+    assertThat(result).containsExactly(OVERRIDE_ADDRESS);
   }
 
   private Function<PrecompileContractRegistry, PrecompileContractRegistry> createSupplier(

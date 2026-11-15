@@ -148,7 +148,8 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
           TestClock.system(ZoneId.systemDefault()),
           metricsSystem,
           MergeCoordinatorCacheReorgTest::mockBlockHeader,
-          transactionEventNotifier.newEmitter());
+          transactionEventNotifier.newEmitter(),
+          new DeterministicEthScheduler());
 
   private CompletableFuture<Void> blockCreationTask = CompletableFuture.completedFuture(null);
 

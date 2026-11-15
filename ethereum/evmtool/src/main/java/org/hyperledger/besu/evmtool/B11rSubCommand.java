@@ -49,6 +49,7 @@ import picocli.CommandLine.Model.CommandSpec;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
+import picocli.CommandLine.Spec;
 
 /**
  * This class implements the Runnable interface and represents the B11rSubCommand. It is responsible
@@ -142,6 +143,10 @@ public class B11rSubCommand implements Runnable {
     }
   }
 
+  @Spec
+  @SuppressWarnings("NullAway.Init") // Picocli injects the spec after construction.
+  private CommandSpec spec;
+
   /** Default constructor for the B11rSubCommand class. This is required by PicoCLI. */
   @SuppressWarnings({"unused", "NullAway"}) // Picocli injects the parent after construction.
   public B11rSubCommand() {
@@ -173,10 +178,9 @@ public class B11rSubCommand implements Runnable {
           || ommers.equals(stdinPath)
           || sealClique.equals(stdinPath)
           || withdrawals.equals(stdinPath)) {
-        config =
-            (ObjectNode)
-                b11rReader.readTree(
-                    new InputStreamReader(parentCommand.in, StandardCharsets.UTF_8));
+        JsonNode stdin =
+            b11rReader.readTree(new InputStreamReader(parentCommand.in, StandardCharsets.UTF_8));
+        config = stdin.isMissingNode() ? objectMapper.createObjectNode() : (ObjectNode) stdin;
       } else {
         config = objectMapper.createObjectNode();
       }
@@ -216,7 +220,7 @@ public class B11rSubCommand implements Runnable {
       return;
     }
 
-    var testHeader = this.readHeader(config.get("header"), objectMapper);
+    var testHeader = this.readHeader(requiredInput(config, "header"), objectMapper);
     Bytes txsBytes = null;
 
     if (config.has("txs")) {
@@ -271,6 +275,15 @@ public class B11rSubCommand implements Runnable {
     if (jsonObject.has(oldField)) {
       jsonObject.set(newField, jsonObject.remove(oldField));
     }
+  }
+
+  private JsonNode requiredInput(final ObjectNode config, final String name) {
+    JsonNode node = config.path(name);
+    if (node.isMissingNode() || node.isNull()) {
+      throw new CommandLine.ParameterException(
+          spec.commandLine(), "Missing " + name + " input, see --input." + name);
+    }
+    return node;
   }
 
   private ReferenceTestBlockHeader readHeader(

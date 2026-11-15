@@ -411,7 +411,8 @@ class TestingBuildBlockIntegrationTest {
             Clock.systemUTC(),
             new NoOpMetricsSystem(),
             Suppliers.ofInstance(parentHeader),
-            transactionEventNotifier.newEmitter());
+            transactionEventNotifier.newEmitter(),
+            new DeterministicEthScheduler());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);

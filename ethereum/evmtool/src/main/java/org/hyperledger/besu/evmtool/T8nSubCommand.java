@@ -59,6 +59,7 @@ import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
+import picocli.CommandLine.Spec;
 
 /**
  * The T8nSubCommand class is responsible for executing an Ethereum State Test. It reads the initial
@@ -150,6 +151,10 @@ public class T8nSubCommand implements Runnable {
 
   @ParentCommand private final EvmToolCommand parentCommand;
 
+  @Spec
+  @SuppressWarnings("NullAway.Init") // Picocli injects the spec after construction.
+  private CommandSpec spec;
+
   @Parameters(parameterConsumer = OnlyEmptyParams.class)
   @SuppressWarnings("UnusedVariable")
   private final List<String> parameters = new ArrayList<>();
@@ -190,6 +195,15 @@ public class T8nSubCommand implements Runnable {
     this.parentCommand = parentCommand;
   }
 
+  private JsonNode requiredInput(final ObjectNode config, final String name) {
+    JsonNode node = config.path(name);
+    if (node.isMissingNode() || node.isNull()) {
+      throw new ParameterException(
+          spec.commandLine(), "Missing " + name + " input, see --input." + name);
+    }
+    return node;
+  }
+
   @Override
   public void run() {
     LogConfigurator.setLevel("", "OFF");
@@ -227,9 +241,10 @@ public class T8nSubCommand implements Runnable {
         }
       }
 
-      referenceTestEnv = objectMapper.convertValue(config.get("env"), ReferenceTestEnv.class);
+      referenceTestEnv =
+          objectMapper.convertValue(requiredInput(config, "env"), ReferenceTestEnv.class);
       Map<String, ReferenceTestWorldState.AccountMock> accounts =
-          objectMapper.convertValue(config.get("alloc"), new TypeReference<>() {});
+          objectMapper.convertValue(requiredInput(config, "alloc"), new TypeReference<>() {});
       initialWorldState = ReferenceTestWorldState.create(accounts, EvmConfiguration.DEFAULT);
       initialWorldState.persist(null);
       var node = config.get("txs");

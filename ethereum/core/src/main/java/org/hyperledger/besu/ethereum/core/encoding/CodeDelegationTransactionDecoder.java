@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
@@ -30,6 +31,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.math.BigInteger;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 public class CodeDelegationTransactionDecoder {
   private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
@@ -42,7 +44,7 @@ public class CodeDelegationTransactionDecoder {
   public static Transaction decode(final Bytes input) {
     final RLPInput txRlp = RLP.input(input.slice(1)); // Skip the transaction type byte
     txRlp.enterList();
-    final BigInteger chainId = txRlp.readBigIntegerScalar();
+    final ChainId chainId = ChainId.readFrom(txRlp);
     final Transaction.Builder builder =
         Transaction.builder()
             .type(TransactionType.DELEGATE_CODE)
@@ -83,7 +85,7 @@ public class CodeDelegationTransactionDecoder {
   public static CodeDelegation decodeInnerPayload(final RLPInput input) {
     input.enterList();
 
-    final BigInteger chainId = input.readUInt256Scalar().toUnsignedBigInteger();
+    final ChainId chainId = ChainId.readFrom(input, Bytes32.SIZE);
     final Address address = Address.wrap(input.readBytes());
     final long nonce = input.readLongScalar();
 

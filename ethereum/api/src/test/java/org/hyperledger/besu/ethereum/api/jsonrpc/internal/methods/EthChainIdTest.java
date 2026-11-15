@@ -21,9 +21,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
+import org.hyperledger.besu.ethereum.core.ChainId;
 
 import java.math.BigInteger;
-import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,7 +35,7 @@ public class EthChainIdTest {
 
   @BeforeEach
   public void setUp() {
-    method = new EthChainId(Optional.of(CHAIN_ID));
+    method = new EthChainId(ChainId.of(CHAIN_ID));
   }
 
   @Test
@@ -55,7 +55,7 @@ public class EthChainIdTest {
 
   @Test
   public void shouldReturnNullWhenNoChainId() {
-    method = new EthChainId(Optional.empty());
+    method = new EthChainId(ChainId.absent());
     final JsonRpcResponse expectedResponse = new JsonRpcSuccessResponse(null, null);
 
     final JsonRpcResponse response = method.response(request());

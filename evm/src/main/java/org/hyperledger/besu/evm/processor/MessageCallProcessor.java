@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
@@ -86,6 +87,26 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
     super(evm, forceCommitAddresses);
     this.precompiles = precompiles;
     this.transferLogEmitter = transferLogEmitter;
+  }
+
+  /**
+   * Returns a message call processor that differs from this one only in its precompile registry, as
+   * a simulation needs when a state override moves a precompile. The accounts to force delete when
+   * empty and the transfer log emitter are kept, so a call deletes the same touched empty accounts
+   * and emits the same transfer logs as it would with this processor.
+   *
+   * @param precompileContractRegistryAdapter maps this processor's precompile registry to the one
+   *     the returned processor uses
+   * @return the message call processor
+   */
+  public MessageCallProcessor withPrecompiles(
+      final Function<PrecompileContractRegistry, PrecompileContractRegistry>
+          precompileContractRegistryAdapter) {
+    return new MessageCallProcessor(
+        evm,
+        precompileContractRegistryAdapter.apply(precompiles),
+        forceDeleteAccountsWhenEmpty,
+        transferLogEmitter);
   }
 
   @Override
@@ -214,5 +235,15 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
   @VisibleForTesting
   public Set<Address> getPrecompileAddresses() {
     return precompiles.getPrecompileAddresses();
+  }
+
+  /**
+   * Gets the precompiles.
+   *
+   * @return the precompile contract registry
+   */
+  @VisibleForTesting
+  public PrecompileContractRegistry getPrecompiles() {
+    return precompiles;
   }
 }
