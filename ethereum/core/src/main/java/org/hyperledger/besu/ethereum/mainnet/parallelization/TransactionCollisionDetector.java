@@ -75,8 +75,9 @@ public class TransactionCollisionDetector {
       final Transaction transaction,
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
       final Address address) {
+    // the sender and the recipient are compared first, as they cost no lookup
     return address.equals(transaction.getSender())
-        || transaction.getTo().filter(address::equals).isPresent()
+        || address.equals(transaction.getTo().orElse(null))
         || transactionAccumulator.getAccountsToUpdate().containsKey(address)
         || transactionAccumulator.getDeletedAccountAddresses().contains(address);
   }

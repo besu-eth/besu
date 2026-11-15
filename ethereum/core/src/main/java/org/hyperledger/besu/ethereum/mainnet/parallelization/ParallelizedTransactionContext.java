@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 
@@ -23,19 +22,12 @@ import java.util.Objects;
 public final class ParallelizedTransactionContext {
   private final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator;
   private final TransactionProcessingResult transactionProcessingResult;
-  private final boolean isMiningBeneficiaryTouchedPreRewardByTransaction;
-  private final Wei miningBeneficiaryReward;
 
   public ParallelizedTransactionContext(
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
-      final TransactionProcessingResult transactionProcessingResult,
-      final boolean isMiningBeneficiaryTouchedPreRewardByTransaction,
-      final Wei miningBeneficiaryReward) {
+      final TransactionProcessingResult transactionProcessingResult) {
     this.transactionAccumulator = transactionAccumulator;
     this.transactionProcessingResult = transactionProcessingResult;
-    this.isMiningBeneficiaryTouchedPreRewardByTransaction =
-        isMiningBeneficiaryTouchedPreRewardByTransaction;
-    this.miningBeneficiaryReward = miningBeneficiaryReward;
   }
 
   public PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator() {
@@ -46,33 +38,18 @@ public final class ParallelizedTransactionContext {
     return transactionProcessingResult;
   }
 
-  public boolean isMiningBeneficiaryTouchedPreRewardByTransaction() {
-    return isMiningBeneficiaryTouchedPreRewardByTransaction;
-  }
-
-  public Wei miningBeneficiaryReward() {
-    return miningBeneficiaryReward;
-  }
-
   @Override
   public boolean equals(final Object obj) {
     if (obj == this) return true;
     if (obj == null || obj.getClass() != this.getClass()) return false;
     var that = (ParallelizedTransactionContext) obj;
     return Objects.equals(this.transactionAccumulator, that.transactionAccumulator)
-        && Objects.equals(this.transactionProcessingResult, that.transactionProcessingResult)
-        && this.isMiningBeneficiaryTouchedPreRewardByTransaction
-            == that.isMiningBeneficiaryTouchedPreRewardByTransaction
-        && Objects.equals(this.miningBeneficiaryReward, that.miningBeneficiaryReward);
+        && Objects.equals(this.transactionProcessingResult, that.transactionProcessingResult);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(
-        transactionAccumulator,
-        transactionProcessingResult,
-        isMiningBeneficiaryTouchedPreRewardByTransaction,
-        miningBeneficiaryReward);
+    return Objects.hash(transactionAccumulator, transactionProcessingResult);
   }
 
   @Override
@@ -83,20 +60,12 @@ public final class ParallelizedTransactionContext {
         + ", "
         + "transactionProcessingResult="
         + transactionProcessingResult
-        + ", "
-        + "isMiningBeneficiaryTouchedPreRewardByTransaction="
-        + isMiningBeneficiaryTouchedPreRewardByTransaction
-        + ", "
-        + "miningBeneficiaryReward="
-        + miningBeneficiaryReward
         + ']';
   }
 
   public static class Builder {
     private PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator;
     private TransactionProcessingResult transactionProcessingResult;
-    private boolean isMiningBeneficiaryTouchedPreRewardByTransaction;
-    private Wei miningBeneficiaryReward = Wei.ZERO;
 
     public Builder transactionAccumulator(
         final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator) {
@@ -110,24 +79,9 @@ public final class ParallelizedTransactionContext {
       return this;
     }
 
-    public Builder isMiningBeneficiaryTouchedPreRewardByTransaction(
-        final boolean isMiningBeneficiaryTouchedPreRewardByTransaction) {
-      this.isMiningBeneficiaryTouchedPreRewardByTransaction =
-          isMiningBeneficiaryTouchedPreRewardByTransaction;
-      return this;
-    }
-
-    public Builder miningBeneficiaryReward(final Wei miningBeneficiaryReward) {
-      this.miningBeneficiaryReward = miningBeneficiaryReward;
-      return this;
-    }
-
     public ParallelizedTransactionContext build() {
       return new ParallelizedTransactionContext(
-          transactionAccumulator,
-          transactionProcessingResult,
-          isMiningBeneficiaryTouchedPreRewardByTransaction,
-          miningBeneficiaryReward);
+          transactionAccumulator, transactionProcessingResult);
     }
   }
 }

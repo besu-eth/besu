@@ -24,6 +24,7 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import java.util.List;
 import java.util.Optional;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 
 public class TransactionProcessingResult
@@ -63,6 +64,8 @@ public class TransactionProcessingResult
 
   private Optional<Boolean> isProcessedInParallel = Optional.empty();
 
+  private final MiningBeneficiaryReward miningBeneficiaryReward;
+
   private final ValidationResult<TransactionInvalidReason> validationResult;
   private final Optional<Bytes> revertReason;
 
@@ -83,7 +86,8 @@ public class TransactionProcessingResult
             validationResult,
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            null);
     // block selection measures a candidate before it rejects an invalid result
     result.setExecutionGasUsedForBlock(0);
     return result;
@@ -98,6 +102,28 @@ public class TransactionProcessingResult
       final Optional<Bytes> revertReason,
       final Optional<ExceptionalHaltReason> exceptionalHaltReason,
       final Optional<PartialBlockAccessView> partialBlockAccessView) {
+    return failed(
+        gasUsedByTransaction,
+        gasRemaining,
+        gasSpent,
+        stateGasUsed,
+        validationResult,
+        revertReason,
+        exceptionalHaltReason,
+        partialBlockAccessView,
+        null);
+  }
+
+  public static TransactionProcessingResult failed(
+      final long gasUsedByTransaction,
+      final long gasRemaining,
+      final long gasSpent,
+      final long stateGasUsed,
+      final ValidationResult<TransactionInvalidReason> validationResult,
+      final Optional<Bytes> revertReason,
+      final Optional<ExceptionalHaltReason> exceptionalHaltReason,
+      final Optional<PartialBlockAccessView> partialBlockAccessView,
+      final MiningBeneficiaryReward miningBeneficiaryReward) {
     return new TransactionProcessingResult(
         Status.FAILED,
         List.of(),
@@ -109,29 +135,8 @@ public class TransactionProcessingResult
         validationResult,
         revertReason,
         exceptionalHaltReason,
-        partialBlockAccessView);
-  }
-
-  /**
-   * Factory method for failed transactions where gasSpent equals gasUsedByTransaction. This is the
-   * standard behavior for pre-Amsterdam forks where block gas accounting uses post-refund gas.
-   */
-  public static TransactionProcessingResult failed(
-      final long gasUsedByTransaction,
-      final long gasRemaining,
-      final ValidationResult<TransactionInvalidReason> validationResult,
-      final Optional<Bytes> revertReason,
-      final Optional<ExceptionalHaltReason> exceptionalHaltReason,
-      final Optional<PartialBlockAccessView> partialBlockAccessView) {
-    return failed(
-        gasUsedByTransaction,
-        gasRemaining,
-        gasUsedByTransaction,
-        0,
-        validationResult,
-        revertReason,
-        exceptionalHaltReason,
-        partialBlockAccessView);
+        partialBlockAccessView,
+        miningBeneficiaryReward);
   }
 
   public static TransactionProcessingResult successful(
@@ -142,7 +147,8 @@ public class TransactionProcessingResult
       final long stateGasUsed,
       final Bytes output,
       final Optional<PartialBlockAccessView> partialBlockAccessView,
-      final ValidationResult<TransactionInvalidReason> validationResult) {
+      final ValidationResult<TransactionInvalidReason> validationResult,
+      final MiningBeneficiaryReward miningBeneficiaryReward) {
     return new TransactionProcessingResult(
         Status.SUCCESSFUL,
         logs,
@@ -153,13 +159,11 @@ public class TransactionProcessingResult
         output,
         validationResult,
         Optional.empty(),
-        partialBlockAccessView);
+        partialBlockAccessView,
+        miningBeneficiaryReward);
   }
 
-  /**
-   * Factory method for successful transactions where gasSpent equals gasUsedByTransaction. This is
-   * the standard behavior for pre-Amsterdam forks where block gas accounting uses post-refund gas.
-   */
+  @VisibleForTesting
   public static TransactionProcessingResult successful(
       final List<Log> logs,
       final long gasUsedByTransaction,
@@ -175,13 +179,11 @@ public class TransactionProcessingResult
         0,
         output,
         partialBlockAccessView,
-        validationResult);
+        validationResult,
+        null);
   }
 
-  /**
-   * Constructor without gasSpent (for pre-Amsterdam forks). Defaults gasSpent to
-   * estimateGasUsedByTransaction.
-   */
+  @VisibleForTesting
   public TransactionProcessingResult(
       final Status status,
       final List<Log> logs,
@@ -201,7 +203,8 @@ public class TransactionProcessingResult
         output,
         validationResult,
         revertReason,
-        partialBlockAccessView);
+        partialBlockAccessView,
+        null);
   }
 
   /**
@@ -219,7 +222,8 @@ public class TransactionProcessingResult
       final Bytes output,
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
-      final Optional<PartialBlockAccessView> partialBlockAccessView) {
+      final Optional<PartialBlockAccessView> partialBlockAccessView,
+      final MiningBeneficiaryReward miningBeneficiaryReward) {
     this.status = status;
     this.logs = logs;
     this.estimateGasUsedByTransaction = estimateGasUsedByTransaction;
@@ -231,34 +235,7 @@ public class TransactionProcessingResult
     this.revertReason = revertReason;
     this.exceptionalHaltReason = Optional.empty();
     this.partialBlockAccessView = partialBlockAccessView;
-  }
-
-  /**
-   * Constructor without gasSpent (for pre-Amsterdam forks). Defaults gasSpent to
-   * estimateGasUsedByTransaction.
-   */
-  public TransactionProcessingResult(
-      final Status status,
-      final List<Log> logs,
-      final long estimateGasUsedByTransaction,
-      final long gasRemaining,
-      final Bytes output,
-      final ValidationResult<TransactionInvalidReason> validationResult,
-      final Optional<Bytes> revertReason,
-      final Optional<ExceptionalHaltReason> exceptionalHaltReason,
-      final Optional<PartialBlockAccessView> partialBlockAccessView) {
-    this(
-        status,
-        logs,
-        estimateGasUsedByTransaction,
-        gasRemaining,
-        estimateGasUsedByTransaction,
-        0,
-        output,
-        validationResult,
-        revertReason,
-        exceptionalHaltReason,
-        partialBlockAccessView);
+    this.miningBeneficiaryReward = miningBeneficiaryReward;
   }
 
   /** Constructor with gasSpent and stateGasUsed (for Amsterdam+ forks with EIP-7778/EIP-8037). */
@@ -273,7 +250,8 @@ public class TransactionProcessingResult
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
       final Optional<ExceptionalHaltReason> exceptionalHaltReason,
-      final Optional<PartialBlockAccessView> partialBlockAccessView) {
+      final Optional<PartialBlockAccessView> partialBlockAccessView,
+      final MiningBeneficiaryReward miningBeneficiaryReward) {
     this.status = status;
     this.logs = logs;
     this.estimateGasUsedByTransaction = estimateGasUsedByTransaction;
@@ -285,6 +263,7 @@ public class TransactionProcessingResult
     this.revertReason = revertReason;
     this.exceptionalHaltReason = exceptionalHaltReason;
     this.partialBlockAccessView = partialBlockAccessView;
+    this.miningBeneficiaryReward = miningBeneficiaryReward;
   }
 
   /**
@@ -488,6 +467,15 @@ public class TransactionProcessingResult
    */
   public Optional<Boolean> getIsProcessedInParallel() {
     return isProcessedInParallel;
+  }
+
+  /**
+   * Returns the reward credited to the mining beneficiary.
+   *
+   * @return the reward or null if the mining reward was not evaluated
+   */
+  public MiningBeneficiaryReward getMiningBeneficiaryReward() {
+    return miningBeneficiaryReward;
   }
 
   /**

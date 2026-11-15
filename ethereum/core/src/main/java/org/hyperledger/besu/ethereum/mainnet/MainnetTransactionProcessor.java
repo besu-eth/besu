@@ -26,10 +26,13 @@ import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector;
+import org.hyperledger.besu.ethereum.processing.MiningBeneficiaryReward;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -87,6 +90,8 @@ public class MainnetTransactionProcessor {
 
   private final TransferLogEmitter transferLogEmitter;
 
+  private final TransactionCollisionDetector collisionDetector;
+
   private final TopLevelTransactionSupport topLevelSupport;
 
   private MainnetTransactionProcessor(
@@ -100,7 +105,8 @@ public class MainnetTransactionProcessor {
       final FeeMarket feeMarket,
       final CoinbaseFeePriceCalculator coinbaseFeePriceCalculator,
       final CodeDelegationProcessor maybeCodeDelegationProcessor,
-      final TransferLogEmitter transferLogEmitter) {
+      final TransferLogEmitter transferLogEmitter,
+      final TransactionCollisionDetector transactionCollisionDetector) {
     this.gasCalculator = gasCalculator;
     this.transactionValidatorFactory = transactionValidatorFactory;
     this.contractCreationProcessor = contractCreationProcessor;
@@ -112,6 +118,7 @@ public class MainnetTransactionProcessor {
     this.coinbaseFeePriceCalculator = coinbaseFeePriceCalculator;
     this.maybeCodeDelegationProcessor = Optional.ofNullable(maybeCodeDelegationProcessor);
     this.transferLogEmitter = transferLogEmitter;
+    this.collisionDetector = transactionCollisionDetector;
     this.topLevelSupport =
         new TopLevelTransactionSupport(
             gasCalculator, messageCallProcessor, coinbaseFeePriceCalculator);
@@ -609,6 +616,20 @@ public class MainnetTransactionProcessor {
 
       operationTracer.traceBeforeRewardTransaction(worldUpdater, transaction, coinbaseWeiDelta);
 
+      MiningBeneficiaryReward miningBeneficiaryReward = null;
+      if (collisionDetector != null) {
+        final WorldUpdater parentUpdater = worldState.parentUpdater().orElse(null);
+        if (!(parentUpdater instanceof PathBasedWorldStateUpdateAccumulator<?> accumulator)) {
+          throw new IllegalStateException(
+              "Collision detection requires a path-based world state accumulator");
+        }
+        miningBeneficiaryReward =
+            new MiningBeneficiaryReward(
+                coinbaseWeiDelta,
+                collisionDetector.isAddressTouchedByTransaction(
+                    transaction, accumulator, miningBeneficiary));
+      }
+
       TopLevelTransactionSupport.creditCoinbase(
           worldState, miningBeneficiary, coinbaseWeiDelta, accessLocationTracker);
 
@@ -655,7 +676,8 @@ public class MainnetTransactionProcessor {
                 stateGasUsed,
                 initialFrame.getOutputData(),
                 partialBlockAccessView,
-                validationResult);
+                validationResult,
+                miningBeneficiaryReward);
         successResult.setExecutionGasUsedForBlock(gasResult.executionGas());
         return successResult;
       } else {
@@ -680,7 +702,8 @@ public class MainnetTransactionProcessor {
                 validationResult,
                 initialFrame.getRevertReason(),
                 initialFrame.getExceptionalHaltReason(),
-                partialBlockAccessView);
+                partialBlockAccessView,
+                miningBeneficiaryReward);
         failedResult.setExecutionGasUsedForBlock(gasResult.executionGas());
         return failedResult;
       }
@@ -985,6 +1008,7 @@ public class MainnetTransactionProcessor {
     private CoinbaseFeePriceCalculator coinbaseFeePriceCalculator;
     private CodeDelegationProcessor codeDelegationProcessor;
     private TransferLogEmitter transferLogEmitter = TransferLogEmitter.NOOP;
+    private TransactionCollisionDetector transactionCollisionDetector;
 
     public Builder gasCalculator(final GasCalculator gasCalculator) {
       this.gasCalculator = gasCalculator;
@@ -1045,6 +1069,12 @@ public class MainnetTransactionProcessor {
       return this;
     }
 
+    public Builder transactionCollisionDetector(
+        final TransactionCollisionDetector transactionCollisionDetector) {
+      this.transactionCollisionDetector = transactionCollisionDetector;
+      return this;
+    }
+
     public Builder populateFrom(final MainnetTransactionProcessor processor) {
       this.gasCalculator = processor.gasCalculator;
       this.transactionValidatorFactory = processor.transactionValidatorFactory;
@@ -1057,6 +1087,7 @@ public class MainnetTransactionProcessor {
       this.coinbaseFeePriceCalculator = processor.coinbaseFeePriceCalculator;
       this.codeDelegationProcessor = processor.maybeCodeDelegationProcessor.orElse(null);
       this.transferLogEmitter = processor.transferLogEmitter;
+      this.transactionCollisionDetector = processor.collisionDetector;
       return this;
     }
 
@@ -1072,7 +1103,8 @@ public class MainnetTransactionProcessor {
           feeMarket,
           coinbaseFeePriceCalculator,
           codeDelegationProcessor,
-          transferLogEmitter);
+          transferLogEmitter,
+          transactionCollisionDetector);
     }
   }
 }

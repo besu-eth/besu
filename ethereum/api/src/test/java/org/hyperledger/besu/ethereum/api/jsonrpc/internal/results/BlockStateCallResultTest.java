@@ -154,7 +154,7 @@ public class BlockStateCallResultTest {
   private static TransactionProcessingResult failed(
       final Optional<Bytes> revertReason, final Optional<ExceptionalHaltReason> haltReason) {
     return TransactionProcessingResult.failed(
-        21000, 0, ValidationResult.valid(), revertReason, haltReason, Optional.empty());
+        21000, 0, 21000, 0, ValidationResult.valid(), revertReason, haltReason, Optional.empty());
   }
 
   private static JsonRpcError callError(final TransactionProcessingResult result) {

@@ -137,6 +137,8 @@ public class ValidatorContractControllerTest {
             TransactionProcessingResult.failed(
                 0,
                 0,
+                0,
+                0,
                 ValidationResult.invalid(TransactionInvalidReason.INTERNAL_ERROR),
                 Optional.empty(),
                 Optional.empty(),
