@@ -126,7 +126,7 @@ public abstract class AbstractTraceByBlock extends AbstractBlockParameterMethod
     return new TraceOptions(
         TracerType.OPCODE_TRACER,
         OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-            .traceStorage(traceTypes.contains(TraceType.STATE_DIFF))
+            .traceStorage(false)
             .traceMemory(false)
             .traceStack(
                 traceTypes.contains(TraceType.TRACE) || traceTypes.contains(TraceType.VM_TRACE))

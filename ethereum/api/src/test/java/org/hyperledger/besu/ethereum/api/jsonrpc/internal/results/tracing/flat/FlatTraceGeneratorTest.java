@@ -20,21 +20,26 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionT
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.tracing.Trace;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.Mockito;
@@ -44,6 +49,51 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class FlatTraceGeneratorTest {
   @Mock private Transaction transaction;
   @Mock private TransactionProcessingResult transactionProcessingResult;
+
+  private static Stream<Arguments> rootCallsWithoutReturnFrame() {
+    final TraceFrame directPrecompile =
+        TraceFrame.builder()
+            .setOpcodeNumber(Integer.MAX_VALUE)
+            .setDepth(0)
+            .setGasRemaining(1000)
+            .setValue(Wei.ZERO)
+            .setInputData(Bytes.EMPTY)
+            .setOutputData(Bytes.EMPTY)
+            .setVirtualOperation(true)
+            .setPrecompiledGasCost(15)
+            .build();
+    // A trace step limit can end the frames before the root call's RETURN.
+    final TraceFrame firstStepOnly = frame("PUSH1", 0x60, 0);
+    return Stream.of("0x", "0x123456")
+        .flatMap(
+            output ->
+                Stream.of(
+                    Arguments.of(output, directPrecompile), Arguments.of(output, firstStepOnly)));
+  }
+
+  @ParameterizedTest
+  @MethodSource("rootCallsWithoutReturnFrame")
+  public void setsRootOutputWithoutReturnFrame(final String outputHex, final TraceFrame frame) {
+    final Bytes output = Bytes.fromHexString(outputHex);
+    Mockito.when(transaction.getSender()).thenReturn(Address.ZERO);
+    Mockito.when(transaction.getTo()).thenReturn(Optional.of(Address.fromHexString("0x04")));
+    Mockito.when(transaction.getPayload()).thenReturn(output);
+    Mockito.when(transactionProcessingResult.getOutput()).thenReturn(output);
+    Mockito.when(transactionProcessingResult.isSuccessful()).thenReturn(true);
+
+    final TransactionTrace transactionTrace =
+        new TransactionTrace(transaction, transactionProcessingResult, List.of(frame));
+
+    final List<Trace> traces =
+        FlatTraceGenerator.generateFromTransactionTrace(
+                null, transactionTrace, null, new AtomicInteger())
+            .toList();
+
+    Assertions.assertThat(traces).hasSize(1);
+    final FlatTrace trace = (FlatTrace) traces.getFirst();
+    Assertions.assertThat(trace.getResult().get().getOutput()).isEqualTo(outputHex);
+    Assertions.assertThat(trace.getAction().getInput()).isEqualTo(outputHex);
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
@@ -135,5 +185,52 @@ public class FlatTraceGeneratorTest {
     Assertions.assertThat(traces.get(0) instanceof FlatTrace).isTrue();
     Assertions.assertThat(((FlatTrace) traces.get(0)).getRevertReason())
         .isEqualTo(revertReason.toHexString());
+  }
+
+  @Test
+  public void nestedCreateEndingInSelfDestructReportsEmptyCode() {
+    final Address created = Address.fromHexString("0x0000000000000000000000000000000000001234");
+    final Bytes initCode = Bytes.fromHexString("0x6000ff");
+    Mockito.when(transaction.getSender()).thenReturn(Address.ZERO);
+    Mockito.when(transaction.getValue()).thenReturn(Wei.ZERO);
+    Mockito.when(transaction.getTo()).thenReturn(Optional.of(Address.ZERO));
+    Mockito.when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    Mockito.when(transactionProcessingResult.getRevertReason()).thenReturn(Optional.empty());
+
+    final TraceFrame create =
+        TraceFrame.builder()
+            .setOpcode("CREATE")
+            .setGasRemaining(100_000L)
+            .setGasCost(OptionalLong.of(32_000L))
+            .setDepth(0)
+            .setRecipient(Address.ZERO)
+            .setValue(Wei.ZERO)
+            .setMaybeCode(Optional.of(new Code(initCode)))
+            .build();
+    final TraceFrame selfDestruct =
+        TraceFrame.builder()
+            .setOpcode("SELFDESTRUCT")
+            .setGasRemaining(60_000L)
+            .setGasCost(OptionalLong.of(5_000L))
+            .setDepth(1)
+            .setRecipient(created)
+            .setValue(Wei.ZERO)
+            .setOutputData(Bytes.EMPTY)
+            .setStack(Optional.of(new Bytes[] {Bytes32.ZERO}))
+            .build();
+
+    final TransactionTrace trace =
+        new TransactionTrace(
+            transaction, transactionProcessingResult, List.of(create, selfDestruct));
+    final FlatTrace creation =
+        FlatTraceGenerator.generateFromTransactionTrace(null, trace, null, new AtomicInteger())
+            .map(FlatTrace.class::cast)
+            .filter(flatTrace -> flatTrace.getType().equals("create"))
+            .findFirst()
+            .orElseThrow();
+
+    Assertions.assertThat(creation.getAction().getInit()).isEqualTo(initCode.toHexString());
+    Assertions.assertThat(creation.getResult().get().getCode()).isEqualTo("0x");
+    Assertions.assertThat(creation.getResult().get().getOutput()).isNull();
   }
 }
