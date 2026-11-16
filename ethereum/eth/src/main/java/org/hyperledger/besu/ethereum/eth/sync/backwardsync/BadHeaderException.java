@@ -14,15 +14,19 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
-public class BackwardSyncAlgorithmFactory {
-  public BackwardSyncAlgorithm createBackwardSyncAlgorithm(
-      final BackwardSyncContext backwardSyncContext) {
-    return new BackwardSyncAlgorithm(
-        backwardSyncContext,
-        FinalBlockConfirmation.confirmationChain(
-            FinalBlockConfirmation.genesisConfirmation(
-                backwardSyncContext.protocolContext.getBlockchain()),
-            FinalBlockConfirmation.ancestorConfirmation(
-                backwardSyncContext.protocolContext.getBlockchain())));
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+
+/** A header of the chain being downloaded is a known bad block. */
+final class BadHeaderException extends RuntimeException {
+
+  private final transient BlockHeader header;
+
+  BadHeaderException(final BlockHeader header) {
+    super("Header " + header.toLogString() + " is a known bad block");
+    this.header = header;
+  }
+
+  BlockHeader header() {
+    return header;
   }
 }

@@ -84,7 +84,9 @@ public class SynchronizerOptionsTest
         .snapSyncHeadersToCheckpointOnly(
             !SynchronizerConfiguration.DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY)
         .era1ImportPrepipelineEnabled(true)
-        .era1DataUri(URI.create("sepolia.era1.nimbus.team/"));
+        .era1DataUri(URI.create("sepolia.era1.nimbus.team/"))
+        .backwardSyncBalApplyEnabled(
+            !SynchronizerConfiguration.DEFAULT_BACKWARD_SYNC_BAL_APPLY_ENABLED);
   }
 
   @Override

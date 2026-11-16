@@ -14,105 +14,265 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
-import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
-
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.BadBlockManager;
-import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.ChainHeadSource;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.HeaderFetcher;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
-import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
+import org.hyperledger.besu.ethereum.storage.StorageProvider;
+import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.util.Subscribers;
 
-import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.event.Level;
 
-public class BackwardSyncContext {
+/**
+ * The entry point of backward sync: turns the heads and payloads the consensus client sends into
+ * events of the {@link BackwardSync} loop, and reports its outcome as sessions. A session starts
+ * with the first target after an idle period and ends when the target is imported or the sync
+ * fails; every call during a session gets the same future.
+ */
+public class BackwardSyncContext implements BackwardSync.Listener {
   private static final Logger LOG = LoggerFactory.getLogger(BackwardSyncContext.class);
-  public static final int BATCH_SIZE = 200;
-  private static final int DEFAULT_MAX_RETRIES = 2;
-  private static final long MILLIS_DELAY_BETWEEN_PROGRESS_LOG = 10_000L;
-  private static final long DEFAULT_MILLIS_BETWEEN_RETRIES = 5000;
-  private static final int DEFAULT_MAX_CHAIN_EVENT_ENTRIES = BadBlockManager.MAX_BAD_CHAIN_SIZE;
+  private static final long STOP_TIMEOUT_SECONDS = 60;
 
-  protected final ProtocolContext protocolContext;
-  private final ProtocolSchedule protocolSchedule;
-  private final EthContext ethContext;
-  private final SynchronizerConfiguration synchronizerConfiguration;
-  private final MetricsSystem metricsSystem;
   private final SyncState syncState;
-  private final AtomicReference<Status> currentBackwardSyncStatus = new AtomicReference<>();
-  private final BackwardChain backwardChain;
-  private final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory;
-  private int batchSize = BATCH_SIZE;
-  private final int maxRetries;
-  private final int maxBadChainEventEntries;
-  private final long millisBetweenRetries = DEFAULT_MILLIS_BETWEEN_RETRIES;
+  private final EthPeers ethPeers;
+  private final ScheduledExecutorService loop;
+  private final PendingChain pendingChain;
+  private final RequestSender sender;
+  private final ExecutorService headerExecutor;
+  private final BackwardSync engine;
   private final Subscribers<BadChainListener> badChainListeners = Subscribers.create();
-  private final AtomicReference<Hash> lastBlockWithUnavailableWorldState = new AtomicReference<>();
+  private final long ttdSubscription;
+  private final long completionSubscription;
+  private final long connectSubscription;
+
+  // guarded by this
+  private CompletableFuture<Void> session;
+  private volatile boolean stopped;
 
   public BackwardSyncContext(
       final ProtocolContext protocolContext,
       final ProtocolSchedule protocolSchedule,
-      final SynchronizerConfiguration synchronizerConfiguration,
+      final SynchronizerConfiguration syncConfig,
       final MetricsSystem metricsSystem,
       final EthContext ethContext,
       final SyncState syncState,
-      final BackwardChain backwardChain,
-      final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory) {
-    this(
-        protocolContext,
-        protocolSchedule,
-        synchronizerConfiguration,
-        metricsSystem,
-        ethContext,
-        syncState,
-        backwardChain,
-        backwardSyncAlgorithmFactory,
-        DEFAULT_MAX_RETRIES,
-        DEFAULT_MAX_CHAIN_EVENT_ENTRIES);
+      final StorageProvider storageProvider) {
+    final BackwardSyncConfiguration config =
+        BackwardSyncConfiguration.create(syncConfig, protocolContext.getWorldStateArchive());
+    final Blockchain blockchain = protocolContext.getBlockchain();
+    this.syncState = syncState;
+    this.ethPeers = ethContext.getEthPeers();
+    this.loop =
+        Executors.newSingleThreadScheduledExecutor(
+            Thread.ofPlatform().name("backward-sync").daemon().factory());
+    this.sender = ethContext.getRequestScheduler().scope();
+    this.pendingChain =
+        PendingChain.create(
+            storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule));
+    this.headerExecutor =
+        Executors.newCachedThreadPool(
+            Thread.ofPlatform().name("backward-sync-headers-", 0).daemon().factory());
+    final TrustedPayloads payloads = new TrustedPayloads(config.trustedPayloadBytes());
+    final HeaderFetcher headerFetcher =
+        new HeaderFetcher(
+            sender,
+            protocolSchedule,
+            new ChainHeadSource() {
+              @Override
+              public Optional<Hash> headHash() {
+                return Optional.empty();
+              }
+
+              @Override
+              public Optional<BlockHeader> knownHeader(final Hash hash) {
+                return payloads.block(hash).map(Block::getHeader);
+              }
+            },
+            config.headersPerRequest());
+    final HeaderSync headerSync =
+        new HeaderSync(
+            sender,
+            protocolSchedule,
+            pendingChain,
+            blockchain,
+            protocolContext.getBadBlockManager(),
+            headerFetcher,
+            headerExecutor,
+            config,
+            metricsSystem);
+    final AtomicReference<BackwardSync> engineRef = new AtomicReference<>();
+    final BlockDataFetcher fetcher =
+        new BlockDataFetcher(
+            sender,
+            ethPeers,
+            protocolSchedule,
+            pendingChain,
+            payloads,
+            loop,
+            System::nanoTime,
+            config,
+            () -> engineRef.get().scheduleImport());
+    final BackwardSyncMetrics metrics =
+        new BackwardSyncMetrics(
+            metricsSystem,
+            () -> engineRef.get() == null ? 0 : engineRef.get().pendingHeaders(),
+            () -> engineRef.get() == null ? 0 : engineRef.get().targetBlock(),
+            fetcher::blocks,
+            fetcher::bytes);
+    this.engine =
+        new BackwardSync(
+            protocolContext,
+            pendingChain,
+            payloads,
+            headerSync,
+            headerFetcher,
+            fetcher,
+            new ChainImporter(protocolContext, protocolSchedule, metrics),
+            loop,
+            System::nanoTime,
+            config,
+            metrics,
+            this);
+    engineRef.set(engine);
+    this.ttdSubscription = subscribeTTD();
+    this.completionSubscription = subscribeCompletion();
+    this.connectSubscription = subscribeConnect();
+    loop.execute(engine::initialize);
+    postReadiness();
   }
 
-  public BackwardSyncContext(
-      final ProtocolContext protocolContext,
-      final ProtocolSchedule protocolSchedule,
-      final SynchronizerConfiguration synchronizerConfiguration,
-      final MetricsSystem metricsSystem,
-      final EthContext ethContext,
+  @VisibleForTesting
+  BackwardSyncContext(
       final SyncState syncState,
-      final BackwardChain backwardChain,
-      final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory,
-      final int maxRetries,
-      final int maxBadChainEventEntries) {
-
-    this.protocolContext = protocolContext;
-    this.protocolSchedule = protocolSchedule;
-    this.ethContext = ethContext;
-    this.synchronizerConfiguration = synchronizerConfiguration;
-    this.metricsSystem = metricsSystem;
+      final EthPeers ethPeers,
+      final ScheduledExecutorService loop,
+      final PendingChain pendingChain,
+      final RequestSender sender,
+      final ExecutorService headerExecutor,
+      final Function<BackwardSync.Listener, BackwardSync> engineFactory) {
     this.syncState = syncState;
-    this.backwardChain = backwardChain;
-    this.backwardSyncAlgorithmFactory = backwardSyncAlgorithmFactory;
-    this.maxRetries = maxRetries;
-    this.maxBadChainEventEntries = maxBadChainEventEntries;
+    this.ethPeers = ethPeers;
+    this.loop = loop;
+    this.pendingChain = pendingChain;
+    this.sender = sender;
+    this.headerExecutor = headerExecutor;
+    this.engine = engineFactory.apply(this);
+    this.ttdSubscription = subscribeTTD();
+    this.completionSubscription = subscribeCompletion();
+    this.connectSubscription = subscribeConnect();
+    loop.execute(engine::initialize);
+    postReadiness();
+  }
+
+  private long subscribeTTD() {
+    return syncState.subscribeTTDReached(reached -> postReadiness());
+  }
+
+  private long subscribeCompletion() {
+    return syncState.subscribeCompletionReached(
+        new InitialSyncCompletionListener() {
+          @Override
+          public void onInitialSyncCompleted() {
+            postReadiness();
+          }
+
+          @Override
+          public void onInitialSyncRestart() {
+            postReadiness();
+          }
+        });
+  }
+
+  private long subscribeConnect() {
+    return ethPeers.subscribeConnect(peer -> postReadiness());
+  }
+
+  private void postReadiness() {
+    post(() -> engine.onReadiness(isReady()));
+  }
+
+  private boolean isReady() {
+    return syncState.hasReachedTerminalDifficulty().orElse(false)
+        && syncState.isInitialSyncPhaseDone()
+        && ethPeers.peerCount() > 0;
+  }
+
+  private void post(final Runnable event) {
+    try {
+      loop.execute(event);
+    } catch (final RejectedExecutionException e) {
+      LOG.debug("Backward sync is stopped, event dropped");
+    }
+  }
+
+  /**
+   * Makes the head the CL named the target of backward sync.
+   *
+   * @param headHash the hash of the new head
+   * @param finalizedHash the hash of the finalized block, zero when unknown
+   * @return the future of the session, completed when the head is imported or the sync failed
+   */
+  public CompletableFuture<Void> syncBackwardsUntil(final Hash headHash, final Hash finalizedHash) {
+    return startSession(() -> engine.onNewHead(headHash, finalizedHash));
+  }
+
+  /**
+   * Makes a block received with a newPayload the target of backward sync.
+   *
+   * @param newHead the block
+   * @param blockAccessList its block access list, when it came with it
+   * @return the future of the session, completed when the block is imported or the sync failed
+   */
+  public CompletableFuture<Void> syncBackwardsUntil(
+      final Block newHead, final Optional<BlockAccessList> blockAccessList) {
+    return startSession(() -> engine.onNewPayload(newHead, blockAccessList));
+  }
+
+  private CompletableFuture<Void> startSession(final Runnable event) {
+    final CompletableFuture<Void> current;
+    synchronized (this) {
+      if (stopped) {
+        return CompletableFuture.failedFuture(new BackwardSyncException("backward sync stopped"));
+      }
+      current = currentSession();
+    }
+    post(event);
+    return current;
+  }
+
+  // callers hold the lock
+  private CompletableFuture<Void> currentSession() {
+    if (session == null || session.isDone()) {
+      LOG.info("Starting a new backward sync session");
+      session = new CompletableFuture<>();
+    }
+    return session;
   }
 
   /**
@@ -121,471 +281,93 @@ public class BackwardSyncContext {
    * @return true while a backward sync session is running
    */
   public synchronized boolean isSyncing() {
-    return Optional.ofNullable(currentBackwardSyncStatus.get())
-        .map(status -> !status.currentFuture.isDone())
-        .orElse(Boolean.FALSE);
+    return session != null && !session.isDone();
   }
 
-  public synchronized void maybeUpdateTargetHeight(final Hash headHash) {
-    if (!Hash.ZERO.equals(headHash)) {
-      Optional<Status> maybeCurrentStatus = Optional.ofNullable(currentBackwardSyncStatus.get());
-      maybeCurrentStatus.ifPresent(
-          status ->
-              backwardChain
-                  .getBlock(headHash)
-                  .ifPresent(
-                      block -> {
-                        LOG.atTrace()
-                            .setMessage("updateTargetHeight to {}")
-                            .addArgument(block::toLogString)
-                            .log();
-                        status.updateTargetHeight(block.getHeader().getNumber());
-                      }));
-    }
-  }
-
-  public synchronized CompletableFuture<Void> syncBackwardsUntil(final Hash newBlockHash) {
-    if (!isTrusted(newBlockHash)) {
-      LOG.atDebug()
-          .setMessage("Appending new head block hash {} to backward sync")
-          .addArgument(() -> newBlockHash.getBytes().toHexString())
-          .log();
-      if (isReady()) {
-        backwardChain.addNewHash(newBlockHash);
-      } else {
-        backwardChain.replaceQueuedHashesWith(newBlockHash);
-      }
-    }
-
-    final Status status = getOrStartSyncSession();
-    backwardChain
-        .getBlock(newBlockHash)
-        .ifPresent(
-            newTargetBlock -> status.updateTargetHeight(newTargetBlock.getHeader().getNumber()));
-    return status.currentFuture;
-  }
-
-  public synchronized CompletableFuture<Void> syncBackwardsUntil(final Block newPivot) {
-    return syncBackwardsUntil(newPivot, Optional.empty());
-  }
-
-  public synchronized CompletableFuture<Void> syncBackwardsUntil(
-      final Block newPivot, final Optional<BlockAccessList> blockAccessList) {
-    if (!isTrusted(newPivot.getHash())) {
-      backwardChain.appendTrustedBlock(newPivot, blockAccessList);
-    }
-
-    final Status status = getOrStartSyncSession();
-    status.updateTargetHeight(newPivot.getHeader().getNumber());
-    return status.currentFuture;
-  }
-
-  private Status getOrStartSyncSession() {
-    // A completed session is not reused, otherwise every later call would get a completed future.
-    Optional<Status> maybeCurrentStatus =
-        Optional.ofNullable(this.currentBackwardSyncStatus.get())
-            .filter(status -> !status.currentFuture.isDone());
-    return maybeCurrentStatus.orElseGet(
-        () -> {
-          LOG.info("Starting a new backward sync session");
-          Status newStatus = new Status(prepareBackwardSyncFutureWithRetry());
-          // Don't publish a session that already completed synchronously.
-          if (!newStatus.currentFuture.isDone()) {
-            this.currentBackwardSyncStatus.set(newStatus);
-            // It may have completed in the meantime; retract it without touching a newer session.
-            if (newStatus.currentFuture.isDone()) {
-              this.currentBackwardSyncStatus.compareAndSet(newStatus, null);
-            }
-          }
-          return newStatus;
-        });
-  }
-
-  private boolean isTrusted(final Hash hash) {
-    if (backwardChain.isTrusted(hash)) {
-      LOG.atDebug()
-          .setMessage(
-              "Not fetching or appending hash {} to backward sync since it is present in successors")
-          .addArgument(() -> hash.getBytes().toHexString())
-          .log();
-      return true;
-    }
-    return false;
-  }
-
-  private CompletableFuture<Void> prepareBackwardSyncFutureWithRetry() {
-    return prepareBackwardSyncFutureWithRetry(maxRetries)
-        .handle(
-            (unused, throwable) -> {
-              this.currentBackwardSyncStatus.set(null);
-              if (throwable != null) {
-                LOG.info("Current backward sync session failed, it will be restarted");
-                throw extractBackwardSyncException(throwable)
-                    .orElse(new BackwardSyncException(throwable));
-              }
-              return null;
-            });
-  }
-
-  private CompletableFuture<Void> prepareBackwardSyncFutureWithRetry(final int retries) {
-    if (retries == 0) {
-      return CompletableFuture.failedFuture(
-          new BackwardSyncException("Max number of retries " + maxRetries + " reached"));
-    }
-
-    return exceptionallyCompose(
-        backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(this).executeBackwardsSync(null),
-        throwable -> {
-          processException(throwable);
-          return ethContext
-              .getScheduler()
-              .scheduleFutureTask(
-                  () -> prepareBackwardSyncFutureWithRetry(retries - 1),
-                  Duration.ofMillis(millisBetweenRetries));
-        });
-  }
-
-  @VisibleForTesting
-  protected void processException(final Throwable throwable) {
-    extractBackwardSyncException(throwable)
-        .ifPresentOrElse(
-            backwardSyncException -> {
-              if (backwardSyncException.shouldRestart()) {
-                LOG.debug(
-                    "Backward sync failed ({}). Current Peers: {}. Retrying in {} milliseconds",
-                    throwable.getMessage(),
-                    ethContext.getEthPeers().peerCount(),
-                    millisBetweenRetries);
-              } else {
-                LOG.atDebug()
-                    .setMessage("Not recoverable backward sync exception {}")
-                    .addArgument(throwable::getMessage)
-                    .log();
-                throw backwardSyncException;
-              }
-            },
-            () -> {
-              LOG.debug(
-                  "Backward sync failed ({}). Current Peers: {}. Retrying in {} milliseconds",
-                  throwable.getMessage(),
-                  ethContext.getEthPeers().peerCount(),
-                  millisBetweenRetries);
-              LOG.debug("Exception details:", throwable);
-            });
-  }
-
-  private Optional<BackwardSyncException> extractBackwardSyncException(final Throwable throwable) {
-    Throwable currentCause = throwable;
-
-    while (currentCause != null) {
-      if (currentCause instanceof BackwardSyncException backwardSyncException) {
-        return Optional.of(backwardSyncException);
-      }
-      currentCause = currentCause.getCause();
-    }
-    return Optional.empty();
-  }
-
-  public ProtocolSchedule getProtocolSchedule() {
-    return protocolSchedule;
-  }
-
-  public EthContext getEthContext() {
-    return ethContext;
-  }
-
-  public MetricsSystem getMetricsSystem() {
-    return metricsSystem;
-  }
-
-  public ProtocolContext getProtocolContext() {
-    return protocolContext;
-  }
-
-  public BlockValidator getBlockValidator(final BlockHeader blockHeader) {
-    return protocolSchedule.getByBlockHeader(blockHeader).getBlockValidator();
-  }
-
-  public BlockValidator getBlockValidatorForBlock(final Block block) {
-    return getBlockValidator(block.getHeader());
-  }
-
-  public boolean isReady() {
-    // we aren't ready if we have 0 peers
-    int peerCount = getEthContext().getEthPeers().peerCount();
-    LOG.debug(
-        "checking if BWS is ready: ttd reached {}, initial sync done {}, peerCount {}",
-        syncState.hasReachedTerminalDifficulty().orElse(Boolean.FALSE),
-        syncState.isInitialSyncPhaseDone(),
-        peerCount);
-    return syncState.hasReachedTerminalDifficulty().orElse(Boolean.FALSE)
-        && syncState.isInitialSyncPhaseDone()
-        && peerCount > 0;
+  /**
+   * Gets a header downloaded by backward sync that is not imported yet.
+   *
+   * @param hash the hash of the header
+   * @return the header, when the pending chain holds it
+   */
+  public Optional<BlockHeader> getPendingHeader(final Hash hash) {
+    return pendingChain.header(hash);
   }
 
   public void subscribeBadChainListener(final BadChainListener badChainListener) {
     badChainListeners.subscribe(badChainListener);
   }
 
-  // In rare case when we request too many headers/blocks we get response that does not contain all
-  // data, and we might want to retry with smaller batch size
-  public int getBatchSize() {
-    return batchSize;
-  }
-
-  public void halveBatchSize() {
-    this.batchSize = batchSize / 2 + 1;
-  }
-
-  public void resetBatchSize() {
-    this.batchSize = BATCH_SIZE;
-  }
-
-  protected Void saveBlock(final Block block, final Optional<BlockAccessList> blockAccessList) {
-    failIfBadBlock(block.getHeader());
-    LOG.atTrace().setMessage("Going to validate block {}").addArgument(block::toLogString).log();
-    var optResult =
-        this.getBlockValidatorForBlock(block)
-            .validateAndProcessBlock(
-                this.getProtocolContext(),
-                block,
-                HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE,
-                blockAccessList,
-                InclusionListTransactions.EMPTY,
-                true);
-    if (optResult.isSuccessful()) {
-      LOG.atTrace()
-          .setMessage("Block {} was validated, going to move the head")
-          .addArgument(block::toLogString)
-          .log();
-      this.getProtocolContext()
-          .getBlockchain()
-          .appendBlock(
-              block,
-              optResult.getYield().get().getReceipts(),
-              optResult.getYield().get().getBlockAccessList());
-      possiblyMoveHead(block);
-      logImportedBlockParallelization(
-          block, optResult.getNbParallelizedTransactions(), blockAccessList.isPresent());
-      logBlockImportProgress(block.getHeader().getNumber());
-    } else {
-      if (optResult.isWorldStateUnavailable()) {
-        // every new sync session hits the same block again, warn once per block
-        final boolean firstAttemptAtBlock =
-            !block.getHash().equals(lastBlockWithUnavailableWorldState.getAndSet(block.getHash()));
-        LOG.atLevel(firstAttemptAtBlock ? Level.WARN : Level.DEBUG)
-            .setMessage(
-                "Backward sync halted: parent world state is unavailable while validating block {}. "
-                    + "This may indicate snap sync completed with an incomplete world state. "
-                    + "Call debug_resyncWorldState to repair the world state and resume syncing.")
-            .addArgument(block::toLogString)
-            .log();
-        throw new BackwardSyncException(
-            "Parent world state unavailable for block "
-                + block.toLogString()
-                + " backward sync halted. Run debug_resyncWorldState to recover.",
-            false);
-      }
-      // the validator records the block only when the failure condemns the block itself
-      if (getProtocolContext().getBadBlockManager().isBadBlock(block.getHash())) {
-        emitBadChainEvent(block.getHeader());
-      }
-      throw new BackwardSyncException(
-          "Cannot save block "
-              + block.toLogString()
-              + " because of "
-              + optResult.errorMessage.orElseThrow());
+  /** Stops the sync after the block being imported. Use {@link #awaitStop()} to wait for it. */
+  public void stop() {
+    synchronized (this) {
+      stopped = true;
     }
-
-    return null;
+    syncState.unsubscribeTTDReached(ttdSubscription);
+    syncState.unsubscribeInitialConditionReached(completionSubscription);
+    ethPeers.unsubscribeConnect(connectSubscription);
+    post(engine::stop);
+    loop.shutdown();
   }
 
   /**
-   * Fail the session on a block that is already known as bad, whichever way the session was
-   * started: executing it again can only repeat the failure that recorded it. The descendants the
-   * backward chain holds for it are marked, so the consensus client is told on its next call.
+   * Waits for the loop to finish its import, then releases the requests, the header download and
+   * the open session.
    *
-   * @param header the header of the block about to be linked or executed
+   * @throws InterruptedException when interrupted while waiting
    */
-  protected void failIfBadBlock(final BlockHeader header) {
-    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
-    if (!badBlockManager.isBadBlock(header.getHash())) {
+  public void awaitStop() throws InterruptedException {
+    if (!loop.awaitTermination(STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+      LOG.warn("Backward sync did not stop within {} seconds", STOP_TIMEOUT_SECONDS);
+    }
+    sender.stop();
+    headerExecutor.shutdownNow();
+    final CompletableFuture<Void> open;
+    synchronized (this) {
+      open = session;
+      session = null;
+    }
+    if (open != null) {
+      open.completeExceptionally(new BackwardSyncException("backward sync stopped"));
+    }
+  }
+
+  @Override
+  public void syncing() {
+    synchronized (this) {
+      currentSession();
+    }
+  }
+
+  @Override
+  public void completed() {
+    endSession(null);
+  }
+
+  @Override
+  public void failed(final BackwardSyncException e) {
+    endSession(e);
+  }
+
+  private void endSession(final BackwardSyncException failure) {
+    final CompletableFuture<Void> ended;
+    synchronized (this) {
+      ended = session;
+      session = null;
+    }
+    if (ended == null) {
       return;
     }
-    // a block that made it onto the chain cannot be bad, the entry is stale
-    if (getProtocolContext().getBlockchain().contains(header.getHash())) {
-      badBlockManager.removeBadBlock(header.getHash());
-      return;
-    }
-    emitBadChainEvent(header);
-    throw new BackwardSyncException(
-        "Cannot save block " + header.toLogString() + " because it is a known bad block");
-  }
-
-  @VisibleForTesting
-  protected void possiblyMoveHead(final Block lastSavedBlock) {
-    final MutableBlockchain blockchain = getProtocolContext().getBlockchain();
-
-    if (blockchain.getChainHead().getHash().equals(lastSavedBlock.getHash())) {
-      LOG.atDebug()
-          .setMessage("Head is already properly set to {}")
-          .addArgument(lastSavedBlock::toLogString)
-          .log();
-      return;
-    }
-
-    LOG.atDebug()
-        .setMessage("Rewinding head to last saved block {}")
-        .addArgument(lastSavedBlock::toLogString)
-        .log();
-    blockchain.rewindToBlock(lastSavedBlock.getHash());
-  }
-
-  public SyncState getSyncState() {
-    return syncState;
-  }
-
-  public synchronized BackwardChain getBackwardChain() {
-    return backwardChain;
-  }
-
-  public Status getStatus() {
-    return currentBackwardSyncStatus.get();
-  }
-
-  private void emitBadChainEvent(final BlockHeader badBlock) {
-    final BadBlockManager badBlockManager = getProtocolContext().getBadBlockManager();
-    final List<Block> badBlockDescendants = new ArrayList<>();
-    final List<BlockHeader> badBlockHeaderDescendants = new ArrayList<>();
-
-    Optional<Hash> descendant = backwardChain.getDescendant(badBlock.getHash());
-
-    // descendants that are already marked do not count against the cap, so the marking of a chain
-    // longer than the cap makes progress on every session
-    while (descendant.isPresent()
-        && badBlockDescendants.size() + badBlockHeaderDescendants.size()
-            < maxBadChainEventEntries) {
-      final Hash descendantHash = descendant.get();
-      if (!badBlockManager.isBadBlock(descendantHash)) {
-        // the bad block manager keeps no more descendant bodies than this, the rest of a long chain
-        // is collected as headers so its bodies are never loaded
-        final Optional<Block> block =
-            badBlockDescendants.size() < BadBlockManager.MAX_BAD_DESCENDANT_BODIES
-                ? backwardChain.getBlock(descendantHash)
-                : Optional.empty();
-        if (block.isPresent()) {
-          badBlockDescendants.add(block.get());
-        } else {
-          backwardChain.getHeader(descendantHash).ifPresent(badBlockHeaderDescendants::add);
-        }
-      }
-
-      descendant = backwardChain.getDescendant(descendantHash);
-    }
-
-    badChainListeners.forEach(
-        listener -> listener.onBadChain(badBlock, badBlockDescendants, badBlockHeaderDescendants));
-  }
-
-  private void logImportedBlockParallelization(
-      final Block block,
-      final Optional<Integer> nbParallelizedTransactions,
-      final boolean balProvided) {
-    if (!LOG.isDebugEnabled()) {
-      return;
-    }
-    final int nbTransactions = block.getBody().getTransactions().size();
-    final String balSuffix =
-        block.getHeader().getBalHash().isPresent()
-            ? (balProvided ? " | BAL provided" : " | BAL reconstructed")
-            : "";
-    if (nbParallelizedTransactions.isPresent() && nbTransactions > 0) {
-      final double parallelizedTxPercentage =
-          (double) (nbParallelizedTransactions.get() * 100) / nbTransactions;
-      LOG.debug(
-          String.format(
-              "Backward sync imported #%,d (%s)| %4d tx (%5.1f%% parallel)%s",
-              block.getHeader().getNumber(),
-              block.getHash().toShortLogString(),
-              nbTransactions,
-              parallelizedTxPercentage,
-              balSuffix));
+    if (failure == null) {
+      ended.complete(null);
     } else {
-      LOG.debug(
-          String.format(
-              "Backward sync imported #%,d (%s)| %4d tx%s",
-              block.getHeader().getNumber(),
-              block.getHash().toShortLogString(),
-              nbTransactions,
-              balSuffix));
+      ended.completeExceptionally(failure);
     }
   }
 
-  private void logBlockImportProgress(final long currImportedHeight) {
-    final Status currentStatus = getStatus();
-    final long targetHeight = currentStatus.getTargetChainHeight();
-    final long initialHeight = currentStatus.getInitialChainHeight();
-    final long estimatedTotal = targetHeight - initialHeight;
-    final long imported = currImportedHeight - initialHeight;
-
-    final float completedPercentage = 100.0f * imported / estimatedTotal;
-
-    if (completedPercentage < 100.0f) {
-      if (currentStatus.progressLogDue() && targetHeight > 0) {
-        LOG.info(
-            String.format(
-                "Backward sync phase 2 of 2, %.2f%% completed, imported %d blocks of at least %d (current head %d, target head %d). Peers: %d",
-                completedPercentage,
-                imported,
-                estimatedTotal,
-                currImportedHeight,
-                currentStatus.getTargetChainHeight(),
-                getEthContext().getEthPeers().peerCount()));
-      }
-    } else {
-      LOG.info(
-          String.format(
-              "Backward sync phase 2 of 2 completed, imported a total of %d blocks. Peers: %d",
-              imported, getEthContext().getEthPeers().peerCount()));
-    }
-  }
-
-  public SynchronizerConfiguration getSynchronizerConfiguration() {
-    return synchronizerConfiguration;
-  }
-
-  class Status {
-    private final CompletableFuture<Void> currentFuture;
-    private final long initialChainHeight;
-    private long targetChainHeight;
-
-    private long lastLogAt = 0;
-
-    public Status(final CompletableFuture<Void> currentFuture) {
-      this.currentFuture = currentFuture;
-      this.initialChainHeight = protocolContext.getBlockchain().getChainHeadBlockNumber();
-    }
-
-    public void updateTargetHeight(final long newTargetHeight) {
-      targetChainHeight = newTargetHeight;
-    }
-
-    public boolean progressLogDue() {
-      final long now = System.currentTimeMillis();
-      if (now - lastLogAt > MILLIS_DELAY_BETWEEN_PROGRESS_LOG) {
-        lastLogAt = now;
-        return true;
-      }
-      return false;
-    }
-
-    public long getTargetChainHeight() {
-      return targetChainHeight;
-    }
-
-    public long getInitialChainHeight() {
-      return initialChainHeight;
-    }
+  @Override
+  public void badChain(
+      final BlockHeader bad, final List<Block> blocks, final List<BlockHeader> headers) {
+    badChainListeners.forEach(listener -> listener.onBadChain(bad, blocks, headers));
   }
 }

@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
+package org.hyperledger.besu.ethereum.eth.sync.snapsync.context;
 
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;

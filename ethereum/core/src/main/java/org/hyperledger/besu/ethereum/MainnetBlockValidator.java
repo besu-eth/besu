@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListStateApplier;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -417,6 +418,108 @@ public class MainnetBlockValidator implements BlockValidator {
     } catch (Exception ex) {
       // Wrap checked autocloseable exception from try-with-resources
       throw new RuntimeException(ex);
+    }
+  }
+
+  @Override
+  public BlockProcessingResult validateAndApplyBlockAccessList(
+      final ProtocolContext context,
+      final Block block,
+      final BlockAccessList blockAccessList,
+      final List<TransactionReceipt> receipts) {
+    final int blockSize = block.getSize();
+    if (blockSize > maxRlpBlockSize) {
+      return new BlockProcessingResult(
+          "Block size of " + blockSize + " bytes exceeds limit of " + maxRlpBlockSize + " bytes");
+    }
+
+    final BlockHeader header = block.getHeader();
+    final BlockHeader parentHeader;
+    try {
+      final Optional<BlockHeader> maybeParentHeader =
+          context.getBlockchain().getBlockHeader(header.getParentHash());
+      if (maybeParentHeader.isEmpty()) {
+        return new BlockProcessingResult(
+            "Parent block with hash " + header.getParentHash() + " not present");
+      }
+      parentHeader = maybeParentHeader.get();
+      if (!blockHeaderValidator.validateHeader(
+          header, parentHeader, context, HeaderValidationMode.FULL)) {
+        return new BlockProcessingResult(
+            String.format("Header validation failed (%s)", HeaderValidationMode.FULL));
+      }
+    } catch (StorageException ex) {
+      return new BlockProcessingResult(Optional.empty(), ex);
+    }
+
+    if (!blockAccessListValidator.validate(
+        Optional.of(blockAccessList), header, block.getBody().getTransactions().size())) {
+      return new BlockProcessingResult(
+          String.format("Block access list validation failed for block %s", header.getBlockHash()));
+    }
+
+    // checks the transactions, receipts and withdrawals roots and the logs bloom before anything is
+    // written; the state root is checked when the world state is persisted
+    if (!blockBodyValidator.validateBody(
+        context,
+        block,
+        receipts,
+        header.getStateRoot(),
+        HeaderValidationMode.NONE,
+        BodyValidationMode.FULL,
+        OptionalLong.empty())) {
+      return new BlockProcessingResult("failed to validate body of block access list block");
+    }
+
+    return context
+        .getWorldStateArchive()
+        .withHeadWorldStateLock(
+            () -> applyOnParentWorldState(context, block, parentHeader, blockAccessList, receipts));
+  }
+
+  private BlockProcessingResult applyOnParentWorldState(
+      final ProtocolContext context,
+      final Block block,
+      final BlockHeader parentHeader,
+      final BlockAccessList blockAccessList,
+      final List<TransactionReceipt> receipts) {
+    final WorldStateQueryParams worldStateQueryParams =
+        WorldStateQueryParams.newBuilder()
+            .withBlockHeader(parentHeader)
+            .withShouldWorldStateUpdateHead(true)
+            .build();
+    try (final var worldState =
+        context.getWorldStateArchive().getWorldState(worldStateQueryParams).orElse(null)) {
+      if (worldState == null) {
+        return BlockProcessingResult.worldStateUnavailable(
+            "Unable to apply block because parent world state "
+                + parentHeader.getStateRoot()
+                + " is not available");
+      }
+      if (!(worldState instanceof PathBasedWorldState pathBasedWorldState)) {
+        return new BlockProcessingResult(
+            "Applying a block access list needs a path-based world state");
+      }
+
+      final BlockHeader header = block.getHeader();
+      context.getWorldStateArchive().prepareWorldStateForBlock(header, pathBasedWorldState);
+      final var updater = pathBasedWorldState.updater();
+      BlockAccessListStateApplier.apply(updater, blockAccessList);
+      updater.commit();
+      // verifies the state root before anything is committed and rolls back on a mismatch
+      pathBasedWorldState.persist(header);
+
+      return new BlockProcessingResult(
+          Optional.of(
+              new BlockProcessingOutputs(
+                  pathBasedWorldState, receipts, Optional.empty(), Optional.of(blockAccessList))));
+    } catch (Exception ex) {
+      LOG.debug(
+          "Applying the block access list of block {} failed: {}",
+          block.toLogString(),
+          ex.getMessage(),
+          ex);
+      return new BlockProcessingResult(Optional.empty(), ex);
     }
   }
 

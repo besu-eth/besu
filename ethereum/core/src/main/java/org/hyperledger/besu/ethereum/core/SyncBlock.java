@@ -15,6 +15,9 @@
 package org.hyperledger.besu.ethereum.core;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.Objects;
 
@@ -26,6 +29,22 @@ public class SyncBlock {
   public SyncBlock(final BlockHeader header, final SyncBlockBody body) {
     this.header = header;
     this.body = body;
+  }
+
+  /**
+   * Converts a block to its sync form by encoding the body and reading it back.
+   *
+   * @param block the block
+   * @param protocolSchedule the protocol schedule used to decode the body
+   * @return the sync block
+   */
+  public static SyncBlock of(final Block block, final ProtocolSchedule protocolSchedule) {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    block.getBody().writeWrappedBodyTo(output);
+    final SyncBlockBody body =
+        SyncBlockBody.readWrappedBodyFrom(
+            new BytesValueRLPInput(output.encoded(), false), false, protocolSchedule);
+    return new SyncBlock(block.getHeader(), body);
   }
 
   public BlockHeader getHeader() {

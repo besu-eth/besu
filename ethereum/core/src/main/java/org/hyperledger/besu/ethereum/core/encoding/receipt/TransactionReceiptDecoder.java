@@ -18,8 +18,10 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.List;
@@ -65,6 +67,24 @@ public class TransactionReceiptDecoder {
       @Nullable LogsBloomFilter bloomFilter,
       List<Log> logs,
       RLPInput input) {}
+
+  /**
+   * Decodes a receipt as downloaded from a peer. A flat receipt (Frontier / eth/69) is a complete
+   * RLP list; a typed receipt (EIP-2718) is {@code type || RLP(fields)} and is re-wrapped as an RLP
+   * bytes item for the typed decoder.
+   *
+   * @param receipt the downloaded receipt
+   * @return the transaction receipt
+   */
+  public static TransactionReceipt decodeSyncReceipt(final SyncTransactionReceipt receipt) {
+    final Bytes rlp = receipt.getRlpBytes();
+    if ((rlp.get(0) & 0xFF) >= 0xC0) {
+      return readFrom(new BytesValueRLPInput(rlp, false), true);
+    }
+    final BytesValueRLPOutput wrapper = new BytesValueRLPOutput();
+    wrapper.writeBytes(rlp);
+    return readFrom(new BytesValueRLPInput(wrapper.encoded(), false), true);
+  }
 
   /**
    * Creates a transaction receipt for the given RLP (Frontier/pre-Amsterdam format).

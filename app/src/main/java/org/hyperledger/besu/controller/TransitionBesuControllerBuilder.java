@@ -17,7 +17,6 @@ package org.hyperledger.besu.controller;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
-import org.hyperledger.besu.consensus.merge.TransitionBackwardSyncContext;
 import org.hyperledger.besu.consensus.merge.TransitionContext;
 import org.hyperledger.besu.consensus.merge.TransitionProtocolSchedule;
 import org.hyperledger.besu.consensus.merge.blockcreation.TransitionCoordinator;
@@ -43,7 +42,6 @@ import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -115,17 +113,15 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
     // TransitionCoordinator:
     preMergeBesuControllerBuilder.overrideMiningConfiguration(miningConfiguration);
 
-    // construct a transition backward sync context
-    BackwardSyncContext transitionBackwardsSyncContext =
-        new TransitionBackwardSyncContext(
+    final BackwardSyncContext transitionBackwardsSyncContext =
+        new BackwardSyncContext(
             protocolContext,
             transitionProtocolSchedule,
             syncConfig,
             metricsSystem,
             ethProtocolManager.ethContext(),
             syncState,
-            storageProvider,
-            new BackwardSyncAlgorithmFactory());
+            storageProvider);
 
     final TransitionCoordinator composedCoordinator =
         new TransitionCoordinator(

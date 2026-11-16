@@ -148,6 +148,7 @@ public class MergeBesuControllerBuilderTest {
     lenient()
         .when(storageProvider.getStorageBySegmentIdentifier(any()))
         .thenReturn(new InMemoryKeyValueStorage());
+    lenient().when(synchronizerConfiguration.getDownloaderHeaderRequestSize()).thenReturn(192);
     lenient().when(synchronizerConfiguration.getDownloaderParallelism()).thenReturn(1);
     lenient().when(synchronizerConfiguration.getTransactionsParallelism()).thenReturn(1);
     lenient().when(synchronizerConfiguration.getComputationParallelism()).thenReturn(1);

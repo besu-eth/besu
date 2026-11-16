@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.eth.core;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
-import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
@@ -61,19 +60,7 @@ public class Utils {
   }
 
   public static TransactionReceipt syncReceiptToReceipt(final SyncTransactionReceipt syncReceipt) {
-    final Bytes rlpBytes = syncReceipt.getRlpBytes();
-    // Flat receipts (Frontier / eth69): rlpBytes is a complete RLP list, usable directly.
-    // Typed receipts (EIP-2718+): rlpBytes is type || RLP(fields) and must be re-wrapped
-    // as an RLP bytes item so that TransactionReceiptDecoder.decodeTypedReceipt can call
-    // readBytes() to obtain the full typed-receipt payload.
-    if ((rlpBytes.get(0) & 0xFF) >= 0xC0) {
-      return TransactionReceiptDecoder.readFrom(new BytesValueRLPInput(rlpBytes, false), true);
-    } else {
-      final BytesValueRLPOutput wrapper = new BytesValueRLPOutput();
-      wrapper.writeBytes(rlpBytes);
-      return TransactionReceiptDecoder.readFrom(
-          new BytesValueRLPInput(wrapper.encoded(), false), true);
-    }
+    return TransactionReceiptDecoder.decodeSyncReceipt(syncReceipt);
   }
 
   public static List<TransactionReceipt> syncReceiptsToReceipts(
@@ -82,12 +69,7 @@ public class Utils {
   }
 
   public static SyncBlock blockToSyncBlock(final Block block) {
-    BytesValueRLPOutput rlpOutput = new BytesValueRLPOutput();
-    block.getBody().writeWrappedBodyTo(rlpOutput);
-    final BytesValueRLPInput input = new BytesValueRLPInput(rlpOutput.encoded(), false);
-    final SyncBlockBody syncBlockBody =
-        SyncBlockBody.readWrappedBodyFrom(input, false, new DefaultProtocolSchedule(ChainId.of(1)));
-    return new SyncBlock(block.getHeader(), syncBlockBody);
+    return SyncBlock.of(block, new DefaultProtocolSchedule(ChainId.of(1)));
   }
 
   public static List<SyncBlock> blocksToSyncBlocks(final List<Block> blocks) {

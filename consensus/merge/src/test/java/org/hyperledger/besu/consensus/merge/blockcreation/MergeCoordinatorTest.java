@@ -70,7 +70,6 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
@@ -1316,7 +1315,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     BlockHeader mockHeader =
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
     when(mergeContext.isInitialSyncDone()).thenReturn(true);
-    when(backwardSyncContext.syncBackwardsUntil(mockHeader.getBlockHash()))
+    when(backwardSyncContext.syncBackwardsUntil(mockHeader.getBlockHash(), Hash.ZERO))
         .thenReturn(CompletableFuture.completedFuture(null));
 
     var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO);
@@ -1333,8 +1332,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     var res = coordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO);
 
     assertThat(res).isNotPresent();
-    verify(backwardSyncContext, never()).maybeUpdateTargetHeight(any());
-    verify(backwardSyncContext, never()).syncBackwardsUntil(any(Hash.class));
+    verify(backwardSyncContext, never()).syncBackwardsUntil(any(Hash.class), any(Hash.class));
   }
 
   @Test
@@ -1343,13 +1341,15 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     final CompletableFuture<Void> firstSession = new CompletableFuture<>();
     final CompletableFuture<Void> secondSession = new CompletableFuture<>();
 
-    when(backwardSyncContext.syncBackwardsUntil(any(Hash.class))).thenReturn(firstSession);
+    when(backwardSyncContext.syncBackwardsUntil(any(Hash.class), any(Hash.class)))
+        .thenReturn(firstSession);
     forkchoiceUpdateWithUnknownHead(1);
     forkchoiceUpdateWithUnknownHead(2);
     final BlockHeader firstSessionFinalized = forkchoiceUpdateWithUnknownHead(3);
     firstSession.complete(null);
 
-    when(backwardSyncContext.syncBackwardsUntil(any(Hash.class))).thenReturn(secondSession);
+    when(backwardSyncContext.syncBackwardsUntil(any(Hash.class), any(Hash.class)))
+        .thenReturn(secondSession);
     forkchoiceUpdateWithUnknownHead(4);
     final BlockHeader secondSessionFinalized = forkchoiceUpdateWithUnknownHead(5);
     secondSession.complete(null);
@@ -1367,26 +1367,22 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     final BlockHeader child = headerGenerator.parentHash(badParent.getHash()).buildHeader();
     badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("failed"));
 
-    final BackwardChain backwardChain = mock(BackwardChain.class);
-    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
-    when(backwardChain.getHeader(child.getHash())).thenReturn(Optional.of(child));
+    when(backwardSyncContext.getPendingHeader(child.getHash())).thenReturn(Optional.of(child));
 
     assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isTrue();
     assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
   }
 
   @Test
-  public void assertCheckAndMarkBadDescendantIgnoresAHeaderTheBackwardChainDoesNotKnow() {
+  public void assertCheckAndMarkBadDescendantIgnoresAHeaderThePendingChainDoesNotKnow() {
     final BlockHeader unknown =
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xbeef")).buildHeader();
-    // a bad block must be known, an empty manager short-circuits before the backward chain
+    // a bad block must be known, an empty manager short-circuits before the pending chain
     badBlockManager.addBadHeader(
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xdead")).buildHeader(),
         BadBlockCause.fromValidationFailure("failed"));
 
-    final BackwardChain backwardChain = mock(BackwardChain.class);
-    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
-    when(backwardChain.getHeader(unknown.getHash())).thenReturn(Optional.empty());
+    when(backwardSyncContext.getPendingHeader(unknown.getHash())).thenReturn(Optional.empty());
 
     assertThat(coordinator.checkAndMarkBadDescendant(unknown.getHash())).isFalse();
     assertThat(badBlockManager.isBadBlock(unknown.getHash())).isFalse();
@@ -1397,7 +1393,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(coordinator.checkAndMarkBadDescendant(Hash.fromHexStringLenient("0xbeef")))
         .isFalse();
 
-    verify(backwardSyncContext, never()).getBackwardChain();
+    verify(backwardSyncContext, never()).getPendingHeader(any());
   }
 
   @Test
@@ -1407,9 +1403,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     badBlockManager.addBadHeader(chainParent, BadBlockCause.fromValidationFailure("stale"));
     final BlockHeader child = headerGenerator.parentHash(chainParent.getHash()).buildHeader();
 
-    final BackwardChain backwardChain = mock(BackwardChain.class);
-    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
-    when(backwardChain.getHeader(child.getHash())).thenReturn(Optional.of(child));
+    when(backwardSyncContext.getPendingHeader(child.getHash())).thenReturn(Optional.of(child));
 
     assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isFalse();
     assertThat(badBlockManager.isBadBlock(child.getHash())).isFalse();
@@ -1426,7 +1420,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .map(BadBlockCause::getDescription)
         .contains("Descends from bad block " + badParent.toLogString());
     assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
-    verify(backwardSyncContext, never()).getBackwardChain();
+    verify(backwardSyncContext, never()).getPendingHeader(any());
   }
 
   @Test

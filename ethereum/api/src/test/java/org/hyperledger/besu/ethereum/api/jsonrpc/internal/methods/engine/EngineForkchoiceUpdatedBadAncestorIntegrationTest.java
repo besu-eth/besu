@@ -66,7 +66,7 @@ import org.junit.jupiter.api.Test;
  *       org.hyperledger.besu.ethereum.MainnetBlockValidator} does on a failed import).
  *   <li>{@link MergeCoordinator#onBadChain(Block, List, List)} is called with B and a descendant D
  *       simulating the backward-sync code path that fires on {@code
- *       BackwardSyncContext.emitBadChainEvent}. This should propagate B's "bad" marking to every
+ *       BackwardSync.emitBadChainEvent}. This should propagate B's "bad" marking to every
  *       descendant, and record each descendant's {@code latestValidHash} as B's (valid) parent
  *       hash.
  *   <li>A JSON-RPC {@code engine_forkchoiceUpdated} call is invoked with {@code headBlockHash = D}.
@@ -170,7 +170,7 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     // to the manager directly, without a latestValidHash for B itself.
     badBlockManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("BAL mismatch"));
 
-    // Simulate BackwardSyncContext.emitBadChainEvent firing — MergeCoordinator is
+    // Simulate BackwardSync.emitBadChainEvent firing — MergeCoordinator is
     // registered as a BadChainListener in its constructor and receives the descendant list.
     mergeCoordinator.onBadChain(badBlock.getHeader(), emptyList(), List.of(descendantHeader));
 

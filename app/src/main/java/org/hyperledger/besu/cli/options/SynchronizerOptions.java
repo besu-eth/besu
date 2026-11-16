@@ -91,6 +91,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private static final String SNAP_TRANSACTION_INDEXING_ENABLED_FLAG =
       "--snapsync-synchronizer-transaction-indexing-enabled";
   private static final String SNAP2_BACKFILL_ENABLED_FLAG = "--Xsnap2-backfill-enabled";
+  private static final String BACKWARD_SYNC_BAL_APPLY_ENABLED_FLAG =
+      "--Xbackward-sync-bal-apply-enabled";
 
   private static final String SNAP_FLAT_ACCOUNT_HEALED_COUNT_PER_REQUEST_FLAG =
       "--Xsnapsync-synchronizer-flat-account-healed-count-per-request";
@@ -474,6 +476,16 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private Integer era1ImportPrepipelineConcurrency =
       SynchronizerConfiguration.DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY;
 
+  @CommandLine.Option(
+      names = {BACKWARD_SYNC_BAL_APPLY_ENABLED_FLAG},
+      hidden = true,
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      description =
+          "Advance the world state of the blocks backward sync imports at or below the block the consensus client finalized from their block access lists, with their receipts downloaded, instead of executing them. Never applies in FULL sync mode. (default: ${DEFAULT-VALUE})")
+  private Boolean backwardSyncBalApplyEnabled =
+      SynchronizerConfiguration.DEFAULT_BACKWARD_SYNC_BAL_APPLY_ENABLED;
+
   private SynchronizerOptions() {}
 
   /**
@@ -556,6 +568,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
+    options.backwardSyncBalApplyEnabled = config.isBackwardSyncBalApplyEnabled();
     options.receiptsDownloadStepTimeoutMillis = config.getForwardDownloadStepTimeoutMillis();
     options.backwardHeadersDownloadStepTimeoutMillis =
         config.getBackwardHeadersDownloadStepTimeoutMillis();
@@ -607,6 +620,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     builder.era1DataUri(era1DataUri);
     builder.era1ImportPrepipelineConcurrency(era1ImportPrepipelineConcurrency);
     builder.snapSyncHeadersToCheckpointOnly(snapSyncHeadersToCheckpointOnly);
+    builder.backwardSyncBalApplyEnabled(backwardSyncBalApplyEnabled);
     return builder;
   }
 
@@ -685,7 +699,9 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             ERA1_IMPORT_PREPIPELINE_CONCURRENCY_FLAG,
             OptionParser.format(era1ImportPrepipelineConcurrency),
             SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG,
-            OptionParser.format(snapSyncHeadersToCheckpointOnly));
+            OptionParser.format(snapSyncHeadersToCheckpointOnly),
+            BACKWARD_SYNC_BAL_APPLY_ENABLED_FLAG,
+            OptionParser.format(backwardSyncBalApplyEnabled));
     return value;
   }
 }

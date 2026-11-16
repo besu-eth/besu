@@ -87,6 +87,7 @@
 - The transaction pools process the result of a transaction that is still executing when the block selection time runs out once its execution completes, so the layered pool penalises a transaction that took too long, and both pools remove it if invalid, instead of missing its result. Selection results are processed asynchronously in both pools.
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
+- Backward sync is rewritten to download headers and block data from many peers at once and to import blocks continuously, replacing the one-request-at-a-time pipeline. It also serves post-merge full sync. Blocks at or below the finalized block whose block access list is available are imported without execution, by advancing the world state from the block access list (never in `--sync-mode=FULL`; hidden opt-out `--Xbackward-sync-bal-apply-enabled=false`). Backward sync data persisted by earlier versions is discarded on the first start. `TransitionCoordinator` now also stops the post-merge coordinator.
 
 ## 26.11.0
 

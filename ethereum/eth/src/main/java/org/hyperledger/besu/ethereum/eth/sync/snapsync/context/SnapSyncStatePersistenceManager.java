@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.context;
 
-import org.hyperledger.besu.ethereum.eth.sync.backwardsync.GenericKeyValueStorageFacade;
-import org.hyperledger.besu.ethereum.eth.sync.backwardsync.ValueConvertor;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;

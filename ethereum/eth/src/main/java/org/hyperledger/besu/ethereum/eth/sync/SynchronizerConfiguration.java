@@ -59,6 +59,7 @@ public class SynchronizerConfiguration {
   public static final Boolean DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED = Boolean.FALSE;
   public static final URI DEFAULT_ERA1_DATA_URI = URI.create("https://mainnet.era1.nimbus.team/");
   public static final Integer DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY = 1;
+  public static final boolean DEFAULT_BACKWARD_SYNC_BAL_APPLY_ENABLED = true;
   public static final boolean DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY = false;
   // Fast sync config
   private final int syncPivotDistance;
@@ -101,6 +102,7 @@ public class SynchronizerConfiguration {
   private final boolean era1ImportPrepipelineEnabled;
   private final URI era1DataUri;
   private final int era1ImportPrepipelineConcurrency;
+  private final boolean backwardSyncBalApplyEnabled;
 
   private SynchronizerConfiguration(
       final int syncPivotDistance,
@@ -132,7 +134,8 @@ public class SynchronizerConfiguration {
       final boolean snapSyncHeadersToCheckpointOnly,
       final boolean era1ImportPrepipelineEnabled,
       final URI era1DataUri,
-      final int era1ImportPrepipelineConcurrency) {
+      final int era1ImportPrepipelineConcurrency,
+      final boolean backwardSyncBalApplyEnabled) {
     this.syncPivotDistance = syncPivotDistance;
     this.fastSyncFullValidationRate = fastSyncFullValidationRate;
     this.syncMinimumPeerCount = syncMinimumPeerCount;
@@ -163,6 +166,7 @@ public class SynchronizerConfiguration {
     this.era1ImportPrepipelineEnabled = era1ImportPrepipelineEnabled;
     this.era1DataUri = era1DataUri;
     this.era1ImportPrepipelineConcurrency = era1ImportPrepipelineConcurrency;
+    this.backwardSyncBalApplyEnabled = backwardSyncBalApplyEnabled;
   }
 
   public static Builder builder() {
@@ -320,6 +324,10 @@ public class SynchronizerConfiguration {
     return era1ImportPrepipelineConcurrency;
   }
 
+  public boolean isBackwardSyncBalApplyEnabled() {
+    return backwardSyncBalApplyEnabled;
+  }
+
   public static class Builder {
     private SyncMode syncMode = SyncMode.FULL;
     private int syncMinimumPeerCount = DEFAULT_SYNC_MINIMUM_PEERS;
@@ -352,6 +360,7 @@ public class SynchronizerConfiguration {
     private boolean era1ImportPrepipelineEnabled = DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED;
     private URI era1DataUri = DEFAULT_ERA1_DATA_URI;
     private int era1ImportPrepipelineConcurrency = DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY;
+    private boolean backwardSyncBalApplyEnabled = DEFAULT_BACKWARD_SYNC_BAL_APPLY_ENABLED;
     private long receiptsDownloadStepTimeoutMillis = DEFAULT_RECEIPTS_DOWNLOAD_STEP_TIMEOUT_MILLIS;
     private long backwardHeadersDownloadStepTimeoutMillis =
         DEFAULT_BACKWARD_HEADERS_DOWNLOAD_STEP_TIMEOUT_MILLIS;
@@ -520,6 +529,11 @@ public class SynchronizerConfiguration {
       return this;
     }
 
+    public Builder backwardSyncBalApplyEnabled(final boolean backwardSyncBalApplyEnabled) {
+      this.backwardSyncBalApplyEnabled = backwardSyncBalApplyEnabled;
+      return this;
+    }
+
     public SynchronizerConfiguration build() {
       return new SynchronizerConfiguration(
           syncPivotDistance,
@@ -551,7 +565,8 @@ public class SynchronizerConfiguration {
           snapSyncHeadersToCheckpointOnly,
           era1ImportPrepipelineEnabled,
           era1DataUri,
-          era1ImportPrepipelineConcurrency);
+          era1ImportPrepipelineConcurrency,
+          backwardSyncBalApplyEnabled);
     }
   }
 }

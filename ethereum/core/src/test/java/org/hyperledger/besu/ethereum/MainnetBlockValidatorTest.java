@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -42,6 +43,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
@@ -49,11 +51,14 @@ import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
+import org.hyperledger.besu.ethereum.mainnet.MainnetBlockBodyValidator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -72,6 +77,7 @@ import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -813,6 +819,136 @@ public class MainnetBlockValidatorTest {
 
     assertThat(result.isSuccessful()).isTrue();
     assertThat(badBlockManager.getBadBlocks()).isEmpty();
+  }
+
+  /** The parent world state is advanced from the block access list of an empty mainnet block. */
+  @Nested
+  class ValidateAndApplyBlockAccessList {
+
+    private final BlockchainSetupUtil parentChain = BlockchainSetupUtil.forMainnet();
+    private ProtocolContext realContext;
+    private BlockHeader parent;
+    private Block child;
+    private BlockAccessList childBlockAccessList;
+    private BlockValidator validator;
+
+    @BeforeEach
+    void prepare() {
+      parentChain.importFirstBlocks(2);
+      final BlockchainSetupUtil childChain = BlockchainSetupUtil.forMainnet();
+      childChain.importFirstBlocks(3);
+
+      realContext = parentChain.getProtocolContext();
+      parent = parentChain.getBlock(1).getHeader();
+      child = parentChain.getBlock(2);
+      assertThat(child.getBody().getTransactions()).isEmpty();
+      assertThat(child.getBody().getOmmers()).isEmpty();
+
+      // an empty block only pays its coinbase
+      final Address coinbase = child.getHeader().getCoinbase();
+      final Wei coinbaseBalance =
+          childChain.getWorldArchive().getWorldState().get(coinbase).getBalance();
+      childBlockAccessList =
+          new BlockAccessList(
+              List.of(
+                  new BlockAccessList.AccountChanges(
+                      coinbase,
+                      List.of(),
+                      List.of(),
+                      List.of(new BlockAccessList.BalanceChange(1, coinbaseBalance)),
+                      List.of(),
+                      List.of())));
+
+      validator =
+          MainnetBlockValidatorBuilder.frontier(
+              blockHeaderValidator,
+              new MainnetBlockBodyValidator(parentChain.getProtocolSchedule()),
+              blockProcessor,
+              blockAccessListValidator);
+    }
+
+    @Test
+    void persistsTheNewRootAndKeepsTheReceipts() {
+      final List<TransactionReceipt> receipts = List.of();
+
+      final BlockProcessingResult result =
+          validator.validateAndApplyBlockAccessList(
+              realContext, child, childBlockAccessList, receipts);
+
+      assertThat(result.isSuccessful()).isTrue();
+      final BlockProcessingOutputs outputs = result.getYield().orElseThrow();
+      assertThat(outputs.getReceipts()).isSameAs(receipts);
+      assertThat(outputs.getBlockAccessList()).contains(childBlockAccessList);
+      final PathBasedWorldState head = headWorldState();
+      assertThat(head.rootHash()).isEqualTo(child.getHeader().getStateRoot());
+      assertThat(head.blockHash()).isEqualTo(child.getHash());
+      assertThat(realContext.getBadBlockManager().getBadBlocks()).isEmpty();
+      verify(blockProcessor, never()).processBlock(any());
+    }
+
+    @Test
+    void aWrongStateRootFailsLeavesTheParentAsHeadAndRecordsNoBadBlock() {
+      final Block wrongStateRoot =
+          withHeader(
+              BlockHeaderBuilder.fromHeader(child.getHeader()).stateRoot(Hash.EMPTY_TRIE_HASH));
+
+      final BlockProcessingResult result =
+          validator.validateAndApplyBlockAccessList(
+              realContext, wrongStateRoot, childBlockAccessList, List.of());
+
+      assertThat(result.isFailed()).isTrue();
+      assertThat(result.causedBy()).containsInstanceOf(StateRootMismatchException.class);
+      final PathBasedWorldState head = headWorldState();
+      assertThat(head.rootHash()).isEqualTo(parent.getStateRoot());
+      assertThat(head.blockHash()).isEqualTo(parent.getHash());
+      assertThat(realContext.getBadBlockManager().getBadBlocks()).isEmpty();
+      assertThat(realContext.getBadBlockManager().getBadBlock(wrongStateRoot.getHash())).isEmpty();
+    }
+
+    @Test
+    void aWrongReceiptsRootFailsBeforeAnythingIsWritten() {
+      final Block wrongReceiptsRoot =
+          withHeader(
+              BlockHeaderBuilder.fromHeader(child.getHeader())
+                  .receiptsRoot(Hash.fromHexStringLenient("0x1234")));
+
+      final BlockProcessingResult result =
+          validator.validateAndApplyBlockAccessList(
+              realContext, wrongReceiptsRoot, childBlockAccessList, List.of());
+
+      assertValidationFailed(result, "failed to validate body");
+      assertThat(result.causedBy()).isEmpty();
+      final PathBasedWorldState head = headWorldState();
+      assertThat(head.rootHash()).isEqualTo(parent.getStateRoot());
+      assertThat(head.blockHash()).isEqualTo(parent.getHash());
+      assertThat(realContext.getBadBlockManager().getBadBlocks()).isEmpty();
+    }
+
+    @Test
+    void aMissingParentFails() {
+      final Block orphan =
+          withHeader(
+              BlockHeaderBuilder.fromHeader(child.getHeader()).parentHash(Hash.EMPTY_TRIE_HASH));
+
+      final BlockProcessingResult result =
+          validator.validateAndApplyBlockAccessList(
+              realContext, orphan, childBlockAccessList, List.of());
+
+      assertValidationFailed(
+          result, "Parent block with hash " + Hash.EMPTY_TRIE_HASH + " not present");
+      assertThat(headWorldState().blockHash()).isEqualTo(parent.getHash());
+      assertThat(realContext.getBadBlockManager().getBadBlocks()).isEmpty();
+    }
+
+    private PathBasedWorldState headWorldState() {
+      return (PathBasedWorldState) parentChain.getWorldArchive().getWorldState();
+    }
+
+    private Block withHeader(final BlockHeaderBuilder builder) {
+      return new Block(
+          builder.blockHeaderFunctions(new MainnetBlockHeaderFunctions()).buildBlockHeader(),
+          child.getBody());
+    }
   }
 
   /** Matches a context for {@code protocolContext} with {@code blockAccessList}, for any block. */

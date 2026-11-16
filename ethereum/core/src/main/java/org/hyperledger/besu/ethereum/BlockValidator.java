@@ -123,6 +123,26 @@ public interface BlockValidator {
   }
 
   /**
+   * Validates a block against its parent without executing its transactions: the parent world state
+   * (made the head) is advanced from the final values of the block access list, the receipts are
+   * taken as given, and the block is accepted only if its header, the block access list
+   * constraints, the transactions, receipts and withdrawals roots, the logs bloom and the resulting
+   * state root match. Nothing is persisted on failure and no bad block is recorded: execution
+   * decides validity. Requests (requestsHash) and gas are not verified.
+   *
+   * @param context the {@link ProtocolContext}
+   * @param block the block to validate
+   * @param blockAccessList the block access list of the block
+   * @param receipts the receipts of the block
+   * @return the result, holding the outputs when the block is valid
+   */
+  BlockProcessingResult validateAndApplyBlockAccessList(
+      ProtocolContext context,
+      Block block,
+      BlockAccessList blockAccessList,
+      List<TransactionReceipt> receipts);
+
+  /**
    * Performs fast block validation appropriate for use during syncing skipping transactions roots
    * and receipts roots as these are done during the download of the blocks.
    *

@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
+package org.hyperledger.besu.ethereum.eth.sync.snapsync.context;
 
 public interface ValueConvertor<V> {
   V fromBytes(final byte[] bytes);

@@ -72,6 +72,10 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.assertj.core.api.Assertions;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 public class BlockchainReferenceTestTools {
 
@@ -141,6 +145,8 @@ public class BlockchainReferenceTestTools {
       final BlockHeader genesisBlockHeader = spec.getGenesisBlockHeader();
         final ProtocolContext protocolContext = spec.buildProtocolContext(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain);
         final WorldStateArchive worldStateArchive = protocolContext.getWorldStateArchive();
+        final ProtocolContext shadowContext =
+                spec.buildProtocolContext(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, spec.buildBlockchain());
         final MutableWorldState worldState =
                 worldStateArchive
                         .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(genesisBlockHeader))
@@ -215,6 +221,13 @@ public class BlockchainReferenceTestTools {
                                             .withBlockHeader(block.getHeader())
                                             .withShouldWorldStateUpdateHead(true)
                                             .build());
+                            importOnShadowChain(
+                                    shadowContext,
+                                    blockValidator,
+                                    block,
+                                    candidateBlock.getBlockAccessList(),
+                                    outputs.getReceipts(),
+                                    validationMode);
                         });
                     }
 
@@ -247,7 +260,97 @@ public class BlockchainReferenceTestTools {
         }
 
         assertThat(blockchain.getChainHeadHash()).isEqualTo(spec.getLastBlockHash());
+        assertShadowChainMatches(protocolContext, shadowContext);
 
+  }
+
+  /**
+   * Imports a block the reference chain accepted into the shadow chain, which is advanced from the
+   * block access lists wherever it can be: the world state of a block with a block access list is
+   * applied from it, any other block is executed.
+   */
+  private static void importOnShadowChain(
+      final ProtocolContext shadowContext,
+      final BlockValidator blockValidator,
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final List<TransactionReceipt> receipts,
+      final HeaderValidationMode validationMode) {
+    BlockProcessingResult result = null;
+    if (blockAccessList.isPresent()) {
+      final BlockProcessingResult applied =
+          blockValidator.validateAndApplyBlockAccessList(
+              shadowContext, block, blockAccessList.get(), receipts);
+      if (applied.isSuccessful()) {
+        result = applied;
+      } else {
+        // EIP-161 deletes an empty account a transaction touches. The block access list only
+        // records the touch as a read, so a block that does that cannot be applied from it.
+        assertThat(readsEmptyAccountWithoutChangingIt(shadowContext, block, blockAccessList.get()))
+            .as(
+                "Block %s could not be applied from its block access list: %s",
+                block.getHash(), applied.errorMessage)
+            .isTrue();
+      }
+    }
+    if (result == null) {
+      result =
+          blockValidator.validateAndProcessBlock(
+              shadowContext,
+              block,
+              validationMode,
+              validationMode,
+              blockAccessList,
+              InclusionListTransactions.EMPTY,
+              true);
+    }
+    assertThat(result.isSuccessful())
+        .as("Shadow chain import of block %s: %s", block.getHash(), result.errorMessage)
+        .isTrue();
+    final BlockProcessingOutputs outputs = result.getYield().orElseThrow();
+    shadowContext
+        .getBlockchain()
+        .appendBlock(block, outputs.getReceipts(), outputs.getBlockAccessList());
+  }
+
+  private static boolean readsEmptyAccountWithoutChangingIt(
+      final ProtocolContext context, final Block block, final BlockAccessList blockAccessList) {
+    final BlockHeader parent =
+        context.getBlockchain().getBlockHeader(block.getHeader().getParentHash()).orElseThrow();
+    try (final MutableWorldState parentState =
+        context
+            .getWorldStateArchive()
+            .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parent))
+            .orElseThrow()) {
+      return blockAccessList.accountChanges().stream()
+          .filter(changes -> !changes.hasAnyChange())
+          .map(changes -> parentState.get(changes.address()))
+          .anyMatch(account -> account != null && account.isEmpty());
+    } catch (final Exception e) {
+      throw new IllegalStateException(e);
+    }
+  }
+
+  private static void assertShadowChainMatches(
+      final ProtocolContext referenceContext, final ProtocolContext shadowContext) {
+    final BlockHeader referenceHead = referenceContext.getBlockchain().getChainHeadHeader();
+    final BlockHeader shadowHead = shadowContext.getBlockchain().getChainHeadHeader();
+    assertThat(shadowHead.getHash()).as("Shadow chain head").isEqualTo(referenceHead.getHash());
+    assertThat(stateRootOf(shadowContext, shadowHead))
+        .as("Shadow chain world state root")
+        .isEqualTo(stateRootOf(referenceContext, referenceHead));
+  }
+
+  private static Hash stateRootOf(final ProtocolContext context, final BlockHeader header) {
+    try (final MutableWorldState state =
+        context
+            .getWorldStateArchive()
+            .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(header))
+            .orElseThrow()) {
+      return state.rootHash();
+    } catch (final Exception e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   private static Block buildBlock(

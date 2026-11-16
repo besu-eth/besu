@@ -256,12 +256,14 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public void stop() {
     // the next forkchoiceUpdated starts prewarming again; only the node's shutdown closes it
     mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.empty()));
+    backwardSyncContext.stop();
   }
 
   @Override
   public void awaitStop() throws InterruptedException {
     // only the node's shutdown waits for mining to stop, before it closes the storage
     mempoolPrewarmer.ifPresent(MempoolPrewarmer::close);
+    backwardSyncContext.awaitStop();
   }
 
   @Override
@@ -718,9 +720,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .addArgument(maybeHeadHeader.get()::toLogString)
           .log();
     } else if (mergeContext.isInitialSyncDone()) {
-      backwardSyncContext.maybeUpdateTargetHeight(headHash);
       finalizedHashAfterBackwardSync.set(finalizedHash);
-      final CompletableFuture<Void> session = backwardSyncContext.syncBackwardsUntil(headHash);
+      final CompletableFuture<Void> session =
+          backwardSyncContext.syncBackwardsUntil(headHash, finalizedHash);
       // all calls during a session share its future, so one callback applies the latest finalized
       if (backwardSyncWithFinalizedUpdate.getAndSet(session) != session) {
         session.thenRun(
@@ -1177,8 +1179,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     }
     // only a header we already know can be linked to its parent, anything else must be synced
     return backwardSyncContext
-        .getBackwardChain()
-        .getHeader(blockHash)
+        .getPendingHeader(blockHash)
         .flatMap(this::checkAndMarkBadDescendant)
         .isPresent();
   }
