@@ -163,10 +163,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                 })
             .count();
 
-    // Seqeuenced-pool-only INFO log per block, iff there are 1 or more evicted transactions.
-    // This is either silent under normal conditions, or once per block (so not super noisy) in the
-    // case where the user is trying to get a lot of un-minable transctions into blocks. In this
-    // case it is much more useful to log than silently evict them - the latter make PD much harder.
+    // logged at INFO, since silently evicting txs that can never be mined makes problems hard to diagnose
     if (evictedCount > 0) {
       LOG.info(
           "Evicted {} transaction(s) from the pool as they exceeded the configured retention"
