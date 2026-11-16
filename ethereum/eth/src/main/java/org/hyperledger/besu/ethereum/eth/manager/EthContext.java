@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.manager;
 
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestScheduler;
 
 import java.util.Optional;
 
@@ -25,18 +26,21 @@ public class EthContext {
   private final Optional<EthMessages> snapMessages;
   private final EthScheduler scheduler;
   private final PeerTaskExecutor peerTaskExecutor;
+  private final RequestScheduler requestScheduler;
 
   public EthContext(
       final EthPeers ethPeers,
       final EthMessages ethMessages,
       final EthMessages snapMessages,
       final EthScheduler scheduler,
-      final PeerTaskExecutor peerTaskExecutor) {
+      final PeerTaskExecutor peerTaskExecutor,
+      final RequestScheduler requestScheduler) {
     this.ethPeers = ethPeers;
     this.ethMessages = ethMessages;
     this.snapMessages = Optional.of(snapMessages);
     this.scheduler = scheduler;
     this.peerTaskExecutor = peerTaskExecutor;
+    this.requestScheduler = requestScheduler;
   }
 
   public EthContext(
@@ -49,6 +53,7 @@ public class EthContext {
     this.snapMessages = Optional.empty();
     this.scheduler = scheduler;
     this.peerTaskExecutor = peerTaskExecutor;
+    this.requestScheduler = null;
   }
 
   public EthPeers getEthPeers() {
@@ -69,5 +74,10 @@ public class EthContext {
 
   public PeerTaskExecutor getPeerTaskExecutor() {
     return peerTaskExecutor;
+  }
+
+  /** Returns the request scheduler that we use to send requests through. */
+  public RequestScheduler getRequestScheduler() {
+    return requestScheduler;
   }
 }

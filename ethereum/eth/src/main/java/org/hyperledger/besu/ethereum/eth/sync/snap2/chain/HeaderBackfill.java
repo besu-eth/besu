@@ -72,6 +72,9 @@ public final class HeaderBackfill {
   private final int headersPerRequest;
   private final int parallelism;
   private final MetricsSystem metricsSystem;
+  // names the download in its logs, and prefixes its metric and pipeline names
+  private final String logLabel;
+  private final String metricPrefix;
   // the requests by number in flight, which a stop cancels as the scheduler retries them until then
   private final Set<CompletableFuture<?>> requests = ConcurrentHashMap.newKeySet();
   // the top, then the lowest header stored
@@ -98,7 +101,9 @@ public final class HeaderBackfill {
       final BlockHeader top,
       final int headersPerRequest,
       final int parallelism,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final String logLabel,
+      final String metricPrefix) {
     checkArgument(headersPerRequest > 0, "headersPerRequest must be positive");
     checkArgument(parallelism > 0, "parallelism must be positive");
     checkArgument(top.getNumber() >= floor.getNumber(), "the top is below the floor");
@@ -113,6 +118,8 @@ public final class HeaderBackfill {
     this.headersPerRequest = headersPerRequest;
     this.parallelism = parallelism;
     this.metricsSystem = metricsSystem;
+    this.logLabel = logLabel;
+    this.metricPrefix = metricPrefix;
     this.lowestTrusted = top;
   }
 
@@ -150,7 +157,8 @@ public final class HeaderBackfill {
                         + ", the consensus client follows another chain");
               }
               LOG.info(
-                  "SNAP2 headers complete in {} | down to {}",
+                  "{} headers complete in {} | down to {}",
+                  logLabel,
                   ProgressFormat.duration(elapsed()),
                   ProgressFormat.block(lowestToStore));
             });
@@ -176,7 +184,8 @@ public final class HeaderBackfill {
       return CompletableFuture.completedFuture(null);
     }
     LOG.info(
-        "SNAP2 headers started | {} headers, {} down to {}",
+        "{} headers started | {} headers, {} down to {}",
+        logLabel,
         ProgressFormat.compact(total()),
         ProgressFormat.block(highestToStore),
         ProgressFormat.block(lowestToStore));
@@ -194,12 +203,12 @@ public final class HeaderBackfill {
             parallelism,
             metricsSystem.createLabelledCounter(
                 BesuMetricCategory.SYNCHRONIZER,
-                "snap2_header_pipeline_processed_total",
-                "Header segments processed by the SNAP2 sync",
+                metricPrefix + "_header_pipeline_processed_total",
+                "Header segments processed by the " + logLabel + " header download",
                 "step",
                 "action"),
             false,
-            "snap2-headers")
+            metricPrefix + "-headers")
         .thenProcessAsyncOrdered("downloadHeaders", this::download, parallelism)
         .andFinishWith("storeHeaders", this::verifyAndStore);
   }
