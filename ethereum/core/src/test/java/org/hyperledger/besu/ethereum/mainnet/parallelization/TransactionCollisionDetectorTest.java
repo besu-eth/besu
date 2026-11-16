@@ -674,6 +674,39 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void chainedTransactionThatTouchedTheMiningBeneficiaryCollidesEvenCarryingCredits() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.fromHexString("0x9");
+    final BonsaiAccount parent = createAccount(sender, 0, 100);
+    final BonsaiAccount afterPredecessor = createAccount(sender, 1, 90);
+
+    predecessorUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(parent, afterPredecessor));
+    bonsaiUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(parent, afterPredecessor));
+    trxUpdater.recordBalanceObservations();
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(parent, createAccount(sender, 2, 80)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
+
+    assertTrue(
+        collisionDetector.hasCollision(
+            createTransaction(sender, beneficiary),
+            beneficiary,
+            new ParallelizedTransactionContext(
+                trxUpdater, null, true, Wei.ZERO, predecessorUpdater),
+            bonsaiUpdater,
+            new ArrayList<>()),
+        "Expected a collision as a chained result carries no balance over");
+  }
+
+  @Test
   void chainedTransactionCollidesWhenBlockSenderDiffersFromPredecessor() {
     final Address sender = Address.fromHexString("0x1");
     final Address recipient = Address.fromHexString("0x2");

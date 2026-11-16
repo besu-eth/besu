@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
 
 import org.hyperledger.besu.crypto.KeyPair;
@@ -276,6 +277,33 @@ class OptimisticParallelBlockProcessorIntegrationTest {
       assertAccountsMatch(
           result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("A payment to the mining beneficiary after paid priority fees is reused")
+    void paymentToTheMiningBeneficiaryIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(1),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  2L,
+                  10L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_1_KEYPAIR),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  3L,
+                  10L,
+                  MINING_BENEFICIARY.toHexString(),
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
     }
 
     @Test
