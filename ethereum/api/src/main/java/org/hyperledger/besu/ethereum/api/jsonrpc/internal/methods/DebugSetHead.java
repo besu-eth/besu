@@ -92,7 +92,14 @@ public class DebugSetHead extends AbstractBlockParameterOrBlockHashMethod {
 
       // Only PathBasedWorldState's need to be moved:
       if (archive instanceof PathBasedWorldStateProvider pathBasedArchive) {
-        if (rollIncrementally(maybeBlockHeader.get(), blockchain, pathBasedArchive)) {
+        final BlockHeader target = maybeBlockHeader.get();
+        // The worldstate cannot be moved to a block whose state is not available. Report this
+        // instead of returning success, and leave both the chain head and the worldstate as is.
+        if (!pathBasedArchive.isWorldStateAvailable(target.getStateRoot(), target.getBlockHash())) {
+          return new JsonRpcErrorResponse(
+              request.getRequest().getId(), RpcErrorType.WORLD_STATE_UNAVAILABLE);
+        }
+        if (rollIncrementally(target, blockchain, pathBasedArchive)) {
           return JsonRpcSuccessResponse.SUCCESS_RESULT;
         }
       }
@@ -111,45 +118,51 @@ public class DebugSetHead extends AbstractBlockParameterOrBlockHashMethod {
       final PathBasedWorldStateProvider archive) {
 
     try {
-      if (archive.isWorldStateAvailable(target.getStateRoot(), target.getBlockHash())) {
-        // WARNING, this can be dangerous for a PathBasedWorldstate if a concurrent
-        //          process attempts to move or modify the head worldstate.
-        //          Ensure no block processing is occuring when using this feature.
-        //          No engine-api, block import, sync, mining or other rpc calls should be running.
+      // WARNING, this can be dangerous for a PathBasedWorldstate if a concurrent
+      //          process attempts to move or modify the head worldstate.
+      //          Ensure no block processing is occuring when using this feature.
+      //          No engine-api, block import, sync, mining or other rpc calls should be running.
 
-        Optional<BlockHeader> currentHead =
-            archive
-                .getWorldStateKeyValueStorage()
-                .getWorldStateBlockHash()
-                .flatMap(blockchain::getBlockHeader);
+      Optional<BlockHeader> currentHead =
+          archive
+              .getWorldStateKeyValueStorage()
+              .getWorldStateBlockHash()
+              .flatMap(blockchain::getBlockHeader);
 
-        while (currentHead.isPresent()
-            && !target.getStateRoot().equals(currentHead.get().getStateRoot())) {
-          long delta = currentHead.get().getNumber() - target.getNumber();
+      boolean rolledWorldState = false;
+      while (currentHead.isPresent()
+          && !target.getStateRoot().equals(currentHead.get().getStateRoot())) {
+        rolledWorldState = true;
+        long delta = currentHead.get().getNumber() - target.getNumber();
 
-          if (maxTrieLogsToRollAtOnce < Math.abs(delta)) {
-            // do we need to move forward or backward?
-            long distanceToMove = (delta > 0) ? -maxTrieLogsToRollAtOnce : maxTrieLogsToRollAtOnce;
+        if (maxTrieLogsToRollAtOnce < Math.abs(delta)) {
+          // do we need to move forward or backward?
+          long distanceToMove = (delta > 0) ? -maxTrieLogsToRollAtOnce : maxTrieLogsToRollAtOnce;
 
-            // Add distanceToMove to the current block number to get the interim target header
-            var interimHead =
-                blockchain.getBlockHeader(currentHead.get().getNumber() + distanceToMove);
+          // Add distanceToMove to the current block number to get the interim target header
+          var interimHead =
+              blockchain.getBlockHeader(currentHead.get().getNumber() + distanceToMove);
 
-            interimHead.ifPresent(
-                it -> {
-                  blockchain.rewindToBlock(it.getBlockHash());
-                  archive.getWorldState(withBlockHeaderAndUpdateNodeHead(it));
-                  LOG.info("incrementally rolled worldstate to {}", it.toLogString());
-                });
-            currentHead = interimHead;
+          interimHead.ifPresent(
+              it -> {
+                blockchain.rewindToBlock(it.getBlockHash());
+                archive.getWorldState(withBlockHeaderAndUpdateNodeHead(it));
+                LOG.info("incrementally rolled worldstate to {}", it.toLogString());
+              });
+          currentHead = interimHead;
 
-          } else {
-            blockchain.rewindToBlock(target.getBlockHash());
-            archive.getWorldState(withBlockHeaderAndUpdateNodeHead(target));
-            currentHead = Optional.of(target);
-            LOG.info("finished rolling worldstate to {}", target.toLogString());
-          }
+        } else {
+          blockchain.rewindToBlock(target.getBlockHash());
+          archive.getWorldState(withBlockHeaderAndUpdateNodeHead(target));
+          currentHead = Optional.of(target);
+          LOG.info("finished rolling worldstate to {}", target.toLogString());
         }
+      }
+
+      if (!rolledWorldState) {
+        // The worldstate head already has the target's state root, so there was nothing to roll.
+        // The chain head still has to be moved to the target.
+        blockchain.rewindToBlock(target.getBlockHash());
       }
 
       return true;
