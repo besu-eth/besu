@@ -16,6 +16,11 @@ package org.hyperledger.besu.ethereum.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.crypto.CodeDelegationSignature;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -25,7 +30,11 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 
 import java.math.BigInteger;
+import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
@@ -190,5 +199,77 @@ class CodeDelegationTest {
 
     assertThat(delegation).isNotNull();
     assertThat(delegation.signature()).isNotNull();
+  }
+
+  @Test
+  void detachedCopyKeepsTheRecoveredAuthority() {
+    final CodeDelegation delegation = new CodeDelegation(chainId, address, nonce, signature);
+    final Optional<Address> authority = delegation.authorizer();
+
+    // the same instance, so the copy did not recover the authority a second time
+    assertThat(delegation.detachedCopy().authorizer()).isSameAs(authority);
+  }
+
+  @Test
+  void detachedCopyRecoversTheAuthorityWhenNotYetRecovered() {
+    final KeyPair keyPair = signatureAlgorithm.generateKeyPair();
+    final CodeDelegation delegation =
+        (CodeDelegation)
+            CodeDelegation.builder()
+                .chainId(chainId)
+                .address(address)
+                .nonce(nonce)
+                .signAndBuild(keyPair);
+
+    final CodeDelegation copy = delegation.detachedCopy();
+
+    assertThat(copy.authorizer()).contains(Address.extract(keyPair.getPublicKey()));
+    assertThat(copy.address()).isEqualTo(address);
+  }
+
+  @Test
+  void concurrentCallersRecoverTheAuthorityOnce() throws InterruptedException {
+    final KeyPair keyPair = signatureAlgorithm.generateKeyPair();
+    final CodeDelegation delegation =
+        spy(
+            (CodeDelegation)
+                CodeDelegation.builder()
+                    .chainId(chainId)
+                    .address(address)
+                    .nonce(nonce)
+                    .signAndBuild(keyPair));
+    final CountDownLatch recovering = new CountDownLatch(1);
+    final CountDownLatch finishRecovery = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              recovering.countDown();
+              finishRecovery.await();
+              return invocation.callRealMethod();
+            })
+        .when(delegation)
+        .computeAuthority();
+
+    final AtomicReference<Optional<Address>> first = new AtomicReference<>();
+    final AtomicReference<Optional<Address>> second = new AtomicReference<>();
+    final Thread firstCaller = new Thread(() -> first.set(delegation.authorizer()));
+    final Thread secondCaller = new Thread(() -> second.set(delegation.authorizer()));
+
+    firstCaller.start();
+    try {
+      assertThat(recovering.await(10, TimeUnit.SECONDS)).isTrue();
+      secondCaller.start();
+      // the second caller waits on the lock the first holds while it recovers the authority
+      await()
+          .atMost(Duration.ofSeconds(10))
+          .until(() -> secondCaller.getState() == Thread.State.BLOCKED);
+    } finally {
+      finishRecovery.countDown();
+    }
+    firstCaller.join(10_000);
+    secondCaller.join(10_000);
+
+    verify(delegation, times(1)).computeAuthority();
+    assertThat(first.get()).contains(Address.extract(keyPair.getPublicKey()));
+    assertThat(second.get()).isSameAs(first.get());
   }
 }

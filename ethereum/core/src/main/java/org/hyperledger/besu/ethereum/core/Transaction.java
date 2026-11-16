@@ -1372,6 +1372,9 @@ public class Transaction
   }
 
   private CodeDelegation codeDelegationDetachedCopy(final CodeDelegation codeDelegation) {
+    if (codeDelegation instanceof org.hyperledger.besu.ethereum.core.CodeDelegation recoverable) {
+      return recoverable.detachedCopy();
+    }
     final Address detachedAddress = Address.wrap(codeDelegation.address().getBytes().copy());
     return new org.hyperledger.besu.ethereum.core.CodeDelegation(
         ChainId.fromCodeDelegation(codeDelegation),
