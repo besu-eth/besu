@@ -65,7 +65,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   /** Blocks a block must be buried under before it is archived on chains without finality. */
   static final long CONFIRMATION_DEPTH = 128;
 
-  private static final int NOT_CANONICAL_LOG_INTERVAL_SECONDS = 60;
+  private static final int REPLACED_LOG_INTERVAL_SECONDS = 60;
 
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
   private final BonsaiCodeCache codeCache;
@@ -76,7 +76,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final ArchiveHistoryReader archiveHistoryReader;
   private final Optional<ArchiveTrieNodeStrategy> archiveTrieNodeStrategy;
   private final boolean instantFinality;
-  private final AtomicBoolean shouldLogNotCanonical = new AtomicBoolean(true);
+  private final AtomicBoolean shouldLogReplaced = new AtomicBoolean(true);
   private final LongSupplier networkHead;
 
   public BonsaiArchiveWorldStateProvider(
@@ -243,7 +243,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     // Archived nodes are the canonical chain's, so a fork block at an archived height isn't served.
     if (last.filter(archived -> blockNumber <= archived.number()).isEmpty()
         || !isCanonicalBlock(blockHeader)
-        || !isCanonical(last.get())) {
+        || isReplaced(last.get())) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
     final WorldStateStorageCoordinator coordinator =
@@ -265,35 +265,27 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         .isPresent();
   }
 
-  // Never serve archived nodes once the chain they were captured on isn't canonical.
+  // Never serve archived nodes once a different block replaces the last archived one. A missing
+  // block is fine: blocks are archived before they're appended to the chain.
   @VisibleForTesting
-  boolean isCanonical(final ArchivedBlock last) {
-    final Optional<Hash> canonical = blockchain.getBlockHashByNumber(last.number());
-    if (canonical.filter(last.hash()::equals).isPresent()) {
-      return true;
+  boolean isReplaced(final ArchivedBlock last) {
+    final boolean replaced =
+        blockchain
+            .getBlockHashByNumber(last.number())
+            .filter(canonical -> !canonical.equals(last.hash()))
+            .isPresent();
+    if (replaced) {
+      LogUtil.throttledLog(
+          () ->
+              LOG.error(
+                  "Archived proof history ends at block {} ({}), which is no longer canonical."
+                      + " Proofs for archived blocks are refused; proof history needs a resync.",
+                  last.number(),
+                  last.hash()),
+          shouldLogReplaced,
+          REPLACED_LOG_INTERVAL_SECONDS);
     }
-    LogUtil.throttledLog(
-        () -> logNotCanonical(last, canonical.isEmpty()),
-        shouldLogNotCanonical,
-        NOT_CANONICAL_LOG_INTERVAL_SECONDS);
-    return false;
-  }
-
-  // A missing block heals on re-import; a different block needs a resync.
-  private void logNotCanonical(final ArchivedBlock last, final boolean missing) {
-    if (missing) {
-      LOG.info(
-          "Archived proof history ends at block {} ({}), ahead of the chain head. Proofs for"
-              + " archived blocks are refused until that block is imported.",
-          last.number(),
-          last.hash());
-    } else {
-      LOG.error(
-          "Archived proof history ends at block {} ({}), which is no longer canonical. Proofs for"
-              + " archived blocks are refused; proof history needs a resync.",
-          last.number(),
-          last.hash());
-    }
+    return replaced;
   }
 
   // Archive-specific rollback behaviour. There is no trie-log roll forward/backward, we just roll

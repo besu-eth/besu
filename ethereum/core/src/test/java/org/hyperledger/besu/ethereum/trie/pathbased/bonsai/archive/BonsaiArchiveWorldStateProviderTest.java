@@ -298,6 +298,37 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void archiveProof_servedWhileLastArchivedBlockIsNotAppendedYet() {
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    // a block is archived with its world state, before it's appended to the chain
+    final BlockHeader archivedNotAppended =
+        new BlockHeaderTestFixture().number(CHAIN_HEAD + 1).buildHeader();
+    final var liveStorage = worldStateStorage.getComposedWorldStateStorage();
+    final var tx = liveStorage.startTransaction();
+    new ArchiveNodeHistoryStore(liveStorage)
+        .saveArchiveProgress(
+            tx, new ArchivedBlock(archivedNotAppended.getNumber(), archivedNotAppended.getHash()));
+    tx.commit();
+    when(blockchain.getBlockHashByNumber(archivedNotAppended.getNumber()))
+        .thenReturn(Optional.empty());
+    canonical(historicalHeader);
+
+    final RuntimeException served = new RuntimeException("served from archive");
+    assertThatThrownBy(
+            () ->
+                provider.getAccountProof(
+                    historicalHeader,
+                    Address.ZERO,
+                    List.of(),
+                    proof -> {
+                      throw served;
+                    }))
+        .isSameAs(served);
+  }
+
+  @Test
   void archiveProof_notServedOnceLastArchivedBlockIsReorgedOut() {
     final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
     final BlockHeader historicalHeader =
@@ -387,29 +418,29 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
-  void archiveIsCanonicalWhileLastArchivedBlockIsCanonical() {
+  void archiveIsNotReplacedWhileLastArchivedBlockIsCanonical() {
     final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
     when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.of(archived.getHash()));
 
-    assertThat(provider.isCanonical(new ArchivedBlock(5L, archived.getHash()))).isTrue();
+    assertThat(provider.isReplaced(new ArchivedBlock(5L, archived.getHash()))).isFalse();
   }
 
   @Test
-  void archiveIsNotCanonicalOnceLastArchivedBlockIsReplaced() {
+  void archiveIsReplacedOnceADifferentBlockIsCanonical() {
     final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
     final BlockHeader replacement =
         new BlockHeaderTestFixture().number(5).extraData(Bytes.of(1)).buildHeader();
     when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.of(replacement.getHash()));
 
-    assertThat(provider.isCanonical(new ArchivedBlock(5L, archived.getHash()))).isFalse();
+    assertThat(provider.isReplaced(new ArchivedBlock(5L, archived.getHash()))).isTrue();
   }
 
   @Test
-  void archiveIsNotCanonicalWhileLastArchivedBlockIsAheadOfTheChain() {
+  void archiveIsNotReplacedWhileLastArchivedBlockIsAheadOfTheChain() {
     final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
     when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.empty());
 
-    assertThat(provider.isCanonical(new ArchivedBlock(5L, archived.getHash()))).isFalse();
+    assertThat(provider.isReplaced(new ArchivedBlock(5L, archived.getHash()))).isFalse();
   }
 
   @Test
