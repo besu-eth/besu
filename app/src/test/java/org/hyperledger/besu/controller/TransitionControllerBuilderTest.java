@@ -34,6 +34,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
@@ -102,6 +103,8 @@ public class TransitionControllerBuilderTest {
     postMergeBuilder.genesisConfig(GenesisConfig.DEFAULT);
     postMergeBuilder.storageProvider(storageProvider);
     lenient().when(protocolContext.getBlockchain()).thenReturn(mockBlockchain);
+    lenient().when(preMergeProtocolSchedule.getChainId()).thenReturn(ChainId.absent());
+    lenient().when(postMergeProtocolSchedule.getChainId()).thenReturn(ChainId.absent());
     lenient()
         .when(transitionProtocolSchedule.getPostMergeSchedule())
         .thenReturn(postMergeProtocolSchedule);

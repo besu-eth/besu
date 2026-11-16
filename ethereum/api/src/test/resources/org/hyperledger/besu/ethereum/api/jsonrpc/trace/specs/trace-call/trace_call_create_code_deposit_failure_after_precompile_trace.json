@@ -1,0 +1,37 @@
+{
+  "comment" : "The constructor calls the identity precompile and then returns code it lacks the gas to deposit; the failed code deposit belongs to the creation, not to the precompile call",
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "trace_call",
+    "params" : [ {
+      "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+      "gas" : "0x1d4c0",
+      "gasPrice" : "0xef",
+      "value" : "0x0",
+      "data" : "0x61020060006000600060006000600461fffff1f3"
+    }, [ "trace" ], "latest" ],
+    "id" : 54
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "result" : {
+      "output" : "0x",
+      "stateDiff" : null,
+      "trace" : [ {
+        "action" : {
+          "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+          "gas" : "0x104c0",
+          "init" : "0x61020060006000600060006000600461fffff1f3",
+          "value" : "0x0"
+        },
+        "error" : "out of gas",
+        "subtraces" : 0,
+        "traceAddress" : [ ],
+        "type" : "create"
+      } ],
+      "vmTrace" : null
+    },
+    "id" : 54
+  },
+  "statusCode" : 200
+}

@@ -16,6 +16,9 @@ package org.hyperledger.besu.evm.frame;
 
 import org.hyperledger.besu.evm.internal.Words;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -32,6 +35,8 @@ public class Memory {
 
   // See below.
   private static final long MAX_BYTES = Integer.MAX_VALUE;
+  private static final VarHandle LONG_BE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
   /**
    * The data stored within the memory.
@@ -410,6 +415,41 @@ public class Memory {
     final int start = asByteIndex(location);
     ensureCapacityForBytes(start, 1);
     memBytes[start] = value;
+  }
+
+  /**
+   * Reads an entire EVM v2 word directly into four consecutive stack longs.
+   *
+   * <p>The memory array remains encapsulated: expansion can replace it, so callers must not retain
+   * an alias. EVM v1 continues using the existing byte-based methods.
+   *
+   * @param location memory byte offset
+   * @param stack v2 stack backing array
+   * @param limbOffset first destination long
+   */
+  void readWordV2(final long location, final long[] stack, final int limbOffset) {
+    final int start = asByteIndex(location);
+    ensureCapacityForBytes(start, Bytes32.SIZE);
+    stack[limbOffset] = (long) LONG_BE.get(memBytes, start);
+    stack[limbOffset + 1] = (long) LONG_BE.get(memBytes, start + 8);
+    stack[limbOffset + 2] = (long) LONG_BE.get(memBytes, start + 16);
+    stack[limbOffset + 3] = (long) LONG_BE.get(memBytes, start + 24);
+  }
+
+  /**
+   * Writes four consecutive longs from an EVM v2 stack word directly into memory.
+   *
+   * @param location memory byte offset
+   * @param stack v2 stack backing array
+   * @param limbOffset first source long
+   */
+  void writeWordV2(final long location, final long[] stack, final int limbOffset) {
+    final int start = asByteIndex(location);
+    ensureCapacityForBytes(start, Bytes32.SIZE);
+    LONG_BE.set(memBytes, start, stack[limbOffset]);
+    LONG_BE.set(memBytes, start + 8, stack[limbOffset + 1]);
+    LONG_BE.set(memBytes, start + 16, stack[limbOffset + 2]);
+    LONG_BE.set(memBytes, start + 24, stack[limbOffset + 3]);
   }
 
   /**

@@ -1067,7 +1067,8 @@ public class RunnerBuilder {
       graphQlContextMap.putIfAbsent(GraphQLContextType.MINING_COORDINATOR, miningCoordinator);
       graphQlContextMap.putIfAbsent(GraphQLContextType.SYNCHRONIZER, synchronizer);
       graphQlContextMap.putIfAbsent(
-          GraphQLContextType.CHAIN_ID, protocolSchedule.getChainId().map(UInt256::valueOf));
+          GraphQLContextType.CHAIN_ID,
+          protocolSchedule.getChainId().toOptionalBigInteger().map(UInt256::valueOf));
       graphQlContextMap.putIfAbsent(GraphQLContextType.TRANSACTION_SIMULATOR, transactionSimulator);
       final GraphQL graphQL;
       try {

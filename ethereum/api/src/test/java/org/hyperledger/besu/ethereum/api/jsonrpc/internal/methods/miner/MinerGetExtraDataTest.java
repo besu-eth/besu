@@ -62,4 +62,22 @@ public class MinerGetExtraDataTest {
     final JsonRpcResponse actual = method.response(request);
     assertThat(actual).usingRecursiveComparison().isEqualTo(expected);
   }
+
+  @Test
+  public void shouldKeepLeadingZeroBytes() {
+    final MiningConfiguration miningConfiguration = ImmutableMiningConfiguration.newDefault();
+    final MinerGetExtraData method = new MinerGetExtraData(miningConfiguration);
+    final var extraData = "0x000102";
+
+    miningConfiguration.setExtraData(Bytes.fromHexString(extraData));
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", method.getName(), new Object[] {}));
+
+    final JsonRpcResponse expected =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), extraData);
+
+    final JsonRpcResponse actual = method.response(request);
+    assertThat(actual).usingRecursiveComparison().isEqualTo(expected);
+  }
 }

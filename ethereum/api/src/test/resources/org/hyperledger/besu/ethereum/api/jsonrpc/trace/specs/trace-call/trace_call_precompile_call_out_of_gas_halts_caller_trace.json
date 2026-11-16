@@ -1,0 +1,45 @@
+{
+  "comment": "The constructor calls the modexp precompile with an input offset whose memory expansion it cannot pay for; the CALL halts the creation before the precompile runs",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "trace_call",
+    "params": [
+      {
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "gas": "0x1d4c0",
+        "gasPrice": "0xef",
+        "value": "0x0",
+        "data": "0x60006000602062ffffff6000600561fffff100"
+      },
+      [
+        "trace"
+      ],
+      "latest"
+    ],
+    "id": 55
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 55,
+    "result": {
+      "output": "0x",
+      "stateDiff": null,
+      "trace": [
+        {
+          "action": {
+            "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+            "gas": "0x104b8",
+            "init": "0x60006000602062ffffff6000600561fffff100",
+            "value": "0x0"
+          },
+          "error": "out of gas",
+          "subtraces": 0,
+          "traceAddress": [],
+          "type": "create"
+        }
+      ],
+      "vmTrace": null
+    }
+  },
+  "statusCode": 200
+}

@@ -18,7 +18,7 @@ GitHub's private vulnerability reporting is the recommended approach for most re
 
 For highly sensitive reports where you prefer not to use GitHub, you can contact the team by email:
 
-- **[security-besu@lists.hyperledger.org](mailto:security-besu@lists.hyperledger.org)** — reaches a
+- **[security-besu@lists.lfdecentralizedtrust.org](mailto:security-besu@lists.lfdecentralizedtrust.org)** — reaches a
   subset of Besu maintainers and LF Decentralized Trust staff. Use this for reports that are
   particularly sensitive.
 - **[security@hyperledger.org](mailto:security@hyperledger.org)** — reaches security staff across all

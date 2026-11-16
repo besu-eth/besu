@@ -37,7 +37,9 @@ import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
@@ -293,5 +295,61 @@ public class TransactionTracerTest {
     assertThat(transactionTraces.size()).isEqualTo(1);
     assertThat(Files.readString(Path.of(transactionTraces.get(0))))
         .contains("{\"output\":\"0102\",\"gasUsed\":\"0x0\"");
+  }
+
+  @Test
+  public void traceTransactionToFileShouldOmitReturnDataWhenNotEnabled() throws IOException {
+    assertThat(traceToFileWithReturnData(ImmutableTransactionTraceParams.builder().build()))
+        .contains("\"returnData\":\"0xabcd\"");
+    assertThat(
+            traceToFileWithReturnData(
+                ImmutableTransactionTraceParams.builder().enableReturnDataNullable(true).build()))
+        .contains("\"returnData\":\"0xabcd\"");
+    assertThat(
+            traceToFileWithReturnData(
+                ImmutableTransactionTraceParams.builder().enableReturnDataNullable(false).build()))
+        .doesNotContain("returnData");
+  }
+
+  private String traceToFileWithReturnData(final ImmutableTransactionTraceParams params)
+      throws IOException {
+    when(blockBody.getTransactions()).thenReturn(Collections.singletonList(transaction));
+    when(blockchain.getBlockBody(blockHash)).thenReturn(Optional.of(blockBody));
+    when(blockchain.getBlockHeader(blockHash)).thenReturn(Optional.of(blockHeader));
+    when(blockchain.getBlockHeader(previousBlockHash)).thenReturn(Optional.of(previousBlockHeader));
+
+    final WorldUpdater updater = mock(WorldUpdater.class);
+    when(mutableWorldState.updater()).thenReturn(updater);
+    final WorldUpdater stackedUpdater = mock(StackedUpdater.class);
+    when(updater.updater()).thenReturn(stackedUpdater);
+
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getOutput()).thenReturn(Bytes.of(0x01, 0x02));
+    when(transactionProcessor.processTransaction(
+            eq(stackedUpdater),
+            eq(blockHeader),
+            eq(transaction),
+            eq(null),
+            any(StreamingOperationTracer.class),
+            any(),
+            any(),
+            eq(Wei.ZERO)))
+        .thenAnswer(
+            invocation -> {
+              final StreamingOperationTracer streamingTracer = invocation.getArgument(4);
+              final Operation operation = mock(Operation.class);
+              when(operation.getName()).thenReturn("STOP");
+              final MessageFrame frame = mock(MessageFrame.class);
+              when(frame.getCurrentOperation()).thenReturn(operation);
+              when(frame.getReturnData()).thenReturn(Bytes.fromHexString("0xabcd"));
+              streamingTracer.tracePreExecution(frame);
+              streamingTracer.tracePostExecution(frame, new Operation.OperationResult(0, null));
+              return result;
+            });
+
+    final List<String> transactionTraces =
+        transactionTracer.traceTransactionToFile(
+            mutableWorldState, blockHash, Optional.of(params), traceDir);
+    return Files.readString(Path.of(transactionTraces.get(0)));
   }
 }
