@@ -70,8 +70,8 @@ public class QbftBlockValidatorAdaptor implements QbftBlockValidator {
       return new ValidationResult(true, Optional.empty());
     }
     if (!validatedBlockCache.tryStartExecution(blockHash)) {
-      // e.g. NewBlock received before the proposal: the network is importing this block, wait for
-      // the import instead of executing the block a second time
+      // NewBlock received first: the network is importing this block, wait for the import instead
+      // of executing the block a second time. ValidatedBlockImporter covers the other order.
       validatedBlockCache.awaitExecution(blockHash);
       return isExecuted(besuBlock, blockAccessList)
           ? new ValidationResult(true, Optional.empty())

@@ -42,9 +42,9 @@ import org.slf4j.LoggerFactory;
  * QBFT round or from the network, the importer only needs the receipts, and moves the head world
  * state with the trie log.
  *
- * <p>Also tracks the blocks being executed, so that a block is not executed by two threads at once:
- * importing a block waits for the validation of its proposal, and validating a proposal waits for
- * the import of the same block from the network.
+ * <p>Also tracks the blocks being validated or imported, so that a block is not executed by two
+ * threads at once: importing a block waits for the validation of its proposal, and validating a
+ * proposal waits for the import of the same block.
  *
  * <p>Keyed by the on-chain hash, which ignores round and commit seals, so a proposal of any round
  * and its committed block share the entry.
@@ -143,7 +143,8 @@ public class ValidatedBlockCache {
   }
 
   /**
-   * Record that the calling thread starts executing a block, unless another thread already does.
+   * Record that the calling thread starts executing or importing a block, unless another thread
+   * already does.
    *
    * @param blockHash the on-chain hash
    * @return true if the caller must execute the block and then call {@link #endExecution}, false if

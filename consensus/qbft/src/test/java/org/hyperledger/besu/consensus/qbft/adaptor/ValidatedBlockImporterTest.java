@@ -338,6 +338,27 @@ class ValidatedBlockImporterTest {
   }
 
   @Test
+  void importWaitingForTheLockMakesValidationOfTheSameBlockWait() throws InterruptedException {
+    stubRegularImport(block, IMPORTED);
+    final AtomicReference<BlockImportResult> result = new AtomicReference<>();
+    final Thread networkImport =
+        new Thread(() -> result.set(importBlock(block, HeaderValidationMode.FULL)));
+    // the import of the parent block still holds the lock of MainnetBlockImporter.importBlock
+    final BlockImporter importerLock = blockImporter;
+
+    synchronized (importerLock) {
+      networkImport.start();
+      await().atMost(TIMEOUT).until(() -> networkImport.getState() == Thread.State.BLOCKED);
+      // the round starts validating the proposal of this block: it must wait for this import
+      assertThat(validatedBlockCache.tryStartExecution(block.getHash())).isFalse();
+    }
+
+    networkImport.join(TIMEOUT);
+    assertThat(result.get().isImported()).isTrue();
+    assertThat(validatedBlockCache.tryStartExecution(block.getHash())).isTrue();
+  }
+
+  @Test
   void validatedBlockImportWaitsForTheBlockImporterLock() throws InterruptedException {
     recordValidation();
     stubFastPathPreconditions(HeaderValidationMode.FULL);

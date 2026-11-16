@@ -99,31 +99,41 @@ public class ValidatedBlockImporter implements BlockImporter {
     if (context.getBlockchain().contains(blockHash)) {
       return new BlockImportResult(BlockImportStatus.ALREADY_IMPORTED);
     }
-    // e.g. NewBlock received while the round validates the proposal: wait for the outputs of the
-    // validation. Outside the lock below, so other imports are not blocked meanwhile. Without trie
-    // logs (Forest) the outputs can't be used, and waiting would only delay the execution.
-    if (canReuseOutputs(context.getWorldStateArchive())) {
-      validatedBlockCache.awaitExecution(blockHash);
-    }
+    // Both orders of NewBlock and proposal are covered. Marked before waiting for the lock below: a
+    // proposal of this block validated meanwhile (NewBlock received first) waits for this import
+    // in QbftBlockValidatorAdaptor, instead of executing the block too.
+    final boolean importing = validatedBlockCache.tryStartExecution(blockHash);
+    try {
+      // Proposal received first: the round is validating it, wait for the outputs of the
+      // validation, outside the lock so other imports are not blocked meanwhile. Without trie logs
+      // (Forest) the outputs can't be used, and waiting would only delay the execution.
+      if (!importing && canReuseOutputs(context.getWorldStateArchive())) {
+        validatedBlockCache.awaitExecution(blockHash);
+      }
 
-    // the lock of MainnetBlockImporter.importBlock, so the head check, append and world state move
-    // of a validated block are not interleaved with another import
-    synchronized (blockImporter) {
-      if (context.getBlockchain().contains(blockHash)) {
-        return new BlockImportResult(BlockImportStatus.ALREADY_IMPORTED);
+      // the lock of MainnetBlockImporter.importBlock, so the head check, append and world state
+      // move of a validated block are not interleaved with another import
+      synchronized (blockImporter) {
+        if (context.getBlockchain().contains(blockHash)) {
+          return new BlockImportResult(BlockImportStatus.ALREADY_IMPORTED);
+        }
+        final Optional<ValidatedBlockCache.ValidatedBlock> validatedBlock =
+            findValidatedBlock(context, block);
+        final BlockImportResult result =
+            validatedBlock.isPresent()
+                ? importValidatedBlock(
+                    context, block, validatedBlock.get(), headerValidationMode, ommerValidationMode)
+                : blockImporter.importBlock(
+                    context, block, headerValidationMode, ommerValidationMode, blockAccessList);
+        if (result.isImported()) {
+          validatedBlockCache.pruneUpTo(block.getHeader().getNumber());
+        }
+        return result;
       }
-      final Optional<ValidatedBlockCache.ValidatedBlock> validatedBlock =
-          findValidatedBlock(context, block);
-      final BlockImportResult result =
-          validatedBlock.isPresent()
-              ? importValidatedBlock(
-                  context, block, validatedBlock.get(), headerValidationMode, ommerValidationMode)
-              : executeAndImport(
-                  context, block, headerValidationMode, ommerValidationMode, blockAccessList);
-      if (result.isImported()) {
-        validatedBlockCache.pruneUpTo(block.getHeader().getNumber());
+    } finally {
+      if (importing) {
+        validatedBlockCache.endExecution(blockHash);
       }
-      return result;
     }
   }
 
@@ -191,24 +201,6 @@ public class ValidatedBlockImporter implements BlockImporter {
         .getWorldState(withBlockHeaderAndUpdateNodeHead(block.getHeader()));
     LOG.debug("Imported block {} without executing it again", block.toLogString());
     return new BlockImportResult(BlockImportStatus.IMPORTED);
-  }
-
-  private BlockImportResult executeAndImport(
-      final ProtocolContext context,
-      final Block block,
-      final HeaderValidationMode headerValidationMode,
-      final HeaderValidationMode ommerValidationMode,
-      final Optional<BlockAccessList> blockAccessList) {
-    // validating a proposal of this block waits for this import instead of executing it too
-    final boolean executing = validatedBlockCache.tryStartExecution(block.getHash());
-    try {
-      return blockImporter.importBlock(
-          context, block, headerValidationMode, ommerValidationMode, blockAccessList);
-    } finally {
-      if (executing) {
-        validatedBlockCache.endExecution(block.getHash());
-      }
-    }
   }
 
   // the outputs are applied with the trie log of the execution, which only path-based storage saves
