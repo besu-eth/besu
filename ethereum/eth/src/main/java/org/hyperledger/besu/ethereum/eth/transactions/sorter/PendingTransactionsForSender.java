@@ -55,11 +55,20 @@ public class PendingTransactionsForSender {
   }
 
   public void removeTrackedPendingTransaction(final PendingTransaction pendingTransaction) {
-    // check the value when removing, because it could have been replaced
-    if (pendingTransactions.remove(pendingTransaction.getNonce(), pendingTransaction)) {
-      synchronized (pendingTransactions) {
-        if (!pendingTransactions.isEmpty()
-            && pendingTransaction.getNonce() != pendingTransactions.firstKey()) {
+    final long nonce = pendingTransaction.getNonce();
+    synchronized (pendingTransactions) {
+      // must be checked before the removal: comparing with the first key after the removal is
+      // always true when removing the head, and rescanning all the txs of the sender for each
+      // confirmed tx makes the block added processing quadratic in the txs per sender
+      final boolean wasFirst =
+          !pendingTransactions.isEmpty() && pendingTransactions.firstKey() == nonce;
+      // check the value when removing, because it could have been replaced
+      if (pendingTransactions.remove(nonce, pendingTransaction)) {
+        if (pendingTransactions.isEmpty()) {
+          nextGap = OptionalLong.empty();
+        } else if (!wasFirst
+            || (nextGap.isPresent() && nextGap.getAsLong() <= pendingTransactions.firstKey())) {
+          // removing the head of a contiguous run does not move the first gap after it
           findGap();
         }
       }
@@ -133,6 +142,24 @@ public class PendingTransactionsForSender {
 
   public Stream<PendingTransaction> streamPendingTransactions() {
     return pendingTransactions.values().stream();
+  }
+
+  /**
+   * Stream the pending txs that precede the first nonce gap, the ones after it cannot be included
+   * in the next block, since the missing nonce is not in the pool.
+   *
+   * @return the pending txs before the first nonce gap, ordered by nonce
+   */
+  public Stream<PendingTransaction> streamPendingTransactionsBeforeGap() {
+    synchronized (pendingTransactions) {
+      final OptionalLong gap = nextGap;
+      if (gap.isPresent()
+          && !pendingTransactions.isEmpty()
+          && gap.getAsLong() > pendingTransactions.firstKey()) {
+        return List.copyOf(pendingTransactions.headMap(gap.getAsLong(), false).values()).stream();
+      }
+      return List.copyOf(pendingTransactions.values()).stream();
+    }
   }
 
   public PendingTransaction getPendingTransactionForNonce(final long nonce) {

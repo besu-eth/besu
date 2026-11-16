@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.blockcreation.txselection.selectors;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionContext;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
@@ -29,6 +30,7 @@ import org.slf4j.LoggerFactory;
 
 public class SkipSenderTransactionSelector extends AbstractTransactionSelector {
   private static final Logger LOG = LoggerFactory.getLogger(SkipSenderTransactionSelector.class);
+  private static final String NONCE_TOO_LOW_REASON = "NONCE_TOO_LOW";
   private final Map<Address, Long> skippedSenderNonceMap = new HashMap<>();
 
   public SkipSenderTransactionSelector(final BlockSelectionContext context) {
@@ -60,6 +62,18 @@ public class SkipSenderTransactionSelector extends AbstractTransactionSelector {
     return TransactionSelectionResult.SELECTED;
   }
 
+  /**
+   * Cheap check, usable before building an evaluation context, telling if this tx belongs to a
+   * sender that already has a not selected tx with a lower nonce in this block.
+   *
+   * @param transaction the candidate transaction
+   * @return true if the transaction can be skipped due to the nonce gap
+   */
+  public boolean isSkipped(final Transaction transaction) {
+    final Long skippedNonce = skippedSenderNonceMap.get(transaction.getSender());
+    return skippedNonce != null && transaction.getNonce() > skippedNonce;
+  }
+
   private static boolean nonceGap(
       final TransactionEvaluationContext evaluationContext, final @Nullable Long skippedNonce) {
     return skippedNonce != null && evaluationContext.getTransaction().getNonce() > skippedNonce;
@@ -85,6 +99,15 @@ public class SkipSenderTransactionSelector extends AbstractTransactionSelector {
   public void onTransactionNotSelected(
       final TransactionEvaluationContext evaluationContext,
       final TransactionSelectionResult transactionSelectionResult) {
+    if (transactionSelectionResult
+        .maybeInvalidReason()
+        .filter(NONCE_TOO_LOW_REASON::equals)
+        .isPresent()) {
+      // a stale tx, whose nonce was already used, does not create a nonce gap, so the following
+      // txs of the sender can still be selected. Skipping the sender here would leave every other
+      // stale tx of the sender in the pool, since skipped txs are not discarded.
+      return;
+    }
     final var sender = evaluationContext.getTransaction().getSender();
     final var nonce = evaluationContext.getTransaction().getNonce();
     skippedSenderNonceMap.put(sender, nonce);

@@ -23,6 +23,7 @@ import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.PLUGIN
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED_ROLLBACK;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTION_CANCELLED;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SENDER_WITH_PREVIOUS_TX_NOT_SELECTED;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.TX_EVALUATION_TOO_LONG;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -128,6 +129,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   private final TransactionSelectionResults transactionSelectionResults =
       new TransactionSelectionResults();
   private final List<AbstractTransactionSelector> transactionSelectors;
+  // set only when no plugin selector is installed, since the fast path skips the not selected
+  // notifications, and a plugin could rely on them
+  private final Optional<SkipSenderTransactionSelector> fastSkipSenderSelector;
   private final SelectorsStateManager selectorsStateManager;
   private final TransactionSelectionService transactionSelectionService;
   private final PluginTransactionSelector pluginTransactionSelector;
@@ -183,6 +187,13 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     this.transactionSelectors =
         createTransactionSelectors(
             blockSelectionContext, selectorsStateManager, maybeBlockAccessListBuilder);
+    this.fastSkipSenderSelector =
+        pluginTransactionSelector == PluginTransactionSelector.ACCEPT_ALL
+            ? transactionSelectors.stream()
+                .filter(SkipSenderTransactionSelector.class::isInstance)
+                .map(SkipSenderTransactionSelector.class::cast)
+                .findFirst()
+            : Optional.empty();
     this.pluginTransactionSelector = pluginTransactionSelector;
     this.operationTracer =
         new InterruptibleOperationTracer(pluginTransactionSelector.getOperationTracer());
@@ -412,6 +423,20 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
                     .log();
 
                 for (PendingTransaction candidateTx : candidateTransactions) {
+                  if (fastSkipSenderSelector.isPresent()
+                      && fastSkipSenderSelector.get().isSkipped(candidateTx.getTransaction())) {
+                    // a previous tx of this sender was not selected, so this one cannot be
+                    // selected either: record it without the full evaluation, that would only
+                    // allocate an evaluation context, a result future and a fresh world state
+                    // updater on rollback. The result is transient, so the txpool has nothing to
+                    // do with it and does not need it.
+                    if (selectionReturned.get()) {
+                      break;
+                    }
+                    transactionSelectionResults.updateNotSelected(
+                        candidateTx.getTransaction(), SENDER_WITH_PREVIOUS_TX_NOT_SELECTED);
+                    continue;
+                  }
                   // the result is returned before the evaluation starts, since in case of a
                   // timeout or a cancellation the evaluation could still be running when the
                   // selection returns, and the txpool needs to process the result when it is ready

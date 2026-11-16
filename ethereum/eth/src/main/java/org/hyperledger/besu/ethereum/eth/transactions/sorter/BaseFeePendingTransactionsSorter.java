@@ -260,7 +260,8 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
     if (this.baseFee.orElse(Wei.ZERO).equals(newBaseFee)) {
       return;
     }
-    synchronized (lock) {
+    lock.lock();
+    try {
       final boolean baseFeeIncreased = newBaseFee.compareTo(this.baseFee.orElse(Wei.ZERO)) > 0;
       this.baseFee = Optional.of(newBaseFee);
       if (baseFeeIncreased) {
@@ -298,6 +299,8 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
                   prioritizedTransactionsStaticRange.add(pendingTx);
                 });
       }
+    } finally {
+      lock.unlock();
     }
   }
 }

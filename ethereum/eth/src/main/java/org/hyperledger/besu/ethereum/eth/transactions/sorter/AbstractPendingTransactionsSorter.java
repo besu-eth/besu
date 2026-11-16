@@ -57,6 +57,7 @@ import java.util.OptionalLong;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
@@ -80,7 +81,9 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   protected final Clock clock;
   protected final TransactionPoolConfiguration poolConfig;
 
-  protected final Object lock = new Object();
+  // fair, so that block creation waiting to build its candidate list is not starved by the
+  // stream of transaction additions coming from the RPC and the network
+  protected final ReentrantLock lock = new ReentrantLock(true);
   protected final Map<Hash, PendingTransaction> pendingTransactions;
 
   protected final Map<Address, PendingTransactionsForSender> transactionsBySender =
@@ -198,11 +201,14 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
     // notify while holding the lock, so that the events are notified in the order they happen, and
     // only if this pending tx is still in the pool, since it could have been removed already, and
     // the same tx added again, like after a timed eviction scan
-    synchronized (lock) {
+    lock.lock();
+    try {
       if (pendingTransaction.equals(pendingTransactions.get(pendingTransaction.getHash()))) {
         removeTransaction(pendingTransaction.getTransaction(), false);
         eventEmitter.notifyPendingTransactionDropped(pendingTransaction, reason);
       }
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -212,9 +218,12 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
       final List<Transaction> confirmedTransactions,
       final List<Transaction> reorgTransactions,
       final FeeMarket feeMarket) {
-    synchronized (lock) {
+    lock.lock();
+    try {
       confirmedTransactions.forEach(this::transactionAddedToBlock);
       manageBlockAdded(blockHeader);
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -241,7 +250,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   @Override
   public void selectTransactions(final PendingTransactionsSelector selector) {
     final List<PendingTransaction> candidateTxs = new ArrayList<>();
-    synchronized (lock) {
+    lock.lock();
+    try {
       final Map<Address, AccountTransactionOrder> accountTransactions = new HashMap<>();
       final Iterator<PendingTransaction> prioritizedTransactions = prioritizedTransactions();
       while (prioritizedTransactions.hasNext()) {
@@ -256,6 +266,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
           candidateTxs.add(transactionToProcess);
         }
       }
+    } finally {
+      lock.unlock();
     }
 
     final var selectionResults = selector.evaluatePendingTransactions(candidateTxs);
@@ -281,8 +293,11 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   private void processSelectionResult(
       final PendingTransaction pendingTransaction, final TransactionSelectionResult result) {
     if (result.discard()) {
-      synchronized (lock) {
+      lock.lock();
+      try {
         removeTransaction(pendingTransaction, INVALID);
+      } finally {
+        lock.unlock();
       }
       logDiscardedTransaction(pendingTransaction, result);
     }
@@ -307,7 +322,7 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
 
   private AccountTransactionOrder createSenderTransactionOrder(final Address address) {
     return new AccountTransactionOrder(
-        transactionsBySender.get(address).streamPendingTransactions());
+        transactionsBySender.get(address).streamPendingTransactionsBeforeGap());
   }
 
   private TransactionAddedResult addTransactionForSenderAndNonce(
@@ -436,7 +451,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   }
 
   private void removeTransaction(final Transaction transaction, final boolean addedToBlock) {
-    synchronized (lock) {
+    lock.lock();
+    try {
       final PendingTransaction removedPendingTx = pendingTransactions.remove(transaction.getHash());
       if (removedPendingTx != null) {
         removePrioritizedTransaction(removedPendingTx);
@@ -448,6 +464,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
           this.blobCache.cacheBlobs(removedPendingTx.getTransaction());
         }
       }
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -460,7 +478,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   private TransactionAddedResult internalAddTransaction(
       final PendingTransaction pendingTransaction, final Optional<Account> maybeSenderAccount) {
     final Transaction transaction = pendingTransaction.getTransaction();
-    synchronized (lock) {
+    lock.lock();
+    try {
       if (pendingTransactions.containsKey(pendingTransaction.getHash())) {
         LOG.atTrace()
             .setMessage("Already known transaction {}")
@@ -501,6 +520,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
       if (pendingTransactions.size() > poolConfig.getTxPoolMaxSize()) {
         evictLessPriorityTransactions();
       }
+    } finally {
+      lock.unlock();
     }
     return ADDED;
   }
@@ -528,19 +549,23 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   public Status getStatus() {
     long pendingCount = 0;
     long queuedCount = 0;
-    synchronized (lock) {
+    lock.lock();
+    try {
       for (final PendingTransactionsForSender pendingTxsForSender : transactionsBySender.values()) {
         final Status accountStatus = pendingTxsForSender.getStatus();
         pendingCount += accountStatus.pendingCount();
         queuedCount += accountStatus.queuedCount();
       }
+    } finally {
+      lock.unlock();
     }
     return new Status(pendingCount, queuedCount);
   }
 
   @Override
   public String toTraceLog() {
-    synchronized (lock) {
+    lock.lock();
+    try {
       StringBuilder sb =
           new StringBuilder(
               "Prioritized transactions { "
@@ -553,6 +578,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                   + " }");
 
       return sb.toString();
+    } finally {
+      lock.unlock();
     }
   }
 

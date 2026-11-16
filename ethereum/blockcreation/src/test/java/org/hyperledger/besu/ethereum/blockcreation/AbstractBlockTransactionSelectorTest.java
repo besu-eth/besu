@@ -589,6 +589,44 @@ public abstract class AbstractBlockTransactionSelectorTest {
   }
 
   @Test
+  public void staleNonceTooLowTransactionDoesNotSkipTheFollowingTransactionsOfTheSender() {
+    final ProcessableBlockHeader blockHeader = createBlock(300_000);
+
+    final Address miningBeneficiary = AddressHelpers.ofValue(1);
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            blockHeader,
+            miningBeneficiary,
+            Wei.ZERO,
+            transactionSelectionService,
+            List.of());
+
+    // a stale tx, whose nonce was already used, precedes valid txs of the same sender
+    final Transaction staleTransaction = createTransaction(0, Wei.of(10), 21_000);
+    ensureTransactionIsInvalid(staleTransaction, TransactionInvalidReason.NONCE_TOO_LOW);
+    final Transaction validTransaction1 = createTransaction(1, Wei.of(10), 21_000);
+    ensureTransactionIsValid(validTransaction1, 21_000, 0);
+    final Transaction validTransaction2 = createTransaction(2, Wei.of(10), 21_000);
+    ensureTransactionIsValid(validTransaction2, 21_000, 0);
+
+    transactionPool.addRemoteTransactions(
+        List.of(staleTransaction, validTransaction1, validTransaction2));
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(transactionPool.getTransactionByHash(staleTransaction.getHash())).isNotPresent();
+    assertThat(results.getSelectedTransactions())
+        .containsExactly(validTransaction1, validTransaction2);
+    assertThat(results.getNotSelectedTransactions())
+        .containsOnly(
+            entry(
+                staleTransaction,
+                TransactionSelectionResult.invalid(TransactionInvalidReason.NONCE_TOO_LOW.name())));
+  }
+
+  @Test
   public void shouldDiscardTransactionsThatFailValidation() {
     final ProcessableBlockHeader blockHeader = createBlock(300_000);
 
@@ -606,7 +644,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
     final Transaction validTransaction = createTransaction(0, Wei.of(10), 21_000);
 
     ensureTransactionIsValid(validTransaction, 21_000, 0);
-    final Transaction invalidTransaction = createTransaction(3, Wei.of(10), 21_000);
+    // contiguous with the valid tx: the pool does not offer txs after a nonce gap for selection
+    final Transaction invalidTransaction = createTransaction(1, Wei.of(10), 21_000);
     ensureTransactionIsInvalid(invalidTransaction, TransactionInvalidReason.NONCE_TOO_LOW);
 
     transactionPool.addRemoteTransactions(List.of(validTransaction, invalidTransaction));
