@@ -1,9 +1,8 @@
 name: Hive
 on:
-  # TEMPORARY, to test this workflow on its PR: remove before merging.
-  pull_request:
-    paths:
-      - '.github/workflows/hive.yml'
+  schedule:
+    # Run once a day at 01:00 UTC
+    - cron: '0 1 * * *'
   workflow_dispatch:
     inputs:
       simulator:
