@@ -63,7 +63,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveWorldStateProvider.class);
 
   /** Blocks a block must be buried under before it is archived on chains without finality. */
-  public static final long CONFIRMATION_DEPTH = 128;
+  static final long CONFIRMATION_DEPTH = 128;
 
   private static final int NOT_CANONICAL_LOG_INTERVAL_SECONDS = 60;
 
@@ -124,6 +124,14 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         dataStorageConfiguration.getExtraStorageConfiguration().getUnstable();
     if (unstable.getBonsaiArchiveStateProofsEnabled()) {
       requireCoverageFromGenesis();
+      archiveHistoryStore
+          .getArchivedBlock()
+          .ifPresent(
+              last ->
+                  LOG.info(
+                      "Archived proof history covers blocks 0 to {} ({})",
+                      last.number(),
+                      last.hash()));
       this.archiveTrieNodeStrategy =
           Optional.of(createInlineStrategy(liveStorage, unstable, trieCapturePool));
     } else {
@@ -257,8 +265,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         .isPresent();
   }
 
-  // A reorg deeper than the confirmation depth replaced archived blocks, so archived nodes may
-  // belong to blocks that are no longer canonical. Never serve them.
+  // Never serve archived nodes once the chain they were captured on isn't canonical.
   @VisibleForTesting
   boolean isCanonical(final ArchivedBlock last) {
     final Optional<Hash> canonical = blockchain.getBlockHashByNumber(last.number());

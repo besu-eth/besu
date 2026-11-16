@@ -277,6 +277,20 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
+  void captureDoesNotResumeAfterANonFinalBlock() {
+    final ArchiveTrieNodeStrategy strategy = strategy(b -> b != 1);
+    final Bytes location = Bytes.of(0x0e);
+    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
+    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
+
+    persistBlock(strategy, 2, put(location, Bytes.fromHexString("0xcccc")));
+
+    // block 2 is final, but its parent was never archived
+    assertThat(latest(location, 2L)).isEmpty();
+    assertThat(coverage()).contains(coverageThrough(0));
+  }
+
+  @Test
   void otherStorageIsNotCaptured() {
     final ArchiveTrieNodeStrategy strategy = strategy();
     final Bytes location = Bytes.of(0x0e);

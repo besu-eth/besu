@@ -61,7 +61,7 @@ import org.slf4j.LoggerFactory;
 public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
 
   private static final Logger LOG = LoggerFactory.getLogger(ArchiveTrieNodeStrategy.class);
-  private static final int LOG_MISSING_COVERAGE_INTERVAL_SECONDS = 60;
+  private static final int SKIPPED_BLOCK_LOG_INTERVAL_SECONDS = 60;
   // Well above a large block's loads; a load past it is only written FULL.
   static final int MAX_LOADED_NODES = 1_000_000;
 
@@ -71,7 +71,7 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
   private final SegmentedKeyValueStorage captureStorage;
   private final LongPredicate isFinal;
   private final int maxLoadedNodes;
-  private final AtomicBoolean logMissingCoverage = new AtomicBoolean(true);
+  private final AtomicBoolean shouldLogSkippedBlock = new AtomicBoolean(true);
 
   // Nodes read from one state, by key. They're the same whichever storage they were read from.
   // Empty when the next block can't be captured, so there's nothing to collect.
@@ -188,7 +188,7 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
     final Optional<ArchivedBlock> last = historyStore.getArchivedBlock();
     final boolean extendsCoverage = extendsCoverage(blockHeader, last);
     if (!isFinal.test(block)) {
-      // only the block right after coverage gets here, so this logs once each time capture stops
+      // logs once, for the block right after coverage
       if (extendsCoverage) {
         LOG.info(
             "Stopped capturing trie nodes: block {} ({}) is not final yet, so proof history ends at"
@@ -216,10 +216,7 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
 
   private boolean extendsCoverage(
       final BlockHeader blockHeader, final Optional<ArchivedBlock> last) {
-    return last.map(
-            l ->
-                blockHeader.getNumber() == l.number() + 1
-                    && l.hash().equals(blockHeader.getParentHash()))
+    return last.map(l -> l.hash().equals(blockHeader.getParentHash()))
         .orElse(blockHeader.getNumber() == 0L);
   }
 
@@ -233,8 +230,8 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
                 blockHeader.getBlockHash(),
                 last.number(),
                 last.hash()),
-        logMissingCoverage,
-        LOG_MISSING_COVERAGE_INTERVAL_SECONDS);
+        shouldLogSkippedBlock,
+        SKIPPED_BLOCK_LOG_INTERVAL_SECONDS);
   }
 
   @Override
@@ -274,18 +271,14 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
     if (priorNodes == null) {
       return;
     }
-    final Bytes prior = priorNode(storage, key, priorNodes);
+    // Falls back to storage to tell whether the node existed.
+    final Bytes loaded = priorNodes.get(key);
+    final Bytes prior =
+        loaded != null ? loaded : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
     // Nothing to archive if the node didn't exist.
     if (prior != null) {
       capture(key, null, prior, transaction);
     }
-  }
-
-  // Falls back to storage to tell whether the node existed.
-  private Bytes priorNode(
-      final SegmentedKeyValueStorage storage, final Bytes key, final Map<Bytes, Bytes> priorNodes) {
-    final Bytes loaded = priorNodes.get(key);
-    return loaded != null ? loaded : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
   }
 
   private void capture(
