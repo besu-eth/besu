@@ -761,7 +761,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               blockAccumulator,
               creditedAccounts)) {
         final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
-        if (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts()) {
+        // a result that touched the beneficiary before its reward already holds the reward
+        if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()
+            && (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts())) {
           final MutableAccount miningBeneficiaryAccount =
               blockAccumulator.getOrCreate(miningBeneficiary);
           miningBeneficiaryAccount.incrementBalance(reward);
