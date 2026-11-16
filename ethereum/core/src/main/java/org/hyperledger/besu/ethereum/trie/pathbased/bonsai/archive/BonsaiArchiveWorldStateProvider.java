@@ -43,12 +43,10 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
-import org.hyperledger.besu.util.log.LogUtil;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -65,8 +63,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   /** Blocks a block must be buried under before it is archived on chains without finality. */
   static final long CONFIRMATION_DEPTH = 128;
 
-  private static final int REPLACED_LOG_INTERVAL_SECONDS = 60;
-
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
   private final BonsaiCodeCache codeCache;
   private final WorldStateConfig archiveWorldStateConfig;
@@ -76,7 +72,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final ArchiveHistoryReader archiveHistoryReader;
   private final Optional<ArchiveTrieNodeStrategy> archiveTrieNodeStrategy;
   private final boolean instantFinality;
-  private final AtomicBoolean shouldLogReplaced = new AtomicBoolean(true);
   private final LongSupplier networkHead;
 
   public BonsaiArchiveWorldStateProvider(
@@ -241,9 +236,9 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     final long blockNumber = blockHeader.getNumber();
     final Optional<ArchivedBlock> last = archiveHistoryStore.getArchivedBlock();
     // Archived nodes are the canonical chain's, so a fork block at an archived height isn't served.
+    // Nodes are hash checked on read, so a reorg past the archive fails rather than misleads.
     if (last.filter(archived -> blockNumber <= archived.number()).isEmpty()
-        || !isCanonicalBlock(blockHeader)
-        || isReplaced(last.get())) {
+        || !isCanonicalBlock(blockHeader)) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
     final WorldStateStorageCoordinator coordinator =
@@ -263,29 +258,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         .getBlockHashByNumber(blockHeader.getNumber())
         .filter(blockHeader.getBlockHash()::equals)
         .isPresent();
-  }
-
-  // Never serve archived nodes once a different block replaces the last archived one. A missing
-  // block is fine: blocks are archived before they're appended to the chain.
-  @VisibleForTesting
-  boolean isReplaced(final ArchivedBlock last) {
-    final boolean replaced =
-        blockchain
-            .getBlockHashByNumber(last.number())
-            .filter(canonical -> !canonical.equals(last.hash()))
-            .isPresent();
-    if (replaced) {
-      LogUtil.throttledLog(
-          () ->
-              LOG.error(
-                  "Archived proof history ends at block {} ({}), which is no longer canonical."
-                      + " Proofs for archived blocks are refused; proof history needs a resync.",
-                  last.number(),
-                  last.hash()),
-          shouldLogReplaced,
-          REPLACED_LOG_INTERVAL_SECONDS);
-    }
-    return replaced;
   }
 
   // Archive-specific rollback behaviour. There is no trie-log roll forward/backward, we just roll

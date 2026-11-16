@@ -24,18 +24,25 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeKey;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeCodec;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
@@ -49,6 +56,7 @@ import java.util.concurrent.Executors;
 import java.util.function.LongSupplier;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -262,6 +270,62 @@ public class BonsaiArchiveWorldStateProviderTest {
     assertThat(result).isEmpty();
   }
 
+  @Test
+  void archiveProof_provesAccountFromArchivedRoot() {
+    final BlockHeader header = archiveSingleAccountRoot(Wei.of(7));
+
+    assertThat(provider.getAccountProof(header, Address.ZERO, List.of(), proof -> proof))
+        .hasValueSatisfying(
+            proof ->
+                assertThat(proof.getStateTrieAccountValue())
+                    .hasValueSatisfying(
+                        account -> assertThat(account.getBalance()).isEqualTo(Wei.of(7))));
+  }
+
+  @Test
+  void archiveProof_rootFromAnotherForkIsNotServed() {
+    final BlockHeader archived = archiveSingleAccountRoot(Wei.of(7));
+    // the canonical block at the archived height after a reorg the archive missed
+    final BlockHeader reorged =
+        new BlockHeaderTestFixture()
+            .number(archived.getNumber())
+            .stateRoot(Hash.hash(Bytes.of(1)))
+            .buildHeader();
+    canonical(reorged);
+
+    assertThatThrownBy(
+            () -> provider.getAccountProof(reorged, Address.ZERO, List.of(), proof -> proof))
+        .isInstanceOf(MerkleTrieException.class);
+  }
+
+  // Archives a one-account world state as the canonical block below the head's trie-log window.
+  private BlockHeader archiveSingleAccountRoot(final Wei balance) {
+    final SimpleMerklePatriciaTrie<Bytes32, Bytes> trie = new SimpleMerklePatriciaTrie<>(b -> b);
+    final Bytes account =
+        RLP.encode(
+            new PatriciaTrieAccountValue(0, balance, Hash.EMPTY_TRIE_HASH, Hash.EMPTY)::writeTo);
+    final Bytes32 key = Bytes32.wrap(Address.ZERO.addressHash().getBytes());
+    trie.put(key, account);
+    // a single-leaf trie's root is the only node in the proof
+    final Bytes rootNode = trie.getValueWithProof(key).getProofRelatedNodes().getFirst();
+    final BlockHeader header =
+        new BlockHeaderTestFixture()
+            .number(CHAIN_HEAD - MAX_LAYERS - 1)
+            .stateRoot(Hash.wrap(trie.getRootHash()))
+            .buildHeader();
+    final var liveStorage = worldStateStorage.getComposedWorldStateStorage();
+    final var tx = liveStorage.startTransaction();
+    final ArchiveNodeHistoryStore historyStore = new ArchiveNodeHistoryStore(liveStorage);
+    historyStore.putEncoded(
+        tx,
+        ArchiveNodeKey.historyKey(ArchiveNodeKey.account(Bytes.EMPTY), header.getNumber()),
+        ArchiveNodeHistoryStore.encodeStoredValue(0, ArchiveTrieNodeCodec.encodeFull(rootNode)));
+    historyStore.saveArchiveProgress(tx, new ArchivedBlock(header.getNumber(), header.getHash()));
+    tx.commit();
+    canonical(header);
+    return header;
+  }
+
   private void archiveThrough(final BlockHeader last) {
     final var liveStorage = worldStateStorage.getComposedWorldStateStorage();
     final var tx = liveStorage.startTransaction();
@@ -329,35 +393,6 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
-  void archiveProof_notServedOnceLastArchivedBlockIsReorgedOut() {
-    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
-    final BlockHeader historicalHeader =
-        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
-    final BlockHeader archived =
-        new BlockHeaderTestFixture().number(queryBlockNumber + 1).buildHeader();
-    final BlockHeader replacement =
-        new BlockHeaderTestFixture()
-            .number(queryBlockNumber + 1)
-            .extraData(Bytes.of(1))
-            .buildHeader();
-    archiveThrough(archived);
-    canonical(historicalHeader);
-    canonical(replacement);
-
-    // The archived path would run the mapper; the rollback fallback can't reach this block.
-    final Optional<Object> result =
-        provider.getAccountProof(
-            historicalHeader,
-            Address.ZERO,
-            List.of(),
-            proof -> {
-              throw new AssertionError("archived proof served for a reorged-out history");
-            });
-
-    assertThat(result).isEmpty();
-  }
-
-  @Test
   void recentQuery_beforeMigrationComplete_returnsBonsaiWorldStateBackedByMainStorage() {
     // Migration not yet complete: falls through to super.getWorldState() which serves
     // recent blocks normally via trie-log rollback from the cached head state.
@@ -415,32 +450,6 @@ public class BonsaiArchiveWorldStateProviderTest {
 
     assertThat(depthProvider.isFinal(0L)).isTrue();
     assertThat(depthProvider.isFinal(1L)).isFalse();
-  }
-
-  @Test
-  void archiveIsNotReplacedWhileLastArchivedBlockIsCanonical() {
-    final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
-    when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.of(archived.getHash()));
-
-    assertThat(provider.isReplaced(new ArchivedBlock(5L, archived.getHash()))).isFalse();
-  }
-
-  @Test
-  void archiveIsReplacedOnceADifferentBlockIsCanonical() {
-    final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
-    final BlockHeader replacement =
-        new BlockHeaderTestFixture().number(5).extraData(Bytes.of(1)).buildHeader();
-    when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.of(replacement.getHash()));
-
-    assertThat(provider.isReplaced(new ArchivedBlock(5L, archived.getHash()))).isTrue();
-  }
-
-  @Test
-  void archiveIsNotReplacedWhileLastArchivedBlockIsAheadOfTheChain() {
-    final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
-    when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.empty());
-
-    assertThat(provider.isReplaced(new ArchivedBlock(5L, archived.getHash()))).isFalse();
   }
 
   @Test
