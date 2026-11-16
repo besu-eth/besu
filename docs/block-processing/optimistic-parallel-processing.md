@@ -56,7 +56,7 @@ The rest of this document follows one made-up block of 13 transactions. A mainne
 | 5 | USDC transfer, private | E, nonce n+1 | same sender as tx 4, next nonce |
 | 6 | batch call, 8.6 Mgas | G | one long run |
 | 7 | swap, pool P | D | reads pool P after tx 0 wrote it |
-| 8 | approve token X | J, nonce m | sender known from the mempool |
+| 8 | approve token X | J, nonce m | sender known from the transaction pool |
 | 9 | swap X, pool R | J, nonce m+1 | same sender as tx 8; needs its approval |
 | 10 | swap, pool S | I | its sender received ETH in tx 1 |
 | 11 | swap, pool P | H | reads pool P after tx 0 and tx 7 wrote it |
@@ -73,7 +73,7 @@ The timeline in [Same-sender chains](#same-sender-chains) is schematic. It keeps
 
 ## Speculative runs
 
-`OptimisticConcurrentTransactionProcessor.runAsyncBlock` hands every transaction to the block's worker pool. Each worker runs its transaction alone on the parent state, in an accumulator of its own, and keeps what it read and wrote together with the result (`ParallelizedTransactionContext`). A worker skips a transaction that block processing has already reached.
+`OptimisticConcurrentTransactionProcessor.runAsyncBlock` hands every transaction to the block's worker threads. Each worker runs its transaction alone on the parent state, in an accumulator of its own, and keeps what it read and wrote together with the result (`ParallelizedTransactionContext`). A worker skips a transaction that block processing has already reached.
 
 When block processing reaches a transaction, `getProcessingResult` does three things:
 
@@ -95,9 +95,9 @@ On the parent state, a sender's second transaction in a block fails its nonce ch
 
 **Where a chain stops.** A member whose run fails with an error is reported and executed by block processing, and so are the members after it. An invalid member ends the chain as well, because the sender's next transaction would fail its nonce check. So does a member that block processing reaches before it ran: the members after it would run without the state it leaves.
 
-**Warm-ups.** While a chain runs, each later member is also executed once against the parent state on the I/O pool (`warmUp`). Its nonce and gas payment checks are relaxed, as its predecessors have not run there, and the result is discarded. What the member reads is then cached by the time its turn comes, in the chain or, if the chain stopped before it, in block processing.
+**Warm-ups.** While a chain runs, each later member is also executed once against the parent state on the I/O thread pool (`warmUp`). Its nonce and gas payment checks are relaxed, as its predecessors have not run there, and the result is discarded. What the member reads is then cached by the time its turn comes, in the chain or, if the chain stopped before it, in block processing.
 
-**Unknown senders and late chains.** The transaction pool knows the senders of the transactions it saw, but not of those sent to builders directly. Those transactions run alone at first. Their senders are recovered on the block's workers, eight per task. The recoveries are queued behind the block's first runs, twice as many as there are worker threads, and ahead of the rest. Once every sender is recovered, the unknown transactions that turn out to share a sender run again as a **late chain**, together with that sender's transactions the pool knew (`chainUnknownSenders`). A late chain continues from the last result that already ran on the state before it: the run of the last known transaction before the first unknown one, or the first unknown one's own run. Block processing prefers a late-chained result to the transaction's run alone. A signature that recovers no key leaves its transaction unchained.
+**Unknown senders and late chains.** The transaction pool knows the senders of the transactions it saw, but not of those sent to builders directly. Those transactions run alone at first. Their senders are recovered on the block's workers, eight per task. The recoveries are queued behind the block's first runs, twice as many as there are worker threads, and ahead of the rest. Once every sender is recovered, the unknown transactions that turn out to share a sender run again as a **late chain**, together with that sender's transactions the transaction pool knew (`chainUnknownSenders`). A late chain continues from the last result that already ran on the state before it: the run of the last known transaction before the first unknown one, or the first unknown one's own run. Block processing prefers a late-chained result to the transaction's run alone. A signature that recovers no key leaves its transaction unchained.
 
 ![The example block on the optimistic processor with same-sender chains](images/optimistic-processor.svg)
 
@@ -145,5 +145,5 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 - **Take:** block processing using a run's result instead of executing the transaction.
 - **Collision:** something a run touched changed in the block before the run's turn, so its result cannot be taken.
 - **Chain:** a sender's transactions run in order on one worker, each on the state the one before it left.
-- **Late chain:** a chain formed once the senders the pool did not know are recovered, after their transactions already ran alone.
+- **Late chain:** a chain formed once the senders the transaction pool did not know are recovered, after their transactions already ran alone.
 - **Warm-up:** a chain member executed once against the parent state, only so that what it reads is cached.
