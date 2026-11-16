@@ -239,7 +239,7 @@ public class TransactionPool implements BlockAddedObserver {
         .log();
 
     if (!addedTransactions.isEmpty()) {
-      transactionBroadcaster.onTransactionsAdded(addedTransactions);
+      transactionBroadcaster.onRemoteTransactionsAdded(addedTransactions);
     }
     return validationResults;
   }

@@ -43,6 +43,14 @@ public class TransactionBroadcaster
 
   private static final EnumSet<TransactionType> ANNOUNCE_HASH_ONLY_TX_TYPES = EnumSet.of(BLOB);
 
+  // On small networks, like a set of BFT validators, sending the full txs to every peer delivers
+  // the txs of each sender in nonce order to all the nodes, instead of having the peers that only
+  // got the announcement fetch them later, leaving nonce gaps in their pool meanwhile.
+  // Experimental, 0 (the default) keeps sending full txs to sqrt(peers) peers.
+  private static final int FULL_BROADCAST_MAX_PEERS =
+      Integer.getInteger("besu.txpool.fullBroadcastMaxPeers", 0);
+  private static final boolean RELAY_REMOTE_AS_HASHES =
+      Boolean.getBoolean("besu.txpool.relayRemoteAsHashes");
   private static final Boolean HASH_ONLY_BROADCAST = Boolean.TRUE;
   private static final Boolean FULL_BROADCAST = Boolean.FALSE;
 
@@ -90,6 +98,30 @@ public class TransactionBroadcaster
     }
   }
 
+  /**
+   * Relay the transactions received from peers. When every node sends its own transactions in full
+   * to all its peers (see besu.txpool.fullBroadcastMaxPeers), relaying them again in full makes
+   * every node decode each transaction once per peer. With the experimental
+   * besu.txpool.relayRemoteAsHashes property they are only announced: a peer that already has them
+   * just checks the hash, and a peer that is not connected to the origin still fetches them.
+   *
+   * @param transactions the transactions received from peers and added to the pool
+   */
+  public void onRemoteTransactionsAdded(final Collection<Transaction> transactions) {
+    if (RELAY_REMOTE_AS_HASHES
+        && ethContext.getEthPeers().peerCount() <= FULL_BROADCAST_MAX_PEERS) {
+      final List<EthPeer> peers =
+          ethContext
+              .getEthPeers()
+              .streamAvailablePeers()
+              .map(EthPeerImmutableAttributes::ethPeer)
+              .toList();
+      sendTransactionHashes(List.copyOf(transactions), peers);
+      return;
+    }
+    onTransactionsAdded(transactions);
+  }
+
   @Override
   public void onTransactionsAdded(final Collection<Transaction> transactions) {
     final int currPeerCount = ethContext.getEthPeers().peerCount();
@@ -97,7 +129,10 @@ public class TransactionBroadcaster
       return;
     }
 
-    final int numPeersToSendFullTransactions = (int) Math.round(Math.sqrt(currPeerCount));
+    final int numPeersToSendFullTransactions =
+        currPeerCount <= FULL_BROADCAST_MAX_PEERS
+            ? currPeerCount
+            : (int) Math.round(Math.sqrt(currPeerCount));
 
     final Map<Boolean, List<Transaction>> transactionByBroadcastMode =
         transactions.stream()

@@ -49,7 +49,11 @@ public class EthScheduler {
 
   private final AtomicBoolean stopped = new AtomicBoolean(false);
   private final CountDownLatch shutdown = new CountDownLatch(1);
-  private static final int TX_WORKER_CAPACITY = 1_000;
+  // When full, the bounded queue evicts the oldest task, so under a burst of small transactions
+  // messages it drops the lower nonces of a sender and keeps the higher ones, leaving nonce gaps
+  // in the pool. Experimental override of the capacity for high throughput private networks.
+  private static final int TX_WORKER_CAPACITY =
+      Integer.getInteger("besu.ethscheduler.txWorkerCapacity", 1_000);
 
   protected final ExecutorService syncWorkerExecutor;
   protected final ScheduledExecutorService scheduler;
