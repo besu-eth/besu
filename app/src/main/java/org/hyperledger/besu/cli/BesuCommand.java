@@ -674,7 +674,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       description =
           "Specifies the number of last blocks whose headers, bodies, receipts and block access"
               + " lists to cache, 0 to disable (default: ${DEFAULT-VALUE})")
-  private final Integer numberOfBlocksToCache = DefaultBlockchain.DEFAULT_BLOCKS_TO_CACHE;
+  private Integer numberOfBlocksToCache = DefaultBlockchain.DEFAULT_BLOCKS_TO_CACHE;
 
   @CommandLine.Option(
       names = {"--cache-last-blocks-max-capacity"},
@@ -682,7 +682,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       description =
           "Max amount of memory, in bytes, that the cache of the block access lists of the last"
               + " blocks could occupy (default: ${DEFAULT-VALUE})")
-  private final Long lastBlocksCacheMaxCapacity =
+  private Long lastBlocksCacheMaxCapacity =
       DefaultBlockchain.DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY;
 
   @CommandLine.Option(
@@ -690,7 +690,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       description =
           "Specifies the number of last block headers to cache, raised to --cache-last-blocks if"
               + " lower (default: ${DEFAULT-VALUE})")
-  private final Integer numberOfBlockHeadersToCache = 0;
+  private Integer numberOfBlockHeadersToCache = 0;
 
   @CommandLine.Option(
       names = {"--cache-last-block-headers-preload-enabled"},
@@ -1662,11 +1662,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void validateMiningParams() {
     miningOptions.validate(
-        commandLine,
-        genesisConfigOptionsSupplier.get(),
-        isMergeEnabled(),
-        genesisFile == null,
-        logger);
+        commandLine, genesisConfigOptionsSupplier.get(), genesisFile == null, logger);
   }
 
   private void validateP2POptions() {
@@ -2469,6 +2465,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private MiningConfiguration getMiningParameters() {
+    miningOptions.setMempoolPrewarmEnabledByDefault(isMempoolPrewarmEnabledByDefault());
     miningOptions.setTransactionSelectionService(transactionSelectionServiceImpl);
     final var miningParameters = miningOptions.toDomainObject();
     getBlockPeriodSeconds(readGenesisConfigOptions())
@@ -2500,7 +2497,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     final boolean balPrefetch =
         balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled();
     if (DataStorageFormat.BONSAI.equals(dataStorageConfiguration.getDataStorageFormat())
-        && (balPrefetch || miningOptions.isMempoolPrewarmEnabled())
+        && (balPrefetch || miningParametersSupplier.get().isMempoolPrewarmEnabled())
         && !dataStorageConfiguration
             .getExtraStorageConfiguration()
             .getUnstable()
@@ -3159,6 +3156,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
                 : SyncMode.FULL);
   }
 
+  private boolean isMempoolPrewarmEnabledByDefault() {
+    // not getDataStorageConfiguration(): it reads the mining parameters, which call this
+    return genesisFile == null
+        && network.isMempoolPrewarmEnabledByDefault()
+        && DataStorageFormat.BONSAI.equals(
+            dataStorageOptions.toDomainObject().getDataStorageFormat());
+  }
+
   private Boolean getDefaultVersionCompatibilityProtectionIfNotSet() {
     // Version compatibility protection is enabled by default for non-named networks
     return Optional.ofNullable(versionCompatibilityProtection)
@@ -3196,6 +3201,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         getDataStorageConfiguration()
             .getExtraStorageConfiguration()
             .getParallelTxProcessingEnabled());
+    builder.setMempoolPrewarmEnabled(miningParametersSupplier.get().isMempoolPrewarmEnabled());
 
     if (jsonRpcConfiguration != null && jsonRpcConfiguration.isEnabled()) {
       builder

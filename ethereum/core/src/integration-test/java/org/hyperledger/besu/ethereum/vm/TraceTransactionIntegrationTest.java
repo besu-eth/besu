@@ -165,7 +165,7 @@ public class TraceTransactionIntegrationTest {
     assertThat(frame.getOpcode()).isEqualTo("DUP6");
     assertThat(frame.getStorage()).isEmpty();
 
-    // Storage is emitted only for the SSTORE frame, showing the single slot touched.
+    // Storage is emitted only for the SSTORE frame, showing the slots this contract accessed.
     frame = tracer.getTraceFrames().get(171);
     assertThat(frame.getOpcode()).isEqualTo("SSTORE");
     assertStorageContainsExactly(
@@ -233,16 +233,7 @@ public class TraceTransactionIntegrationTest {
     assertThat(frame.getOpcode()).isEqualTo("MSTORE");
     assertThat(frame.getPc()).isEqualTo(4);
     assertStackContainsExactly(frame, "80", "40");
-    assertMemoryContainsExactly(
-        frame,
-        "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "0x0000000000000000000000000000000000000000000000000000000000000000",
-        "0x0000000000000000000000000000000000000000000000000000000000000080");
-    // Reference implementation actually records the memory after expansion but before the store.
-    //    assertMemoryContainsExactly(frame,
-    //        "0000000000000000000000000000000000000000000000000000000000000000",
-    //        "0000000000000000000000000000000000000000000000000000000000000000",
-    //        "0000000000000000000000000000000000000000000000000000000000000000");
+    assertThat(frame.getMemory()).isEmpty();
 
     frame = traceFrames.get(3);
     assertThat(frame.getDepth()).isEqualTo(expectedDepth);

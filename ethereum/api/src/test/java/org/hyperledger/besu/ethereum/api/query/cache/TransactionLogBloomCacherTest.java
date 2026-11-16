@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,8 +45,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeAll;
@@ -340,6 +346,124 @@ public class TransactionLogBloomCacherTest {
     assertThat(logBloom.length()).isEqualTo(BLOOM_BITS_LENGTH * 2);
 
     assertThat(cacheDir.toFile().list().length).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldStopCachingPreviousSegmentsWhenTheSchedulerStops() throws Exception {
+    final long chainHead = 2L * BLOCKS_PER_BLOOM_CACHE + 5;
+    assertNoStorageReadsAfterTheSchedulerStops(
+        chainHead, cacher -> cacher.ensurePreviousSegmentsArePresent(chainHead, false));
+
+    // the cacher works down from the segment below the head and must not start the next one
+    assertThat(cacheDir.resolve("logBloom-0.cache")).doesNotExist();
+  }
+
+  @Test
+  public void shouldStopRequestedCachingWhenTheSchedulerStops() throws Exception {
+    final long chainHead = 2L * BLOCKS_PER_BLOOM_CACHE + 5;
+    assertNoStorageReadsAfterTheSchedulerStops(
+        chainHead, cacher -> cacher.requestCaching(0, chainHead));
+
+    assertThat(cacheDir.resolve("logBloom-1.cache")).doesNotExist();
+  }
+
+  /**
+   * Stops the scheduler in the order Runner.stopServices uses: EthScheduler.stop() and awaitStop()
+   * run before the storage is closed, so a caching task still reading after that point hits a
+   * closed storage once per remaining segment.
+   */
+  private void assertNoStorageReadsAfterTheSchedulerStops(
+      final long chainHead, final Consumer<TransactionLogBloomCacher> startCaching)
+      throws InterruptedException {
+    final BlockHeader header = createBlock(0);
+    final CountDownLatch readInProgress = new CountDownLatch(1);
+    final CountDownLatch schedulerStopped = new CountDownLatch(1);
+    final AtomicLong readsAfterStop = new AtomicLong();
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(chainHead);
+    when(blockchain.getBlockHeader(anyLong()))
+        .thenAnswer(
+            invocation -> {
+              if (schedulerStopped.getCount() == 0) {
+                readsAfterStop.incrementAndGet();
+              }
+              if (readInProgress.getCount() > 0) {
+                readInProgress.countDown();
+                // a RocksDB read does not react to the interrupt from EthScheduler.stop()
+                Uninterruptibles.awaitUninterruptibly(schedulerStopped);
+              }
+              return Optional.of(header);
+            });
+
+    final EthScheduler ethScheduler = new EthScheduler(1, 1, 1, 1, new NoOpMetricsSystem());
+    startCaching.accept(new TransactionLogBloomCacher(blockchain, cacheDir, ethScheduler));
+    assertThat(readInProgress.await(10, TimeUnit.SECONDS)).isTrue();
+
+    ethScheduler.stop();
+    schedulerStopped.countDown();
+    ethScheduler.awaitStop();
+
+    assertThat(readsAfterStop).hasValue(0);
+  }
+
+  @Test
+  public void shouldRewriteABlockReplacedByAReorgDroppedWhileCachingIsInProgress()
+      throws IOException {
+    final File logBloom = cacheDir.resolve("logBloom-0.cache").toFile();
+    final List<BlockHeader> firstBranch = new ArrayList<>();
+    for (int i = 0; i < 6; i++) {
+      firstBranch.add(createBlock(i));
+    }
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        firstBranch.get(5), Optional.empty(), Optional.of(logBloom));
+    assertThat(readLogBloomCache(logBloom, 5))
+        .containsExactly(firstBranch.get(5).getLogsBloom().getBytes().toArray());
+
+    // a reorg replaces block 5 while a cache generation holds the cacher
+    final BlockHeader forkBlock5 = createBlock(5, Optional.of("111111111111111111111111"));
+    transactionLogBloomCacher.getCachingStatus().cachingCount.incrementAndGet();
+    try {
+      transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+          forkBlock5, Optional.of(firstBranch.get(4)), Optional.of(logBloom));
+    } finally {
+      transactionLogBloomCacher.getCachingStatus().cachingCount.decrementAndGet();
+    }
+
+    // the next block builds on the fork and is the first event the cacher processes again
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        createBlock(6), Optional.of(forkBlock5), Optional.of(logBloom));
+
+    assertThat(readLogBloomCache(logBloom, 5))
+        .containsExactly(forkBlock5.getLogsBloom().getBytes().toArray());
+    assertThat(logBloom.length()).isEqualTo(BLOOM_BITS_LENGTH * 7);
+  }
+
+  @Test
+  public void shouldRebuildTheSegmentOfTheLastBlockOfASegmentAfterADroppedReorg()
+      throws IOException {
+    // createBlock needs block numbers with an even number of hex digits
+    final long lastBlock = 11L * BLOCKS_PER_BLOOM_CACHE - 1;
+    final File logBloom = cacheDir.resolve("logBloom-10.cache").toFile();
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        createBlock(lastBlock - 1), Optional.empty(), Optional.empty());
+
+    // a reorg replaces the block before the last one while a cache generation holds the cacher
+    final BlockHeader forkBlock =
+        createBlock(lastBlock - 1, Optional.of("111111111111111111111111"));
+    transactionLogBloomCacher.getCachingStatus().cachingCount.incrementAndGet();
+    try {
+      transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+          forkBlock, Optional.of(createBlock(lastBlock - 2)), Optional.empty());
+    } finally {
+      transactionLogBloomCacher.getCachingStatus().cachingCount.decrementAndGet();
+    }
+
+    transactionLogBloomCacher.cacheLogsBloomForBlockHeader(
+        createBlock(lastBlock), Optional.of(forkBlock), Optional.empty());
+
+    assertThat(readLogBloomCache(logBloom, (lastBlock - 1) % BLOCKS_PER_BLOOM_CACHE))
+        .containsExactly(forkBlock.getLogsBloom().getBytes().toArray());
+    assertThat(logBloom.length()).isEqualTo((long) BLOCKS_PER_BLOOM_CACHE * BLOOM_BITS_LENGTH);
+    assertThat(cacheDir.resolve("logBloom-11.cache")).doesNotExist();
   }
 
   private void createLogBloomCache(final File logBloom) throws IOException {

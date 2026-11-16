@@ -90,6 +90,11 @@ public class FlatTraceGenerator {
     // set to, input and callType fields if not a smart contract
     if (tx.getTo().isPresent()) {
       final Bytes payload = tx.getPayload();
+      if (transactionTrace.getResult().isSuccessful()) {
+        firstFlatTraceBuilder
+            .getResultBuilder()
+            .output(transactionTrace.getResult().getOutput().toHexString());
+      }
       firstFlatTraceBuilder
           .getActionBuilder()
           .to(tx.getTo().map(a -> a.getBytes().toHexString()).orElse(null))
@@ -373,6 +378,9 @@ public class FlatTraceGenerator {
             + (traceFrame.getGasCost().orElse(0L));
 
     currentContext.setGasUsed(gasUsed);
+    if (currentContext.isCreateOp()) {
+      currentContext.getBuilder().getResultBuilder().code(Bytes.EMPTY.toHexString());
+    }
 
     final Bytes[] stack = traceFrame.getStack().orElseThrow();
     final Address refundAddress = toAddress(stack[stack.length - 1]);
