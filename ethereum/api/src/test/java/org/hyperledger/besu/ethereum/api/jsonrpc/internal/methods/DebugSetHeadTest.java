@@ -17,6 +17,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 
 import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -24,7 +27,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpServiceTest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -144,6 +149,60 @@ public class DebugSetHeadTest extends AbstractJsonRpcHttpServiceTest {
     // assert both the chain and worldstate moved to block one
     assertThat(newChainTip).isEqualTo(blockOne);
     assertThat(archive.getWorldState().rootHash()).isEqualTo(blockOne.getStateRoot());
+  }
+
+  @Test
+  public void assertErrorAndNothingMovesWhenTargetWorldStateIsUnavailable() {
+    var chainTip = blockchain.getChainHead().getBlockHeader();
+    var blockOne = getBlockHeaderForHashOrNumber("0x01").orElse(null);
+    assertThat(blockOne).isNotNull();
+    assertThat(blockOne).isNotEqualTo(chainTip);
+
+    // report the worldstate of every block as unavailable
+    var archiveWithoutState = spy(archive);
+    doReturn(false).when(archiveWithoutState).isWorldStateAvailable(any(), any());
+    var debugSetHeadWithoutState =
+        new DebugSetHead(
+            new BlockchainQueries(
+                protocolSchedule,
+                blockchain,
+                archiveWithoutState,
+                MiningConfiguration.MINING_DISABLED),
+            protocolContext,
+            2);
+
+    var resp = debugSetHeadWithoutState.response(debugSetHead("0x01", Optional.of(TRUE)));
+
+    // an error is returned instead of a success
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
+    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
+        .isEqualTo(RpcErrorType.WORLD_STATE_UNAVAILABLE);
+
+    // neither the chain head nor the worldstate moved
+    assertThat(blockchain.getChainHead().getBlockHeader()).isEqualTo(chainTip);
+    assertThat(archive.getWorldState().rootHash()).isEqualTo(chainTip.getStateRoot());
+  }
+
+  @Test
+  public void assertChainHeadMovesWhenWorldStateIsAlreadyAtTarget() {
+    var blockOne = getBlockHeaderForHashOrNumber("0x01").orElse(null);
+    var blockTwo = getBlockHeaderForHashOrNumber("0x02").orElse(null);
+    assertThat(blockOne).isNotNull();
+    assertThat(blockTwo).isNotNull();
+
+    // move both the chain head and the worldstate to block two
+    debugSetHead.response(debugSetHead("0x02", Optional.of(TRUE)));
+    // move only the chain head back to block one, the worldstate stays at block two
+    debugSetHead.response(debugSetHead("0x01", Optional.of(FALSE)));
+    assertThat(blockchain.getChainHead().getBlockHeader()).isEqualTo(blockOne);
+    assertThat(archive.getWorldState().rootHash()).isEqualTo(blockTwo.getStateRoot());
+
+    // the worldstate already is at block two, but the chain head must still move there
+    var resp = debugSetHead.response(debugSetHead("0x02", Optional.of(TRUE)));
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    assertThat(blockchain.getChainHead().getBlockHeader()).isEqualTo(blockTwo);
+    assertThat(archive.getWorldState().rootHash()).isEqualTo(blockTwo.getStateRoot());
   }
 
   @Test
