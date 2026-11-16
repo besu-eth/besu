@@ -7,7 +7,6 @@ This document explains how Besu executes the transactions of a block in parallel
 - [Speculative runs](#speculative-runs)
 - [Same-sender chains](#same-sender-chains)
 - [Threads](#threads)
-- [Measured](#measured)
 - [Tests](#tests)
 - [Where to start reading](#where-to-start-reading)
 - [Glossary](#glossary)
@@ -121,19 +120,6 @@ Without chains, block processing executes tx 5 and tx 9 as well, 8 of the 13 tra
 | `besu-block-io-N` | two per core | warm-ups of chain members |
 
 The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change the counts.
-
-## Measured
-
-On mainnet nodes with EVM v2, over the same 35,140 blocks from Nov 8 to Nov 13, 2026:
-
-| | Without chains | With chains |
-|---|---:|---:|
-| Execution time per block | 114.5 ms | 105.6 ms |
-| Throughput | 265 MGas/s | 287 MGas/s |
-| Transactions per block whose result was taken | 150 of 279 (54%) | 177 of 279 (64%) |
-| Transactions per block executed by block processing | 129 | 102 |
-
-The difference depends on the blocks: per half day it ranged from 21% less time to 3% more.
 
 ## Tests
 
