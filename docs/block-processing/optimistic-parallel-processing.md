@@ -5,6 +5,7 @@ This document explains how Besu executes the transactions of a block in parallel
 - [Where the processor runs](#where-the-processor-runs)
 - [The example block](#the-example-block)
 - [Speculative runs](#speculative-runs)
+- [Balance changes](#balance-changes)
 - [Same-sender chains](#same-sender-chains)
 - [Threads](#threads)
 - [Tests](#tests)
@@ -78,12 +79,31 @@ The timeline in [Same-sender chains](#same-sender-chains) is schematic. It keeps
 When block processing reaches a transaction, `getProcessingResult` does three things:
 
 1. If the transaction's run has not finished, block processing executes the transaction itself and the run is thrown away.
-2. `TransactionCollisionDetector.hasCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account collides as well.
+2. `TransactionCollisionDetector.hasCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account finds its balance changed, since every transaction pays it a fee. A change to a balance alone is often no collision, as [Balance changes](#balance-changes) explains.
 3. Without a collision, block processing **takes** the result: it imports the run's changes into the block's accumulator and credits the transaction's fee to the coinbase account, which the run kept aside.
 
 A reverted or halted result is taken like a successful one when nothing it read has changed. An invalid result is never taken.
 
 A collision means the run read something that has changed since, so block processing executes the transaction itself. The run still helped, because what it read is now in the caches.
+
+## Balance changes
+
+Many transactions touch an account whose balance an earlier transaction of the block changed: a payment to WETH, to the Uniswap v4 pool manager, to the ERC-4337 entry point, or to an account that received ETH earlier in the block. Most of them only add to that balance, or only need it to be large enough for what they spend. Their result still holds when the transaction's balance change is carried over to the balance the block has reached.
+
+**Balance observations.** The EVM reports which balances a transaction depends on. BALANCE, SELFBALANCE and SELFDESTRUCT report through `WorldUpdater.observeBalance`, and so does a value-carrying CALL, CREATE or PAY whose balance is too small. One whose balance is large enough reports by how much it was large enough (`observeSufficientBalance`). Each updater passes the reports on to its parent. Only a worker's accumulator records them (`recordBalanceObservations`), keeping the smallest margin per account.
+
+**When a balance change is carried over.** An earlier transaction may have changed only the balance of an account the run touched, not its nonce or code. That is no collision when all of these hold:
+
+- The account is not the transaction's sender, whose balance pays for the gas.
+- The run did not observe the account's balance.
+- The account is not empty in the parent state, at the transaction's turn or after the run. Whether an account is empty decides call costs and state clearing.
+- The run only added to the balance. If it spent from it, the block's balance plus the smallest margin still covers the balance the run started from, so every spending would still find enough.
+
+When block processing takes such a result, it sets each of these balances to the block's balance plus the run's change, in the state and, when a block access list is being built, in its post balance.
+
+**The coinbase account.** Every transaction pays the coinbase account its fee, so a run that touched the coinbase account, such as a direct payment to the block's builder, would always find a changed balance. The same rules apply to it as to any other account. Such a run already holds its own fee, so block processing does not credit the fee again.
+
+A chained result, described next, carries no balance change over.
 
 ## Same-sender chains
 
@@ -91,7 +111,7 @@ On the parent state, a sender's second transaction in a block fails its nonce ch
 
 **Chains.** The transactions of one sender run in order on one worker, each on the state the one before it left (`runChain`). A chain holds at most 64 transactions, and the sender's later ones run alone. Each member's result carries the changes of the members before it, which block processing checks and imports again, so without the cap a chain would cost the square of its length.
 
-**Taking a chained result.** A chained result is taken when, for everything it touched, the block holds at its turn the value the chain started from: the predecessor's value where the predecessor touched it, the parent's otherwise. Storage cleared on either side is a collision.
+**Taking a chained result.** A chained result is taken when, for everything it touched, the block holds at its turn the value the chain started from: the predecessor's value where the predecessor touched it, the parent's otherwise. Storage cleared on either side is a collision, and so is touching the coinbase account. No balance change is carried over.
 
 **Where a chain stops.** A member whose run fails with an error is reported and executed by block processing, and so are the members after it. An invalid member ends the chain as well, because the sender's next transaction would fail its nonce check. So does a member that block processing reaches before it ran: the members after it would run without the state it leaves.
 
@@ -106,10 +126,11 @@ In the figure:
 1. J's two transactions run as one chain on one worker. Tx 9 runs on the state tx 8 left, and block processing takes both results.
 2. E's transactions were private. Tx 5's own run fails its nonce check, because tx 4 has not happened on the parent state.
 3. Once E is recovered, a late chain runs tx 5 on the result of tx 4's run, and block processing takes it.
-4. Tx 3, 7, 10, 11 and 12 collide, on WETH's balance, pool P, the sender's balance, pool P and pool S. Block processing executes them.
+4. Tx 3's deposit adds to WETH's balance, which tx 2 changed. The deposit does not read that balance, so block processing takes its result and adds the deposit to the balance tx 2 left.
 5. The batch call's run is long. Block processing reaches the call before the run ends, throws the run away and executes the call from the start. That alone takes more than a third of the block.
+6. Tx 7, 10, 11 and 12 collide, on pool P, the sender's balance, pool P and pool S. Block processing executes them. Tx 10's sender pays for its gas from the balance tx 1 raised, so that change is not carried over.
 
-Without chains, block processing executes tx 5 and tx 9 as well, 8 of the 13 transactions instead of 6. The dashed line marks where that block ends.
+Without chains, block processing executes tx 5 and tx 9 as well, 7 of the 13 transactions instead of 5. The dashed line marks where that block ends.
 
 ## Threads
 
@@ -123,7 +144,8 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 
 ## Tests
 
-- `TransactionCollisionDetectorTest` tests the collision rules, for runs alone and chained runs.
+- `TransactionCollisionDetectorTest` tests the collision rules, for runs alone and chained runs, and when a balance change is carried over.
+- `BalanceObservationTest` in the `evm` module tests that the operations report the balances they depend on.
 - `OptimisticTransactionProcessorUnitTest` tests chains, where they stop, sender recovery, late chains and warm-ups.
 - `OptimisticParallelBlockProcessorIntegrationTest` imports blocks on a genesis built at runtime and compares the outcome with sequential execution.
 
@@ -136,7 +158,7 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 1. `AbstractBlockProcessor.processBlock`: the loop and the rule it keeps.
 2. `MainnetParallelBlockProcessor`: picking the processor, and falling back to execution.
 3. `OptimisticConcurrentTransactionProcessor`: runs, chains, late chains, warm-ups and takes.
-4. `TransactionCollisionDetector`: what counts as a collision, for runs alone and chained runs.
+4. `TransactionCollisionDetector`: what counts as a collision, for runs alone and chained runs, and which balance changes are carried over.
 
 ## Glossary
 
@@ -144,6 +166,7 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 - **Speculative run:** a transaction executed on another thread before block processing reaches it.
 - **Take:** block processing using a run's result instead of executing the transaction.
 - **Collision:** something a run touched changed in the block before the run's turn, so its result cannot be taken.
+- **Carry-over:** taking a result although an earlier transaction changed a balance it touched, by adding the run's change to the block's balance.
 - **Chain:** a sender's transactions run in order on one worker, each on the state the one before it left.
 - **Late chain:** a chain formed once the senders the transaction pool did not know are recovered, after their transactions already ran alone.
 - **Warm-up:** a chain member executed once against the parent state, only so that what it reads is cached.
