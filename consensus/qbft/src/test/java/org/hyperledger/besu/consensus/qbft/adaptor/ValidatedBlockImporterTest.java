@@ -19,9 +19,11 @@ import static org.awaitility.Awaitility.await;
 import static org.hyperledger.besu.ethereum.mainnet.BlockImportResult.BlockImportStatus.ALREADY_IMPORTED;
 import static org.hyperledger.besu.ethereum.mainnet.BlockImportResult.BlockImportStatus.IMPORTED;
 import static org.hyperledger.besu.ethereum.mainnet.BlockImportResult.BlockImportStatus.NOT_IMPORTED;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -41,6 +43,7 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.time.Duration;
@@ -268,6 +271,7 @@ class ValidatedBlockImporterTest {
   @Test
   void networkImportExecutesBlockWhenValidationFails() throws InterruptedException {
     assertThat(validatedBlockCache.tryStartExecution(block.getHash())).isTrue();
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     when(blockImporter.importBlock(
             protocolContext,
             block,
@@ -289,6 +293,28 @@ class ValidatedBlockImporterTest {
     networkImport.join(TIMEOUT);
 
     assertThat(result.get().getStatus()).isEqualTo(NOT_IMPORTED);
+  }
+
+  @Test
+  void networkImportDoesNotWaitForValidationWithoutTrieLogs() {
+    // Forest: the outputs of the validation can't be reused, so the import executes the block
+    // while the proposal is still being validated, like MainnetBlockImporter
+    assertThat(validatedBlockCache.tryStartExecution(block.getHash())).isTrue();
+    when(protocolContext.getWorldStateArchive()).thenReturn(mock(WorldStateArchive.class));
+    when(blockImporter.importBlock(
+            protocolContext,
+            block,
+            HeaderValidationMode.NONE,
+            HeaderValidationMode.FULL,
+            Optional.empty()))
+        .thenReturn(new BlockImportResult(IMPORTED));
+
+    final BlockImportResult result =
+        assertTimeoutPreemptively(
+            Duration.ofSeconds(5),
+            () -> importer.importBlock(protocolContext, block, HeaderValidationMode.NONE));
+
+    assertThat(result.getStatus()).isEqualTo(IMPORTED);
   }
 
   @Test

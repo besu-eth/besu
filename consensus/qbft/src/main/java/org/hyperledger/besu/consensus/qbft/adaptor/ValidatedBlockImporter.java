@@ -45,6 +45,10 @@ import org.slf4j.LoggerFactory;
  * proposal, without executing it again: whichever imports the block first appends it with the saved
  * outputs, and the other finds it already imported. A block whose proposal is being validated is
  * imported when the validation ends, instead of being executed a second time.
+ *
+ * <p>The outputs are applied to the head world state with the trie log saved by the execution, so
+ * they are reused only with a path-based (Bonsai) world state. Otherwise blocks are executed as
+ * {@link MainnetBlockImporter} does.
  */
 public class ValidatedBlockImporter implements BlockImporter {
 
@@ -96,8 +100,11 @@ public class ValidatedBlockImporter implements BlockImporter {
       return new BlockImportResult(BlockImportStatus.ALREADY_IMPORTED);
     }
     // e.g. NewBlock received while the round validates the proposal: wait for the outputs of the
-    // validation. Outside the lock below, so other imports are not blocked meanwhile.
-    validatedBlockCache.awaitExecution(blockHash);
+    // validation. Outside the lock below, so other imports are not blocked meanwhile. Without trie
+    // logs (Forest) the outputs can't be used, and waiting would only delay the execution.
+    if (canReuseOutputs(context.getWorldStateArchive())) {
+      validatedBlockCache.awaitExecution(blockHash);
+    }
 
     // the lock of MainnetBlockImporter.importBlock, so the head check, append and world state move
     // of a validated block are not interleaved with another import
@@ -202,6 +209,11 @@ public class ValidatedBlockImporter implements BlockImporter {
         validatedBlockCache.endExecution(block.getHash());
       }
     }
+  }
+
+  // the outputs are applied with the trie log of the execution, which only path-based storage saves
+  private static boolean canReuseOutputs(final WorldStateArchive worldStateArchive) {
+    return worldStateArchive instanceof PathBasedWorldStateProvider;
   }
 
   private static boolean hasTrieLog(
