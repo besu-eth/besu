@@ -45,6 +45,7 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executors;
 import java.util.function.LongSupplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -404,6 +405,14 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void archiveIsNotCanonicalWhileLastArchivedBlockIsAheadOfTheChain() {
+    final BlockHeader archived = new BlockHeaderTestFixture().number(5).buildHeader();
+    when(blockchain.getBlockHashByNumber(5L)).thenReturn(Optional.empty());
+
+    assertThat(provider.isCanonical(new ArchivedBlock(5L, archived.getHash()))).isFalse();
+  }
+
+  @Test
   void isFinalComparesAgainstImportedFinalized() {
     final BlockHeader finalized = new BlockHeaderTestFixture().number(3).buildHeader();
     when(blockchain.getFinalized()).thenReturn(Optional.of(finalized.getHash()));
@@ -504,7 +513,7 @@ public class BonsaiArchiveWorldStateProviderTest {
         new BonsaiCodeCache(),
         new NoOpMetricsSystem(),
         Optional.empty(),
-        2,
+        () -> Executors.newFixedThreadPool(2),
         instantFinality,
         networkHead);
   }

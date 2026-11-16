@@ -1654,7 +1654,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .getBonsaiArchiveStateProofsEnabled()) {
       throw new ParameterException(
           commandLine,
-          ExtraStorageOptions.STATE_PROOFS_ENABLED + " needs --sync-mode=FULL, not " + format);
+          ExtraStorageOptions.STATE_PROOFS_ENABLED + " needs --sync-mode=FULL, not SNAP");
     }
   }
 
@@ -2563,7 +2563,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             DataStorageFormat.BONSAI);
       }
     }
-
     return dataStorageConfiguration;
   }
 

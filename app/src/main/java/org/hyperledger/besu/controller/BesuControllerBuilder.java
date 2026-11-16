@@ -1466,7 +1466,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             codeCache,
             metricsSystem,
             amsterdamMilestone,
-            syncConfig.getComputationParallelism(),
+            () ->
+                MonitoredExecutors.newFixedThreadPool(
+                    "trie-capture", syncConfig.getComputationParallelism(), metricsSystem),
             // BFT blocks are final on import; Clique blocks can still be reorged
             genesisConfigOptions.isPoa() && !genesisConfigOptions.isClique(),
             syncState::bestChainHeight);

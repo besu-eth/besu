@@ -48,10 +48,10 @@ import org.hyperledger.besu.util.log.LogUtil;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -76,7 +76,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final ArchiveHistoryReader archiveHistoryReader;
   private final Optional<ArchiveTrieNodeStrategy> archiveTrieNodeStrategy;
   private final boolean instantFinality;
-  private final AtomicBoolean logNotCanonical = new AtomicBoolean(true);
+  private final AtomicBoolean shouldLogNotCanonical = new AtomicBoolean(true);
   private final LongSupplier networkHead;
 
   public BonsaiArchiveWorldStateProvider(
@@ -89,7 +89,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem,
       final Optional<Long> amsterdamMilestone,
-      final int trieCaptureParallelism,
+      final Supplier<ExecutorService> trieCapturePool,
       final boolean instantFinality,
       final LongSupplier networkHead) {
     super(
@@ -125,7 +125,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     if (unstable.getBonsaiArchiveStateProofsEnabled()) {
       requireCoverageFromGenesis();
       this.archiveTrieNodeStrategy =
-          Optional.of(createInlineStrategy(liveStorage, unstable, trieCaptureParallelism));
+          Optional.of(createInlineStrategy(liveStorage, unstable, trieCapturePool));
     } else {
       this.archiveTrieNodeStrategy = Optional.empty();
     }
@@ -149,13 +149,12 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private ArchiveTrieNodeStrategy createInlineStrategy(
       final SegmentedKeyValueStorage liveStorage,
       final ExtraStorageConfiguration.Unstable unstable,
-      final int trieCaptureParallelism) {
-    final ExecutorService trieCapturePool = Executors.newFixedThreadPool(trieCaptureParallelism);
+      final Supplier<ExecutorService> trieCapturePool) {
     return new ArchiveTrieNodeStrategy(
         new BonsaiTrieNodeStrategy(),
         new ArchiveTrieNodeWriter(
             archiveHistoryStore,
-            trieCapturePool,
+            trieCapturePool.get(),
             unstable.getBonsaiArchiveShallowCheckpointInterval(),
             unstable.getBonsaiArchiveDeepCheckpointInterval()),
         archiveHistoryStore,
@@ -262,19 +261,32 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   // belong to blocks that are no longer canonical. Never serve them.
   @VisibleForTesting
   boolean isCanonical(final ArchivedBlock last) {
-    if (blockchain.getBlockHashByNumber(last.number()).filter(last.hash()::equals).isPresent()) {
+    final Optional<Hash> canonical = blockchain.getBlockHashByNumber(last.number());
+    if (canonical.filter(last.hash()::equals).isPresent()) {
       return true;
     }
     LogUtil.throttledLog(
-        () ->
-            LOG.error(
-                "Archived proof history ends at block {} ({}), which is no longer canonical. "
-                    + "Proofs for archived blocks are refused; proof history needs a resync.",
-                last.number(),
-                last.hash()),
-        logNotCanonical,
+        () -> logNotCanonical(last, canonical.isEmpty()),
+        shouldLogNotCanonical,
         NOT_CANONICAL_LOG_INTERVAL_SECONDS);
     return false;
+  }
+
+  // A missing block heals on re-import; a different block needs a resync.
+  private void logNotCanonical(final ArchivedBlock last, final boolean missing) {
+    if (missing) {
+      LOG.info(
+          "Archived proof history ends at block {} ({}), ahead of the chain head. Proofs for"
+              + " archived blocks are refused until that block is imported.",
+          last.number(),
+          last.hash());
+    } else {
+      LOG.error(
+          "Archived proof history ends at block {} ({}), which is no longer canonical. Proofs for"
+              + " archived blocks are refused; proof history needs a resync.",
+          last.number(),
+          last.hash());
+    }
   }
 
   // Archive-specific rollback behaviour. There is no trie-log roll forward/backward, we just roll

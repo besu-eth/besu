@@ -3110,8 +3110,7 @@ public class BesuCommandTest extends CommandTestAbstract {
         "--sync-mode=SNAP");
     verifyNoInteractions(mockRunnerBuilder);
     assertThat(commandErrorOutput.toString(UTF_8))
-        .contains(
-            "--Xbonsai-archive-state-proofs-enabled needs --sync-mode=FULL, not X_BONSAI_ARCHIVE");
+        .contains("--Xbonsai-archive-state-proofs-enabled needs --sync-mode=FULL, not SNAP");
   }
 
   @Test
@@ -3122,8 +3121,7 @@ public class BesuCommandTest extends CommandTestAbstract {
         "--Xbonsai-archive-state-proofs-enabled");
     verifyNoInteractions(mockRunnerBuilder);
     assertThat(commandErrorOutput.toString(UTF_8))
-        .contains(
-            "--Xbonsai-archive-state-proofs-enabled needs --sync-mode=FULL, not X_BONSAI_ARCHIVE");
+        .contains("--Xbonsai-archive-state-proofs-enabled needs --sync-mode=FULL, not SNAP");
   }
 
   @Test

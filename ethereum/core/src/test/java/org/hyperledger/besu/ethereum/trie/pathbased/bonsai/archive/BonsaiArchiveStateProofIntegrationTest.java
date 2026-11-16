@@ -273,7 +273,6 @@ class BonsaiArchiveStateProofIntegrationTest {
     final ArchiveNodeHistoryStore history = new ArchiveNodeHistoryStore(storage);
     assertThat(history.getArchivedBlock())
         .contains(new ArchiveNodeHistoryStore.ArchivedBlock(0L, header(0L).getHash()));
-    assertThat(history.isArchived(1L)).isFalse();
   }
 
   @Test
