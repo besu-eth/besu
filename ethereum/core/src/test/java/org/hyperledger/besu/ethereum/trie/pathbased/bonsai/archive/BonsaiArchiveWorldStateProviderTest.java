@@ -463,6 +463,18 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void finalizedWithoutHeaderFallsBackToTheDepth() {
+    final Hash finalizedHash = Hash.hash(Bytes.of(3));
+    when(blockchain.getFinalized()).thenReturn(Optional.of(finalizedHash));
+    when(blockchain.getBlockHeader(finalizedHash)).thenReturn(Optional.empty());
+    networkHead = () -> 1000L;
+    final BonsaiArchiveWorldStateProvider depthProvider = createProvider(true);
+
+    assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH)).isTrue();
+    assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH + 1)).isFalse();
+  }
+
+  @Test
   void startupFailsWhenProofsEnabledPastGenesisWithoutCoverage() {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
 
