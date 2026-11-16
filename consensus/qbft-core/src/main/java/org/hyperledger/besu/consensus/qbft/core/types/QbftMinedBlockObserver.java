@@ -22,4 +22,14 @@ public interface QbftMinedBlockObserver {
    * @param block the mined block
    */
   void blockMined(QbftBlock block);
+
+  /**
+   * Called when a block is imported to the chain, with the timings of its local import.
+   *
+   * @param block the imported block
+   * @param timings the timings of the local import
+   */
+  default void blockImported(final QbftBlock block, final QbftBlockImportTimings timings) {
+    blockMined(block);
+  }
 }

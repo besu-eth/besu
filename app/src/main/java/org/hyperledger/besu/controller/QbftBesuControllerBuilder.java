@@ -66,7 +66,9 @@ import org.hyperledger.besu.consensus.qbft.core.payload.MessageFactory;
 import org.hyperledger.besu.consensus.qbft.core.statemachine.QbftBlockHeightManagerFactory;
 import org.hyperledger.besu.consensus.qbft.core.statemachine.QbftController;
 import org.hyperledger.besu.consensus.qbft.core.statemachine.QbftRoundFactory;
+import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCodec;
+import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImportTimings;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockInterface;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftEventHandler;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftFinalState;
@@ -471,48 +473,65 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
 
   private static QbftMinedBlockObserver blockLogger(
       final TransactionPool transactionPool, final Address localAddress) {
-    return qbftBlock -> {
-      final Block block = AdaptorUtil.toBesuBlock(qbftBlock);
-      final Optional<BlockCreationTiming> timing =
-          qbftBlock instanceof QbftBlockAdaptor adaptor
-              ? adaptor.getBlockCreationTiming()
-              : Optional.empty();
-      // the pool drops the transactions confirmed by this block asynchronously, so log once that
-      // is done, otherwise the pending count still includes the transactions of this block
-      if (block.getHeader().getCoinbase().equals(localAddress) && timing.isPresent()) {
-        final double creationSeconds = timing.get().end("blockImported").toMillis() / 1000.0;
-        final String timingSteps = timing.get().toString();
-        transactionPool.runAfterBlockAddedEventsProcessed(
-            () ->
-                LOG.info(
-                    String.format(
-                        "Produced #%,d  (%s)| %4d tx | %d pending | %,d (%01.1f%%) gas in %01.3fs | Timing(%s)",
-                        block.getHeader().getNumber(),
-                        block.getHash().toShortLogString(),
-                        block.getBody().getTransactions().size(),
-                        transactionPool.count(),
-                        block.getHeader().getGasUsed(),
-                        (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
-                        creationSeconds,
-                        timingSteps)));
-      } else {
-        transactionPool.runAfterBlockAddedEventsProcessed(
-            () ->
-                LOG.info(
-                    String.format(
-                        "%s %-11s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)",
-                        block.getHeader().getCoinbase().equals(localAddress)
-                            ? "Produced"
-                            : "Imported",
-                        block.getBody().getTransactions().isEmpty() ? "empty block" : "block",
-                        block.getHeader().getNumber(),
-                        block.getBody().getTransactions().size(),
-                        transactionPool.count(),
-                        block.getHeader().getGasUsed(),
-                        (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
-                        block.getHash().getBytes().toHexString())));
+    return new QbftMinedBlockObserver() {
+      @Override
+      public void blockMined(final QbftBlock qbftBlock) {
+        logBlock(qbftBlock, Optional.empty(), transactionPool, localAddress);
+      }
+
+      @Override
+      public void blockImported(final QbftBlock qbftBlock, final QbftBlockImportTimings timings) {
+        logBlock(qbftBlock, Optional.of(timings), transactionPool, localAddress);
       }
     };
+  }
+
+  private static void logBlock(
+      final QbftBlock qbftBlock,
+      final Optional<QbftBlockImportTimings> importTimings,
+      final TransactionPool transactionPool,
+      final Address localAddress) {
+    final Block block = AdaptorUtil.toBesuBlock(qbftBlock);
+    final Optional<BlockCreationTiming> timing =
+        qbftBlock instanceof QbftBlockAdaptor adaptor
+            ? adaptor.getBlockCreationTiming()
+            : Optional.empty();
+    // the pool drops the transactions confirmed by this block asynchronously, so log once that
+    // is done, otherwise the pending count still includes the transactions of this block
+    if (block.getHeader().getCoinbase().equals(localAddress) && timing.isPresent()) {
+      final double creationSeconds = timing.get().end("blockImported").toMillis() / 1000.0;
+      final String timingSteps = timing.get().toString();
+      transactionPool.runAfterBlockAddedEventsProcessed(
+          () ->
+              LOG.info(
+                  String.format(
+                      "Produced #%,d  (%s)| %4d tx | %d pending | %,d (%01.1f%%) gas in %01.3fs | Timing(%s)",
+                      block.getHeader().getNumber(),
+                      block.getHash().toShortLogString(),
+                      block.getBody().getTransactions().size(),
+                      transactionPool.count(),
+                      block.getHeader().getGasUsed(),
+                      (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
+                      creationSeconds,
+                      timingSteps)));
+    } else {
+      transactionPool.runAfterBlockAddedEventsProcessed(
+          () ->
+              LOG.info(
+                  String.format(
+                      "%s %-11s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)%s",
+                      block.getHeader().getCoinbase().equals(localAddress)
+                          ? "Produced"
+                          : "Imported",
+                      block.getBody().getTransactions().isEmpty() ? "empty block" : "block",
+                      block.getHeader().getNumber(),
+                      block.getBody().getTransactions().size(),
+                      transactionPool.count(),
+                      block.getHeader().getGasUsed(),
+                      (block.getHeader().getGasUsed() * 100.0) / block.getHeader().getGasLimit(),
+                      block.getHash().getBytes().toHexString(),
+                      importTimings.map(t -> " | " + t).orElse(""))));
+    }
   }
 
   /**

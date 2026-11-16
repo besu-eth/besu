@@ -30,6 +30,7 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreator;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreator.BlockCreationResult;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockHeader;
+import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImportTimings;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImporter;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockInterface;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftMinedBlockObserver;
@@ -55,6 +56,9 @@ public class QbftRound {
   private static final Logger LOG = LoggerFactory.getLogger(QbftRound.class);
 
   private final Subscribers<QbftMinedBlockObserver> observers;
+  // timings of the accepted proposal of this round, logged when the block is imported
+  private long proposalValidationNanos = -1;
+  private long proposalAcceptedAtNanos = -1;
 
   /** The Round state. */
   protected final RoundState roundState;
@@ -283,9 +287,12 @@ public class QbftRound {
   private boolean updateStateWithProposedBlock(final Proposal msg) {
     final boolean wasPrepared = roundState.isPrepared();
     final boolean wasCommitted = roundState.isCommitted();
+    final long proposalValidationStart = System.nanoTime();
     final boolean blockAccepted = roundState.setProposedBlock(msg);
 
     if (blockAccepted) {
+      proposalAcceptedAtNanos = System.nanoTime();
+      proposalValidationNanos = proposalAcceptedAtNanos - proposalValidationStart;
       final QbftBlock block = roundState.getProposedBlock().get();
       final SECPSignature commitSeal;
       try {
@@ -370,15 +377,21 @@ public class QbftRound {
 
     final QbftBlockImporter blockImporter =
         protocolSchedule.getBlockImporter(blockToImport.getHeader());
+    final long importStart = System.nanoTime();
     final boolean result =
         blockImporter.importBlock(blockToImport, roundState.getProposedBlockAccessList());
+    final QbftBlockImportTimings importTimings =
+        new QbftBlockImportTimings(
+            proposalValidationNanos,
+            proposalAcceptedAtNanos < 0 ? -1 : importStart - proposalAcceptedAtNanos,
+            System.nanoTime() - importStart);
     if (!result) {
       LOG.error(
           "Failed to import proposed block to chain. block={} blockHeader={}",
           blockNumber,
           blockToImport.getHeader());
     } else {
-      notifyNewBlockListeners(blockToImport);
+      notifyNewBlockListeners(blockToImport, importTimings);
     }
   }
 
@@ -392,7 +405,8 @@ public class QbftRound {
     return blockInterface.replaceRoundForCommitBlock(block, getRoundIdentifier().getRoundNumber());
   }
 
-  private void notifyNewBlockListeners(final QbftBlock block) {
-    observers.forEach(obs -> obs.blockMined(block));
+  private void notifyNewBlockListeners(
+      final QbftBlock block, final QbftBlockImportTimings importTimings) {
+    observers.forEach(obs -> obs.blockImported(block, importTimings));
   }
 }
