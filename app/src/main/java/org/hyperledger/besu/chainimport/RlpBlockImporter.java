@@ -40,7 +40,9 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -109,9 +111,9 @@ public class RlpBlockImporter implements Closeable {
     final ProtocolSchedule protocolSchedule = besuController.getProtocolSchedule();
     final ProtocolContext context = besuController.getProtocolContext();
     final MutableBlockchain blockchain = context.getBlockchain();
-    final Optional<MergeMiningCoordinator> forkChoice =
+    final Optional<PosHeadUpdater> posHead =
         besuController.getMiningCoordinator() instanceof MergeMiningCoordinator coordinator
-            ? Optional.of(coordinator)
+            ? Optional.of(new PosHeadUpdater(blockchain, coordinator))
             : Optional.empty();
     int count = 0;
     final BlockHeaderFunctions blockHeaderFunctions =
@@ -120,6 +122,8 @@ public class RlpBlockImporter implements Closeable {
       BlockHeader previousHeader = null;
       CompletableFuture<Void> previousBlockFuture = null;
       final AtomicReference<Throwable> threadedException = new AtomicReference<>();
+      // The last block in the import range, when an earlier import already stored it
+      BlockHeader lastStoredHeader = null;
       while (iterator.hasNext()) {
         final Block block = iterator.next();
         final BlockHeader header = block.getHeader();
@@ -130,8 +134,10 @@ public class RlpBlockImporter implements Closeable {
           continue;
         }
         if (blockchain.contains(header.getHash())) {
+          lastStoredHeader = header;
           continue;
         }
+        lastStoredHeader = null;
         if (previousHeader == null) {
           previousHeader = lookupPreviousHeader(blockchain, header);
         }
@@ -174,7 +180,7 @@ public class RlpBlockImporter implements Closeable {
                         header,
                         protocolSchedule.getByBlockHeader(header),
                         skipPowValidation,
-                        forkChoice),
+                        posHead),
                 importExecutor);
         previousBlockFuture.exceptionally(
             exception -> {
@@ -187,6 +193,15 @@ public class RlpBlockImporter implements Closeable {
       }
       if (previousBlockFuture != null) {
         previousBlockFuture.join();
+      }
+      // An import whose fork choice update failed has already stored the block, so importing the
+      // same file again skips it. Retry making it the head, rather than reporting success with the
+      // head elsewhere. Only for a side block: a canonical block behind the head stays behind it.
+      if (lastStoredHeader != null
+          && posHead.isPresent()
+          && protocolSchedule.getByBlockHeader(lastStoredHeader).isPoS()
+          && !isCanonical(blockchain, lastStoredHeader)) {
+        posHead.get().makeHead(lastStoredHeader);
       }
       logProgress(blockchain.getChainHeadBlockNumber());
       return new RlpBlockImporter.ImportResult(
@@ -231,7 +246,7 @@ public class RlpBlockImporter implements Closeable {
       final BlockHeader header,
       final ProtocolSpec protocolSpec,
       final boolean skipPowValidation,
-      final Optional<MergeMiningCoordinator> forkChoice) {
+      final Optional<PosHeadUpdater> posHead) {
     try {
       cumulativeTimer.start();
       segmentTimer.start();
@@ -250,22 +265,11 @@ public class RlpBlockImporter implements Closeable {
       }
       // After the merge only a fork choice update moves the chain head, so a valid block imported
       // on a side chain would otherwise never become the head. Make it the head, as the consensus
-      // client would, so that importing a side chain ends on its last block. A block that does not
-      // descend from the finalized block stays a side block, as the Engine API would not make it
-      // the head either.
+      // client would, so that importing a side chain ends on its last block.
       if (protocolSpec.isPoS()
-          && forkChoice.isPresent()
-          && !context.getBlockchain().getChainHeadHash().equals(header.getHash())
-          && descendsFromFinalized(context.getBlockchain(), forkChoice.get(), header)) {
-        final ForkchoiceResult result =
-            forkChoice.get().updateForkChoice(header, Hash.ZERO, Hash.ZERO);
-        if (result.getStatus() != ForkchoiceResult.Status.VALID) {
-          throw new IllegalStateException(
-              "Unable to make block "
-                  + header.getNumber()
-                  + " the chain head: "
-                  + result.getErrorMessage().orElse(result.getStatus().name()));
-        }
+          && posHead.isPresent()
+          && !context.getBlockchain().getChainHeadHash().equals(header.getHash())) {
+        posHead.get().makeHead(header);
       }
     } finally {
       blockBacklog.release();
@@ -280,15 +284,87 @@ public class RlpBlockImporter implements Closeable {
     }
   }
 
-  private static boolean descendsFromFinalized(
-      final MutableBlockchain blockchain,
-      final MergeMiningCoordinator forkChoice,
-      final BlockHeader header) {
+  private static boolean isCanonical(final MutableBlockchain blockchain, final BlockHeader header) {
     return blockchain
-        .getFinalized()
-        .flatMap(blockchain::getBlockHeader)
-        .map(finalized -> forkChoice.isDescendantOf(finalized, header))
-        .orElse(true);
+        .getBlockHashByNumber(header.getNumber())
+        .map(header.getHash()::equals)
+        .orElse(false);
+  }
+
+  /**
+   * Makes an imported proof-of-stake block the chain head with a fork choice update, as the
+   * consensus client would. Used from one thread at a time.
+   */
+  private static final class PosHeadUpdater {
+    private final MutableBlockchain blockchain;
+    private final MergeMiningCoordinator coordinator;
+
+    /**
+     * By ancestor hash, the last block checked against it. A side chain is imported parent first,
+     * so a check is answered from the parent's result instead of walking back to the ancestor for
+     * every block, which would be quadratic in the length of the side chain.
+     */
+    private final Map<Hash, AncestryCheck> lastChecks = new HashMap<>();
+
+    private record AncestryCheck(Hash block, boolean descends) {}
+
+    private PosHeadUpdater(
+        final MutableBlockchain blockchain, final MergeMiningCoordinator coordinator) {
+      this.blockchain = blockchain;
+      this.coordinator = coordinator;
+    }
+
+    /**
+     * Makes the block the chain head, unless it does not descend from the finalized block: it then
+     * stays a side block, as the Engine API would not make it the head either.
+     */
+    void makeHead(final BlockHeader header) {
+      if (!descendsFrom(blockchain.getFinalized(), header)) {
+        return;
+      }
+      final ForkchoiceResult result =
+          coordinator.updateForkChoice(header, Hash.ZERO, safeBlockFor(header));
+      if (result.getStatus() != ForkchoiceResult.Status.VALID) {
+        throw new IllegalStateException(
+            "Unable to make block "
+                + header.getNumber()
+                + " the chain head: "
+                + result.getErrorMessage().orElse(result.getStatus().name()));
+      }
+    }
+
+    /**
+     * The fork choice update leaves the safe block as it is when given {@link Hash#ZERO}. When the
+     * new head does not descend from it, move it back to the finalized block, or to genesis, so
+     * that it stays on the canonical chain.
+     */
+    private Hash safeBlockFor(final BlockHeader newHead) {
+      return blockchain
+          .getSafeBlock()
+          .filter(safe -> !descendsFrom(Optional.of(safe), newHead))
+          .map(unused -> blockchain.getFinalized().orElse(blockchain.getGenesisBlock().getHash()))
+          .orElse(Hash.ZERO);
+    }
+
+    /** Whether the block is, or descends from, the ancestor; true when there is no ancestor. */
+    private boolean descendsFrom(final Optional<Hash> ancestorHash, final BlockHeader header) {
+      final Optional<BlockHeader> ancestor = ancestorHash.flatMap(blockchain::getBlockHeader);
+      if (ancestor.isEmpty()) {
+        return true;
+      }
+      final Hash ancestorBlockHash = ancestor.get().getHash();
+      final AncestryCheck last = lastChecks.get(ancestorBlockHash);
+      final boolean descends;
+      if (header.getHash().equals(ancestorBlockHash)) {
+        descends = true;
+      } else if (last != null && last.block().equals(header.getParentHash())) {
+        descends = last.descends();
+      } else {
+        descends = coordinator.isDescendantOf(ancestor.get(), header);
+      }
+      lastChecks.put(ancestorBlockHash, new AncestryCheck(header.getHash(), descends));
+      return descends;
+    }
   }
 
   private void logProgress(final long blockNum) {

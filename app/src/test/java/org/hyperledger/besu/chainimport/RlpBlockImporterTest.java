@@ -181,6 +181,47 @@ public final class RlpBlockImporterTest {
     assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
   }
 
+  /**
+   * When the new head does not descend from the safe block, the safe block moves back to the
+   * finalized block, or to genesis without one, so that it stays on the canonical chain.
+   */
+  @Test
+  public void posSideChainImportMovesSafeBlockOffTheOldChain() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    blockchain.setSafeBlock(blockchain.getBlockHashByNumber(2).orElseThrow());
+
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_B4);
+    assertThat(blockchain.getSafeBlock()).contains(POS_GENESIS);
+  }
+
+  /**
+   * Importing a file again makes its last block the head when an earlier import stored it as a side
+   * block, as when the earlier import's fork choice update failed.
+   */
+  @Test
+  public void posSideChainStoredByEarlierImportBecomesHeadOnRetry() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    // Store chain B as side blocks
+    blockchain.setFinalized(POS_A1);
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+    blockchain.setFinalized(POS_GENESIS);
+
+    final RlpBlockImporter.ImportResult result =
+        rlpBlockImporter.importBlockchain(
+            resourceFile("pos-side-chain-b.blocks"), controller, true);
+    assertThat(result.count).isZero();
+    final BlockHeader head = blockchain.getChainHeadHeader();
+    assertThat(head.getHash()).isEqualTo(POS_B4);
+    assertThat(controller.getProtocolContext().getWorldStateArchive().getWorldState().rootHash())
+        .isEqualTo(head.getStateRoot());
+  }
+
   private BesuController posSideChainController() throws IOException {
     final String config =
         Resources.toString(this.getClass().getResource("/pos-side-chain-genesis.json"), UTF_8);
