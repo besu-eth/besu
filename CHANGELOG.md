@@ -63,6 +63,7 @@
 - Shutting down while the log bloom cache is being generated no longer waits 30 seconds and logs two errors for every cache segment not generated yet. [#11931](https://github.com/besu-eth/besu/pull/11931)
 - `eth_getLogs` no longer misses the logs of a block that replaced a cached block in a reorg while the log bloom cache was being generated. [#11932](https://github.com/besu-eth/besu/pull/11932)
 - `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
+- A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork, and advertises snap/2 once it reaches the fork. [#11983](https://github.com/besu-eth/besu/pull/11983)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
