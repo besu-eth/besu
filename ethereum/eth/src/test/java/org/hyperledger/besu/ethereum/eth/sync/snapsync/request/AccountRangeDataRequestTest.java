@@ -94,6 +94,30 @@ public class AccountRangeDataRequestTest {
         .containsExactly(FIRST_ACCOUNT, SECOND_ACCOUNT);
   }
 
+  @Test
+  public void shouldRejectAnEmptyAccountListWithAProofForANonEmptyRange() {
+    final WorldStateStorageCoordinator coordinator =
+        new WorldStateStorageCoordinator(
+            new BonsaiWorldStateKeyValueStorage(
+                new InMemoryKeyValueStorageProvider(),
+                new NoOpMetricsSystem(),
+                DataStorageConfiguration.DEFAULT_BONSAI_CONFIG));
+    final MerkleTrie<Bytes, Bytes> accountTrie =
+        new SimpleMerklePatriciaTrie<>(Function.identity());
+    for (final Hash account : List.of(FIRST_ACCOUNT, SECOND_ACCOUNT)) {
+      accountTrie.put(account.getBytes(), accountWithStorage());
+    }
+    final ArrayDeque<Bytes> proofs = new ArrayDeque<>();
+    proofs.addAll(accountTrie.getValueWithProof(RangeManager.MIN_RANGE).getProofRelatedNodes());
+
+    final AccountRangeDataRequest request =
+        SnapDataRequest.createAccountRangeDataRequest(
+            Hash.wrap(accountTrie.getRootHash()), RangeManager.MIN_RANGE, RangeManager.MAX_RANGE);
+    request.addResponse(new WorldStateProofProvider(coordinator), new TreeMap<>(), proofs);
+
+    assertThat(request.isResponseReceived()).isFalse();
+  }
+
   private static Bytes accountWithStorage() {
     final PatriciaTrieAccountValue account =
         new PatriciaTrieAccountValue(1L, Wei.ONE, Hash.hash(Bytes.of(7)), Hash.EMPTY);
