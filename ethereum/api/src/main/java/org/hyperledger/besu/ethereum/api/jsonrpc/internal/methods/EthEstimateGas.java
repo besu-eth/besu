@@ -54,6 +54,23 @@ public class EthEstimateGas extends AbstractEstimateGas {
   }
 
   @Override
+  protected long adjustGasLimitUpperBound(
+      final CallParameter callParameter, final long gasLimitUpperBound, final long minTxCost) {
+    // a gas limit of 0 means "not specified" (the same convention the other
+    // execution clients use for JSON-RPC calls)
+    if (callParameter.getGas().isEmpty() || callParameter.getGas().getAsLong() == 0) {
+      return gasLimitUpperBound;
+    }
+    // honour the gas limit provided by the caller as the upper bound of the
+    // estimate, see https://github.com/besu-eth/besu/issues/11848. A plain
+    // value transfer is always feasible at its intrinsic cost, so the
+    // estimate is floored there even when the caller provides a smaller gas
+    // limit, which is what all execution clients do.
+    final long providedGas = Math.min(callParameter.getGas().getAsLong(), gasLimitUpperBound);
+    return isPlainValueTransfer(callParameter) ? Math.max(providedGas, minTxCost) : providedGas;
+  }
+
+  @Override
   protected Object simulate(
       final JsonRpcRequestContext requestContext,
       final CallParameter callParams,
