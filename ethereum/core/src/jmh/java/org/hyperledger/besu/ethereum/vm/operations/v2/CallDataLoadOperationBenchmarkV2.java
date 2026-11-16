@@ -14,19 +14,22 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations.v2;
 
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
-import org.apache.tuweni.bytes.Bytes;
 import org.hyperledger.besu.ethereum.vm.operations.GasCostBenchmark;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.BerlinGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.v2.operation.CallDataLoadOperationV2;
+
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+import org.apache.tuweni.bytes.Bytes;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
@@ -44,6 +47,21 @@ public class CallDataLoadOperationBenchmarkV2 implements GasCostBenchmark {
   // a call with a selector and eight static ABI arguments
   private static final int CALL_DATA_SIZE = 4 + 8 * 32;
 
+  // a call to a function without arguments: the selector alone
+  private static final int SELECTOR_SIZE = 4;
+
+  /** The words the benchmark loads. */
+  public enum Scenario {
+    /** The dispatcher loading the selector of a function without arguments. */
+    SELECTOR_ONLY,
+    /** The selector and the arguments of a call with arguments, each wholly in the call data. */
+    WHOLE_WORD,
+    /** Mostly whole words, and now and then a word that runs past the end of the call data. */
+    MIXED
+  }
+
+  @Param public Scenario scenario;
+
   private CallDataLoadOperationV2 operation;
   private MessageFrame frame;
   private long[] offsetPool;
@@ -52,10 +70,11 @@ public class CallDataLoadOperationBenchmarkV2 implements GasCostBenchmark {
   @Setup
   public void setup() {
     operation = new CallDataLoadOperationV2(new BerlinGasCalculator());
-    final byte[] callData = new byte[CALL_DATA_SIZE];
+    final byte[] callData =
+        new byte[scenario == Scenario.SELECTOR_ONLY ? SELECTOR_SIZE : CALL_DATA_SIZE];
     new Random(BenchmarkHelperV2.SEED).nextBytes(callData);
     frame = BenchmarkHelperV2.messageCallFrameBuilder().inputData(Bytes.wrap(callData)).build();
-    offsetPool = offsetPool();
+    offsetPool = offsetPool(scenario);
     index = 0;
   }
 
@@ -80,16 +99,24 @@ public class CallDataLoadOperationBenchmarkV2 implements GasCostBenchmark {
   }
 
   /**
-   * Creates the seeded pool of offsets: mostly the selector and the arguments, which lie wholly in
-   * the call data, and now and then a word that runs past its end.
+   * Creates the seeded pool of offsets for a scenario. For {@link Scenario#SELECTOR_ONLY} every
+   * offset is 0; for {@link Scenario#WHOLE_WORD} the selector and the arguments, which lie wholly
+   * in the call data; for {@link Scenario#MIXED} mostly those, and now and then a word that runs
+   * past the end of the call data.
    *
+   * @param scenario the scenario
    * @return the pool
    */
-  static long[] offsetPool() {
+  static long[] offsetPool(final Scenario scenario) {
     final Random random = new Random(BenchmarkHelperV2.SEED);
     final long[] pool = new long[BenchmarkHelperV2.SAMPLE_SIZE];
     for (int i = 0; i < pool.length; i++) {
-      final int slot = random.nextInt(10);
+      final int slot =
+          switch (scenario) {
+            case SELECTOR_ONLY -> 0;
+            case WHOLE_WORD -> random.nextInt(9);
+            case MIXED -> random.nextInt(10);
+          };
       pool[i] =
           switch (slot) {
             case 0 -> 0L; // selector

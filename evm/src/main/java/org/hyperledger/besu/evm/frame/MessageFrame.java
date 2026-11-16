@@ -215,9 +215,13 @@ public class MessageFrame {
   // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
   // significant). Null once released, so that a completed frame cannot touch a later frame's stack
   private long[] stackDataV2;
-  // EVM v2: the input data as an array, materialised on the first CALLDATALOAD. Must not be
-  // modified
+  // EVM v2: the array the input data lies in, from inputDataOffsetV2 for inputDataSizeV2 bytes.
+  // For a frame a CALL creates it is the caller's memory, which cannot change while the caller is
+  // suspended; for any other frame it is materialised from the input data on the first
+  // CALLDATALOAD. Must not be modified
   private byte[] inputDataArrayV2;
+  private int inputDataOffsetV2;
+  private int inputDataSizeV2;
   // the call depth whose free v2 stack this frame takes and returns
   private final int stackDepthV2;
   private int stackTopV2;
@@ -562,18 +566,61 @@ public class MessageFrame {
   }
 
   /**
-   * Returns the input data as an array, materialised on the first call. The array must not be
-   * modified.
+   * Sets the input data of a frame a CALL creates to read from the caller's memory, so that it is
+   * not copied. The caller is suspended while this frame runs, so its memory cannot change.
    *
-   * @return the input data
+   * @param caller the frame whose memory holds the input data, already expanded to cover it
+   * @param offset the offset of the input data in the caller's memory
+   * @param size the size of the input data
+   */
+  public void inputDataFromCallerMemoryV2(
+      final MessageFrame caller, final long offset, final long size) {
+    if (size == 0) {
+      inputDataArrayV2 = Bytes.EMPTY.toArrayUnsafe();
+      inputDataOffsetV2 = 0;
+      inputDataSizeV2 = 0;
+    } else {
+      inputDataArrayV2 = caller.memory.arrayV2();
+      inputDataOffsetV2 = (int) offset;
+      inputDataSizeV2 = (int) size;
+    }
+  }
+
+  /**
+   * Returns the array the input data lies in, from {@link #inputDataOffsetV2()} for {@link
+   * #inputDataSizeV2()} bytes. Unless a CALL set it, it is materialised from the input data on the
+   * first call. The array must not be modified.
+   *
+   * @return the array the input data lies in
    */
   public byte[] inputDataArrayV2() {
     byte[] array = inputDataArrayV2;
     if (array == null) {
       array = inputData.toArrayUnsafe();
       inputDataArrayV2 = array;
+      inputDataOffsetV2 = 0;
+      inputDataSizeV2 = array.length;
     }
     return array;
+  }
+
+  /**
+   * Returns the offset of the input data in {@link #inputDataArrayV2()}, which must be called
+   * first.
+   *
+   * @return the offset of the input data
+   */
+  public int inputDataOffsetV2() {
+    return inputDataOffsetV2;
+  }
+
+  /**
+   * Returns the size of the input data in {@link #inputDataArrayV2()}, which must be called first.
+   *
+   * @return the size of the input data
+   */
+  public int inputDataSizeV2() {
+    return inputDataSizeV2;
   }
 
   /**
