@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
 import org.hyperledger.besu.ethereum.eth.messages.snap.TrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.DefaultMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Message;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
@@ -102,6 +103,32 @@ class SnapProtocolManagerTest {
     assertThat(snapProtocolManager.getSupportedCapabilities())
         .containsExactly(
             SnapProtocolVersion.V1.getCapability(), SnapProtocolVersion.V2.getCapability());
+  }
+
+  @Test
+  void addsSnap2OnceAndTellsTheListeners() {
+    snapProtocolManager = createSnapProtocolManager(false);
+    final List<Capability> added = new ArrayList<>();
+    snapProtocolManager.subscribeCapabilityAdded(added::add);
+
+    assertThat(snapProtocolManager.advertiseSnap2()).isTrue();
+    assertThat(snapProtocolManager.advertiseSnap2()).isFalse();
+
+    assertThat(snapProtocolManager.getSupportedCapabilities())
+        .containsExactly(
+            SnapProtocolVersion.V1.getCapability(), SnapProtocolVersion.V2.getCapability());
+    assertThat(added).containsExactly(SnapProtocolVersion.V2.getCapability());
+  }
+
+  @Test
+  void addsNothingWhenSnap2IsAdvertisedFromTheStart() {
+    snapProtocolManager = createSnapProtocolManager(true);
+    final List<Capability> added = new ArrayList<>();
+    snapProtocolManager.subscribeCapabilityAdded(added::add);
+
+    assertThat(snapProtocolManager.advertiseSnap2()).isFalse();
+
+    assertThat(added).isEmpty();
   }
 
   @Test

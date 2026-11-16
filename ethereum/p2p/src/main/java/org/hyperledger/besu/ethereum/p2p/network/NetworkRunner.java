@@ -128,43 +128,15 @@ public class NetworkRunner implements AutoCloseable {
     // Setup message handlers
     for (final ProtocolManager protocolManager : protocolManagers) {
       for (final Capability supportedCapability : protocolManager.getSupportedCapabilities()) {
-        final SubProtocol protocol = subProtocols.get(supportedCapability.getName());
-        network.subscribe(
-            supportedCapability,
-            (cap, message) -> {
-              final int code = message.getData().getCode();
-              if (!protocol.isValidMessageCode(cap.getVersion(), code)) {
-                inboundMessageCounter.labels(cap.toString(), "Invalid", "").inc();
-                // Handle invalid messages by disconnecting
-                if (LOG.isDebugEnabled()) {
-                  LOG.debug(
-                      "Invalid message code ({}-{}, {}) received from peer, disconnecting from: {}",
-                      cap.getName(),
-                      cap.getVersion(),
-                      code,
-                      message.getConnection().getPeerInfo().getNodeId());
-                }
-                message
-                    .getConnection()
-                    .disconnect(
-                        DisconnectReason.BREACH_OF_PROTOCOL_INVALID_MESSAGE_CODE_FOR_PROTOCOL);
-                return;
-              }
-              inboundMessageCounter
-                  .labels(
-                      cap.toString(),
-                      protocol.messageName(cap.getVersion(), code),
-                      Integer.toString(code))
-                  .inc();
-              inboundBytesCounter
-                  .labels(
-                      cap.toString(),
-                      protocol.messageName(cap.getVersion(), code),
-                      Integer.toString(code))
-                  .inc(message.getData().getSize());
-              protocolManager.processMessage(cap, message);
-            });
+        subscribeMessages(protocolManager, supportedCapability);
       }
+      // subscribed first, so that no connection agrees on it without a handler
+      protocolManager.subscribeCapabilityAdded(
+          capability -> {
+            subscribeMessages(protocolManager, capability);
+            network.addCapability(capability);
+            LOG.info("Capability {} added, advertised to new connections", capability);
+          });
     }
 
     // Setup (dis)connect handlers
@@ -187,6 +159,45 @@ public class NetworkRunner implements AutoCloseable {
             protocolManager.handleDisconnect(connection, disconnectReason, initiatedByPeer);
           });
     }
+  }
+
+  private void subscribeMessages(
+      final ProtocolManager protocolManager, final Capability supportedCapability) {
+    final SubProtocol protocol = subProtocols.get(supportedCapability.getName());
+    network.subscribe(
+        supportedCapability,
+        (cap, message) -> {
+          final int code = message.getData().getCode();
+          if (!protocol.isValidMessageCode(cap.getVersion(), code)) {
+            inboundMessageCounter.labels(cap.toString(), "Invalid", "").inc();
+            // Handle invalid messages by disconnecting
+            if (LOG.isDebugEnabled()) {
+              LOG.debug(
+                  "Invalid message code ({}-{}, {}) received from peer, disconnecting from: {}",
+                  cap.getName(),
+                  cap.getVersion(),
+                  code,
+                  message.getConnection().getPeerInfo().getNodeId());
+            }
+            message
+                .getConnection()
+                .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_INVALID_MESSAGE_CODE_FOR_PROTOCOL);
+            return;
+          }
+          inboundMessageCounter
+              .labels(
+                  cap.toString(),
+                  protocol.messageName(cap.getVersion(), code),
+                  Integer.toString(code))
+              .inc();
+          inboundBytesCounter
+              .labels(
+                  cap.toString(),
+                  protocol.messageName(cap.getVersion(), code),
+                  Integer.toString(code))
+              .inc(message.getData().getSize());
+          protocolManager.processMessage(cap, message);
+        });
   }
 
   @Override

@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.eth.manager.MergePeerFilter;
 import org.hyperledger.besu.ethereum.eth.manager.MonitoredExecutors;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskRequestSender;
+import org.hyperledger.besu.ethereum.eth.manager.snap.Snap2Advertiser;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
@@ -82,6 +83,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolFactory;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.ForkChangeTracker;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
@@ -118,6 +120,7 @@ import java.io.Closeable;
 import java.math.BigInteger;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -685,6 +688,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final List<Closeable> closeables = new ArrayList<>();
     final ProtocolSchedule protocolSchedule = createProtocolSchedule();
+    final boolean snap2Requested = syncConfig.getSyncMode() == SyncMode.SNAP2;
+    syncConfig = snap2OrSnap(syncConfig, protocolSchedule, clock);
 
     final VariablesStorage variablesStorage = storageProvider.createVariablesStorage();
 
@@ -952,6 +957,15 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             snapMessages,
             scheduler,
             synchronizer);
+    // a SNAP2 node that syncs with SNAP serves block access lists over snap/2 from the fork on
+    if (snap2Requested && syncConfig.getSyncMode() == SyncMode.SNAP) {
+      maybeSnapProtocolManager.ifPresent(
+          snapProtocolManager ->
+              Snap2Advertiser.start(
+                  snapProtocolManager,
+                  syncState,
+                  ForkChangeTracker.create(blockchain, protocolSchedule)));
+    }
 
     final MiningCoordinator miningCoordinator =
         createMiningCoordinator(
@@ -1446,6 +1460,40 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             protocolContext,
             synchronizer,
             metricsSystem));
+  }
+
+  /**
+   * Returns the sync configuration with SNAP in place of SNAP2 until the fork that adds block
+   * access lists, which the SNAP2 sync moves its pivot with. A node that syncs with SNAP then
+   * advertises snap/2 once its chain reaches that fork.
+   *
+   * @param syncConfig the configured sync
+   * @param protocolSchedule the protocol schedule
+   * @param clock tells whether the fork passed
+   * @return the sync configuration the node runs
+   */
+  static SynchronizerConfiguration snap2OrSnap(
+      final SynchronizerConfiguration syncConfig,
+      final ProtocolSchedule protocolSchedule,
+      final Clock clock) {
+    if (syncConfig.getSyncMode() != SyncMode.SNAP2) {
+      return syncConfig;
+    }
+    final Optional<Long> fork = amsterdamOrLaterMilestone(protocolSchedule);
+    final long now = clock.instant().getEpochSecond();
+    if (fork.isPresent() && now >= fork.get()) {
+      return syncConfig;
+    }
+    fork.ifPresentOrElse(
+        time ->
+            LOG.info(
+                "SNAP2 needs block access lists, which start with the fork at {}: syncing with SNAP",
+                Instant.ofEpochSecond(time)),
+        () ->
+            LOG.info(
+                "SNAP2 needs block access lists, and no fork that adds them is scheduled: syncing"
+                    + " with SNAP"));
+    return syncConfig.withSyncMode(SyncMode.SNAP);
   }
 
   /**

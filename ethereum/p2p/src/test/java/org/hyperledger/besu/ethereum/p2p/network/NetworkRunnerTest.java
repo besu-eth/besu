@@ -19,6 +19,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -39,11 +41,14 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 public class NetworkRunnerTest {
 
@@ -223,5 +228,38 @@ public class NetworkRunnerTest {
     verify(inboundBytesCounter)
         .labels(eq(capability.toString()), eq(messageName), eq(String.valueOf(messageCode)));
     verify(bytesCounter).inc(messageSize);
+  }
+
+  @Test
+  public void subscribesToAnAddedCapabilityBeforeAdvertisingIt() {
+    final Capability eth68 = Capability.create("eth", 68);
+    final Capability eth69 = Capability.create("eth", 69);
+    final int messageCode = 3;
+    when(subProtocol.isValidMessageCode(anyInt(), eq(messageCode))).thenReturn(true);
+    when(subProtocol.messageName(anyInt(), eq(messageCode))).thenReturn("GetBlockBodies");
+    when(protocolManager.getSupportedCapabilities()).thenReturn(List.of(eth68));
+    final AtomicReference<Consumer<Capability>> capabilityAdded = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              capabilityAdded.set(invocation.getArgument(0));
+              return null;
+            })
+        .when(protocolManager)
+        .subscribeCapabilityAdded(any());
+    networkRunner.start();
+
+    capabilityAdded.get().accept(eth69);
+
+    final ArgumentCaptor<MessageCallback> handlerCaptor =
+        ArgumentCaptor.forClass(MessageCallback.class);
+    final InOrder order = inOrder(network);
+    order.verify(network).subscribe(eq(eth69), handlerCaptor.capture());
+    order.verify(network).addCapability(eth69);
+
+    final MessageData messageData = mock(MessageData.class);
+    when(messageData.getCode()).thenReturn(messageCode);
+    final Message message = new DefaultMessage(mock(PeerConnection.class), messageData);
+    handlerCaptor.getValue().onMessage(eth69, message);
+    verify(protocolManager).processMessage(eth69, message);
   }
 }

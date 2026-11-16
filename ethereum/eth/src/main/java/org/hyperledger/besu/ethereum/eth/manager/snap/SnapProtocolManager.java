@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.util.Subscribers;
 
 import java.math.BigInteger;
 import java.util.Comparator;
@@ -48,6 +49,7 @@ import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -56,7 +58,10 @@ import org.slf4j.LoggerFactory;
 public class SnapProtocolManager implements ProtocolManager {
   private static final Logger LOG = LoggerFactory.getLogger(SnapProtocolManager.class);
 
-  private final List<Capability> supportedCapabilities;
+  // replaced when snap/2 is added
+  private volatile List<Capability> supportedCapabilities;
+  private final Subscribers<Consumer<Capability>> capabilityAddedListeners =
+      Subscribers.create(true);
   private final EthPeers ethPeers;
   private final EthMessages snapMessages;
   private final EthScheduler ethScheduler;
@@ -117,6 +122,28 @@ public class SnapProtocolManager implements ProtocolManager {
   @Override
   public List<Capability> getSupportedCapabilities() {
     return supportedCapabilities;
+  }
+
+  @Override
+  public void subscribeCapabilityAdded(final Consumer<Capability> listener) {
+    capabilityAddedListeners.subscribe(listener);
+  }
+
+  /**
+   * Adds snap/2 to the capabilities, for the peers that connect from now on.
+   *
+   * @return false when snap/2 was already advertised
+   */
+  public boolean advertiseSnap2() {
+    final Capability snap2 = SnapProtocolVersion.V2.getCapability();
+    synchronized (this) {
+      if (supportedCapabilities.contains(snap2)) {
+        return false;
+      }
+      supportedCapabilities = calculateCapabilities(true);
+    }
+    capabilityAddedListeners.forEach(listener -> listener.accept(snap2));
+    return true;
   }
 
   @Override

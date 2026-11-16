@@ -23,8 +23,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +38,12 @@ import org.junit.jupiter.api.Test;
 class BesuControllerBuilderTest {
 
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
+  private final SynchronizerConfiguration snap2 =
+      SynchronizerConfiguration.builder()
+          .syncMode(SyncMode.SNAP2)
+          .syncMinimumPeerCount(3)
+          .downloaderHeadersRequestSize(100)
+          .build();
 
   @BeforeEach
   void setUp() {
@@ -67,5 +78,44 @@ class BesuControllerBuilderTest {
     when(protocolSchedule.milestoneFor(FUTURE_EIPS)).thenReturn(Optional.of(0L));
 
     assertThat(BesuControllerBuilder.amsterdamOrLaterMilestone(protocolSchedule)).contains(0L);
+  }
+
+  @Test
+  void snap2OrSnapKeepsAnotherSyncMode() {
+    final SynchronizerConfiguration snap =
+        SynchronizerConfiguration.builder().syncMode(SyncMode.SNAP).build();
+
+    assertThat(BesuControllerBuilder.snap2OrSnap(snap, protocolSchedule, at(0))).isSameAs(snap);
+  }
+
+  @Test
+  void snap2OrSnapSyncsWithSnapWhenNoForkAddsBlockAccessLists() {
+    when(protocolSchedule.milestoneFor(OSAKA)).thenReturn(Optional.of(10L));
+
+    final SynchronizerConfiguration resolved =
+        BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(100));
+
+    assertThat(resolved.getSyncMode()).isEqualTo(SyncMode.SNAP);
+    assertThat(resolved).usingRecursiveComparison().ignoringFields("syncMode").isEqualTo(snap2);
+  }
+
+  @Test
+  void snap2OrSnapSyncsWithSnapBeforeTheFork() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+
+    assertThat(BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(999)).getSyncMode())
+        .isEqualTo(SyncMode.SNAP);
+  }
+
+  @Test
+  void snap2OrSnapKeepsSnap2FromTheFork() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+
+    assertThat(BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(1_000)))
+        .isSameAs(snap2);
+  }
+
+  private static Clock at(final long epochSecond) {
+    return Clock.fixed(Instant.ofEpochSecond(epochSecond), ZoneOffset.UTC);
   }
 }
