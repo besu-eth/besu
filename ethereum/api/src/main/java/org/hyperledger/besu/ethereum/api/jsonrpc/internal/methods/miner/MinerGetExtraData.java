@@ -36,6 +36,6 @@ public class MinerGetExtraData implements JsonRpcMethod {
   @Override
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
     return new JsonRpcSuccessResponse(
-        requestContext.getRequest().getId(), miningConfiguration.getExtraData().toShortHexString());
+        requestContext.getRequest().getId(), miningConfiguration.getExtraData().toHexString());
   }
 }

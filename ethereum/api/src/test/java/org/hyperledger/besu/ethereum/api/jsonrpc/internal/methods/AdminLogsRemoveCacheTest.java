@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
@@ -42,6 +41,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -136,16 +137,44 @@ public class AdminLogsRemoveCacheTest {
     assertThat(toBlock.getValue()).isEqualTo(900L);
   }
 
-  @Test
-  public void safeTagWithoutSafeBlockFails() {
-    when(blockchainQueries.safeBlockHeader()).thenReturn(Optional.empty());
+  @ParameterizedTest
+  @ValueSource(strings = {"safe", "finalized"})
+  public void unknownSafeOrFinalizedStartBlockReturnsUnknownBlock(final String tag) {
+    stubUnknownSafeOrFinalized(tag);
 
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
-            new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {"safe"}));
+            new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {tag}));
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.UNKNOWN_BLOCK);
 
-    assertThatThrownBy(() -> adminLogsRemoveCache.response(request))
-        .isInstanceOf(IllegalStateException.class);
+    assertThat(adminLogsRemoveCache.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"safe", "finalized"})
+  public void unknownSafeOrFinalizedStopBlockReturnsUnknownBlock(final String tag) {
+    stubUnknownSafeOrFinalized(tag);
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {"earliest", tag}));
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.UNKNOWN_BLOCK);
+
+    assertThat(adminLogsRemoveCache.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
+  }
+
+  private void stubUnknownSafeOrFinalized(final String tag) {
+    if ("finalized".equals(tag)) {
+      when(blockchainQueries.finalizedBlockHeader()).thenReturn(Optional.empty());
+    } else {
+      when(blockchainQueries.safeBlockHeader()).thenReturn(Optional.empty());
+    }
   }
 
   @Test
@@ -211,12 +240,32 @@ public class AdminLogsRemoveCacheTest {
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
             new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {"0x75bcd15"}));
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.UNKNOWN_BLOCK);
 
     when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
     when(blockchain.getBlockByNumber(anyLong())).thenReturn(Optional.empty());
 
-    assertThatThrownBy(() -> adminLogsRemoveCache.response(request))
-        .isInstanceOf(IllegalStateException.class);
+    assertThat(adminLogsRemoveCache.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void requestStopBlockNumberNotFoundTest() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {"0x1", "0x75bcd15"}));
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.UNKNOWN_BLOCK);
+
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getBlockByNumber(1L)).thenReturn(Optional.of(block));
+    when(blockchain.getBlockByNumber(0x75bcd15L)).thenReturn(Optional.empty());
+
+    assertThat(adminLogsRemoveCache.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
   }
 
   @Test

@@ -64,6 +64,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -455,23 +456,24 @@ public abstract class AbstractPendingTransactionsTestBase {
         .isEqualTo(ADDED);
 
     transactionsLarge.selectTransactions(
-        pendingTxs -> {
-          // The order should be:
-          // sender 2, nonce 1
-          // sender 1, nonce 1
-          // sender 1, nonce 2
-          // sender 1, nonce 3
-          // sender 2, nonce 2
-          // sender 2, nonce 3
-          assertThat(pendingTxs.get(0).getTransaction()).isEqualTo(zeroGasPriceTX1Sdr2);
-          assertThat(pendingTxs.get(1).getTransaction()).isEqualTo(zeroGasPriceTX1Sdr1);
-          assertThat(pendingTxs.get(2).getTransaction()).isEqualTo(zeroGasPriceTX2Sdr1);
-          assertThat(pendingTxs.get(3).getTransaction()).isEqualTo(zeroGasPriceTX3Sdr1);
-          assertThat(pendingTxs.get(4).getTransaction()).isEqualTo(zeroGasPriceTX2Sdr2);
-          assertThat(pendingTxs.get(5).getTransaction()).isEqualTo(zeroGasPriceTX3Sdr2);
+        completedResults(
+            pendingTxs -> {
+              // The order should be:
+              // sender 2, nonce 1
+              // sender 1, nonce 1
+              // sender 1, nonce 2
+              // sender 1, nonce 3
+              // sender 2, nonce 2
+              // sender 2, nonce 3
+              assertThat(pendingTxs.get(0).getTransaction()).isEqualTo(zeroGasPriceTX1Sdr2);
+              assertThat(pendingTxs.get(1).getTransaction()).isEqualTo(zeroGasPriceTX1Sdr1);
+              assertThat(pendingTxs.get(2).getTransaction()).isEqualTo(zeroGasPriceTX2Sdr1);
+              assertThat(pendingTxs.get(3).getTransaction()).isEqualTo(zeroGasPriceTX3Sdr1);
+              assertThat(pendingTxs.get(4).getTransaction()).isEqualTo(zeroGasPriceTX2Sdr2);
+              assertThat(pendingTxs.get(5).getTransaction()).isEqualTo(zeroGasPriceTX3Sdr2);
 
-          return Collections.emptyMap();
-        });
+              return Collections.emptyMap();
+            }));
   }
 
   @Test
@@ -483,12 +485,13 @@ public abstract class AbstractPendingTransactionsTestBase {
     transactions.addTransaction(createRemotePendingTransaction(transaction2), Optional.empty());
 
     transactions.selectTransactions(
-        pendingTxs -> {
-          assertThat(pendingTxs)
-              .map(PendingTransaction::getTransaction)
-              .containsExactly(transaction2);
-          return Map.of(pendingTxs.get(0), SELECTED);
-        });
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs)
+                  .map(PendingTransaction::getTransaction)
+                  .containsExactly(transaction2);
+              return Map.of(pendingTxs.get(0), SELECTED);
+            }));
   }
 
   @Test
@@ -497,15 +500,34 @@ public abstract class AbstractPendingTransactionsTestBase {
     transactions.addTransaction(createRemotePendingTransaction(transaction2), Optional.empty());
 
     transactions.selectTransactions(
-        pendingTxs ->
-            pendingTxs.stream()
-                .collect(
-                    Collectors.toMap(
-                        Function.identity(),
-                        pt ->
-                            TransactionSelectionResult.invalid(
-                                TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE
-                                    .name()))));
+        completedResults(
+            pendingTxs ->
+                pendingTxs.stream()
+                    .collect(
+                        Collectors.toMap(
+                            Function.identity(),
+                            pt ->
+                                TransactionSelectionResult.invalid(
+                                    TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE
+                                        .name())))));
+
+    assertThat(transactions.size()).isZero();
+  }
+
+  @Test
+  public void invalidTransactionIsDeletedWhenItsLateSelectionResultCompletes() {
+    transactions.addTransaction(createRemotePendingTransaction(transaction1), Optional.empty());
+
+    // the evaluation of the tx is still running when the selection returns
+    final var lateResult = new CompletableFuture<TransactionSelectionResult>();
+    transactions.selectTransactions(pendingTxs -> Map.of(pendingTxs.getFirst(), lateResult));
+
+    assertThat(transactions.size()).isEqualTo(1);
+
+    // the tx is removed only once its evaluation completes
+    lateResult.complete(
+        TransactionSelectionResult.invalid(
+            TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE.name()));
 
     assertThat(transactions.size()).isZero();
   }
@@ -702,15 +724,18 @@ public abstract class AbstractPendingTransactionsTestBase {
     transactions.addTransaction(createLocalPendingTransaction(transaction1), Optional.empty());
 
     transactions.selectTransactions(
-        pendingTxs -> {
-          // Ignoring nonces, the order would be 3, 4, 2, 1 but we have to delay 3 and 2 until after
-          // 1.
-          assertThat(pendingTxs)
-              .map(PendingTransaction::getTransaction)
-              .containsExactly(transaction4, transaction1, transaction2, transaction3);
+        completedResults(
+            pendingTxs -> {
+              // Ignoring nonces, the order would be 3, 4, 2, 1 but we have to delay 3 and 2 until
+              // after
+              // 1.
+              assertThat(pendingTxs)
+                  .map(PendingTransaction::getTransaction)
+                  .containsExactly(transaction4, transaction1, transaction2, transaction3);
 
-          return pendingTxs.stream().collect(Collectors.toMap(Function.identity(), pt -> SELECTED));
-        });
+              return pendingTxs.stream()
+                  .collect(Collectors.toMap(Function.identity(), pt -> SELECTED));
+            }));
   }
 
   @Test
@@ -835,6 +860,17 @@ public abstract class AbstractPendingTransactionsTestBase {
         .maxFeePerGas(Optional.of(Wei.of(0)))
         .maxPriorityFeePerGas(Optional.of(Wei.of(0)))
         .createTransaction(KEYS2);
+  }
+
+  private static PendingTransactions.PendingTransactionsSelector completedResults(
+      final Function<List<PendingTransaction>, Map<PendingTransaction, TransactionSelectionResult>>
+          selector) {
+    return candidateTxs ->
+        selector.apply(candidateTxs).entrySet().stream()
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    entry -> CompletableFuture.completedFuture(entry.getValue())));
   }
 
   private PendingTransaction createRemotePendingTransaction(

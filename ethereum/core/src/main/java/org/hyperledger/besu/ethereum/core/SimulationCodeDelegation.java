@@ -47,7 +47,7 @@ public class SimulationCodeDelegation implements CodeDelegation {
   private static final SECPSignature DUMMY_SIGNATURE =
       SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0);
 
-  private final BigInteger chainId;
+  private final ChainId chainId;
   private final Address address;
   private final long nonce;
   private final Address authority;
@@ -59,7 +59,7 @@ public class SimulationCodeDelegation implements CodeDelegation {
       @JsonProperty("address") final Address address,
       @JsonProperty("nonce") final String nonce,
       @JsonProperty("authority") final Address authority) {
-    this.chainId = chainId;
+    this.chainId = ChainId.of(chainId);
     this.address = address;
     this.nonce = Bytes.fromHexStringLenient(nonce).toLong();
     this.authority = authority;
@@ -68,6 +68,16 @@ public class SimulationCodeDelegation implements CodeDelegation {
   @Override
   @JsonProperty("chainId")
   public BigInteger chainId() {
+    return chainId.toBigInteger();
+  }
+
+  /**
+   * Return the chain id, that is zero if the authorization is valid on any chain.
+   *
+   * @return chain id
+   */
+  @JsonIgnore
+  public ChainId chainIdentifier() {
     return chainId;
   }
 

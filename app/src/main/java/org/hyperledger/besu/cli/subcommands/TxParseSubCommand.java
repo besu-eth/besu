@@ -19,6 +19,7 @@ import static org.hyperledger.besu.cli.subcommands.TxParseSubCommand.COMMAND_NAM
 
 import org.hyperledger.besu.cli.util.VersionProvider;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 
@@ -114,7 +115,8 @@ public class TxParseSubCommand implements Runnable {
       var transaction = TransactionDecoder.decodeOpaqueBytes(tx, EncodingContext.BLOCK_BODY);
 
       // https://github.com/hyperledger/besu/blob/5fe49c60b30fe2954c7967e8475c3b3e9afecf35/ethereum/core/src/main/java/org/hyperledger/besu/ethereum/mainnet/MainnetTransactionValidator.java#L252
-      if (transaction.getChainId().isPresent() && !transaction.getChainId().get().equals(chainId)) {
+      final ChainId transactionChainId = transaction.getChainIdentifier();
+      if (transactionChainId.isPresent() && !transactionChainId.equals(ChainId.of(chainId))) {
         throw new Exception("wrong chain id");
       }
 

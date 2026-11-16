@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -63,7 +64,12 @@ public class TraceRawTransactionTest {
 
     final ArgumentCaptor<OperationTracer> tracer = ArgumentCaptor.forClass(OperationTracer.class);
     verify(transactionSimulator)
-        .process(any(), any(TransactionValidationParams.class), tracer.capture(), any(), any());
+        .process(
+            any(Transaction.class),
+            any(TransactionValidationParams.class),
+            tracer.capture(),
+            any(),
+            any());
     assertThat(((DebugOperationTracer) tracer.getValue()).getConfig().limit()).isEqualTo(500);
   }
 }

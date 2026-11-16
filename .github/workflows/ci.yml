@@ -118,7 +118,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: gradle/actions/wrapper-validation@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
   spotless:
     name: "Spotless"
@@ -135,9 +135,12 @@ jobs:
           distribution: temurin
           java-version: 25
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        env:
+          # Restore the build job's entry, not an older one saved by this job
+          GRADLE_BUILD_ACTION_CACHE_KEY_JOB: build
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: true # only the build job writes the Gradle cache
       - name: run spotless
         run: ./gradlew spotlessCheck
 
@@ -156,9 +159,12 @@ jobs:
           distribution: temurin
           java-version: 25
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        env:
+          # Restore the build job's entry, not an older one saved by this job
+          GRADLE_BUILD_ACTION_CACHE_KEY_JOB: build
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: true # only the build job writes the Gradle cache
       - name: run checkLicense
         run: ./gradlew --no-parallel checkLicense # no-parallel due to https://github.com/jk1/Gradle-License-Report/issues/337
       - name: upload license report
@@ -183,8 +189,9 @@ jobs:
           distribution: temurin
           java-version: 25
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
+          # The only job that writes the Gradle cache, so that every job restores this entry.
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - name: Gradle Build
         run: ./gradlew build -x test -x spotlessCheck
@@ -235,9 +242,12 @@ jobs:
           distribution: temurin
           java-version: 25
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        env:
+          # Restore the build job's entry, not an older one saved by this job
+          GRADLE_BUILD_ACTION_CACHE_KEY_JOB: build
         with:
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          cache-read-only: true # only the build job writes the Gradle cache
       - name: Verify source artifacts recorded in verification-metadata.xml
         run: ./gradlew verifySourceArtifacts
 

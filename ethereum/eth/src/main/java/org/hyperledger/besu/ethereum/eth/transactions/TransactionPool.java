@@ -555,7 +555,7 @@ public class TransactionPool implements BlockAddedObserver {
     if (isLocal
         && hasPriority
         && strictReplayProtectionShouldBeEnforcedLocally(chainHeadBlockHeader)
-        && transaction.getChainId().isEmpty()) {
+        && transaction.getChainIdentifier().isAbsent()) {
       // Strict replay protection is enabled but the tx is not replay-protected
       return ValidationResultAndAccount.invalid(
           TransactionInvalidReason.REPLAY_PROTECTED_SIGNATURE_REQUIRED);

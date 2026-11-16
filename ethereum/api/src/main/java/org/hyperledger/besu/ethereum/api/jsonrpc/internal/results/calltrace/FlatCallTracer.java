@@ -61,7 +61,7 @@ public class FlatCallTracer implements OperationTracer {
       boolean includePrecompiles,
       Set<Address> precompiles) {}
 
-  private final CallTracer inner = new CallTracer(false);
+  private final CallTracer inner;
   private final boolean convertParityErrors;
   private final boolean includePrecompiles;
   private final Set<Address> precompileAddresses;
@@ -76,6 +76,7 @@ public class FlatCallTracer implements OperationTracer {
    * @param protocolSpec the protocol spec for the current block
    */
   public FlatCallTracer(final TraceOptions traceOptions, final ProtocolSpec protocolSpec) {
+    this.inner = new CallTracer(false, protocolSpec);
     this.convertParityErrors = traceOptions.tracerConfigFlag("convertParityErrors");
     this.includePrecompiles = traceOptions.tracerConfigFlag("includePrecompiles");
     this.precompileAddresses =
