@@ -21,9 +21,11 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
+import org.hyperledger.besu.plugin.services.storage.SegmentBulkLoad;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.SortedWriter;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBWriteBatchTransaction;
@@ -39,6 +41,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,6 +51,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -68,8 +72,10 @@ import org.rocksdb.CompressionType;
 import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
+import org.rocksdb.IngestExternalFileOptions;
 import org.rocksdb.LRUCache;
 import org.rocksdb.LiveFileMetaData;
+import org.rocksdb.MutableColumnFamilyOptions;
 import org.rocksdb.Options;
 import org.rocksdb.OptionsUtil;
 import org.rocksdb.ReadOptions;
@@ -108,12 +114,36 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /** Number of threads used to parallelize table cache warm-up seeks */
   private static final int TABLE_CACHE_WARMUP_THREAD_COUNT = 8;
 
+  /** Values from this size on go to blob files, in the column families that use them */
+  static final long MIN_BLOB_SIZE = 100;
+
   static {
     RocksDbUtil.loadNativeLibrary();
   }
 
   /** atomic boolean to track if the storage is closed */
   protected final AtomicBoolean closed = new AtomicBoolean(false);
+
+  // held by the work on the column families beside their reads and writes, which clear() and
+  // close() wait for: RocksJava does not check its handles, so a dropped or closed one would crash
+  // the JVM
+  final ReentrantLock columnFamilyWork = new ReentrantLock();
+
+  final RocksDBLevel0Drain level0Drain = new RocksDBLevel0Drain(this);
+
+  // the segments whose bulk load, or the merge after it, was interrupted when the database closed
+  private final Set<SegmentIdentifier> interruptedBulkLoads;
+
+  // the segments in a bulk load that has not ended for them, under columnFamilyWork
+  final Set<SegmentIdentifier> segmentsInBulkLoad = new HashSet<>();
+
+  // an interrupted bulk load opens its column family with other options
+  private final Map<SegmentIdentifier, ColumnFamilyOptions> configuredColumnFamilyOptions =
+      new HashMap<>();
+
+  // the database options a merge of level 0 changes, as configured
+  final long configuredCompactionReadahead;
+  final int configuredBackgroundJobs;
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
@@ -185,12 +215,20 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                   existingColumnFamilies.stream()
                       .noneMatch(existed -> Arrays.equals(existed, ignorableSegment.getId())))
           .forEach(trimmedSegments::remove);
+      interruptedBulkLoads =
+          RocksDBLevel0Drain.interruptedBulkLoads(configuration.getDatabaseDir(), trimmedSegments);
       columnDescriptors =
           trimmedSegments.stream()
               .map(segment -> createColumnDescriptor(segment, configuration))
               .collect(Collectors.toList());
 
       options = createGlobalOptions(configuration, stats);
+      configuredCompactionReadahead = options.compactionReadaheadSize();
+      configuredBackgroundJobs = options.maxBackgroundJobs();
+      if (!interruptedBulkLoads.isEmpty()) {
+        // the database starts merging level 0 down as soon as it is open
+        RocksDBLevel0Drain.useDrainOptions(options);
+      }
 
       txOptions = new TransactionDBOptions();
       columnHandles = new ArrayList<>(columnDescriptors.size());
@@ -250,11 +288,22 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         new ColumnFamilyOptions()
             .setTtl(0)
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
+            // for a bulk load that switches blob files on: RocksJava cannot set it on an open
+            // database
+            .setBlobCompressionType(CompressionType.LZ4_COMPRESSION)
             .setTableFormatConfig(basedTableConfig)
             .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
     columnFamilyOptionsList.add(cfOptions);
     if (segment.containsStaticData()) {
       configureBlobDBForSegment(segment, configuration, cfOptions);
+    }
+    configuredColumnFamilyOptions.put(segment, cfOptions);
+    if (interruptedBulkLoads.contains(segment)) {
+      // RocksDB saves the options it opens with, so a start that fails before the merge still finds
+      // the load interrupted, and the files in level 0 stop no write meanwhile
+      final ColumnFamilyOptions lifted = RocksDBLevel0Drain.withLimitsLifted(cfOptions);
+      columnFamilyOptionsList.add(lifted);
+      return new ColumnFamilyDescriptor(segment.getId(), lifted);
     }
 
     return new ColumnFamilyDescriptor(segment.getId(), cfOptions);
@@ -268,7 +317,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         .setEnableBlobFiles(true)
         .setEnableBlobGarbageCollection(
             isStaticDataGarbageCollectionEnabled(segment, configuration))
-        .setMinBlobSize(100)
+        .setMinBlobSize(MIN_BLOB_SIZE)
         .setBlobCompressionType(CompressionType.LZ4_COMPRESSION);
     if (configuration.getBlobGarbageCollectionAgeCutoff().isPresent()) {
       // fraction of file age to be considered eligible for GC;
@@ -423,22 +472,38 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                     }));
     try {
       RocksDBSegmentRewrite.completeInterrupted(this);
+      RocksDBSortedWriter.deleteLeftovers(configuration.getDatabaseDir());
     } catch (final RuntimeException e) {
       // the constructor fails with this, which leaves nobody to release the database
       close();
       throw e;
     }
+    level0Drain.resumeInterrupted(interruptedBulkLoads);
   }
 
+  // a new native handle, which the caller has to close
+  Options segmentOptions(final SegmentIdentifier segment) {
+    return new Options(options, columnFamilyOptions(segment));
+  }
+
+  // the options the column family of the segment is configured with
   ColumnFamilyOptions columnFamilyOptions(final SegmentIdentifier segment) {
-    return columnDescriptors.stream()
-        .filter(descriptor -> Arrays.equals(descriptor.getName(), segment.getId()))
-        .findFirst()
-        .orElseThrow(
-            () ->
-                new RuntimeException(
-                    "Column descriptor not found for segment " + segment.getName()))
-        .getOptions();
+    final ColumnFamilyOptions configured = configuredColumnFamilyOptions.get(segment);
+    if (configured == null) {
+      throw new RuntimeException("Column descriptor not found for segment " + segment.getName());
+    }
+    return configured;
+  }
+
+  // adds SST files to the segment, moving them in when they may be
+  void ingest(final SegmentIdentifier segment, final List<String> files, final boolean move)
+      throws RocksDBException {
+    // RocksJava does not check its handles, so a closed database would crash the JVM
+    throwIfClosed();
+    try (final IngestExternalFileOptions ingest =
+        new IngestExternalFileOptions().setMoveFiles(move)) {
+      getDB().ingestExternalFile(safeColumnHandle(segment), files, ingest);
+    }
   }
 
   /** Runs the configured startup warm-ups when enabled. */
@@ -687,8 +752,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   @Override
   public void clear(final SegmentIdentifier segmentIdentifier) {
-    Optional.ofNullable(getColumnHandlesBySegmentIdentifier().get(segmentIdentifier))
-        .ifPresent(RocksDbSegmentIdentifier::reset);
+    // the new column family takes over the options the old one has at the time
+    columnFamilyWork.lock();
+    try {
+      Optional.ofNullable(getColumnHandlesBySegmentIdentifier().get(segmentIdentifier))
+          .ifPresent(RocksDbSegmentIdentifier::reset);
+    } finally {
+      columnFamilyWork.unlock();
+    }
   }
 
   @Override
@@ -703,6 +774,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   @Override
   public void close() {
     if (closed.compareAndSet(false, true)) {
+      // waits for the work on the column families, which finds the storage closed from now on
+      level0Drain.close();
       txOptions.close();
       tryDeleteOptions.close();
       getColumnHandlesBySegmentIdentifier().values().stream()
@@ -720,6 +793,21 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     return closed.get();
   }
 
+  void setOptions(
+      final SegmentIdentifier segment,
+      final MutableColumnFamilyOptions.MutableColumnFamilyOptionsBuilder options) {
+    // RocksJava does not check its handles, and clear() and close() drop them under this lock
+    if (!columnFamilyWork.isHeldByCurrentThread()) {
+      throw new IllegalStateException("Column family options are set under columnFamilyWork");
+    }
+    throwIfClosed();
+    try {
+      getDB().setOptions(safeColumnHandle(segment), options.build());
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
+    }
+  }
+
   // writes that never conflict skip the conflict checks of a transaction
   @Override
   public SegmentedKeyValueStorageTransaction startBatchTransaction() throws StorageException {
@@ -730,6 +818,26 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         new RocksDBWriteBatchTransaction(
             this::safeColumnHandle, getDB(), writeOptions, getMetrics()),
         this.closed::get);
+  }
+
+  @Override
+  public SegmentBulkLoad startBulkLoad(final List<SegmentIdentifier> segmentIdentifiers) {
+    return startBulkLoad(segmentIdentifiers, List.of());
+  }
+
+  @Override
+  public SegmentBulkLoad startBulkLoad(
+      final List<SegmentIdentifier> segmentIdentifiers,
+      final List<SegmentIdentifier> separateValueSegments) {
+    throwIfClosed();
+    return new RocksDBSegmentBulkLoad(this, segmentIdentifiers, separateValueSegments);
+  }
+
+  @Override
+  public SortedWriter startSortedWriter(final SegmentIdentifier segment) throws StorageException {
+    throwIfClosed();
+    return new RocksDBSortedWriter(
+        this, segment, RocksDBSortedWriter.directory(configuration.getDatabaseDir()));
   }
 
   void throwIfClosed() {

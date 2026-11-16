@@ -71,7 +71,7 @@ public abstract class AbstractMessageProcessor {
 
   // List of addresses to force delete when they are touched but empty
   // when the state changes in the message are were not meant to be committed.
-  private final Set<? super Address> forceDeleteAccountsWhenEmpty;
+  final Set<Address> forceDeleteAccountsWhenEmpty;
   final EVM evm;
 
   /**

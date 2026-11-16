@@ -104,6 +104,52 @@ class MLoadOperationV2Test {
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
   }
 
+  @Test
+  void readsWordsAcrossTheEndOfMemoryAndExpands() {
+    for (final int offset : new int[] {31, 63, 95}) {
+      final byte[] initial = new byte[offset + 1];
+      initial[offset] = (byte) 0x80;
+      final MessageFrame frame =
+          new TestMessageFrameBuilderV2()
+              .initialGas(1_000_000)
+              .memory(Bytes.wrap(initial))
+              .pushStackItem(Bytes32.fromHexString(String.format("0x%02x", offset)))
+              .build();
+
+      final Operation.OperationResult result = operation.execute(frame, null);
+
+      assertThat(result.getHaltReason()).isNull();
+      assertThat(frame.memoryByteSize()).isEqualTo(((offset + 32 + 31) / 32) * 32);
+      assertThat(getV2StackItem(frame, 0))
+          .isEqualTo(
+              UInt256.fromBytesBE(
+                  Bytes.concatenate(Bytes.of(0x80), Bytes.repeat((byte) 0, 31)).toArrayUnsafe()));
+    }
+  }
+
+  @Test
+  void tracedLoadPreservesMemoryReadRecord() {
+    final MessageFrame frame = frame(Bytes32.fromHexString("0x04"));
+    frame.setRecordsUpdatesForTracerV2(true);
+
+    operation.execute(frame, null);
+
+    assertThat(frame.getMaybeUpdatedMemory()).isPresent();
+    assertThat(frame.getMaybeUpdatedMemory().orElseThrow().getOffset()).isEqualTo(4);
+    assertThat(frame.getMaybeUpdatedMemory().orElseThrow().getValue())
+        .isEqualTo(MEMORY.slice(4, 32));
+  }
+
+  @Test
+  void untracedLoadDoesNotAllocateMemoryRecord() {
+    final MessageFrame frame = frame(Bytes32.fromHexString("0x04"));
+    frame.setRecordsUpdatesForTracerV2(false);
+
+    operation.execute(frame, null);
+
+    assertThat(frame.getMaybeUpdatedMemory()).isEmpty();
+  }
+
   private static MessageFrame frame(final Bytes32 offset) {
     return new TestMessageFrameBuilderV2()
         .initialGas(1_000_000)

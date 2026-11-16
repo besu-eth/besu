@@ -18,16 +18,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
-
-import java.math.BigInteger;
-import java.util.Optional;
+import org.hyperledger.besu.ethereum.core.ChainId;
 
 public class EthChainId implements JsonRpcMethod {
 
-  private final Optional<BigInteger> chainId;
+  private final ChainId chainId;
 
-  public EthChainId(final Optional<BigInteger> chainId) {
+  public EthChainId(final ChainId chainId) {
     this.chainId = chainId;
   }
 
@@ -39,6 +36,6 @@ public class EthChainId implements JsonRpcMethod {
   @Override
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
     return new JsonRpcSuccessResponse(
-        requestContext.getRequest().getId(), chainId.map(Quantity::create).orElse(null));
+        requestContext.getRequest().getId(), chainId.isPresent() ? chainId.toHexString() : null);
   }
 }
