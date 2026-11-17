@@ -164,6 +164,14 @@ final class BlockDataFetcher {
   private double averageReceiptsBytes = INITIAL_RECEIPTS_BYTES;
   // whether a peer serves block access lists, known once per fill
   private Boolean balServer;
+  // The first block number the last walk of fill did not visit: past the window, or where it
+  // stopped for the window limit or a missing header. The entries below it were planned, and stay
+  // planned until an event marks the window dirty.
+  private long resumeFrom;
+  // an event made an entry below resumeFrom requestable or changed what is planned for it
+  private boolean dirty = true;
+  private long lastLinkedTop = -1;
+  private OptionalLong lastBalApplyUpTo = OptionalLong.empty();
 
   /**
    * Creates a fetcher.
@@ -201,12 +209,18 @@ final class BlockDataFetcher {
    */
   void fill(final long cursor, final long linkedTop, final OptionalLong balApplyUpTo) {
     balServer = null;
+    final boolean full =
+        dirty || linkedTop != lastLinkedTop || !balApplyUpTo.equals(lastBalApplyUpTo);
+    dirty = false;
+    lastLinkedTop = linkedTop;
+    lastBalApplyUpTo = balApplyUpTo;
     final long end = Math.min(linkedTop, cursor + config.maxWindowBlocks() - 1);
     final int maxInFlight = Math.max(4, sender.capacity(Protocol.ETH) * 5 / 4);
     final List<Entry> bodies = new ArrayList<>();
     final List<Entry> lists = new ArrayList<>();
     final List<Entry> receipts = new ArrayList<>();
-    for (long number = cursor; number <= end; number++) {
+    long number = full ? cursor : Math.max(cursor, resumeFrom);
+    for (; number <= end; number++) {
       if (number > cursor && windowFull(bodies, lists, receipts, maxInFlight)) {
         break;
       }
@@ -223,6 +237,7 @@ final class BlockDataFetcher {
       planBlockAccessList(entry, linkedTop, lists);
       planReceipts(entry, balApplyUpTo, receipts);
     }
+    resumeFrom = number;
     requestBodies(bodies);
     requestBlockAccessLists(lists);
     requestReceipts(receipts);
@@ -248,6 +263,7 @@ final class BlockDataFetcher {
       }
       entry.bal = BalState.UNAVAILABLE;
       entry.balRequest = null;
+      dirty = true;
     }
     final boolean applyFromList =
         entry.bal == BalState.READY
@@ -257,6 +273,7 @@ final class BlockDataFetcher {
       if (entry.receipts == ReceiptsState.REQUESTED && expired(entry.receiptsRequestedAt, now)) {
         entry.receipts = ReceiptsState.UNAVAILABLE;
         entry.receiptsRequest = null;
+        dirty = true;
       }
       // the next fill requests receipts a block that became eligible still needs
       if (entry.receipts == ReceiptsState.NOT_NEEDED
@@ -292,7 +309,11 @@ final class BlockDataFetcher {
         Math.max(0, config.optionalDataWait().toNanos() - (nanoTime.getAsLong() - requestedAt)));
   }
 
-  /** Forgets the block, which is imported. */
+  /**
+   * Forgets the block, which is imported. This needs no full walk of the window: an entry below the
+   * resume point only gives up its bytes, which the walk that stopped at the window limit finds
+   * when it resumes, and the room above is the tail the next walk reaches anyway.
+   */
   void release(final long number) {
     final Entry entry = entries.remove(number);
     if (entry != null) {
@@ -310,6 +331,7 @@ final class BlockDataFetcher {
     final NavigableMap<Long, Entry> above = entries.tailMap(number, false);
     above.values().forEach(entry -> bytes -= entry.bytes);
     above.clear();
+    dirty = true;
   }
 
   /** Forgets every block and cancels every request. */
@@ -317,6 +339,7 @@ final class BlockDataFetcher {
     List.copyOf(requests).forEach(this::cancel);
     entries.clear();
     bytes = 0;
+    dirty = true;
   }
 
   /** Returns the number of blocks in the window. */
@@ -481,6 +504,7 @@ final class BlockDataFetcher {
     if (!finish(inflight)) {
       return;
     }
+    dirty = true;
     if (error != null) {
       inflight.entries.stream()
           .filter(entry -> owns(entry, inflight))
@@ -543,6 +567,7 @@ final class BlockDataFetcher {
     if (!finish(inflight)) {
       return;
     }
+    dirty = true;
     if (error != null) {
       onBlockAccessListsFailed(inflight, error);
       return;
@@ -646,6 +671,7 @@ final class BlockDataFetcher {
     if (!finish(inflight)) {
       return;
     }
+    dirty = true;
     if (error != null) {
       // the sender retried it
       for (final Entry entry : inflight.entries) {
@@ -747,6 +773,7 @@ final class BlockDataFetcher {
         }
       }
     }
+    dirty = true;
   }
 
   private void retryLater(final Throwable error) {

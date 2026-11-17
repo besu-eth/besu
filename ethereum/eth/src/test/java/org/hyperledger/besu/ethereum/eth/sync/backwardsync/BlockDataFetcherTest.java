@@ -15,7 +15,10 @@
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.BlobGas;
@@ -89,6 +92,8 @@ class BlockDataFetcherTest {
   private final EthPeer peerA = peer(EthProtocol.LATEST);
   private final EthPeer peerB = peer(EthProtocol.LATEST);
   private final EthPeer peerC = peer(EthProtocol.LATEST);
+  private final AtomicInteger numberReads = new AtomicInteger();
+  private int maxWindowBlocks = 8192;
   private List<BlockHeader> headers;
   private BlockDataFetcher fetcher;
 
@@ -395,6 +400,167 @@ class BlockDataFetcherTest {
     assertThat(fetcher.bytes()).isZero();
   }
 
+  @Test
+  void aFilledWindowCostsNothingWhileTheImporterAdvances() {
+    maxWindowBlocks = 20;
+    open(100, true, WINDOW_BYTES * 100);
+    servingPeers.add(peerA);
+    // every block is known from the payload cache, so that nothing is requested, nothing arrives
+    // and visiting an entry only reads its number, to see whether its receipts are needed
+    final BlockAccessList list = blockAccessList();
+    for (int number = 1; number <= 100; number++) {
+      payloads.add(new Block(headers.get(number), BlockBody.empty()), Optional.of(list));
+    }
+    final OptionalLong applyUpTo = OptionalLong.of(0);
+    fetcher.fill(1, 100, applyUpTo);
+    assertThat(fetcher.blocks()).isEqualTo(20);
+    assertThat(numberReads.get()).isGreaterThanOrEqualTo(20);
+    numberReads.set(0);
+
+    for (long cursor = 1; cursor <= 10; cursor++) {
+      fetcher.release(cursor);
+      fetcher.fill(cursor + 1, 100, applyUpTo);
+    }
+
+    // only the entry that joined the window is planned, not the 19 before it
+    assertThat(numberReads.get()).isLessThanOrEqualTo(2 * 10);
+    assertThat(fetcher.blocks()).isEqualTo(20);
+    assertThat(sender.requests("bodies")).isEmpty();
+    assertThat(sender.requests("block_access_lists")).isEmpty();
+  }
+
+  @Test
+  void requestsAgainTheBodiesOfAFailedRequestOfAnEarlierWalk() {
+    open(10, false, WINDOW_BYTES * 100);
+    fetcher.fill(1, 10, OptionalLong.empty());
+    fetcher.fill(1, 10, OptionalLong.empty());
+    assertThat(sender.requests("bodies")).hasSize(1);
+
+    sender.requests("bodies").getFirst().future().completeExceptionally(new RuntimeException());
+    loop.runPending();
+    fetcher.fill(1, 10, OptionalLong.empty());
+
+    assertThat(sender.requests("bodies")).hasSize(2);
+    assertThat(numbers(sender.requests("bodies").getLast()))
+        .containsExactlyElementsOf(range(1, 10));
+  }
+
+  @Test
+  void requestsAgainTheMissingTailOfAnAnswerOfAnEarlierWalk() {
+    open(10, false, WINDOW_BYTES * 100);
+    fetcher.fill(1, 10, OptionalLong.empty());
+    fetcher.fill(1, 10, OptionalLong.empty());
+    final FakeSender.Sent first = sender.requests("bodies").getFirst();
+
+    first.answer(blocks(first, 4), peerA);
+    loop.runPending();
+    fetcher.fill(1, 10, OptionalLong.empty());
+
+    assertThat(sender.requests("bodies")).hasSize(2);
+    assertThat(numbers(sender.requests("bodies").getLast()))
+        .containsExactlyElementsOf(range(5, 10));
+  }
+
+  @Test
+  void asksAnotherPeerForAnEmptyBlockAccessListOfAnEarlierWalk() {
+    open(3, true, WINDOW_BYTES);
+    servingPeers.add(peerA);
+    fetcher.fill(1, 3, OptionalLong.empty());
+    answerAllBodies();
+    fetcher.fill(1, 3, OptionalLong.empty());
+    assertThat(sender.requests("block_access_lists")).hasSize(1);
+
+    sender
+        .requests("block_access_lists")
+        .getFirst()
+        .answer(
+            List.of(Optional.<BlockAccessList>empty(), Optional.empty(), Optional.empty()), peerA);
+    loop.runPending();
+    fetcher.fill(1, 3, OptionalLong.empty());
+
+    assertThat(sender.requests("block_access_lists")).hasSize(2);
+    final FakeSender.Sent retry = sender.requests("block_access_lists").getLast();
+    assertThat(numbers(retry)).containsExactly(1L, 2L, 3L);
+    assertThat(retry.excluded()).containsExactly(peerA);
+  }
+
+  @Test
+  void requestsReceiptsOfTheBlocksAnIncreasedBalApplyLimitCoversInTheWindow() {
+    open(4, true, WINDOW_BYTES);
+    servingPeers.add(peerA);
+    fetcher.fill(1, 4, OptionalLong.empty());
+    answerAllBodies();
+    final BlockAccessList list = blockAccessList();
+    sender
+        .requests("block_access_lists")
+        .getFirst()
+        .answer(
+            List.of(Optional.of(list), Optional.of(list), Optional.of(list), Optional.of(list)),
+            peerA);
+    loop.runPending();
+    fetcher.fill(1, 4, OptionalLong.empty());
+    fetcher.fill(1, 4, OptionalLong.of(2));
+    assertThat(sender.requests("receipts")).hasSize(1);
+    assertThat(numbers(sender.requests("receipts").getFirst())).containsExactly(1L, 2L);
+
+    fetcher.fill(1, 4, OptionalLong.of(4));
+
+    assertThat(sender.requests("receipts")).hasSize(2);
+    assertThat(numbers(sender.requests("receipts").getLast())).containsExactly(3L, 4L);
+  }
+
+  @Test
+  void extendsTheWindowThatStoppedAtTheByteLimitWhenBlocksAreReleased() {
+    open(1000, false, WINDOW_BYTES);
+    for (int round = 0; round < 40; round++) {
+      fetcher.fill(1, 1000, OptionalLong.empty());
+      answerAllBodies();
+    }
+    // a walk that stopped at the limit, with nothing arrived since
+    fetcher.fill(1, 1000, OptionalLong.empty());
+    final int requested = sender.requests("bodies").size();
+    final long highest =
+        numbers(sender.requests("bodies").getLast()).stream()
+            .mapToLong(Long::longValue)
+            .max()
+            .orElseThrow();
+
+    fetcher.fill(1, 1000, OptionalLong.empty());
+    assertThat(sender.requests("bodies")).hasSize(requested);
+    for (long number = 1; number <= 3; number++) {
+      fetcher.release(number);
+    }
+    fetcher.fill(4, 1000, OptionalLong.empty());
+
+    assertThat(sender.requests("bodies").size()).isGreaterThan(requested);
+    assertThat(numbers(sender.requests("bodies").get(requested)).getFirst()).isEqualTo(highest + 1);
+  }
+
+  private PendingChain countingChain() {
+    final PendingChain chain = spy(pending);
+    doAnswer(
+            invocation ->
+                pending
+                    .header((long) invocation.getArgument(0))
+                    .map(
+                        header -> {
+                          // the hash is computed from the number, which is not what is counted
+                          header.getHash();
+                          final BlockHeader counted = spy(header);
+                          doAnswer(
+                                  read -> {
+                                    numberReads.incrementAndGet();
+                                    return header.getNumber();
+                                  })
+                              .when(counted)
+                              .getNumber();
+                          return counted;
+                        }))
+        .when(chain)
+        .header(anyLong());
+    return chain;
+  }
+
   private void open(final int blocks, final boolean withLists, final long windowBytes) {
     headers = new ArrayList<>();
     headers.add(new BlockHeaderTestFixture().number(0).buildHeader());
@@ -426,7 +592,7 @@ class BlockDataFetcherTest {
             sender,
             ethPeers,
             ProtocolScheduleFixture.MAINNET,
-            pending,
+            countingChain(),
             payloads,
             loop,
             loop::nanoTime,
@@ -434,7 +600,7 @@ class BlockDataFetcherTest {
                 64,
                 16,
                 windowBytes,
-                8192,
+                maxWindowBlocks,
                 OPTIONAL_DATA_WAIT,
                 3,
                 10,

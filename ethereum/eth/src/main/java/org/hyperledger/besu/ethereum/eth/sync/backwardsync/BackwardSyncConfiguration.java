@@ -60,7 +60,7 @@ record BackwardSyncConfiguration(
         syncConfig.getDownloaderHeaderRequestSize(),
         64,
         Math.clamp(Runtime.getRuntime().maxMemory() / 8, 64L << 20, 1L << 30),
-        8192,
+        2048,
         Duration.ofSeconds(10),
         3,
         10,
