@@ -422,8 +422,11 @@ public class EnodeURLImpl implements EnodeURL, NodeIdentifier {
           if (enodeDnsConfiguration.updateEnabled()) {
             if (this.ip.isLoopbackAddress()) {
               this.ip = InetAddress.getLocalHost();
+              this.maybeHostname = Optional.of(this.ip.getHostName());
+            } else if (!isIpLiteral(hostField)) {
+              // Track a name exactly as supplied; an IP literal stays a literal.
+              this.maybeHostname = Optional.of(hostField);
             }
-            this.maybeHostname = Optional.of(this.ip.getHostName());
           }
         } catch (final UnknownHostException e) {
           if (!enodeDnsConfiguration.updateEnabled()) {
@@ -440,6 +443,10 @@ public class EnodeURLImpl implements EnodeURL, NodeIdentifier {
         throw new IllegalArgumentException("Invalid ip address.");
       }
       return this;
+    }
+
+    private static boolean isIpLiteral(final String hostField) {
+      return InetAddresses.isUriInetAddress(hostField) || InetAddresses.isInetAddress(hostField);
     }
 
     public Builder discoveryAndListeningPorts(final int listeningAndDiscoveryPorts) {
