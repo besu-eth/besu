@@ -18,12 +18,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
+import static org.hyperledger.besu.ethereum.eth.core.transactions.SetCodeTransactionFixture.createSetCodeTransaction;
 
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -115,5 +117,26 @@ public class PooledTransactionsMessageTest {
     out.endList();
     return PooledTransactionsMessage.readFrom(
         new RawMessage(EthProtocolMessages.POOLED_TRANSACTIONS, out.encoded()));
+  }
+
+  @Test
+  public void refusesAuthorizationListOverLimit() {
+    final PooledTransactionsMessage msg =
+        createPooledTransactionsMessage(List.of(createSetCodeTransaction(75_000, 3)));
+
+    assertThatThrownBy(() -> msg.transactions(1, EncodingContext.POOLED_TRANSACTION, gasLimit -> 2))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("maximum permitted size of 2");
+  }
+
+  @Test
+  public void appliesAuthorizationLimitToAlreadyDecodedTransactions() {
+    final PooledTransactionsMessage msg =
+        createPooledTransactionsMessage(List.of(createSetCodeTransaction(75_000, 3)));
+
+    assertThat(msg.transactions(1, EncodingContext.POOLED_TRANSACTION, gasLimit -> 3)).hasSize(1);
+    assertThatThrownBy(() -> msg.transactions(1, EncodingContext.POOLED_TRANSACTION, gasLimit -> 2))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("maximum permitted size of 2");
   }
 }

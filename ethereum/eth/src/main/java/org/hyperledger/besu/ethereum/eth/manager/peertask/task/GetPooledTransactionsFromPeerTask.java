@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.CodeDelegationListLimit;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -41,11 +42,14 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import com.google.common.annotations.VisibleForTesting;
+
 public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transaction>> {
 
   private final SequencedSet<Hash> hashes;
   // Non-empty when announcements include type and size (eth/68+), used to validate received txs.
   private final Map<Hash, TransactionAnnouncement> announcementsByHash;
+  private final CodeDelegationListLimit codeDelegationListLimit;
 
   /**
    * Constructor for use when only hashes are available (e.g. in tests). No type/size validation.
@@ -53,19 +57,39 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
   public GetPooledTransactionsFromPeerTask(final List<Hash> hashes) {
     this.hashes = new LinkedHashSet<>(hashes);
     this.announcementsByHash = Map.of();
+    this.codeDelegationListLimit = CodeDelegationListLimit.UNLIMITED;
   }
 
   private GetPooledTransactionsFromPeerTask(
-      final Map<Hash, TransactionAnnouncement> announcementsByHash) {
+      final Map<Hash, TransactionAnnouncement> announcementsByHash,
+      final CodeDelegationListLimit codeDelegationListLimit) {
     this.announcementsByHash = announcementsByHash;
     this.hashes = new LinkedHashSet<>(announcementsByHash.keySet());
+    this.codeDelegationListLimit = codeDelegationListLimit;
   }
 
   /**
-   * Factory method for production use. Validates that received txs match announced type and size.
+   * Validates that received txs match announced type and size, without bounding authorization
+   * lists. Production code should pass the pool's limit to {@link #fromAnnouncements(List,
+   * CodeDelegationListLimit)} instead.
    */
+  @VisibleForTesting
   public static GetPooledTransactionsFromPeerTask fromAnnouncements(
       final List<TransactionAnnouncement> announcements) {
+    return fromAnnouncements(announcements, CodeDelegationListLimit.UNLIMITED);
+  }
+
+  /**
+   * Factory method for production use. Validates that received txs match announced type and size,
+   * and refuses, before decoding it, any EIP-7702 authorization list longer than the limit.
+   *
+   * @param announcements the announcements to request
+   * @param codeDelegationListLimit the longest authorization list a transaction may carry
+   * @return the task
+   */
+  public static GetPooledTransactionsFromPeerTask fromAnnouncements(
+      final List<TransactionAnnouncement> announcements,
+      final CodeDelegationListLimit codeDelegationListLimit) {
     final Map<Hash, TransactionAnnouncement> announcementsByHash =
         announcements.stream()
             .collect(
@@ -74,7 +98,7 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
                     Function.identity(),
                     (a, b) -> a,
                     LinkedHashMap::new));
-    return new GetPooledTransactionsFromPeerTask(announcementsByHash);
+    return new GetPooledTransactionsFromPeerTask(announcementsByHash, codeDelegationListLimit);
   }
 
   @Override
@@ -104,7 +128,8 @@ public class GetPooledTransactionsFromPeerTask implements PeerTask<List<Transact
               hashes.size(),
               eth72
                   ? EncodingContext.POOLED_TRANSACTION_ETH_72
-                  : EncodingContext.POOLED_TRANSACTION);
+                  : EncodingContext.POOLED_TRANSACTION,
+              codeDelegationListLimit);
     } catch (RLPException e) {
       throw new MalformedRlpFromPeerException(e, messageData.getData());
     }
