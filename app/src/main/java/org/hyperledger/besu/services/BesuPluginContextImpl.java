@@ -722,6 +722,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     final int customizerMark = protocolScheduleService.registrationMark();
     try {
       plugin.register(registrationContextFor(plugin));
+      protocolScheduleService.attributeRegistrationsSince(customizerMark, plugin);
       LOG.info("Registered plugin of type {}.", pluginId(plugin));
     } catch (final Exception | LinkageError e) {
       // a plugin that failed to register is never started, so it must not change the chain's
@@ -752,7 +753,12 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     return true;
   }
 
-  /** Calls {@link BesuPlugin#start(StartContext)} on every registered plugin. */
+  /**
+   * Calls {@link BesuPlugin#start(StartContext)} on every registered plugin.
+   *
+   * <p>A plugin that contributed the protocol-schedule customization in force cannot be dropped
+   * under {@code --plugin-continue-on-error}: its failure here is fatal.
+   */
   public void startPlugins() {
     checkState(
         state == Lifecycle.REGISTERED,
@@ -779,6 +785,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
               "Plugin " + pluginId(plugin) + ": " + unrecoverable.get().getMessage(), e);
         }
         final String failure = failureMessage("starting", pluginId(plugin), e);
+        failIfCustomizationInForceCameFrom(plugin, failure, e);
         if (continuesOnFailureOf(plugin)) {
           LOG.error("{}, stop will not be called.", failure, e);
           pluginsIterator.remove();
@@ -793,8 +800,26 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   }
 
   /**
+   * Fails startup when a plugin that contributed the protocol-schedule customization in force fails
+   * a later phase. Its rules are already in the protocol schedule and the fork ID, so dropping it
+   * under {@code --plugin-continue-on-error} would leave the node enforcing them without any of the
+   * plugin's runtime.
+   */
+  private void failIfCustomizationInForceCameFrom(
+      final BesuPlugin plugin, final String failure, final Throwable cause) {
+    if (protocolScheduleService.resolvedCustomizationCameFrom(plugin)) {
+      throw new RuntimeException(
+          failure
+              + "; the plugin contributed the protocol-schedule customization in force, so its"
+              + " failure is fatal regardless of --plugin-continue-on-error",
+          cause);
+    }
+  }
+
+  /**
    * Calls {@link BesuPlugin#afterMainLoop(RunningContext)} on every started plugin, once the main
-   * loop is running.
+   * loop is running. As in {@link #startPlugins()}, a failure of the plugin that contributed the
+   * protocol-schedule customization in force is fatal.
    */
   public void afterMainLoop() {
     checkState(
@@ -815,6 +840,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
               "Plugin " + pluginId(plugin) + ": " + unrecoverable.get().getMessage(), e);
         }
         final String failure = failureMessage("calling `afterMainLoop` on", pluginId(plugin), e);
+        failIfCustomizationInForceCameFrom(plugin, failure, e);
         if (continuesOnFailureOf(plugin)) {
           LOG.error("{}, stop will not be called.", failure, e);
           pluginsIterator.remove();

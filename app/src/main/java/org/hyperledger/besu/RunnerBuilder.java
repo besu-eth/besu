@@ -827,7 +827,7 @@ public class RunnerBuilder {
             .metricsSystem(metricsSystem)
             .storageProvider(storageProvider)
             // the node's one fork-ID manager, so the ENR matches the Status handshake
-            .forkIdManager(besuController.getEthPeers().getForkIdManager())
+            .forkIdManager(ethPeers.getForkIdManager())
             .build();
 
     RlpxAgentFactory rlpxAgentFactory =

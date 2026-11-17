@@ -1059,8 +1059,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /**
    * Sets the protocol-schedule customization resolved for this chain.
    *
-   * <p>Resolution happens once, where the builder is selected, so the value and the activations it
-   * contributes to the genesis config travel down the same path every other setting does.
+   * <p>Resolution happens once, where the builder is selected, so the value travels down the same
+   * path every other setting does. The genesis config is left as declared: {@link #build()} applies
+   * the customization's modifications to the protocol schedule and its activations to the node's
+   * fork-ID manager.
    *
    * @param protocolScheduleCustomization the resolved customization
    * @return the besu controller builder
@@ -1074,9 +1076,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /**
    * Refuses a customization this builder would not apply.
    *
-   * <p>Its activations are already in the advertised fork ID by the time a builder is selected, so
-   * a builder that does not apply the matching rules must not start rather than announce a boundary
-   * it does not keep.
+   * <p>{@link #build()} advertises the customization's activations in the node's fork ID whatever
+   * builder runs it, so a builder that does not apply the matching rules must refuse to start
+   * rather than announce boundaries it does not keep. Checking when the builder is selected fails
+   * before anything is built.
    */
   final void verifyProtocolScheduleCustomizationIsSupported() {
     checkState(

@@ -18,6 +18,7 @@ import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomizer;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleService;
+import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 
 import java.util.ArrayList;
@@ -37,8 +38,13 @@ import java.util.stream.Collectors;
 final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
 
   private final List<ProtocolScheduleCustomizer> customizers = new ArrayList<>();
+
+  /** The plugin that registered each customizer, by index; null until it is attributed. */
+  private final List<BesuPlugin> owners = new ArrayList<>();
+
   private final BooleanSupplier registrationOpen;
   private ProtocolScheduleCustomization resolvedCustomization;
+  private BesuPlugin resolvedOwner;
   private boolean resolving;
 
   /**
@@ -59,6 +65,7 @@ final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
           "ProtocolScheduleService", "registerProtocolScheduleCustomizer");
     }
     customizers.add(Objects.requireNonNull(customizer, "customizer must not be null"));
+    owners.add(null);
   }
 
   /**
@@ -87,11 +94,16 @@ final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
           "Protocol-schedule customizers cannot be resolved while plugin registration is open");
     }
     resolving = true;
-    final List<ProtocolScheduleCustomization> matchingCustomizations =
-        customizers.stream()
-            .map(customizer -> customize(customizer, config))
-            .flatMap(Optional::stream)
-            .toList();
+    final List<ProtocolScheduleCustomization> matchingCustomizations = new ArrayList<>();
+    BesuPlugin matchingOwner = null;
+    for (int i = 0; i < customizers.size(); i++) {
+      final Optional<ProtocolScheduleCustomization> customization =
+          customize(customizers.get(i), config);
+      if (customization.isPresent()) {
+        matchingCustomizations.add(customization.get());
+        matchingOwner = owners.get(i);
+      }
+    }
     if (matchingCustomizations.size() > 1) {
       final String names =
           matchingCustomizations.stream()
@@ -105,6 +117,7 @@ final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
         matchingCustomizations.isEmpty()
             ? ProtocolScheduleCustomization.none()
             : matchingCustomizations.getFirst();
+    resolvedOwner = matchingCustomizations.isEmpty() ? null : matchingOwner;
     return resolvedCustomization;
   }
 
@@ -141,11 +154,39 @@ final class ProtocolScheduleServiceImpl implements ProtocolScheduleService {
    */
   synchronized void discardRegistrationsSince(final int mark) {
     customizers.subList(mark, customizers.size()).clear();
+    owners.subList(mark, owners.size()).clear();
+  }
+
+  /**
+   * Attributes the customizers registered since a mark to the plugin that registered them, once its
+   * registration has succeeded.
+   *
+   * @param mark a value returned by {@link #registrationMark()}
+   * @param plugin the plugin that registered them
+   */
+  synchronized void attributeRegistrationsSince(final int mark, final BesuPlugin plugin) {
+    for (int i = mark; i < owners.size(); i++) {
+      owners.set(i, plugin);
+    }
+  }
+
+  /**
+   * Whether the customization in force for this registration cycle came from the given plugin. Its
+   * rules are already in the protocol schedule and the fork ID, so the node cannot drop that plugin
+   * and keep running.
+   *
+   * @param plugin the plugin
+   * @return true if a customizer the plugin registered was resolved for the active chain
+   */
+  synchronized boolean resolvedCustomizationCameFrom(final BesuPlugin plugin) {
+    return resolvedOwner != null && resolvedOwner == plugin;
   }
 
   synchronized void reset() {
     customizers.clear();
+    owners.clear();
     resolvedCustomization = null;
+    resolvedOwner = null;
     resolving = false;
   }
 }

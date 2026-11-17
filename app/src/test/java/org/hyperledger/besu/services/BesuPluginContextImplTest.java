@@ -18,9 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import org.hyperledger.besu.config.GenesisConfig;
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.api.pluginadapter.HealthCheckServiceImpl;
 import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginInfo;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleService;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.RegistrationContext;
@@ -42,6 +46,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -384,6 +389,75 @@ public class BesuPluginContextImplTest {
     picoCLIOptions.optionsDefinitionCompleted();
     commandLine.parseArgs();
     return context;
+  }
+
+  /** A plugin of its own class that registers a protocol-schedule customizer. */
+  static class CustomizingPlugin extends RecordingPlugin {
+    CustomizingPlugin(final Optional<ProtocolScheduleCustomization> customization) {
+      super("customizing");
+      onRegister =
+          context ->
+              context
+                  .getBesuService(ProtocolScheduleService.class)
+                  .registerProtocolScheduleCustomizer(config -> customization);
+    }
+  }
+
+  private static final GenesisConfigOptions GENESIS =
+      GenesisConfig.fromConfig("{\"config\":{}}").getConfigOptions();
+
+  private static final ProtocolScheduleCustomization IN_FORCE =
+      new ProtocolScheduleCustomization("example-chain", List.of());
+
+  @Test
+  void aStartFailureOfThePluginWhoseCustomizationIsInForceIsFatalEvenWhenContinuingOnErrors() {
+    final CustomizingPlugin plugin = new CustomizingPlugin(Optional.of(IN_FORCE));
+    plugin.onStart =
+        context -> {
+          throw new IllegalStateException("start failed");
+        };
+    final BesuPluginContextImpl context = contextReadyToRegister(true, plugin);
+    register(context);
+    assertThat(context.resolveProtocolScheduleCustomization(GENESIS)).isSameAs(IN_FORCE);
+
+    // its rules are already in the schedule and the fork ID, so it cannot be dropped
+    assertThatThrownBy(context::startPlugins)
+        .hasMessageContaining("customization in force")
+        .hasMessageContaining("--plugin-continue-on-error")
+        .hasRootCauseMessage("start failed");
+  }
+
+  @Test
+  void anAfterMainLoopFailureOfThePluginWhoseCustomizationIsInForceIsFatal() {
+    final CustomizingPlugin plugin = new CustomizingPlugin(Optional.of(IN_FORCE));
+    plugin.onAfterMainLoop =
+        context -> {
+          throw new IllegalStateException("afterMainLoop failed");
+        };
+    final BesuPluginContextImpl context = contextReadyToRegister(true, plugin);
+    register(context);
+    context.resolveProtocolScheduleCustomization(GENESIS);
+    context.startPlugins();
+
+    assertThatThrownBy(context::afterMainLoop)
+        .hasMessageContaining("customization in force")
+        .hasRootCauseMessage("afterMainLoop failed");
+  }
+
+  @Test
+  void aStartFailureOfAPluginWhoseCustomizerDidNotMatchTheChainIsStillTolerated() {
+    final CustomizingPlugin plugin = new CustomizingPlugin(Optional.empty());
+    plugin.onStart =
+        context -> {
+          throw new IllegalStateException("start failed");
+        };
+    final BesuPluginContextImpl context = contextReadyToRegister(true, plugin);
+    register(context);
+    assertThat(context.resolveProtocolScheduleCustomization(GENESIS).modifications()).isEmpty();
+
+    context.startPlugins();
+
+    assertThat(context.getRegisteredPlugins()).doesNotContain(plugin);
   }
 
   @Test
