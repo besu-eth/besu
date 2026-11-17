@@ -30,6 +30,7 @@
 - JSON-RPC methods will reject a malformed address parameter with `Invalid params` (`-32602`). An address must be `0x` or `0X` followed by exactly 40 hex digits (20 bytes). Today a shorter value is left-padded with zeros, so a call can read or act on a different account than intended. This also applies to the account keys of state overrides in `eth_call`, `eth_estimateGas` and `eth_simulateV1`. Clients that send short or unprefixed addresses will need to send the full 20-byte address. [#11888](https://github.com/besu-eth/besu/pull/11888)
 
 ### Bug fixes
+- An eth/69 peer is disconnected when its Status message has an earliest block above its latest block or a zero best hash, or when a `BlockRangeUpdate` has a zero block hash. These values were previously accepted. [#11987](https://github.com/besu-eth/besu/pull/11987)
 - `evmtool t8n` and `b11r` report a missing, `null` or empty required input (`alloc` or `env` for `t8n`, `header` for `b11r`) as a usage error naming the `--input` option, instead of failing with a `NullPointerException`. `b11r` also accepts an empty stdin when the header comes from a file. [#11938](https://github.com/besu-eth/besu/pull/11938)
 - OpenTelemetry counters and timers with the same name in different categories no longer share an instrument or inherit a disabled category's no-op metric. JSON-RPC `request_time` timings now use the `rpc` scope and `methodName` attribute. If the peer timer was registered first, these timings previously used the `peers` scope and `taskName` attribute. OpenTelemetry dashboards that query the old series should update their queries. Besu's native Prometheus metrics are unchanged. [#11829](https://github.com/besu-eth/besu/issues/11829)
 - `evmtool t8n` and `b11r` no longer fail when the input has no transactions: a missing or `null` `txs`, an empty txs file, or (for `t8n`) an empty stdin. `t8n` runs the block with no transactions and `b11r` builds a block with none. [#11930](https://github.com/besu-eth/besu/pull/11930)
@@ -37,6 +38,7 @@
 - `admin_logsRemoveCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when `startBlock` or `stopBlock` is not known, including an unknown block number and an unknown `safe` or `finalized` tag. [#11892](https://github.com/besu-eth/besu/issues/11892)
 - `admin_logsRepairCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when the given block number is not known. [#11914](https://github.com/besu-eth/besu/issues/11914)
 - `eth_getStorageValues`, `testing_buildBlockV1` and `testing_commitBlockV1` now return the error detail in `message`, not in `data`, as [execution-apis#967](https://github.com/ethereum/execution-apis/pull/967) specifies. [#11861](https://github.com/besu-eth/besu/pull/11861)
+- Every `create` trace frame now reports `creationMethod` from the opcode that created it: `create` for `CREATE` and a contract creation transaction, `create2` for `CREATE2`. `trace_call`, `trace_callMany` and `trace_rawTransaction` omitted it, and the other trace methods labelled every creation in a transaction `create2` when any of them used `CREATE2`. [#11435](https://github.com/besu-eth/besu/pull/11435)
 - Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
 - `eth_simulateV1` now rejects precompiles moved to their own address with error `-38022`. [#11793](https://github.com/besu-eth/besu/issues/11793)
 - `eth_simulateV1` now returns `maxUsedGas` after Amsterdam as the gas used before refunds raised to the calldata floor, `max(executionGas + stateGas, floor)`, as Geth does. Previously Besu returned `max(executionGas, floor) + stateGas`, which is larger when the execution gas is below the floor. `eth_estimateGas` uses the same value as its lower bound. [#11580](https://github.com/besu-eth/besu/pull/11580)
@@ -61,6 +63,8 @@
 - A node stopped while importing a block no longer gets stuck after a restart, failing to process the next block because the parent world state is not available. [#11882](https://github.com/besu-eth/besu/pull/11882)
 - Shutting down while the log bloom cache is being generated no longer waits 30 seconds and logs two errors for every cache segment not generated yet. [#11931](https://github.com/besu-eth/besu/pull/11931)
 - `eth_getLogs` no longer misses the logs of a block that replaced a cached block in a reorg while the log bloom cache was being generated. [#11932](https://github.com/besu-eth/besu/pull/11932)
+- `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
+- `debug_storageRangeAt` and `debug_accountRange` resolve the `finalized` and `safe` block tags instead of returning an empty result. [#11978](https://github.com/besu-eth/besu/pull/11978)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
@@ -86,6 +90,7 @@
 - The transaction pools process the result of a transaction that is still executing when the block selection time runs out once its execution completes, so the layered pool penalises a transaction that took too long, and both pools remove it if invalid, instead of missing its result. Selection results are processed asynchronously in both pools.
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
+- Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
 
 ## 26.11.0
 
