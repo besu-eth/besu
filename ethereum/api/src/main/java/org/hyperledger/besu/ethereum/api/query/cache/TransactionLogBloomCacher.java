@@ -20,7 +20,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 
 import java.io.File;
@@ -38,8 +37,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -60,13 +59,15 @@ public class TransactionLogBloomCacher {
   public static final int BLOCKS_PER_BLOOM_CACHE = 100_000;
   public static final int BLOOM_BITS_LENGTH = 256;
   private static final int EXPECTED_BLOOM_FILE_SIZE = BLOCKS_PER_BLOOM_CACHE * BLOOM_BITS_LENGTH;
+  private static final long NO_STALE_BLOCK = Long.MAX_VALUE;
   public static final String CURRENT = "current";
   private final Map<Long, Boolean> cachedSegments;
 
   private final Lock submissionLock = new ReentrantLock();
 
-  // set when a block event arrives while another caching job holds the cacher
-  private final AtomicBoolean blockEventDropped = new AtomicBoolean(false);
+  // first block whose bloom the cache files can miss or hold from a replaced block, because its
+  // block event arrived while another caching job held the cacher or caching it failed
+  private final AtomicLong firstStaleBlock = new AtomicLong(NO_STALE_BLOCK);
 
   private final EthScheduler scheduler;
   private final Blockchain blockchain;
@@ -103,9 +104,9 @@ public class TransactionLogBloomCacher {
     checkArgument(
         start % BLOCKS_PER_BLOOM_CACHE == 0, "Start block must be at the beginning of a file");
 
-    if (!cachingStatus.isCaching()) {
+    // claim the cacher in one step, so a block event cannot write the same files at the same time
+    if (cachingStatus.cachingCount.compareAndSet(0, 1)) {
       try {
-        cachingStatus.cachingCount.incrementAndGet();
         LOG.debug(
             "Generating transaction log bloom cache from block {} to block {} in {}",
             start,
@@ -172,42 +173,26 @@ public class TransactionLogBloomCacher {
       final BlockHeader blockHeader,
       final Optional<BlockHeader> commonAncestorBlockHeader,
       final Optional<File> reusedCacheFile) {
+    final long firstChangedBlock =
+        commonAncestorBlockHeader
+            .map(ancestor -> ancestor.getNumber() + 1)
+            .orElse(blockHeader.getNumber());
     try {
       if (cachingStatus.cachingCount.incrementAndGet() != 1) {
         // the dropped block can replace a block that is already in the cache file
-        blockEventDropped.set(true);
+        firstStaleBlock.accumulateAndGet(firstChangedBlock, Math::min);
         return;
       }
-      final long blockNumber = blockHeader.getNumber();
-      LOG.atTrace()
-          .setMessage("Caching logs bloom for block {}")
-          .addArgument(() -> "0x" + Long.toHexString(blockNumber))
-          .log();
-      final File cacheFile = reusedCacheFile.orElse(calculateCacheFileName(blockNumber, cacheDir));
-      final boolean rebuild = blockEventDropped.getAndSet(false);
-      if (cacheFile.exists() && !rebuild) {
-        try {
-          final Optional<Long> ancestorBlockNumber =
-              commonAncestorBlockHeader.map(ProcessableBlockHeader::getNumber);
-          if (ancestorBlockNumber.isPresent()) {
-            // walk through the blocks from the common ancestor to the received block in order to
-            // reload the cache in case of reorg
-            for (long number = ancestorBlockNumber.get() + 1;
-                number < blockHeader.getNumber();
-                number++) {
-              final Optional<BlockHeader> ancestorBlockHeader = blockchain.getBlockHeader(number);
-              if (ancestorBlockHeader.isPresent()) {
-                cacheSingleBlock(ancestorBlockHeader.get(), cacheFile, true);
-              }
-            }
-          }
-          cacheSingleBlock(blockHeader, cacheFile, true);
-        } catch (final InvalidCacheException e) {
-          populateLatestSegment(blockNumber);
+      final long firstStale = firstStaleBlock.getAndSet(NO_STALE_BLOCK);
+      final long fromBlock = Math.min(firstStale, firstChangedBlock);
+      boolean cached = false;
+      try {
+        cached = cacheBlocks(fromBlock, blockHeader, firstStale != NO_STALE_BLOCK, reusedCacheFile);
+      } finally {
+        if (!cached) {
+          // the files can still hold the blooms of replaced blocks, so retry with the next block
+          firstStaleBlock.accumulateAndGet(fromBlock, Math::min);
         }
-      } else if (!populateLatestSegment(blockNumber) && rebuild) {
-        // the file still holds the blocks of the dropped events, so retry with the next block
-        blockEventDropped.set(true);
       }
     } catch (final IOException e) {
       if (isDiskFull(e)) {
@@ -217,6 +202,74 @@ public class TransactionLogBloomCacher {
       LOG.error("Unhandled caching exception.", e);
     } finally {
       cachingStatus.cachingCount.decrementAndGet();
+    }
+  }
+
+  private boolean cacheBlocks(
+      final long fromBlock,
+      final BlockHeader blockHeader,
+      final boolean rebuild,
+      final Optional<File> reusedCacheFile)
+      throws IOException {
+    final long blockNumber = blockHeader.getNumber();
+    final long segmentStart = blockNumber - blockNumber % BLOCKS_PER_BLOOM_CACHE;
+    rewritePreviousSegments(fromBlock, segmentStart);
+    LOG.atTrace()
+        .setMessage("Caching logs bloom for block {}")
+        .addArgument(() -> "0x" + Long.toHexString(blockNumber))
+        .log();
+    final File cacheFile = reusedCacheFile.orElse(calculateCacheFileName(blockNumber, cacheDir));
+    if (!cacheFile.exists() || rebuild) {
+      return populateLatestSegment(blockNumber);
+    }
+    try {
+      // the blocks of this segment that a reorg replaced, which the segment file can still hold
+      for (long number = Math.max(fromBlock, segmentStart); number < blockNumber; number++) {
+        final Optional<BlockHeader> header = blockchain.getBlockHeader(number);
+        if (header.isPresent()) {
+          cacheSingleBlock(header.get(), cacheFile, true);
+        }
+      }
+      cacheSingleBlock(blockHeader, cacheFile, true);
+      return true;
+    } catch (final InvalidCacheException e) {
+      return populateLatestSegment(blockNumber);
+    }
+  }
+
+  // a reorg can replace blocks of a complete segment, and the size check never rewrites those
+  private void rewritePreviousSegments(final long fromBlock, final long segmentStart)
+      throws IOException {
+    long number = fromBlock;
+    while (number < segmentStart) {
+      final long nextSegment = number - number % BLOCKS_PER_BLOOM_CACHE + BLOCKS_PER_BLOOM_CACHE;
+      final File segmentFile = calculateCacheFileName(number, cacheDir);
+      if (segmentFile.isFile()) {
+        rewriteSegment(segmentFile, number, nextSegment);
+      }
+      number = nextSegment;
+    }
+  }
+
+  private void rewriteSegment(final File segmentFile, final long fromBlock, final long nextSegment)
+      throws IOException {
+    try (final RandomAccessFile writer = new RandomAccessFile(segmentFile, "rw")) {
+      final long offset = fromBlock % BLOCKS_PER_BLOOM_CACHE * BLOOM_BITS_LENGTH;
+      if (writer.length() < offset) {
+        // the file ends before this block, so eth_getLogs reads the rest from the chain
+        return;
+      }
+      // if writing stops early, the file ends there instead of holding blooms of replaced blocks
+      writer.setLength(offset);
+      writer.seek(offset);
+      for (long number = fromBlock; number < nextSegment; number++) {
+        final Optional<BlockHeader> header = blockchain.getBlockHeader(number);
+        if (header.isEmpty()) {
+          return;
+        }
+        writer.write(
+            ensureBloomBitsAreCorrectLength(header.get().getLogsBloom().getBytes().toArray()));
+      }
     }
   }
 
