@@ -174,7 +174,7 @@ public class BackwardSyncContext {
   public synchronized CompletableFuture<Void> syncBackwardsUntil(
       final Block newPivot, final Optional<BlockAccessList> blockAccessList) {
     if (!isTrusted(newPivot.getHash())) {
-      // a block far ahead won't run for a long time, and peers can serve its BAL by then
+      // a block far ahead runs without its BAL rather than holding it in memory
       final long distance =
           newPivot.getHeader().getNumber()
               - getProtocolContext().getBlockchain().getChainHeadBlockNumber();
