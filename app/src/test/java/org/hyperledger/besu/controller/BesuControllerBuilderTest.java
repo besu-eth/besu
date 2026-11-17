@@ -117,11 +117,21 @@ class BesuControllerBuilderTest {
   }
 
   @Test
-  void snap2OrSnapKeepsSnap2FromTheFork() {
+  void snap2OrSnapKeepsSnap2AnHourAfterTheFork() {
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
 
-    assertThat(BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(1_000), dataDirectory))
+    assertThat(BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(4_600), dataDirectory))
         .isSameAs(snap2);
+  }
+
+  @Test
+  void snap2OrSnapSyncsWithSnapInTheHourAfterTheFork() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+
+    assertThat(
+            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(4_599), dataDirectory)
+                .getSyncMode())
+        .isEqualTo(SyncMode.SNAP);
   }
 
   @Test
@@ -151,7 +161,7 @@ class BesuControllerBuilderTest {
     Files.createFile(dataDirectory.resolve("syncFolder").resolve("chain-sync-state.rlp"));
 
     assertThat(
-            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(2_000), dataDirectory)
+            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(10_000), dataDirectory)
                 .getSyncMode())
         .isEqualTo(SyncMode.SNAP);
   }
@@ -171,7 +181,7 @@ class BesuControllerBuilderTest {
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
     final Path marker = Files.createFile(dataDirectory.resolve("snap2-sync-in-progress"));
 
-    BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(1_000), dataDirectory);
+    BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(10_000), dataDirectory);
 
     assertThat(marker).exists();
   }

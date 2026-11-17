@@ -121,6 +121,7 @@ import java.io.Closeable;
 import java.math.BigInteger;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -141,6 +142,9 @@ import org.slf4j.LoggerFactory;
 /** The Besu controller builder that builds Besu Controller. */
 public abstract class BesuControllerBuilder implements MiningConfigurationOverrides {
   private static final Logger LOG = LoggerFactory.getLogger(BesuControllerBuilder.class);
+
+  // a SNAP2 pivot sits 64 blocks behind the head, and the block after it needs a block access list
+  private static final Duration SNAP2_AFTER_FORK = Duration.ofHours(1);
 
   /** The genesis file */
   protected GenesisConfig genesisConfig;
@@ -1460,10 +1464,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
-   * Returns the sync configuration with SNAP in place of SNAP2 until the fork that adds block
-   * access lists, which the SNAP2 sync moves its pivot with, and while a SNAP sync from an earlier
-   * start is unfinished. A node that syncs with SNAP then advertises snap/2 once its chain reaches
-   * that fork.
+   * Returns the sync configuration with SNAP in place of SNAP2 until an hour after the fork that
+   * adds block access lists, which the SNAP2 sync moves its pivot with, and while a SNAP sync from
+   * an earlier start is unfinished. A node that syncs with SNAP then advertises snap/2 once its
+   * chain reaches that fork.
    *
    * @param syncConfig the configured sync
    * @param protocolSchedule the protocol schedule
@@ -1486,13 +1490,16 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     }
     final Optional<Long> fork = amsterdamOrLaterMilestone(protocolSchedule);
     final long now = clock.instant().getEpochSecond();
-    if (fork.isPresent() && Long.compareUnsigned(now, fork.get()) >= 0) {
+    if (fork.isPresent()
+        && Long.compareUnsigned(now, fork.get()) >= 0
+        && now - fork.get() >= SNAP2_AFTER_FORK.toSeconds()) {
       return syncConfig;
     }
     fork.ifPresentOrElse(
         time ->
             LOG.info(
-                "SNAP2 needs block access lists, which start with the fork at {}: syncing with SNAP",
+                "SNAP2 starts an hour after the fork that adds block access lists, at {}: syncing"
+                    + " with SNAP",
                 forkTime(time)),
         () ->
             LOG.info(
