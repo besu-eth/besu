@@ -85,7 +85,6 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolFactory;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.ForkChangeTracker;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
@@ -962,11 +961,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     // a SNAP2 node that syncs with SNAP serves block access lists over snap/2 from the fork on
     if (snap2Requested && syncConfig.getSyncMode() == SyncMode.SNAP) {
       maybeSnapProtocolManager.ifPresent(
-          snapProtocolManager ->
-              Snap2Advertiser.start(
-                  snapProtocolManager,
-                  syncState,
-                  ForkChangeTracker.create(blockchain, protocolSchedule)));
+          snapProtocolManager -> Snap2Advertiser.start(snapProtocolManager, syncState, blockchain));
     }
 
     final MiningCoordinator miningCoordinator =

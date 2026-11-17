@@ -14,12 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.snap;
 
-import org.hyperledger.besu.datatypes.HardforkId;
-import org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId;
+import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
+import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
-import org.hyperledger.besu.ethereum.mainnet.ForkChangeTracker;
-import org.hyperledger.besu.ethereum.mainnet.ForkChangeTracker.ForkChangeListener;
 import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
 
 import org.slf4j.Logger;
@@ -27,73 +26,64 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Advertises snap/2 on a node asked to sync with SNAP2 that synced with SNAP, as the chain had no
- * block access lists yet: once the sync is done and the chain head reached the fork that adds them.
- * Before, peers would agree on snap/2, which drops the trie node requests the SNAP sync heals with.
+ * block access lists yet: once the sync is done and the chain head has a block access list. Before,
+ * peers would agree on snap/2, which drops the trie node requests the SNAP sync heals with.
  */
-public final class Snap2Advertiser implements ForkChangeListener, InitialSyncCompletionListener {
+public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCompletionListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(Snap2Advertiser.class);
 
   private final SnapProtocolManager snapProtocolManager;
   private final SyncState syncState;
-  private final ForkChangeTracker forks;
+  private final Blockchain blockchain;
   // guarded by this, set before any check
+  private long chainSubscription;
   private long syncSubscription;
-  // guarded by this: the fork of the last fork change, as a reorg tells it before the head moves
-  private HardforkId changedTo;
   private boolean done;
 
   private Snap2Advertiser(
       final SnapProtocolManager snapProtocolManager,
       final SyncState syncState,
-      final ForkChangeTracker forks) {
+      final Blockchain blockchain) {
     this.snapProtocolManager = snapProtocolManager;
     this.syncState = syncState;
-    this.forks = forks;
+    this.blockchain = blockchain;
   }
 
   /**
-   * Advertises snap/2 once the node synced and its chain head reached the fork that adds block
-   * access lists, now when both already hold.
+   * Advertises snap/2 once the node synced and its chain head has a block access list, now when
+   * both already hold.
    *
    * @param snapProtocolManager the manager that advertises snap/2
    * @param syncState tells when the initial sync is done
-   * @param forks tells when the chain head reaches another fork, stopped once snap/2 is advertised
+   * @param blockchain the chain whose head is followed until snap/2 is advertised
    * @return the advertiser
    */
   public static Snap2Advertiser start(
       final SnapProtocolManager snapProtocolManager,
       final SyncState syncState,
-      final ForkChangeTracker forks) {
-    final Snap2Advertiser advertiser = new Snap2Advertiser(snapProtocolManager, syncState, forks);
+      final Blockchain blockchain) {
+    final Snap2Advertiser advertiser =
+        new Snap2Advertiser(snapProtocolManager, syncState, blockchain);
     synchronized (advertiser) {
-      forks.subscribe(advertiser);
+      advertiser.chainSubscription = blockchain.observeBlockAdded(advertiser);
       advertiser.syncSubscription = syncState.subscribeCompletionReached(advertiser);
-      advertiser.check();
+      advertiser.check(blockchain.getChainHeadHeader());
     }
     return advertiser;
   }
 
-  /**
-   * Returns whether the fork has block access lists: Amsterdam or a later fork.
-   *
-   * @param fork the fork
-   * @return whether its blocks have block access lists
-   */
-  public static boolean hasBlockAccessLists(final HardforkId fork) {
-    return fork instanceof MainnetHardforkId mainnetFork
-        && mainnetFork.ordinal() >= MainnetHardforkId.AMSTERDAM.ordinal();
+  @Override
+  public void onBlockAdded(final BlockAddedEvent event) {
+    if (event.isNewCanonicalHead()) {
+      check(event.getHeader());
+    }
   }
 
   @Override
-  public synchronized void onForkChange(final HardforkId fork, final BlockHeader head) {
-    changedTo = fork;
-    check();
-  }
-
-  @Override
-  public synchronized void onInitialSyncCompleted() {
-    check();
+  public void onInitialSyncCompleted() {
+    // the sync moves the chain head without a block added event
+    check(blockchain.getChainHeadHeader());
   }
 
   @Override
@@ -104,21 +94,18 @@ public final class Snap2Advertiser implements ForkChangeListener, InitialSyncCom
     return done;
   }
 
-  private synchronized void check() {
-    if (done || !syncState.isInitialSyncPhaseDone()) {
-      return;
-    }
-    // the sync moves the head without a fork change
-    final HardforkId headFork = hasBlockAccessLists(changedTo) ? changedTo : forks.currentFork();
-    if (!hasBlockAccessLists(headFork)) {
+  private synchronized void check(final BlockHeader head) {
+    if (done || !syncState.isInitialSyncPhaseDone() || head.getBalHash().isEmpty()) {
       return;
     }
     done = true;
-    forks.stop();
+    blockchain.removeObserver(chainSubscription);
     syncState.unsubscribeInitialConditionReached(syncSubscription);
     try {
       if (snapProtocolManager.advertiseSnap2()) {
-        LOG.info("Chain head reached {}, advertising snap/2 to new connections", headFork);
+        LOG.info(
+            "Chain head {} has a block access list, advertising snap/2 to new connections",
+            head.getNumber());
       }
     } catch (final RuntimeException e) {
       LOG.warn("Could not advertise snap/2, peers syncing with SNAP2 cannot use this node", e);

@@ -15,11 +15,6 @@
 package org.hyperledger.besu.ethereum.eth.manager.snap;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO2;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO3;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -27,17 +22,15 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.datatypes.HardforkId;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
+import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
-import org.hyperledger.besu.ethereum.mainnet.ForkChangeTracker;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
 
 import java.util.List;
@@ -48,22 +41,25 @@ import org.junit.jupiter.api.Test;
 class Snap2AdvertiserTest {
 
   private static final long SYNC_SUBSCRIPTION = 7L;
-  private static final long CHAIN_OBSERVER = 5L;
+  private static final long CHAIN_SUBSCRIPTION = 5L;
 
   private final Blockchain blockchain = mock(Blockchain.class);
-  private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
   private final SnapProtocolManager snapProtocolManager = mock(SnapProtocolManager.class);
   private final SyncState syncState = mock(SyncState.class);
-  private ForkChangeTracker forks;
+  private BlockAddedObserver chain;
   private InitialSyncCompletionListener syncCompletion;
   private long nextBlock = 1;
 
   @BeforeEach
   void setUp() {
-    setHead(OSAKA);
-    when(blockchain.observeBlockAdded(any())).thenReturn(CHAIN_OBSERVER);
-    forks = ForkChangeTracker.create(blockchain, protocolSchedule);
+    setHead(header(false));
     when(snapProtocolManager.advertiseSnap2()).thenReturn(true);
+    when(blockchain.observeBlockAdded(any()))
+        .thenAnswer(
+            invocation -> {
+              chain = invocation.getArgument(0);
+              return CHAIN_SUBSCRIPTION;
+            });
     when(syncState.subscribeCompletionReached(any()))
         .thenAnswer(
             invocation -> {
@@ -73,9 +69,9 @@ class Snap2AdvertiserTest {
   }
 
   @Test
-  void waitsForTheSyncOnceTheHeadReachedTheFork() {
-    final Snap2Advertiser advertiser = Snap2Advertiser.start(snapProtocolManager, syncState, forks);
-    moveHead(AMSTERDAM);
+  void waitsForTheSyncOnceTheHeadHasABlockAccessList() {
+    final Snap2Advertiser advertiser = start();
+    moveHead(true);
     verify(snapProtocolManager, never()).advertiseSnap2();
 
     syncDone();
@@ -83,28 +79,30 @@ class Snap2AdvertiserTest {
     verify(snapProtocolManager).advertiseSnap2();
     assertThat(advertiser.isDone()).isTrue();
     verify(syncState).unsubscribeInitialConditionReached(SYNC_SUBSCRIPTION);
+    verify(blockchain).removeObserver(CHAIN_SUBSCRIPTION);
   }
 
   @Test
-  void advertisesWhenTheSyncedHeadReachesTheFork() {
+  void advertisesWhenTheSyncedHeadGetsABlockAccessList() {
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
-    final Snap2Advertiser advertiser = Snap2Advertiser.start(snapProtocolManager, syncState, forks);
-    moveHead(BPO2);
+    final Snap2Advertiser advertiser = start();
+    moveHead(false);
     verify(snapProtocolManager, never()).advertiseSnap2();
 
-    moveHead(AMSTERDAM);
-    moveHead(BPO3);
+    moveHead(true);
+    moveHead(true);
 
     verify(snapProtocolManager, times(1)).advertiseSnap2();
     assertThat(advertiser.isDone()).isTrue();
+    verify(blockchain).removeObserver(CHAIN_SUBSCRIPTION);
   }
 
   @Test
   void advertisesWhenTheSyncEndsPastTheFork() {
-    Snap2Advertiser.start(snapProtocolManager, syncState, forks);
+    start();
 
     // the sync sets the head at its pivot without a block added event
-    setHead(AMSTERDAM);
+    setHead(header(true));
     syncDone();
 
     verify(snapProtocolManager).advertiseSnap2();
@@ -112,18 +110,18 @@ class Snap2AdvertiserTest {
 
   @Test
   void advertisesAtOnceWhenSyncedPastTheFork() {
-    setHead(BOGOTA);
+    setHead(header(true));
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
 
-    final Snap2Advertiser advertiser = Snap2Advertiser.start(snapProtocolManager, syncState, forks);
+    final Snap2Advertiser advertiser = start();
 
     verify(snapProtocolManager).advertiseSnap2();
     assertThat(advertiser.isDone()).isTrue();
   }
 
   @Test
-  void waitsWhileTheSyncedHeadIsBeforeTheFork() {
-    Snap2Advertiser.start(snapProtocolManager, syncState, forks);
+  void waitsWhileTheSyncedHeadHasNoBlockAccessList() {
+    start();
 
     syncDone();
 
@@ -131,48 +129,43 @@ class Snap2AdvertiserTest {
   }
 
   @Test
-  void advertisesWhenAReorgReachedTheForkAsTheSyncEnded() {
-    Snap2Advertiser.start(snapProtocolManager, syncState, forks);
+  void ignoresABlockOffTheCanonicalChain() {
+    when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
+    start();
 
-    // the reorg tells the new head before the chain head reads it
-    forks.onBlockAdded(headAdvancement(header(AMSTERDAM)));
+    chain.onBlockAdded(BlockAddedEvent.createForFork(new Block(header(true), BlockBody.empty())));
+
+    verify(snapProtocolManager, never()).advertiseSnap2();
+  }
+
+  @Test
+  void catchesUpOnTheNextHeadAfterAReorgReachedTheForkAsTheSyncEnded() {
+    start();
+    // a reorg tells the new head before the chain head reads it
+    chain.onBlockAdded(headAdvancement(header(true)));
     syncDone();
+    verify(snapProtocolManager, never()).advertiseSnap2();
+
+    moveHead(true);
 
     verify(snapProtocolManager).advertiseSnap2();
   }
 
   @Test
-  void stopsFollowingTheChainOnceAdvertised() {
-    when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
-    Snap2Advertiser.start(snapProtocolManager, syncState, forks);
-    verify(blockchain, never()).removeObserver(CHAIN_OBSERVER);
-
-    moveHead(AMSTERDAM);
-
-    verify(blockchain).removeObserver(CHAIN_OBSERVER);
-  }
-
-  @Test
   void survivesAFailedAdvertisement() {
     when(snapProtocolManager.advertiseSnap2()).thenThrow(new IllegalStateException("no network"));
-    final Snap2Advertiser advertiser = Snap2Advertiser.start(snapProtocolManager, syncState, forks);
-    moveHead(AMSTERDAM);
+    final Snap2Advertiser advertiser = start();
+    moveHead(true);
 
     syncDone();
-    moveHead(BPO3);
+    moveHead(true);
 
     verify(snapProtocolManager, times(1)).advertiseSnap2();
     assertThat(advertiser.isDone()).isTrue();
   }
 
-  @Test
-  void blockAccessListsStartWithAmsterdam() {
-    assertThat(Snap2Advertiser.hasBlockAccessLists(OSAKA)).isFalse();
-    assertThat(Snap2Advertiser.hasBlockAccessLists(BPO2)).isFalse();
-    assertThat(Snap2Advertiser.hasBlockAccessLists(AMSTERDAM)).isTrue();
-    assertThat(Snap2Advertiser.hasBlockAccessLists(BPO3)).isTrue();
-    assertThat(Snap2Advertiser.hasBlockAccessLists(BOGOTA)).isTrue();
-    assertThat(Snap2Advertiser.hasBlockAccessLists(mock(HardforkId.class))).isFalse();
+  private Snap2Advertiser start() {
+    return Snap2Advertiser.start(snapProtocolManager, syncState, blockchain);
   }
 
   private void syncDone() {
@@ -180,26 +173,25 @@ class Snap2AdvertiserTest {
     syncCompletion.onInitialSyncCompleted();
   }
 
-  private void moveHead(final HardforkId fork) {
-    forks.onBlockAdded(headAdvancement(setHead(fork)));
+  private void moveHead(final boolean withBlockAccessList) {
+    final BlockHeader head = header(withBlockAccessList);
+    setHead(head);
+    chain.onBlockAdded(headAdvancement(head));
+  }
+
+  private void setHead(final BlockHeader head) {
+    when(blockchain.getChainHeadHeader()).thenReturn(head);
+  }
+
+  private BlockHeader header(final boolean withBlockAccessList) {
+    return new BlockHeaderTestFixture()
+        .number(nextBlock++)
+        .balHash(withBlockAccessList ? Hash.EMPTY : null)
+        .buildHeader();
   }
 
   private static BlockAddedEvent headAdvancement(final BlockHeader head) {
     return BlockAddedEvent.createForHeadAdvancement(
         new Block(head, BlockBody.empty()), List.of(), List.of());
-  }
-
-  private BlockHeader setHead(final HardforkId fork) {
-    final BlockHeader header = header(fork);
-    when(blockchain.getChainHeadHeader()).thenReturn(header);
-    return header;
-  }
-
-  private BlockHeader header(final HardforkId fork) {
-    final BlockHeader header = new BlockHeaderTestFixture().number(nextBlock++).buildHeader();
-    final ProtocolSpec spec = mock(ProtocolSpec.class);
-    when(spec.getHardforkId()).thenReturn(fork);
-    when(protocolSchedule.getByBlockHeader(header)).thenReturn(spec);
-    return header;
   }
 }
