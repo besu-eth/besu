@@ -18,29 +18,34 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBTransaction;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.CompactionOptions;
 import org.rocksdb.LevelMetaData;
+import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
 import org.rocksdb.SstFileMetaData;
 import org.rocksdb.Status;
+import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,18 +58,26 @@ import org.slf4j.LoggerFactory;
  * have. Neighbouring small files are merged together, and a small file that has no small neighbour
  * is merged with the smaller of its neighbours. A small file stays only when neither neighbour can
  * be merged: when they are being compacted, or larger than the target size, as rewriting such a
- * neighbour costs far more than the small file does. The merges of four column families run at
- * once, those of one column family one after the other.
+ * neighbour costs far more than the small file does.
+ *
+ * <p>The merges run one at a time, on a thread of their own. RocksDB's limit on background jobs
+ * does not hold back a compaction started by hand, so more of them would compete with block import
+ * and with RocksDB's own compactions right after a sync.
  *
  * <p>The merges wait until RocksDB has no compaction of its own pending for the column family,
  * which would take files of the plan, or rewrite the small files anyway. A plan that RocksDB turned
  * down in part is made again, a few times at most.
  *
+ * <p>A marker in the default column family records each column family whose small files are still
+ * to be merged, from the start of its bulk load until its merge is done. A merge that a stop cut
+ * short, or that never started because the load was not closed, is done when the database opens
+ * again.
+ *
  * <p>A merge keeps its column family for seconds, so it does not hold the lock of the storage on
  * its column families, which the merge of level 0 and the bulk loads take. It holds a lock of its
- * column family for reading instead, which {@code clear()} and {@code close()} take for writing
- * before they drop or close it, and a bulk load before it starts. The lock is taken before the one
- * of the storage, never after it.
+ * column family for each step instead, which {@code clear()} and {@code close()} take before they
+ * drop or close it, and a bulk load before it starts. The lock is taken before the one of the
+ * storage, never after it.
  */
 final class RocksDBSmallFileMerge {
 
@@ -74,24 +87,24 @@ final class RocksDBSmallFileMerge {
   private static final int SMALL_FILE_SHARE = 4;
   // the most target sizes of small files merged in one go
   private static final int MAX_MERGE_TARGETS = 8;
-  private static final int MERGE_THREADS = 4;
   private static final int MAX_PLANS = 3;
   private static final long POLL_MILLIS = 500;
   private static final String COMPACTION_PENDING_PROPERTY = "rocksdb.compaction-pending";
-  private static final int TURNED_DOWN = -1;
+  // marker keys are the prefix followed by the segment name
+  private static final byte[] MARKER_PREFIX = "merge-small-files:".getBytes(StandardCharsets.UTF_8);
 
   private final RocksDBColumnarKeyValueStorage storage;
-  // RocksJava does not check its handles, so a dropped or closed one would crash the JVM
-  private final Map<SegmentIdentifier, ReentrantReadWriteLock> handlesInUse =
-      new ConcurrentHashMap<>();
-  private final ThreadPoolExecutor workers =
+  // RocksJava does not check its handles, so a dropped or closed one would crash the JVM; fair, so
+  // that a merge between two steps queues behind clear() or close() instead of taking it again
+  private final Map<SegmentIdentifier, ReentrantLock> handlesInUse = new ConcurrentHashMap<>();
+  private final ThreadPoolExecutor worker =
       new ThreadPoolExecutor(
-          MERGE_THREADS,
-          MERGE_THREADS,
+          1,
+          1,
           1,
           TimeUnit.MINUTES,
           new LinkedBlockingQueue<>(),
-          Thread.ofPlatform().daemon().name("rocksdb-small-file-merge-", 0).factory());
+          Thread.ofPlatform().daemon().name("rocksdb-small-file-merge").factory());
   private final Map<SegmentIdentifier, CompletableFuture<Void>> lastMergeBySegment =
       new ConcurrentHashMap<>();
 
@@ -99,9 +112,66 @@ final class RocksDBSmallFileMerge {
   @VisibleForTesting
   record Merge(List<SstFileMetaData> files, long outputFileBytes) {}
 
+  // the storage closed, or the column family was dropped or is in a bulk load
+  private static final class MergeStopped extends RuntimeException {
+    MergeStopped() {
+      super(null, null, false, false);
+    }
+  }
+
   RocksDBSmallFileMerge(final RocksDBColumnarKeyValueStorage storage) {
     this.storage = storage;
-    workers.allowCoreThreadTimeOut(true);
+    worker.allowCoreThreadTimeOut(true);
+  }
+
+  /**
+   * Waits for the merge under way of each column family a bulk load starts on, then records durably
+   * that its small files are to be merged. The merges after it find the column family in the load,
+   * so none of them removes the marker.
+   */
+  void markToMerge(final Collection<SegmentIdentifier> segments) {
+    segments.forEach(segment -> excludingMerges(segment, () -> mark(segment)));
+  }
+
+  /** Merges the small files of the column families whose merge a stop cut short or prevented. */
+  void mergeMarked() {
+    final Set<String> marked = markedSegments();
+    storage.getColumnHandlesBySegmentIdentifier().keySet().stream()
+        .filter(segment -> marked.contains(segment.getName()))
+        .forEach(
+            segment -> {
+              LOG.info(
+                  "The small files of the {} segment were not merged before the database closed: merging them",
+                  segment.getName());
+              mergeWhenDrained(segment, storage.level0Drain.whenDrained(segment));
+            });
+  }
+
+  @VisibleForTesting
+  Set<String> markedSegments() {
+    final RocksDB db = storage.getDB();
+    final Set<String> names = new HashSet<>();
+    try (final RocksIterator iterator = db.newIterator(db.getDefaultColumnFamily())) {
+      for (iterator.seek(MARKER_PREFIX); iterator.isValid(); iterator.next()) {
+        final byte[] key = iterator.key();
+        if (!Arrays.equals(
+            key,
+            0,
+            Math.min(key.length, MARKER_PREFIX.length),
+            MARKER_PREFIX,
+            0,
+            MARKER_PREFIX.length)) {
+          break;
+        }
+        names.add(
+            new String(
+                key,
+                MARKER_PREFIX.length,
+                key.length - MARKER_PREFIX.length,
+                StandardCharsets.UTF_8));
+      }
+    }
+    return names;
   }
 
   /**
@@ -115,7 +185,7 @@ final class RocksDBSmallFileMerge {
             (previous == null
                     ? drained
                     : CompletableFuture.allOf(previous.exceptionally(error -> null), drained))
-                .thenRunAsync(() -> mergeSmallFiles(segment), workers));
+                .thenRunAsync(() -> mergeSmallFiles(segment), worker));
   }
 
   /** Completes once the last merge of the column family is done, or at once if it has none. */
@@ -127,13 +197,13 @@ final class RocksDBSmallFileMerge {
   }
 
   @VisibleForTesting
-  ReentrantReadWriteLock handlesInUse(final SegmentIdentifier segment) {
-    return handlesInUse.computeIfAbsent(segment, unused -> new ReentrantReadWriteLock());
+  ReentrantLock handlesInUse(final SegmentIdentifier segment) {
+    return handlesInUse.computeIfAbsent(segment, unused -> new ReentrantLock(true));
   }
 
-  /** Runs what drops or closes a column family once its merge under way is done. */
+  /** Runs what drops or closes a column family once the step of a merge under way is done. */
   void excludingMerges(final SegmentIdentifier segment, final Runnable work) {
-    final Lock lock = handlesInUse(segment).writeLock();
+    final ReentrantLock lock = handlesInUse(segment);
     lock.lock();
     try {
       work.run();
@@ -142,22 +212,18 @@ final class RocksDBSmallFileMerge {
     }
   }
 
-  /** Waits for the merges under way of column families that a bulk load is about to start on. */
-  void awaitMergesUnderWay(final Collection<SegmentIdentifier> segments) {
-    // the merges after it find the column family in the bulk load
-    segments.forEach(segment -> excludingMerges(segment, () -> {}));
-  }
-
   /** Waits for the merges under way, as the storage closes, and starts no others. */
   void close() {
     // the merges find the storage closed from now on
-    awaitMergesUnderWay(List.copyOf(handlesInUse.keySet()));
-    workers.shutdown();
+    List.copyOf(handlesInUse.keySet()).forEach(segment -> excludingMerges(segment, () -> {}));
+    worker.shutdown();
   }
 
   private void mergeSmallFiles(final SegmentIdentifier segment) {
     try {
       mergeSmallFilesOf(segment);
+    } catch (final MergeStopped e) {
+      // the marker stays for the merge after the bulk load or the next open
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
     } catch (final RuntimeException e) {
@@ -170,11 +236,11 @@ final class RocksDBSmallFileMerge {
   private void mergeSmallFilesOf(final SegmentIdentifier segment) throws InterruptedException {
     final ColumnFamilyHandle handle;
     final long targetBytes;
-    final Lock lock = handlesInUse(segment).readLock();
+    final ReentrantLock lock = handlesInUse(segment);
     lock.lock();
     try {
       if (storage.isClosed() || storage.segmentsInBulkLoad.contains(segment)) {
-        return;
+        throw new MergeStopped();
       }
       handle = storage.safeColumnHandle(segment);
       targetBytes = storage.columnFamilyOptions(segment).targetFileSizeBase();
@@ -187,23 +253,17 @@ final class RocksDBSmallFileMerge {
     int written = 0;
     int turnedDown = 0;
     for (int round = 0; round < MAX_PLANS; round++) {
-      if (!awaitNoPendingCompaction(segment, handle)) {
-        return;
-      }
+      awaitNoPendingCompaction(segment, handle);
       final Optional<LevelMetaData> bottom =
           whileMergeable(segment, handle, () -> bottomLevel(handle));
       if (bottom.isEmpty()) {
         break;
       }
-      final List<Merge> plan = plan(bottom.get().files(), targetBytes);
       turnedDown = 0;
-      for (final Merge merge : plan) {
+      for (final Merge merge : plan(bottom.get().files(), targetBytes)) {
         final Optional<Integer> outputs =
             whileMergeable(segment, handle, () -> compact(handle, merge, bottom.get().level()));
         if (outputs.isEmpty()) {
-          return;
-        }
-        if (outputs.get() == TURNED_DOWN) {
           turnedDown++;
         } else {
           files += merge.files().size();
@@ -215,12 +275,16 @@ final class RocksDBSmallFileMerge {
         break;
       }
     }
+    // done as far as RocksDB let it, so the next open does not try again
+    final long left =
+        whileMergeable(
+            segment,
+            handle,
+            () -> {
+              unmark(segment);
+              return smallFiles(handle, targetBytes);
+            });
     if (files == 0 && turnedDown == 0) {
-      return;
-    }
-    final Optional<Long> left =
-        whileMergeable(segment, handle, () -> Optional.of(smallFiles(handle, targetBytes)));
-    if (left.isEmpty()) {
       return;
     }
     LOG.info(
@@ -231,18 +295,19 @@ final class RocksDBSmallFileMerge {
         written,
         TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start),
         turnedDown,
-        left.get());
+        left);
   }
 
-  // runs the work under the lock of the column family, unless the merge has to stop
-  private <T> Optional<T> whileMergeable(
-      final SegmentIdentifier segment,
-      final ColumnFamilyHandle handle,
-      final Supplier<Optional<T>> work) {
-    final Lock lock = handlesInUse(segment).readLock();
+  // runs the work under the lock of the column family, or throws MergeStopped
+  private <T> T whileMergeable(
+      final SegmentIdentifier segment, final ColumnFamilyHandle handle, final Supplier<T> work) {
+    final ReentrantLock lock = handlesInUse(segment);
     lock.lock();
     try {
-      return isMergeable(segment, handle) ? work.get() : Optional.empty();
+      if (!isMergeable(segment, handle)) {
+        throw new MergeStopped();
+      }
+      return work.get();
     } finally {
       lock.unlock();
     }
@@ -257,19 +322,10 @@ final class RocksDBSmallFileMerge {
         && storage.safeColumnHandle(segment) == handle;
   }
 
-  // false when the merge has to stop
-  private boolean awaitNoPendingCompaction(
+  private void awaitNoPendingCompaction(
       final SegmentIdentifier segment, final ColumnFamilyHandle handle)
       throws InterruptedException {
-    while (true) {
-      final Optional<Boolean> pending =
-          whileMergeable(segment, handle, () -> Optional.of(compactionPending(handle)));
-      if (pending.isEmpty()) {
-        return false;
-      }
-      if (!pending.get()) {
-        return true;
-      }
+    while (whileMergeable(segment, handle, () -> compactionPending(handle))) {
       Thread.sleep(POLL_MILLIS);
     }
   }
@@ -422,7 +478,7 @@ final class RocksDBSmallFileMerge {
     return indexes.stream().mapToLong(index -> files.get(index).size()).sum();
   }
 
-  // the number of files written, or TURNED_DOWN when another compaction took one of the files
+  // the number of files written, or empty when another compaction took one of the files
   private Optional<Integer> compact(
       final ColumnFamilyHandle handle, final Merge merge, final int level) {
     try (CompactionOptions options =
@@ -441,7 +497,7 @@ final class RocksDBSmallFileMerge {
     } catch (final RocksDBException e) {
       if (isTurnedDown(e)) {
         LOG.debug("Could not merge {} files: {}", merge.files().size(), e.getMessage());
-        return Optional.of(TURNED_DOWN);
+        return Optional.empty();
       }
       // stops the node on a full disk
       throw RocksDBTransaction.storageException(e);
@@ -465,5 +521,32 @@ final class RocksDBSmallFileMerge {
                     .filter(file -> file.size() < targetBytes / SMALL_FILE_SHARE)
                     .count())
         .orElse(0L);
+  }
+
+  // under the lock of the column family, which the storage takes before it closes the database
+  private void mark(final SegmentIdentifier segment) {
+    storage.throwIfClosed();
+    final RocksDB db = storage.getDB();
+    try (final WriteOptions durable = new WriteOptions().setSync(true)) {
+      db.put(db.getDefaultColumnFamily(), durable, markerKey(segment), new byte[0]);
+    } catch (final RocksDBException e) {
+      throw RocksDBTransaction.storageException(e);
+    }
+  }
+
+  private void unmark(final SegmentIdentifier segment) {
+    final RocksDB db = storage.getDB();
+    try {
+      db.delete(db.getDefaultColumnFamily(), markerKey(segment));
+    } catch (final RocksDBException e) {
+      throw RocksDBTransaction.storageException(e);
+    }
+  }
+
+  private static byte[] markerKey(final SegmentIdentifier segment) {
+    final byte[] name = segment.getName().getBytes(StandardCharsets.UTF_8);
+    final byte[] key = Arrays.copyOf(MARKER_PREFIX, MARKER_PREFIX.length + name.length);
+    System.arraycopy(name, 0, key, MARKER_PREFIX.length, name.length);
+    return key;
   }
 }

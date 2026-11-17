@@ -482,8 +482,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       throw e;
     }
     level0Drain.resumeInterrupted(interruptedBulkLoads);
-    interruptedBulkLoads.forEach(
-        segment -> smallFileMerge.mergeWhenDrained(segment, level0Drain.whenDrained(segment)));
+    smallFileMerge.mergeMarked();
   }
 
   // a new native handle, which the caller has to close
