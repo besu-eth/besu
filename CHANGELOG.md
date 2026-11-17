@@ -2,7 +2,7 @@
 
 ## 26.11.1
 
-### Additions and Improvements
+### Bug fixes
 - Besu now starts with `-XX:-UseBASE64Intrinsics` to mitigate [CVE-2026-114938](https://www.aikido.dev/blog/java-17-rce-vulnerability-cve-2026-114938), a heap overflow in the JVM's Base64 decoder on x86-64 CPUs with AVX-512. Set `BESU_OPTS=-XX:+UseBASE64Intrinsics` to turn the intrinsic back on. [#11994](https://github.com/besu-eth/besu/pull/11994)
 
 ## 26.11.0
