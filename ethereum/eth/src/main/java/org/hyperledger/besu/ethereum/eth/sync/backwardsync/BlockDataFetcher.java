@@ -52,6 +52,7 @@ import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -168,6 +169,10 @@ final class BlockDataFetcher {
   // stopped for the window limit or a missing header. The entries below it were planned, and stay
   // planned until an event marks the window dirty.
   private long resumeFrom;
+  // the first entry of a batch the walk held back, which stays requestable and must be walked again
+  private long heldFrom = Long.MAX_VALUE;
+  // the cursor of the walk in progress
+  private long fillCursor;
   // an event made an entry below resumeFrom requestable or changed what is planned for it
   private boolean dirty = true;
   private long lastLinkedTop = -1;
@@ -209,6 +214,8 @@ final class BlockDataFetcher {
    */
   void fill(final long cursor, final long linkedTop, final OptionalLong balApplyUpTo) {
     balServer = null;
+    fillCursor = cursor;
+    heldFrom = Long.MAX_VALUE;
     final boolean full =
         dirty || linkedTop != lastLinkedTop || !balApplyUpTo.equals(lastBalApplyUpTo);
     dirty = false;
@@ -237,10 +244,29 @@ final class BlockDataFetcher {
       planBlockAccessList(entry, linkedTop, lists);
       planReceipts(entry, balApplyUpTo, receipts);
     }
-    resumeFrom = number;
-    requestBodies(bodies);
-    requestBlockAccessLists(lists);
-    requestReceipts(receipts);
+    final boolean reachedTop = number > linkedTop;
+    flush(bodies, reachedTop, this::requestBodies);
+    flush(lists, reachedTop, this::requestBlockAccessLists);
+    flush(receipts, reachedTop, this::requestReceipts);
+    // held-back entries are still requestable: the next incremental walk restarts at the first
+    resumeFrom = Math.min(number, heldFrom);
+  }
+
+  // Sends a batch if it is full, holds the entry at the cursor or lies within the low-water mark
+  // above it, or nothing else will ever join it. Otherwise the entries are left requestable for
+  // a later walk, to be sent together with the blocks that become missing by then.
+  private void flush(
+      final List<Entry> batch, final boolean mandatory, final Consumer<List<Entry>> send) {
+    if (batch.isEmpty()) {
+      return;
+    }
+    final long first = batch.get(0).number();
+    if (mandatory || first - fillCursor < Math.max(1, config.maxWindowBlocks() / 4)) {
+      send.accept(batch);
+    } else {
+      heldFrom = Math.min(heldFrom, first);
+      batch.clear();
+    }
   }
 
   /**
@@ -376,12 +402,12 @@ final class BlockDataFetcher {
       } else {
         batch.add(entry);
         if (batch.size() >= batchSize(averageBodyBytes, 8, 128)) {
-          requestBodies(batch);
+          flush(batch, true, this::requestBodies);
         }
         return;
       }
     }
-    requestBodies(batch);
+    flush(batch, false, this::requestBodies);
   }
 
   private void planBlockAccessList(
@@ -389,11 +415,11 @@ final class BlockDataFetcher {
     if (entry.bal == BalState.UNKNOWN && !resolveBlockAccessList(entry, linkedTop)) {
       batch.add(entry);
       if (batch.size() >= batchSize(averageBalBytes, 4, 128)) {
-        requestBlockAccessLists(batch);
+        flush(batch, true, this::requestBlockAccessLists);
       }
       return;
     }
-    requestBlockAccessLists(batch);
+    flush(batch, false, this::requestBlockAccessLists);
   }
 
   // returns whether the state of the list is known without asking a peer
@@ -450,15 +476,15 @@ final class BlockDataFetcher {
     if (entry.receipts == ReceiptsState.NEEDED) {
       // the answer completes the block that holds receipts first
       if (!entry.partialReceipts.isEmpty()) {
-        requestReceipts(batch);
+        flush(batch, false, this::requestReceipts);
       }
       batch.add(entry);
       if (batch.size() >= batchSize(averageReceiptsBytes, 4, 256)) {
-        requestReceipts(batch);
+        flush(batch, true, this::requestReceipts);
       }
       return;
     }
-    requestReceipts(batch);
+    flush(batch, false, this::requestReceipts);
   }
 
   private void requestBodies(final List<Entry> batch) {

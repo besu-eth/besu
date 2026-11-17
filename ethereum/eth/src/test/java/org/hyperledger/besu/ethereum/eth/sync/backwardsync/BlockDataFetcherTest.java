@@ -430,6 +430,156 @@ class BlockDataFetcherTest {
   }
 
   @Test
+  void sendsNoPartialBodyBatchWhileTheImporterFreesOneBlockAtATime() {
+    maxWindowBlocks = 200;
+    open(1000, false, WINDOW_BYTES * 100);
+    sender.capacity = 100;
+    fetcher.fill(1, 1000, OptionalLong.empty());
+    // six full batches of 32 blocks, the eight blocks of the tail wait for neighbours
+    assertThat(batchSizes("bodies")).containsExactly(32, 32, 32, 32, 32, 32);
+    answerAllBodies();
+
+    for (int step = 1; step < 24; step++) {
+      fetcher.release(step);
+      fetcher.fill(step + 1, 1000, OptionalLong.empty());
+      assertThat(sender.requests("bodies")).hasSize(6);
+    }
+    fetcher.release(24);
+    fetcher.fill(25, 1000, OptionalLong.empty());
+
+    assertThat(batchSizes("bodies")).containsExactly(32, 32, 32, 32, 32, 32, 32);
+    assertThat(numbers(sender.requests("bodies").getLast()))
+        .containsExactlyElementsOf(range(193, 224));
+  }
+
+  @Test
+  void sendsThePartialTailBatchWhenTheWalkReachesTheTopOfTheChain() {
+    maxWindowBlocks = 200;
+    open(300, false, WINDOW_BYTES * 100);
+    sender.capacity = 100;
+    fetcher.fill(1, 300, OptionalLong.empty());
+    answerAllBodies();
+
+    for (int step = 1; step < 100; step++) {
+      fetcher.release(step);
+      fetcher.fill(step + 1, 300, OptionalLong.empty());
+    }
+    // the tails 193-224, 225-256 and 257-288 were sent full, 289-299 is held back
+    assertThat(batchSizes("bodies")).containsExactly(32, 32, 32, 32, 32, 32, 32, 32, 32);
+
+    fetcher.release(100);
+    fetcher.fill(101, 300, OptionalLong.empty());
+
+    assertThat(sender.requests("bodies")).hasSize(10);
+    assertThat(numbers(sender.requests("bodies").getLast()))
+        .containsExactlyElementsOf(range(289, 300));
+  }
+
+  @Test
+  void requestsAPartialBatchAtOnceWhenItHoldsTheBlockAtTheCursor() {
+    // the low-water mark is one block: only the cursor itself is never held back
+    maxWindowBlocks = 4;
+    open(100, false, WINDOW_BYTES * 100);
+    sender.capacity = 100;
+    fetcher.fill(1, 100, OptionalLong.empty());
+    final FakeSender.Sent first = sender.requests("bodies").getFirst();
+    assertThat(numbers(first)).containsExactlyElementsOf(range(1, 4));
+    // the peer leaves out the blocks 3 and 4
+    first.answer(blocks(first, 2), peerA);
+    loop.runPending();
+
+    // the cursor has its block: 3-5 is a partial batch above it, which waits
+    fetcher.release(1);
+    fetcher.fill(2, 100, OptionalLong.empty());
+    assertThat(sender.requests("bodies")).hasSize(1);
+
+    // the importer needs the block 3 now
+    fetcher.release(2);
+    fetcher.fill(3, 100, OptionalLong.empty());
+    assertThat(sender.requests("bodies")).hasSize(2);
+    assertThat(numbers(sender.requests("bodies").getLast())).containsExactly(3L, 4L, 5L, 6L);
+  }
+
+  @Test
+  void sendsAPartialBatchWithinTheLowWaterMarkAndHoldsBackOneAboveItUntilItComesCloser() {
+    maxWindowBlocks = 200;
+    open(1000, false, WINDOW_BYTES * 100);
+    sender.capacity = 100;
+    fetcher.fill(1, 1000, OptionalLong.empty());
+    final List<FakeSender.Sent> initial = sender.requests("bodies");
+    assertThat(initial).hasSize(6);
+    // the first request is answered short: the blocks 21-32 lack, 20 above the cursor of the
+    // low-water mark of 50 blocks
+    initial.get(0).answer(blocks(initial.get(0), 20), peerA);
+    // the fifth request too: 149-160 lack, 148 blocks above the cursor
+    initial.get(4).answer(blocks(initial.get(4), 20), peerA);
+    loop.runPending();
+
+    fetcher.fill(1, 1000, OptionalLong.empty());
+
+    assertThat(sender.requests("bodies")).hasSize(7);
+    assertThat(numbers(sender.requests("bodies").getLast()))
+        .containsExactlyElementsOf(range(21, 32));
+
+    // the blocks held back are requested when the cursor comes within the mark, and only then
+    for (long cursor = 2; cursor <= 99; cursor++) {
+      fetcher.release(cursor - 1);
+      fetcher.fill(cursor, 1000, OptionalLong.empty());
+    }
+    assertThat(timesRequestedAfterTheInitialRequests(149)).isZero();
+    fetcher.release(99);
+    fetcher.fill(100, 1000, OptionalLong.empty());
+    assertThat(timesRequestedAfterTheInitialRequests(149)).isEqualTo(1);
+    assertThat(numbers(sender.requests("bodies").getLast()))
+        .containsExactlyElementsOf(range(149, 160));
+
+    // and not again
+    for (long cursor = 101; cursor <= 110; cursor++) {
+      fetcher.release(cursor - 1);
+      fetcher.fill(cursor, 1000, OptionalLong.empty());
+    }
+    for (long number = 149; number <= 160; number++) {
+      assertThat(timesRequestedAfterTheInitialRequests(number)).isEqualTo(1);
+    }
+  }
+
+  @Test
+  void sendsNoPartialBlockAccessListBatchWhileTheImporterFreesOneBlockAtATime() {
+    maxWindowBlocks = 200;
+    open(1000, true, WINDOW_BYTES * 100);
+    servingPeers.add(peerA);
+    sender.capacity = 100;
+    fetcher.fill(1, 1000, OptionalLong.empty());
+    // nine full batches of 21 lists; the eleven lists of the tail wait for neighbours
+    assertThat(batchSizes("block_access_lists")).containsOnly(21).hasSize(9);
+
+    for (int step = 1; step < 10; step++) {
+      fetcher.release(step);
+      fetcher.fill(step + 1, 1000, OptionalLong.empty());
+      assertThat(sender.requests("block_access_lists")).hasSize(9);
+    }
+    fetcher.release(10);
+    fetcher.fill(11, 1000, OptionalLong.empty());
+
+    assertThat(batchSizes("block_access_lists")).containsOnly(21).hasSize(10);
+    assertThat(numbers(sender.requests("block_access_lists").getLast()))
+        .containsExactlyElementsOf(range(190, 210));
+  }
+
+  private List<Integer> batchSizes(final String name) {
+    return sender.requests(name).stream().map(request -> request.hashes().size()).toList();
+  }
+
+  // the requests after the six of the first walk
+  private long timesRequestedAfterTheInitialRequests(final long number) {
+    return sender.requests("bodies").stream()
+        .skip(6)
+        .flatMap(request -> numbers(request).stream())
+        .filter(requested -> requested == number)
+        .count();
+  }
+
+  @Test
   void requestsAgainTheBodiesOfAFailedRequestOfAnEarlierWalk() {
     open(10, false, WINDOW_BYTES * 100);
     fetcher.fill(1, 10, OptionalLong.empty());
