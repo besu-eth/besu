@@ -188,7 +188,11 @@ public class StorageOperationBenchmarkV2 {
     return load(warmFrame, keys[index++ & (SLOTS - 1)]);
   }
 
-  /** A call frame that reads a few slots, reads them again, updates them and reads them back. */
+  /**
+   * A call frame that reads a few slots, reads them again, updates them and reads them back. Its
+   * first read of a slot is cold in both modes: a stacked frame starts with the warm slots of a new
+   * transaction, and the journal undoes the warm-ups of the frame it reverts.
+   */
   @Benchmark
   public void callFrame(final Blackhole blackhole) {
     final WorldUpdater updater = top.updater();

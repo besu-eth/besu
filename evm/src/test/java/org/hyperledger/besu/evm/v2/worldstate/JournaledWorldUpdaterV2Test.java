@@ -118,6 +118,26 @@ class JournaledWorldUpdaterV2Test {
   }
 
   @Test
+  void aCommittedFrameCannotBeChangedAgain() {
+    final WorldUpdater outer = journal.updater();
+    final WorldUpdater committed = outer.updater();
+    committed.getAccount(CONTRACT).setBalance(Wei.of(99));
+    committed.commit();
+
+    assertThatThrownBy(() -> committed.getAccount(CONTRACT))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> committed.createAccount(ABSENT))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> committed.deleteAccount(CONTRACT))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(committed::updater).isInstanceOf(IllegalStateException.class);
+    // committing or reverting it again does nothing
+    committed.commit();
+    committed.revert();
+    assertThat(outer.get(CONTRACT).getBalance()).isEqualTo(Wei.of(99));
+  }
+
+  @Test
   void aReadThroughAnOuterFrameKeepsTheInnerFrameOpen() {
     final WorldUpdater outer = journal.updater();
     final WorldUpdater inner = outer.updater();

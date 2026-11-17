@@ -110,8 +110,9 @@ public class BlockReplay {
                   action.performAction(
                       transaction, i, block, blockchain, transactionProcessor, blobGasPrice));
             } else {
-              // an updater per transaction, as block import does
-              final WorldUpdater transactionUpdater = mutableWorldState.updater().updater();
+              // an updater per transaction, committed as block import does
+              final WorldUpdater blockUpdater = mutableWorldState.updater();
+              final WorldUpdater transactionUpdater = blockUpdater.updater();
               transactionProcessor.processTransaction(
                   transactionUpdater,
                   header,
@@ -121,6 +122,8 @@ public class BlockReplay {
                   TransactionValidationParams.blockReplay(),
                   blobGasPrice);
               transactionUpdater.commit();
+              blockUpdater.commit();
+              blockUpdater.markTransactionBoundary();
             }
           }
           return Optional.empty();
@@ -139,7 +142,8 @@ public class BlockReplay {
         (transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice) -> {
           final BlockHeader blockHeader = block.getHeader();
           final ProtocolSpec spec = protocolSchedule.getByBlockHeader(blockHeader);
-          final WorldUpdater transactionUpdater = mutableWorldState.updater().updater();
+          final WorldUpdater blockUpdater = mutableWorldState.updater();
+          final WorldUpdater transactionUpdater = blockUpdater.updater();
           transactionProcessor.processTransaction(
               transactionUpdater,
               blockHeader,
@@ -149,6 +153,8 @@ public class BlockReplay {
               TransactionValidationParams.blockReplay(),
               blobGasPrice);
           transactionUpdater.commit();
+          blockUpdater.commit();
+          blockUpdater.markTransactionBoundary();
           return action.performAction(
               transaction, transactionIndex, block, blockchain, transactionProcessor, blobGasPrice);
         });

@@ -55,6 +55,7 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -66,11 +67,11 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
- * Replays a block on a Bonsai world state and checks that the state before and after each of its
- * transactions is the one block import builds.
+ * Replays a block on a Bonsai or Forest world state and checks that the state before and after each
+ * of its transactions is the one block import builds.
  */
 class BlockReplayTest {
 
@@ -105,19 +106,26 @@ class BlockReplayTest {
           Bytes.fromHexString("0x6f"),
           CHILD_INIT_CODE,
           Bytes.fromHexString("0x6000526000601060106000f55000"));
+  private static final Address STORE = Address.fromHexString("0x4000");
+  // stores the first word of the call data in slot 0
+  private static final Bytes STORE_CODE = Bytes.fromHexString("0x60003560005500");
   private static final Address CHILD =
       Address.extract(
           keccak256(
               Bytes.concatenate(
                   Bytes.of(0xff), FACTORY.getBytes(), Bytes32.ZERO, keccak256(CHILD_INIT_CODE))));
 
-  // clears the empty account, funds it, self-destructs the child and creates it again
+  // clears the empty account, funds it, self-destructs the child and creates it again, then
+  // changes a slot in three transactions, whose gas depends on the value the slot had before each
   private static final List<Transaction> TRANSACTIONS =
       List.of(
-          transaction(0, EMPTY, Wei.ZERO),
-          transaction(1, EMPTY, Wei.ONE),
-          transaction(2, CHILD, Wei.ZERO),
-          transaction(3, FACTORY, Wei.ZERO));
+          transaction(0, EMPTY, Wei.ZERO, Bytes.EMPTY),
+          transaction(1, EMPTY, Wei.ONE, Bytes.EMPTY),
+          transaction(2, CHILD, Wei.ZERO, Bytes.EMPTY),
+          transaction(3, FACTORY, Wei.ZERO, Bytes.EMPTY),
+          transaction(4, STORE, Wei.ZERO, UInt256.valueOf(5)),
+          transaction(5, STORE, Wei.ZERO, UInt256.valueOf(2)),
+          transaction(6, STORE, Wei.ZERO, UInt256.ZERO));
 
   private static final BlockHeader HEADER =
       new BlockHeaderTestFixture()
@@ -129,16 +137,17 @@ class BlockReplayTest {
           .buildHeader();
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void replayBuildsTheStateBlockImportBuilds(final boolean evmV2) {
+  @CsvSource({"BONSAI, false", "BONSAI, true", "FOREST, false", "FOREST, true"})
+  void replayBuildsTheStateBlockImportBuilds(final String storage, final boolean evmV2) {
     final ProtocolSchedule protocolSchedule = protocolSchedule(evmV2);
-    final List<Hash> importedRoots = importedRoots(protocolSchedule);
+    final List<Hash> importedRoots = importedRoots(protocolSchedule, storage);
 
     for (int i = 0; i < TRANSACTIONS.size(); i++) {
       final Hash transactionHash = TRANSACTIONS.get(i).getHash();
       assertThat(
               replay(
                   protocolSchedule,
+                  storage,
                   (replay, state) ->
                       replay.beforeTransactionInBlock(
                           state, HEADER.getHash(), transactionHash, rootAfterReplay(state))))
@@ -147,6 +156,7 @@ class BlockReplayTest {
       assertThat(
               replay(
                   protocolSchedule,
+                  storage,
                   (replay, state) ->
                       replay.afterTransactionInBlock(
                           state, HEADER.getHash(), transactionHash, rootAfterReplay(state))))
@@ -161,8 +171,8 @@ class BlockReplayTest {
   }
 
   private static Optional<Hash> replay(
-      final ProtocolSchedule protocolSchedule, final Replay replay) {
-    final BonsaiWorldState worldState = genesisWorldState();
+      final ProtocolSchedule protocolSchedule, final String storage, final Replay replay) {
+    final MutableWorldState worldState = genesisWorldState(storage);
     final Tracer.TraceableState state = mock(Tracer.TraceableState.class);
     when(state.updater()).thenAnswer(invocation -> worldState.updater());
     when(state.rootHash()).thenAnswer(invocation -> rootHash(worldState));
@@ -181,10 +191,11 @@ class BlockReplayTest {
   }
 
   /** The state roots before the first transaction and after each one, as block import runs them. */
-  private static List<Hash> importedRoots(final ProtocolSchedule protocolSchedule) {
+  private static List<Hash> importedRoots(
+      final ProtocolSchedule protocolSchedule, final String storage) {
     final MainnetTransactionProcessor transactionProcessor =
         protocolSchedule.getByBlockHeader(HEADER).getTransactionProcessor();
-    final BonsaiWorldState worldState = genesisWorldState();
+    final MutableWorldState worldState = genesisWorldState(storage);
     final List<Hash> roots = new ArrayList<>();
     roots.add(worldState.rootHash());
     for (final Transaction transaction : TRANSACTIONS) {
@@ -210,23 +221,24 @@ class BlockReplayTest {
     return roots;
   }
 
-  private static Hash rootHash(final BonsaiWorldState worldState) {
-    worldState.updater().commit();
+  private static Hash rootHash(final MutableWorldState worldState) {
     worldState.persist(null);
     return worldState.rootHash();
   }
 
-  private static Transaction transaction(final long nonce, final Address to, final Wei value) {
+  private static Transaction transaction(
+      final long nonce, final Address to, final Wei value, final Bytes payload) {
+    // the coinbase is paid for the gas, so the state root shows what each transaction was charged
     return Transaction.builder()
         .type(TransactionType.EIP1559)
         .chainId(BigInteger.valueOf(42))
         .nonce(nonce)
-        .maxPriorityFeePerGas(Wei.ZERO)
-        .maxFeePerGas(Wei.ZERO)
+        .maxPriorityFeePerGas(Wei.ONE)
+        .maxFeePerGas(Wei.ONE)
         .gasLimit(300_000)
         .to(to)
         .value(value)
-        .payload(Bytes.EMPTY)
+        .payload(payload)
         .signAndBuild(KEY_PAIR);
   }
 
@@ -245,31 +257,38 @@ class BlockReplayTest {
         .createProtocolSchedule();
   }
 
-  private static BonsaiWorldState genesisWorldState() {
-    final BonsaiWorldStateKeyValueStorage storage =
-        new BonsaiWorldStateKeyValueStorage(
-            new InMemoryKeyValueStorageProvider(),
-            new NoOpMetricsSystem(),
-            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
-    final BonsaiWorldState worldState =
-        new BonsaiWorldState(
-            storage,
-            new NoOpBonsaiCachedMerkleTrieLoader(),
-            new NoOpBonsaiWorldStateCacheManager(
-                storage, EvmConfiguration.DEFAULT, new BonsaiCodeCache()),
-            new NoOpTrieLogManager(),
-            EvmConfiguration.DEFAULT,
-            createStatefulConfigWithTrie(),
-            new BonsaiCodeCache());
+  private static MutableWorldState genesisWorldState(final String storage) {
+    final MutableWorldState worldState =
+        storage.equals("FOREST")
+            ? InMemoryKeyValueStorageProvider.createInMemoryWorldState()
+            : bonsaiWorldState();
     final WorldUpdater genesis = worldState.updater();
-    genesis.createAccount(SENDER, 0, Wei.of(10));
+    genesis.createAccount(SENDER, 0, Wei.fromEth(1));
     genesis.createAccount(EMPTY, 0, Wei.ZERO);
     genesis.createAccount(FACTORY, 1, Wei.ZERO).setCode(FACTORY_CODE);
     final MutableAccount child = genesis.createAccount(CHILD, 1, Wei.ZERO);
     child.setCode(CHILD_CODE);
     child.setStorageValue(UInt256.ZERO, UInt256.ONE);
+    genesis.createAccount(STORE, 1, Wei.ZERO).setCode(STORE_CODE);
     genesis.commit();
     worldState.persist(null);
     return worldState;
+  }
+
+  private static BonsaiWorldState bonsaiWorldState() {
+    final BonsaiWorldStateKeyValueStorage storage =
+        new BonsaiWorldStateKeyValueStorage(
+            new InMemoryKeyValueStorageProvider(),
+            new NoOpMetricsSystem(),
+            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
+    return new BonsaiWorldState(
+        storage,
+        new NoOpBonsaiCachedMerkleTrieLoader(),
+        new NoOpBonsaiWorldStateCacheManager(
+            storage, EvmConfiguration.DEFAULT, new BonsaiCodeCache()),
+        new NoOpTrieLogManager(),
+        EvmConfiguration.DEFAULT,
+        createStatefulConfigWithTrie(),
+        new BonsaiCodeCache());
   }
 }

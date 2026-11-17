@@ -38,13 +38,28 @@ final class SlotKey implements Comparable<SlotKey> {
   private static final VarHandle LONG_BIG_ENDIAN =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
-  private static final long[] HASH_SEEDS = new long[9];
+  // fields rather than an array, so that the JIT compiles the seeds in as constants
+  private static final long SEED_0;
+  private static final long SEED_1;
+  private static final long SEED_2;
+  private static final long SEED_3;
+  private static final long SEED_4;
+  private static final long SEED_5;
+  private static final long SEED_6;
+  private static final long SEED_7;
+  private static final long SEED_8;
 
   static {
     final SecureRandom random = SecureRandomProvider.createSecureRandom();
-    for (int i = 0; i < HASH_SEEDS.length; i++) {
-      HASH_SEEDS[i] = random.nextLong();
-    }
+    SEED_0 = random.nextLong();
+    SEED_1 = random.nextLong();
+    SEED_2 = random.nextLong();
+    SEED_3 = random.nextLong();
+    SEED_4 = random.nextLong();
+    SEED_5 = random.nextLong();
+    SEED_6 = random.nextLong();
+    SEED_7 = random.nextLong();
+    SEED_8 = random.nextLong();
   }
 
   final UInt256 value;
@@ -65,11 +80,11 @@ final class SlotKey implements Comparable<SlotKey> {
     // pairing the 32-bit halves of a word keeps keys that differ only in the top bits of two
     // words apart, which summing one product per word would collide whatever the seeds
     final long sum =
-        HASH_SEEDS[8]
-            + pair(word0, HASH_SEEDS[0], HASH_SEEDS[1])
-            + pair(word1, HASH_SEEDS[2], HASH_SEEDS[3])
-            + pair(word2, HASH_SEEDS[4], HASH_SEEDS[5])
-            + pair(word3, HASH_SEEDS[6], HASH_SEEDS[7]);
+        SEED_8
+            + pair(word0, SEED_0, SEED_1)
+            + pair(word1, SEED_2, SEED_3)
+            + pair(word2, SEED_4, SEED_5)
+            + pair(word3, SEED_6, SEED_7);
     hash = (int) (sum >>> 32);
   }
 

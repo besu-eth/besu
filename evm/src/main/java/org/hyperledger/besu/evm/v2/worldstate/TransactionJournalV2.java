@@ -155,12 +155,12 @@ final class TransactionJournalV2 {
   /**
    * Makes the updater the innermost open one before it changes the journal. An updater above it was
    * abandoned without a commit or revert, so its changes are discarded, as a stacked updater's
-   * would be.
+   * would be. A committed or abandoned updater cannot change the journal any more.
    */
   void activate(final JournaledWorldUpdaterV2 updater) {
     if (!updater.open) {
       updater.checkNotAbandoned();
-      return;
+      throw new IllegalStateException("World updater used after its commit");
     }
     while (openUpdaters[openCount - 1] != updater) {
       final JournaledWorldUpdaterV2 abandoned = openUpdaters[--openCount];
