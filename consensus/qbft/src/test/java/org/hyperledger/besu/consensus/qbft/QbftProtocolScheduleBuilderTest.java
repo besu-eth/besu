@@ -27,12 +27,15 @@ import org.hyperledger.besu.consensus.common.ForkSpec;
 import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.consensus.common.bft.BftExtraDataCodec;
 import org.hyperledger.besu.consensus.common.bft.BftProtocolSchedule;
+import org.hyperledger.besu.consensus.qbft.adaptor.ValidatedBlockCache;
+import org.hyperledger.besu.consensus.qbft.adaptor.ValidatedBlockImporter;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.MainnetBlockImporter;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -63,6 +66,44 @@ public class QbftProtocolScheduleBuilderTest {
     final ProtocolSpec spec = schedule.getByBlockNumberOrTimestamp(0, 0);
     // When per-tx gas limit cap is not configured, the mainnet calculator is used directly
     assertThat(spec.getGasLimitCalculator().transactionGasLimitCap()).isEqualTo(Long.MAX_VALUE);
+  }
+
+  @Test
+  public void blockImporterReusesQbftValidationWhenGivenTheValidatedBlockCache() {
+    final JsonGenesisConfigOptions genesisConfig =
+        JsonGenesisConfigOptions.fromJsonObject(JsonUtil.objectNodeFromMap(java.util.Map.of()));
+
+    final BftProtocolSchedule schedule =
+        QbftProtocolScheduleBuilder.create(
+            genesisConfig,
+            new ForksSchedule<>(List.of(new ForkSpec<>(0, JsonQbftConfigOptions.DEFAULT))),
+            false,
+            bftExtraDataCodec,
+            EvmConfiguration.DEFAULT,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem(),
+            BLOCK_GAS_LIMIT,
+            new ValidatedBlockCache());
+
+    // used by the QBFT round and the network alike
+    assertThat(schedule.getByBlockNumberOrTimestamp(0, 0).getBlockImporter())
+        .isInstanceOf(ValidatedBlockImporter.class);
+  }
+
+  @Test
+  public void blockImporterExecutesBlocksWithoutTheValidatedBlockCache() {
+    final JsonGenesisConfigOptions genesisConfig =
+        JsonGenesisConfigOptions.fromJsonObject(JsonUtil.objectNodeFromMap(java.util.Map.of()));
+
+    final BftProtocolSchedule schedule =
+        createProtocolSchedule(
+            genesisConfig, List.of(new ForkSpec<>(0, JsonQbftConfigOptions.DEFAULT)));
+
+    assertThat(schedule.getByBlockNumberOrTimestamp(0, 0).getBlockImporter())
+        .isInstanceOf(MainnetBlockImporter.class);
   }
 
   @Test

@@ -140,4 +140,22 @@ public class Eth69StatusMessageTest {
             "Real-world malformed Status from a broken eth/69 encoder must be rejected");
     assertThat(ex.getMessage()).contains("version must be <= 68");
   }
+
+  @Test
+  public void blockRangeIsValidWithOrderedRangeAndNonZeroHash() {
+    final Hash hash = Hash.hash(Bytes.of(1));
+    assertThat(new StatusMessage.BlockRange(0, 123).isValidWith(hash)).isTrue();
+    assertThat(new StatusMessage.BlockRange(123, 123).isValidWith(hash)).isTrue();
+  }
+
+  @Test
+  public void blockRangeIsInvalidWhenEarliestIsAboveLatest() {
+    assertThat(new StatusMessage.BlockRange(124, 123).isValidWith(Hash.hash(Bytes.of(1))))
+        .isFalse();
+  }
+
+  @Test
+  public void blockRangeIsInvalidWithZeroHash() {
+    assertThat(new StatusMessage.BlockRange(0, 123).isValidWith(Hash.ZERO)).isFalse();
+  }
 }
