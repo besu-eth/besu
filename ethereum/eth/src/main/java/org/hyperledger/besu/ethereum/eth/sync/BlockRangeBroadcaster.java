@@ -106,8 +106,7 @@ public class BlockRangeBroadcaster {
   }
 
   private boolean isValid(final BlockRangeUpdateMessage message) {
-    return message.getLatestBlockNumber() >= message.getEarliestBlockNumber()
-        && !message.getBlockHash().equals(Hash.ZERO);
+    return message.getBlockRange().isValidWith(message.getBlockHash());
   }
 
   /**

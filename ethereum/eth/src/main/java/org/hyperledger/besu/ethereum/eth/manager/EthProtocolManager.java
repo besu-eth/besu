@@ -413,8 +413,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
 
   private static boolean isValidEth69Status(final StatusMessage status) {
     return status.isEth69Compatible()
-        && status.blockRange().filter(r -> r.earliestBlock() <= r.latestBlock()).isPresent()
-        && !status.bestHash().equals(Hash.ZERO);
+        && status.blockRange().filter(r -> r.isValidWith(status.bestHash())).isPresent();
   }
 
   private void handleStatusMessage(final EthPeer peer, final Message message) {
