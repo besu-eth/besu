@@ -351,6 +351,54 @@ public final class EthProtocolManagerTest {
   }
 
   @Test
+  public void disconnectOnInvertedBlockRangeWhenEth69() {
+    assertEth69StatusRejected(new StatusMessage.BlockRange(2L, 1L), blockchain.getChainHeadHash());
+  }
+
+  @Test
+  public void disconnectOnZeroBestHashWhenEth69() {
+    assertEth69StatusRejected(
+        new StatusMessage.BlockRange(0L, blockchain.getChainHeadBlockNumber()), Hash.ZERO);
+  }
+
+  private void assertEth69StatusRejected(
+      final StatusMessage.BlockRange blockRange, final Hash bestHash) {
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(
+                ImmutableEthProtocolConfiguration.builder()
+                    .maxEthCapability(EthProtocolVersion.V69.getVersion())
+                    .build())
+            .build()) {
+
+      final MockPeerConnection peer =
+          setupPeerWithoutStatusExchange(
+              ethManager, (cap, msg, conn) -> {}, EthProtocolVersion.V69.getCapability());
+      final StatusMessage statusMessage =
+          StatusMessage.builder()
+              .protocolVersion(EthProtocolVersion.V69.getVersion())
+              .networkId(BigInteger.ONE)
+              .bestHash(bestHash)
+              .genesisHash(
+                  blockchain.getBlockHeader(BlockHeader.GENESIS_BLOCK_NUMBER).get().getHash())
+              .forkId(forkId)
+              .blockRange(blockRange)
+              .build();
+
+      ethManager.processMessage(
+          EthProtocolVersion.V69.getCapability(), new DefaultMessage(peer, statusMessage));
+      assertThat(peer.getDisconnectReason())
+          .hasValue(DisconnectReason.SUBPROTOCOL_TRIGGERED_INVALID_STATUS_MESSAGE);
+      assertThat(peer.isDisconnected()).isTrue();
+    }
+  }
+
+  @Test
   public void doNotDisconnectOnLargeMessageWithinLimits() {
     try (final EthProtocolManager ethManager =
         EthProtocolManagerTestBuilder.builder()

@@ -82,6 +82,15 @@ public final class BlockProcessingExecutors {
   }
 
   /**
+   * Number of threads of the CPU pool.
+   *
+   * @return the CPU pool's thread count
+   */
+  public static int cpuThreads() {
+    return CPU_THREADS;
+  }
+
+  /**
    * IO pool for storage prefetch/reads.
    *
    * @return the IO executor
