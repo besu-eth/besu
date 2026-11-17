@@ -91,7 +91,7 @@
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
 - Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
-- Update besu-native to 2.2.0 and recover secp256k1 public keys, such as transaction senders, in a single native call. [#11921](https://github.com/besu-eth/besu/pull/11921)
+- Update besu-native to 2.2.0 and recover secp256k1 public keys, such as transaction senders, in a single native call. A recovery id outside 0 to 3 recovers nothing, where it used to abort a node running native secp256k1. [#11921](https://github.com/besu-eth/besu/pull/11921)
 
 ## 26.11.0
 

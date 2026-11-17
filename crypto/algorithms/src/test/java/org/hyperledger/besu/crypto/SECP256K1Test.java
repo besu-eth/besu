@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -259,6 +260,39 @@ public class SECP256K1Test {
               javaSecp256K1.normaliseSignature(
                   signature.getR(), highS, keyPair.getPublicKey(), dataHash));
     }
+  }
+
+  @Test
+  public void recoveryIdsOutsideZeroToThreeRecoverNothing() {
+    final SECP256K1 javaSecp256K1 = new SECP256K1();
+    javaSecp256K1.disableNative();
+    final Bytes32 dataHash = keccak256(Bytes.wrap("test".getBytes(UTF_8)));
+
+    // r = 2 recovers a key with every id from 0 to 3, so only the id makes these fail
+    for (final byte recId : new byte[] {-1, 4, 27}) {
+      final SECPSignature signature = new SECPSignature(BigInteger.TWO, BigInteger.ONE, recId);
+      assertThat(secp256K1.recoverPublicKeyFromSignature(dataHash, signature))
+          .as("native, recovery id %d", recId)
+          .isEmpty();
+      assertThat(javaSecp256K1.recoverPublicKeyFromSignature(dataHash, signature))
+          .as("BouncyCastle, recovery id %d", recId)
+          .isEmpty();
+    }
+  }
+
+  @Test
+  public void nativeLibraryIsEnabledWhereItIsBundled() {
+    // the native tests skip themselves when the library doesn't load, so a load failure on a
+    // platform that bundles it would otherwise go unnoticed
+    String arch = System.getProperty("os.arch");
+    if (List.of("amd64", "x86_64", "x64", "ia32e", "EMT64T").contains(arch)) {
+      arch = "x86-64";
+    }
+    final String library =
+        String.format("/lib-native/%s/%s", arch, System.mapLibraryName("secp256k1_ecrecover"));
+    assumeThat(SECP256K1Test.class.getResource(library)).as("%s is bundled", library).isNotNull();
+
+    assertThat(secp256K1.isNativeJniEnabled()).as("%s is bundled", library).isTrue();
   }
 
   @Test

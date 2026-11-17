@@ -148,7 +148,10 @@ public class SECP256K1 extends AbstractSECP256 {
   @Override
   public Optional<SECPPublicKey> recoverPublicKeyFromSignature(
       final Bytes32 dataHash, final SECPSignature signature) {
-    if (canRecoverNatively(signature.getRecId())) {
+    if (!isRecoveryId(signature.getRecId())) {
+      return Optional.empty();
+    }
+    if (isNativeJniEnabled()) {
       // The BouncyCastle path gets this same check from super; only the native path needs it
       // here. Without it the two backends disagree on out-of-range r/s: native rejects r >= n
       // while BouncyCastle bounds r only by the field prime, so an EIP-7702 authorization tuple
@@ -260,7 +263,10 @@ public class SECP256K1 extends AbstractSECP256 {
   @Override
   protected @Nullable BigInteger recoverFromSignature(
       final int recId, final BigInteger r, final BigInteger s, final Bytes32 dataHash) {
-    if (canRecoverNatively(recId)) {
+    if (!isRecoveryId(recId)) {
+      return null;
+    }
+    if (isNativeJniEnabled()) {
       final SECPSignature signature = new SECPSignature(r, s, (byte) recId);
       if (!isRecoverable(signature)) {
         return null;
@@ -273,11 +279,10 @@ public class SECP256K1 extends AbstractSECP256 {
     }
   }
 
-  // The native call fails for every recovery id outside 0 to 3, while BouncyCastle recovers a key
-  // for some of them, e.g. it treats -1 like 1. Those stay on BouncyCastle on every node, so native
-  // and non-native nodes agree on them.
-  private boolean canRecoverNatively(final int recId) {
-    return recId >= 0 && recId <= 3 && isNativeJniEnabled();
+  // A recovery id outside 0 to 3 selects no key, so every backend recovers nothing for it.
+  // libsecp256k1 rejects it, while BouncyCastle would treat e.g. -1 like 1.
+  private static boolean isRecoveryId(final int recId) {
+    return recId >= 0 && recId <= 3;
   }
 
   /**
