@@ -17,10 +17,9 @@ package org.hyperledger.besu.cryptoservices.pluginadapter;
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.SecurityModuleService;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
+import org.hyperledger.besu.util.KeyedRegistrations;
 
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import javax.inject.Inject;
@@ -28,15 +27,8 @@ import javax.inject.Inject;
 /** The Security module service implementation. */
 public class SecurityModuleServiceImpl implements SecurityModuleService {
 
-  /** The registrant of an entry Besu registered itself, outside any plugin's register(). */
-  private static final String BESU = "Besu";
-
-  /** A registered module supplier with the id of the plugin that registered it. */
-  private record Registered(String registrant, Supplier<SecurityModule> supplier) {}
-
-  private final Map<String, Registered> securityModuleSuppliers = new ConcurrentHashMap<>();
+  private final KeyedRegistrations<Supplier<SecurityModule>> securityModuleSuppliers;
   private final BooleanSupplier registrationOpen;
-  private final Supplier<Optional<String>> currentRegistrant;
 
   /** Creates a service that accepts registrations at any time. */
   @Inject
@@ -64,8 +56,8 @@ public class SecurityModuleServiceImpl implements SecurityModuleService {
    */
   public SecurityModuleServiceImpl(
       final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
+    this.securityModuleSuppliers = new KeyedRegistrations<>("security module", currentRegistrant);
     this.registrationOpen = registrationOpen;
-    this.currentRegistrant = currentRegistrant;
   }
 
   @Override
@@ -73,25 +65,11 @@ public class SecurityModuleServiceImpl implements SecurityModuleService {
     if (!registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException("SecurityModuleService", "register");
     }
-    final String registrant = currentRegistrant.get().orElse(BESU);
-    final Registered previous = securityModuleSuppliers.get(name);
-    if (previous != null && !previous.registrant().equals(registrant)) {
-      throw new IllegalStateException(
-          "cannot register security module "
-              + name
-              + ": "
-              + owner(previous.registrant())
-              + " already registered it");
-    }
-    securityModuleSuppliers.put(name, new Registered(registrant, securityModuleSupplier));
-  }
-
-  private static String owner(final String registrant) {
-    return BESU.equals(registrant) ? BESU : "plugin " + registrant;
+    securityModuleSuppliers.register(name, securityModuleSupplier);
   }
 
   @Override
   public Optional<Supplier<SecurityModule>> getByName(final String name) {
-    return Optional.ofNullable(securityModuleSuppliers.get(name)).map(Registered::supplier);
+    return securityModuleSuppliers.get(name);
   }
 }

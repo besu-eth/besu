@@ -16,9 +16,9 @@ package org.hyperledger.besu.ethereum.api.pluginadapter;
 
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.HealthCheckService;
+import org.hyperledger.besu.util.KeyedRegistrations;
 
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -34,15 +34,8 @@ import org.slf4j.LoggerFactory;
 public class HealthCheckServiceImpl implements HealthCheckService {
   private static final Logger LOG = LoggerFactory.getLogger(HealthCheckServiceImpl.class);
 
-  /** The registrant of an entry Besu registered itself, outside any plugin's register(). */
-  private static final String BESU = "Besu";
-
-  /** A registered provider with the id of the plugin that registered it. */
-  private record Registered(String registrant, HealthCheckProvider provider) {}
-
-  private final ConcurrentHashMap<String, Registered> healthChecks = new ConcurrentHashMap<>();
+  private final KeyedRegistrations<HealthCheckProvider> healthChecks;
   private final BooleanSupplier registrationOpen;
-  private final Supplier<Optional<String>> currentRegistrant;
 
   /** Instantiates a health check service that accepts registrations at any time. */
   public HealthCheckServiceImpl() {
@@ -69,8 +62,8 @@ public class HealthCheckServiceImpl implements HealthCheckService {
    */
   public HealthCheckServiceImpl(
       final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
+    this.healthChecks = new KeyedRegistrations<>("health check", currentRegistrant);
     this.registrationOpen = registrationOpen;
-    this.currentRegistrant = currentRegistrant;
   }
 
   @Override
@@ -78,19 +71,17 @@ public class HealthCheckServiceImpl implements HealthCheckService {
     if (!registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException("HealthCheckService", "registerHealthCheck");
     }
-    final String registrant = currentRegistrant.get().orElse(BESU);
-    final Registered previous = healthChecks.put(endpoint, new Registered(registrant, provider));
-    if (previous != null && !previous.registrant().equals(registrant)) {
-      LOG.warn(
-          "Health check {} is now served by {}, replacing the check {} registered",
-          endpoint,
-          owner(registrant),
-          owner(previous.registrant()));
-    }
-  }
-
-  private static String owner(final String registrant) {
-    return BESU.equals(registrant) ? BESU : "plugin " + registrant;
+    // overriding an endpoint is this service's purpose, so another registrant's check is replaced
+    // rather than rejected; the replacement is logged, naming both
+    healthChecks
+        .replace(endpoint, provider)
+        .ifPresent(
+            previousOwner ->
+                LOG.warn(
+                    "Health check {} is now served by {}, replacing the check {} registered",
+                    endpoint,
+                    healthChecks.currentOwner(),
+                    previousOwner));
   }
 
   @Override
@@ -103,6 +94,6 @@ public class HealthCheckServiceImpl implements HealthCheckService {
 
   @Override
   public Optional<HealthCheckProvider> getHealthCheck(final String endpoint) {
-    return Optional.ofNullable(healthChecks.get(endpoint)).map(Registered::provider);
+    return healthChecks.get(endpoint);
   }
 }

@@ -22,9 +22,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.PluginJsonRpcM
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.RpcEndpointRegistry;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
+import org.hyperledger.besu.util.KeyedRegistrations;
 
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -36,15 +36,8 @@ import java.util.stream.Collectors;
 /** Collects the RPC endpoints plugins register, for the JSON-RPC method tables to pick up. */
 public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
 
-  /** The registrant of an entry Besu registered itself, outside any plugin's register(). */
-  private static final String BESU = "Besu";
-
-  /** A registered method with the id of the plugin that registered it. */
-  private record Registered(String registrant, Function<PluginRpcRequest, ?> function) {}
-
-  private final Map<String, Registered> rpcMethods = new HashMap<>();
+  private final KeyedRegistrations<Function<PluginRpcRequest, ?>> rpcMethods;
   private final BooleanSupplier registrationOpen;
-  private final Supplier<Optional<String>> currentRegistrant;
 
   /** Creates a registry that accepts endpoints at any time. */
   public RpcEndpointRegistryImpl() {
@@ -71,8 +64,8 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
    */
   public RpcEndpointRegistryImpl(
       final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
+    this.rpcMethods = new KeyedRegistrations<>("RPC method", currentRegistrant);
     this.registrationOpen = registrationOpen;
-    this.currentRegistrant = currentRegistrant;
   }
 
   @Override
@@ -87,22 +80,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
     checkArgument(functionName.matches("\\p{Alnum}+"), "Function Name must be only alpha numeric");
     checkNotNull(function);
 
-    final String name = namespace + "_" + functionName;
-    final String registrant = currentRegistrant.get().orElse(BESU);
-    final Registered previous = rpcMethods.get(name);
-    if (previous != null && !previous.registrant().equals(registrant)) {
-      throw new IllegalStateException(
-          "cannot register RPC method "
-              + name
-              + ": "
-              + owner(previous.registrant())
-              + " already registered it");
-    }
-    rpcMethods.put(name, new Registered(registrant, function));
-  }
-
-  private static String owner(final String registrant) {
-    return BESU.equals(registrant) ? BESU : "plugin " + registrant;
+    rpcMethods.register(namespace + "_" + functionName, function);
   }
 
   /**
@@ -113,7 +91,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
    */
   public Map<String, ? extends JsonRpcMethod> getPluginMethods(
       final Collection<String> namespaces) {
-    return rpcMethods.entrySet().stream()
+    return rpcMethods.byName().entrySet().stream()
         .filter(
             entry ->
                 namespaces.stream()
@@ -123,7 +101,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
                                 .getKey()
                                 .toUpperCase(Locale.ROOT)
                                 .startsWith(namespace.toUpperCase(Locale.ROOT))))
-        .map(entry -> new PluginJsonRpcMethod(entry.getKey(), entry.getValue().function()))
+        .map(entry -> new PluginJsonRpcMethod(entry.getKey(), entry.getValue()))
         .collect(Collectors.toMap(PluginJsonRpcMethod::getName, e -> e));
   }
 
@@ -134,7 +112,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
    * @return true if any of the RPC method starts with given namespace, false otherwise.
    */
   public boolean hasNamespace(final String namespace) {
-    return rpcMethods.keySet().stream()
+    return rpcMethods.names().stream()
         .anyMatch(
             key -> key.toUpperCase(Locale.ROOT).startsWith(namespace.toUpperCase(Locale.ROOT)));
   }
