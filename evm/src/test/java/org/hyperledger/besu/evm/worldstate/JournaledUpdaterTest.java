@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test;
 class JournaledUpdaterTest {
 
   private static final Address ADDRESS = Address.fromHexString("0x1234");
+  private static final Address NEW_ADDRESS = Address.fromHexString("0x5678");
   private static final UInt256 SLOT_1 = UInt256.ONE;
   private static final UInt256 SLOT_2 = UInt256.valueOf(2);
   private static final UInt256 STORED = UInt256.valueOf(5);
@@ -97,6 +98,53 @@ class JournaledUpdaterTest {
     assertThat(account).isNotNull();
     assertThat(account.getBalance()).isEqualTo(Wei.ONE);
     assertThat(account.getStorageValue(SLOT_1)).isEqualTo(UInt256.ZERO);
+  }
+
+  @Test
+  void anAccountCreatedInARevertedFrameNeverReachesTheParent() {
+    final WorldUpdater frame = transaction.updater();
+    frame.createAccount(NEW_ADDRESS).setBalance(Wei.ONE);
+    frame.revert();
+
+    assertThat(transaction.get(NEW_ADDRESS)).isNull();
+
+    transaction.commit();
+    assertThat(root.get(NEW_ADDRESS)).isNull();
+    assertThat(root.getTouchedAccounts()).noneMatch(a -> a.getAddress().equals(NEW_ADDRESS));
+  }
+
+  @Test
+  void anAccountCreatedInACommittedFrameReachesTheParent() {
+    final WorldUpdater frame = transaction.updater();
+    final MutableAccount created = frame.createAccount(NEW_ADDRESS, 1, Wei.ONE);
+    created.setStorageValue(SLOT_1, STORED);
+    frame.commit();
+
+    assertThat(root.get(NEW_ADDRESS)).isNull();
+
+    transaction.commit();
+    final Account account = root.get(NEW_ADDRESS);
+    assertThat(account.getNonce()).isEqualTo(1);
+    assertThat(account.getBalance()).isEqualTo(Wei.ONE);
+    assertThat(account.getStorageValue(SLOT_1)).isEqualTo(STORED);
+  }
+
+  @Test
+  void revertingAFrameUndoesTheChangesToAnAccountItThenCreatedAgain() {
+    final MutableAccount account = transaction.getAccount(ADDRESS);
+    account.setBalance(Wei.of(7));
+
+    final WorldUpdater frame = transaction.updater();
+    frame.getAccount(ADDRESS).setBalance(Wei.of(99));
+    frame.createAccount(ADDRESS);
+    frame.revert();
+
+    assertThat(transaction.get(ADDRESS).getBalance()).isEqualTo(Wei.of(7));
+    assertThat(transaction.get(ADDRESS).getStorageValue(SLOT_1)).isEqualTo(STORED);
+
+    transaction.commit();
+    assertThat(root.get(ADDRESS).getBalance()).isEqualTo(Wei.of(7));
+    assertThat(root.get(ADDRESS).getStorageValue(SLOT_1)).isEqualTo(STORED);
   }
 
   /** A block-level updater over stored accounts, in place of a world state. */

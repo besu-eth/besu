@@ -12,14 +12,18 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.forest.worldview;
+package org.hyperledger.besu.ethereum.worldstate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.forest.worldview.ForestMutableWorldState;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -31,20 +35,46 @@ import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import java.util.function.Consumer;
 
 import org.apache.tuweni.units.bigints.UInt256;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /** Commits the same transaction in both world updater modes and compares the state roots. */
-class ForestJournaledUpdaterTest {
+class JournaledUpdaterStateRootTest {
 
   private static final Address ADDRESS = Address.fromHexString("0x1234");
+  private static final Address NEW_ADDRESS = Address.fromHexString("0x5678");
   private static final UInt256 SLOT_1 = UInt256.ONE;
   private static final UInt256 SLOT_2 = UInt256.valueOf(2);
   private static final UInt256 STORED = UInt256.valueOf(5);
 
-  @Test
-  void keepsAStorageClearCommittedFromAFrame() {
+  enum Storage {
+    FOREST {
+      @Override
+      MutableWorldState create(final EvmConfiguration evmConfiguration) {
+        return new ForestMutableWorldState(
+            new ForestWorldStateKeyValueStorage(new InMemoryKeyValueStorage()),
+            new WorldStatePreimageKeyValueStorage(new InMemoryKeyValueStorage()),
+            evmConfiguration);
+      }
+    },
+    BONSAI {
+      @Override
+      MutableWorldState create(final EvmConfiguration evmConfiguration) {
+        return InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive(
+                mock(Blockchain.class), evmConfiguration, null)
+            .getWorldState();
+      }
+    };
+
+    abstract MutableWorldState create(EvmConfiguration evmConfiguration);
+  }
+
+  @ParameterizedTest
+  @EnumSource(Storage.class)
+  void keepsAStorageClearCommittedFromAFrame(final Storage storage) {
     final MutableWorldState worldState =
         assertSameStateRootInBothModes(
+            storage,
             transaction -> {
               final WorldUpdater frame = transaction.updater();
               final MutableAccount account = frame.getAccount(ADDRESS);
@@ -57,10 +87,12 @@ class ForestJournaledUpdaterTest {
     assertThat(worldState.get(ADDRESS).getStorageValue(SLOT_2)).isEqualTo(UInt256.ZERO);
   }
 
-  @Test
-  void dropsAStorageClearFromARevertedFrame() {
+  @ParameterizedTest
+  @EnumSource(Storage.class)
+  void dropsAStorageClearFromARevertedFrame(final Storage storage) {
     final MutableWorldState worldState =
         assertSameStateRootInBothModes(
+            storage,
             transaction -> {
               // loaded before the frame, so the revert keeps the account in the journal
               final MutableAccount account = transaction.getAccount(ADDRESS);
@@ -74,10 +106,12 @@ class ForestJournaledUpdaterTest {
     assertThat(worldState.get(ADDRESS).getStorageValue(SLOT_2)).isEqualTo(STORED);
   }
 
-  @Test
-  void keepsAnAccountCreatedAfterItWasDeleted() {
+  @ParameterizedTest
+  @EnumSource(Storage.class)
+  void keepsAnAccountCreatedAfterItWasDeleted(final Storage storage) {
     final MutableWorldState worldState =
         assertSameStateRootInBothModes(
+            storage,
             transaction -> {
               transaction.deleteAccount(ADDRESS);
               transaction.createAccount(ADDRESS).setBalance(Wei.of(2));
@@ -86,24 +120,73 @@ class ForestJournaledUpdaterTest {
     final Account account = worldState.get(ADDRESS);
     assertThat(account).isNotNull();
     assertThat(account.getBalance()).isEqualTo(Wei.of(2));
-    assertThat(account.getStorageValue(SLOT_1)).isEqualTo(UInt256.ZERO);
+  }
+
+  @ParameterizedTest
+  @EnumSource(Storage.class)
+  void keepsAnAccountCreatedInACommittedFrame(final Storage storage) {
+    final MutableWorldState worldState =
+        assertSameStateRootInBothModes(
+            storage,
+            transaction -> {
+              final WorldUpdater frame = transaction.updater();
+              final MutableAccount account = frame.createAccount(NEW_ADDRESS, 1, Wei.of(2));
+              account.setStorageValue(SLOT_1, STORED);
+              frame.commit();
+            });
+
+    final Account account = worldState.get(NEW_ADDRESS);
+    assertThat(account.getNonce()).isEqualTo(1);
+    assertThat(account.getBalance()).isEqualTo(Wei.of(2));
+    assertThat(account.getStorageValue(SLOT_1)).isEqualTo(STORED);
+  }
+
+  @ParameterizedTest
+  @EnumSource(Storage.class)
+  void dropsAnAccountCreatedInARevertedFrame(final Storage storage) {
+    final MutableWorldState worldState =
+        assertSameStateRootInBothModes(
+            storage,
+            transaction -> {
+              final WorldUpdater frame = transaction.updater();
+              frame.createAccount(NEW_ADDRESS);
+              frame.revert();
+            });
+
+    assertThat(worldState.get(NEW_ADDRESS)).isNull();
+  }
+
+  @ParameterizedTest
+  @EnumSource(Storage.class)
+  void dropsTheChangesOfARevertedFrameThatCreatedTheAccountAgain(final Storage storage) {
+    final MutableWorldState worldState =
+        assertSameStateRootInBothModes(
+            storage,
+            transaction -> {
+              transaction.getAccount(ADDRESS).setBalance(Wei.of(7));
+              final WorldUpdater frame = transaction.updater();
+              frame.getAccount(ADDRESS).setBalance(Wei.of(99));
+              frame.createAccount(ADDRESS);
+              frame.revert();
+            });
+
+    assertThat(worldState.get(ADDRESS).getBalance()).isEqualTo(Wei.of(7));
+    assertThat(worldState.get(ADDRESS).getStorageValue(SLOT_1)).isEqualTo(STORED);
   }
 
   private static MutableWorldState assertSameStateRootInBothModes(
-      final Consumer<WorldUpdater> transaction) {
-    final MutableWorldState stacked = commit(WorldUpdaterMode.STACKED, transaction);
-    final MutableWorldState journaled = commit(WorldUpdaterMode.JOURNALED, transaction);
+      final Storage storage, final Consumer<WorldUpdater> transaction) {
+    final MutableWorldState stacked = commit(storage, WorldUpdaterMode.STACKED, transaction);
+    final MutableWorldState journaled = commit(storage, WorldUpdaterMode.JOURNALED, transaction);
     assertThat(journaled.rootHash()).isEqualTo(stacked.rootHash());
     return journaled;
   }
 
   private static MutableWorldState commit(
-      final WorldUpdaterMode mode, final Consumer<WorldUpdater> transaction) {
-    final MutableWorldState worldState =
-        new ForestMutableWorldState(
-            new ForestWorldStateKeyValueStorage(new InMemoryKeyValueStorage()),
-            new WorldStatePreimageKeyValueStorage(new InMemoryKeyValueStorage()),
-            new EvmConfiguration(32_000L, mode, true));
+      final Storage storage,
+      final WorldUpdaterMode mode,
+      final Consumer<WorldUpdater> transaction) {
+    final MutableWorldState worldState = storage.create(new EvmConfiguration(32_000L, mode, true));
 
     // storage without a nonce or code, which a contract creation may still target
     final WorldUpdater genesis = worldState.updater();

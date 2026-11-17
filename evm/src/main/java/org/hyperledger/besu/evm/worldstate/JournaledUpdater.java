@@ -97,8 +97,9 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
    * Remove all changes done by this layer. Rollback to the state prior to the updater's changes.
    */
   protected void reset() {
-    accounts.values().forEach(a -> a.undo(undoMark));
+    // the map first: it brings back the accounts this layer replaced, which need the undo as well
     accounts.undo(undoMark);
+    accounts.values().forEach(a -> a.undo(undoMark));
     deleted.undo(undoMark);
   }
 
@@ -110,7 +111,14 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
   @Override
   public void commit() {
     if (!(parentWorld instanceof JournaledUpdater<?>)) {
-      accounts.values().forEach(JournaledAccount::commit);
+      for (final JournaledAccount account : accounts.values()) {
+        if (account.getWrappedAccount() == null) {
+          account.wrapCreatedAccount(
+              rootWorld.createAccount(
+                  account.getAddress(), account.getNonce(), account.getBalance()));
+        }
+        account.commit();
+      }
       deleted.forEach(parentWorld::deleteAccount);
     }
   }
@@ -128,8 +136,10 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
 
   @Override
   public MutableAccount createAccount(final Address address, final long nonce, final Wei balance) {
-    JournaledAccount journaledAccount =
-        new JournaledAccount(rootWorld.createAccount(address, nonce, balance));
+    // only the journal holds the new account until the commit, so a revert can drop it
+    final JournaledAccount journaledAccount = new JournaledAccount(address);
+    journaledAccount.setNonce(nonce);
+    journaledAccount.setBalance(balance);
     accounts.put(address, journaledAccount);
     // commit deletes every address left in deleted, which would drop the new account
     deleted.remove(address);

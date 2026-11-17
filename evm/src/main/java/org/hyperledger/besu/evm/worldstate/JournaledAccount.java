@@ -153,6 +153,16 @@ public class JournaledAccount implements MutableAccount, Undoable {
   }
 
   /**
+   * Sets the account the root updater created for an account that so far only the journal held.
+   * Unlike {@link #setWrappedAccount(MutableAccount)}, it keeps a storage clear for the commit.
+   *
+   * @param created the account created in the root updater
+   */
+  void wrapCreatedAccount(final MutableAccount created) {
+    this.account = created;
+  }
+
+  /**
    * Whether the code of the account was modified.
    *
    * @return {@code true} if the code was updated.
