@@ -360,6 +360,17 @@ public final class StatusMessage extends AbstractMessageData {
 
   public record BlockRange(long earliestBlock, long latestBlock) {
 
+    /**
+     * Whether this range and the hash of its latest block are valid under EIP-7642: the earliest
+     * block must not be above the latest, and the hash must not be zero.
+     *
+     * @param latestBlockHash the hash of the latest block in the range
+     * @return true if the range and hash are valid
+     */
+    public boolean isValidWith(final Hash latestBlockHash) {
+      return earliestBlock <= latestBlock && !latestBlockHash.equals(Hash.ZERO);
+    }
+
     @Override
     public String toString() {
       return "{" + "earliestBlock=" + earliestBlock + ", latestBlock=" + latestBlock + '}';
