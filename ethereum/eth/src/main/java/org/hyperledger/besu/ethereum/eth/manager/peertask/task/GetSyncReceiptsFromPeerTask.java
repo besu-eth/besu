@@ -86,7 +86,8 @@ public class GetSyncReceiptsFromPeerTask implements PeerTask<GetSyncReceiptsFrom
 
   @Override
   public int getRetriesWithSamePeer() {
-    // a peer that sent back no receipts won't have them a second later, so ask another peer
+    // any failed attempt, timeouts included, moves on to another peer: a peer that sent back
+    // no receipts won't have them a second later
     return 0;
   }
 

@@ -472,6 +472,27 @@ public class PeerTaskExecutorTest {
     verify(requestSender, times(2)).sendRequest(any(), any(), eq(peer2));
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  public void testExecuteWithSinglePeerReturnsNoPeerAvailableAfterEmptyReceipts()
+      throws PeerConnection.PeerNotConnected,
+          ExecutionException,
+          InterruptedException,
+          TimeoutException {
+    when(ethPeer.getAgreedCapabilities()).thenReturn(ETH69);
+    // the only peer has been asked, so no other peer is left
+    when(peerSelector.getPeer(any(Predicate.class)))
+        .thenReturn(Optional.of(ethPeer))
+        .thenReturn(Optional.empty());
+    when(requestSender.sendRequest(any(), any(), eq(ethPeer)))
+        .thenReturn(receiptsMessage(List.of()));
+
+    assertEquals(
+        PeerTaskExecutorResponseCode.NO_PEER_AVAILABLE,
+        peerTaskExecutor.execute(receiptsTask()).responseCode());
+    verify(requestSender).sendRequest(any(), any(), eq(ethPeer));
+  }
+
   private static GetSyncReceiptsFromPeerTask receiptsTask() {
     SyncBlockBody body = Mockito.mock(SyncBlockBody.class);
     when(body.getTransactionCount()).thenReturn(1);
