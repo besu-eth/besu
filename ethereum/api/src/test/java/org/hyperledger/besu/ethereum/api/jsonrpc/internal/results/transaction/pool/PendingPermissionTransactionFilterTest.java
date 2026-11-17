@@ -18,6 +18,7 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.EMPTY_LIST;
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool.Predicate.ACTION;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool.Predicate.EQ;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool.Predicate.GT;
@@ -28,6 +29,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool.PendingTransactionFilter.Filter;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
@@ -39,6 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -53,7 +56,29 @@ public class PendingPermissionTransactionFilterTest {
             singletonList("1")
           },
           {
+            singletonList(new Filter("from", "0x0000000000000000000000000000000000000002", EQ)),
+            100,
+            singletonList("2")
+          },
+          {
             singletonList(new Filter("to", "0x0000000000000000000000000000000000000002", EQ)),
+            100,
+            singletonList("1")
+          },
+          {
+            singletonList(new Filter("from", "0X0000000000000000000000000000000000000001", EQ)),
+            100,
+            singletonList("1")
+          },
+          {
+            singletonList(new Filter("to", "0X0000000000000000000000000000000000000002", EQ)),
+            100,
+            singletonList("1")
+          },
+          {
+            asList(
+                new Filter("from", "0x0000000000000000000000000000000000000001", EQ),
+                new Filter("to", "0x0000000000000000000000000000000000000002", EQ)),
             100,
             singletonList("1")
           },
@@ -79,7 +104,9 @@ public class PendingPermissionTransactionFilterTest {
             singletonList("4")
           },
           {
-            asList(new Filter("from", "0x01", EQ), new Filter("gasPrice", "0x02", GT)),
+            asList(
+                new Filter("from", "0x0000000000000000000000000000000000000001", EQ),
+                new Filter("gasPrice", "0x02", GT)),
             100,
             EMPTY_LIST
           },
@@ -103,6 +130,36 @@ public class PendingPermissionTransactionFilterTest {
     for (Transaction trx : filteredList) {
       assertThat(expectedListOfTransactionHash)
           .contains(String.valueOf(trx.getHash().getBytes().toBigInteger()));
+    }
+  }
+
+  @Test
+  public void rejectsShortFromAddress() {
+    assertThatThrownBy(
+            () ->
+                pendingTransactionFilter.reduce(
+                    getPendingTransactions(), singletonList(new Filter("from", "0x01", EQ)), 100))
+        .isInstanceOf(InvalidJsonRpcParameters.class);
+  }
+
+  @Test
+  public void rejectsShortToAddress() {
+    assertThatThrownBy(
+            () ->
+                pendingTransactionFilter.reduce(
+                    getPendingTransactions(), singletonList(new Filter("to", "0x02", EQ)), 100))
+        .isInstanceOf(InvalidJsonRpcParameters.class);
+  }
+
+  @Test
+  public void rejectsInvalidAddressesWhenLimitIsZero() {
+    for (final String field : List.of("from", "to")) {
+      assertThatThrownBy(
+              () ->
+                  pendingTransactionFilter.reduce(
+                      getPendingTransactions(), singletonList(new Filter(field, "0x01", EQ)), 0))
+          .isInstanceOf(InvalidJsonRpcParameters.class)
+          .hasMessageContaining("Invalid '" + field + "' address");
     }
   }
 
