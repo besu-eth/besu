@@ -72,9 +72,8 @@ public class TrieNodeArchiveStep implements Closeable {
   private final Function<Hash, Optional<TrieLog>> trieLogs;
   private final ExecutorService storageTriePool;
 
-  // Nodes this step wrote, by natural key; only valid while it is the only writer.
+  // Nodes this step wrote, by natural key. A load checks the hash, so a stale entry is skipped.
   private final Cache<Bytes, Bytes> recentNodes;
-  private Optional<ArchivedBlock> lastArchived = Optional.empty();
 
   public TrieNodeArchiveStep(
       final SegmentedKeyValueStorage storage,
@@ -106,10 +105,6 @@ public class TrieNodeArchiveStep implements Closeable {
     final ArchivedBlock parentBlock = new ArchivedBlock(parent.getNumber(), parent.getBlockHash());
     if (!isLastArchived(parentBlock)) {
       return false;
-    }
-    if (!lastArchived.equals(Optional.of(parentBlock))) {
-      // inline capture wrote blocks since this step last ran
-      recentNodes.invalidateAll();
     }
     final TrieLog trieLog =
         trieLogs
@@ -145,7 +140,6 @@ public class TrieNodeArchiveStep implements Closeable {
       }
     }
     recentNodes.putAll(replay.written);
-    lastArchived = Optional.of(new ArchivedBlock(block.getNumber(), block.getBlockHash()));
     return true;
   }
 
