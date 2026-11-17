@@ -96,6 +96,7 @@ import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 import org.hyperledger.besu.plugin.services.txselection.TransactionEvaluationContext;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.math.BigInteger;
@@ -111,6 +112,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -149,6 +151,9 @@ public abstract class AbstractBlockTransactionSelectorTest {
   protected MiningConfiguration defaultTestMiningConfiguration;
 
   @Mock protected EthScheduler ethScheduler;
+
+  /** Number of selection results that the tx pool has finished processing. */
+  protected final AtomicInteger txPoolProcessedSelectionResults = new AtomicInteger();
 
   @Mock(answer = Answers.RETURNS_DEEP_STUBS)
   protected ProtocolContext protocolContext;
@@ -210,6 +215,24 @@ public abstract class AbstractBlockTransactionSelectorTest {
   protected abstract ProtocolSchedule createProtocolSchedule();
 
   protected abstract TransactionPool createTransactionPool();
+
+  /**
+   * The tx pool processes the selection results asynchronously, using the service executor of its
+   * scheduler, so tests that check the effect of a result on the pool, need to know when it has
+   * been processed.
+   *
+   * @return a scheduler for the tx pool, that counts the selection results processed
+   */
+  protected EthScheduler createTxPoolScheduler() {
+    return new DeterministicEthScheduler() {
+      @Override
+      public void executeServiceTask(final Runnable command) {
+        // the command is run synchronously, so when this returns the result has been processed
+        super.executeServiceTask(command);
+        txPoolProcessedSelectionResults.incrementAndGet();
+      }
+    };
+  }
 
   protected ProcessableBlockHeader createBlock(final long gasLimit) {
     return createBlock(gasLimit, Wei.ONE);
@@ -1470,6 +1493,61 @@ public abstract class AbstractBlockTransactionSelectorTest {
     cancellationTask.orTimeout(5, TimeUnit.SECONDS).join();
   }
 
+  @Test
+  public void transactionInterruptedByCancellationIsNotPenalized() {
+    final AtomicReference<BlockTransactionSelector> selectorRef = new AtomicReference<>();
+
+    final BlockTransactionSelector selector =
+        createBlockSelectorAndSetupTxPool(
+            createMiningParameters(
+                transactionSelectionService, Wei.ZERO, PositiveNumber.fromInt(5_000)),
+            transactionProcessor,
+            createBlock(500_000),
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService,
+            List.of());
+    selectorRef.set(selector);
+
+    final var tx = createTransaction(0, Wei.of(7), 100_000);
+    transactionPool.addRemoteTransactions(List.of(tx));
+
+    // the block creation is cancelled while the tx is executing, so its execution is interrupted
+    final Answer<TransactionProcessingResult> interruptedByCancelAnswer =
+        invocation -> {
+          selectorRef.get().cancel();
+          return TransactionProcessingResult.invalid(
+              ValidationResult.invalid(EXECUTION_INTERRUPTED));
+        };
+
+    when(transactionProcessor.processTransaction(
+            any(), any(), eq(tx), any(), any(), any(), any(), any()))
+        .thenAnswer(interruptedByCancelAnswer);
+    when(transactionProcessor.processTransaction(
+            any(), any(), eq(tx), any(), any(), any(), any(), any(), any()))
+        .thenAnswer(interruptedByCancelAnswer);
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(results.getSelectedTransactions()).isEmpty();
+    await()
+        .untilAsserted(
+            () ->
+                assertThat(results.getNotSelectedTransactions())
+                    .containsOnly(entry(tx, TransactionSelectionResult.SELECTION_CANCELLED)));
+
+    // the interruption is not the fault of the tx, so it stays in the pool without a penalty.
+    // Results are processed asynchronously by the pool, so wait for it before checking the score
+    await().until(() -> txPoolProcessedSelectionResults.get() == 1);
+    assertThat(
+            transactionPool.getPendingTransactions().stream()
+                .filter(pt -> pt.getHash().equals(tx.getHash()))
+                .findFirst()
+                .orElseThrow()
+                .getScore())
+        .isEqualTo(MAX_SCORE);
+  }
+
   /**
    * When no plugin factory is registered the plugin phase is a no-op, so processTransaction is only
    * called during internal selection. This test verifies that the CountDownLatch added in
@@ -1669,28 +1747,23 @@ public abstract class AbstractBlockTransactionSelectorTest {
     assertThat(results.getNotSelectedTransactions())
         .containsOnly(entry(lateTx, longProcessingTxResult));
     // the evaluation of the late tx was still running when the selection returned, so the txpool
-    // processes its result only when the evaluation completes
-    await()
-        .untilAsserted(
-            () ->
-                assertThat(transactionPool.getTransactionByHash(lateTx.getHash()).isEmpty())
-                    .isEqualTo(isLongProcessingTxDropped));
+    // processes its result only when the evaluation completes, and it is the last one processed
+    await().until(() -> txPoolProcessedSelectionResults.get() == transactionsToInject.size());
+    assertThat(transactionPool.getTransactionByHash(lateTx.getHash()).isEmpty())
+        .isEqualTo(isLongProcessingTxDropped);
 
     if (!isLongProcessingTxDropped) {
       // the tx is penalized only if it took too long itself, and not when it was just the one
       // running when the block ran out of time
       final byte expectedScore =
           longProcessingTxResult.penalize() ? (byte) (MAX_SCORE - 1) : MAX_SCORE;
-      await()
-          .untilAsserted(
-              () ->
-                  assertThat(
-                          transactionPool.getPendingTransactions().stream()
-                              .filter(pt -> pt.getHash().equals(lateTx.getHash()))
-                              .findFirst()
-                              .orElseThrow()
-                              .getScore())
-                      .isEqualTo(expectedScore));
+      assertThat(
+              transactionPool.getPendingTransactions().stream()
+                  .filter(pt -> pt.getHash().equals(lateTx.getHash()))
+                  .findFirst()
+                  .orElseThrow()
+                  .getScore())
+          .isEqualTo(expectedScore);
     }
   }
 

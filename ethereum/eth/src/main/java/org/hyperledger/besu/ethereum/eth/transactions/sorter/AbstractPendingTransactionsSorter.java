@@ -163,7 +163,8 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
                 })
             .count();
 
-    // logged at INFO, since silently evicting txs that can never be mined makes problems hard to diagnose
+    // logged at INFO, since silently evicting txs that can never be mined makes problems hard to
+    // diagnose
     if (evictedCount > 0) {
       LOG.info(
           "Evicted {} transaction(s) from the pool as they exceeded the configured retention"
