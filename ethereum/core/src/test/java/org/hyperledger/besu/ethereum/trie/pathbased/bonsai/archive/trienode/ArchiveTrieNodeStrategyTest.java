@@ -277,6 +277,21 @@ class ArchiveTrieNodeStrategyTest {
   }
 
   @Test
+  void captureResumesAfterTheUnstoredArchivedBlockIsRolledBack() {
+    final ArchiveTrieNodeStrategy strategy = strategy();
+    final Bytes location = Bytes.of(0x0e);
+    persistBlock(strategy, 0, put(Bytes.of(0x01), Bytes.fromHexString("0xaaaa")));
+    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
+
+    // Besu stopped before storing block 1, so startup rolled the world state back to block 0
+    persistBlock(strategy, 1, put(location, Bytes.fromHexString("0xbbbb")));
+    persistBlock(strategy, 2, put(location, Bytes.fromHexString("0xcccc")));
+
+    assertThat(latest(location, 2L).orElseThrow().block()).isEqualTo(2L);
+    assertThat(coverage()).contains(coverageThrough(2));
+  }
+
+  @Test
   void captureDoesNotResumeAfterANonFinalBlock() {
     final ArchiveTrieNodeStrategy strategy = strategy(b -> b != 1);
     final Bytes location = Bytes.of(0x0e);

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -47,6 +48,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -73,6 +75,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final Optional<ArchiveTrieNodeStrategy> archiveTrieNodeStrategy;
   private final boolean instantFinality;
   private final LongSupplier networkHead;
+  // a moment without peers drops the network head to ours, which would end capture
+  private final AtomicLong highestNetworkHead = new AtomicLong();
 
   public BonsaiArchiveWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -85,7 +89,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final MetricsSystem metricsSystem,
       final Optional<Long> amsterdamMilestone,
       final Supplier<ExecutorService> trieCapturePool,
-      final boolean instantFinality,
+      final GenesisConfigOptions genesisConfigOptions,
       final LongSupplier networkHead) {
     super(
         worldStateKeyValueStorage,
@@ -97,7 +101,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         codeCache,
         amsterdamMilestone);
     this.codeCache = codeCache;
-    this.instantFinality = instantFinality;
+    this.instantFinality = hasInstantFinality(genesisConfigOptions);
     this.networkHead = networkHead;
     this.archiveWorldStateConfig =
         WorldStateConfig.newBuilder(worldStateConfig).trieDisabled(true).build();
@@ -165,6 +169,12 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         this::isFinal);
   }
 
+  // BFT blocks are final on import, unless the chain moves to PoS
+  private boolean hasInstantFinality(final GenesisConfigOptions genesisConfigOptions) {
+    return (genesisConfigOptions.isQbft() || genesisConfigOptions.isIbft2())
+        && genesisConfigOptions.getTerminalTotalDifficulty().isEmpty();
+  }
+
   // Without a finalized block, a block counts as final once it is buried under the confirmation
   // depth. Genesis can't be reorged.
   @VisibleForTesting
@@ -176,7 +186,11 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         .getFinalized()
         .flatMap(blockchain::getBlockHeader)
         .map(finalized -> block <= finalized.getNumber())
-        .orElseGet(() -> block <= networkHead.getAsLong() - CONFIRMATION_DEPTH);
+        .orElseGet(() -> block <= highestNetworkHead() - CONFIRMATION_DEPTH);
+  }
+
+  private long highestNetworkHead() {
+    return highestNetworkHead.accumulateAndGet(networkHead.getAsLong(), Math::max);
   }
 
   @Override

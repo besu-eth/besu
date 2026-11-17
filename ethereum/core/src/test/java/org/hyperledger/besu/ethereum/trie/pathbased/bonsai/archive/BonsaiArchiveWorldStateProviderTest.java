@@ -22,6 +22,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.Bonsai
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -52,8 +53,11 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -71,8 +75,9 @@ public class BonsaiArchiveWorldStateProviderTest {
   private BonsaiWorldStateKeyValueStorage worldStateStorage;
   private Long seededProgress;
   private boolean seedWorldStateBlockHash = true;
-  private boolean instantFinality = false;
+  private String genesisConfig = "{\"config\":{}}";
   private LongSupplier networkHead = () -> CHAIN_HEAD;
+  private Supplier<ExecutorService> capturePool = () -> Executors.newFixedThreadPool(2);
 
   @BeforeEach
   void setup() {
@@ -283,7 +288,7 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
-  void archiveProof_rootFromAnotherForkIsNotServed() {
+  void archiveProof_reorgPastTheArchiveFails() {
     final BlockHeader archived = archiveSingleAccountRoot(Wei.of(7));
     // the canonical block at the archived height after a reorg the archive missed
     final BlockHeader reorged =
@@ -419,17 +424,47 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void closeShutsDownTheCapturePool() {
+    seededProgress = 4L;
+    final ExecutorService pool = Executors.newFixedThreadPool(2);
+    capturePool = () -> pool;
+    createProvider(true, true).close();
+
+    assertThat(pool.isShutdown()).isTrue();
+  }
+
+  @Test
   void leavesDefaultStrategyWhenProofsDisabled() {
     assertThat(provider.getWorldStateKeyValueStorage().getTrieNodeStrategy())
         .isInstanceOf(BonsaiTrieNodeStrategy.class);
   }
 
   @Test
-  void everyBlockIsFinalWithInstantFinality() {
-    instantFinality = true;
-    final BonsaiArchiveWorldStateProvider bftProvider = createProvider(true);
+  void everyQbftBlockIsFinal() {
+    genesisConfig = "{\"config\":{\"qbft\":{}}}";
 
-    assertThat(bftProvider.isFinal(CHAIN_HEAD)).isTrue();
+    assertThat(createProvider(true).isFinal(CHAIN_HEAD)).isTrue();
+  }
+
+  @Test
+  void everyIbft2BlockIsFinal() {
+    genesisConfig = "{\"config\":{\"ibft2\":{}}}";
+
+    assertThat(createProvider(true).isFinal(CHAIN_HEAD)).isTrue();
+  }
+
+  @Test
+  void bftBlocksFollowTheDepthOnceTheChainMovesToPos() {
+    genesisConfig = "{\"config\":{\"qbft\":{},\"terminalTotalDifficulty\":100}}";
+
+    assertThat(createProvider(true).isFinal(CHAIN_HEAD)).isFalse();
+  }
+
+  @Test
+  void cliqueBlocksFollowTheDepth() {
+    genesisConfig = "{\"config\":{\"clique\":{}}}";
+
+    assertThat(createProvider(true).isFinal(CHAIN_HEAD)).isFalse();
   }
 
   @Test
@@ -437,6 +472,21 @@ public class BonsaiArchiveWorldStateProviderTest {
     when(blockchain.getFinalized()).thenReturn(Optional.empty());
     networkHead = () -> 1000L;
     final BonsaiArchiveWorldStateProvider depthProvider = createProvider(true);
+
+    assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH)).isTrue();
+    assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH + 1)).isFalse();
+  }
+
+  @Test
+  void aDropInTheNetworkHeadDoesNotUnfinalizeBlocks() {
+    when(blockchain.getFinalized()).thenReturn(Optional.empty());
+    final AtomicLong head = new AtomicLong(1000L);
+    networkHead = head::get;
+    final BonsaiArchiveWorldStateProvider depthProvider = createProvider(true);
+    assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH)).isTrue();
+
+    // every peer drops, so the network head falls back to our own head
+    head.set(500L);
 
     assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH)).isTrue();
     assertThat(depthProvider.isFinal(1000L - CONFIRMATION_DEPTH + 1)).isFalse();
@@ -565,8 +615,8 @@ public class BonsaiArchiveWorldStateProviderTest {
         new BonsaiCodeCache(),
         new NoOpMetricsSystem(),
         Optional.empty(),
-        () -> Executors.newFixedThreadPool(2),
-        instantFinality,
+        capturePool,
+        GenesisConfig.fromConfig(genesisConfig).getConfigOptions(),
         networkHead);
   }
 }

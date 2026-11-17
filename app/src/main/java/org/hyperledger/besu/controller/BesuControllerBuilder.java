@@ -1469,9 +1469,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             () ->
                 MonitoredExecutors.newFixedThreadPool(
                     "trie-capture", syncConfig.getComputationParallelism(), metricsSystem),
-            // BFT blocks are final on import, unless the chain moves to PoS
-            (genesisConfigOptions.isQbft() || genesisConfigOptions.isIbft2())
-                && genesisConfigOptions.getTerminalTotalDifficulty().isEmpty(),
+            genesisConfigOptions,
             syncState::bestChainHeight);
       }
       case FOREST -> {
