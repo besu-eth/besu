@@ -42,6 +42,7 @@ public final class ForkChangeTracker implements BlockAddedObserver {
   private final Subscribers<ForkChangeListener> listeners = Subscribers.create(true);
   // guarded by this: the fork of the last chain head seen
   private HardforkId fork;
+  private volatile long observerId;
 
   private ForkChangeTracker(final Blockchain blockchain, final ProtocolSchedule protocolSchedule) {
     this.blockchain = blockchain;
@@ -59,8 +60,13 @@ public final class ForkChangeTracker implements BlockAddedObserver {
   public static ForkChangeTracker create(
       final Blockchain blockchain, final ProtocolSchedule protocolSchedule) {
     final ForkChangeTracker tracker = new ForkChangeTracker(blockchain, protocolSchedule);
-    blockchain.observeBlockAdded(tracker);
+    tracker.observerId = blockchain.observeBlockAdded(tracker);
     return tracker;
+  }
+
+  /** Stops following the chain head, so that it costs block imports nothing. */
+  public void stop() {
+    blockchain.removeObserver(observerId);
   }
 
   /**

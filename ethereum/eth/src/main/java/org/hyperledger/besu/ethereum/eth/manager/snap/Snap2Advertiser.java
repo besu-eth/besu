@@ -38,8 +38,9 @@ public final class Snap2Advertiser implements ForkChangeListener, InitialSyncCom
   private final SyncState syncState;
   private final ForkChangeTracker forks;
   // guarded by this, set before any check
-  private long forkSubscription;
   private long syncSubscription;
+  // guarded by this: the fork of the last fork change, as a reorg tells it before the head moves
+  private HardforkId changedTo;
   private boolean done;
 
   private Snap2Advertiser(
@@ -57,7 +58,7 @@ public final class Snap2Advertiser implements ForkChangeListener, InitialSyncCom
    *
    * @param snapProtocolManager the manager that advertises snap/2
    * @param syncState tells when the initial sync is done
-   * @param forks tells when the chain head reaches another fork
+   * @param forks tells when the chain head reaches another fork, stopped once snap/2 is advertised
    * @return the advertiser
    */
   public static Snap2Advertiser start(
@@ -66,10 +67,10 @@ public final class Snap2Advertiser implements ForkChangeListener, InitialSyncCom
       final ForkChangeTracker forks) {
     final Snap2Advertiser advertiser = new Snap2Advertiser(snapProtocolManager, syncState, forks);
     synchronized (advertiser) {
-      advertiser.forkSubscription = forks.subscribe(advertiser);
+      forks.subscribe(advertiser);
       advertiser.syncSubscription = syncState.subscribeCompletionReached(advertiser);
+      advertiser.check();
     }
-    advertiser.check(forks.currentFork());
     return advertiser;
   }
 
@@ -85,14 +86,14 @@ public final class Snap2Advertiser implements ForkChangeListener, InitialSyncCom
   }
 
   @Override
-  public void onForkChange(final HardforkId fork, final BlockHeader head) {
-    check(fork);
+  public synchronized void onForkChange(final HardforkId fork, final BlockHeader head) {
+    changedTo = fork;
+    check();
   }
 
   @Override
-  public void onInitialSyncCompleted() {
-    // the sync sets the chain head without a fork change
-    check(forks.currentFork());
+  public synchronized void onInitialSyncCompleted() {
+    check();
   }
 
   @Override
@@ -103,15 +104,24 @@ public final class Snap2Advertiser implements ForkChangeListener, InitialSyncCom
     return done;
   }
 
-  private synchronized void check(final HardforkId headFork) {
-    if (done || !syncState.isInitialSyncPhaseDone() || !hasBlockAccessLists(headFork)) {
+  private synchronized void check() {
+    if (done || !syncState.isInitialSyncPhaseDone()) {
+      return;
+    }
+    // the sync moves the head without a fork change
+    final HardforkId headFork = hasBlockAccessLists(changedTo) ? changedTo : forks.currentFork();
+    if (!hasBlockAccessLists(headFork)) {
       return;
     }
     done = true;
-    forks.unsubscribe(forkSubscription);
+    forks.stop();
     syncState.unsubscribeInitialConditionReached(syncSubscription);
-    if (snapProtocolManager.advertiseSnap2()) {
-      LOG.info("Chain head reached {}, advertising snap/2 to new connections", headFork);
+    try {
+      if (snapProtocolManager.advertiseSnap2()) {
+        LOG.info("Chain head reached {}, advertising snap/2 to new connections", headFork);
+      }
+    } catch (final RuntimeException e) {
+      LOG.warn("Could not advertise snap/2, peers syncing with SNAP2 cannot use this node", e);
     }
   }
 }

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.p2p.network;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -22,6 +23,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -228,6 +230,26 @@ public class NetworkRunnerTest {
     verify(inboundBytesCounter)
         .labels(eq(capability.toString()), eq(messageName), eq(String.valueOf(messageCode)));
     verify(bytesCounter).inc(messageSize);
+  }
+
+  @Test
+  public void refusesToAdvertiseAnAddedCapabilityWithoutSubProtocol() {
+    when(protocolManager.getSupportedCapabilities())
+        .thenReturn(List.of(Capability.create("eth", 68)));
+    final AtomicReference<Consumer<Capability>> capabilityAdded = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              capabilityAdded.set(invocation.getArgument(0));
+              return null;
+            })
+        .when(protocolManager)
+        .subscribeCapabilityAdded(any());
+    networkRunner.start();
+
+    assertThatThrownBy(() -> capabilityAdded.get().accept(Capability.create("snap", 2)))
+        .isInstanceOf(IllegalStateException.class);
+
+    verify(network, never()).addCapability(any());
   }
 
   @Test

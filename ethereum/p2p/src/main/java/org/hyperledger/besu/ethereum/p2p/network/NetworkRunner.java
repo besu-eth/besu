@@ -164,6 +164,10 @@ public class NetworkRunner implements AutoCloseable {
   private void subscribeMessages(
       final ProtocolManager protocolManager, final Capability supportedCapability) {
     final SubProtocol protocol = subProtocols.get(supportedCapability.getName());
+    if (protocol == null) {
+      throw new IllegalStateException(
+          "No sub-protocol found corresponding to supported capability: " + supportedCapability);
+    }
     network.subscribe(
         supportedCapability,
         (cap, message) -> {

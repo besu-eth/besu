@@ -49,6 +49,17 @@ public class SnapDownloaderFactory {
   private static final Logger LOG = LoggerFactory.getLogger(SnapDownloaderFactory.class);
   protected static final String SYNC_FOLDER = "syncFolder";
 
+  /**
+   * Returns whether a snap sync in the data directory started downloading the chain and has not
+   * finished.
+   *
+   * @param dataDirectory the data directory of the node
+   * @return true when a snap sync is in progress
+   */
+  public static boolean isSyncInProgress(final Path dataDirectory) {
+    return new ChainSyncStateStorage(dataDirectory.resolve(SYNC_FOLDER)).hasState();
+  }
+
   public static Optional<SnapSyncController> createSnapDownloader(
       final SnapSyncStatePersistenceManager snapContext,
       final PivotBlockSelector pivotBlockSelector,

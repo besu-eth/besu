@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BPO3;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,6 +39,7 @@ import org.junit.jupiter.api.Test;
 
 class ForkChangeTrackerTest {
 
+  private static final long OBSERVER = 3L;
   private final Blockchain blockchain = mock(Blockchain.class);
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
   private final List<HardforkId> changes = new ArrayList<>();
@@ -47,6 +49,7 @@ class ForkChangeTrackerTest {
   void setUp() {
     final BlockHeader genesis = header(1, OSAKA);
     when(blockchain.getChainHeadHeader()).thenReturn(genesis);
+    when(blockchain.observeBlockAdded(any())).thenReturn(OBSERVER);
     tracker = ForkChangeTracker.create(blockchain, protocolSchedule);
     tracker.subscribe((fork, head) -> changes.add(fork));
   }
@@ -54,6 +57,13 @@ class ForkChangeTrackerTest {
   @Test
   void observesTheBlockchain() {
     verify(blockchain).observeBlockAdded(tracker);
+  }
+
+  @Test
+  void stopsObservingTheBlockchain() {
+    tracker.stop();
+
+    verify(blockchain).removeObserver(OBSERVER);
   }
 
   @Test

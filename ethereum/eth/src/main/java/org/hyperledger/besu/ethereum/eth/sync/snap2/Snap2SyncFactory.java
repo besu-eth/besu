@@ -42,6 +42,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -64,6 +66,23 @@ public final class Snap2SyncFactory {
   private static final int BAL_ROUNDS = 60;
 
   private Snap2SyncFactory() {}
+
+  /**
+   * Deletes the mark of an unfinished SNAP2 sync, for a node that syncs with SNAP instead. Before
+   * the fork that adds block access lists, SNAP2 cannot pick a pivot, so it downloaded nothing.
+   *
+   * @param dataDirectory the data directory of the node
+   */
+  public static void deleteUnfinishedSyncMarker(final Path dataDirectory) {
+    final Path marker = Snap2SyncController.markerFile(dataDirectory);
+    try {
+      if (Files.deleteIfExists(marker)) {
+        LOG.info("Dropped the SNAP2 sync that waited for block access lists");
+      }
+    } catch (final IOException e) {
+      throw new UncheckedIOException("cannot delete " + marker, e);
+    }
+  }
 
   /**
    * Creates the sync when the node holds nothing but genesis or the bare checkpoint header, when a

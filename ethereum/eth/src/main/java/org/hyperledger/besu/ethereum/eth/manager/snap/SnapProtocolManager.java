@@ -60,8 +60,8 @@ public class SnapProtocolManager implements ProtocolManager {
 
   // replaced when snap/2 is added
   private volatile List<Capability> supportedCapabilities;
-  private final Subscribers<Consumer<Capability>> capabilityAddedListeners =
-      Subscribers.create(true);
+  // a listener that fails must fail the add, so that the caller can tell
+  private final Subscribers<Consumer<Capability>> capabilityAddedListeners = Subscribers.create();
   private final EthPeers ethPeers;
   private final EthMessages snapMessages;
   private final EthScheduler ethScheduler;
@@ -133,6 +133,7 @@ public class SnapProtocolManager implements ProtocolManager {
    * Adds snap/2 to the capabilities, for the peers that connect from now on.
    *
    * @return false when snap/2 was already advertised
+   * @throws RuntimeException when a listener fails to add it
    */
   public boolean advertiseSnap2() {
     final Capability snap2 = SnapProtocolVersion.V2.getCapability();

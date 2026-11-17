@@ -121,6 +121,18 @@ class SnapProtocolManagerTest {
   }
 
   @Test
+  void failsWhenAListenerFailsToAddSnap2() {
+    snapProtocolManager = createSnapProtocolManager(false);
+    snapProtocolManager.subscribeCapabilityAdded(
+        capability -> {
+          throw new IllegalStateException("no network");
+        });
+
+    assertThatThrownBy(snapProtocolManager::advertiseSnap2)
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
   void addsNothingWhenSnap2IsAdvertisedFromTheStart() {
     snapProtocolManager = createSnapProtocolManager(true);
     final List<Capability> added = new ArrayList<>();
