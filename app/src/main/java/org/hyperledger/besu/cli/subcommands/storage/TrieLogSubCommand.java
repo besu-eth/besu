@@ -144,6 +144,18 @@ public class TrieLogSubCommand implements Runnable {
 
     @Override
     public void run() {
+      // the trailing trie-node archiver replays every block's trie log
+      if (TrieLogSubCommand.parentCommand
+          .besuCommand
+          .getDataStorageConfiguration()
+          .getExtraStorageConfiguration()
+          .getUnstable()
+          .getBonsaiArchiveStateProofsEnabled()) {
+        throw new CommandLine.ParameterException(
+            spec.commandLine(),
+            "Trie logs can't be pruned with Bonsai archive state proofs enabled, since proof"
+                + " history is built from them");
+      }
       final TrieLogContext context = getTrieLogContext();
       final Path dataDirectoryPath =
           Paths.get(

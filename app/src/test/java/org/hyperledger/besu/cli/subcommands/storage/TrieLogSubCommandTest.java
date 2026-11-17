@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.cli.subcommands.storage;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
@@ -60,6 +61,19 @@ class TrieLogSubCommandTest extends CommandTestAbstract {
         dataStorageConfigurationArgumentCaptor.getAllValues();
     assertThat(configs.get(0).getExtraStorageConfiguration().getLimitTrieLogsEnabled()).isTrue();
     assertThat(configs.get(1).getExtraStorageConfiguration().getLimitTrieLogsEnabled()).isFalse();
+  }
+
+  @Test
+  void pruneIsRefusedWithArchiveStateProofs() {
+    parseCommand(
+        "--data-storage-format=X_BONSAI_ARCHIVE",
+        "--sync-mode=FULL",
+        "--Xbonsai-archive-state-proofs-enabled",
+        "storage",
+        "trie-log",
+        "prune");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Trie logs can't be pruned with Bonsai archive state proofs enabled");
   }
 
   @Test
