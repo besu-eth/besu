@@ -18,6 +18,8 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP;
+import static org.hyperledger.besu.ethereum.mainnet.OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP;
 import static org.hyperledger.besu.ethereum.mainnet.ValidationResult.valid;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_BLOCK_GAS_LIMIT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
@@ -31,10 +33,12 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TRANSACTION_REPLACEMENT_UNDERPRICED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TX_FEECAP_EXCEEDED;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -47,6 +51,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
@@ -55,10 +60,14 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
+import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.MockExecutorService;
@@ -1566,5 +1575,58 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     assertThat(transactionPool.getPendingTransactions())
         .map(PendingTransaction::getTransaction)
         .containsExactlyInAnyOrder(transaction1, transaction2a, transaction3);
+  }
+
+  @Test
+  public void codeDelegationListLimitFollowsChainHeadFork() {
+    when(protocolSpec.getGasCalculator()).thenReturn(new OsakaGasCalculator());
+    when(protocolSpec.getGasLimitCalculator())
+        .thenReturn(transactionGasCaps(EIP_7825_TRANSACTION_GAS_LIMIT_CAP, Long.MAX_VALUE));
+    doReturn(Optional.empty()).when(protocolSchedule).getNextProtocolSpec(anyLong());
+
+    // Osaka: 25,000 gas per authorization, tx.gas capped at 2^24 and by the block gas limit.
+    assertThat(transactionPool.codeDelegationListLimit().maxCodeDelegations(blockGasLimit))
+        .isEqualTo((int) (Math.min(blockGasLimit, EIP_7825_TRANSACTION_GAS_LIMIT_CAP) / 25_000));
+  }
+
+  @Test
+  public void codeDelegationListLimitAllowsNextScheduledFork() {
+    when(protocolSpec.getGasCalculator()).thenReturn(new OsakaGasCalculator());
+    when(protocolSpec.getGasLimitCalculator())
+        .thenReturn(transactionGasCaps(EIP_7825_TRANSACTION_GAS_LIMIT_CAP, Long.MAX_VALUE));
+    final ProtocolSpec amsterdam = mock(ProtocolSpec.class);
+    when(amsterdam.getGasCalculator()).thenReturn(new AmsterdamGasCalculator());
+    when(amsterdam.getGasLimitCalculator())
+        .thenReturn(
+            transactionGasCaps(
+                EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP, EIP_7825_TRANSACTION_GAS_LIMIT_CAP));
+    final ScheduledProtocolSpec nextFork = mock(ScheduledProtocolSpec.class);
+    when(nextFork.spec()).thenReturn(amsterdam);
+    doReturn(Optional.of(nextFork)).when(protocolSchedule).getNextProtocolSpec(anyLong());
+
+    // Amsterdam reprices an authorization to 7,816 gas, so its longer lists are not refused early.
+    assertThat(transactionPool.codeDelegationListLimit().maxCodeDelegations(blockGasLimit))
+        .isEqualTo((int) (Math.min(blockGasLimit, EIP_7825_TRANSACTION_GAS_LIMIT_CAP) / 7_816));
+  }
+
+  private static GasLimitCalculator transactionGasCaps(
+      final long transactionCap, final long intrinsicCap) {
+    return new GasLimitCalculator() {
+      @Override
+      public long nextGasLimit(
+          final long currentGasLimit, final long targetGasLimit, final long newBlockNumber) {
+        return currentGasLimit;
+      }
+
+      @Override
+      public long transactionGasLimitCap() {
+        return transactionCap;
+      }
+
+      @Override
+      public long transactionIntrinsicGasLimitCap() {
+        return intrinsicCap;
+      }
+    };
   }
 }
