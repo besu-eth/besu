@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.TreeMap;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -32,6 +33,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 /** The Stub genesis config options. */
 public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable {
 
+  private Map<String, Long> customConfigLongs = Collections.emptyMap();
   private OptionalLong homesteadBlockNumber = OptionalLong.empty();
   private OptionalLong daoForkBlock = OptionalLong.empty();
   private OptionalLong tangerineWhistleBlockNumber = OptionalLong.empty();
@@ -422,6 +424,12 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   }
 
   @Override
+  public OptionalLong getCustomConfigLong(final String key) {
+    final Long value = customConfigLongs.get(key);
+    return value == null ? OptionalLong.empty() : OptionalLong.of(value);
+  }
+
+  @Override
   public Optional<Address> getWithdrawalRequestContractAddress() {
     return Optional.of(Address.fromHexString("0x00000961ef480eb55e80d19ad83579a64c007002"));
   }
@@ -461,6 +469,22 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
    */
   public StubGenesisConfigOptions homesteadBlock(final long blockNumber) {
     homesteadBlockNumber = OptionalLong.of(blockNumber);
+    return this;
+  }
+
+  /**
+   * Sets a chain-specific numeric config value, replacing the backing map so clones do not share
+   * mutable state.
+   *
+   * @param key the config key, case insensitive
+   * @param value the value
+   * @return the stub genesis config options
+   */
+  public StubGenesisConfigOptions customConfigLong(final String key, final long value) {
+    final Map<String, Long> updated = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    updated.putAll(customConfigLongs);
+    updated.put(key, value);
+    customConfigLongs = Collections.unmodifiableMap(updated);
     return this;
   }
 

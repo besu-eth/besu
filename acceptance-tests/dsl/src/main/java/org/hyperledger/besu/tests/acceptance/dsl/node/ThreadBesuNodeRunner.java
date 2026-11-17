@@ -60,6 +60,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolCo
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.pluginadapter.TransactionPoolValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
 import org.hyperledger.besu.ethereum.mainnet.pluginadapter.TransactionValidatorServiceImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.permissioning.pluginadapter.PermissioningServiceImpl;
@@ -508,12 +509,14 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final EthNetworkConfig ethNetworkConfig,
         final SynchronizerConfiguration synchronizerConfiguration,
         final TransactionPoolConfiguration transactionPoolConfiguration,
-        final DataStorageConfiguration dataStorageConfiguration) {
+        final DataStorageConfiguration dataStorageConfiguration,
+        final ProtocolScheduleCustomization protocolScheduleCustomization) {
 
       final Optional<Checkpoint> checkpoint = getCheckpoint(ethNetworkConfig);
       final BesuControllerBuilder builder =
           new BesuController.Builder()
               .checkpoint(checkpoint)
+              .protocolScheduleCustomization(protocolScheduleCustomization)
               .fromEthNetworkConfig(ethNetworkConfig, synchronizerConfiguration.getSyncMode());
       builder.transactionPoolConfiguration(transactionPoolConfiguration);
       builder.dataStorageConfiguration(dataStorageConfiguration);
@@ -564,6 +567,23 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           .randomPeerPriority(false)
           .apiConfiguration(apiConfiguration);
       return builder.build();
+    }
+
+    /**
+     * Resolves the customization the registered plugins contribute for the node's genesis. As in
+     * {@code BesuCommand}, this happens after registration closes and before the controller builder
+     * is selected, which the customization's fork-ID activations and supported consensus mechanisms
+     * depend on.
+     */
+    @Provides
+    @Singleton
+    public ProtocolScheduleCustomization provideProtocolScheduleCustomization(
+        final EthNetworkConfig ethNetworkConfig,
+        // depended on only so that registration has run and closed before resolving
+        final PluginsRegistered unusedPluginsRegistered,
+        final BesuPluginContextImpl besuPluginContext) {
+      return besuPluginContext.resolveProtocolScheduleCustomization(
+          ethNetworkConfig.genesisConfig().getConfigOptions());
     }
 
     @Provides

@@ -16,6 +16,8 @@ package org.hyperledger.besu.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
+import static org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation.blockNumber;
+import static org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleActivation.timestamp;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
@@ -51,7 +53,10 @@ import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpo
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
+import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecModification;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
@@ -73,6 +78,7 @@ import java.math.BigInteger;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Random;
@@ -389,6 +395,40 @@ public class MergeBesuControllerBuilderTest {
             .getCheckpoint();
 
     assertThat(checkpoint).contains(override);
+  }
+
+  @Test
+  public void advertisesTheForkActivationsTheCustomizationContributes() {
+    when(genesisConfigOptions.getForkBlockNumbers()).thenReturn(List.of(5L, 20L));
+
+    final List<ForkId> stockForkIds = builtForkIds(ProtocolScheduleCustomization.none());
+    final List<ForkId> customizedForkIds =
+        builtForkIds(
+            new ProtocolScheduleCustomization(
+                "example-chain",
+                List.of(
+                    new ProtocolSpecModification(blockNumber(11), builder -> builder),
+                    new ProtocolSpecModification(timestamp(1_000), builder -> builder))));
+
+    // the contributed block activation sits between the declared ones, and the timestamp after
+    assertThat(stockForkIds).extracting(ForkId::getNext).containsExactly(5L, 20L, 0L);
+    assertThat(customizedForkIds)
+        .extracting(ForkId::getNext)
+        .containsExactly(5L, 11L, 20L, 1_000L, 0L);
+    // a head past every fork gets a different fork hash than the declared forks alone give
+    assertThat(customizedForkIds.getLast().getHash())
+        .isNotEqualTo(stockForkIds.getLast().getHash());
+  }
+
+  private List<ForkId> builtForkIds(final ProtocolScheduleCustomization customization) {
+    return visitWithMockConfigs(new MergeBesuControllerBuilder())
+        .protocolScheduleCustomization(customization)
+        .build()
+        .getProtocolManager()
+        .ethContext()
+        .getEthPeers()
+        .getForkIdManager()
+        .getAllForkIds();
   }
 
   @Test

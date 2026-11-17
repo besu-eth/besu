@@ -380,6 +380,16 @@ public class EthPeers implements PeerSelector {
     return activeConnections.size();
   }
 
+  /**
+   * The node's fork-ID manager. It is the one instance the node has: the Status handshake, the
+   * discovery record (ENR) and {@code eth_config} all use it, so they advertise the same fork ID.
+   *
+   * @return the fork-ID manager
+   */
+  public ForkIdManager getForkIdManager() {
+    return forkIdManager;
+  }
+
   public int getMaxPeers() {
     return peerUpperBound;
   }

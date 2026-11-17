@@ -17,8 +17,11 @@ package org.hyperledger.besu.services;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginProvidedServices;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleCustomization;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleService;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.RegistrationContext;
@@ -122,6 +125,8 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private volatile Lifecycle state = Lifecycle.UNINITIALIZED;
   private final Map<Class<?>, BesuService> besuServices = new ConcurrentHashMap<>();
   private final Map<Class<?>, ServiceWithProvider> pluginServices = new ConcurrentHashMap<>();
+  private final ProtocolScheduleServiceImpl protocolScheduleService =
+      new ProtocolScheduleServiceImpl(this::isRegistering);
 
   /** The ids of every plugin found in the plugins directory, in load order, unloadable last. */
   private List<String> detectedPluginIds = List.of();
@@ -152,8 +157,10 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   private PluginConfiguration config;
   private URLClassLoader pluginClassLoader;
 
-  /** Instantiates a new Besu plugin context. */
-  public BesuPluginContextImpl() {}
+  /** Instantiates a new Besu plugin context with services required during plugin registration. */
+  public BesuPluginContextImpl() {
+    besuServices.put(ProtocolScheduleService.class, protocolScheduleService);
+  }
 
   /**
    * Adds a Besu-provided service. Called by Besu when the service's dependencies exist, before the
@@ -168,6 +175,9 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     checkArgument(
         serviceType.isInstance(service),
         "The service registered with a type must implement that type");
+    checkArgument(
+        !ProtocolScheduleService.class.equals(serviceType),
+        "ProtocolScheduleService is Besu-owned and cannot be replaced");
     besuServices.put(serviceType, service);
   }
 
@@ -364,6 +374,24 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     return config.isContinueOnPluginError() && isBuiltIn(plugin)
         ? failure + "; a built-in plugin failure is fatal regardless of --plugin-continue-on-error"
         : failure;
+  }
+
+  /**
+   * Resolves the protocol-schedule customizers that plugins registered, once registration has
+   * closed.
+   *
+   * <p>The result is memoized for the registration cycle: a node runs one genesis, so later calls
+   * return the first resolution whatever config they pass. {@link #resetState()} starts a new
+   * cycle.
+   *
+   * @param config the uncustomized genesis configuration
+   * @return the single matching customization, or the empty one
+   * @throws IllegalStateException if registration is still open, if a customizer throws, or if more
+   *     than one customizer supports the chain
+   */
+  public ProtocolScheduleCustomization resolveProtocolScheduleCustomization(
+      final GenesisConfigOptions config) {
+    return protocolScheduleService.resolve(config);
   }
 
   /**
@@ -689,11 +717,17 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         && !e.getMessage().startsWith("Could not initialize class");
   }
 
-  private boolean registerPlugin(final BesuPlugin plugin) {
+  @VisibleForTesting
+  boolean registerPlugin(final BesuPlugin plugin) {
+    final int customizerMark = protocolScheduleService.registrationMark();
     try {
       plugin.register(registrationContextFor(plugin));
+      protocolScheduleService.attributeRegistrationsSince(customizerMark, plugin);
       LOG.info("Registered plugin of type {}.", pluginId(plugin));
     } catch (final Exception | LinkageError e) {
+      // a plugin that failed to register is never started, so it must not change the chain's
+      // rules either
+      protocolScheduleService.discardRegistrationsSince(customizerMark);
       final Optional<Throwable> unrecoverable = unrecoverableCause(e);
       if (unrecoverable.isPresent()) {
         throw new RuntimeException(
@@ -701,7 +735,11 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
       }
       final String failure = failureMessage("registering", pluginId(plugin), e);
       if (continuesOnFailureOf(plugin)) {
-        LOG.error("{}, start and stop will not be called.", failure, e);
+        LOG.error(
+            "{}, start and stop will not be called and its protocol-schedule customizers are"
+                + " discarded.",
+            failure,
+            e);
         // recorded when its options were defined; a plugin that is not registered is not listed
         pluginVersions.remove(pluginId(plugin));
         // nothing can have looked up what it published yet, so retract it: a later plugin may
@@ -715,7 +753,12 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     return true;
   }
 
-  /** Calls {@link BesuPlugin#start(StartContext)} on every registered plugin. */
+  /**
+   * Calls {@link BesuPlugin#start(StartContext)} on every registered plugin.
+   *
+   * <p>A plugin that contributed the protocol-schedule customization in force cannot be dropped
+   * under {@code --plugin-continue-on-error}: its failure here is fatal.
+   */
   public void startPlugins() {
     checkState(
         state == Lifecycle.REGISTERED,
@@ -742,6 +785,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
               "Plugin " + pluginId(plugin) + ": " + unrecoverable.get().getMessage(), e);
         }
         final String failure = failureMessage("starting", pluginId(plugin), e);
+        failIfCustomizationInForceCameFrom(plugin, failure, e);
         if (continuesOnFailureOf(plugin)) {
           LOG.error("{}, stop will not be called.", failure, e);
           pluginsIterator.remove();
@@ -756,8 +800,26 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   }
 
   /**
+   * Fails startup when a plugin that contributed the protocol-schedule customization in force fails
+   * a later phase. Its rules are already in the protocol schedule and the fork ID, so dropping it
+   * under {@code --plugin-continue-on-error} would leave the node enforcing them without any of the
+   * plugin's runtime.
+   */
+  private void failIfCustomizationInForceCameFrom(
+      final BesuPlugin plugin, final String failure, final Throwable cause) {
+    if (protocolScheduleService.resolvedCustomizationCameFrom(plugin)) {
+      throw new RuntimeException(
+          failure
+              + "; the plugin contributed the protocol-schedule customization in force, so its"
+              + " failure is fatal regardless of --plugin-continue-on-error",
+          cause);
+    }
+  }
+
+  /**
    * Calls {@link BesuPlugin#afterMainLoop(RunningContext)} on every started plugin, once the main
-   * loop is running.
+   * loop is running. As in {@link #startPlugins()}, a failure of the plugin that contributed the
+   * protocol-schedule customization in force is fatal.
    */
   public void afterMainLoop() {
     checkState(
@@ -778,6 +840,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
               "Plugin " + pluginId(plugin) + ": " + unrecoverable.get().getMessage(), e);
         }
         final String failure = failureMessage("calling `afterMainLoop` on", pluginId(plugin), e);
+        failIfCustomizationInForceCameFrom(plugin, failure, e);
         if (continuesOnFailureOf(plugin)) {
           LOG.error("{}, stop will not be called.", failure, e);
           pluginsIterator.remove();
@@ -1176,6 +1239,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
             + " first",
         Lifecycle.REGISTERED,
         state);
+    protocolScheduleService.reset();
     pluginServices.clear();
     state = Lifecycle.OPTIONS_DEFINED;
   }

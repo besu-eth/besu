@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.EthProtocolHelper;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.DefaultPeerDiscoveryAgentFactory;
@@ -68,9 +69,8 @@ public final class DefaultP2PNetworkTestBuilder {
             .peerPermissions(peerPermissions)
             .metricsSystem(noopMetricsSystem)
             .storageProvider(new InMemoryKeyValueStorageProvider())
-            .blockchain(mockBlockchain)
-            .blockNumberForks(Collections.emptyList())
-            .timestampForks(Collections.emptyList())
+            .forkIdManager(
+                new ForkIdManager(mockBlockchain, Collections.emptyList(), Collections.emptyList()))
             .build();
 
     final RlpxAgentFactory defaultRlpxFactory =

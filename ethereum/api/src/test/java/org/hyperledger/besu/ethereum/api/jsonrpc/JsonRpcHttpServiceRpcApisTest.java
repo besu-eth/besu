@@ -45,6 +45,7 @@ import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
@@ -299,9 +300,8 @@ public class JsonRpcHttpServiceRpcApisTest {
             .peerPermissions(PeerPermissions.noop())
             .metricsSystem(new NoOpMetricsSystem())
             .storageProvider(new InMemoryKeyValueStorageProvider())
-            .blockchain(blockchain)
-            .blockNumberForks(Collections.emptyList())
-            .timestampForks(Collections.emptyList())
+            .forkIdManager(
+                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()))
             .build();
 
     final RlpxAgentFactory defaultRlpxFactory =
