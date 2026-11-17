@@ -123,14 +123,15 @@ On the parent state, a sender's second transaction in a block fails its nonce ch
 
 In the figure:
 
-1. J's two transactions run as one chain on one worker. Tx 9 runs on the state tx 8 left, and block processing takes both results.
-2. E's transactions were private. Tx 5's own run fails its nonce check, because tx 4 has not happened on the parent state.
-3. Once E is recovered, a late chain runs tx 5 on the result of tx 4's run, and block processing takes it.
-4. Tx 3's deposit adds to WETH's balance, which tx 2 changed. The deposit does not read that balance, so block processing takes its result and adds the deposit to the balance tx 2 left.
-5. The batch call's run is long. Block processing reaches the call before the run ends, throws the run away and executes the call from the start. That alone takes more than a third of the block.
-6. Tx 7, 10, 11 and 12 collide, on pool P, the sender's balance, pool P and pool S. Block processing executes them. Tx 10's sender pays for its gas from the balance tx 1 raised, so that change is not carried over.
+1. The runs start once block processing has made the system calls, and block processing gets to tx 0 right away. Tx 0's run has only just started, so block processing executes tx 0 itself and the run is thrown away.
+2. J's two transactions run as one chain on one worker. Tx 9 runs on the state tx 8 left, and block processing takes both results.
+3. E's transactions were private. Tx 5's own run fails its nonce check, because tx 4 has not happened on the parent state.
+4. Once E is recovered, a late chain runs tx 5 on the result of tx 4's run. Block processing gets to tx 5 before the chain ends, so it executes tx 5 itself and the chain is thrown away. A transaction further into the block leaves a late chain more time.
+5. Tx 3's deposit adds to WETH's balance, which tx 2 changed. The deposit does not read that balance, so block processing takes its result and adds the deposit to the balance tx 2 left.
+6. The batch call's run is long. Block processing reaches the call before the run ends, throws the run away and executes the call from the start. That alone takes more than a third of the block.
+7. Tx 7, 10, 11 and 12 collide, on pool P, the sender's balance, pool P and pool S. Block processing executes them. Tx 10's sender pays for its gas from the balance tx 1 raised, so that change is not carried over.
 
-Without chains, block processing executes tx 5 and tx 9 as well, 7 of the 13 transactions instead of 5. The dashed line marks where that block ends.
+Without chains, block processing executes tx 9 as well, 8 of the 13 transactions instead of 7. The dashed line marks where that block ends.
 
 ## Threads
 
