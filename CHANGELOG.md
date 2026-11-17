@@ -37,6 +37,7 @@
 - `admin_logsRemoveCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when `startBlock` or `stopBlock` is not known, including an unknown block number and an unknown `safe` or `finalized` tag. [#11892](https://github.com/besu-eth/besu/issues/11892)
 - `admin_logsRepairCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when the given block number is not known. [#11914](https://github.com/besu-eth/besu/issues/11914)
 - `eth_getStorageValues`, `testing_buildBlockV1` and `testing_commitBlockV1` now return the error detail in `message`, not in `data`, as [execution-apis#967](https://github.com/ethereum/execution-apis/pull/967) specifies. [#11861](https://github.com/besu-eth/besu/pull/11861)
+- Every `create` trace frame now reports `creationMethod` from the opcode that created it: `create` for `CREATE` and a contract creation transaction, `create2` for `CREATE2`. `trace_call`, `trace_callMany` and `trace_rawTransaction` omitted it, and the other trace methods labelled every creation in a transaction `create2` when any of them used `CREATE2`. [#11435](https://github.com/besu-eth/besu/pull/11435)
 - Full sync no longer keeps every 5-second sync target retry reachable while the node waits at the chain head, which grew the live heap of a long-running QBFT validator by about 6 MB a day. [#11760](https://github.com/besu-eth/besu/issues/11760)
 - `eth_simulateV1` now rejects precompiles moved to their own address with error `-38022`. [#11793](https://github.com/besu-eth/besu/issues/11793)
 - `eth_simulateV1` now returns `maxUsedGas` after Amsterdam as the gas used before refunds raised to the calldata floor, `max(executionGas + stateGas, floor)`, as Geth does. Previously Besu returned `max(executionGas, floor) + stateGas`, which is larger when the execution gas is below the floor. `eth_estimateGas` uses the same value as its lower bound. [#11580](https://github.com/besu-eth/besu/pull/11580)
@@ -87,6 +88,7 @@
 - The transaction pools process the result of a transaction that is still executing when the block selection time runs out once its execution completes, so the layered pool penalises a transaction that took too long, and both pools remove it if invalid, instead of missing its result. Selection results are processed asynchronously in both pools.
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
+- Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
 
 ## 26.11.0
 
