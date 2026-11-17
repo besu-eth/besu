@@ -90,7 +90,6 @@ class ChainIdTest {
     expected.writeBigIntegerScalar(value);
     assertThat(out.encoded()).isEqualTo(expected.encoded());
 
-    assertThat(ChainId.readFrom(new BytesValueRLPInput(out.encoded(), false))).isEqualTo(chainId);
     assertThat(ChainId.readFrom(new BytesValueRLPInput(out.encoded(), false), 32))
         .isEqualTo(chainId);
   }
@@ -122,7 +121,7 @@ class ChainIdTest {
     final Bytes encodedWithLeadingZero = Bytes.fromHexString("0x820001");
 
     assertThatThrownBy(
-            () -> ChainId.readFrom(new BytesValueRLPInput(encodedWithLeadingZero, false)))
+            () -> ChainId.readFrom(new BytesValueRLPInput(encodedWithLeadingZero, false), 32))
         .isInstanceOf(RLPException.class);
   }
 
@@ -185,7 +184,8 @@ class ChainIdTest {
 
     assertThat(ChainId.of(560048)).isSameAs(network);
     assertThat(ChainId.of(BigInteger.valueOf(560048))).isSameAs(network);
-    assertThat(ChainId.readFrom(new BytesValueRLPInput(out.encoded(), false))).isSameAs(network);
+    assertThat(ChainId.readFrom(new BytesValueRLPInput(out.encoded(), false), 32))
+        .isSameAs(network);
     assertThat(ChainId.of(560049)).isNotSameAs(network).isNotEqualTo(network);
   }
 

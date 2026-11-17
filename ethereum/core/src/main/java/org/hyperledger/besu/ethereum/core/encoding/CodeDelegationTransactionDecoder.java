@@ -59,7 +59,7 @@ public class CodeDelegationTransactionDecoder {
       final Bytes input, final CodeDelegationListLimit codeDelegationListLimit) {
     final RLPInput txRlp = RLP.input(input.slice(1)); // Skip the transaction type byte
     txRlp.enterList();
-    final ChainId chainId = ChainId.readFrom(txRlp);
+    final ChainId chainId = ChainId.readFrom(txRlp, Bytes32.SIZE);
     final Transaction.Builder builder =
         Transaction.builder()
             .type(TransactionType.DELEGATE_CODE)

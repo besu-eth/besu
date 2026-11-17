@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 public class EIP1559TransactionDecoder {
   private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
@@ -39,7 +40,7 @@ public class EIP1559TransactionDecoder {
   public static Transaction decode(final Bytes input) {
     final RLPInput txRlp = RLP.input(input.slice(1)); // Skip the transaction type byte
     txRlp.enterList();
-    final ChainId chainId = ChainId.readFrom(txRlp);
+    final ChainId chainId = ChainId.readFrom(txRlp, Bytes32.SIZE);
     final Transaction.Builder builder =
         Transaction.builder()
             .type(TransactionType.EIP1559)
